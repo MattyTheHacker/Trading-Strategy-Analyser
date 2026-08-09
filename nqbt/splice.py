@@ -11,11 +11,11 @@ an export stops mid-roll, which makes the back contract look dominant days befor
 really is. Restricting the comparison to timestamps both contracts actually have removes
 that bias -- at the cost of revealing that some exports simply do not contain the roll.
 
-**NT8 only serves ~95 days of history per contract.** Measured across all 11 MNQ
-contracts, a request for a 7-year range returns each contract's front-month window and
-nothing else, ending 4 days before expiry -- the Monday of expiry week. The volume
-crossover happens at or just after that boundary, so with NT8 as the data source it is
-usually not observable at all.
+**NT8 only serves ~95 days of history per contract.** Measured across the whole MNQ
+contract chain, a request for a multi-year range returns each contract's front-month
+window and nothing else, ending ~4 days before expiry -- the Monday of expiry week. The
+volume crossover happens at or just after that boundary, so with NT8 as the data source
+it is usually not observable at all.
 
 That is not a defect to work around. NT8 Strategy Analyzer draws on the same coverage, so
 the point where one contract's data hands over to the next *is* where NT8 itself switches.
@@ -435,7 +435,7 @@ def continuous_path(root: str, back_adjust: bool, cache_dir: Path = paths.CACHE_
 def splice_root(
     root: str,
     *,
-    data_dir=paths.DATA_DIR,
+    data_dir=paths.MINUTE_DIR,
     cache_dir=paths.CACHE_DIR,
     back_adjust: bool = False,
     confirm_sessions: int = 1,

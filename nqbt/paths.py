@@ -13,6 +13,8 @@ __all__ = [
     "Path",
     "REPO_ROOT",
     "DATA_DIR",
+    "MINUTE_DIR",
+    "TICK_DIR",
     "CACHE_DIR",
     "RESULTS_DIR",
     "BARS_DIR",
@@ -24,7 +26,15 @@ __all__ = [
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DATA_DIR = REPO_ROOT / "data"
-"""Raw NT8 Historical Data exports, one file per contract."""
+"""Raw NT8 Historical Data exports."""
+
+MINUTE_DIR = DATA_DIR / "minute"
+"""Minute bar exports, one file per contract -- the input to the bar cache."""
+
+TICK_DIR = DATA_DIR / "tick"
+"""Tick exports. A different format (``timestamp;last;bid;ask;volume``) and orders of
+magnitude larger, but sharing the same ``.Last.txt`` naming, so bar ingestion must never
+glob across both."""
 
 CACHE_DIR = REPO_ROOT / "cache"
 """Parsed bars in Parquet, plus the ingestion manifest."""

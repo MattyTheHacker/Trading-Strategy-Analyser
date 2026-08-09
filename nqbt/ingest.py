@@ -113,10 +113,31 @@ def _prefix_hash(source: Path, length: int) -> str:
 # -- parsing ------------------------------------------------------------------
 
 
+def _reject_tick_export(data: bytes, source_name: str) -> None:
+    """Fail early and clearly if handed a tick export instead of minute bars.
+
+    Both use the same ``.Last.txt`` suffix, and tick files run to several GB, so a
+    mistaken path must not turn into a very slow parse that ends in a confusing error.
+    """
+    head = data[:512].split(b"\n", 1)[0]
+    if not head:
+        return
+    fields = head.split(b";")
+    stamp = fields[0].split()
+    if len(fields) == 5 and len(stamp) == 3:
+        raise IngestError(
+            f"{source_name} looks like a tick export "
+            f"(timestamp;last;bid;ask;volume with sub-second stamps), not minute bars. "
+            f"Bar ingestion reads {paths.MINUTE_DIR}; tick files live in {paths.TICK_DIR}."
+        )
+
+
 def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
     """Parse raw export bytes into a validated bar frame indexed by UTC timestamp."""
     if not data.strip():
         return _empty_frame()
+
+    _reject_tick_export(data, source_name)
 
     frame = pd.read_csv(
         io.BytesIO(data),
@@ -177,7 +198,7 @@ def _finalise(
 
 
 def discover_exports(
-    data_dir: Path = paths.DATA_DIR, root: str | None = None
+    data_dir: Path = paths.MINUTE_DIR, root: str | None = None
 ) -> dict[ContractId, Path]:
     """Find raw exports, keyed by contract, optionally filtered to one root symbol."""
     found: dict[ContractId, Path] = {}
@@ -316,7 +337,7 @@ def _trim_partial_line(data: bytes) -> tuple[int, bytes]:
 
 def ingest_all(
     *,
-    data_dir: Path = paths.DATA_DIR,
+    data_dir: Path = paths.MINUTE_DIR,
     cache_dir: Path = paths.CACHE_DIR,
     root: str | None = None,
     force: bool = False,
