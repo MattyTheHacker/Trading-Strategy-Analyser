@@ -19,11 +19,11 @@ semantics and the reconciliation record.
 | M3 Indicators & conditions — NT8-compatible EMA/SMA, session VWAP | done |
 | M4 DeadCatBounce simulation + NT8 reconciliation | done, **gate passed** |
 | M5 Sweep harness, DuckDB results, statistics | done |
-| M6 Parallelise the sweep across cores | not started |
+| M6 Parallelise the sweep across cores | done |
 | M7 Walk-forward and Monte Carlo | not started |
-| M8 Bar-major restructuring | only if profiling justifies it |
+| M8 Bar-major restructuring | premise measured — see below |
 
-3,478 lines of source, 1,629 of tests, **149 tests passing**.
+**156 tests passing.**
 
 **Reconciliation against NT8: 1143 of 1144 leg exits identical (99.91%).** The single
 remaining leg is worth $19.50 and is an NT8 order-handling artefact.
@@ -74,7 +74,9 @@ nqbt run --root MNQ --commission 0.74 --slippage 1 --explain 10
 each gate's operands and verdict, the trigger and stop arithmetic, how the entry filled,
 and where every leg left — plus a bar-by-bar ratchet history.
 
-Sweeps are currently driven from Python (a `nqbt sweep` command is still to be wired):
+Sweeps are driven from Python rather than the CLI, deliberately — a `Grid` takes arbitrary
+lists per axis with toggle interactions, and flattening that into argparse flags would be a
+lossier way of saying the same thing:
 
 ```python
 from nqbt import splice, sweep, results
@@ -89,7 +91,7 @@ grid = sweep.Grid.of(
     use_vwap=[True, False],
     ambiguity_policy=[1, 0],
 )
-res, _ = sweep.sweep(bars, grid)
+res, _ = sweep.sweep(bars, grid, n_jobs=8)   # n_jobs=1 (default) stays in-process
 results.save_sweep(res, root="MNQ", instrument="MNQ", bars=bars, axes=grid.axes)
 print(sweep.rank(res, "profit_factor", top=10, min_trades=200))
 ```
@@ -110,7 +112,8 @@ nqbt/
     deadcat.py     @njit simulation — the only path-dependent code.
     runner.py      Dataset: everything expensive, computed once per series.
     explain.py     Per-trade audit trail for hand-verification.
-  sweep.py         Grid, combo-major sweep, ranking.
+  sweep.py         Grid, combo-major sweep, ranking; n_jobs spreads chunks over
+                   processes sharing one memmapped copy of the dataset.
   stats.py         Per-trade summary statistics.
   results.py       DuckDB persistence.
 ```
@@ -123,9 +126,26 @@ a boolean AND plus one simulation pass.
 | operation | cost |
 |---|---|
 | ingest, cold / warm | 5.2 s / 0.02 s |
-| prepare (1.65M bars) | 0.73 s |
-| one combination | 26 ms |
-| 192-combination sweep | 4.9 s |
+| prepare (1.65M bars) | 0.71 s |
+| one combination | 30 ms |
+| 1,536-combination sweep, serial | 45.4 s |
+| 1,536-combination sweep, `n_jobs=8` | 10.4 s (4.4×) |
+
+**Parallelism tops out near 5×, and that is the hardware.** Per-core throughput drops 1.5×
+once all 8 physical cores are busy — 30.8 ms/combination alone against 46.1 ms with eight
+running — so ~5.3× is the ceiling and the harness gets 4.4× of it. `n_jobs=16` is SMT: it
+adds 10% for twice the memory. Worker startup is ~1.5 s, so serial is the right default
+below a few hundred combinations.
+
+The dataset is shared rather than copied. `Dataset.slim()` drops the 121 MB bar frame to a
+13 MB index-only view, and joblib memmaps the arrays — verified by probing a live worker,
+where `close` and both moving-average grids arrive as `numpy.memmap`.
+
+**Where a combination's 30 ms actually goes**, which is not where M8 assumed:
+`stats.summarise` 51%, `trades_to_frame` 20%, the `@njit` simulation 23%, signal ANDs 2%.
+Bar-major restructuring targets that 23%; the 71% of pandas overhead — building and
+aggregating a DataFrame per combination, in a sweep that then discards the trade log — is
+the bigger prize and should come first.
 
 Two memory notes: moving-average grids keep only the boolean gate by default
 (`keep_values=True` for the raw values, needed solely by an MA trailing stop) — 66 MB

@@ -8,7 +8,7 @@ simulation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
@@ -42,6 +42,18 @@ class Dataset:
     @property
     def index(self) -> pd.DatetimeIndex:
         return self.bars.index
+
+    def slim(self) -> Dataset:
+        """A copy carrying only what the simulation reads, for crossing a process boundary.
+
+        ``bars`` is the expensive part -- seven columns over 1.65M rows -- and everything
+        the sweep needs from it was already lifted into the plain arrays beside it. The
+        one remaining use is the index, to stamp trade times, so an index-only frame is
+        enough. Dropping the columns is what makes a parallel worker cheap to start.
+
+        The arrays are shared, not copied: this is a view for shipping, not a deep copy.
+        """
+        return replace(self, bars=self.bars.iloc[:, :0])
 
 
 def prepare(

@@ -38,17 +38,24 @@ disagree, the trade list wins.
 - NT8 trade-list exports are in **UTC**. Bar timestamps are **end-of-bar, UTC**.
 - NQ and MNQ share a tick size but their tick values differ 10×. Everything monetary must go
   through `instruments.py`.
+- Parallel sweeps top out around **5×, not 16×**, and that is the hardware, not the harness.
+  Per-core throughput drops 1.5× when all 8 physical cores are busy (mobile Ryzen; ~5.1 GHz
+  single-core boost against a much lower all-core clock). `n_jobs=8` gets 4.4×; `n_jobs=16`
+  is SMT and adds ~10% for twice the memory. Measured, not guessed — don't "fix" it.
 
 ## Environment
 
 Python 3.14 venv at `.venv`. Run tools as `./.venv/Scripts/python.exe -m ...`.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest          # 149 tests
+./.venv/Scripts/python.exe -m pytest          # 156 tests
 nqbt ingest | contracts | splice | run
 ```
 
-Sweeps are currently **Python-only** — see the README for the API.
+The CLI covers the four pipeline steps and stops there **by design**. `nqbt run --explain N`
+is the NT8 audit trail and earns its keep; sweeps, reports and walk-forward are driven from
+Python because a `Grid` does not survive being flattened into argparse flags. Do not add
+commands that duplicate the Python API.
 
 ## Conventions
 
@@ -65,25 +72,21 @@ Sweeps are currently **Python-only** — see the README for the API.
 ## Status
 
 Done and validated: data ingestion with incremental append, contract splicing with
-back-adjustment, NT8-compatible indicators, the DeadCatBounce simulation, and the sweep +
-statistics + DuckDB results layer. Reconciliation against NT8 is **1143/1144 leg exits
-identical (99.91%)**.
+back-adjustment, NT8-compatible indicators, the DeadCatBounce simulation, the sweep +
+statistics + DuckDB results layer, and parallel sweeps over cores. Reconciliation against
+NT8 is **1143/1144 leg exits identical (99.91%)**.
+
+`sweep.sweep(..., n_jobs=8)` is verified to produce results byte-identical to the serial
+path. The `Dataset` is shared, not copied: `Dataset.slim()` drops the 121 MB bar frame to a
+13 MB index-only view, and joblib memmaps the arrays — **confirmed** by probing a live
+worker, where `close`, `ema.below` and `sma.below` all arrive as `numpy.memmap`.
 
 ## Planned, not yet done
-
-**M6 — parallelise the sweep.** joblib/loky over chunked combinations. `@njit(cache=True)` is
-already set so workers reuse the compiled cache rather than each re-JITing. The `Dataset`
-must be shared rather than pickled per worker — joblib auto-memmaps arrays above 1 MB, which
-should cover the condition matrices, but verify rather than assume. Only worth it above a few
-thousand combinations; a combination currently costs 26 ms.
 
 **M7 — walk-forward and Monte Carlo.** `walkforward.py`: rolling in-sample/out-of-sample
 window splits over the cached series. `montecarlo.py`: permutation/resampling of a strategy's
 trade sequence to test robustness beyond the single historical path. Both sit on top of the
 existing results layer.
-
-**CLI gaps.** No `nqbt sweep` command — sweeps run from Python only. No `nqbt report` for
-querying `results/sweeps.duckdb`.
 
 **Spec features not yet built.** The build spec calls for these; none exist yet:
 - Moving-average **trailing stop mode** as a per-run toggle (only the structural
@@ -93,8 +96,23 @@ querying `results/sweeps.duckdb`.
 - **Confluence counting** wired into an archetype. `conditions.count_true` exists and is
   tested, but no archetype consumes it, so "at least N of M filters" is not yet sweepable.
 
-**M8 — bar-major restructuring.** Only if profiling a real sweep size justifies it. Do not
-start on assumption.
+**M8 — bar-major restructuring. The premise has now been measured and is mostly false.**
+Profiling one combination over 1.65M bars:
+
+| | share of a combination |
+|---|---|
+| `stats.summarise` (pandas aggregation) | **51%** |
+| `trades_to_frame` (pandas construction) | **20%** |
+| `simulate_deadcat` (the `@njit` loop) | 23% |
+| `deadcat_signal` (boolean ANDs) | 2% |
+
+Bar-major restructures the 23%. Making the simulation *entirely free* would still only be
+~1.3× — Amdahl caps it there. **The real target is the 71% spent building a DataFrame per
+combination and aggregating it with pandas**, which is pure overhead in a sweep that
+throws the trade log away. A numpy-native summary path — keeping `stats.summarise` as the
+reference implementation and testing the two agree exactly — is worth roughly 3×, and
+composes with the parallel speedup. Do M8 only if that lands first and profiling still
+points at the loop.
 
 **Open items.**
 - One roll is flagged as premature: MNQ 06-26 → 09-26, handover volume ratio 0.27. Sits in
@@ -104,5 +122,6 @@ start on assumption.
 - MAE/MFE use a different definition from NT8's (mine measure to the exit bar's extreme,
   NT8's cap at the exit). Reporting only, no P&L effect. Unresolved.
 - The DeadCatBounce archetype is **unprofitable across all 192 combinations tested** at
-  realistic costs (best PF 0.746). Worth deciding whether to keep sweeping it or move to a
-  second archetype before investing further in this one.
+  realistic costs (best PF 0.746). **Decided: not a blocker.** Build the system out first
+  and treat DeadCatBounce as the test fixture that proves it works; which archetype is
+  actually worth trading is a later question.

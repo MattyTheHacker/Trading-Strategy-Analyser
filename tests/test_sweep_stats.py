@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import results, stats, sweep
+from nqbt import results, sessions, stats, sweep
+from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams
 
 
@@ -135,6 +136,92 @@ def test_required_periods_include_unswept_defaults():
     g = sweep.Grid.of(DeadCatParams(ema_period=11, fast_sma_period=80), use_vwap=[True, False])
     ema, sma = g.required_periods()
     assert 11 in ema and 80 in sma
+
+
+# -- parallel execution -------------------------------------------------------
+
+
+def test_chunk_bounds_cover_every_combination_exactly_once():
+    # The property that matters: no combination run twice, none dropped, order preserved.
+    for total in (1, 7, 100, 193):
+        for workers in (1, 3, 8):
+            bounds = sweep.chunk_bounds(total, workers)
+            covered = [i for start, stop in bounds for i in range(start, stop)]
+            assert covered == list(range(total)), f"{total} over {workers} workers"
+
+
+def test_chunk_bounds_of_an_empty_grid_is_no_work():
+    assert sweep.chunk_bounds(0, 4) == []
+
+
+def test_chunk_bounds_respects_an_explicit_size():
+    assert sweep.chunk_bounds(10, 4, chunk_size=3) == [(0, 3), (3, 6), (6, 9), (9, 10)]
+
+
+def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
+    """Random-walk minute bars with wicks wide enough to throw inverted hammers.
+
+    Not a market model -- just a series the whole prepare/simulate path will actually
+    trade on, so the parallel comparison has something to compare.
+    """
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
+    close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
+    open_ = np.concatenate([[close[0]], close[:-1]])
+    high = np.maximum(open_, close) + np.abs(rng.normal(0, 2.0, n))
+    low = np.minimum(open_, close) - np.abs(rng.normal(0, 0.5, n))
+    frame = pd.DataFrame(
+        {
+            "open": open_, "high": high, "low": low, "close": close,
+            "volume": rng.integers(1, 500, n).astype(float),
+        },
+        index=idx,
+    )
+    frame["trading_day"] = sessions.classify(idx).trading_day
+    return frame
+
+
+@pytest.fixture(scope="module")
+def prepared():
+    bars = synthetic_bars()
+    grid = sweep.Grid.of(
+        DeadCatParams(bars_required_to_trade=200),
+        ema_period=[9, 21], fast_sma_period=[40, 60],
+    )
+    return bars, grid, sweep.prepare_for(bars, grid)
+
+
+def test_slim_drops_the_bar_columns_but_shares_the_arrays(prepared):
+    _, _, data = prepared
+    lean = data.slim()
+    assert list(lean.bars.columns) == []
+    assert lean.index.equals(data.index)
+    # Shared, not copied -- copying is exactly the cost slim() exists to avoid.
+    assert lean.close is data.close
+    assert lean.ema.below is data.ema.below
+
+
+def test_a_slim_dataset_simulates_identically(prepared):
+    _, grid, data = prepared
+    params = next(grid.combinations())
+    pd.testing.assert_frame_equal(
+        runner.run_deadcat(data, params), runner.run_deadcat(data.slim(), params)
+    )
+
+
+def test_parallel_sweep_matches_serial_exactly(prepared):
+    bars, grid, data = prepared
+    serial, _ = sweep.sweep(bars, grid, data=data, n_jobs=1)
+    parallel, _ = sweep.sweep(bars, grid, data=data, n_jobs=2)
+    assert serial["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
+    pd.testing.assert_frame_equal(serial, parallel)
+
+
+def test_parallel_sweep_keys_trade_logs_by_combo_id(prepared):
+    bars, grid, data = prepared
+    frame, logs = sweep.sweep(bars, grid, data=data, n_jobs=2, keep_trades=True)
+    assert sorted(logs) == list(range(len(grid)))
+    assert list(frame["combo_id"]) == list(range(len(grid)))
 
 
 # -- results store ------------------------------------------------------------

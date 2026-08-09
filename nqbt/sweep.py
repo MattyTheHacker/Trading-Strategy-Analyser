@@ -10,15 +10,21 @@ The expensive work is hoisted out of the loop entirely: candlestick geometry, se
 VWAP, and the moving-average grids for every period in the grid are computed once in
 :func:`nqbt.sim.runner.prepare`. What remains per combination is a boolean AND over the
 precomputed gates plus one pass of the simulation -- about 26 ms over 1.65M bars.
+
+``n_jobs`` spreads combinations over processes. The combinations are independent, so this
+is embarrassingly parallel; the only thing that needs care is that the dataset must be
+*shared* rather than copied into every worker. See :func:`_sweep_parallel`.
 """
 
 from __future__ import annotations
 
 import itertools
+import math
 import time
 from dataclasses import dataclass, field, replace
 
 import pandas as pd
+from joblib import Parallel, delayed, effective_n_jobs
 
 from nqbt import stats
 from nqbt.instruments import MNQ, Instrument
@@ -137,25 +143,56 @@ def run_combination(
     return {**row, **summary}, trades
 
 
-def sweep(
-    bars: pd.DataFrame,
-    grid: Grid,
-    instrument: Instrument = MNQ,
-    *,
-    data: Dataset | None = None,
-    keep_trades: bool = False,
-    progress_every: int = 0,
-) -> tuple[pd.DataFrame, dict[int, pd.DataFrame]]:
-    """Run every combination in ``grid`` and return a summary table.
+CHUNKS_PER_WORKER = 4
+"""Chunks handed to each worker rather than one big slice.
 
-    Trade logs are discarded unless ``keep_trades`` is set -- a wide sweep produces far
-    more trade rows than fit comfortably in memory, and the summary is what ranks
-    candidates. Re-run a shortlisted combination on its own to get its trades.
+Combinations are not equal in cost -- a permissive filter set produces several times the
+trades of a strict one -- so a single slice per worker leaves cores idle at the end.
+Four is enough to even that out while staying far above the per-task overhead, which is
+tens of microseconds against a combination's tens of milliseconds.
+"""
+
+
+def chunk_bounds(
+    total: int, n_workers: int, chunk_size: int | None = None
+) -> list[tuple[int, int]]:
+    """Half-open ``[start, stop)`` ranges covering ``total`` combinations exactly once."""
+    if total <= 0:
+        return []
+    if chunk_size is None:
+        chunk_size = max(1, math.ceil(total / max(1, n_workers * CHUNKS_PER_WORKER)))
+    return [(s, min(s + chunk_size, total)) for s in range(0, total, chunk_size)]
+
+
+def _run_chunk(
+    data: Dataset, grid: Grid, instrument: Instrument, start: int, stop: int,
+    keep_trades: bool,
+) -> tuple[list[dict], dict[int, pd.DataFrame]]:
+    """Run combinations ``[start, stop)``. Module level so loky can pickle it.
+
+    The worker regenerates its own combinations from the grid rather than being handed a
+    materialised list: a grid is a handful of small lists whatever its size, and
+    ``combinations()`` is deterministic, so ``start + offset`` is the same ``combo_id``
+    the serial path would assign.
     """
-    data = data if data is not None else prepare_for(bars, grid)
     rows: list[dict] = []
     logs: dict[int, pd.DataFrame] = {}
+    for offset, params in enumerate(itertools.islice(grid.combinations(), start, stop)):
+        combo_id = start + offset
+        row, trades = run_combination(data, params, instrument)
+        row["combo_id"] = combo_id
+        rows.append(row)
+        if keep_trades:
+            logs[combo_id] = trades
+    return rows, logs
 
+
+def _sweep_serial(
+    data: Dataset, grid: Grid, instrument: Instrument, keep_trades: bool,
+    progress_every: int,
+) -> tuple[list[dict], dict[int, pd.DataFrame]]:
+    rows: list[dict] = []
+    logs: dict[int, pd.DataFrame] = {}
     started = time.perf_counter()
     for i, params in enumerate(grid.combinations()):
         row, trades = run_combination(data, params, instrument)
@@ -166,6 +203,74 @@ def sweep(
         if progress_every and (i + 1) % progress_every == 0:
             rate = (i + 1) / (time.perf_counter() - started)
             print(f"  {i + 1:,}/{len(grid):,} combos  {rate:,.0f}/s")
+    return rows, logs
+
+
+def _sweep_parallel(
+    data: Dataset, grid: Grid, instrument: Instrument, keep_trades: bool,
+    n_jobs: int, chunk_size: int | None, progress_every: int,
+) -> tuple[list[dict], dict[int, pd.DataFrame]]:
+    """Spread chunks over processes, sharing one copy of the dataset.
+
+    Two things make this cheap rather than ruinous. The payload is
+    :meth:`Dataset.slim`, which drops the bar DataFrame and keeps the arrays. And it is
+    hoisted out of the generator below so that every task references the *same* array
+    objects -- joblib keys its memmap cache on array identity, so one dump on disk is
+    then shared by every worker instead of one copy per task.
+
+    Workers reuse the on-disk Numba cache rather than re-JITing, which is what
+    ``@njit(cache=True)`` throughout ``nqbt.sim`` is for.
+    """
+    bounds = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
+    payload = data.slim()
+    batches = Parallel(n_jobs=n_jobs, verbose=10 if progress_every else 0)(
+        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades)
+        for start, stop in bounds
+    )
+
+    rows: list[dict] = []
+    logs: dict[int, pd.DataFrame] = {}
+    for chunk_rows, chunk_logs in batches:
+        rows.extend(chunk_rows)
+        logs.update(chunk_logs)
+    # Chunks come back in submission order, but sorting states the guarantee rather than
+    # relying on it: combo_id must mean the same thing however the sweep was run.
+    rows.sort(key=lambda r: r["combo_id"])
+    return rows, logs
+
+
+def sweep(
+    bars: pd.DataFrame,
+    grid: Grid,
+    instrument: Instrument = MNQ,
+    *,
+    data: Dataset | None = None,
+    keep_trades: bool = False,
+    progress_every: int = 0,
+    n_jobs: int = 1,
+    chunk_size: int | None = None,
+) -> tuple[pd.DataFrame, dict[int, pd.DataFrame]]:
+    """Run every combination in ``grid`` and return a summary table.
+
+    Trade logs are discarded unless ``keep_trades`` is set -- a wide sweep produces far
+    more trade rows than fit comfortably in memory, and the summary is what ranks
+    candidates. Re-run a shortlisted combination on its own to get its trades.
+
+    ``n_jobs`` follows the joblib convention: ``1`` runs in this process, ``-1`` uses
+    every core. It defaults to serial because process startup costs a few seconds --
+    each worker imports Numba -- which is not worth paying for a few hundred
+    combinations. The results are identical either way; only the wall clock changes.
+    ``progress_every`` prints a running rate when serial, and switches joblib's own
+    per-task reporting on when parallel.
+    """
+    data = data if data is not None else prepare_for(bars, grid)
+
+    if effective_n_jobs(n_jobs) == 1:
+        rows, logs = _sweep_serial(data, grid, instrument, keep_trades, progress_every)
+    else:
+        rows, logs = _sweep_parallel(
+            data, grid, instrument, keep_trades, n_jobs, chunk_size, progress_every
+        )
 
     frame = pd.DataFrame(rows)
     if not frame.empty:
