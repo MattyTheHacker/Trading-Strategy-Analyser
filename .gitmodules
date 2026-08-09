@@ -1,0 +1,3 @@
+[submodule "ninjatrader-scripts"]
+	path = ninjatrader-scripts
+	url = git@github.com:MattyTheHacker/ninjatrader-scripts.git
