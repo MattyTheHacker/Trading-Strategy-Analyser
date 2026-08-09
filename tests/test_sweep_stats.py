@@ -1,0 +1,205 @@
+"""Tests for the sweep harness, statistics and DuckDB results layer."""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from nqbt import results, stats, sweep
+from nqbt.sim.types import DeadCatParams
+
+
+def trade_log(rows) -> pd.DataFrame:
+    """Build a leg-level log. Each row is (trade_id, leg, net_pnl, bars, ambiguous)."""
+    frame = pd.DataFrame(rows, columns=["trade_id", "leg", "net_pnl", "bars_held", "ambiguous_bar"])
+    frame["commission"] = 0.5
+    frame["mae_points"] = 1.0
+    frame["mfe_points"] = 2.0
+    frame["r_multiple"] = frame["net_pnl"] / 10.0
+    base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
+    frame["entry_time"] = base + pd.to_timedelta(frame["trade_id"], unit="D")
+    frame["exit_time"] = frame["entry_time"] + pd.Timedelta(minutes=5)
+    return frame
+
+
+# -- statistics ---------------------------------------------------------------
+
+
+def test_summary_counts_trades_not_legs():
+    # Two trades of four legs each. NT8 would call this eight trades; a person calls it two.
+    log = trade_log([(1, l, 10.0, 3, False) for l in range(1, 5)]
+                    + [(2, l, -5.0, 2, False) for l in range(1, 5)])
+    s = stats.summarise(log)
+    assert s.trades == 2
+    assert s.legs == 8
+    assert s.wins == 1 and s.losses == 1
+    assert s.win_rate == pytest.approx(0.5)
+    assert s.net_pnl == pytest.approx(40.0 - 20.0)
+
+
+def test_profit_factor_and_expectancy():
+    log = trade_log([(1, 1, 30.0, 1, False), (2, 1, -10.0, 1, False), (3, 1, -5.0, 1, False)])
+    s = stats.summarise(log)
+    assert s.gross_profit == pytest.approx(30.0)
+    assert s.gross_loss == pytest.approx(-15.0)
+    assert s.profit_factor == pytest.approx(2.0)
+    assert s.expectancy == pytest.approx(15.0 / 3)
+
+
+def test_profit_factor_with_no_losses_is_infinite_not_a_crash():
+    log = trade_log([(1, 1, 5.0, 1, False), (2, 1, 7.0, 1, False)])
+    assert stats.summarise(log).profit_factor == float("inf")
+
+
+def test_max_drawdown_measures_peak_to_trough():
+    # equity: 100, 60, 130 -> worst decline from the running peak is 40.
+    log = trade_log([(1, 1, 100.0, 1, False), (2, 1, -40.0, 1, False), (3, 1, 70.0, 1, False)])
+    assert stats.summarise(log).max_drawdown == pytest.approx(40.0)
+
+
+def test_max_consecutive_losses():
+    pnl = [5.0, -1.0, -1.0, -1.0, 5.0, -1.0]
+    log = trade_log([(i + 1, 1, p, 1, False) for i, p in enumerate(pnl)])
+    assert stats.summarise(log).max_consecutive_losses == 3
+
+
+def test_scratches_are_neither_wins_nor_losses():
+    log = trade_log([(1, 1, 0.0, 1, False), (2, 1, 5.0, 1, False)])
+    s = stats.summarise(log)
+    assert (s.wins, s.losses, s.scratches) == (1, 0, 1)
+    assert s.win_rate == pytest.approx(0.5)
+
+
+def test_ambiguous_share_reports_assumption_exposure():
+    log = trade_log([(1, 1, 5.0, 1, True), (2, 1, 5.0, 1, False),
+                     (3, 1, 5.0, 1, False), (4, 1, 5.0, 1, False)])
+    assert stats.summarise(log).ambiguous_share == pytest.approx(0.25)
+
+
+def test_leg_summary_matches_nt8s_way_of_counting():
+    log = trade_log([(1, l, 10.0, 3, False) for l in range(1, 5)])
+    assert stats.leg_summary(log)["legs"] == 4
+    assert stats.summarise(log).trades == 1
+
+
+# -- grid ---------------------------------------------------------------------
+
+
+def test_grid_size_is_the_product_of_its_axes():
+    g = sweep.Grid.of(ema_period=[9, 21], use_vwap=[True, False], fast_sma_period=[40, 60, 80])
+    assert len(g) == 12
+    assert len(list(g.combinations())) == 12
+
+
+def test_grid_leaves_unswept_parameters_at_their_base_value():
+    base = DeadCatParams(order_quantity=8, commission_per_contract=1.5)
+    combos = list(sweep.Grid.of(base, ema_period=[9, 21]).combinations())
+    assert {c.order_quantity for c in combos} == {8}
+    assert {c.commission_per_contract for c in combos} == {1.5}
+    assert sorted(c.ema_period for c in combos) == [9, 21]
+
+
+def test_empty_grid_yields_the_base_alone():
+    assert len(list(sweep.Grid.of().combinations())) == 1
+
+
+def test_grid_rejects_unknown_parameters():
+    with pytest.raises(sweep.SweepError, match="unknown sweep parameter"):
+        sweep.Grid.of(emma_period=[9])
+
+
+def test_grid_rejects_an_axis_whose_filter_is_switched_off():
+    # The NinjaScript's current defaults leave the slow SMA off, so sweeping its period
+    # would produce identical rows and multiply runtime for nothing.
+    base = DeadCatParams(use_slow_sma=False)
+    with pytest.raises(sweep.SweepError, match="cannot affect any result"):
+        sweep.Grid.of(base, slow_sma_period=[120, 175])
+
+
+def test_gated_axis_is_allowed_when_its_toggle_is_also_swept():
+    base = DeadCatParams(use_slow_sma=False)
+    g = sweep.Grid.of(base, slow_sma_period=[120, 175], use_slow_sma=[True, False])
+    assert g.dead_axes() == {}
+    assert len(g) == 4
+
+
+def test_required_periods_cover_every_combination():
+    base = DeadCatParams(use_slow_sma=True)
+    g = sweep.Grid.of(base, ema_period=[9, 21], fast_sma_period=[40, 60],
+                      slow_sma_period=[150, 200])
+    ema, sma = g.required_periods()
+    assert ema == [9, 21]
+    assert sma == [40, 60, 150, 200]
+
+
+def test_required_periods_include_unswept_defaults():
+    g = sweep.Grid.of(DeadCatParams(ema_period=11, fast_sma_period=80), use_vwap=[True, False])
+    ema, sma = g.required_periods()
+    assert 11 in ema and 80 in sma
+
+
+# -- results store ------------------------------------------------------------
+
+
+@pytest.fixture
+def db(tmp_path):
+    return tmp_path / "sweeps.duckdb"
+
+
+def fake_results(n=3) -> pd.DataFrame:
+    return pd.DataFrame({
+        "combo_id": range(n),
+        "ema_period": [9, 21, 30][:n],
+        "trades": [100, 200, 5][:n],
+        "profit_factor": [1.2, 1.5, 9.9][:n],
+        "net_pnl": [500.0, 900.0, 40.0][:n],
+    })
+
+
+def fake_bars() -> pd.DataFrame:
+    idx = pd.date_range("2024-01-02", periods=10, freq="min", tz="UTC")
+    return pd.DataFrame({"close": np.arange(10.0)}, index=idx)
+
+
+def test_save_and_reload_a_sweep(db):
+    sid = results.save_sweep(fake_results(), root="MNQ", instrument="MNQ",
+                             bars=fake_bars(), axes={"ema_period": [9, 21, 30]}, db_path=db)
+    assert sid == 1
+    listed = results.list_sweeps(db)
+    assert len(listed) == 1
+    assert listed.loc[0, "combos"] == 3
+    assert results.query("SELECT COUNT(*) c FROM combos", db).loc[0, "c"] == 3
+
+
+def test_sweep_ids_increment_and_rows_stay_tagged(db):
+    for _ in range(3):
+        results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(),
+                           axes={}, db_path=db)
+    assert list(results.list_sweeps(db)["sweep_id"]) == [3, 2, 1]
+    counts = results.query("SELECT sweep_id, COUNT(*) n FROM combos GROUP BY 1 ORDER BY 1", db)
+    assert list(counts["n"]) == [3, 3, 3]
+
+
+def test_best_applies_a_trade_floor(db):
+    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(),
+                       axes={}, db_path=db)
+    # combo 2 has the best profit factor on five trades, which is noise, not an edge.
+    top = results.best(by="profit_factor", top=5, min_trades=30, db_path=db)
+    assert 5 not in list(top["trades"])
+    assert top.iloc[0]["profit_factor"] == pytest.approx(1.5)
+
+
+def test_rank_ignores_undersampled_combinations():
+    ranked = sweep.rank(fake_results(), by="profit_factor", top=5, min_trades=30)
+    assert list(ranked["trades"]) == [200, 100]
+
+
+def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db):
+    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(),
+                       axes={}, db_path=db)
+    wider = fake_results()
+    wider["brand_new_stat"] = [1.0, 2.0, 3.0]
+    results.save_sweep(wider, root="MNQ", instrument="MNQ", bars=fake_bars(),
+                       axes={}, db_path=db)
+    rows = results.query("SELECT sweep_id, ema_period, profit_factor FROM combos ORDER BY sweep_id", db)
+    assert len(rows) == 6
+    assert rows["profit_factor"].notna().all()
