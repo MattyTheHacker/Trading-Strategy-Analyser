@@ -9,9 +9,17 @@ from nqbt import ingest, paths, splice
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
-    results = ingest.ingest_all(
+    merges, results = ingest.ingest_all(
         data_dir=args.data_dir, cache_dir=args.cache_dir, root=args.root, force=args.force
     )
+    if merges:
+        changed = [m for m in merges if m.added or m.revised]
+        print(f"archive: {len(merges)} contracts, {sum(m.bars for m in merges):,} bars "
+              f"({len(changed)} changed by this merge)")
+        for merge in changed:
+            print(f"  {merge}")
+        print()
+
     total = 0
     for result in results:
         print(result)
@@ -36,7 +44,7 @@ def _cmd_contracts(args: argparse.Namespace) -> int:
 def _cmd_splice(args: argparse.Namespace) -> int:
     series, report = splice.splice_root(
         args.root,
-        data_dir=args.data_dir,
+        data_dir=args.data_dir or paths.ARCHIVE_DIR,
         cache_dir=args.cache_dir,
         back_adjust=args.back_adjust,
         confirm_sessions=args.confirm_sessions,
@@ -141,7 +149,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nqbt", description=__doc__)
-    parser.add_argument("--data-dir", type=lambda p: paths.Path(p), default=paths.MINUTE_DIR)
+    parser.add_argument(
+        "--data-dir",
+        type=lambda p: paths.Path(p),
+        default=None,
+        help="ingest one folder directly instead of refreshing and reading the archive; "
+        "for inspecting a single export, not the normal path",
+    )
     parser.add_argument("--cache-dir", type=lambda p: paths.Path(p), default=paths.CACHE_DIR)
     sub = parser.add_subparsers(dest="command", required=True)
 

@@ -435,7 +435,7 @@ def continuous_path(root: str, back_adjust: bool, cache_dir: Path = paths.CACHE_
 def splice_root(
     root: str,
     *,
-    data_dir=paths.MINUTE_DIR,
+    data_dir=paths.ARCHIVE_DIR,
     cache_dir=paths.CACHE_DIR,
     back_adjust: bool = False,
     confirm_sessions: int = 1,

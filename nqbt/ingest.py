@@ -21,12 +21,13 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import pandas as pd
 
-from nqbt import paths, sessions
+from nqbt import archive, paths, sessions
 from nqbt.instruments import ContractId
 
 RAW_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
@@ -39,8 +40,8 @@ BAR_DTYPES = {
 }
 
 TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
-PREFIX_HASH_BYTES = 65_536
-"""Bytes of the file head hashed to detect a regenerated (rather than appended) export."""
+HASH_CHUNK_BYTES = 1 << 20
+"""Read size when hashing. Hashing is I/O bound and cheap next to parsing."""
 
 
 @dataclass(slots=True)
@@ -51,11 +52,18 @@ class ContractManifest:
     source: str
     byte_offset: int
     source_size: int
-    prefix_hash: str
-    prefix_len: int
-    """Bytes covered by ``prefix_hash``. Stored so a later, longer file is re-hashed
-    over the same range -- hashing "the whole file when it is small" would make every
-    append look like a rewrite."""
+    consumed_hash: str
+    """SHA-256 of bytes ``[0, byte_offset)`` -- everything already parsed into the cache.
+
+    Hashing the *whole* consumed range, rather than a fixed-size head, is what makes
+    "appended to, or rewritten?" an exact question instead of a guess. Two producers write
+    these files and they give different guarantees: the NinjaScript AddOn genuinely
+    appends, while a manual Tools -> Historical Data export regenerates the file. NT8
+    regenerations routinely differ in the tail -- a bar exported mid-formation returns
+    with different values once complete, and bars occasionally vanish between exports.
+    Both leave the head untouched, so a head-only check calls it an append and the stale
+    or withdrawn bars then survive in the cache indefinitely.
+    """
     last_timestamp: str
     rows: int
 
@@ -93,7 +101,15 @@ def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifes
     if not path.exists():
         return {}
     raw = json.loads(path.read_text(encoding="utf-8"))
-    return {k: ContractManifest.from_dict(v) for k, v in raw.items()}
+    entries: dict[str, ContractManifest] = {}
+    for key, value in raw.items():
+        try:
+            entries[key] = ContractManifest.from_dict(value)
+        except KeyError:
+            # Written by an older version carrying different integrity fields. Dropping
+            # the entry costs one full reparse, which is the only safe reading of it.
+            continue
+    return entries
 
 
 def save_manifest(
@@ -104,10 +120,22 @@ def save_manifest(
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _prefix_hash(source: Path, length: int) -> str:
-    """Hash exactly ``length`` bytes from the head of ``source``."""
+def _hash_range(source: Path, length: int) -> str:
+    """SHA-256 of the first ``length`` bytes of ``source``.
+
+    A file shorter than ``length`` hashes whatever it has, which simply produces a digest
+    that will not match -- the same answer as an explicit error, without the branch.
+    """
+    digest = hashlib.sha256()
+    remaining = length
     with source.open("rb") as fh:
-        return hashlib.sha256(fh.read(length)).hexdigest()
+        while remaining > 0:
+            chunk = fh.read(min(HASH_CHUNK_BYTES, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 # -- parsing ------------------------------------------------------------------
@@ -247,15 +275,16 @@ def ingest_contract(
     size = source.stat().st_size
     warnings: list[str] = []
 
-    grew = entry is not None and entry.source_size <= size and size >= entry.prefix_len
-    head_intact = grew and _prefix_hash(source, entry.prefix_len) == entry.prefix_hash
-    reuse = (
-        not force
-        and entry is not None
+    # A genuine append leaves every byte already parsed byte-for-byte intact. Anything
+    # else -- a mid-formation bar completing, a bar revised, a bar withdrawn -- rewrites
+    # part of that range, and nothing short of a full reparse can be trusted after it.
+    appended_only = (
+        entry is not None
         and cache_path.exists()
-        and head_intact
-        and entry.byte_offset <= size
+        and size >= entry.byte_offset
+        and _hash_range(source, entry.byte_offset) == entry.consumed_hash
     )
+    reuse = not force and appended_only
 
     if reuse and entry.source_size == size:
         return (
@@ -264,8 +293,11 @@ def ingest_contract(
         )
 
     if entry is not None and not reuse and not force and cache_path.exists():
-        reason = "file shrank" if not grew else "head changed"
-        warnings.append(f"{reason}; reparsing {source.name} in full")
+        reason = "shrank" if size < entry.byte_offset else "was regenerated, not appended to"
+        warnings.append(
+            f"{source.name} {reason}; reparsing in full so revised or withdrawn bars "
+            "are picked up rather than left stale"
+        )
 
     if reuse:
         with source.open("rb") as fh:
@@ -275,7 +307,9 @@ def ingest_contract(
         new_offset = entry.byte_offset + consumed
         added = parse_export(tail, source_name=source.name)
         existing = pd.read_parquet(cache_path)
-        added = added[added.index > existing.index[-1]] if len(existing) else added
+        # Concatenate new last: _finalise sorts stably and keeps the last of any repeated
+        # timestamp, so a bar present in both wins from the file. Filtering to strictly
+        # newer timestamps instead would make a corrected bar unrepresentable.
         combined = pd.concat([existing, added]) if len(added) else existing
         combined = _finalise(combined, source_name=source.name)
         rows_added = len(combined) - len(existing)
@@ -301,14 +335,12 @@ def ingest_contract(
             "tagged in_session=False and excluded from the continuous series"
         )
 
-    prefix_len = min(PREFIX_HASH_BYTES, size)
     updated = ContractManifest(
         contract=key,
         source=str(source),
         byte_offset=new_offset,
         source_size=size,
-        prefix_hash=_prefix_hash(source, prefix_len),
-        prefix_len=prefix_len,
+        consumed_hash=_hash_range(source, new_offset),
         last_timestamp=combined.index[-1].isoformat(),
         rows=len(combined),
     )
@@ -337,14 +369,32 @@ def _trim_partial_line(data: bytes) -> tuple[int, bytes]:
 
 def ingest_all(
     *,
-    data_dir: Path = paths.MINUTE_DIR,
+    sources: Sequence[Path] = paths.SOURCE_DIRS,
+    archive_dir: Path = paths.ARCHIVE_DIR,
+    data_dir: Path | None = None,
     cache_dir: Path = paths.CACHE_DIR,
     root: str | None = None,
     force: bool = False,
-) -> list[IngestResult]:
-    """Ingest every discovered export, updating the manifest once at the end."""
+) -> tuple[list[archive.MergeResult], list[IngestResult]]:
+    """Refresh the archive from every source, then ingest it.
+
+    The archive step is not optional by default, and that is deliberate. Exports are moving
+    windows: run the AddOn after a contract expires and it returns only the truncated range
+    the server still offers. Ingestion mirrors its input exactly -- correct for a snapshot,
+    quietly destructive for a window -- so something has to accumulate, and doing it here
+    means it cannot be skipped by forgetting a step.
+
+    ``data_dir`` bypasses the archive and ingests one folder directly. For inspecting a
+    single export in isolation; not the normal path.
+    """
     manifest_path = cache_dir / "manifest.json"
     manifest = load_manifest(manifest_path)
+
+    merges: list[archive.MergeResult] = []
+    if data_dir is None:
+        merges = archive.build_archive(sources, archive_dir, root=root)
+        data_dir = archive_dir
+
     exports = discover_exports(data_dir, root=root)
     if not exports:
         target = f" for {root}" if root else ""
@@ -358,4 +408,4 @@ def ingest_all(
         results.append(result)
 
     save_manifest(manifest, manifest_path)
-    return results
+    return merges, results

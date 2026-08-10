@@ -102,6 +102,80 @@ def test_partial_trailing_line_is_deferred_until_complete(export, cache):
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
 
 
+def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cache):
+    """The failure that silently corrupted the real cache.
+
+    Exporting during a session captures the newest bar part-formed. When it completes,
+    NT8 rewrites that line with the true high/low/close/volume. Detecting an append from
+    the file head alone cannot see that, so the partial bar used to be frozen forever.
+    """
+    partial = "20240308 213300;18001.75;18002.00;18001.50;18001.80;12"
+    write(export, LINES + [partial])
+    run(export, cache)
+    assert ingest.load_contract(CONTRACT, cache)["volume"].iloc[-1] == 12
+
+    complete = "20240308 213300;18001.75;18010.00;17995.00;18008.25;884"
+    write(export, LINES + [complete, "20240308 213400;18008.25;18009.00;18007.00;18008.00;61"])
+    result, _ = run(export, cache)
+
+    frame = ingest.load_contract(CONTRACT, cache)
+    bar = frame.loc[pd.Timestamp("2024-03-08 21:33:00", tz="UTC")]
+    assert bar["volume"] == 884, "partial bar left stale"
+    assert bar["high"] == pytest.approx(18010.00)
+    # The bar after the rewritten one must survive too: the old byte offset landed
+    # mid-line when the line changed length, which silently dropped it.
+    assert len(frame) == 5
+    assert result.action == "reparsed"
+
+
+def test_a_bar_withdrawn_between_exports_is_dropped_from_the_cache(export, cache):
+    """NT8 re-exports do not always contain every bar a previous export did.
+
+    An append-only cache keeps the withdrawn bar forever as a phantom, because appending
+    can add rows but never remove them.
+    """
+    run(export, cache)
+    assert len(ingest.load_contract(CONTRACT, cache)) == 3
+
+    write(export, [LINES[0], LINES[2]])  # the middle bar is no longer served
+    result, _ = run(export, cache)
+
+    frame = ingest.load_contract(CONTRACT, cache)
+    assert len(frame) == 2, "withdrawn bar survived as a phantom"
+    assert pd.Timestamp("2024-03-08 21:31:00", tz="UTC") not in frame.index
+    assert result.action == "reparsed"
+
+
+def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export, cache):
+    # Same byte count, different content: size alone cannot distinguish this.
+    run(export, cache)
+    swapped = [*LINES[:2], "20240308 213200;18002.50;18004.00;18001.25;18003.75;143"]
+    write(export, swapped)
+    assert export.stat().st_size  # unchanged length, by construction of the literal
+
+    run(export, cache)
+    frame = ingest.load_contract(CONTRACT, cache)
+    assert frame["close"].iloc[-1] == pytest.approx(18003.75)
+
+
+def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(export, cache, tmp_path):
+    import json
+
+    run(export, cache)
+    path = cache / "manifest.json"
+    stored = json.loads(path.read_text())
+    for entry in stored.values():  # emulate a manifest from before the integrity change
+        entry.pop("consumed_hash")
+        entry["prefix_hash"], entry["prefix_len"] = "deadbeef", 64
+    path.write_text(json.dumps(stored))
+
+    assert ingest.load_manifest(path) == {}
+    write(export, LINES + ["20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
+    result, _ = run(export, cache)
+    assert result.action == "reparsed"
+    assert len(ingest.load_contract(CONTRACT, cache)) == 4
+
+
 def test_regenerated_export_triggers_a_full_reparse(export, cache):
     run(export, cache)
     # A re-export with a different head must not be treated as an append.
@@ -111,7 +185,7 @@ def test_regenerated_export_triggers_a_full_reparse(export, cache):
     result, _ = run(export, cache)
     assert result.action == "reparsed"
     assert result.rows_total == 4
-    assert any("head changed" in w for w in result.warnings)
+    assert any("regenerated" in w for w in result.warnings)
 
     frame = ingest.load_contract(CONTRACT, cache)
     assert frame.index[0] == pd.Timestamp("2024-03-08 21:29:00", tz="UTC")
@@ -123,7 +197,7 @@ def test_truncated_export_triggers_a_full_reparse(export, cache):
     result, _ = run(export, cache)
     assert result.action == "reparsed"
     assert result.rows_total == 1
-    assert any("file shrank" in w for w in result.warnings)
+    assert any("shrank" in w for w in result.warnings)
 
 
 def test_force_reparses_even_when_unchanged(export, cache):
