@@ -29,7 +29,7 @@ semantics and the reconciliation record.
 
 Planned work is specified in [docs/roadmap.md](docs/roadmap.md), in dependency order.
 
-**156 tests passing.**
+**160 tests passing.**
 
 **Reconciliation against NT8: 1143 of 1144 leg exits identical (99.91%).** The single
 remaining leg is worth $19.50 and is an NT8 order-handling artefact.
@@ -51,16 +51,35 @@ Raw NT8 exports are gitignored and split by resolution, because tick and minute 
 share the same `.Last.txt` naming and must never be globbed together:
 
 ```
-data/minute/MNQ 03-24.Last.txt     yyyyMMdd HHmmss;o;h;l;c;v   (end-of-bar, UTC)
-data/tick/  MNQ 09-26.Last.txt     yyyyMMdd HHmmss fffffff;last;bid;ask;volume
+data/minute/ MNQ 03-24.Last.txt    manual export   yyyyMMdd HHmmss;o;h;l;c;v (UTC)
+data/addon/  MNQ 03-24.Last.txt    AddOn snapshot  same format
+data/archive/MNQ 03-24.Last.txt    the durable union -- the only thing ingest reads
+data/tick/   MNQ 09-26.Last.txt    yyyyMMdd HHmmss fffffff;last;bid;ask;volume
 cache/bars/MNQ/MNQ_2024H.parquet   cleaned, session-tagged, one file per contract
 cache/manifest.json                incremental-append bookkeeping
 cache/continuous/MNQ_raw.parquet   spliced series (and MNQ_backadj.parquet)
 results/sweeps.duckdb              every sweep, queryable together
 ```
 
-Currently cached: **19 MNQ contracts, 1,704,672 bars**, splicing to a continuous series of
-**1,651,911 in-session bars covering 2021-12-05 → 2026-08-07**.
+Currently cached: **33 contracts (19 MNQ, 14 NQ), 4,012,959 bars**, splicing to continuous
+series of **1,681,864 in-session bars over 2021-09-19 → 2026-08-10** (MNQ) and **1,258,980
+over 2022-10-09 → 2026-06-18** (NQ), each raw and back-adjusted.
+
+**Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a
+limited period and drops the tail once it expires, so a folder of exports quietly loses
+history. `data/archive/` is the durable union that ingestion actually reads, and the two
+sources are complementary rather than one being a superset:
+
+- the **AddOn** ([NqbtHistoricalExporter.cs](ninjatrader-scripts/AddOns/NqbtHistoricalExporter.cs))
+  reaches ~3–6 months further back per contract and carries the provider's settled values,
+  but stops at the turn of the expiry month
+- the **manual export** holds each contract's final weeks — its most liquid sessions — and
+  nothing before ~95 days
+
+Merged: 4.0M bars against 3.0M from either alone, plus sessions the manual export had
+dropped outright. Ingest also hashes the entire consumed byte range to distinguish an append
+from a rewrite; checking only the file head cannot see a rewritten tail, which froze stale
+bars in the cache and silently dropped real ones at the seam.
 
 Tick data is present but deliberately **not** wired into the simulation — the spec defers
 tick-level fills to Tier 2. Its one high-value use would be measuring how often the
@@ -131,7 +150,7 @@ a boolean AND plus one simulation pass.
 
 | operation | cost |
 |---|---|
-| ingest, cold / warm | 5.2 s / 0.02 s |
+| ingest 33 contracts, cold / warm | 14.0 s / 0.9 s |
 | prepare (1.65M bars) | 0.71 s |
 | one combination | 30 ms |
 | 1,536-combination sweep, serial | 45.4 s |
@@ -174,11 +193,11 @@ at 3.4% of exits. The losses are structural.
 
 ## Known limitations
 
-- **Volume-crossover rolls are undetectable from NT8 data.** NT8 serves ~95 days per
-  contract regardless of the range requested, ending ~4 days before expiry, and the
-  crossover happens at or after that point. The splicer rolls at the coverage handover
-  instead, which is the same switch NT8 itself makes. Three 2022 rolls are flagged because
-  their coverage ends 8 days before expiry rather than 4, so volume had not yet migrated.
+- **Most rolls still hand over at the coverage boundary.** A manual export returns ~95 days
+  per contract, ending before the crossover, so 25 of 31 rolls fall back to the handover
+  NT8 itself makes. The archive's extra back-month history makes **6 detectable as genuine
+  volume crossovers** — see [docs/nt8-fidelity.md](docs/nt8-fidelity.md). Three 2022 rolls
+  remain flagged because their coverage ends 8 days before expiry rather than 4.
 - **NQ is untested** — only MNQ exports exist. The code is instrument-aware throughout.
 - **`r_multiple` uses planned risk** (`stop − trigger`), which is how the NinjaScript
   places its targets. Consequence: target exits land just under their nominal multiples,

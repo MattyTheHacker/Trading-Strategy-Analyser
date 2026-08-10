@@ -3,9 +3,10 @@
 Planned work, in dependency order. Nothing here is built. `CLAUDE.md` carries the one-line
 summaries; this file carries the reasoning and the traps.
 
-Precedence when sources disagree: `backtest_tool_spec.md` and the project's own docs first,
-`imantrading_concept_extraction.md` second. The imantrading notes are a source of framing
-and of numeric definitions we lack, not a source of priorities.
+Precedence when sources disagree: [backtest_tool_spec.md](backtest_tool_spec.md) and the
+project's own docs first, [imantrading_concept_extraction.md](imantrading_concept_extraction.md)
+second. The imantrading notes are a source of framing and of numeric definitions we lack, not
+a source of priorities.
 
 ---
 
@@ -124,7 +125,85 @@ must not be switched on for sweeps by default.
 
 **11.1 Import — `nqbt/trade_import.py`.** Manual trades in, canonical schema out.
 
-The traps, all of which cost real time if found late:
+Structured as a **thin adapter per source** — the adapter is the only format-aware code in the
+project, and everything downstream sees the canonical schema alone. Adding a second source
+later is one function, not a second pipeline.
+
+**Adapters must declare what they could not recover.** Which optional fields a source carries
+determines what the review can compute. The adapter returns the populated field set alongside
+the frame so the review *omits* unavailable statistics with a stated reason. The failure to
+avoid is a column of zeros or NaNs flowing into `stats.summarise` and being reported as if
+measured.
+
+### Source decided: the NT8 executions grid
+
+Control Center → Executions, exported as CSV. Columns: `Instrument, Action, Quantity, Price,
+Time, E/X, Position, Name, Commission, Account display name`.
+
+It carries two fields that make the whole import tractable:
+
+- **`Position` is the trade-boundary key.** It is the running position *after* each fill —
+  `4 S`, `3 S`, `-` — so a value of `-` closes a trade. Executions group into trades without
+  inferring state from order ids.
+- **`Name` gives the exit reason.** `Stop1..4` versus `Exit` maps directly onto the existing
+  `exit_reason` field, which is normally unrecoverable from a fills export.
+
+**Rejected: the Control Center log grid** (`Time, Category, Message`). It is the only place
+stop and target *levels* live, so it is the only route to planned risk and `r_multiple` — but
+the levels it holds are not usable as intent. In the sample session both stop orders were
+submitted at 29919 against a 29769 entry and dragged to ~29782 within three seconds: 29919 is
+an ATM template default, so "planned risk from the initial stop" computes 150 points of risk
+on a trade that actually risked ~14. Recovering true intent needs a rule like "the first stop
+level that is not the template default", which is exactly the kind of heuristic that silently
+corrupts a dataset. A wrong R is worse than no R, because it looks like a measurement.
+
+**Consequence, accepted:** no planned risk, no `r_multiple`, no MAE/MFE from the source. The
+review reports dollars, points and exit reason. MAE/MFE could later be *reconstructed* from
+bars between entry and exit, which is a different and honest calculation — flag it as derived
+if it is ever added.
+
+**Out of scope, noted:** the log also records placed-then-cancelled entry orders — roughly 20
+against 3 fills in the sample. That is a real behavioural signal about order management, and
+the executions grid cannot see it. It is a different question from "which trades worked", so
+it stays out rather than dragging the log parser in.
+
+### Traps, all confirmed against the sample export
+
+- **Two date formats in one file.** Row timestamps are `10/08/2026` (DD/MM/YYYY, 12-hour with
+  AM/PM); the `Time=` field *inside* log messages is `8/10/2026` (M/D/YYYY). Same instant,
+  both orderings. Parse row timestamps as DD/MM and never infer the format from the values —
+  the first twelve days of any month are ambiguous and will parse silently wrong.
+- **Reverse-chronological, and ties need file order, not a sort.** NT8 emits newest-first.
+  Three fills sharing one second (`6:07:25` → `Stop2, Stop3, Stop4`) are only correctly
+  ordered by reversing the file; sorting on the timestamp scrambles them and corrupts the
+  position walk. Reverse the rows, do not sort.
+- **`Commission` is `$0.00` and must not be trusted.** The account is a funded prop account
+  that does charge commission; NT8 simply has no schedule for it. Costs come from
+  `instruments.py`, or every trade reads better than it was.
+- **No timezone anywhere in the file.** Bars are UTC; these are NT8 display times. `6:07 PM`
+  is equally plausible as BST or ET and the data cannot disambiguate. Require it as explicit
+  configuration and record it on the imported rows.
+- **NT8 matches partial exits FIFO.** After exiting 1 of 4 (entries 2 @ 29769.00 and
+  2 @ 29768.50) the log reports average 29768.6667, reachable only by consuming one unit of
+  the 29769.00 entry. Trade-level P&L is unaffected — total in against total out — but the
+  schema is per-leg, so per-leg attribution must use FIFO to agree with NT8.
+- **Trailing comma on every row** yields a phantom empty column.
+
+### Worked example, for the adapter's first test
+
+Reversed, the sample resolves to two trades:
+
+```
+5:58:49  Sell 2 @ 29769.00  Entry  -> 4 S total, avg 29768.75
+6:00:29  Buy  2 @ 29782.75  Stop1  -> flat   trade 1: -43.25 pts = -$86.50
+6:03:07  Sell 4 @ 29767.00  Entry  -> 4 S
+6:07:25  Buy  1 @ 29783.25  Stop4  -> flat   trade 2: -43.50 pts = -$87.00
+```
+
+−$173.50 gross across two trades, derived from the executions file alone. Use it as the
+adapter's fixture.
+
+The remaining traps, which are about joining trades to bars rather than parsing:
 
 - **Back-adjustment will silently corrupt this.** A real fill at 18076.75 does not appear
   anywhere in a back-adjusted continuous series, because back-adjustment shifts every
@@ -141,7 +220,10 @@ The traps, all of which cost real time if found late:
   `leg` rows, matching the existing convention — not three trades. Getting this wrong
   triples the sample size and makes the win rate meaningless.
 - **Coverage gaps.** Trades on instruments or dates outside the cache must be reported and
-  excluded, not silently dropped.
+  excluded, not silently dropped. Make this a **coverage report** the importer emits — per
+  trade, whether its instrument and date are cached — so how much of the history is actually
+  reviewable becomes a measured number rather than an assumption. Note that no NQ data has
+  ever been through the pipeline, so any NQ trade is currently out of coverage.
 
 **11.2 Annotate — `nqbt/trades.py` or a sibling.** Join each trade to the `Dataset` at its
 entry bar (and optionally its exit bar), producing one annotation row per trade carrying
@@ -176,7 +258,27 @@ Three mitigations, all cheap:
 State the output's status plainly in the report itself: **hypothesis-generating, not
 confirmatory.**
 
-**11.5 The payoff, and the reason this is worth building.** Because annotation runs on any
+**11.5 Discretionary context — recorded, deliberately excluded from the evaluation.**
+
+Free-text context on a trade (why it was taken, what was going on, a screenshot reference)
+gets stored and shown, but is **never** an input to annotation or stratification.
+
+This is worth enforcing structurally rather than merely intending, because the reason is
+stronger than a preference. Notes are written after the fact and are contaminated by knowing
+the outcome — a loser attracts "I was impatient" and a winner attracts "clean setup". Mining
+them would produce findings that are perfectly circular: the review would "discover" that
+trades labelled bad performed badly. That is not a weak signal, it is a guaranteed one, and it
+would be the most impressive-looking result in the report.
+
+Mechanically: keep notes in a sidecar table keyed by `trade_id`, not as columns on the trade
+frame, so they cannot reach a `groupby` by accident. They surface in the trade-log viewer
+(M12) and in any per-trade export, and nowhere else.
+
+Worth revisiting only if the volume of notes ever justifies deliberate qualitative coding —
+categories fixed *before* outcomes are examined, which is a different activity from what M11
+does.
+
+**11.6 The payoff, and the reason this is worth building.** Because annotation runs on any
 trade log meeting the schema, a hypothesis raised by reviewing real trades ("my winners were
 mostly in a directional regime") can be turned into a sweep axis and tested properly on 4.7
 years of bars. The review generates candidates cheaply from a small, precious sample; the
@@ -232,14 +334,46 @@ These are not part of the above and are recorded so they are not lost. See
 
 ---
 
-## Open questions
+## Decisions taken
 
-Answers needed before M11 can be specified precisely:
+**Trade source format — deferred, by design.** An example will arrive; until then the
+importer is specified as an adapter boundary (§11.1) rather than around a guessed layout.
+Writing the adapter is small work once the example exists, and it is the *only* part that
+should need to change per source. Everything upstream of the example — the schema (M9), the
+conditions (M10), the annotation and review machinery (§11.2–11.4) — is independent of the
+format and can be built first.
 
-1. **What format do manual trades arrive in?** NT8's Executions export, a prop-firm dashboard
-   CSV, or a hand-kept journal? This determines the importer and whether stop and target
-   levels are even recoverable — without them there is no `r_multiple` and no MAE/MFE.
-2. **Should discretionary context be captured** — a note, a reason, a screenshot reference —
-   or is the review purely mechanical against indicators? Free-text changes the storage story.
-3. **Are these trades all on the instruments and dates the cache covers?** Trades on other
-   instruments need either new exports or explicit exclusion.
+**Discretionary context — recorded, not analysed.** Stored, viewable, and structurally kept
+out of the evaluation path. See §11.5 for why this is enforced rather than merely intended.
+
+**Coverage — measured, not decided.** Whether the trades fall inside cached instruments and
+dates becomes a report the importer emits (§11.1), so the answer arrives as data with the
+first real file. The only design consequence is that out-of-coverage trades must be excluded
+loudly rather than dropped quietly.
+
+**Trade source — the NT8 executions grid**, with the Control Center log rejected. Reasoning
+and the confirmed parsing traps are in §11.1. The review reports dollars, points and exit
+reason; `r_multiple` is deliberately not reconstructed.
+
+**Timezone — NT8 display time is the machine's local zone**, `GMT Standard Time`, so BST
+(UTC+1) in summer. Confirmed end-to-end: converting the sample's eight fills to UTC and
+mapping each to the bar stamped at the next whole minute puts every one inside its bar's
+high/low range, with the 17:00:29 stop landing exactly on the 17:01 high. That simultaneously
+validates the conversion, the end-of-bar alignment rule, and coverage. It should still be
+explicit configuration rather than an inferred default — a wrong zone shifts every trade by
+hours without erroring — but the default is now known to be right for this machine.
+
+**Coverage — resolved for the sample.** MNQ runs to 2026-08-10 18:19 UTC, past the 16:58–17:07
+trade window. Note the export lags live by roughly two hours, so the most recent session is
+always partly unavailable; a review run soon after trading will find its newest trades
+uncovered, and the importer's coverage report is what should say so.
+
+## Still open
+
+- **Sample size.** How many trades exist determines whether §11.4's guard leaves anything
+  standing. A few dozen will not support stratification by more than one or two conditions at
+  a time, and knowing that early sets expectations for what the review can honestly deliver.
+- **Which series to annotate against.** The sample trades a single contract, `MNQ 09-26`.
+  Annotating against the per-contract cache sidesteps back-adjustment and roll-date questions
+  entirely and is almost certainly right; the continuous series only earns its place if a
+  review needs indicators with lookbacks that cross a roll.

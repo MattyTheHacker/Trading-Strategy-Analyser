@@ -163,17 +163,36 @@ hour is completely empty, which is the 17:00–18:00 ET break in winter.
 
 ## Contract data
 
-**NT8 serves ~95 days per contract**, regardless of the range requested. A 2020–2027
-request returned each contract's front-month window and nothing else, ending ~4 days before
-expiry, across all 19 MNQ contracts.
+**A manual Tools → Historical Data export returns ~95 days per contract**, regardless of
+the range requested, ending ~4 days before expiry. On that data alone the volume crossover
+falls at or after the point coverage stops, so measured bar-aligned across all 18 roll
+pairs the back contract never overtook the front, and every roll fell back to the coverage
+handover (`METHOD_COVERAGE`).
 
-Consequence: the volume crossover happens at or after the point coverage stops, so
-measured bar-aligned across all 18 roll pairs, the back contract **never** overtakes the
-front. This is a provider limit, not an export mistake — re-exporting cannot fix it.
+**That is a limit of the export, not of NinjaTrader.** Pulling bars through `BarsRequest`
+(`ninjatrader-scripts/AddOns/NqbtHistoricalExporter.cs`) returns three to six months more
+per contract — thin, because a deferred contract barely trades, but enough to see the back
+contract's liquidity ramp. It also warms NinjaTrader's own local database, after which a
+manual re-export returns the union: MNQ 06-26 went from ending 2026-06-11 to running
+through 2026-06-18, its expiry week.
 
-The splicer therefore rolls at the coverage handover (`METHOD_COVERAGE`), which is the same
-switch NT8 itself makes, and only warns when the handover volume ratio falls below 0.4 —
-meaning the data ran out well before the market actually rolled.
+With both merged into `data/archive/`, **6 of 31 rolls now detect a genuine volume
+crossover** rather than falling back to the coverage boundary. MNQ 06-26 → 09-26 is the
+clearest:
+
+| trading day | front 06-26 | back 09-26 | ratio | shared bars |
+|---|---|---|---|---|
+| 2026-06-11 | 3,659,192 | 52,989 | 0.014 | 1,359 |
+| 2026-06-12 | 2,520,399 | 519,731 | 0.206 | 1,380 |
+| **2026-06-15** | 596,993 | **1,721,764** | **2.88** | 1,380 |
+| 2026-06-16 | 394,080 | 2,775,306 | 7.04 | 1,380 |
+
+The roll moves from 2026-06-12 to 2026-06-15 — the coverage boundary was three days early.
+
+**Handover ratios must be read against `shared_bars`.** This same roll previously reported
+0.27 and was flagged as premature for weeks. That figure came from a 60-bar stub, not a
+session; the four full days before it sat at 0.9–1.4%. The stub was not evidence of an
+imminent roll, and it was not evidence against one either — it was 4% of a session.
 
 **Volume comparison must be bar-aligned, not calendar-aligned.** Comparing whole-day volume
 compares a truncated session against a full one and manufactures a crossover that isn't

@@ -40,8 +40,29 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
 - `MaxRiskPerTrade` is in **ticks**, not dollars.
 - **TA-Lib's EMA ≠ NT8's EMA** (different seeding). `indicators.py` hand-rolls NT8's
   recursion. TA-Lib is reserved for MACD/RSI/BB/ATR, which have the same problem unfixed.
-- NT8 serves only **~95 days of history per contract** regardless of the range requested, so
-  volume-crossover rolls are undetectable. The splicer rolls at the coverage handover.
+- **Exports are moving windows, not snapshots.** NT8 serves each contract for a limited
+  period and drops the tail once it expires, so a folder of exports loses history over time.
+  `data/archive/` is the durable union and **the only thing ingestion reads**; `archive.py`
+  merges `data/minute/` (manual) and `data/addon/` (AddOn) into it. Never point a real
+  ingest at a source folder — `ingest` mirrors its input exactly, so it would propagate the
+  loss straight into the cache.
+- The two sources are **complementary, neither a superset**. The AddOn reaches ~3–6 months
+  further back per contract and carries the provider's settled values, but stops at the turn
+  of the expiry month. The manual export has each contract's final weeks — its most liquid
+  sessions — and nothing before ~95 days. Merged: 4.0M bars against 3.0M from either alone.
+- A manual export **regenerates the file; it does not append**. Bars get revised between
+  exports and occasionally withdrawn. Ingest hashes the **whole consumed byte range** to
+  tell an append from a rewrite — a head-only hash calls a rewrite an append, which froze
+  stale bars and silently dropped real ones.
+- **The last bar of any export may be mid-formation** — one showed 294 contracts of an
+  eventual 890, with a high and close that had not happened yet. The archive merge lets a
+  file's newest bar insert but never overwrite.
+- **Handover ratios must be read against `shared_bars`.** MNQ 06-26 → 09-26 read 0.27 and was
+  flagged as premature for weeks; that figure came from a 60-bar stub, not a session.
+- **Volume-crossover rolls are no longer undetectable.** With the archive merged, 6 of 31
+  rolls find a genuine crossover instead of falling back to the coverage boundary — MNQ 06-26
+  → 09-26 moved from 2026-06-12 to 2026-06-15, three days later. `docs/nt8-fidelity.md` has
+  the evidence. The remaining 25 still hand over at the coverage boundary.
 - NT8 trade-list exports are in **UTC**. Bar timestamps are **end-of-bar, UTC**.
 - NQ and MNQ share a tick size but their tick values differ 10×. Everything monetary must go
   through `instruments.py`.
@@ -55,7 +76,7 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
 Python 3.14 venv at `.venv`. Run tools as `./.venv/Scripts/python.exe -m ...`.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest          # 156 tests
+./.venv/Scripts/python.exe -m pytest          # 172 tests
 nqbt ingest | contracts | splice | run
 ```
 
@@ -141,15 +162,28 @@ hundreds of points, so the lookup succeeds and every comparison is silently wron
 multiple-comparisons guard (minimum stratum size, permutation test, holdout); without it the
 output is confident and wrong.
 
+Source is the **NT8 executions grid**, not the Control Center log: `Position` gives trade
+boundaries (`-` = flat) and `Name` gives the exit reason (`Stop1..4` vs `Exit`). The log is
+rejected because its stop levels are ATM template defaults dragged to intent seconds later,
+so planned risk computed from them is wrong by 10×. Consequence: **no `r_multiple`** on real
+trades, by choice. Parsing traps are in `docs/roadmap.md` §11.1 — two date formats in one
+file, ties resolved by reversing rather than sorting, and `Commission` always `$0.00`.
+
+Free-text trade context is **stored but never analysed**, in a sidecar table so it cannot
+reach a `groupby`: notes are written knowing the outcome, so stratifying on them yields
+circular findings.
+
 **M12 — web GUI.** Long term. Same lesson as the CLI: it calls the existing functions and
 defines no statistic of its own. Streamlit for the read-only views, and don't start until
 the review outputs are stable.
 
 **Open items.**
-- One roll is flagged as premature: MNQ 06-26 → 09-26, handover volume ratio 0.27. Sits in
-  the most recent quarter. Not yet reviewed.
-- **NQ is completely untested** — only MNQ exports exist. Code is instrument-aware throughout
-  but no NQ data has ever been through it.
+- **NQ data now exists** — 14 contracts, splicing to 1,244,063 bars over 2022-12-08 →
+  2026-06-18, raw and back-adjusted. The pipeline handles it, but **the simulation has never
+  been run against NQ** and no NQ result has been reconciled with NT8.
+- NG 02-26 sits in `data/minute/` and is **silently ignored**: `ContractId` rejects month 02
+  (NQ/MNQ are quarterly) and `discover_exports` swallows the `ValueError`. Harmless, but a
+  file disappearing without a warning would hide a real mistake.
 - MAE/MFE use a different definition from NT8's (mine measure to the exit bar's extreme,
   NT8's cap at the exit). Reporting only, no P&L effect. Unresolved.
 - The DeadCatBounce archetype is **unprofitable across all 192 combinations tested** at
