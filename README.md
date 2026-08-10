@@ -61,8 +61,8 @@ cache/continuous/MNQ_raw.parquet   spliced series (and MNQ_backadj.parquet)
 results/sweeps.duckdb              every sweep, queryable together
 ```
 
-Currently cached: **33 contracts (19 MNQ, 14 NQ), 4,012,959 bars**, splicing to continuous
-series of **1,681,864 in-session bars over 2021-09-19 → 2026-08-10** (MNQ) and **1,258,980
+Currently cached: **33 contracts (19 MNQ, 14 NQ), 4,090,398 bars**, splicing to continuous
+series of **1,664,749 in-session bars over 2021-09-19 → 2026-08-10** (MNQ) and **1,258,980
 over 2022-10-09 → 2026-06-18** (NQ), each raw and back-adjusted.
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a
@@ -193,11 +193,13 @@ at 3.4% of exits. The losses are structural.
 
 ## Known limitations
 
-- **Most rolls still hand over at the coverage boundary.** A manual export returns ~95 days
-  per contract, ending before the crossover, so 25 of 31 rolls fall back to the handover
-  NT8 itself makes. The archive's extra back-month history makes **6 detectable as genuine
-  volume crossovers** — see [docs/nt8-fidelity.md](docs/nt8-fidelity.md). Three 2022 rolls
-  remain flagged because their coverage ends 8 days before expiry rather than 4.
+- **NQ still rolls at the coverage boundary** (12 of 13), because it has not been
+  re-exported since the AddOn ran. **All 18 MNQ rolls now detect a genuine volume
+  crossover** — see [docs/nt8-fidelity.md](docs/nt8-fidelity.md). Re-exporting NQ should
+  close the gap.
+- **18 MNQ sessions are near-empty** (23,929 bars), because a correct roll date makes the
+  front contract supply days where NT8's data for that contract has holes. The gaps are
+  real and were previously hidden behind the wrong contract, not absent.
 - **NQ is untested** — only MNQ exports exist. The code is instrument-aware throughout.
 - **`r_multiple` uses planned risk** (`stop − trigger`), which is how the NinjaScript
   places its targets. Consequence: target exits land just under their nominal multiples,

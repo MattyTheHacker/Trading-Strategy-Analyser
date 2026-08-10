@@ -176,9 +176,22 @@ contract's liquidity ramp. It also warms NinjaTrader's own local database, after
 manual re-export returns the union: MNQ 06-26 went from ending 2026-06-11 to running
 through 2026-06-18, its expiry week.
 
-With both merged into `data/archive/`, **6 of 31 rolls now detect a genuine volume
-crossover** rather than falling back to the coverage boundary. MNQ 06-26 → 09-26 is the
-clearest:
+Re-exporting every MNQ contract after the AddOn had run returned the full contract life —
+roughly six months out through to expiry, against ~95 days before. With that merged into
+`data/archive/`, **all 18 MNQ rolls now detect a genuine volume crossover** and none falls
+back to the coverage boundary, with handover ratios of 1.26–2.88. NQ still sits at 1 of 13
+purely because it has not been re-exported since the AddOn ran.
+
+**Correcting the roll dates costs bars, and that is the right trade.** Rolling at the true
+crossover means the front contract supplies the days a coverage-boundary roll used to hand
+to the back contract — and NT8's per-contract data has holes there. MNQ 03-22 holds 60 bars
+on 2022-03-10 between full sessions either side, so the continuous series now shows 18
+near-empty sessions (23,929 bars) that an early roll had papered over with the wrong
+contract. The gaps are real and were always there; they are simply no longer hidden. Filling
+them from the back contract would splice two different prices into one session — the offset
+across this roll is 8.75 points — so they stay visible instead.
+
+MNQ 06-26 → 09-26 is the clearest example of the crossover itself:
 
 | trading day | front 06-26 | back 09-26 | ratio | shared bars |
 |---|---|---|---|---|

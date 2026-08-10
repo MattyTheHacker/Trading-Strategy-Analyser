@@ -59,10 +59,15 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
   file's newest bar insert but never overwrite.
 - **Handover ratios must be read against `shared_bars`.** MNQ 06-26 → 09-26 read 0.27 and was
   flagged as premature for weeks; that figure came from a 60-bar stub, not a session.
-- **Volume-crossover rolls are no longer undetectable.** With the archive merged, 6 of 31
-  rolls find a genuine crossover instead of falling back to the coverage boundary — MNQ 06-26
-  → 09-26 moved from 2026-06-12 to 2026-06-15, three days later. `docs/nt8-fidelity.md` has
-  the evidence. The remaining 25 still hand over at the coverage boundary.
+- **Volume-crossover rolls are no longer undetectable.** Run the AddOn, then re-export
+  manually: NT8 returns the full contract life instead of ~95 days, because the AddOn warms
+  its local database. **All 18 MNQ rolls now find a genuine crossover**; NQ is still 1 of 13
+  only because it has not been re-exported since. `docs/nt8-fidelity.md` has the evidence.
+- Correct roll dates **cost bars**. The front contract now supplies days an early roll gave
+  to the back contract, and NT8's data has holes there — 18 near-empty sessions in MNQ,
+  23,929 bars. They were always missing; an early roll hid them behind the wrong contract.
+  Do not fill them from the neighbouring contract: that splices two different prices into
+  one session.
 - NT8 trade-list exports are in **UTC**. Bar timestamps are **end-of-bar, UTC**.
 - NQ and MNQ share a tick size but their tick values differ 10×. Everything monetary must go
   through `instruments.py`.
