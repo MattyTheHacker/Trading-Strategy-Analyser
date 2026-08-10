@@ -22,6 +22,12 @@ semantics and the reconciliation record.
 | M6 Parallelise the sweep across cores | done |
 | M7 Walk-forward and Monte Carlo | not started |
 | M8 Bar-major restructuring | premise measured — see below |
+| M9 Split market context from simulation | planned |
+| M10 Regime, relative volume, trend labels | planned |
+| M11 Manual trade review | planned |
+| M12 Web GUI | long term |
+
+Planned work is specified in [docs/roadmap.md](docs/roadmap.md), in dependency order.
 
 **156 tests passing.**
 

@@ -14,12 +14,19 @@ data exists in `data/tick/` and is deliberately **not** wired into the simulatio
 When the C# and intuition disagree, the C# wins. When the C# and a real NT8 trade list
 disagree, the trade list wins.
 
+This governs the **simulation** side only. The planned trade-review side analyses real
+fills, which are genuinely tick-precise; that is not a violation because nothing is being
+simulated. The trap is letting that precision leak backwards into `nqbt/sim/` — see
+`docs/roadmap.md`.
+
 ## Ground truth
 
 - `ninjatrader-scripts/Strategies/DeadCatBounce.cs` (submodule) — the strategy source.
   **Check it is current before porting**; it has been ahead of the committed version before.
 - `docs/nt8-fidelity.md` — every NT8 rule the simulation implements and the evidence for it.
   Read this before changing anything in `nqbt/sim/`.
+- `docs/roadmap.md` — planned work in dependency order, with the traps. Read before starting
+  anything in the "Planned" section below.
 - An NT8 trade-list export (Strategy Analyzer → Trades → Export) is the only way to settle
   fill-semantics questions. Summary statistics hide them.
 
@@ -113,6 +120,30 @@ throws the trade log away. A numpy-native summary path — keeping `stats.summar
 reference implementation and testing the two agree exactly — is worth roughly 3×, and
 composes with the parallel speedup. Do M8 only if that lands first and profiling still
 points at the loop.
+
+**M9 — split market context from strategy simulation.** Prerequisite for everything below.
+`Dataset`/`prepare` are strategy-agnostic but live in `sim/runner.py`; lift them to
+`nqbt/context.py`. Formalise the trade-log schema in `nqbt/trades.py` so the simulator and a
+manual-trade importer produce the *same* thing — it needs `direction` (the archetype is
+short-only, so nothing records it today), `instrument` (NQ and MNQ differ 10× in tick value)
+and `source`. Rule: `stats.py` must not import from `nqbt.sim`.
+
+**M10 — the conditions the review needs and we lack.** Regime classification
+(`nqbt/regime.py`, Kaufman efficiency ratio → directional / consolidating / unclassifiable,
+the middle band being the no-trade state); relative volume normalised **by time of day**, not
+by a rolling window, or it just measures the clock; a compact trend label off the existing
+MA grids.
+
+**M11 — manual trade review.** Import real trades, annotate each against the market context
+at its entry bar, stratify realised P&L by condition. Biggest trap: **annotate against the
+raw series, never the back-adjusted one** — back-adjustment shifts historical prices by
+hundreds of points, so the lookup succeeds and every comparison is silently wrong. Needs a
+multiple-comparisons guard (minimum stratum size, permutation test, holdout); without it the
+output is confident and wrong.
+
+**M12 — web GUI.** Long term. Same lesson as the CLI: it calls the existing functions and
+defines no statistic of its own. Streamlit for the read-only views, and don't start until
+the review outputs are stable.
 
 **Open items.**
 - One roll is flagged as premature: MNQ 06-26 → 09-26, handover volume ratio 0.27. Sits in
