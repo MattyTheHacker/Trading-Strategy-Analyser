@@ -6,10 +6,16 @@ UTC::
     yyyyMMdd HHmmss;open;high;low;close;volume
     20231207 000100;16019.25;16019.25;16016.75;16017.25;19
 
-A NinjaScript AddOn appends new bars to these files over time, so ingestion is
-**incremental**: the manifest records how far into each raw file we have already parsed,
-and a re-ingest reads only the tail. A full reparse happens automatically if the file
-shrank or its head changed, which is what a regenerated export looks like.
+Ingestion reads :mod:`nqbt.archive`, not the export folders themselves. Exports are moving
+windows -- NinjaTrader drops each contract's tail once it expires -- and this module mirrors
+its input exactly, so pointing it at a source folder would propagate that loss into the
+cache. ``ingest_all`` refreshes the archive first so the step cannot be skipped.
+
+Reading is **incremental** where it safely can be: the manifest records how far into the
+file we parsed and a hash of exactly those bytes, so a genuine append reads only the tail
+while anything else -- a bar revised, a bar withdrawn, a mid-formation bar completing --
+falls back to a full reparse. Hashing only the head cannot see a rewritten tail, and reading
+a rewrite as an append froze stale bars in the cache and dropped real ones at the seam.
 
 The cache is deliberately lossless -- out-of-session prints are tagged, not dropped, so
 the raw export can always be reconstructed from Parquet. Filtering happens downstream in

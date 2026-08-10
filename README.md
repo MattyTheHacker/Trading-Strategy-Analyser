@@ -14,7 +14,7 @@ semantics and the reconciliation record.
 
 | Milestone | State |
 |---|---|
-| M1 Data foundation — instruments, sessions, ingest, Parquet cache | done |
+| M1 Data foundation — instruments, sessions, ingest, archive, Parquet cache | done |
 | M2 Contract splicing — roll detection, back-adjustment | done |
 | M3 Indicators & conditions — NT8-compatible EMA/SMA, session VWAP | done |
 | M4 DeadCatBounce simulation + NT8 reconciliation | done, **gate passed** |
@@ -29,7 +29,7 @@ semantics and the reconciliation record.
 
 Planned work is specified in [docs/roadmap.md](docs/roadmap.md), in dependency order.
 
-**160 tests passing.**
+**172 tests passing.**
 
 **Reconciliation against NT8: 1143 of 1144 leg exits identical (99.91%).** The single
 remaining leg is worth $19.50 and is an NT8 order-handling artefact.
@@ -67,19 +67,20 @@ over 2022-10-09 → 2026-06-18** (NQ), each raw and back-adjusted.
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a
 limited period and drops the tail once it expires, so a folder of exports quietly loses
-history. `data/archive/` is the durable union that ingestion actually reads, and the two
-sources are complementary rather than one being a superset:
+history. `data/archive/` is the durable union that ingestion actually reads.
 
-- the **AddOn** ([NqbtHistoricalExporter.cs](ninjatrader-scripts/AddOns/NqbtHistoricalExporter.cs))
-  reaches ~3–6 months further back per contract and carries the provider's settled values,
-  but stops at the turn of the expiry month
-- the **manual export** holds each contract's final weeks — its most liquid sessions — and
-  nothing before ~95 days
+The two sources **compound, and the order matters**. On its own a manual export returns the
+last ~95 days through expiry, and the AddOn
+([NqbtHistoricalExporter.cs](ninjatrader-scripts/AddOns/NqbtHistoricalExporter.cs)) reaches
+3–6 months further back but stops at the turn of the expiry month. But the AddOn's
+`BarsRequest` calls warm NinjaTrader's own local database, and a manual export dumps that
+database — so **run the AddOn, then re-export manually** and NT8 returns the full contract
+life from one source. That took the archive from 3.0M bars to 4.09M and every MNQ contract
+now runs from ~6 months out through to expiry.
 
-Merged: 4.0M bars against 3.0M from either alone, plus sessions the manual export had
-dropped outright. Ingest also hashes the entire consumed byte range to distinguish an append
-from a rewrite; checking only the file head cannot see a rewritten tail, which froze stale
-bars in the cache and silently dropped real ones at the seam.
+Ingest also hashes the entire consumed byte range to distinguish an append from a rewrite;
+checking only the file head cannot see a rewritten tail, which froze stale bars in the cache
+and silently dropped real ones at the seam.
 
 Tick data is present but deliberately **not** wired into the simulation — the spec defers
 tick-level fills to Tier 2. Its one high-value use would be measuring how often the
@@ -88,7 +89,7 @@ same-bar stop/target assumption actually binds.
 ## Usage
 
 ```bash
-nqbt ingest                      # parse exports into the Parquet cache (incremental)
+nqbt ingest                      # refresh data/archive from every source, then cache it
 nqbt contracts                   # what is cached
 nqbt splice --root MNQ           # build the continuous series
 nqbt splice --root MNQ --back-adjust --diagnostics
@@ -128,7 +129,8 @@ nqbt/
   instruments.py   NQ/MNQ specs. Every dollar figure flows through here — NQ and MNQ
                    share a tick size but their tick values differ 10x.
   sessions.py      CME ETH calendar, UTC -> US/Eastern, trading-day assignment.
-  ingest.py        NT8 parser, incremental append, per-contract Parquet.
+  archive.py       Merges every export source into the durable union ingest reads.
+  ingest.py        NT8 parser, rewrite detection, per-contract Parquet.
   splice.py        Roll detection and back-adjustment.
   indicators.py    NT8-compatible EMA/SMA, session-anchored VWAP.
   conditions.py    1D parameter-free gates, 2D [period, bar] moving-average grids.
@@ -150,7 +152,8 @@ a boolean AND plus one simulation pass.
 
 | operation | cost |
 |---|---|
-| ingest 33 contracts, cold / warm | 14.0 s / 0.9 s |
+| ingest 33 contracts / 4.09M bars, forced reparse | 26.5 s |
+| ingest, nothing changed (rebuilds the archive, reparses nothing) | 10.4 s |
 | prepare (1.65M bars) | 0.71 s |
 | one combination | 30 ms |
 | 1,536-combination sweep, serial | 45.4 s |

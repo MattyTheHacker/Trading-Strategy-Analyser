@@ -46,10 +46,11 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
   merges `data/minute/` (manual) and `data/addon/` (AddOn) into it. Never point a real
   ingest at a source folder — `ingest` mirrors its input exactly, so it would propagate the
   loss straight into the cache.
-- The two sources are **complementary, neither a superset**. The AddOn reaches ~3–6 months
-  further back per contract and carries the provider's settled values, but stops at the turn
-  of the expiry month. The manual export has each contract's final weeks — its most liquid
-  sessions — and nothing before ~95 days. Merged: 4.0M bars against 3.0M from either alone.
+- The two sources **compound, and the order matters**. On its own the AddOn reaches ~3–6
+  months further back but stops at the turn of the expiry month, while a manual export holds
+  only the last ~95 days through expiry. But the AddOn's requests warm NinjaTrader's own
+  local database, so **running the AddOn and then re-exporting manually** returns the full
+  contract life from one source. That took the archive from 3.0M bars to 4.09M.
 - A manual export **regenerates the file; it does not append**. Bars get revised between
   exports and occasionally withdrawn. Ingest hashes the **whole consumed byte range** to
   tell an append from a rewrite — a head-only hash calls a rewrite an append, which froze
@@ -99,15 +100,22 @@ commands that duplicate the Python API.
   cheap. Never recompute an indicator inside a combination.
 - Moving-average grids keep only the boolean gate unless `keep_values=True` (66 MB vs 595 MB).
 - Numba functions are `@njit(cache=True)` — required so parallel workers reuse the disk cache.
-- `data/minute/` and `data/tick/` share the `.Last.txt` suffix. **Never glob across both**;
+- Every folder under `data/` uses the `.Last.txt` suffix, including `data/tick/`, whose files
+  are a different format and orders of magnitude larger. **Never glob across resolutions**;
   `ingest.parse_export` hard-fails on a tick file.
+- `verification/nt8_reconciliation_MNQ_03-24.csv` is a **pre-fix** run despite its name — see
+  `verification/README.md` before comparing anything against it.
 
 ## Status
 
-Done and validated: data ingestion with incremental append, contract splicing with
-back-adjustment, NT8-compatible indicators, the DeadCatBounce simulation, the sweep +
-statistics + DuckDB results layer, and parallel sweeps over cores. Reconciliation against
-NT8 is **1143/1144 leg exits identical (99.91%)**.
+Done and validated: ingestion with a durable archive and exact rewrite detection, contract
+splicing with back-adjustment, NT8-compatible indicators, the DeadCatBounce simulation, the
+sweep + statistics + DuckDB results layer, and parallel sweeps over cores. Reconciliation
+against NT8 is **1143/1144 leg exits identical (99.91%)**.
+
+That reconciliation was re-checked after the archive landed and still holds: the archive's
+extra history sits entirely *before* the reconciled window, giving a constant bar-index
+offset across all 292 entries, so the simulation's output over that window is unchanged.
 
 `sweep.sweep(..., n_jobs=8)` is verified to produce results byte-identical to the serial
 path. The `Dataset` is shared, not copied: `Dataset.slim()` drops the 121 MB bar frame to a
@@ -183,12 +191,21 @@ defines no statistic of its own. Streamlit for the read-only views, and don't st
 the review outputs are stable.
 
 **Open items.**
-- **NQ data now exists** — 14 contracts, splicing to 1,244,063 bars over 2022-12-08 →
+- **NQ data now exists** — 14 contracts, splicing to 1,258,980 bars over 2022-10-09 →
   2026-06-18, raw and back-adjusted. The pipeline handles it, but **the simulation has never
   been run against NQ** and no NQ result has been reconciled with NT8.
+- **NQ has not been re-exported since the AddOn ran**, so it still rolls at the coverage
+  boundary (12 of 13) where MNQ is now 18 of 18 on genuine crossovers. A manual re-export of
+  the NQ contracts should close that; the AddOn has already warmed the database for them.
 - NG 02-26 sits in `data/minute/` and is **silently ignored**: `ContractId` rejects month 02
   (NQ/MNQ are quarterly) and `discover_exports` swallows the `ValueError`. Harmless, but a
   file disappearing without a warning would hide a real mistake.
+- **Roll dates are now data-derived, and may no longer match NT8's.** The coverage handover
+  had one virtue beyond necessity: it was where NT8 itself switched contracts, so the tiers
+  agreed by construction. A crossover date has no such guarantee — NT8 merges on the
+  rollover dates configured in its Database window. The 99.91% reconciliation does not
+  settle this, having been run on a single contract rather than a spliced series. Worth a
+  continuous-series reconciliation before trusting a sweep that crosses a roll.
 - MAE/MFE use a different definition from NT8's (mine measure to the exit bar's extreme,
   NT8's cap at the exit). Reporting only, no P&L effect. Unresolved.
 - The DeadCatBounce archetype is **unprofitable across all 192 combinations tested** at

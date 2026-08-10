@@ -363,7 +363,7 @@ validates the conversion, the end-of-bar alignment rule, and coverage. It should
 explicit configuration rather than an inferred default — a wrong zone shifts every trade by
 hours without erroring — but the default is now known to be right for this machine.
 
-**Coverage — resolved for the sample.** MNQ runs to 2026-08-10 18:19 UTC, past the 16:58–17:07
+**Coverage — resolved for the sample.** MNQ runs to 2026-08-10 19:55 UTC, past the 16:58–17:07
 trade window. Note the export lags live by roughly two hours, so the most recent session is
 always partly unavailable; a review run soon after trading will find its newest trades
 uncovered, and the importer's coverage report is what should say so.

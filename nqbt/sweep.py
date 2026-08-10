@@ -9,7 +9,8 @@ rather than assumed.
 The expensive work is hoisted out of the loop entirely: candlestick geometry, session
 VWAP, and the moving-average grids for every period in the grid are computed once in
 :func:`nqbt.sim.runner.prepare`. What remains per combination is a boolean AND over the
-precomputed gates plus one pass of the simulation -- about 26 ms over 1.65M bars.
+precomputed gates plus one pass of the simulation -- about 30 ms over 1.65M bars, of which
+roughly 70% is pandas building and aggregating the trade log rather than the jitted loop.
 
 ``n_jobs`` spreads combinations over processes. The combinations are independent, so this
 is embarrassingly parallel; the only thing that needs care is that the dataset must be

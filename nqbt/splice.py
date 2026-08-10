@@ -11,16 +11,22 @@ an export stops mid-roll, which makes the back contract look dominant days befor
 really is. Restricting the comparison to timestamps both contracts actually have removes
 that bias -- at the cost of revealing that some exports simply do not contain the roll.
 
-**NT8 only serves ~95 days of history per contract.** Measured across the whole MNQ
-contract chain, a request for a multi-year range returns each contract's front-month
-window and nothing else, ending ~4 days before expiry -- the Monday of expiry week. The
-volume crossover happens at or just after that boundary, so with NT8 as the data source
-it is usually not observable at all.
+**How much history a contract has decides which roll rule is even possible.** A plain
+manual export returns roughly 95 days per contract, ending ~4 days before expiry, and the
+volume crossover happens at or just after that boundary -- so on that data it is not
+observable and every roll falls back to the coverage handover.
 
-That is not a defect to work around. NT8 Strategy Analyzer draws on the same coverage, so
-the point where one contract's data hands over to the next *is* where NT8 itself switches.
-Rolling there keeps Tier 1 and Tier 2 aligned, which matters more than reproducing a
-textbook roll rule.
+Running the AddOn first changes that. Its ``BarsRequest`` calls warm NinjaTrader's local
+database, after which a manual re-export returns the full contract life, and the crossover
+becomes visible: all 18 MNQ rolls now find one, against none before. NQ still has the
+shallow coverage and still hands over at the boundary.
+
+**Open question worth knowing about.** The coverage handover had one virtue beyond
+necessity: it is the point where NT8 itself runs out of one contract and starts the next,
+so Tier 1 and Tier 2 agreed by construction. A data-derived crossover date has no such
+guarantee -- NT8 merges on the rollover dates configured in its Database window, which may
+not be these. The existing reconciliation does not settle it either way, having been run on
+a single contract rather than a spliced series.
 
 Two roll methods:
 
