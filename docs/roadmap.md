@@ -19,7 +19,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~1~~ | ~~Re-export NQ manually~~ | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
 | ~~2~~ | ~~Run the simulation against NQ~~ | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact: same bars through both specs give identical geometry and ×10 gross P&L on every leg. |
 | 3 | **M9** — split context from simulation | Gate for everything below. Behaviour-preserving moves only, with the reconciliation re-run either side as the check. |
-| 3a | **M13** — bar resolution as a sweep axis | Sits with M9 because the resampler is a context concern and lands in the same file. Independent of M10/M11, so it can move later if the review is more urgent — but doing it here means `results` gains its `resolution` column before the stale DuckDB re-run rather than after. |
+| 3a | **M13 + M14** — bar resolution and per-contract as sweep axes | One mechanism, not two: both add an axis *above* the `Dataset` and both need a nullable results column. Sits with M9 because the resampler is a context concern. Independent of M10/M11 so they can move later — but doing them here settles the schema once, before the stale DuckDB re-run rather than after. |
 | 4 | **M10** — regime, relative volume, trend, time of day | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
 | 5 | **M11** — the trade review | The stated goal. Needs 3 and 4. |
 | 6 | **M7** — random-entry arm first, then walk-forward and Monte Carlo | The control arm shares machinery with §11.4's permutation test, so it is cheaper right after M11 than before it. |
@@ -621,6 +621,104 @@ Cost is mild and self-limiting, because coarser series are proportionally smalle
 1, 2, 5 and 15 minutes costs about 1 + ½ + ⅕ + 1/15 ≈ **1.8× a 1-minute sweep**, not 4×.
 `results.save_sweep` needs the extra column, which is also a reason to do it before the
 stale DuckDB re-run rather than after.
+
+---
+
+## M14 — Per-contract sweeps
+
+Run a sweep across individual contracts rather than only the spliced series, so a strategy's
+performance can be compared contract by contract. Planned, not started.
+
+### What already works, and what is missing
+
+`sweep.sweep()` takes a bars frame, so passing one contract's cache runs a sweep on it today:
+
+```python
+sweep.sweep(ingest.load_contract(ContractId.parse("MNQ 06-24")), grid)
+```
+
+Missing is everything around that: a way to run the whole set and get one table with a
+`contract` column, a `contract` field in the DuckDB schema (`save_sweep` records `root` and
+`instrument` only), and — most importantly — the framing that stops the output being
+misread.
+
+### Frame it as dispersion, not selection
+
+Each contract is front-month for roughly three months, so **"which contract is the strategy
+best on" is very nearly "which quarter of history was it best in"**. That reframing matters,
+because the two questions have different failure modes. Ranking 19 contracts and taking the
+winner is the multiple-comparisons trap §11.4 already guards against on real trades: with 19
+contracts × N combinations, a good-looking best is the expected output of noise, not
+evidence.
+
+The useful output is **the spread**, not the maximum. How much does performance vary across
+contracts, and is that variation larger than resampling the same trades would produce? That
+is a stability measure, and it is worth having precisely because a single continuous-series
+profit factor hides it completely.
+
+This overlaps **M7's walk-forward** substantially — rolling IS/OOS splits answer "does this
+hold across time" with finer and non-calendar-aligned windows. Build the two to share
+machinery and report compatibly rather than as two independent verdicts on the same
+question.
+
+### Three things it does that time-slicing does not
+
+Given that overlap, the distinct value is worth being explicit about, because it is what
+justifies the feature separately from M7:
+
+1. **It is a data-integrity instrument.** An outlier contract is a strong signal of a data
+   bug — a bad roll date, a hole, a bad splice — not a market insight. Given how much of the
+   archive work came from exactly such defects, a per-contract table is a cheap standing
+   check that would have caught several of them earlier.
+2. **It uses raw prices.** The continuous series is back-adjusted, which shifts historical
+   prices by hundreds of points. Any rule sensitive to absolute price level — round-number
+   stop avoidance, already recorded as incoherent with back-adjustment — can *only* be
+   tested per contract.
+3. **It is directly Tier-2 reproducible.** A spliced result cannot be reproduced in Strategy
+   Analyzer bar-for-bar around a roll, which is the standing residual risk of data-derived
+   roll dates. A single-contract run contains no roll, so it can be checked against NT8
+   exactly. This is also the cheapest route to the outstanding NQ reconciliation.
+
+### Decide explicitly: full contract life or front-month window
+
+The archive now holds roughly six months per contract, but each is front-month for about
+three. The choice is not cosmetic:
+
+- **Front-month window** (roll date to roll date) — non-overlapping, sums to the continuous
+  series, contracts are comparable to each other. **This should be the default.**
+- **Full contract life** — each contract is a clean standalone series, but adjacent contracts
+  overlap by months, so the same calendar days appear in two rows. Aggregating across them
+  double-counts. Useful for asking "how does the strategy behave on a back-month contract's
+  thinner liquidity", which is a genuinely different question.
+
+Report `bars`, `sessions` and `trades` per contract alongside any performance figure. Contract
+windows are not equal — MNQ 03-22 carries 47 thin early-listing sessions, and the current
+front contract is always partial — and a profit factor from 30 trades will otherwise sit in
+the same column as one from 400.
+
+### On identifying political and economic events
+
+Worth being straight about the resolution this gives. A contract is a ~3-month bucket, so a
+per-contract table will surface **regime shifts** — a volatility era, a trending year — but
+will not isolate an **event**. An election, a CPI print or a rate decision is a day or an
+hour, and averaging it across a quarter dilutes it to nothing.
+
+For events, the tools are M10's regime classifier and time-of-day labels plus a date-range
+filter, at which point the question becomes "how does the strategy behave on high-volatility
+days" rather than "on this contract". The two are complements: per-contract finds *where* to
+look, the M10 labels resolve *what* is happening there.
+
+### Shape
+
+`sweep.sweep_contracts(root, grid, ...)`, building one `Dataset` per contract and tagging
+every row with its `contract`.
+
+**This is architecturally the same feature as M13.** Both add an axis that sits *above* the
+`Dataset` rather than inside `DeadCatParams`, both need one `Dataset` per value, and both
+need a nullable column in the results schema — `resolution` and `contract`, the latter null
+meaning "spliced series". Design them together and build one mechanism, or they will arrive
+as two near-identical wrappers that diverge. Doing both before the stale DuckDB re-run means
+the schema settles once.
 
 ---
 

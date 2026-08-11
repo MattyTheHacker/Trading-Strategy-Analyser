@@ -176,6 +176,18 @@ are all per-bar — so it must be a first-class results column. Expect the ambig
 to climb well above 1-minute's 3.4%; if a coarse resolution looks profitable, check that
 first.
 
+**M14 — per-contract sweeps.** Planned. `sweep.sweep()` already accepts a single contract's
+frame, so what is missing is the cross-contract table, a `contract` column in DuckDB, and the
+framing. **Report the spread, not the winner**: a contract is ~3 months of front-month, so
+"best contract" is mostly "best quarter", and picking the best of 19 × N combinations is the
+multiple-comparisons trap §11.4 already guards against. Overlaps M7's walk-forward — share
+the machinery. Its distinct value is that it uses **raw, not back-adjusted** prices (the only
+way to test round-number stops), contains **no roll** so it is directly Tier-2 reproducible
+(the cheapest route to the NQ reconciliation), and makes an outlier contract read as the data
+bug it usually is. Default to the **front-month window**; full contract life overlaps its
+neighbours and double-counts calendar days. Architecturally identical to M13 — both are axes
+*above* the `Dataset` — so build one mechanism, not two.
+
 **Spec features not yet built.** The build spec calls for these; none exist yet:
 - Moving-average **trailing stop mode** as a per-run toggle (only the structural
   swing-high stop is implemented). Needs `MovingAverageGrid(keep_values=True)`.
