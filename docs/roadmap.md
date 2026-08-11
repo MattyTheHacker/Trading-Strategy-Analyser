@@ -548,19 +548,37 @@ Two further boundaries the bucketing must respect: no bar may span the 17:00–1
 maintenance break, and none may span the Friday 17:00 → Sunday 18:00 weekend. Bucketing from
 the session open gives both for free; bucketing on wall clock does not.
 
-### Validation, which is unusually cheap here
+### Validation needs no new data
 
-`NqbtHistoricalExporter.cs:270` already builds `BarsPeriod { BarsPeriodType =
-BarsPeriodType.Minute, Value = 1 }`. Changing `Value` gives NT8's own 5-minute bars for the
-same contract, and `tools/compare_exports.py` already diffs two exports. So the check is:
-resample our 1-minute archive to 5 minutes, pull NT8's native 5-minute series, and diff.
-Any anchoring error shows up immediately as a whole-bar offset rather than as a subtly wrong
-backtest months later.
+**The existing 1-minute archive is sufficient to build every resolution.** Nothing needs
+re-exporting and the AddOn needs no change. Three checks, all local:
 
-**Request it with the ETH trading-hours template, not `Default 24 x 7`.** The AddOn uses
-24x7 deliberately so nothing is filtered before our own session classification sees it, but
-bar *building* is anchored by that template — and the Strategy Analyzer will use ETH. A
-validation run against 24x7 bars would confirm the wrong thing.
+1. **Aggregation is exact** — assert a resampled bar's OHLCV against the 1-minute bars it
+   came from. This is arithmetic, and a unit test pins it.
+2. **Boundaries land where intended** — assert every bucket starts at session open + *k*·N
+   minutes, that none spans the 17:00–18:00 ET break, and that none spans the weekend.
+3. **Anchoring is provably moot for the periods that matter** — assert directly that
+   session-anchored and midnight-anchored bucketing agree for 2/3/5/10/15/30/60 and diverge
+   for 7. That converts the coincidence above from a hazard into a documented property, and
+   it is the test that stops someone "simplifying" to a bare `resample()` later.
+
+Anchoring from the session open is correct for every period, so this is belt-and-braces
+rather than a dependency.
+
+**Tier 2 already covers the residual risk.** The one thing local tests cannot settle is what
+*NT8* does, and the prime directive is parity. But that is exactly what the existing
+reconciliation workflow checks: re-validating a 5-minute survivor in Strategy Analyzer and
+diffing the trade list catches an anchoring mismatch immediately, and does it better than a
+bar diff would, because it tests bars and fills together. No extra step is needed — it is
+the step that already exists.
+
+Only if such a reconciliation disagrees is it worth pulling NT8's own coarse bars as a
+diagnostic, to separate "our bars differ" from "our fills differ".
+`NqbtHistoricalExporter.cs:270` builds `BarsPeriod { BarsPeriodType = BarsPeriodType.Minute,
+Value = 1 }`, so that is a one-value change, and `tools/compare_exports.py` already diffs two
+export folders. Note that it would have to be requested under the ETH template rather than
+`Default 24 x 7`, since bar building is anchored by the template and Strategy Analyzer uses
+ETH — but this is a debugging path, not a prerequisite.
 
 ### What changes about the strategy, which is the real point
 
