@@ -153,6 +153,15 @@ but not past costs", three diagnoses that currently look identical. Permuting an
 sequence cannot, because it takes the entries as given. It also shares machinery with M11's
 permutation test.
 
+**Moving-average axes.** Periods *and* on/off toggles are both already sweepable, jointly —
+every `DeadCatParams` field except `target_r_multiples` is a legal axis, and `dead_axes()`
+refuses a period whose toggle is off everywhere. Two dimensions are **not** reachable and are
+planned: **MA kind as an axis** (kind is fixed by field name; only `nt8_ema`/`nt8_sma`
+exist), and **multi-timeframe MAs** (everything is computed on the 1-minute close). Traps for
+both are in `docs/roadmap.md` — a new kind must match NT8's recursion rather than the
+textbook one, and a higher-timeframe MA must be stamped from the previous *completed* coarse
+bar or the backtest reads the future.
+
 **Spec features not yet built.** The build spec calls for these; none exist yet:
 - Moving-average **trailing stop mode** as a per-run toggle (only the structural
   swing-high stop is implemented). Needs `MovingAverageGrid(keep_values=True)`.
@@ -220,10 +229,13 @@ the review outputs are stable.
 
 **Open items.**
 - **NQ is fully wired up** — 19 contracts, 1,633,461 bars over 2021-12-05 → 2026-08-10, all
-  18 rolls on genuine crossovers, sweeps running in parallel. The one thing still missing is
-  an **NT8 reconciliation for NQ**: no Strategy Analyzer export has been compared
+  18 rolls on genuine crossovers, sweeps running in parallel. Instrument scaling is proven
+  exact (same bars, both specs, ×10 gross P&L per leg, commission unscaled).
+- **TODO: reconcile NQ against NT8.** No NQ Strategy Analyzer export has ever been compared
   trade-for-trade, so NQ inherits its fill-semantics confidence from MNQ rather than earning
-  it. Instrument scaling itself is proven exact (same bars, both specs, ×10 per leg).
+  it. Needs NinjaTrader time, not code time; blocks nothing. The recipe is written out in
+  `docs/roadmap.md` under "Outstanding: reconcile NQ against NT8" — export **Trades**, not
+  the summary, or every rule that matters stays hidden.
 - NG 02-26 sits in `data/minute/` and is **silently ignored**: `ContractId` rejects month 02
   (NQ/MNQ are quarterly) and `discover_exports` swallows the `ValueError`. Harmless, but a
   file disappearing without a warning would hide a real mistake.

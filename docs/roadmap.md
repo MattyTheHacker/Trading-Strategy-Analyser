@@ -27,11 +27,33 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 
 **Next up: M9.** Steps 1 and 2 are complete, so the refactor is the live item.
 
-One item was added by step 1 rather than removed: **NQ has no NT8 reconciliation.** A
-Strategy Analyzer export on one NQ contract would let NQ earn its fill-semantics confidence
-instead of inheriting it from MNQ. Not a blocker — the archetype is a test fixture, and
-instrument scaling is separately proven — but it is the cheapest remaining piece of
-ground truth, and worth doing while the NT8 export workflow is still fresh.
+### Outstanding: reconcile NQ against NT8
+
+**Not done, and not scheduled above because it needs NinjaTrader time rather than code
+time.** Do it when convenient; it does not block M9.
+
+NQ inherits its fill-semantics confidence from MNQ rather than earning it. Everything
+downstream of the bars is proven instrument-agnostic — same bars through both specs give
+identical trade geometry and gross P&L of exactly ×10 on every leg — so the *simulation*
+is not in doubt. What is unverified is whether NT8 itself behaves identically on NQ:
+fill semantics, the managed-order cancellation, `IsFillLimitOnTouch`, ambiguous-bar
+resolution. There is no reason to expect a difference, which is precisely why an
+unexamined assumption could sit there indefinitely.
+
+The recipe, matching how MNQ was done (`docs/nt8-fidelity.md`):
+
+1. Pick one contract with a clean full window — `NQ 03-24` mirrors the MNQ run.
+2. Strategy Analyzer → same window, EMA 21 / SMA 60 / SMA 175, all six filters on, zero
+   commission, zero slippage.
+3. Export **Trades**, not the summary. Summary statistics hide every rule that matters.
+4. Compare leg-for-leg against `runner.run_deadcat(..., instrument=NQ)`.
+5. Exclude both window ends: NT8 warms indicators from bars before the start, and the
+   export can stop before NT8's backtest did.
+
+Expected outcome is agreement at the MNQ level (1143/1144). **A disagreement would be the
+interesting result** — it would mean something in NT8 is instrument-dependent in a way the
+fidelity record does not capture, and that would be worth knowing before any NQ result is
+trusted.
 
 Not scheduled: **M8** (premise measured and mostly false — see `CLAUDE.md`), the three
 unbuilt spec features, `NG 02-26`'s silent skip, and the MAE/MFE definition mismatch.
@@ -421,6 +443,65 @@ argument.
   consistency ratio, profit target → pass rate. Reranks results by the objective that actually
   pays, rather than by profit factor.
 - **ATR-multiple brackets** with a hard dollar floor on minimum bracket size.
+
+---
+
+## Moving-average axes: what is sweepable and what is not
+
+**Already sweepable, no work needed.** Both the periods and the on/off toggles, jointly:
+
+```python
+grid = sweep.Grid.of(
+    DeadCatParams(commission_per_contract=0.74, slippage_ticks=1.0),
+    ema_period=[9, 15, 21, 30],          # period
+    fast_sma_period=[40, 60, 80],        # period
+    use_slow_sma=[True, False],          # toggle
+    slow_sma_period=[120, 175],          # period, gated by the toggle above
+    use_vwap=[True, False],              # toggle
+)
+```
+
+Every field of `DeadCatParams` except `target_r_multiples` is a legal axis
+(`sweep.SWEEPABLE`), and `Grid.dead_axes()` refuses a period axis whose toggle is off in
+every combination — otherwise four identical rows cost 4× the runtime. The periods are
+precomputed once as a `[n_periods, n_bars]` boolean matrix per MA kind, so adding period
+values to a sweep is close to free at run time.
+
+Two MA dimensions are **not** reachable. Both are recorded here as planned, not started.
+
+### MA kind as a swept axis
+
+The kind is currently fixed by field name: `ema_period` always resolves through
+`indicators.nt8_ema`, both SMA fields through `nt8_sma`. So "what if the fast filter were an
+EMA rather than an SMA?" cannot be asked, and only those two kinds exist — no WMA, HMA or
+VWMA.
+
+Needs a `kind` alongside each period (`fast_ma_kind="sma"`), a `MovingAverageGrid` per kind
+in `Dataset`, and gate lookup by `(kind, period)` instead of period alone. The grid cost is
+linear in the number of kinds, and the boolean-only default keeps that cheap.
+
+**The trap is the prime directive.** Any new kind must match NT8's recursion, not the
+textbook one — this is exactly where TA-Lib's EMA already differs from NT8's through
+seeding alone. A kind that is merely *a* correct HMA is a fidelity break, because Tier 1 and
+Tier 2 would then disagree in a way that cannot be attributed. Each kind needs pinning
+against hand-computed NT8 values the way `nt8_ema` and `nt8_sma` are.
+
+### Multi-timeframe moving averages
+
+Every MA is computed on the 1-minute close. A daily or hourly MA gating a 1-minute entry —
+standard practice, and the natural way to express "only short below the higher-timeframe
+trend" — is not expressible.
+
+Needs resampling to a coarser bar series, computing the MA there, and forward-filling back
+onto the 1-minute index. **The trap is lookahead**: the coarse bar covering 14:00–15:00 is
+not knowable until 15:00, so the value must be stamped from the *previous* completed coarse
+bar or every backtest using it is silently reading the future. This is the single easiest
+place in the whole project to manufacture a spectacular and entirely fictional edge.
+
+Sequencing note: this overlaps M10.3's compact trend label, which solves part of the same
+problem from the other direction — a coarse trend read as a condition rather than as an MA
+gate. Worth deciding which one is wanted before building either, rather than shipping two
+overlapping notions of "the higher-timeframe trend".
 
 ---
 
