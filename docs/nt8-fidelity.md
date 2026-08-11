@@ -176,20 +176,42 @@ contract's liquidity ramp. It also warms NinjaTrader's own local database, after
 manual re-export returns the union: MNQ 06-26 went from ending 2026-06-11 to running
 through 2026-06-18, its expiry week.
 
-Re-exporting every MNQ contract after the AddOn had run returned the full contract life —
+Re-exporting every contract after the AddOn had run returned the full contract life —
 roughly six months out through to expiry, against ~95 days before. With that merged into
-`data/archive/`, **all 18 MNQ rolls now detect a genuine volume crossover** and none falls
-back to the coverage boundary, with handover ratios of 1.26–2.88. NQ still sits at 1 of 13
-purely because it has not been re-exported since the AddOn ran.
+`data/archive/`, **all 18 MNQ rolls and all 18 NQ rolls now detect a genuine volume
+crossover** and none falls back to the coverage boundary. Handover ratios run 1.26–4.35
+(MNQ) and 1.17–4.75 (NQ), and every roll in both roots is decided on a session of at least
+1,251 shared bars.
+
+The NQ re-export also added six contracts the archive had never held — 03-22 through 12-22
+and 09-26 — taking the archive from 33 contracts to 38 and from 4,090,398 bars to
+4,601,503. NQ's continuous series grew from 1,258,980 bars to 1,633,461 and now starts
+2021-12-05 rather than 2022-10-09.
+
+**The two roots corroborate each other, and that caught a bug.** Run side by side, 17 of 18
+roll dates agreed exactly. The one that did not — MNQ 03-23 → 06-23 on 2023-03-13 against
+NQ's 2023-03-14 — turned out to be decided on a 120-bar stub where MNQ read 1.46 and NQ read
+0.68. Neither figure is a session verdict; they are two hours of overnight trade. The
+crossover test now skips a session with too few shared bars to be conclusive rather than
+letting it decide (`conclusive` in `overlap_volume`), which moved that one roll to
+2023-03-14 and left the other 35 in both roots untouched.
 
 **Correcting the roll dates costs bars, and that is the right trade.** Rolling at the true
 crossover means the front contract supplies the days a coverage-boundary roll used to hand
 to the back contract — and NT8's per-contract data has holes there. MNQ 03-22 holds 60 bars
-on 2022-03-10 between full sessions either side, so the continuous series now shows 18
-near-empty sessions (23,929 bars) that an early roll had papered over with the wrong
-contract. The gaps are real and were always there; they are simply no longer hidden. Filling
-them from the back contract would splice two different prices into one session — the offset
-across this roll is 8.75 points — so they stay visible instead.
+on 2022-03-10 between full sessions either side, so the continuous series now shows those
+near-empty sessions rather than papering over them with the wrong contract. The gaps are
+real and were always there; they are simply no longer hidden. Filling them from the back
+contract would splice two different prices into one session — the offset across this roll is
+8.75 points — so they stay visible instead.
+
+**The hole is systematic, and it is the same hole in both roots.** Two or three days before
+most rolls, a contract holds only the Sunday-evening 18:00–19:00 ET hour for a whole trading
+day and then resumes normally. NQ 12-25 has 1,380 bars on 2025-12-12, 60 on 2025-12-15, and
+1,314 on 2025-12-16. Across the spliced series that leaves 18 thin sessions in NQ (1,779
+bars) and 19 in MNQ outside its early low-liquidity listing period. This is exactly where
+the crossover gets decided, which is why the conclusiveness guard above matters more than
+its size suggests.
 
 MNQ 06-26 → 09-26 is the clearest example of the crossover itself:
 
@@ -205,7 +227,8 @@ The roll moves from 2026-06-12 to 2026-06-15 — the coverage boundary was three
 **Handover ratios must be read against `shared_bars`.** This same roll previously reported
 0.27 and was flagged as premature for weeks. That figure came from a 60-bar stub, not a
 session; the four full days before it sat at 0.9–1.4%. The stub was not evidence of an
-imminent roll, and it was not evidence against one either — it was 4% of a session.
+imminent roll, and it was not evidence against one either — it was 4% of a session. That
+lesson is now enforced in code rather than left to whoever reads the diagnostic table.
 
 **Volume comparison must be bar-aligned, not calendar-aligned.** Comparing whole-day volume
 compares a truncated session against a full one and manufactures a crossover that isn't

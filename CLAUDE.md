@@ -62,16 +62,30 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
   flagged as premature for weeks; that figure came from a 60-bar stub, not a session.
 - **Volume-crossover rolls are no longer undetectable.** Run the AddOn, then re-export
   manually: NT8 returns the full contract life instead of ~95 days, because the AddOn warms
-  its local database. **All 18 MNQ rolls now find a genuine crossover**; NQ is still 1 of 13
-  only because it has not been re-exported since. `docs/nt8-fidelity.md` has the evidence.
+  its local database. **All 36 rolls across both roots now find a genuine crossover**, each
+  decided on a session of ≥1,251 shared bars. `docs/nt8-fidelity.md` has the evidence.
+- **A stub session cannot decide a roll.** Both roots hold only the Sunday 18:00–19:00 ET
+  hour for one trading day two or three days before most rolls, and that lands exactly where
+  the crossover is judged. Sessions below half the median shared-bar count are marked
+  `conclusive=False` and skipped. Without this MNQ 03-23 → 06-23 rolled a day early on a
+  120-bar window reading 1.46, where NQ's identical stub read 0.68 — neither is a verdict.
+- **Run the two roots against each other.** They rolled identically on 17 of 18 pairs, and
+  the disagreement was the bug above. It is the cheapest correctness check available and
+  needs no NT8.
 - Correct roll dates **cost bars**. The front contract now supplies days an early roll gave
-  to the back contract, and NT8's data has holes there — 18 near-empty sessions in MNQ,
-  23,929 bars. They were always missing; an early roll hid them behind the wrong contract.
-  Do not fill them from the neighbouring contract: that splices two different prices into
-  one session.
+  to the back contract, and NT8's data has holes there — 18 thin sessions in NQ (1,779 bars)
+  and a comparable set in MNQ. They were always missing; an early roll hid them behind the
+  wrong contract. Do not fill them from the neighbouring contract: that splices two
+  different prices into one session.
+- **Out-of-session stray prints reach the indicators on a per-contract run but not on a
+  spliced one.** `runner.prepare` computes over every row it is handed; `build_continuous`
+  filters to in-session first. Measured on MNQ 03-24: including all 47 strays changes
+  nothing — 1,380 legs either way, no differing field — so this is a known asymmetry, not a
+  live bug. Re-measure rather than assume if the parser ever starts keeping more of them.
 - NT8 trade-list exports are in **UTC**. Bar timestamps are **end-of-bar, UTC**.
 - NQ and MNQ share a tick size but their tick values differ 10×. Everything monetary must go
-  through `instruments.py`.
+  through `instruments.py`. Verified by running the same NQ bars through both specs: trade
+  geometry identical, gross P&L exactly ×10 on every leg, per-contract commission unscaled.
 - Parallel sweeps top out around **5×, not 16×**, and that is the hardware, not the harness.
   Per-core throughput drops 1.5× when all 8 physical cores are busy (mobile Ryzen; ~5.1 GHz
   single-core boost against a much lower all-core clock). `n_jobs=8` gets 4.4×; `n_jobs=16`
@@ -82,7 +96,7 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
 Python 3.14 venv at `.venv`. Run tools as `./.venv/Scripts/python.exe -m ...`.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest          # 172 tests
+./.venv/Scripts/python.exe -m pytest          # 174 tests
 nqbt ingest | contracts | splice | run
 ```
 
@@ -113,9 +127,16 @@ splicing with back-adjustment, NT8-compatible indicators, the DeadCatBounce simu
 sweep + statistics + DuckDB results layer, and parallel sweeps over cores. Reconciliation
 against NT8 is **1143/1144 leg exits identical (99.91%)**.
 
-That reconciliation was re-checked after the archive landed and still holds: the archive's
-extra history sits entirely *before* the reconciled window, giving a constant bar-index
-offset across all 292 entries, so the simulation's output over that window is unchanged.
+That reconciliation was re-checked after the archive and the NQ re-export landed, and still
+holds — but **do not check it by leg count**. The extra leading history legitimately adds
+signals, so a current run yields 1,380 legs against the stored 1,168. Join on
+`(entry_time, leg)` instead: all 1,168 are present with identical times, prices, stops,
+targets, exit reasons and P&L. The bar-index offset is *not* constant (38,279 → 38,296);
+the drift is 17 out-of-session stray prints and is inert. `verification/README.md` has it.
+
+**NQ now runs end to end** — ingest, splice, prepare, parallel sweep — over 1,633,461 bars.
+It is unprofitable on its own data too (best PF 0.829 of 96 combinations, 0 profitable).
+No NQ result has been reconciled against NT8; MNQ remains the only fill-semantics evidence.
 
 `sweep.sweep(..., n_jobs=8)` is verified to produce results byte-identical to the serial
 path. The `Dataset` is shared, not copied: `Dataset.slim()` drops the 121 MB bar frame to a
@@ -124,10 +145,13 @@ worker, where `close`, `ema.below` and `sma.below` all arrive as `numpy.memmap`.
 
 ## Planned, not yet done
 
-**M7 — walk-forward and Monte Carlo.** `walkforward.py`: rolling in-sample/out-of-sample
-window splits over the cached series. `montecarlo.py`: permutation/resampling of a strategy's
-trade sequence to test robustness beyond the single historical path. Both sit on top of the
-existing results layer.
+**M7 — walk-forward, Monte Carlo, and a random-entry control arm.** All three: `walkforward.py`
+(rolling IS/OOS splits), `montecarlo.py` (permuting the trade sequence), and `randomentry.py`
+— random entries on the same bars, brackets and costs. The third is the one worth building
+first: against PF 0.746 it separates "worse than random", "no better than random" and "better
+but not past costs", three diagnoses that currently look identical. Permuting an existing
+sequence cannot, because it takes the entries as given. It also shares machinery with M11's
+permutation test.
 
 **Spec features not yet built.** The build spec calls for these; none exist yet:
 - Moving-average **trailing stop mode** as a per-run toggle (only the structural
@@ -166,7 +190,11 @@ and `source`. Rule: `stats.py` must not import from `nqbt.sim`.
 (`nqbt/regime.py`, Kaufman efficiency ratio → directional / consolidating / unclassifiable,
 the middle band being the no-trade state); relative volume normalised **by time of day**, not
 by a rolling window, or it just measures the clock; a compact trend label off the existing
-MA grids.
+MA grids; and time of day itself (`nqbt/timeofday.py`) as a first-class dimension for both
+sweeps and the review — a coarse session-phase label plus a bar-of-session index, **measured
+in ET, never UTC**, or the cash open smears across two buckets for half the year. It doubles
+as a sweepable entry filter: a rule that only works at the open reads as unprofitable when
+averaged over 23 hours.
 
 **M11 — manual trade review.** Import real trades, annotate each against the market context
 at its entry bar, stratify realised P&L by condition. Biggest trap: **annotate against the
@@ -191,21 +219,22 @@ defines no statistic of its own. Streamlit for the read-only views, and don't st
 the review outputs are stable.
 
 **Open items.**
-- **NQ data now exists** — 14 contracts, splicing to 1,258,980 bars over 2022-10-09 →
-  2026-06-18, raw and back-adjusted. The pipeline handles it, but **the simulation has never
-  been run against NQ** and no NQ result has been reconciled with NT8.
-- **NQ has not been re-exported since the AddOn ran**, so it still rolls at the coverage
-  boundary (12 of 13) where MNQ is now 18 of 18 on genuine crossovers. A manual re-export of
-  the NQ contracts should close that; the AddOn has already warmed the database for them.
+- **NQ is fully wired up** — 19 contracts, 1,633,461 bars over 2021-12-05 → 2026-08-10, all
+  18 rolls on genuine crossovers, sweeps running in parallel. The one thing still missing is
+  an **NT8 reconciliation for NQ**: no Strategy Analyzer export has been compared
+  trade-for-trade, so NQ inherits its fill-semantics confidence from MNQ rather than earning
+  it. Instrument scaling itself is proven exact (same bars, both specs, ×10 per leg).
 - NG 02-26 sits in `data/minute/` and is **silently ignored**: `ContractId` rejects month 02
   (NQ/MNQ are quarterly) and `discover_exports` swallows the `ValueError`. Harmless, but a
   file disappearing without a warning would hide a real mistake.
-- **Roll dates are now data-derived, and may no longer match NT8's.** The coverage handover
-  had one virtue beyond necessity: it was where NT8 itself switched contracts, so the tiers
-  agreed by construction. A crossover date has no such guarantee — NT8 merges on the
-  rollover dates configured in its Database window. The 99.91% reconciliation does not
-  settle this, having been run on a single contract rather than a spliced series. Worth a
-  continuous-series reconciliation before trusting a sweep that crosses a roll.
+- **Roll dates are data-derived and deliberately not reconciled against NT8.** NT8 merges on
+  the rollover dates *configured in its Database window*, not on observed volume — a setting,
+  not a measurement. It is ground truth for fill semantics, not for when the market rolled,
+  so a crossover date may reasonably be better than NT8's without violating the prime
+  directive. Residual risk: a spliced result cannot be reproduced in Strategy Analyzer
+  bar-for-bar around a roll, so if a sweep crossing one surprises you, look there first.
+- **`results/sweeps.duckdb` is stale** — computed against a series with different roll dates.
+  Plan is drop and re-run, once M10's labels exist so the re-run comes back stratified.
 - MAE/MFE use a different definition from NT8's (mine measure to the exit bar's extreme,
   NT8's cap at the exit). Reporting only, no P&L effect. Unresolved.
 - The DeadCatBounce archetype is **unprofitable across all 192 combinations tested** at

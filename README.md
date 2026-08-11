@@ -29,7 +29,7 @@ semantics and the reconciliation record.
 
 Planned work is specified in [docs/roadmap.md](docs/roadmap.md), in dependency order.
 
-**172 tests passing.**
+**174 tests passing.**
 
 **Reconciliation against NT8: 1143 of 1144 leg exits identical (99.91%).** The single
 remaining leg is worth $19.50 and is an NT8 order-handling artefact.
@@ -61,9 +61,9 @@ cache/continuous/MNQ_raw.parquet   spliced series (and MNQ_backadj.parquet)
 results/sweeps.duckdb              every sweep, queryable together
 ```
 
-Currently cached: **33 contracts (19 MNQ, 14 NQ), 4,090,398 bars**, splicing to continuous
-series of **1,664,749 in-session bars over 2021-09-19 → 2026-08-10** (MNQ) and **1,258,980
-over 2022-10-09 → 2026-06-18** (NQ), each raw and back-adjusted.
+Currently cached: **38 contracts (19 MNQ, 19 NQ), 4,601,503 bars**, splicing to continuous
+series of **1,663,489 in-session bars over 2021-09-19 → 2026-08-10** (MNQ) and **1,633,461
+over 2021-12-05 → 2026-08-10** (NQ), each raw and back-adjusted.
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a
 limited period and drops the tail once it expires, so a folder of exports quietly loses
@@ -75,8 +75,9 @@ last ~95 days through expiry, and the AddOn
 3–6 months further back but stops at the turn of the expiry month. But the AddOn's
 `BarsRequest` calls warm NinjaTrader's own local database, and a manual export dumps that
 database — so **run the AddOn, then re-export manually** and NT8 returns the full contract
-life from one source. That took the archive from 3.0M bars to 4.09M and every MNQ contract
-now runs from ~6 months out through to expiry.
+life from one source. That took the archive from 3.0M bars to 4.6M; every MNQ and NQ
+contract now runs from ~6 months out through to expiry, and **all 36 rolls across both roots
+detect a genuine volume crossover** where none did before.
 
 Ingest also hashes the entire consumed byte range to distinguish an append from a rewrite;
 checking only the file head cannot see a rewritten tail, which froze stale bars in the cache
@@ -182,28 +183,36 @@ combination, which otherwise multiplies runtime for byte-identical rows.
 
 ## Current finding
 
-Over 4.7 years at $0.74/RT commission and 1 tick of slippage, across 192 combinations:
+At $0.74/RT commission and 1 tick of slippage:
 
-```
-profitable combinations (PF > 1.0):   0 of 192
-best PF 0.746        median PF 0.706
-```
+| | MNQ, 192 combinations | NQ, 96 combinations |
+|---|---|---|
+| profitable (PF > 1.0) | 0 | 0 |
+| best PF | 0.746 | 0.829 |
+| median PF | 0.706 | 0.806 |
 
-Nothing in the tested space survives costs; the best combination still loses ~$7/trade
-over 5,224 trades. The fill assumption is not what's causing it — NT8's ambiguity rule
-versus a blanket worst case differs by only **+0.009 PF** on average, with ambiguous bars
-at 3.4% of exits. The losses are structural.
+Nothing in either tested space survives costs. The fill assumption is not what's causing it
+— NT8's ambiguity rule versus a blanket worst case differs by only **+0.009 PF** on
+average, with ambiguous bars at 3.4% of exits. The losses are structural, and NQ failing
+independently on its own 4.7 years is corroboration rather than a second data point.
+
+**Instrument scaling is exact.** Running the same NQ bars through both instrument specs
+gives byte-identical trade geometry — entry and exit bars, prices, stops, targets,
+`r_multiple`, `risk_points` — and gross P&L of exactly ×10 on *every individual leg*
+(min ratio = max ratio = 10.0000000000), while per-contract commission correctly does not
+scale. That is the check that would catch a dollar figure hardcoded to one instrument.
 
 ## Known limitations
 
-- **NQ still rolls at the coverage boundary** (12 of 13), because it has not been
-  re-exported since the AddOn ran. **All 18 MNQ rolls now detect a genuine volume
-  crossover** — see [docs/nt8-fidelity.md](docs/nt8-fidelity.md). Re-exporting NQ should
-  close the gap.
-- **18 MNQ sessions are near-empty** (23,929 bars), because a correct roll date makes the
-  front contract supply days where NT8's data for that contract has holes. The gaps are
-  real and were previously hidden behind the wrong contract, not absent.
-- **NQ is untested** — only MNQ exports exist. The code is instrument-aware throughout.
+- **Thin sessions are visible rather than papered over.** NT8's data holds only the Sunday
+  18:00–19:00 ET hour for one trading day before most rolls, and a correct roll date makes
+  the front contract supply that day. 18 such sessions in NQ (1,779 bars) and a comparable
+  set in MNQ. The gaps are real and were previously hidden behind the wrong contract, not
+  absent — filling them from the neighbour would splice two different prices into one
+  session.
+- **NQ has never been reconciled against NT8.** The pipeline runs on it end to end and
+  instrument scaling is exact (see below), but no NQ Strategy Analyzer export has been
+  compared trade-for-trade. The MNQ reconciliation is the only fill-semantics evidence.
 - **`r_multiple` uses planned risk** (`stop − trigger`), which is how the NinjaScript
   places its targets. Consequence: target exits land just under their nominal multiples,
   and stop exits can print below −1R when slippage or a gap made the risk actually taken

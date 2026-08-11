@@ -10,6 +10,34 @@ a source of priorities.
 
 ---
 
+## Order of work
+
+Dependency order, not priority order — each item's prerequisites sit above it.
+
+| # | Work | Why here |
+|---|---|---|
+| ~~1~~ | ~~Re-export NQ manually~~ | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
+| ~~2~~ | ~~Run the simulation against NQ~~ | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact: same bars through both specs give identical geometry and ×10 gross P&L on every leg. |
+| 3 | **M9** — split context from simulation | Gate for everything below. Behaviour-preserving moves only, with the reconciliation re-run either side as the check. |
+| 4 | **M10** — regime, relative volume, trend, time of day | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
+| 5 | **M11** — the trade review | The stated goal. Needs 3 and 4. |
+| 6 | **M7** — random-entry arm first, then walk-forward and Monte Carlo | The control arm shares machinery with §11.4's permutation test, so it is cheaper right after M11 than before it. |
+| 7 | Numpy-native summary path | ~3×, composes with the parallel speedup. Worth doing when walk-forward multiplies sweep runtime by the window count, not before — a 1,536-combination sweep is 10 s today. |
+| 8 | **M12** — web GUI | Gated on the review's outputs being stable. |
+
+**Next up: M9.** Steps 1 and 2 are complete, so the refactor is the live item.
+
+One item was added by step 1 rather than removed: **NQ has no NT8 reconciliation.** A
+Strategy Analyzer export on one NQ contract would let NQ earn its fill-semantics confidence
+instead of inheriting it from MNQ. Not a blocker — the archetype is a test fixture, and
+instrument scaling is separately proven — but it is the cheapest remaining piece of
+ground truth, and worth doing while the NT8 export workflow is still fresh.
+
+Not scheduled: **M8** (premise measured and mostly false — see `CLAUDE.md`), the three
+unbuilt spec features, `NG 02-26`'s silent skip, and the MAE/MFE definition mismatch.
+
+---
+
 ## Standing constraint, extended
 
 The prime directive — match NT8's default bar-close fidelity, never exceed it — governs the
@@ -89,7 +117,7 @@ a re-run of the reconciliation window before and after, compared byte-for-byte.
 ## M10 — Prerequisites the review needs and we don't have
 
 The review is meant to score trades against "overall trend, MAs, volume, directional vs
-consolidation". Two of those four have no implementation.
+consolidation, time of day". Three of those five have no implementation.
 
 **10.1 Regime classification — `nqbt/regime.py`.** Directional / consolidating /
 unclassifiable, as a 1D label array in the `conditions.py` mould, computed once in `prepare`.
@@ -118,6 +146,34 @@ slow MA, the slow MA's slope sign, and the fast/slow stack order. Derived from t
 `MovingAverageGrid`, so no new indicator work — but it needs `keep_values=True`, which is the
 66 MB → 595 MB memory switch. For review over one account's trade history that is fine; it
 must not be switched on for sweeps by default.
+
+**10.4 Time of day — `nqbt/timeofday.py`.** A first-class dimension for both the sweep
+statistics and the review, not a review-only afterthought. Two forms, because they answer
+different questions:
+
+- **Session phase**, a coarse categorical label: overnight (18:00 ET open), London, NY
+  pre-open, cash open, midday, NY afternoon, close. Few enough buckets to survive the
+  minimum-stratum guard on a small sample.
+- **Bar of session**, an integer index from the session open. The finer form, and the one
+  relative volume already needs — 10.2's normalisation is per bar-of-session by
+  construction, so the two share a definition rather than each inventing one.
+
+**Measure it in exchange local time (ET), never UTC.** The market's rhythm follows the cash
+open at 09:30 ET, which is 13:30 or 14:30 UTC depending on the date. Bucketing on UTC smears
+the single most distinctive hour of the day across two different buckets for half the year,
+and the result looks like noise rather than an error. Bar timestamps are stored UTC and
+`sessions.classify` already produces the ET conversion, so the label comes from there.
+
+**The multiple-comparisons cost is real and compounds.** Hour of day multiplies every other
+stratification: seven session phases against five regimes is 35 cells before any MA gate.
+§11.4's guard applies with more force here, and the coarse label exists specifically so the
+review has a form that survives a few hundred trades. Bar-of-session is for the sweep, where
+the sample is 5,000+ trades.
+
+**Second-order payoff:** once the label exists it is also a *sweepable entry filter* — trade
+only during phases X and Y — which is a single extra boolean in the condition AND, not a new
+`@njit` function. Worth having as an axis before concluding an archetype has no edge, since
+a rule that works only at the cash open reads as unprofitable when averaged across 23 hours.
 
 ---
 
@@ -238,6 +294,17 @@ Stratify realised P&L by each annotated condition and report per stratum: n, win
 expectancy, profit factor, average R. Rank conditions by how much they separate winners from
 losers. Reuse `stats.summarise` unchanged — that is the point of M9.
 
+**Time of day is a headline dimension, not one condition among many.** When during the
+session a trade was taken is the stratification most likely to show real structure in a
+discretionary record, because it captures attention, liquidity and the trader's own routine
+at once — and unlike a moving-average gate, it is not something the trader was consciously
+optimising. Report it first, using 10.4's coarse session-phase label, paired with relative
+volume so "this hour is always busy" is separable from "this hour was unusually busy".
+
+Because the same annotation path runs on simulated logs, the identical breakdown applies to
+a sweep's trades — which is how a time-of-day finding in a few hundred real trades gets
+tested against thousands of simulated ones instead of being believed on its own.
+
 **11.4 The statistical guard, which is not optional.**
 
 A few hundred manual trades against a few dozen candidate conditions is a multiple-comparisons
@@ -314,19 +381,42 @@ front end is the whole project.
 
 ---
 
+## M7 — Walk-forward, Monte Carlo, and a random-entry control arm
+
+All three, deliberately, because they answer different questions and only one of them is
+about the strategy's entries.
+
+- **`walkforward.py`** — rolling in-sample / out-of-sample splits over the cached series.
+  Tests whether a parameter choice survives being chosen on data it did not see.
+- **`montecarlo.py`** — permutation and resampling of a strategy's trade sequence. Tests
+  whether the equity path was luckier than the trades justify.
+- **`randomentry.py`** — the null the other two cannot provide. Same bars, same bracket
+  geometry, same costs, same `@njit` exit logic, entries drawn at random and matched for
+  count and time-of-day distribution.
+
+The third is the one worth building first. Against the current PF of 0.746 it separates three
+diagnoses that today look identical: entries **worse than random** (the signal is real but
+inverted — investigate the inverse), **indistinguishable from random** (the entry logic
+contributes nothing; stop tuning this archetype), or **better than random but not past
+costs** (there is signal; attack costs, hold time or bracket size). Permuting an existing
+trade sequence cannot distinguish any of those, because it takes the entries as given.
+
+It also shares machinery with §11.4's permutation test, so building it pays for part of the
+review's statistical guard.
+
+---
+
 ## Related items from the imantrading notes, not yet scheduled
 
-These are not part of the above and are recorded so they are not lost. See
-`imantrading_concept_extraction.md` §3 for the full argument.
+Recorded so they are not lost. See
+[imantrading_concept_extraction.md](imantrading_concept_extraction.md) §3 for the full
+argument.
 
-- **Regime-stratified re-reading of the existing 192 combinations.** M10.1 delivers the
-  classifier; applying it to results already in DuckDB is then nearly free, and it addresses a
-  real weakness — the current "0 of 192 profitable" cannot distinguish "no edge anywhere" from
-  "edge in one regime, drowned by the others".
-- **Random-entry control arm.** Same bars, same brackets, same costs, entries drawn at random.
-  Distinguishes "worse than random" from "no better than random" from "better but not past
-  costs" — three findings that currently look identical. Shares its machinery with the
-  permutation test in M11.4.
+- **Regime-stratified re-reading of the existing sweeps.** M10.1 delivers the classifier;
+  applying it to results already in DuckDB is then nearly free, and it addresses a real
+  weakness — the current "0 of 192 profitable" cannot distinguish "no edge anywhere" from
+  "edge in one regime, drowned by the others". The same argument applies to M10.4's
+  time-of-day label, and for the same reason.
 - **Prop-account simulator** over the trade log: trailing threshold, daily loss limit,
   consistency ratio, profit target → pass rate. Reranks results by the objective that actually
   pays, rather than by profit factor.
@@ -335,6 +425,30 @@ These are not part of the above and are recorded so they are not lost. See
 ---
 
 ## Decisions taken
+
+**Roll dates need no reconciliation against NT8.** All 18 MNQ roll dates moved when the
+archive made volume crossovers detectable, which raised whether Tier 1 and Tier 2 still agree
+across a roll — the coverage handover used to guarantee it by construction, being the point
+NT8 itself ran out of one contract.
+
+Decided: not worth chasing. NT8 merges contracts on the rollover dates **configured in its
+Database window**, not on observed volume, so it is a setting rather than a measurement. It
+is ground truth for fill semantics, which is what the prime directive is about; it is not
+ground truth for when the market actually rolled. A data-derived crossover can reasonably be
+*better* than NT8 here without that being a fidelity violation.
+
+Residual risk, recorded rather than dismissed: a spliced-series result cannot be reproduced
+in Strategy Analyzer bar-for-bar around a roll. If a sweep that crosses one ever produces
+something surprising, the roll boundary is a candidate explanation, and the segment tables in
+`nqbt splice --diagnostics` are where to look first.
+
+**Stored sweeps — drop and re-run, not yet.** Everything in `results/sweeps.duckdb` was
+computed against a continuous series with different roll dates, so those rows are not
+comparable with anything generated now. They are not wrong, they are answers to a different
+question, and nothing reads them automatically. Clear the table and re-run the grids that
+still matter at the point something actually needs to query it — most cheaply once M10's
+regime and time-of-day labels exist, so the re-run produces stratified results rather than
+needing a third pass.
 
 **Trade source format — deferred, by design.** An example will arrive; until then the
 importer is specified as an adapter boundary (§11.1) rather than around a guessed layout.
