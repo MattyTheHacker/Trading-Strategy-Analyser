@@ -19,6 +19,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~1~~ | ~~Re-export NQ manually~~ | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
 | ~~2~~ | ~~Run the simulation against NQ~~ | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact: same bars through both specs give identical geometry and ×10 gross P&L on every leg. |
 | 3 | **M9** — split context from simulation | Gate for everything below. Behaviour-preserving moves only, with the reconciliation re-run either side as the check. |
+| 3a | **M13** — bar resolution as a sweep axis | Sits with M9 because the resampler is a context concern and lands in the same file. Independent of M10/M11, so it can move later if the review is more urgent — but doing it here means `results` gains its `resolution` column before the stale DuckDB re-run rather than after. |
 | 4 | **M10** — regime, relative volume, trend, time of day | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
 | 5 | **M11** — the trade review | The stated goal. Needs 3 and 4. |
 | 6 | **M7** — random-entry arm first, then walk-forward and Monte Carlo | The control arm shares machinery with §11.4's permutation test, so it is cheaper right after M11 than before it. |
@@ -492,16 +493,116 @@ Every MA is computed on the 1-minute close. A daily or hourly MA gating a 1-minu
 standard practice, and the natural way to express "only short below the higher-timeframe
 trend" — is not expressible.
 
-Needs resampling to a coarser bar series, computing the MA there, and forward-filling back
-onto the 1-minute index. **The trap is lookahead**: the coarse bar covering 14:00–15:00 is
-not knowable until 15:00, so the value must be stamped from the *previous* completed coarse
-bar or every backtest using it is silently reading the future. This is the single easiest
-place in the whole project to manufacture a spectacular and entirely fictional edge.
+Needs the resampler from M13 below, computing the MA on the coarse series and forward-filling
+back onto the 1-minute index. **The trap is lookahead**: the coarse bar covering 14:00–15:00
+is not knowable until 15:00, so the value must be stamped from the *previous* completed
+coarse bar or every backtest using it is silently reading the future. This is the single
+easiest place in the whole project to manufacture a spectacular and entirely fictional edge.
+
+Note this is a *different* feature from M13: here the strategy still runs on 1-minute bars
+and merely consults a coarse MA. In M13 the whole strategy runs on coarse bars. Both are
+wanted; they share the resampler and nothing else.
 
 Sequencing note: this overlaps M10.3's compact trend label, which solves part of the same
 problem from the other direction — a coarse trend read as a condition rather than as an MA
 gate. Worth deciding which one is wanted before building either, rather than shipping two
 overlapping notions of "the higher-timeframe trend".
+
+---
+
+## M13 — Bar resolution as a sweep dimension
+
+Run the whole strategy on 2, 5, 15, 30-minute bars and sweep across resolutions the way
+periods are swept today. Planned, not started.
+
+### The enabling fact: resampling 1-minute bars is exact, not approximate
+
+The obvious worry is that coarse bars should be built from `data/tick/` to be faithful. They
+should not, and doing so would be the *more* precise choice the prime directive forbids.
+OHLC aggregation is associative:
+
+```
+open   = first        high = max(highs)
+close  = last         low  = min(lows)          volume = sum
+```
+
+A 5-minute bar assembled from five 1-minute bars is therefore **bit-identical** to one NT8
+assembles from ticks. A minute with no trades contributes nothing either way, so gaps do not
+break the identity. This is what makes the whole feature cheap and fidelity-neutral: no new
+data, no tick pipeline, no new source of Tier-1/Tier-2 divergence.
+
+### The trap: anchoring
+
+Bars must be bucketed by **minutes since the session open**, not by wall clock and not with
+a bare `resample()`. NT8 restarts bar building at each session start, so under the CME ETH
+template a 5-minute bar runs 18:00–18:05 ET.
+
+For the periods anyone actually sweeps this happens to be harmless — 18:00 ET is 1,080
+minutes past midnight, and 2/3/5/10/15/30/60 all divide 1,080, so midnight-anchored and
+session-anchored buckets coincide. **That coincidence is exactly why this must be tested
+rather than assumed**: it holds for every period likely to be tried first, then silently
+fails on 7 or 11 or 45. Anchoring to the session open is no harder and is correct for all of
+them.
+
+Two further boundaries the bucketing must respect: no bar may span the 17:00–18:00 ET
+maintenance break, and none may span the Friday 17:00 → Sunday 18:00 weekend. Bucketing from
+the session open gives both for free; bucketing on wall clock does not.
+
+### Validation, which is unusually cheap here
+
+`NqbtHistoricalExporter.cs:270` already builds `BarsPeriod { BarsPeriodType =
+BarsPeriodType.Minute, Value = 1 }`. Changing `Value` gives NT8's own 5-minute bars for the
+same contract, and `tools/compare_exports.py` already diffs two exports. So the check is:
+resample our 1-minute archive to 5 minutes, pull NT8's native 5-minute series, and diff.
+Any anchoring error shows up immediately as a whole-bar offset rather than as a subtly wrong
+backtest months later.
+
+**Request it with the ETH trading-hours template, not `Default 24 x 7`.** The AddOn uses
+24x7 deliberately so nothing is filtered before our own session classification sees it, but
+bar *building* is anchored by that template — and the Strategy Analyzer will use ETH. A
+validation run against 24x7 bars would confirm the wrong thing.
+
+### What changes about the strategy, which is the real point
+
+Resolution is not a neutral knob. Several rules are defined per *bar*, so their meaning
+moves with the bar:
+
+| rule | at 1 min | at 5 min |
+|---|---|---|
+| entry order lifetime (one bar) | 1 minute | 5 minutes |
+| stop ratchet (once per completed bar) | every minute | 5× less often |
+| `bars_required_to_trade = 200` | 200 minutes | 1,000 minutes |
+| MA period 21 | 21 minutes | 105 minutes |
+
+So a resolution sweep is not "the same strategy, sampled differently" — it is a family of
+related strategies. Two consequences: `resolution` must be a first-class column everywhere
+results are stored or compared, and **comparing profit factor across resolutions at the same
+period number is meaningless** unless the period is scaled with it.
+
+**Prediction worth checking early: the ambiguous-bar rate should rise sharply.** A bigger bar
+is likelier to contain both the stop and a target. At 1 minute that is 3.4% of exits and the
+choice of `ambiguity_policy` is worth only ±0.009 PF. At 15 minutes it could dominate, and
+the spread between the NT8 rule and the blanket worst case becomes a direct measure of how
+much of any apparent coarse-resolution edge is an artefact of what bar data cannot settle.
+If a coarse resolution suddenly looks profitable, **look there first.**
+
+### Shape
+
+`nqbt/resample.py`, and it belongs to **context, not simulation** — so it lands naturally
+alongside M9's `nqbt/context.py`.
+
+Resolution cannot be a `DeadCatParams` field: it changes the `Dataset`, not the rule, and
+`sweep()` builds one `Dataset` for the whole grid. Cleanest is a wrapper that builds one
+`Dataset` per resolution and runs the grid inside each, tagging every row:
+
+```python
+res = sweep.sweep_resolutions(bars, grid, resolutions=[1, 2, 5, 15])
+```
+
+Cost is mild and self-limiting, because coarser series are proportionally smaller: sweeping
+1, 2, 5 and 15 minutes costs about 1 + ½ + ⅕ + 1/15 ≈ **1.8× a 1-minute sweep**, not 4×.
+`results.save_sweep` needs the extra column, which is also a reason to do it before the
+stale DuckDB re-run rather than after.
 
 ---
 

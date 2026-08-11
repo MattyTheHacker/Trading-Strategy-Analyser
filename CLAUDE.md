@@ -162,6 +162,17 @@ both are in `docs/roadmap.md` — a new kind must match NT8's recursion rather t
 textbook one, and a higher-timeframe MA must be stamped from the previous *completed* coarse
 bar or the backtest reads the future.
 
+**M13 — bar resolution as a sweep axis (2/5/15/30 min).** Planned. Resampling 1-minute bars
+is **exact, not approximate** — OHLC aggregation is associative, so a 5-minute bar built from
+five 1-minute bars is bit-identical to one NT8 builds from ticks. Do *not* reach for
+`data/tick/`; that would be the more-precise-than-NT8 error. Bucket by **minutes since the
+session open**, never wall clock: 2/3/5/10/15/30/60 all divide the 1,080-minute offset to
+18:00 ET so the two agree, which is exactly why an untested implementation looks fine until
+someone tries 7. Resolution changes the strategy, not just the sampling — order lifetime, the
+ratchet and `bars_required_to_trade` are all per-bar — so it must be a first-class results
+column. Expect the ambiguous-bar rate to climb well above 1-minute's 3.4%; if a coarse
+resolution looks profitable, check that first.
+
 **Spec features not yet built.** The build spec calls for these; none exist yet:
 - Moving-average **trailing stop mode** as a per-run toggle (only the structural
   swing-high stop is implemented). Needs `MovingAverageGrid(keep_values=True)`.
