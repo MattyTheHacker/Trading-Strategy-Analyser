@@ -79,6 +79,35 @@ def test_volume_is_compared_over_shared_bars_only():
     assert table.loc[pd.Timestamp("2024-03-08"), "shared_bars"] == 2
 
 
+def test_a_stub_session_cannot_decide_the_roll():
+    # Both contracts are near-empty on 03-06 -- NT8's data has exactly this hole a few
+    # days before most rolls. Restricting to shared bars does not help here, because both
+    # sides are short; the ratio is an hour of overnight trade standing in for a session.
+    # MNQ 03-23 -> 06-23 read 1.46 on such a stub and rolled a day early.
+    week = ["2024-03-05", "2024-03-06", "2024-03-07"]
+    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300])), bars={"2024-03-06": 1})
+    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900])), bars={"2024-03-06": 1})
+
+    table = splice.overlap_volume(front, back)
+    assert table.loc[pd.Timestamp("2024-03-06"), "back_wins"]
+    assert not table.loc[pd.Timestamp("2024-03-06"), "conclusive"]
+
+    roll = splice.detect_roll(FRONT, BACK, front, back)
+    assert roll.method == splice.METHOD_VOLUME
+    assert roll.roll_day == pd.Timestamp("2024-03-07")
+
+
+def test_a_full_session_still_decides_the_roll_on_its_first_win():
+    # The guard must not cost a legitimate same-day crossover: identical to the case
+    # above except that the deciding session is a full one.
+    week = ["2024-03-05", "2024-03-06", "2024-03-07"]
+    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300])))
+    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900])))
+
+    roll = splice.detect_roll(FRONT, BACK, front, back)
+    assert roll.roll_day == pd.Timestamp("2024-03-06")
+
+
 def test_rolls_at_the_coverage_boundary_when_the_crossover_is_missing():
     front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
     back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})

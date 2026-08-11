@@ -18,8 +18,15 @@ observable and every roll falls back to the coverage handover.
 
 Running the AddOn first changes that. Its ``BarsRequest`` calls warm NinjaTrader's local
 database, after which a manual re-export returns the full contract life, and the crossover
-becomes visible: all 18 MNQ rolls now find one, against none before. NQ still has the
-shallow coverage and still hands over at the boundary.
+becomes visible: all 18 MNQ and all 18 NQ rolls now find one, against none before.
+
+**A session with too few shared bars does not get to decide.** Both roots have a ~60-bar
+stub two or three days before most rolls -- NT8 serves the Sunday-evening hour for that
+trading day and nothing else -- and it lands exactly where the crossover is judged. On such
+a stub the ratio is two hours of overnight trade standing in for a session, and it read 1.46
+in MNQ against 0.68 in NQ for the same roll. Sessions below
+:data:`FULL_SESSION_FRACTION` of the median shared-bar count are marked inconclusive and
+skipped; they can still be confirmed *by*, they just cannot start the run.
 
 **Open question worth knowing about.** The coverage handover had one virtue beyond
 necessity: it is the point where NT8 itself runs out of one contract and starts the next,
@@ -31,13 +38,14 @@ a single contract rather than a spliced series.
 Two roll methods:
 
 ``volume_crossover``
-    The textbook rule: roll on the first session where the back contract's volume
-    overtakes the front's, measured over shared bars. Used automatically when the data
-    supports it -- which needs history from a source less restrictive than NT8's.
+    The textbook rule: roll on the first *conclusive* session where the back contract's
+    volume overtakes the front's, measured over shared bars. The normal path now that the
+    archive carries full contract lives; every roll in both roots uses it.
 ``coverage_boundary``
-    The normal path for NT8-sourced data. Rolls on the first session where the front
-    contract's data is partial and the back contract's is complete. The handover volume
-    ratio is recorded so a roll that fires suspiciously early can still be spotted.
+    The fallback for a contract exported without the crossover in range. Rolls on the first
+    session where the front contract's data is partial and the back contract's is complete.
+    The handover volume ratio is recorded so a roll that fires suspiciously early can still
+    be spotted.
 """
 
 from __future__ import annotations
@@ -180,6 +188,12 @@ def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
         table["front_volume"] > 0
     )
     table["back_wins"] = table["back_volume"] > table["front_volume"]
+    # A verdict is only as good as the window it was measured over. NT8's data has a
+    # near-empty session a few days before most rolls -- typically the Sunday 18:00-19:00
+    # ET hour and nothing else -- which lands squarely where the crossover is decided.
+    table["conclusive"] = table["shared_bars"] >= (
+        table["shared_bars"].median() * FULL_SESSION_FRACTION
+    )
     return table
 
 
@@ -248,11 +262,20 @@ def detect_roll(
 def _first_confirmed_crossover(
     table: pd.DataFrame, confirm_sessions: int
 ) -> pd.Timestamp | None:
-    """First session where the back contract leads and keeps leading."""
+    """First session where the back contract leads and keeps leading.
+
+    Inconclusive sessions are skipped rather than allowed to decide. Both roots have a
+    ~60-bar stub two or three days before most rolls, and on such a stub the comparison is
+    an hour of overnight trade standing in for a session: MNQ 03-23 -> 06-23 read 1.46
+    there and rolled a day early, where NQ's equivalent stub read 0.68 and did not. The
+    skipped day is still eligible to be *confirmed* by -- the run only has to start
+    somewhere trustworthy.
+    """
     wins = table["back_wins"].to_numpy()
+    conclusive = table["conclusive"].to_numpy()
     n = wins.size
     for i in range(n):
-        if not wins[i]:
+        if not (wins[i] and conclusive[i]):
             continue
         window = wins[i : i + confirm_sessions]
         # Near the end of the overlap, accept a short window rather than miss the roll.
