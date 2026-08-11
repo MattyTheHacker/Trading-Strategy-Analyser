@@ -223,13 +223,25 @@ and `source`. Rule: `stats.py` must not import from `nqbt.sim`.
 
 **M10 — the conditions the review needs and we lack.** Regime classification
 (`nqbt/regime.py`, Kaufman efficiency ratio → directional / consolidating / unclassifiable,
-the middle band being the no-trade state); relative volume normalised **by time of day**, not
-by a rolling window, or it just measures the clock; a compact trend label off the existing
-MA grids; and time of day itself (`nqbt/timeofday.py`) as a first-class dimension for both
-sweeps and the review — a coarse session-phase label plus a bar-of-session index, **measured
-in ET, never UTC**, or the cash open smears across two buckets for half the year. It doubles
-as a sweepable entry filter: a rule that only works at the open reads as unprofitable when
-averaged over 23 hours.
+the middle band being the no-trade state); volume, absolute *and* relative; a compact trend
+label off the existing MA grids; and time of day itself (`nqbt/timeofday.py`) as a
+first-class dimension for both sweeps and the review — a coarse session-phase label plus a
+bar-of-session index, **measured in ET, never UTC**, or the cash open smears across two
+buckets for half the year. It doubles as a sweepable entry filter: a rule that only works at
+the open reads as unprofitable when averaged over 23 hours.
+
+**Volume is one quantity and its decomposition, not three conditions.** Absolute volume is
+the raw count; time of day is its dominant systematic component; relative volume is absolute
+with that component divided out (normalise per bar-of-session over a trailing window, never
+against adjacent bars, or it just measures the clock). Treating all three as independent
+findings confirms one signal three times. Absolute earns its place regardless, because it
+alone answers **execution feasibility** — a rule that only works in thin overnight bars looks
+fine on relative volume and is untradeable — and because it carries the secular trend
+relative volume deliberately removes. But that same trend means **a raw absolute threshold
+must not be a sweepable filter**: it means different things in 2021 and 2026, and expressing
+it as a trailing percentile just makes it relative volume again. Absolute is also
+per-instrument (NQ and MNQ trade different counts) and **steps at every roll**, since prices
+are back-adjusted and volume is not.
 
 **M11 — manual trade review.** Import real trades, annotate each against the market context
 at its entry bar, stratify realised P&L by condition. Biggest trap: **annotate against the

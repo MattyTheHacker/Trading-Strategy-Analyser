@@ -140,7 +140,8 @@ a re-run of the reconciliation window before and after, compared byte-for-byte.
 ## M10 — Prerequisites the review needs and we don't have
 
 The review is meant to score trades against "overall trend, MAs, volume, directional vs
-consolidation, time of day". Three of those five have no implementation.
+consolidation, time of day". Three of those five have no implementation. Only the MA gates
+exist; raw per-bar volume is carried in the bar frame but nothing consumes it.
 
 **10.1 Regime classification — `nqbt/regime.py`.** Directional / consolidating /
 unclassifiable, as a 1D label array in the `conditions.py` mould, computed once in `prepare`.
@@ -156,13 +157,61 @@ ADX is the familiar alternative and is in TA-Lib, but it is laggier, less interp
 would need the same NT8-parity check the moving averages needed. Efficiency ratio first;
 ADX only if ER proves inadequate.
 
-**10.2 Relative volume.** Volume against its own recent norm, not a raw number.
+**10.2 Volume — absolute and relative.** Both, and the relationship between them stated
+rather than left to be rediscovered.
 
-**The trap:** intraday volume has a strong time-of-day shape — the 09:30 ET cash open dwarfs
-03:00 — so a plain rolling average makes every morning bar "high volume" and every overnight
-bar "low volume", which is a clock, not a signal. Normalise against the same time-of-day
-across recent sessions (bar-of-session median over a trailing window), not against a rolling
-window of adjacent bars.
+They are not two independent conditions. They are **one quantity and its decomposition**:
+
+| | what it is | what it answers |
+|---|---|---|
+| absolute volume | contracts traded, raw | *Can this be traded here at all?* |
+| time of day (10.4) | the dominant systematic component of it | *When?* |
+| relative volume | absolute with that component divided out | *Is this unusual for the time?* |
+
+Writing that down is the point. Stratify by all three as if they were independent findings
+and you will "confirm" one signal three times, inflate the multiple-comparisons surface
+§11.4 guards against, and report a coincidence as corroboration. They should be read
+together — or, in a sweep, one of them chosen deliberately rather than all three switched on
+because all three exist.
+
+**Relative volume — the trap.** Intraday volume has a strong time-of-day shape (the 09:30 ET
+cash open dwarfs 03:00), so a plain rolling average makes every morning bar "high volume" and
+every overnight bar "low volume", which is a clock, not a signal. Normalise against the same
+time-of-day across recent sessions — bar-of-session median over a trailing window — not
+against a rolling window of adjacent bars.
+
+**Absolute volume — what it uniquely answers.** It is worth having *despite* correlating with
+time of day, for two reasons relative volume cannot cover by construction:
+
+1. **Execution feasibility.** Whether a fill is realistic at size depends on contracts
+   actually available, not on whether the bar was busy relative to its norm. A rule that only
+   works in thin overnight bars can look excellent on relative volume and be untradeable —
+   relative volume normalises away precisely the thing that decides this. It is also the
+   honest input to any later slippage model, which is currently a flat tick count.
+2. **Secular drift and era.** Absolute volume trends over years with participation and
+   contract growth, so it carries information about *when in history* a trade happened that
+   relative volume deliberately removes. That makes it a cross-check on M14's per-contract
+   table rather than a duplicate of it.
+
+**Absolute volume — the traps, which are different from relative's.**
+
+- **Not comparable across roots.** NQ and MNQ trade different contract counts for the same
+  economic exposure. Any absolute threshold is per-instrument, and reusing one across roots
+  is meaningless. `instruments.py` is the natural home for the scale.
+- **Not comparable across time.** The same secular trend that makes absolute volume useful
+  makes a fixed threshold mean different things in 2021 and 2026. So: **absolute volume is
+  for feasibility, reporting and stratification; it should not be a raw-threshold sweepable
+  filter.** If a volume gate is wanted in a sweep, express it as a trailing percentile — at
+  which point it is relative volume again, which is the honest conclusion rather than a
+  workaround.
+- **It steps at every roll** on the spliced series, because volume switches to the incoming
+  contract. Prices are back-adjusted; volume is not, and should not be. Expect a
+  discontinuity at each of the 18 roll dates and do not read it as a market event.
+
+**Three forms, each answering something different**, and worth building together since they
+share one pass: per-bar volume, rolling *N*-bar volume, and session-cumulative-to-date. The
+last is the one that pairs with 10.4's bar-of-session index — "unusually busy session so far"
+is a different statement from "unusually busy bar".
 
 **10.3 Trend summary.** A compact label rather than a wall of MA booleans: price against the
 slow MA, the slow MA's slope sign, and the fast/slow stack order. Derived from the existing
