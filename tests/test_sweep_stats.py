@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import results, sessions, stats, sweep
+from nqbt import results, sessions, stats, sweep, trades
+from nqbt.instruments import NQ
 from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams
 
@@ -199,6 +200,19 @@ def test_slim_drops_the_bar_columns_but_shares_the_arrays(prepared):
     # Shared, not copied -- copying is exactly the cost slim() exists to avoid.
     assert lean.close is data.close
     assert lean.ema.below is data.ema.below
+
+
+def test_the_simulator_meets_the_trade_schema(prepared):
+    """``run_deadcat`` is a producer, so its output is checked at the boundary."""
+    _, grid, data = prepared
+    params = next(grid.combinations())
+    log = runner.run_deadcat(data, params, NQ)
+    assert len(log), "fixture produced no trades; the test proves nothing"
+    trades.validate(log)
+    assert (log["source"] == "sim").all()
+    assert (log["instrument"] == "NQ").all()
+    # Short-only until M15 generalises the loop, but recorded rather than assumed.
+    assert (log["direction"] == trades.SHORT).all()
 
 
 def test_a_slim_dataset_simulates_identically(prepared):

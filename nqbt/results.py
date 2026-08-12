@@ -89,24 +89,42 @@ def save_sweep(
 
         tagged = results.copy()
         tagged.insert(0, "sweep_id", sweep_id)
-        con.register("incoming", tagged)
-        exists = con.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'combos'"
-        ).fetchone()[0]
-        if exists:
-            # Align to the stored schema so a sweep with extra statistics cannot
-            # silently shift columns in an existing table.
-            stored = [r[0] for r in con.execute("DESCRIBE combos").fetchall()]
-            missing = [c for c in stored if c not in tagged.columns]
-            for c in missing:
-                tagged[c] = None
-            con.register("incoming", tagged[stored])
-            con.execute("INSERT INTO combos SELECT * FROM incoming")
-        else:
-            con.execute("CREATE TABLE combos AS SELECT * FROM incoming")
+        _append_or_create(con, "combos", tagged)
         return sweep_id
     finally:
         con.close()
+
+
+def _append_or_create(
+    con: duckdb.DuckDBPyConnection, table: str, frame: pd.DataFrame
+) -> None:
+    """Insert ``frame`` into ``table``, creating it from the frame's own columns if new.
+
+    An existing table is written **by name, not by position**. Without this, adding a
+    statistic to :mod:`nqbt.stats` or a field to :mod:`nqbt.trades` would make
+    ``INSERT ... SELECT *`` shift every column one place to the right and store a row of
+    numbers under the wrong headings -- which reads as a result rather than as an error.
+
+    A column the frame carries but the table does not is dropped. That is the accepted
+    cost of not migrating on every schema change; the alternative is a failed insert on a
+    database that has years of results in it. It is also why the stale-database re-run is
+    scheduled after the axis columns land rather than before -- see ``docs/roadmap.md``.
+    """
+    exists = con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table]
+    ).fetchone()[0]
+    if not exists:
+        con.register("incoming", frame)
+        con.execute(f"CREATE TABLE {table} AS SELECT * FROM incoming")
+        return
+
+    stored = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
+    aligned = frame.copy()
+    for name in stored:
+        if name not in aligned.columns:
+            aligned[name] = None
+    con.register("incoming", aligned[stored])
+    con.execute(f"INSERT INTO {table} SELECT * FROM incoming")
 
 
 def _jsonable(value):
@@ -119,20 +137,18 @@ def save_trades(
     trades: pd.DataFrame, sweep_id: int, combo_id: int,
     db_path: Path = paths.SWEEPS_DB,
 ) -> None:
-    """Store one combination's trade log, for a shortlisted candidate worth inspecting."""
+    """Store one combination's trade log, for a shortlisted candidate worth inspecting.
+
+    The frame carries its own ``source`` and ``instrument`` tags from
+    :func:`nqbt.trades.trades_to_frame`, so simulated and imported trades can share this
+    table without a query having to know which it is reading.
+    """
     con = connect(db_path)
     try:
         tagged = trades.copy()
         tagged.insert(0, "combo_id", combo_id)
         tagged.insert(0, "sweep_id", sweep_id)
-        con.register("incoming_trades", tagged)
-        exists = con.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'trades'"
-        ).fetchone()[0]
-        if exists:
-            con.execute("INSERT INTO trades SELECT * FROM incoming_trades")
-        else:
-            con.execute("CREATE TABLE trades AS SELECT * FROM incoming_trades")
+        _append_or_create(con, "trades", tagged)
     finally:
         con.close()
 

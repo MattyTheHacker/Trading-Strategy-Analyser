@@ -83,7 +83,7 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
   wrong contract. Do not fill them from the neighbouring contract: that splices two
   different prices into one session.
 - **Out-of-session stray prints reach the indicators on a per-contract run but not on a
-  spliced one.** `runner.prepare` computes over every row it is handed; `build_continuous`
+  spliced one.** `context.prepare` computes over every row it is handed; `build_continuous`
   filters to in-session first. Measured on MNQ 03-24: including all 47 strays changes
   nothing — 1,380 legs either way, no differing field — so this is a known asymmetry, not a
   live bug. Re-measure rather than assume if the parser ever starts keeping more of them.
@@ -122,7 +122,7 @@ commands that duplicate the Python API.
 - Trade logs are **one row per leg exit**; `stats.summarise` aggregates to one row per trade.
   NT8's "total trades" is the leg count, so use `stats.leg_summary` when reconciling.
 - `r_multiple` uses **planned** risk (`stop − trigger`), matching how the C# places targets.
-- Everything expensive is precomputed once in `runner.prepare`; the sweep loop must stay
+- Everything expensive is precomputed once in `context.prepare`; the sweep loop must stay
   cheap. Never recompute an indicator inside a combination.
 - Moving-average grids keep only the boolean gate unless `keep_values=True` (66 MB vs 595 MB).
 - Numba functions are `@njit(cache=True)` — required so parallel workers reuse the disk cache.
@@ -150,6 +150,23 @@ the drift is 17 out-of-session stray prints and is inert. `verification/README.m
 It is unprofitable on its own data too (best PF 0.829 of 96 combinations, 0 profitable).
 No NQ result has been reconciled against NT8; MNQ remains the only fill-semantics evidence.
 
+**M9 has landed.** `Dataset`/`prepare` are now `nqbt/context.py`; the trade-log schema is
+`nqbt/trades.py` with `validate()` called at the producer boundary, and it carries
+`direction`, `instrument` and `source`. The layering is enforced by tests rather than by
+habit: `stats.py` must not import from `nqbt.sim`, `context.py` must not import trades or
+sim, `trades.py` must not import bars or strategies. Those tests analyse imports with
+`ast`, and **the first version of them was vacuous** — `from nqbt import trades` records
+the module as `nqbt`, so a prefix match on `nqbt.trades` never fired. `imports_of` now
+resolves both halves of a `from` import, and `test_the_import_analysis_sees_both_forms_of_import`
+guards that.
+
+The refactor was verified by capturing every producer path before and after — the pinned
+MNQ 03-24 reconciliation window, a costed run, the same bars through the NQ spec, and an
+8-combination sweep serial and parallel. The moves alone are **byte-identical across all 14
+files**; the schema commit adds three columns and leaves **every pre-existing column
+identical**, dtypes included. `direction` is `SHORT` on every row, written by the loop as a
+constant that M15 replaces with its sign `d`.
+
 `sweep.sweep(..., n_jobs=8)` is verified to produce results byte-identical to the serial
 path. The `Dataset` is shared, not copied: `Dataset.slim()` drops the 121 MB bar frame to a
 13 MB index-only view, and joblib memmaps the arrays — **confirmed** by probing a live
@@ -158,8 +175,8 @@ worker, where `close`, `ema.below` and `sma.below` all arrive as `numpy.memmap`.
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: M9 → M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 → M7b →
-M19 → M12.**
+**Order: M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 → M7b →
+M19 → M12.** M9 is done — see Status.
 
 **New archetypes are developed in Python only.** EMA crossover and squeeze breakout have no
 NinjaScript, and none gets written until a candidate looks worth trading — most will not
@@ -288,12 +305,12 @@ reference implementation and testing the two agree exactly — is worth roughly 
 composes with the parallel speedup. Do M8 only if that lands first and profiling still
 points at the loop.
 
-**M9 — split market context from strategy simulation.** Prerequisite for everything below.
-`Dataset`/`prepare` are strategy-agnostic but live in `sim/runner.py`; lift them to
-`nqbt/context.py`. Formalise the trade-log schema in `nqbt/trades.py` so the simulator and a
-manual-trade importer produce the *same* thing — it needs `direction` (the archetype is
-short-only, so nothing records it today), `instrument` (NQ and MNQ differ 10× in tick value)
-and `source`. Rule: `stats.py` must not import from `nqbt.sim`.
+**~~M9~~ — done.** See Status. What it leaves for its dependents: `direction` exists on every
+trade row but is a constant until M15 makes it load-bearing; `nqbt/trades.NULLABLE` states
+which columns an importer may leave empty and why, so M11 does not have to rediscover that
+`r_multiple` is unavailable on real fills; and `results._append_or_create` now writes both
+DuckDB tables **by name rather than by position**, which is what makes M17's nullable
+`strategy`/`resolution`/`contract` columns safe to add to a database that already has rows.
 
 **M10 — the conditions the review needs and we lack.** Regime classification
 (`nqbt/regime.py`, Kaufman efficiency ratio → directional / consolidating / unclassifiable,

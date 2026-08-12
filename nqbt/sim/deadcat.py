@@ -50,6 +50,7 @@ from nqbt.trades import (
     C_AMBIGUOUS,
     C_BARS_HELD,
     C_COMMISSION,
+    C_DIRECTION,
     C_ENTRY_BAR,
     C_ENTRY_PRICE,
     C_EXIT_BAR,
@@ -71,6 +72,7 @@ from nqbt.trades import (
     EXIT_STOP,
     EXIT_TARGET,
     N_COLUMNS,
+    SHORT,
 )
 
 
@@ -495,6 +497,10 @@ def _write(
     out[written, C_INITIAL_STOP] = initial_stop
     out[written, C_TARGET_PRICE] = target_price
     out[written, C_QUANTITY] = quantity
+    # Constant until M15 generalises the loop, at which point this becomes the sign `d`
+    # that every comparison above is expressed through. Recorded per row now rather than
+    # assumed by readers of the log.
+    out[written, C_DIRECTION] = SHORT
     out[written, C_EXIT_REASON] = reason
     out[written, C_GROSS_PNL] = gross
     out[written, C_COMMISSION] = commission

@@ -12,11 +12,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from nqbt import trades
 from nqbt.context import Dataset
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import deadcat
 from nqbt.sim.types import DeadCatParams
-from nqbt.trades import trades_to_frame
 
 
 def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
@@ -84,4 +84,12 @@ def run_deadcat(
             "trade buffer overflowed; allocate_output's signal-count bound was violated"
         )
 
-    return trades_to_frame(out, count, data.index if with_times else None)
+    return trades.validate(
+        trades.trades_to_frame(
+            out,
+            count,
+            data.index if with_times else None,
+            instrument=instrument.symbol,
+            source="sim",
+        )
+    )

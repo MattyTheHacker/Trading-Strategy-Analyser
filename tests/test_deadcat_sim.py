@@ -25,7 +25,7 @@ def run(
     targets=(1.0, 1.5, 2.0, np.nan),
     slippage=0.0,
     commission=0.0,
-    point_value=2.0,
+    instrument=MNQ,
     bars_required=0,
     min_reward_risk=0.0,
     ratchet_lag=1,
@@ -53,15 +53,17 @@ def run(
         o, h, l, c, signal, force_flat,
         np.asarray(quantities, dtype=np.int64),
         np.asarray(targets, dtype=np.float64),
-        TICK, point_value, 2.0, entry_offset, tp_multiplier, max_risk_ticks,
+        TICK, instrument.point_value, 2.0, entry_offset, tp_multiplier, max_risk_ticks,
         commission, slippage, bars_required, min_reward_risk, ratchet_lag,
         block_entry_at_close, fill_limit_on_touch, ambiguity_policy, out,
     )
     assert count >= 0, "trade buffer overflowed"
 
-    from nqbt.trades import trades_to_frame
+    from nqbt import trades as trades_mod
 
-    return trades_to_frame(out, count)
+    return trades_mod.validate(
+        trades_mod.trades_to_frame(out, count, instrument=instrument.symbol)
+    )
 
 
 # -- entry mechanics ----------------------------------------------------------
@@ -354,8 +356,8 @@ def test_commission_is_charged_per_contract_per_leg():
 
 def test_pnl_is_instrument_aware():
     rows = [(102, 104, 100, 101), (101, 102, 100, 101), (100, 101, 95.5, 96)]
-    mnq = run(rows, signal_at=[0], point_value=MNQ.point_value)
-    nq = run(rows, signal_at=[0], point_value=NQ.point_value)
+    mnq = run(rows, signal_at=[0], instrument=MNQ)
+    nq = run(rows, signal_at=[0], instrument=NQ)
     # 4.5 points on leg 1, one contract: $9 on MNQ, $90 on NQ.
     assert mnq.set_index("leg").loc[1, "gross_pnl"] == pytest.approx(9.0)
     assert nq.set_index("leg").loc[1, "gross_pnl"] == pytest.approx(90.0)

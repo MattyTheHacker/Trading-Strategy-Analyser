@@ -135,10 +135,15 @@ nqbt/
   splice.py        Roll detection and back-adjustment.
   indicators.py    NT8-compatible EMA/SMA, session-anchored VWAP.
   conditions.py    1D parameter-free gates, 2D [period, bar] moving-average grids.
+  context.py       Dataset: bars plus every derived condition, computed once per
+                   series. Strategy-agnostic by rule — the review layer needs the
+                   same conditions with no strategy at all.
+  trades.py        The trade-log schema and validate(). The contract between the
+                   simulator and the manual-trade importer; imports neither.
   sim/
-    types.py       DeadCatParams, trade-record layout.
+    types.py       DeadCatParams.
     deadcat.py     @njit simulation — the only path-dependent code.
-    runner.py      Dataset: everything expensive, computed once per series.
+    runner.py      Signal assembly and the call into the jitted loop.
     explain.py     Per-trade audit trail for hand-verification.
   sweep.py         Grid, combo-major sweep, ranking; n_jobs spreads chunks over
                    processes sharing one memmapped copy of the dataset.
@@ -147,7 +152,7 @@ nqbt/
 ```
 
 **Why it's fast.** Everything expensive is hoisted out of the sweep loop into
-`runner.prepare`: candlestick geometry, session VWAP, and a `[n_periods, n_bars]` boolean
+`context.prepare`: candlestick geometry, session VWAP, and a `[n_periods, n_bars]` boolean
 matrix per moving-average gate covering every period in the grid. A combination then costs
 a boolean AND plus one simulation pass.
 

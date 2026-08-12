@@ -18,7 +18,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 |---|---|---|
 | ~~1~~ | ~~Re-export NQ manually~~ | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
 | ~~2~~ | ~~Run the simulation against NQ~~ | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact: same bars through both specs give identical geometry and ×10 gross P&L on every leg. |
-| 3 | **M9** — split context from simulation | Gate for everything below. Behaviour-preserving moves only, with the reconciliation re-run either side as the check. |
+| ~~3~~ | ~~**M9** — split context from simulation~~ | **Done 2026-08-12.** `nqbt/context.py` and `nqbt/trades.py` exist, the layering is enforced by import-analysis tests, and every producer path was captured before and after: the moves are byte-identical across all 14 files, the schema additions leave every pre-existing column identical. |
 | 3a | **M15** — direction in the simulator, then port `PullBackAndGo.cs` | The actual blocker on every new archetype, and it is half of M9 already: M9 adds `direction` to the trade schema for the importer's sake, M15 makes it load-bearing in the `@njit` loop. PullBackAndGo is long-only with existing C#, so it proves the long path against a real NT8 trade list before anything un-groundable is built. |
 | 3b | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | Five consumers, not one. Blocks the squeeze, blocks all three unported NinjaScripts, and gives EMA crossover a stop rule. Paying it once here stops it being rediscovered per archetype. |
 | 3c | **M17 + M13 + M14** — strategy, resolution and contract as axes above the `Dataset` | **One mechanism, not three.** All three add an axis outside `DeadCatParams`, all three need one `Dataset` per value, all three need a nullable results column. Doing them together settles the schema once, before the stale DuckDB re-run rather than after. |
@@ -31,7 +31,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | 10 | **M19** — squeeze breakout | Queued, not scheduled. Needs an OCO entry model the loop does not have (§M19), so it is the expensive archetype; build it once M18 has proven the protocol. |
 | 11 | **M12** — web GUI | Gated on the review's outputs being stable. |
 
-**Next up: M9.** Steps 1 and 2 are complete, so the refactor is the live item.
+**Next up: M15.** Steps 1, 2 and 3 are complete, so direction in the simulator is the live item.
 
 **What changed and why.** Steps 3a–3c, 5 and 10 are new; steps 4 and 6 moved earlier. The
 request was "add EMA crossover and squeeze breakout", but neither is reachable today and
@@ -207,7 +207,7 @@ December-to-March window, but that should be confirmed rather than assumed.
 
 ---
 
-## M9 — Split market context from strategy simulation
+## ~~M9~~ — Split market context from strategy simulation  **(done 2026-08-12)**
 
 **Why.** The review system and the backtester need the same three things: bars, indicator
 conditions, and a trade log with statistics over it. Only the middle step — the strategy —
@@ -220,13 +220,13 @@ below the EMA" that will drift).
 |---|---|---|---|
 | bars, splicing, sessions | ✓ | ✓ | already shared |
 | indicators, condition arrays | ✓ | ✓ | already shared (`conditions.py`) |
-| `Dataset` / `prepare` | ✓ | ✓ | **lives in `sim/runner.py` — must be lifted out** |
+| `Dataset` / `prepare` | ✓ | ✓ | **done** — `nqbt/context.py` |
 | regime classification | later | ✓ | does not exist |
 | relative volume | later | ✓ | does not exist |
-| trade-log schema | ✓ produced by `@njit` | ✓ produced by import | **implicit — must be formalised** |
+| trade-log schema | ✓ produced by `@njit` | ✓ produced by import | **done** — `nqbt/trades.py`, with `validate()` |
 | summary statistics | ✓ | ✓ | already shared (`stats.py`) |
 | stratification by condition | later | ✓ | does not exist |
-| DuckDB persistence | ✓ | ✓ | shared, needs a `source` tag |
+| DuckDB persistence | ✓ | ✓ | **done** — `source` and `instrument` tag every row |
 
 **The work.**
 
@@ -264,6 +264,53 @@ below the EMA" that will drift).
 **Risk.** This moves validated code. The NT8 reconciliation (1143/1144) is the thing being
 protected, so: no behaviour changes in the same commit as the moves, and the full suite plus
 a re-run of the reconciliation window before and after, compared byte-for-byte.
+
+### What actually happened, and the three things worth keeping
+
+**The verification worked exactly as designed and is the template for M15.** Four producer
+paths were captured to CSV before touching anything — the pinned MNQ 03-24 reconciliation
+window under `fill_limit_on_touch=True, ambiguity_policy=0`, a costed run, the same bars
+through the NQ spec, and an 8-combination sweep run both serially and in parallel. The moves
+alone reproduced **all 14 files byte-for-byte**; the schema commit left **every pre-existing
+column identical**, dtypes included, adding only `source`, `instrument` and `direction`.
+M15's gate is the same shape and strictly stronger, so reuse the harness rather than
+rebuilding it.
+
+**1. `validate()` is in a hot loop, and the obvious implementation costs 9.4%.**
+`run_deadcat` is called once per combination, so the schema check is too. Written the
+natural way — `frame[REQUIRED].isna().sum()` plus `Series.isin` — it cost **9.4% of a
+sweep**, which is the wrong direction in a sweep whose bottleneck is already pandas (`M8`).
+Short-circuiting each check, skipping the null scan on integer columns (they cannot hold
+one), and using `unique()` over `isin()` brought it to **1.3%**. That is a fair permanent
+price for catching an M15 sign error on every combination instead of never.
+
+*The measurement trap:* `Series.hasnans` is a **cached property**. Timing `validate` against
+one frame in a loop says 0.5 ms and means nothing, because every call after the first is
+free. Only an A/B of the whole sweep, where each combination validates a frame it has just
+built, gives a real number. The first attempt here read 2.6× too fast.
+
+**2. Import-analysis tests are vacuous by default.** The rule "`stats.py` must not import
+from `nqbt.sim`" was implemented by walking the AST and prefix-matching module names — and
+it passed happily with `from nqbt import sim` inserted into `stats.py`, because
+`ast.ImportFrom.module` is `"nqbt"` and the names are in `node.names`. Every layering test
+was checking nothing for the one import form most likely to be used. `imports_of` now
+records both the package and `package.name` for each alias, and
+`test_the_import_analysis_sees_both_forms_of_import` guards the guard. **Mutation-test any
+test that asserts an absence**: it was written, passed, and was wrong, and only deliberately
+breaking the code it protects exposed that.
+
+**3. `direction` is a constant, deliberately.** The `@njit` loop writes `SHORT` at
+`C_DIRECTION` on every row. That is not a placeholder to be tidied away — it is the column
+M15 fills with its sign `d`, sitting in the matrix and in the schema so that adding
+bidirectionality changes one write rather than the layout, the frame builder, the DuckDB
+schema and the tests at the same time.
+
+**Also landed, out of scope but adjacent.** `results.save_trades` inserted with
+`INSERT INTO trades SELECT *` and no column alignment, so the three new columns would have
+shifted every value one place to the right in an existing table — reading as a result rather
+than as an error. `save_sweep` already guarded `combos` against this; both now go through
+`_append_or_create`, which writes **by name, not by position**. M17 adds nullable
+`strategy`/`resolution`/`contract` columns to these tables, so this had to be right first.
 
 ---
 
@@ -326,9 +373,12 @@ generalisation is wrong somewhere and the table above says where to look.
    representation. EMA crossover needs it and so does `InsideBarTrailing.cs`, which is why
    it belongs here rather than in M18. Additive to `EXIT_REASONS`; `results.py` stores the
    string, so no migration.
-2. **`direction` on the trade record**, which M9 is already adding for the importer's sake.
-   M15 is what makes it load-bearing on the simulation side. Doing them in one pass avoids
-   adding the column twice with two meanings.
+2. **`direction` on the trade record** — **already there.** M9 added the column and the
+   loop writes the constant `SHORT` at `C_DIRECTION`. M15's job is to replace that one
+   write with `d`; the matrix layout, the frame builder, `validate()`'s
+   `direction ∈ {+1, −1}` check and the DuckDB schema all already accommodate a long row.
+   The regression gate therefore also covers this column for free: if `d` is wrong anywhere,
+   the short-only byte-identity check fails on `direction` before it fails on P&L.
 
 **Explicitly not supported: stop-and-reverse.** `in_position` is a boolean and the loop
 assumes flat-to-flat. Reversing means exiting and entering on the same bar, which collides

@@ -446,7 +446,7 @@ set that is PF 1.4 in one regime and PF 0.4 in another shows up as PF ~0.75 and 
 current "nothing survives" finding cannot distinguish between "no edge anywhere" and "edge in a subset of
 conditions, drowned by the rest."**
 
-**Concrete change:** tag every bar with a regime label during `runner.prepare`, carry the label onto each
+**Concrete change:** tag every bar with a regime label during `context.prepare`, carry the label onto each
 trade record, and stratify `stats.summarise` by regime. Same sweep, same simulation, extra grouping
 column. This is cheap — a precomputed 1D array plus a groupby — and it changes what the existing 192
 combinations mean.
