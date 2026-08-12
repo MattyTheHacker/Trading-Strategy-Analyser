@@ -160,6 +160,12 @@ the module as `nqbt`, so a prefix match on `nqbt.trades` never fired. `imports_o
 resolves both halves of a `from` import, and `test_the_import_analysis_sees_both_forms_of_import`
 guards that.
 
+The regression gate is now `tools/capture_trade_logs.py` + `tools/compare_trade_logs.py`,
+kept because M15 needs the same one. **They write `float_format="%.17g"` deliberately**:
+pandas' default CSV writer is not round-trip exact for float64 and moves 4 of 1,664
+`r_multiple` values by one ULP, which would let a sign or ordering error slip through the
+very gate meant to catch it. Verified to fail on a deliberate one-ULP perturbation.
+
 The refactor was verified by capturing every producer path before and after — the pinned
 MNQ 03-24 reconciliation window, a costed run, the same bars through the NQ spec, and an
 8-combination sweep serial and parallel. The moves alone are **byte-identical across all 14
@@ -175,8 +181,8 @@ worker, where `close`, `ema.below` and `sma.below` all arrive as `numpy.memmap`.
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 → M7b →
-M19 → M12.** M9 is done — see Status.
+**Order: M20a → M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 →
+M7b → M19 → M12.** M9 is done — see Status.
 
 **New archetypes are developed in Python only.** EMA crossover and squeeze breakout have no
 NinjaScript, and none gets written until a candidate looks worth trading — most will not
@@ -187,6 +193,27 @@ unvalidated); designs must be checked against what NT8 can express *while being 
 the expressibility checklist in the roadmap; and **"validated against NT8" becomes a
 per-archetype property** that M17 carries as a registry field and results column, so a
 ranking cannot mix a measurement with an assumption.
+
+**M20 — code quality: a standing rubric, and three measured defects that block M15.**
+A pass over the code found: `explain.py` recomputes the entry trigger as `Low[0]`, omitting
+the `Close[0] − 2 ticks` cap, so the **NT8 audit trail disagrees with the simulation's
+`risk_points` on 50% of trades** — and it has no tests, which is why; `stats.summarise`
+raises `TypeError` on an empty log (26 arguments into a 28-field dataclass, behind a
+`# pragma: no cover` whose comment is also wrong); and **the bracket machinery is already
+duplicated inside `simulate_deadcat`** — ~85 near-identical lines resolving stop/target/
+ambiguity/force-flat once for the in-position path and again for the entry-bar path.
+
+That third one is why M20a is scheduled before M15 rather than whenever. M15's stated design
+is "one sign, not two code paths, because forking would fork the bracket machinery" — but it
+is forked already, so M15 would apply `d` to two copies. **The short-only byte-identity gate
+does not protect against this**: both copies reduce to today's code at `d = −1` whether or not
+they agree at `d = +1`. Unify, prove byte-identity, then apply `d`.
+
+M20b (a type checker, `py.typed`, and dtype-parameterised `NDArray` instead of 47 bare
+`np.ndarray` — the bool-vs-float64 distinction is load-bearing and currently invisible) and
+M20c (23-parameter `@njit` signatures → `NamedTuple`, **verified bit-identical and free**,
+`tools/numba_tuple_probe.py`) are standing work with no gate. Full findings, evidence and the
+standing rubric are in `docs/roadmap.md` §M20.
 
 **M15 — direction in the simulator.** The actual blocker on every new archetype: the `@njit`
 loop is short-only in ~8 places, and EMA crossover, squeeze breakout and all three unported

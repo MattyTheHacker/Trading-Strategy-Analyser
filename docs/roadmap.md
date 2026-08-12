@@ -19,9 +19,10 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~1~~ | ~~Re-export NQ manually~~ | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
 | ~~2~~ | ~~Run the simulation against NQ~~ | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact: same bars through both specs give identical geometry and ×10 gross P&L on every leg. |
 | ~~3~~ | ~~**M9** — split context from simulation~~ | **Done 2026-08-12.** `nqbt/context.py` and `nqbt/trades.py` exist, the layering is enforced by import-analysis tests, and every producer path was captured before and after: the moves are byte-identical across all 14 files, the schema additions leave every pre-existing column identical. |
-| 3a | **M15** — direction in the simulator, then port `PullBackAndGo.cs` | The actual blocker on every new archetype, and it is half of M9 already: M9 adds `direction` to the trade schema for the importer's sake, M15 makes it load-bearing in the `@njit` loop. PullBackAndGo is long-only with existing C#, so it proves the long path against a real NT8 trade list before anything un-groundable is built. |
-| 3b | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | Five consumers, not one. Blocks the squeeze, blocks all three unported NinjaScripts, and gives EMA crossover a stop rule. Paying it once here stops it being rediscovered per archetype. |
-| 3c | **M17 + M13 + M14** — strategy, resolution and contract as axes above the `Dataset` | **One mechanism, not three.** All three add an axis outside `DeadCatParams`, all three need one `Dataset` per value, all three need a nullable results column. Doing them together settles the schema once, before the stale DuckDB re-run rather than after. |
+| 3a | **M20a** — code review: the three findings that block M15 | A pass over the code found `explain.py` disagreeing with the simulation on **50%** of trades, `stats.summarise` raising on an empty log, and the bracket machinery **already duplicated** inside `simulate_deadcat`. The third is the one that matters: M15 must apply `d` to every line of it, and there are two copies. Unify first. |
+| 3b | **M15** — direction in the simulator, then port `PullBackAndGo.cs` | The actual blocker on every new archetype, and it is half of M9 already: M9 adds `direction` to the trade schema for the importer's sake, M15 makes it load-bearing in the `@njit` loop. PullBackAndGo is long-only with existing C#, so it proves the long path against a real NT8 trade list before anything un-groundable is built. |
+| 3c | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | Five consumers, not one. Blocks the squeeze, blocks all three unported NinjaScripts, and gives EMA crossover a stop rule. Paying it once here stops it being rediscovered per archetype. |
+| 3d | **M17 + M13 + M14** — strategy, resolution and contract as axes above the `Dataset` | **One mechanism, not three.** All three add an axis outside `DeadCatParams`, all three need one `Dataset` per value, all three need a nullable results column. Doing them together settles the schema once, before the stale DuckDB re-run rather than after. |
 | 4 | **M7a** — `randomentry.py`, pulled forward from step 6 | The null that makes a *second* archetype interpretable. Without it "EMA crossover beats DeadCatBounce" is a comparison of two numbers with no scale. Cheap once M15 lands, because it reuses the bidirectional exit machinery. |
 | 5 | **M18** — EMA crossover | The one archetype built now, to prove the protocol. Cheapest real test of M15 and M17, and a legitimate known-negative control (see §M18). |
 | 6 | Numpy-native summary path | **Pulled forward from step 7.** Crossover generates tens of thousands of trades per combination where DeadCatBounce generates ~1,400, so the 71% of runtime that is pandas stops being an annoyance and starts being the sweep. |
@@ -31,7 +32,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | 10 | **M19** — squeeze breakout | Queued, not scheduled. Needs an OCO entry model the loop does not have (§M19), so it is the expensive archetype; build it once M18 has proven the protocol. |
 | 11 | **M12** — web GUI | Gated on the review's outputs being stable. |
 
-**Next up: M15.** Steps 1, 2 and 3 are complete, so direction in the simulator is the live item.
+**Next up: M20a, then M15.** Steps 1–3 are complete. M20a is three measured defects that sit directly in M15's path — see §M20. M20b (typing and tooling) and M20c (structural cleanups) are standing work with no gate on them.
 
 **What changed and why.** Steps 3a–3c, 5 and 10 are new; steps 4 and 6 moved earlier. The
 request was "add EMA crossover and squeeze breakout", but neither is reachable today and
@@ -267,14 +268,22 @@ a re-run of the reconciliation window before and after, compared byte-for-byte.
 
 ### What actually happened, and the three things worth keeping
 
-**The verification worked exactly as designed and is the template for M15.** Four producer
-paths were captured to CSV before touching anything — the pinned MNQ 03-24 reconciliation
+**The verification worked exactly as designed and is the template for M15.** It is now
+`tools/capture_trade_logs.py` and `tools/compare_trade_logs.py` rather than a throwaway,
+because M15's gate is the same shape and strictly stronger. Four producer
+paths are captured to CSV before touching anything — the pinned MNQ 03-24 reconciliation
 window under `fill_limit_on_touch=True, ambiguity_policy=0`, a costed run, the same bars
 through the NQ spec, and an 8-combination sweep run both serially and in parallel. The moves
 alone reproduced **all 14 files byte-for-byte**; the schema commit left **every pre-existing
 column identical**, dtypes included, adding only `source`, `instrument` and `direction`.
-M15's gate is the same shape and strictly stronger, so reuse the harness rather than
-rebuilding it.
+**One thing the harness got wrong at first, and it matters for M15.** Pandas' default CSV
+writer is *not* round-trip exact for float64 — writing and re-reading a real trade log moves
+4 of 1,664 `r_multiple` values by one ULP. A byte-identity gate written in the default format
+is therefore comparing text-rounded numbers, and can miss a sub-ULP difference: exactly the
+class of error a wrong sign or a changed order of operations produces, which is the entire
+thing M15's gate exists to catch. The capture tool now writes `float_format="%.17g"`, which
+round-trips float64 exactly, and the gate is verified to fail on a deliberate one-ULP
+perturbation. **Do not relax that back to the default for readability.**
 
 **1. `validate()` is in a hot loop, and the obvious implementation costs 9.4%.**
 `run_deadcat` is called once per combination, so the schema check is too. Written the
@@ -311,6 +320,262 @@ shifted every value one place to the right in an existing table — reading as a
 than as an error. `save_sweep` already guarded `combos` against this; both now go through
 `_append_or_create`, which writes **by name, not by position**. M17 adds nullable
 `strategy`/`resolution`/`contract` columns to these tables, so this had to be right first.
+
+---
+
+## M20 — Code quality: a standing review, and the debt it has already found
+
+**Why now, and not later.** The codebase is about to roughly triple in surface: M15 makes
+every comparison in the simulation bidirectional, M16 adds four indicators, M17 adds three
+axes above the `Dataset`, M18 and M19 add archetypes. Every one of those multiplies whatever
+structure exists today. Two things follow. The **fidelity evidence lives in code**, so a
+duplicated fill rule is a duplicated place for Tier 1 and Tier 2 to disagree — and the
+reconciliation only ever covered one copy. And the review is **cheapest before the
+multiplication**, because a rule fixed once now is a rule not re-broken four times.
+
+This section is both a **standing rubric** — what every change is checked against — and the
+**specific debt an actual pass over the code found**. The findings below were measured
+against the real MNQ archive rather than inferred from reading, and each carries the evidence
+and the line it sits on. Line references were current at the time of writing; re-check them
+rather than trusting them, since the code they point at is scheduled to move.
+
+### What the review found
+
+| # | Finding | Evidence | Severity |
+|---|---|---|---|
+| 1 | `explain.py` computes the entry trigger as `Low[0]`, omitting the `Close[0] − 2 ticks` cap the simulation applies | `risk_points` disagrees with the trade log on **100 of 200 trades (50%)** on MNQ 03-24 | **High** — this is the NT8 audit trail |
+| 2 | `stats.summarise` raises `TypeError` on an empty trade log | `Summary` has 28 fields; the empty guard supplies 26 | **Medium** — latent |
+| 3 | The bracket-resolution logic in `simulate_deadcat` is duplicated between the in-position branch and the entry-bar branch | ~85 near-identical lines, `deadcat.py:144–227` against `262–342` | **High** — directly obstructs M15 |
+| 4 | `simulate_deadcat` takes 23 positional parameters, `_write` takes 18 | 8 call sites, all positional | Medium |
+| 5 | 47 bare `np.ndarray` annotations carry no dtype | zero uses of `numpy.typing.NDArray` in the package | Medium |
+| 6 | No type checker, no linter, no CI, no `py.typed` | `pyproject.toml` configures pytest and nothing else | Medium |
+| 7 | `explain.py` and `cli.py` have no tests | no test file imports either | Medium — explains finding 1 |
+| 8 | `sweep.SWEEPABLE` reads `DeadCatParams.__slots__` | `sweep.py:36` | Low now, **blocks M17** |
+| 9 | `results.best()` interpolates its `by` argument into SQL | `results.py:182` | Low |
+| 10 | `bars[...].to_numpy(np.float64)` repeated 12 times across `conditions.py` and `context.py` | grep | Low |
+
+---
+
+### M20a — the three that block M15, and must land before it
+
+**1. `explain.py` disagrees with the simulation on half of all trades.**
+
+`nqbt run --explain N` is described in `CLAUDE.md` as "the NT8 audit trail" and it "earns its
+keep". It is the tool a human uses to tick a trade off against a chart before trusting
+anything downstream. It recomputes the order arithmetic **independently of `deadcat.py`**,
+and it gets it wrong:
+
+```python
+# nqbt/sim/explain.py                    # nqbt/sim/deadcat.py
+trigger = l                              trigger = low[i]
+                                         close_based = close[i] - entry_offset
+                                         if close_based < trigger:
+                                             trigger = close_based
+```
+
+The missing branch is the single gotcha `CLAUDE.md` lists first: *"The trigger is
+`min(Low[0], Close[0] − 2 ticks)`, not the bar's low. Binds on ~⅓ of signals."* Measured
+against the trade log it binds on **50%** of trades, and `trigger`, `risk_points`,
+`risk_ticks` and `fill_type` are all wrong on those. `initial_stop` is correct, which is
+what makes it plausible on inspection.
+
+**Why this is the highest-severity item.** M15's validation plan is to port
+`PullBackAndGo.cs` and hand-check the long side. Hand-checking is done with this tool. A
+verification instrument that is wrong half the time does not fail loudly — it agrees with
+the chart on the stop, disagrees on the risk, and invites the reader to conclude the
+*simulation* is wrong. Also check `verification/explain_2024Q1.csv`, which was produced by
+this code and is kept as an artefact.
+
+**The fix is not to patch the arithmetic — it is to stop having two of it.** Patching
+reproduces the bug's cause. Extract the trigger/stop/risk computation from the loop into one
+`@njit` helper that both `deadcat.py` and `explain.py` call, so the audit trail is *by
+construction* the arithmetic under audit. Then add the test that would have caught it:
+`explain_trades`' `trigger`, `initial_stop` and `risk_points` must equal the trade log's on
+every trade, not a sampled few.
+
+**2. `stats.summarise` cannot summarise an empty log.**
+
+```python
+if trades.empty:
+    return Summary(*([0] * 5 + [0.0] * 20 + [0]))  # pragma: no cover - guarded below
+```
+
+26 positional arguments into a 28-field dataclass. The `pragma` comment is also wrong about
+*where* the guard is: nothing below guards it, the caller does (`sweep.run_combination`
+checks `trades.empty` first and builds a zero dict itself). So there are two empty-log
+policies, one of which has never run and does not work.
+
+Fix with a `Summary.empty()` classmethod built from `fields(cls)` rather than a positional
+splat, and have `run_combination` call it instead of hand-rolling `{c: 0 for c in
+columns()}`. **This is a prerequisite for the numpy-native summary path** (order-of-work
+step 6): that work adds a second `Summary` producer which must agree with this one exactly,
+and "exactly" cannot include a constructor that raises.
+
+**3. The bracket machinery is already forked — and M15 assumes it is not.**
+
+M15's design section says, correctly:
+
+> Forking the loop into a long copy and a short copy is the tempting alternative and it is
+> wrong for a specific reason: **the bracket machinery carries the fidelity evidence.**
+
+The problem is that inside `simulate_deadcat` it is *already forked*. `deadcat.py:144–227`
+resolves stop / targets / ambiguity / force-flat for a bar while in a position;
+`deadcat.py:262–342` does the same thing again for the bar the entry filled on. They are
+behaviourally equivalent — the entry-bar copy omits the `leg_open[leg]` guards because every
+leg was just opened — but they are textually independent, and every fidelity rule the
+1143/1144 reconciliation validated appears twice.
+
+**M15 must change every one of those lines to carry `d`.** Against two copies that is two
+chances to get a sign wrong, in the one function where a wrong sign is hardest to see. The
+short-only byte-identity gate does **not** protect against this: at `d = −1` both copies
+reduce to today's code whether or not they agree at `d = +1`.
+
+So: **unify the two copies first, prove byte-identity, then apply `d` once.** Two commits,
+the same shape as M9's split, with the same evidence. The extraction is one `@njit` helper
+taking the leg arrays and the bar; the entry-bar path calls it after opening the legs.
+
+Note this is the same extraction M17 defers — *"the shared bracket engine is extracted
+**during** M18 — before is designing from one example, after means duplicated
+fidelity-critical code shipped."* That reasoning stands for the cross-archetype engine. It
+does not apply here: this is not designing an abstraction across archetypes, it is deleting
+a copy inside one function, and it is worth doing now because M15 is what makes the copy
+expensive.
+
+---
+
+### M20b — typing: annotations are not verification
+
+The package annotates well — only 5 functions have an untyped parameter and only 2 lack a
+return type — but **nothing checks any of it**, so the annotations are documentation that
+happens to be in the type position. `pyproject.toml` configures pytest and nothing else.
+
+**The gap that matters is dtype, not coverage.** There are 47 bare `np.ndarray`
+annotations and zero uses of `numpy.typing.NDArray`. In this codebase the element type is
+load-bearing in a way that is invisible today:
+
+- `MovingAverageGrid.below` is `bool`, `.values` is `float64` — the whole 66 MB vs 595 MB
+  decision is that distinction, and both are annotated `np.ndarray`.
+- `SessionInfo.trading_day` is `datetime64[D]`, `.in_session` is `bool` — both `np.ndarray`.
+- The `@njit` loop's `out` is a `float64` matrix into which `exit_reason` and `direction` are
+  written as floats and mapped back to strings later — the one place a wrong dtype is
+  silently lossy.
+
+`NDArray[np.float64]` vs `NDArray[np.bool_]` in the signatures is a real check, not
+decoration.
+
+**Do it in this order, and stop where the cost exceeds the value:**
+
+1. Add `mypy` (or `pyright`) to the dev extras and a config in `pyproject.toml`. Start at the
+   project's own modules only, with third-party stubs ignored — pandas and Numba types are
+   not worth fighting on day one.
+2. Add `py.typed`.
+3. Replace `np.ndarray` with dtype-parameterised `NDArray` aliases. Define them once
+   (`FloatArray`, `BoolArray`, `IntArray`) rather than spelling `NDArray[np.float64]` 47
+   times — that is the same extract-and-reuse rule applied to types.
+4. Close the 5 untyped parameters: `moving_average_grid(periods)`,
+   `context.prepare(ema_periods, sma_periods)` (all three are `Iterable[int]`),
+   `splice_root`/`load_continuous` (`Path`), `results._jsonable` (needs `Any` and should say
+   so).
+5. Add a linter — `ruff` covers the unused-import and unused-variable class of finding that
+   this review had to write an `ast` script to detect.
+6. **Only then** consider making the type check a gate. A check nobody can pass is deleted.
+
+**Do not annotate inside the `@njit` functions expecting Numba to use it.** Numba infers from
+the call, ignores the annotations, and a wrong one there is worse than none because it reads
+as a guarantee.
+
+---
+
+### M20c — structural, worth doing when adjacent rather than as a project
+
+**Parameter blobs → `NamedTuple`, and this is verified to be free.** `simulate_deadcat` takes
+23 parameters and `_write` takes 18, all passed positionally at 8 call sites; one
+transposition writes plausible numbers into the wrong columns. The obvious grouping is
+`Costs(tick_size, point_value, commission, slippage)` and `Rules(...)`.
+
+The question was whether Numba tolerates it. **Measured:** a `NamedTuple` parameter gives a
+bit-identical result, runs at 1.01× the scalar version over 5M iterations, and
+`@njit(cache=True)` still compiles — which matters because the disk cache is what makes
+parallel workers cheap. The probe is
+`tools/numba_tuple_probe.py`; re-run it before relying on this, as it is a Numba-version
+property rather than a language guarantee.
+
+**Where classes are already right, and where they are not.** The codebase uses dataclasses
+well — `Dataset`, `MovingAverageGrid`, `BarGeometry`, `SessionInfo`, `Summary`, `Instrument`,
+`ContractId` are all doing real work, and `slots=True` is used consistently. The gaps are the
+parameter blobs above and the archetype protocol M17 already covers. **Resist adding classes
+beyond that**, and specifically resist `numba.jitclass` inside the loop: it carries real
+compilation and boxing costs, and the loop is 23% of a combination, so there is nothing to
+win and fidelity-critical code to lose.
+
+**The rest, in descending order of value:**
+
+- **`sweep.SWEEPABLE` reads `DeadCatParams.__slots__`.** Use `dataclasses.fields()`. `__slots__`
+  is an implementation detail that silently excludes inherited fields, and M17 makes strategy
+  parameters polymorphic — this breaks then, quietly, by dropping an axis rather than raising.
+- **`results.best()` interpolates `by` into SQL** (`ORDER BY {by}`). A local research tool, so
+  not a security finding, but a typo yields a DuckDB parse error rather than "unknown column";
+  validate against `Summary.columns()`.
+- **`bars[...].to_numpy(np.float64)` appears 12 times.** One `ohlcv(bars)` helper returning the
+  four arrays removes the repetition and gives one place to enforce the dtype.
+- **`explain.py` and `cli.py` are untested.** Finding 1 is the direct cost of the first. `cli.py`
+  needs only smoke tests — it is thin by design — but "thin by design" is a claim that should
+  fail loudly when it stops being true.
+- **`_cmd_run` is 76 lines mixing computation with 16 `print` calls**, and the computation is
+  `stats` reimplemented inline: `per_trade`, profit factor and max drawdown all have a **second
+  independent definition** there (`cli.py:109–115` against `stats.py:70`, `81`, `106`). They
+  agree today, and the profit-factor pair already differs in a corner — `_ratio` returns `0.0`
+  for no-wins-no-losses where `cli` returns `inf`. This is rubric item 1 in its cheapest form:
+  call `stats.summarise` and print its fields.
+
+---
+
+### The standing rubric
+
+What every change — including every milestone below — is checked against. These are ordered
+by how much trouble each has actually caused in this codebase, not by general principle.
+
+1. **Is there now more than one definition of the same rule?** The most expensive defects here
+   are all this: two triggers (finding 1), two empty-log policies (finding 2), two bracket
+   engines (finding 3), and a third profit factor in `cli.py`. In a project whose premise is
+   *matching an external system exactly*, a duplicated rule is a duplicated place to diverge
+   from it.
+2. **Does the type say what the array actually holds?** `np.ndarray` does not distinguish the
+   bool grid from the float grid, and that distinction is load-bearing.
+3. **Is the expensive work outside the loop?** Already a convention (`CLAUDE.md`), and the
+   measurement discipline behind it is the strongest habit in the project — keep requiring the
+   number, not the argument. Note M9 found a 9.4% regression this way that reasoning alone
+   would have shipped.
+4. **Would this pass if the code were wrong?** Applies hardest to tests asserting an absence.
+   M9's layering tests were written, passed, and checked nothing. Mutation-test them.
+5. **Is a class earning its place, or is it a namespace?** Prefer a dataclass with `slots=True`
+   for a group of values that travel together; prefer a function for behaviour that does not
+   need state. Do not introduce a class hierarchy to express one archetype.
+6. **Is the abstraction extracted from two examples or invented from one?** M17 gets this right
+   about the bracket engine. M20a's finding 3 is the opposite case — deleting a copy, not
+   inventing a shape.
+7. **Does the docstring say why, not what?** Already the house style and the reason this
+   codebase is navigable. The bar for new code is the existing bar.
+
+### Traps
+
+- **Do not "fix" `explain.py` by copying the two-line branch across.** That is what created the
+  bug. One implementation, called twice.
+- **The short-only byte-identity gate does not cover the bracket unification.** Both copies
+  reduce to today's behaviour at `d = −1` regardless of whether they agree at `d = +1`.
+  Unify *before* introducing `d`, and gate the unification on byte-identity separately.
+- **`# pragma: no cover` marks code that is never run, which is exactly where a defect can sit
+  indefinitely.** Finding 2 sat behind one. Audit the others rather than trusting the comment
+  — a pragma is a claim about coverage, not about correctness.
+- **A type checker introduced with a strict config and 400 errors gets switched off.** Start
+  permissive on the project's own modules and tighten; do not gate CI on it in the same change
+  that introduces it.
+- **Re-measure the Numba `NamedTuple` result before relying on it.** It is a property of the
+  installed Numba, not of the language, and `cache=True` interacts with it.
+- **None of this changes a number.** Every item here is behaviour-preserving except finding 1,
+  which changes only the audit trail's reported `trigger`/`risk_points`/`fill_type` and no
+  simulated P&L. Anything that moves a trade log is out of scope for M20 and belongs in the
+  milestone that intends it.
 
 ---
 
