@@ -88,6 +88,13 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
   nothing — 1,380 legs either way, no differing field — so this is a known asymmetry, not a
   live bug. Re-measure rather than assume if the parser ever starts keeping more of them.
 - NT8 trade-list exports are in **UTC**. Bar timestamps are **end-of-bar, UTC**.
+- **Every position must be flat before the session close** — a prop-firm account rule, so it is
+  not negotiable and not a parameter. Already implemented (`sessions.force_flat_mask`,
+  `EXIT_SESSION_CLOSE`, `block_entry_at_session_close`) and matching NT8's
+  `IsExitOnSessionCloseStrategy`; don't re-add it. The design consequence is that **maximum hold
+  time is bounded by the session**, so any archetype needing an overnight hold is unbuildable —
+  apply that while writing the Python, not at port time. `docs/roadmap.md`, "Flat before the
+  session close", has the per-milestone consequences.
 - NQ and MNQ share a tick size but their tick values differ 10×. Everything monetary must go
   through `instruments.py`. Verified by running the same NQ bars through both specs: trade
   geometry identical, gross P&L exactly ×10 on every leg, per-contract commission unscaled.
@@ -341,6 +348,13 @@ the review outputs are stable.
   it. Needs NinjaTrader time, not code time; blocks nothing. The recipe is written out in
   `docs/roadmap.md` under "Outstanding: reconcile NQ against NT8" — export **Trades**, not
   the summary, or every rule that matters stays hidden.
+- **Holiday early closes are probably not force-flatted.** `force_flat_mask` derives its cutoff
+  from the template's fixed 17:00 ET close, not from the session's observed last bar, so on a
+  CME half-day (Thanksgiving, Christmas Eve, July 3) nothing reaches the cutoff and the mask
+  appears to come back empty — while `is_session_close`, which *is* data-derived, handles those
+  days correctly. ~5–8 sessions a year. Unverified: confirm with a query over the archive before
+  changing anything, and note a fix changes Tier-1 results on those days. `docs/roadmap.md`,
+  "Flat before the session close", has the recipe.
 - NG 02-26 sits in `data/minute/` and is **silently ignored**: `ContractId` rejects month 02
   (NQ/MNQ are quarterly) and `discover_exports` swallows the `ValueError`. Harmless, but a
   file disappearing without a warning would hide a real mistake.

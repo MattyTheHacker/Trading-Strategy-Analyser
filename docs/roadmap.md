@@ -4,9 +4,9 @@ Planned work, in dependency order. Nothing here is built. `CLAUDE.md` carries th
 summaries; this file carries the reasoning and the traps.
 
 Precedence when sources disagree: [backtest_tool_spec.md](backtest_tool_spec.md) and the
-project's own docs first, [imantrading_concept_extraction.md](imantrading_concept_extraction.md)
-second. The imantrading notes are a source of framing and of numeric definitions we lack, not
-a source of priorities.
+project's own docs first, [trading_concepts.md](trading_concepts.md) Part II
+second. The discretionary-practice notes are a source of framing and of numeric definitions we
+lack, not a source of priorities.
 
 ---
 
@@ -135,12 +135,75 @@ Each item is somewhere NT8's managed approach constrains what a strategy can be:
 | How long must an entry order rest? | Any lifetime is expressible — see "Order lifetime in NT8" |
 | Does it need a true OCO pair? | Only via the unmanaged approach, which costs the whole bracket |
 | Does it need to reverse directly from long to short? | Not supported by the simulator either; see M15 |
-| Does it hold through the session close? | `IsExitOnSessionCloseStrategy` forces flat; the sim mirrors it |
+| Does it hold through the session close? | **It cannot.** Flat before the close is mandatory — see below |
 | Does it need more than 4 entries per direction? | `EntriesPerDirection` is a strategy property, not a limit |
 | Does it need an indicator NT8 computes differently? | Assume yes until pinned — see M16 |
 
 The list is short because most of it has now been researched. Extend it rather than
 rediscovering an item the hard way.
+
+### Flat before the session close is a hard constraint, not a detail
+
+**Every position must be flat before the session close.** This is a prop-firm account rule, so
+it is not a preference, a parameter, or something a promising strategy gets to negotiate with.
+It also matches NT8, where `DeadCatBounce.cs:54-55` sets `IsExitOnSessionCloseStrategy = true`
+with `ExitOnSessionCloseSeconds = 30`, so Tier 1 and Tier 2 agree on it today.
+
+**It is already implemented — do not "add" it.** `sessions.force_flat_mask` produces the
+per-bar mask, the `@njit` loop exits everything still open at `EXIT_SESSION_CLOSE`, and
+`block_entry_at_session_close` stops a signal firing on a bar that would immediately be
+flattened. The maintenance break falls out of the same machinery: sessions are the unit, so no
+position can span 17:00–18:00 ET, and none can span the Friday-to-Sunday weekend.
+
+**What it means for design, which is the part worth writing down.** Maximum hold time is
+bounded by the session — roughly 23 hours, and in practice far less. Any archetype whose edge
+depends on holding overnight or across a weekend is not buildable under these rules, and that
+is a design constraint to apply *while* writing the Python, not a discovery to make at port
+time. Concretely, for planned work:
+
+- **M15.** A resting entry order must be cancelled at the flatten point, not merely left to
+  expire. Already in M15's specification; restated because it is the one cancellation condition
+  that applies to every archetype regardless of its own invalidation logic.
+- **M13.** The forced-exit share should rise sharply with bar size. At 30-minute bars a
+  position opened near the close has almost no bars in which to reach a target, so more of its
+  outcomes are decided by the clock than by the rules. Worth measuring alongside the
+  ambiguous-bar rate, and for the same reason — both are ways a coarse resolution can look
+  different without the strategy being different.
+- **M10.4.** The final session phase has *structurally* forced exits, so a time-of-day
+  stratification will show it as anomalous. **That is an artefact, not a finding.** Any
+  time-of-day result touching the last phase has to separate "this hour trades badly" from
+  "this hour's trades were closed by the clock".
+- **M18 and M19.** Crossover holds until an opposite cross, so it will hit force-flat often —
+  expect the forced-exit share to be a large fraction of its exits. A squeeze rests orders,
+  which must be cancelled at the flatten point.
+- **Statistics.** The share of exits at `EXIT_SESSION_CLOSE` deserves to be a reported column
+  rather than something buried in the trade log. A strategy taking 40% of its exits from the
+  clock is not really the strategy its rules describe, and the aggregate profit factor will not
+  say so.
+- **The prop-account simulator** (`trading_concepts.md` Part II §3.5) treats the daily flat as
+  one of the rules it replays, alongside trailing drawdown and the consistency ratio.
+
+**Open question found while writing this: early closes are probably not handled.**
+`force_flat_mask` derives its cutoff from the *template's* fixed 17:00 ET close
+(`session_end = trading_day + template.close_seconds`), not from the session's observed last
+bar. On a holiday half-day — the CME closes early around Thanksgiving, Christmas Eve and
+July 3 — the last bar is stamped 13:00 ET, which never reaches the 16:59:30 cutoff, so **the
+mask is empty for that session and nothing forces the position flat.** Note the asymmetry:
+`is_session_close` *is* data-derived and does handle early closes, so the two disagree
+precisely on the days that matter.
+
+If that reading is right, a position opened late on a half-day rides into the next session,
+which is exactly what the account rules forbid and what NT8 — whose trading-hours templates
+carry the holiday calendar — would not do. Roughly 5–8 sessions a year, so perhaps 30 of ~1,200
+in the archive: small, real, and invisible in aggregate statistics.
+
+**Verify before fixing**, and do it as a query rather than by reasoning: group the archive by
+trading day, find sessions whose last in-session bar is stamped well before 17:00 ET, and check
+whether `force_flat_mask` flags anything on them. If it does not, the fix is to derive the
+cutoff from the observed session end rather than the template — but note that changes Tier-1
+results on those days, so it needs the usual byte-identity comparison on every *other* day and
+a note in the fidelity record. It does not appear to affect the MNQ reconciliation, which is a
+December-to-March window, but that should be confirmed rather than assumed.
 
 ---
 
@@ -301,7 +364,7 @@ moment**, and it is not the only consumer.
 2. `InsideBar.cs`, `InsideBarTrailing.cs`, `PullBackAndGo.cs` — all three call `ATR()`.
 3. EMA crossover's stop rule (M18), which has no structural swing to anchor to.
 4. ATR-multiple brackets, already recorded as unscheduled in "Related items".
-5. `imantrading` §3.2's compression classifiers — Bollinger bandwidth and range ÷ ATR — one
+5. `trading_concepts` Part II §3.2's compression classifiers — Bollinger bandwidth and range ÷ ATR — one
    of which is the cheap form of the squeeze itself.
 
 ### Expect exactly the EMA bug again
@@ -512,7 +575,7 @@ also the more expensive, because it needs an entry model the loop does not have.
 | form | compression measure | cost |
 |---|---|---|
 | **TTM-style** | Bollinger(20, 2) sitting *inside* Keltner(20, 1.5·ATR); fires when they expand back outside | Needs BB **and** KC — the full M16 debt, Keltner included |
-| **Bandwidth** | `(upper − lower) / mid` below a trailing percentile | Needs BB only. `imantrading` §3.2 lists it as the cheap compression classifier |
+| **Bandwidth** | `(upper − lower) / mid` below a trailing percentile | Needs BB only. `trading_concepts` Part II §3.2 lists it as the cheap compression classifier |
 | **Structural** | An inside bar, or *k* consecutive inside bars | No new indicators at all — and `InsideBar.cs` already implements it, **with C# ground truth** |
 
 **Recommendation: build the bandwidth form first.** It is one indicator rather than three, it
@@ -964,7 +1027,7 @@ Three mitigations, all cheap:
 - A **permutation test**: shuffle the condition labels against the P&L, recompute the
   separation a few thousand times, and report where the real split falls in that
   distribution. This is the same null-model machinery as the random-entry control arm in the
-  imantrading notes §3.3, and building one gets most of the other.
+  concept notes' Part II §3.3, and building one gets most of the other.
 - Hold out the most recent N trades and report the finding's performance there separately.
 
 State the output's status plainly in the report itself: **hypothesis-generating, not
@@ -1080,10 +1143,10 @@ market drift, not entry quality.
 
 ---
 
-## Related items from the imantrading notes, not yet scheduled
+## Related items from the discretionary-practice notes, not yet scheduled
 
 Recorded so they are not lost. See
-[imantrading_concept_extraction.md](imantrading_concept_extraction.md) §3 for the full
+[trading_concepts.md](trading_concepts.md) Part II §3 for the full
 argument.
 
 - **Regime-stratified re-reading of the existing sweeps.** M10.1 delivers the classifier;
