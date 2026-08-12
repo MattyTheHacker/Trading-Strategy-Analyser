@@ -59,7 +59,7 @@ def run(
     )
     assert count >= 0, "trade buffer overflowed"
 
-    from nqbt.sim.types import trades_to_frame
+    from nqbt.trades import trades_to_frame
 
     return trades_to_frame(out, count)
 

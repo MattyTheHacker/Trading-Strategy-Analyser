@@ -72,6 +72,7 @@ def _cmd_splice(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     import numpy as np
 
+    from nqbt import context
     from nqbt.instruments import get_instrument
     from nqbt.sim import explain as explain_mod
     from nqbt.sim import runner
@@ -94,7 +95,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.end:
         bars = bars[bars.index <= args.end]
 
-    data = runner.prepare(
+    data = context.prepare(
         bars,
         ema_periods=(params.ema_period,),
         sma_periods=(params.fast_sma_period, params.slow_sma_period),

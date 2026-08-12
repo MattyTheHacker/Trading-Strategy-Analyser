@@ -8,7 +8,7 @@ rather than assumed.
 
 The expensive work is hoisted out of the loop entirely: candlestick geometry, session
 VWAP, and the moving-average grids for every period in the grid are computed once in
-:func:`nqbt.sim.runner.prepare`. What remains per combination is a boolean AND over the
+:func:`nqbt.context.prepare`. What remains per combination is a boolean AND over the
 precomputed gates plus one pass of the simulation -- about 30 ms over 1.65M bars, of which
 roughly 70% is pandas building and aggregating the trade log rather than the jitted loop.
 
@@ -27,10 +27,10 @@ from dataclasses import dataclass, field, replace
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
-from nqbt import stats
+from nqbt import context, stats
+from nqbt.context import Dataset
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import runner
-from nqbt.sim.runner import Dataset
 from nqbt.sim.types import DeadCatParams
 
 SWEEPABLE = {f for f in DeadCatParams.__slots__} - {"target_r_multiples"}
@@ -127,7 +127,7 @@ class Grid:
 def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs) -> Dataset:
     """Build the shared dataset covering every period the grid needs."""
     ema, sma = grid.required_periods()
-    return runner.prepare(bars, ema_periods=ema, sma_periods=sma, **kwargs)
+    return context.prepare(bars, ema_periods=ema, sma_periods=sma, **kwargs)
 
 
 def run_combination(

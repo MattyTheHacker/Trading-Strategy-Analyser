@@ -46,7 +46,7 @@ from __future__ import annotations
 import numpy as np
 from numba import njit
 
-from nqbt.sim.types import (
+from nqbt.trades import (
     C_AMBIGUOUS,
     C_BARS_HELD,
     C_COMMISSION,

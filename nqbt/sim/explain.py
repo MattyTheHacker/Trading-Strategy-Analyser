@@ -12,8 +12,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from nqbt.context import Dataset
 from nqbt.instruments import Instrument
-from nqbt.sim.runner import Dataset, deadcat_signal
+from nqbt.sim.runner import deadcat_signal
 from nqbt.sim.types import DeadCatParams
 
 
@@ -32,7 +33,7 @@ def explain_trades(
     if data.ema.values is None or data.sma.values is None:
         raise ValueError(
             "explain_trades needs raw indicator values; call "
-            "runner.prepare(..., keep_ma_values=True)"
+            "context.prepare(..., keep_ma_values=True)"
         )
 
     signal = deadcat_signal(data, params)
