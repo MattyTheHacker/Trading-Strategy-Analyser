@@ -19,14 +19,27 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~1~~ | ~~Re-export NQ manually~~ | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
 | ~~2~~ | ~~Run the simulation against NQ~~ | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact: same bars through both specs give identical geometry and ×10 gross P&L on every leg. |
 | 3 | **M9** — split context from simulation | Gate for everything below. Behaviour-preserving moves only, with the reconciliation re-run either side as the check. |
-| 3a | **M13 + M14** — bar resolution and per-contract as sweep axes | One mechanism, not two: both add an axis *above* the `Dataset` and both need a nullable results column. Sits with M9 because the resampler is a context concern. Independent of M10/M11 so they can move later — but doing them here settles the schema once, before the stale DuckDB re-run rather than after. |
-| 4 | **M10** — regime, relative volume, trend, time of day | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
-| 5 | **M11** — the trade review | The stated goal. Needs 3 and 4. |
-| 6 | **M7** — random-entry arm first, then walk-forward and Monte Carlo | The control arm shares machinery with §11.4's permutation test, so it is cheaper right after M11 than before it. |
-| 7 | Numpy-native summary path | ~3×, composes with the parallel speedup. Worth doing when walk-forward multiplies sweep runtime by the window count, not before — a 1,536-combination sweep is 10 s today. |
-| 8 | **M12** — web GUI | Gated on the review's outputs being stable. |
+| 3a | **M15** — direction in the simulator, then port `PullBackAndGo.cs` | The actual blocker on every new archetype, and it is half of M9 already: M9 adds `direction` to the trade schema for the importer's sake, M15 makes it load-bearing in the `@njit` loop. PullBackAndGo is long-only with existing C#, so it proves the long path against a real NT8 trade list before anything un-groundable is built. |
+| 3b | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | Five consumers, not one. Blocks the squeeze, blocks all three unported NinjaScripts, and gives EMA crossover a stop rule. Paying it once here stops it being rediscovered per archetype. |
+| 3c | **M17 + M13 + M14** — strategy, resolution and contract as axes above the `Dataset` | **One mechanism, not three.** All three add an axis outside `DeadCatParams`, all three need one `Dataset` per value, all three need a nullable results column. Doing them together settles the schema once, before the stale DuckDB re-run rather than after. |
+| 4 | **M7a** — `randomentry.py`, pulled forward from step 6 | The null that makes a *second* archetype interpretable. Without it "EMA crossover beats DeadCatBounce" is a comparison of two numbers with no scale. Cheap once M15 lands, because it reuses the bidirectional exit machinery. |
+| 5 | **M18** — EMA crossover | The one archetype built now, to prove the protocol. Cheapest real test of M15 and M17, and a legitimate known-negative control (see §M18). |
+| 6 | Numpy-native summary path | **Pulled forward from step 7.** Crossover generates tens of thousands of trades per combination where DeadCatBounce generates ~1,400, so the 71% of runtime that is pandas stops being an annoyance and starts being the sweep. |
+| 7 | **M10** — regime, relative volume, trend, time of day | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
+| 8 | **M11** — the trade review | The stated goal. Needs 3 and 7. Deliberately *not* displaced by the archetype work above — see "Decisions taken". |
+| 9 | **M7b** — walk-forward and Monte Carlo | The remaining two thirds of M7. Share machinery with M14 and with §11.4's permutation test. |
+| 10 | **M19** — squeeze breakout | Queued, not scheduled. Needs an OCO entry model the loop does not have (§M19), so it is the expensive archetype; build it once M18 has proven the protocol. |
+| 11 | **M12** — web GUI | Gated on the review's outputs being stable. |
 
 **Next up: M9.** Steps 1 and 2 are complete, so the refactor is the live item.
+
+**What changed and why.** Steps 3a–3c, 5 and 10 are new; steps 4 and 6 moved earlier. The
+request was "add EMA crossover and squeeze breakout", but neither is reachable today and
+neither is where the cost is: the simulator is **short-only** (M15), the indicators they need
+have an unpaid NT8-parity debt (M16), and `sweep.py` is hardcoded to `DeadCatParams` (M17).
+That infrastructure is ~all the work; the archetypes themselves are then small. It also pays
+for the three NinjaScripts already written and never ported — `InsideBar.cs`,
+`InsideBarTrailing.cs`, `PullBackAndGo.cs`, all long-capable, all using `ATR()`.
 
 ### Outstanding: reconcile NQ against NT8
 
@@ -59,6 +72,13 @@ trusted.
 Not scheduled: **M8** (premise measured and mostly false — see `CLAUDE.md`), the three
 unbuilt spec features, `NG 02-26`'s silent skip, and the MAE/MFE definition mismatch.
 
+Also unscheduled but now much cheaper: porting **`InsideBar.cs`** and
+**`InsideBarTrailing.cs`**. Both are long-capable and ATR-based, so M15 and M16 remove
+essentially all of their cost, and both have C# ground truth — which makes them the cheapest
+*trustworthy* archetypes available, unlike M18 and M19. `InsideBar` is the structural form of
+the squeeze idea and is worth porting before M19 is built from scratch (§M19).
+`InsideBarTrailing` is the second consumer of `EXIT_SIGNAL`.
+
 ---
 
 ## Standing constraint, extended
@@ -74,6 +94,53 @@ read-only with respect to `nqbt/sim/`: the review may *describe* what a real tra
 compare it against what the simulator would have done, but it must never feed a fill rule
 back into the `@njit` loop. If those two ever need reconciling, the trade list wins for
 *facts* and NT8 wins for *fill semantics*, and they are different questions.
+
+### An original archetype has no C# to lose to
+
+`CLAUDE.md` says "when the C# and intuition disagree, the C# wins". DeadCatBounce was a
+**port**, so that rule always had a referent. EMA crossover and squeeze breakout are
+**originals** — there is no NinjaScript, so the rule has nothing to point at. That inverts
+the workflow and it needs stating before the first original is written, not after.
+
+- **The prime directive still binds**, in full. It constrains the *simulator* — bar-close
+  OHLC fills, no intrabar tick precision — and the simulator is shared by every archetype.
+  Nothing about inventing a rule set licenses a more precise fill model for it.
+- **For an original, the Python is the specification** and the NinjaScript is written *from*
+  it, not the other way round. The reconciliation is unchanged in form: export Trades, diff
+  leg-for-leg.
+- **Development stays in Python. The port happens on promotion, not on creation.** Decided
+  deliberately — see "Decisions taken". An archetype is explored, swept and discarded
+  entirely in Python; only one that looks worth trading earns the C# work.
+- **So a developing archetype is Tier-1 only, and that has to stay visible.** Today
+  "validated against NT8" is a project-wide property, true of the only archetype there is.
+  With Python-first originals it becomes a **per-archetype** property, and a sweep table that
+  ranks a reconciled archetype against an unreconciled one is comparing a measurement with an
+  assumption. M17 records it as a registry field and a results column for exactly this reason.
+- **The failure mode is accumulation** — three archetypes, none ever opened in Strategy
+  Analyzer, all quietly trusted because the *first* one was. Mitigations: port
+  `PullBackAndGo.cs` early so the new long path is proven against real C# while it is cheap
+  to fix (M15), and make Tier-1-only status a visible column rather than a remembered caveat.
+
+**The constraint runs the other way too, and this is the non-obvious half.** Writing Python
+first means the platform gets no vote until the port, so a strategy can be built that NT8
+cannot express — and discovering that after a promising sweep is the expensive order to find
+out. The mitigation is to know the platform's limits *before* designing against them, which
+is what the "Order lifetime in NT8" section below exists for.
+
+**Expressibility checklist, to be run against a new archetype's design before building it.**
+Each item is somewhere NT8's managed approach constrains what a strategy can be:
+
+| question | current answer |
+|---|---|
+| How long must an entry order rest? | Any lifetime is expressible — see "Order lifetime in NT8" |
+| Does it need a true OCO pair? | Only via the unmanaged approach, which costs the whole bracket |
+| Does it need to reverse directly from long to short? | Not supported by the simulator either; see M15 |
+| Does it hold through the session close? | `IsExitOnSessionCloseStrategy` forces flat; the sim mirrors it |
+| Does it need more than 4 entries per direction? | `EntriesPerDirection` is a strategy property, not a limit |
+| Does it need an indicator NT8 computes differently? | Assume yes until pinned — see M16 |
+
+The list is short because most of it has now been researched. Extend it rather than
+rediscovering an item the hard way.
 
 ---
 
@@ -134,6 +201,512 @@ below the EMA" that will drift).
 **Risk.** This moves validated code. The NT8 reconciliation (1143/1144) is the thing being
 protected, so: no behaviour changes in the same commit as the moves, and the full suite plus
 a re-run of the reconciliation window before and after, compared byte-for-byte.
+
+---
+
+## M15 — Direction: making the simulator bidirectional
+
+**This is the blocker, and it is not a strategy feature.** EMA crossover, squeeze breakout,
+and all three unported NinjaScripts are long-capable. `simulate_deadcat` is short-only, and
+not by a flag — direction is baked into roughly eight places:
+
+| line of reasoning | short form today |
+|---|---|
+| stop hit | `high[i] >= stop` |
+| target fill | `_limit_filled(low[i], …)` — a *buy* limit below entry |
+| P&L | `gross = (entry_price - exit_price) * qty * point_value` |
+| MAE / MFE | `run_high - entry`, `entry - run_low` |
+| entry trigger | `min(low[i], close[i] - entry_offset)` |
+| entry fill test | `open_[i] <= trigger`, `low[i] <= trigger` |
+| ratchet | `if new_stop < stop` — tightens downward only |
+| slippage sign | `trigger - slippage` on entry, `stop + slippage` on exit |
+
+### The design: one sign, not two code paths
+
+Carry `d = +1.0` long / `−1.0` short and express every comparison through it. Forking the
+loop into a long copy and a short copy is the tempting alternative and it is wrong for a
+specific reason: **the bracket machinery carries the fidelity evidence.** The ambiguous-bar
+rule, `IsFillLimitOnTouch`, the ratchet and the force-flat path are what the 1143/1144
+reconciliation actually validated. Two copies means two places for Tier 1 and Tier 2 to
+drift, and the reconciliation only ever covered one of them.
+
+| quantity | generalised form | check at `d = −1` |
+|---|---|---|
+| risk | `d * (trigger − stop)` | `stop − trigger` ✓ |
+| leg target | `trigger + d * risk * R * tp_mult` | `trigger − risk·R·tp` ✓ |
+| stop hit | `d * adverse <= d * stop`, adverse = `low` long / `high` short | `high >= stop` ✓ |
+| entry fill | `d * open_[i] >= d * trigger`, else `d * favourable >= d * trigger` | `open <= trigger` ✓ |
+| entry slippage | `trigger + d * slippage` | `trigger − slippage` ✓ |
+| exit slippage | `stop − d * slippage` | `stop + slippage` ✓ |
+| ratchet | tighten when `d * new_stop > d * stop` | `new_stop < stop` ✓ |
+| gross P&L | `(exit − entry) * d * qty * point_value` | `(entry − exit)·qty·pv` ✓ |
+| MAE / MFE | `d * (entry − adverse)`, `d * (favourable − entry)` | `run_high − entry` ✓ |
+
+**`_targets_reached_first` needs no change and must not be given one.** It compares
+`abs(open − target) < abs(stop − open)` — pure distance from the open, already
+direction-free. Someone will eventually "fix" it to take a sign; the test that stops them is
+asserting a long and a short bar with mirrored geometry resolve the same way.
+
+### The regression gate is exact equality, not "close enough"
+
+Multiplying by ±1.0 is exact in IEEE 754, and `fl(a − b) = −fl(b − a)` always. Every
+substitution in the table above therefore preserves the *bit pattern* of every short result,
+provided `d` multiplies rather than branches. So the gate for this refactor is not "the
+reconciliation still passes" — it is **every short-only trade log byte-identical before and
+after**, which is a far stronger and much cheaper check. If a single float moves, the
+generalisation is wrong somewhere and the table above says where to look.
+
+### Two additions the loop does not have
+
+1. **`EXIT_SIGNAL = 4.0`.** Every exit today is stop, target, ratchet, force-flat or
+   end-of-data. A rule-driven exit — "close when the MAs cross back" — has no
+   representation. EMA crossover needs it and so does `InsideBarTrailing.cs`, which is why
+   it belongs here rather than in M18. Additive to `EXIT_REASONS`; `results.py` stores the
+   string, so no migration.
+2. **`direction` on the trade record**, which M9 is already adding for the importer's sake.
+   M15 is what makes it load-bearing on the simulation side. Doing them in one pass avoids
+   adding the column twice with two meanings.
+
+**Explicitly not supported: stop-and-reverse.** `in_position` is a boolean and the loop
+assumes flat-to-flat. Reversing means exiting and entering on the same bar, which collides
+with the one-bar entry lifetime and with the same-bar stop-out path. **Decide now that
+archetypes are flat between trades**, and treat reversal as a separate feature with its own
+reconciliation if it is ever wanted. Retro-fitting it into a loop that assumes flatness is
+how a position-tracking bug gets introduced somewhere the tests do not look.
+
+### Validation: port `PullBackAndGo.cs`
+
+`PullBackAndGo.cs` is long-only and enters with `EnterLongStopMarket` — the exact mirror of
+DeadCatBounce's entry mechanism on the other side. It is therefore the cheapest possible
+proof that the long path is right, and unlike EMA crossover it has **C# to lose to** and can
+be reconciled against a real NT8 trade list.
+
+Sequence: generalise, prove short-side byte-identity, port PullBackAndGo, reconcile it
+against NT8, *then* build anything original. A long-side fill-semantics bug found here is
+found against ground truth; found later it is indistinguishable from the new strategy being
+bad.
+
+---
+
+## M16 — The indicator-parity debt: ATR, StdDev, Bollinger, Keltner
+
+`indicators.py` says it plainly: "TA-Lib is still the right tool for MACD, RSI, Bollinger
+Bands and ATR, which no archetype uses yet. Those carry their own NT8 discrepancies and will
+need the same treatment when an archetype first depends on one." **Squeeze breakout is that
+moment**, and it is not the only consumer.
+
+**Five consumers, which is why this is its own milestone and not a squeeze detail:**
+
+1. Keltner Channels for the squeeze (M19) — ATR is the channel width.
+2. `InsideBar.cs`, `InsideBarTrailing.cs`, `PullBackAndGo.cs` — all three call `ATR()`.
+3. EMA crossover's stop rule (M18), which has no structural swing to anchor to.
+4. ATR-multiple brackets, already recorded as unscheduled in "Related items".
+5. `imantrading` §3.2's compression classifiers — Bollinger bandwidth and range ÷ ATR — one
+   of which is the cheap form of the squeeze itself.
+
+### Expect exactly the EMA bug again
+
+The EMA discrepancy was **seeding**, not formula: TA-Lib warms up with a simple average and
+emits nothing before index `period-1`; NT8 seeds from bar 0 and emits from bar 0. ATR is the
+same shape of problem — Wilder smoothing is a recursion with a seed, and the seed is where
+implementations diverge. `nt8_sma` already reproduces NT8's *partial-window* warm-up for the
+same reason.
+
+So: hand-roll each one against NT8's recursion, pin it with a unit test against values read
+off an NT8 chart, and do not assume the formula — **read it out of NT8 and record the
+evidence in `docs/nt8-fidelity.md`** the way `nt8_ema` and `nt8_sma` were. The specific
+questions to settle, none of which should be answered from memory:
+
+- **ATR:** what is `Value[0]`, and is the recursion `(prior·(n−1) + TR) / n`? Does it emit
+  before `n` bars, and if so what is it averaging?
+- **StdDev:** population divisor `n` or sample `n−1`, and does it use the same expanding
+  partial window `nt8_sma` does?
+- **Bollinger:** which mean does NT8 centre on, and does the band use that same StdDev?
+- **Keltner:** NT8's midline and width are *not* universally agreed on between platforms —
+  some use an SMA of typical price, some an EMA of close, and the multiplier may apply to
+  ATR or to a mean deviation. This is the one most likely to be silently wrong.
+
+### True Range crosses session and roll boundaries
+
+TR reads the *previous* close, so two boundaries need a decision rather than a default:
+
+- **The 17:00–18:00 ET maintenance break.** The prior close is an hour old. NT8 does not
+  reset TR at a session boundary under a continuous `Bars` object, so matching it probably
+  means not resetting either — but that is a claim to verify, not assume.
+- **Roll boundaries on the spliced series.** Back-adjustment makes the gap small but not
+  zero, so ATR will step at each of the 18 rolls. Same family as M10.2's note that absolute
+  volume steps there too. Do not read it as a volatility event, and prefer per-contract runs
+  (M14) when an ATR-sensitive rule is being judged.
+
+### Memory: these grids are two-dimensional, not one
+
+`MovingAverageGrid` is `[n_periods, n_bars]`. Bollinger and Keltner are swept over **period
+*and* multiplier**, so the natural grid is `[n_periods, n_multipliers, n_bars]` and the 66 MB
+→ 595 MB lesson applies with an extra factor. Keep the same discipline: **store the boolean
+gate, not the values**, unless something explicitly needs the level. A squeeze gate is a
+boolean ("bands inside channels"), so the default case is cheap — but only if it is built
+that way from the start.
+
+---
+
+## M17 — The archetype protocol, built with M13 and M14 as one mechanism
+
+Adding a second archetype today means forking `sweep.py`. Everything in it is hardcoded to
+`DeadCatParams`:
+
+| what | where |
+|---|---|
+| `SWEEPABLE = {f for f in DeadCatParams.__slots__} - {…}` | `sweep.py:36` |
+| `Grid.base: DeadCatParams` | `sweep.py:52` |
+| `_GATED_BY` — DeadCatBounce's toggle map | `sweep.py:74` |
+| `required_periods()` returning exactly `(ema, sma)` | `sweep.py:115` |
+| `run_combination` calling `runner.run_deadcat` by name | `sweep.py:137` |
+| `prepare()` computing geometry, VWAP and both MA grids unconditionally | `runner.py:59` |
+
+The build spec already anticipated this: *"one Numba-jitted simulation function per strategy
+archetype … Different parameter values of the same logic reuse the same function; genuinely
+different entry logic gets its own function."* That is the right split — the argument in M15
+is that the *bracket* half stays shared while the *entry* half forks.
+
+### Strategy is the third axis above the `Dataset`
+
+M14 already records that it and M13 are "architecturally the same feature — both add an axis
+that sits *above* the `Dataset` rather than inside `DeadCatParams`, both need one `Dataset`
+per value, and both need a nullable column in the results schema." **Strategy is a third
+instance of exactly that pattern**, and it arrived last only by accident of when it was
+asked for.
+
+So build one mechanism covering all three, not three wrappers that diverge:
+
+```python
+sweep.sweep_axes(bars, grid, strategies=[...], resolutions=[1, 5, 15], contracts=[...])
+```
+
+with `strategy`, `resolution` and `contract` all landing in `save_sweep` together, all
+nullable (`contract` null meaning "spliced series"). **Do this before the stale DuckDB
+re-run**, which is already the plan for M13/M14 and is now worth more, because otherwise the
+schema settles three times.
+
+### The protocol, kept minimal
+
+```python
+class Archetype(Protocol):
+    name: str                      # the results column, and the registry key
+    params_cls: type               # replaces DeadCatParams in Grid
+    sweepable: frozenset[str]      # replaces the __slots__ scrape
+    gated_by: dict[str, str]       # replaces _GATED_BY; keeps dead_axes() working
+    tier2: Tier2Status             # reconciled / tier-1-only / not-checked
+
+    def required_context(self, grid) -> ContextSpec: ...
+    def run(self, data, params, instrument) -> pd.DataFrame: ...
+```
+
+`Grid.dead_axes()` is the piece worth preserving rather than reinventing — it is the guard
+that stops a swept period whose toggle is off everywhere multiplying runtime for nothing, and
+every archetype will have its own version of that mistake available.
+
+**`tier2` is not bookkeeping.** Per the standing-constraint section above, "validated against
+NT8" stops being a project-wide fact once originals exist. Putting the status on the
+archetype and into the results table is what stops a ranking silently mixing a measurement
+with an assumption.
+
+### `prepare` must stop computing everything
+
+Today `prepare` unconditionally builds bar geometry, session VWAP and both MA grids — fine
+for one archetype, wrong for four. With M16's Bollinger/Keltner grids and M10's regime,
+volume and time-of-day labels added, every sweep would pay for every archetype's needs and
+the `Dataset` would balloon well past the 121 MB that `slim()` exists to manage.
+
+`required_context(grid)` returning a declared spec — which MA kinds and periods, whether
+VWAP is needed, which channel grids — is the fix, and it is **load-bearing at M10 regardless
+of how many archetypes exist**. Doing it here is therefore free rather than speculative.
+
+### The extraction is timed, deliberately
+
+Pulling a shared bracket engine out of `deadcat.py` *before* a second archetype exists is
+designing an abstraction from one example. Pulling it out *after* two land means the
+duplicated fidelity-critical code sat on `main` in the meantime. Neither is right, so:
+
+**extract during M18, in its own commit, with byte-identity as the gate.** Copy to get EMA
+crossover working, then factor the common half into `nqbt/sim/bracket.py` as `@njit` device
+functions — Numba inlines those at no cost — with the DeadCatBounce trade log required to
+come back byte-identical. The abstraction is then designed against two real shapes and the
+duplication never ships.
+
+---
+
+## M18 — EMA crossover
+
+The first original archetype, and the one chosen to prove M15 and M17 because it is the
+cheapest thing that exercises both: it is bidirectional and it exits on a signal rather than
+a bracket level.
+
+### Be honest about what this is for
+
+**MA crossover on 1-minute index futures is the most-tested idea in retail futures and is
+reliably unprofitable at realistic costs.** That is not a reason to skip it — it is the
+reason it is a good first original. It serves three purposes, none of which is "find edge":
+
+1. **A protocol test.** If `sweep_axes` can run DeadCatBounce and crossover side by side and
+   tag both correctly, M17 works.
+2. **A known-negative control.** Paired with M7a's random-entry arm, crossover should read
+   as *no better than random*. If it reads meaningfully better, the first hypothesis is a
+   **bug, not an edge** — and specifically lookahead, since crossover is unusually easy to
+   compute one bar early.
+3. **It exercises `EXIT_SIGNAL`,** which nothing else does until `InsideBarTrailing.cs`.
+
+Recording this now matters because a PF above 1 on a crossover sweep will otherwise be
+exciting rather than suspicious.
+
+### Rules to fix explicitly, because the defaults are all wrong
+
+- **Cross semantics.** NT8's `CrossAbove(a, b, n)` asks whether `a` crossed above `b` *within
+  the last n bars*, not on this bar. The naive `fast[i] > slow[i] and fast[i-1] <= slow[i-1]`
+  is a **different rule** and will disagree with any NinjaScript written later. Pick NT8's
+  form, with `n` as a swept axis. Equality on the prior bar is a real edge case for SMAs on
+  tick-grid prices even though it is vanishingly unlikely for EMAs.
+- **A third entry mechanism.** DeadCatBounce rests a stop-market for one bar; the squeeze
+  rests one until the range breaks; crossover enters **market-on-next-open**. There is no
+  trigger price and no "no touch, no fill" — the fill is `open[i+1] + d·slippage` and it is
+  unconditional. The loop's `pending_trigger` machinery does not apply, which is precisely
+  why this is a good test of whether M17's split is in the right place.
+- **The stop has nothing to anchor to.** DeadCatBounce's stop is the signal bar's high plus
+  two ticks — structural, and meaningless for a crossover where there is no signal wick.
+  Use an **ATR multiple** (M16), which makes M16 a hard prerequisite rather than a
+  convenience, and keep the swing-high mode available as an alternative axis.
+- **`target_r_multiples` still works but changes meaning.** R is `stop − trigger`, so with an
+  ATR stop the four-leg scale-out becomes ATR-scaled rather than structure-scaled. Fine, but
+  it means crossover results are not comparable to DeadCatBounce results at the same R
+  numbers — the same trap M13 records for comparing profit factor across resolutions.
+- **Flat between trades, not stop-and-reverse** — per M15. The classic form reverses; this
+  one will not, and that difference must be in the results notes or the comparison to
+  published crossover results is meaningless.
+
+### It will break the sweep's performance assumptions
+
+DeadCatBounce produces ~1,400 legs over 1.65M bars because six filters conjoin down to a rare
+signal. A crossover fires **whenever two lines cross**, which on 1-minute bars is tens of
+thousands of trades per combination.
+
+Two consequences, both of which are why the numpy-native summary path moved up the order:
+
+- The M8 profiling result — `stats.summarise` 51%, `trades_to_frame` 20%, the `@njit` loop
+  23% — is measured at DeadCatBounce's trade count. At 30× the legs, the pandas share grows
+  and the loop's share shrinks further. **The 71% overhead becomes the entire sweep.**
+- `allocate_output`'s `n_signals × n_legs` bound stays correct but stops being cheap: a
+  permissive crossover grid allocates a matrix orders of magnitude larger, per worker, and
+  the parallel path memmaps the `Dataset` but not the output buffer.
+
+Do a single-combination timing before running a wide crossover grid, rather than discovering
+this as a stalled sweep.
+
+---
+
+## M19 — Squeeze breakout
+
+Queued rather than scheduled. It is the more interesting of the two requested archetypes and
+also the more expensive, because it needs an entry model the loop does not have.
+
+### Fix the definition first — "squeeze" means at least three things
+
+| form | compression measure | cost |
+|---|---|---|
+| **TTM-style** | Bollinger(20, 2) sitting *inside* Keltner(20, 1.5·ATR); fires when they expand back outside | Needs BB **and** KC — the full M16 debt, Keltner included |
+| **Bandwidth** | `(upper − lower) / mid` below a trailing percentile | Needs BB only. `imantrading` §3.2 lists it as the cheap compression classifier |
+| **Structural** | An inside bar, or *k* consecutive inside bars | No new indicators at all — and `InsideBar.cs` already implements it, **with C# ground truth** |
+
+**Recommendation: build the bandwidth form first.** It is one indicator rather than three, it
+drops the Keltner parity question — flagged in M16 as the one most likely to be silently
+wrong — and it is the same quantity the regime classifier wants anyway, so M10.1 and M19
+share it instead of each inventing one. Promote to TTM only if bandwidth shows something.
+
+**And port `InsideBar.cs` before either.** It is structurally the same idea — compression,
+then a break of the range — it needs no new indicator work beyond ATR, and it is the only
+version of this strategy that can be reconciled against NT8. It is the cheapest way to find
+out whether compression-then-break is worth pursuing at all before paying for BB or KC.
+
+### The real cost: two resting orders, not one
+
+The squeeze is **directionless**; the break supplies the direction. So the natural entry is a
+stop-market resting on *both* sides of the compression range, first fill cancelling the
+other — an OCO pair. The loop tracks a single `pending_bar` / `pending_trigger` /
+`pending_stop`. This is a genuine addition to the entry model and the main structural cost of
+the archetype, which is why it sits behind M18 rather than beside it.
+
+### Traps
+
+- **Order lifetime — researched, and no longer a blocker.** The design wants the orders
+  resting until the squeeze resolves, which the one-bar managed expiry appeared to forbid.
+  It does not: the expiry is an unset `isLiveUntilCancelled` parameter, not a platform rule,
+  and every lifetime is expressible. See "Order lifetime in NT8" above for the three routes
+  and their costs. The live question is now **whether a native OCO pair is needed** — that
+  one costs the unmanaged rewrite — or whether resubmitting each bar is enough, which for a
+  bar-close backtest is exactly equivalent and free. Default to resubmission.
+- **Lookahead.** The squeeze state must be determined from **completed** bars: bands computed
+  at the close of bar `i`, break tested on bar `i+1`. Same family as the multi-timeframe MA
+  trap, and the same reason — a compression measure that includes the breakout bar's own
+  range trivially predicts the breakout. This is the second-easiest place in the project to
+  manufacture a fictional edge.
+- **The ambiguous-bar rate will be high.** A breakout entry with a stop back inside the range
+  puts the stop and the first target close together and often both inside the entry bar. M13
+  makes the same prediction for coarse resolutions and gives the same instruction: if it
+  looks profitable, **check the ambiguous-bar rate first**, and check the spread between
+  `ambiguity_policy` 0 and 1 before believing anything.
+- **Compression is a volatility state, so results will cluster in time.** A squeeze archetype
+  will fire heavily in quiet regimes and barely at all in violent ones, which makes the
+  aggregate profit factor an average over two different populations. This is the archetype
+  that most needs M10's regime stratification and M14's per-contract dispersion, and reading
+  it without them is close to meaningless.
+
+---
+
+## Order lifetime in NT8: making an entry rest longer than one bar
+
+Researched ahead of need, because it was the open question that made M19's design look
+possibly unbuildable. **It is buildable.** Recording the mechanism now means future
+archetypes can be designed against what the platform actually does rather than against the
+one behaviour DeadCatBounce happens to use.
+
+**How this was established.** NinjaTrader 8 is installed locally, so
+`NinjaTrader.NinjaScript.StrategyBase` in `C:\Program Files\NinjaTrader 8\bin\NinjaTrader.Core.dll`
+was reflected over directly for method signatures, parameter names and enum members. That is
+primary evidence about the **API**. It is *not* evidence about **behaviour** — see
+"What reflection cannot settle" at the end, which matters more than usual here.
+
+### The one-bar expiry is an unset parameter, not a platform rule
+
+This is the headline, and it reframes a gotcha the project has carried since the beginning.
+
+Every managed entry method has a long-form overload carrying an `isLiveUntilCancelled` flag:
+
+```csharp
+EnterShortStopMarket(int barsInProgressIndex, bool isLiveUntilCancelled, int quantity,
+                     double stopPrice,  string signalName)
+EnterLongStopMarket (int barsInProgressIndex, bool isLiveUntilCancelled, int quantity,
+                     double stopPrice,  string signalName)
+EnterLongLimit      (int barsInProgressIndex, bool isLiveUntilCancelled, int quantity,
+                     double limitPrice, string signalName)
+EnterLongStopLimit  (int barsInProgressIndex, bool isLiveUntilCancelled, int quantity,
+                     double limitPrice, double stopPrice, string signalName)
+```
+
+`DeadCatBounce.cs:177-180` calls the **three-argument** overload
+`EnterShortStopMarket(int quantity, double stopPrice, string signalName)`, which has no such
+parameter and therefore leaves it false. So "entry orders are not GTC" is not a rule NT8
+imposes — it is the default of a parameter the short overload does not expose.
+`NinjaTrader.Cbi.Order` carries `IsLiveUntilCancelled` as a readable property, so it can be
+asserted on a live order rather than inferred.
+
+**Why `TimeInForce.Gtc` never helped — two different layers.** `DeadCatBounce.cs:61` sets
+`TimeInForce = TimeInForce.Gtc` and the order still expires after one bar.
+`NinjaTrader.Cbi.TimeInForce` is `{ Day, Gtc, Ioc, Opg, Gtd }` — an **exchange-level**
+instruction about how long a venue keeps a *working* order. `isLiveUntilCancelled` is
+**NT8's own managed-approach bookkeeping** about whether to auto-submit a cancel at bar
+close. Different layers, different owners, and neither implies the other. This is precisely
+the confusion that cost real time, and it is worth stating in those terms so it is not
+re-derived.
+
+### Route 1 — `isLiveUntilCancelled`, and the obligation it creates
+
+Setting the flag true means **nothing cancels the order for you**. That obligation is the
+whole cost of this route:
+
+- Capture the order reference in `OnOrderUpdate`, whose confirmed signature is
+  `OnOrderUpdate(Order order, double limitPrice, double stopPrice, int quantity, int filled,
+  double averageFillPrice, OrderState orderState, DateTime time, ErrorCode error,
+  string comment)`, matching on `order.Name` against the signal name.
+- Cancel with `CancelOrder(Order order)`.
+- Release the reference on terminal states. `NinjaTrader.Cbi.OrderState` has **16** members —
+  `Accepted, Cancelled, Filled, Initialized, PartFilled, CancelSubmitted, ChangeSubmitted,
+  Submitted, TriggerPending, Rejected, Working, CancelPending, ChangePending, Suspended,
+  AcceptedByRisk, Unknown` — so "terminal" must be enumerated deliberately. Treating anything
+  not `Filled` as still-live is how a stale reference gets cancelled after it already filled.
+
+**This is also how an N-bar lifetime is built.** NT8 offers exactly two native options: one
+bar (flag false) or indefinite (flag true). Anything in between is your own bar counter in
+`OnBarUpdate` plus `CancelOrder`. That is unglamorous but it means **every lifetime is
+expressible**, which is the thing that needed settling.
+
+### Route 2 — unmanaged, the only native OCO
+
+```csharp
+SubmitOrderUnmanaged(int selectedBarsInProgress, OrderAction orderAction, OrderType orderType,
+                     int quantity, double limitPrice, double stopPrice,
+                     string oco, string signalName)
+```
+
+Confirmed, including the `oco` parameter; `Order.Oco` is a string tag and two orders sharing
+one cancel each other on fill. Unmanaged orders are not auto-cancelled at all.
+
+**The cost is large and it is not a flag.** `IsUnmanaged = true` gives up `SetStopLoss`,
+`SetProfitTarget`, `EntriesPerDirection`, `EntryHandling` and managed position tracking.
+`DeadCatBounce.cs` uses **all** of them — four `SetStopLoss` calls, three `SetProfitTarget`,
+`EntriesPerDirection = 4`, `EntryHandling.AllEntries`. Going unmanaged means hand-rolling the
+entire four-leg bracket, which is a rewrite of the strategy, not a change of order call.
+
+**Recommendation: never go unmanaged for lifetime alone** — route 1 covers that completely.
+Reserve it for a genuine two-sided OCO requirement, and even then check route 3 first.
+
+### Route 3 — resubmit each bar, and why it is exactly equivalent for Tier 1
+
+Keep the default one-bar behaviour and simply re-place the order every bar while the
+condition still holds. No order references, no cancellation logic, no unmanaged rewrite.
+
+**For a bar-close backtest this is not an approximation of route 1 — it is identical**,
+provided the trigger price is unchanged on each resubmission. The fill test is the same
+per-bar OHLC comparison either way, and the simulator has no concept of queue position for
+it to differ on. If the strategy *recomputes* the trigger each bar then the two genuinely
+differ, but that is a strategy design choice rather than a platform artefact.
+
+Live, they are not identical: each resubmission is a new order, so queue position resets, and
+the order churn is visible to a broker or prop-firm risk system in a way one resting order is
+not. Record the distinction so a live port does not silently inherit the backtest's
+convenience.
+
+### What the simulator would need — specification only, no code yet
+
+`deadcat.py` encodes the lifetime as a single equality, `elif pending_bar == i - 1:`. The
+generalisation is an expiry bar rather than a flag: hold `pending_expires_at`, keep the order
+live while `i <= pending_expires_at`, and add an `entry_order_lifetime_bars` parameter where
+**1 reproduces today's behaviour exactly** and 0 means "until cancelled". Cancellation on
+force-flat is required for all values; cancellation on signal invalidation is
+archetype-specific and belongs in the driver, not the shared bracket code.
+
+Same gate as every other change to this loop: at `entry_order_lifetime_bars = 1`, every
+existing trade log must come back **byte-identical**.
+
+### What this changes about M19
+
+The earlier note said the squeeze's resting orders "may simply not be expressible in NT8".
+**That is resolved — they are expressible**, and the trap downgrades accordingly:
+
+- A one-sided rest is route 1: cheap, managed, keeps the bracket.
+- A true two-sided OCO is route 2 and costs the unmanaged rewrite.
+- Route 3 gets the two-sided behaviour with no NT8 work at all in backtest, and differs only
+  live.
+
+So the M19 design question is no longer "can this be built" but **"do I actually need native
+OCO, or is resubmission enough"** — and for a Tier-1 research backtester the answer is
+resubmission, with the OCO question deferred to a live port.
+
+### What reflection cannot settle
+
+The API surface above is fact. **None of the following is**, and none of it may be encoded in
+`nqbt/sim/` until a trade list settles it — the prime directive applies here exactly as it
+does everywhere else:
+
+- Whether Strategy Analyzer honours `isLiveUntilCancelled` identically to live execution.
+- Precisely when the cancel lands relative to the bar close, and therefore whether a
+  resting order can fill on the same bar its cancel was issued.
+- Whether a resting entry survives a session boundary, and how it interacts with
+  `IsExitOnSessionCloseStrategy` / `ExitOnSessionCloseSeconds`.
+- Whether the managed approach cancels a resting *opposite-direction* entry when one fills,
+  or merely refuses the second fill. A managed strategy cannot hold both directions at once,
+  but "cannot hold" and "cancels the resting order" are different claims and only a trade
+  list distinguishes them.
+
+Each is a one-run question in Strategy Analyzer with a Trades export, and each is far cheaper
+to answer before an archetype depends on it than after.
 
 ---
 
@@ -476,6 +1049,35 @@ trade sequence cannot distinguish any of those, because it takes the entries as 
 It also shares machinery with §11.4's permutation test, so building it pays for part of the
 review's statistical guard.
 
+### Split into M7a and M7b, with M7a moved ahead of the archetypes
+
+`randomentry.py` was scheduled after M11 on the argument that it shares machinery with
+§11.4's permutation test and is therefore cheaper built alongside it. **That argument is
+symmetric and the interpretive need is not.** Sharing works in either direction — build the
+null first and M11's guard inherits it — whereas the *need* for a null arrives the moment
+there is more than one archetype, which is now.
+
+Concretely: with DeadCatBounce alone, "PF 0.746" is a number about one strategy. With
+DeadCatBounce, PullBackAndGo and EMA crossover, every comparison between them is a ranking
+over a widening surface — and per M14's framing, picking the best of *k* candidates is the
+multiple-comparisons trap whether *k* counts contracts, combinations or archetypes. M17 makes
+that surface multiply: archetypes × combinations × resolutions × contracts. The random-entry
+arm is the only thing on the roadmap that supplies a **scale** for those comparisons rather
+than another number to sort.
+
+So:
+
+- **M7a — `randomentry.py`**, at step 4, after M15 and before M18. It needs the bidirectional
+  loop (random entries in a bidirectional world must be drawn on both sides) and it makes
+  M18's result interpretable on arrival rather than retrospectively.
+- **M7b — `walkforward.py` and `montecarlo.py`**, at step 9, unchanged in content. Both still
+  want to share machinery with M14's per-contract dispersion, which is the overlap M14
+  already records.
+
+One consequence worth stating: M7a must be **matched on direction as well as count and
+time of day**. A long-only random arm compared against a bidirectional archetype measures
+market drift, not entry quality.
+
 ---
 
 ## Related items from the imantrading notes, not yet scheduled
@@ -535,6 +1137,14 @@ textbook one — this is exactly where TA-Lib's EMA already differs from NT8's t
 seeding alone. A kind that is merely *a* correct HMA is a fidelity break, because Tier 1 and
 Tier 2 would then disagree in a way that cannot be attributed. Each kind needs pinning
 against hand-computed NT8 values the way `nt8_ema` and `nt8_sma` are.
+
+**Both halves of this are now cheaper than when it was written**, because M16 and M17 pay for
+most of it as a side effect. M16 establishes the read-it-out-of-NT8-and-pin-it discipline for
+a whole family of indicators, so a new MA kind is one more application of an existing
+procedure rather than a fresh argument. M17's `required_context(grid)` is exactly the
+"grid per kind, keyed by `(kind, period)`" lookup this needs — it has to solve the same
+problem to stop `prepare` computing every archetype's indicators unconditionally.
+Reconsider this item once both have landed; it may be nearly free by then.
 
 ### Multi-timeframe moving averages
 
@@ -762,16 +1372,92 @@ look, the M10 labels resolve *what* is happening there.
 `sweep.sweep_contracts(root, grid, ...)`, building one `Dataset` per contract and tagging
 every row with its `contract`.
 
-**This is architecturally the same feature as M13.** Both add an axis that sits *above* the
-`Dataset` rather than inside `DeadCatParams`, both need one `Dataset` per value, and both
-need a nullable column in the results schema — `resolution` and `contract`, the latter null
-meaning "spliced series". Design them together and build one mechanism, or they will arrive
-as two near-identical wrappers that diverge. Doing both before the stale DuckDB re-run means
-the schema settles once.
+**This is architecturally the same feature as M13 — and as M17.** All three add an axis that
+sits *above* the `Dataset` rather than inside `DeadCatParams`, all three need one `Dataset`
+per value, and all three need a nullable column in the results schema — `resolution`,
+`contract` (null meaning "spliced series") and `strategy`. Design them together and build one
+mechanism, or they will arrive as three near-identical wrappers that diverge. Doing all three
+before the stale DuckDB re-run means the schema settles once instead of three times; see
+M17 for the combined shape.
+
+**One interaction worth pricing before committing to the full cross-product.** These axes
+multiply: archetypes × combinations × resolutions × contracts. M13's cost note (1, 2, 5 and
+15 minutes ≈ 1.8× a 1-minute sweep, because coarser series are smaller) does *not* extend to
+contracts or archetypes, which are closer to linear. The runtime is manageable; the
+*statistical* surface is the problem, and it is what M7a exists to give a scale for. Default
+to running one axis at a time and treat the full cross-product as a deliberate act.
 
 ---
 
 ## Decisions taken
+
+**New archetypes: infrastructure now, one archetype now, M11 keeps its slot.** `CLAUDE.md`
+records "which archetype is actually worth trading is a later question" and treats
+DeadCatBounce as the test fixture. Adding EMA crossover and squeeze breakout partly reverses
+that, so the extent was decided deliberately rather than by drift: **the infrastructure lands
+now** (M15, M16, M17 — which is where essentially all the cost is, and much of which M9 and
+M10 needed anyway), **one archetype is built to prove it** (M18), and **M11 is not
+displaced**. The second archetype (M19) is specified and queued, not scheduled.
+
+The reasoning is that the infrastructure is not archetype-specific work at all. M15 is a
+`direction` field M9 was already adding; M16 is a debt `indicators.py` recorded from the
+start; M17 is the same axis-above-the-`Dataset` mechanism M13 and M14 already needed. Only
+M18 and M19 are genuinely new scope, and they are the small part.
+
+**Strategy development stays in Python; the C# port happens on promotion, not on creation.**
+Decided explicitly. An archetype is designed, swept, stratified and — most often — discarded
+without any NinjaScript existing. Only one that looks like it works earns the port back to
+C#, at which point the Python is the specification and the usual leg-for-leg reconciliation
+applies.
+
+The reasoning is throughput: most archetypes will not survive contact with costs, and writing
+a NinjaScript for each one before knowing that spends NinjaTrader time — the project's
+scarcest resource, per the outstanding NQ reconciliation — on candidates that are about to be
+thrown away.
+
+Three things this buys and one it costs, all worth recording:
+
+- The prime directive **still binds during development**, and this is what protects the
+  eventual port. A Python archetype that drifts into intrabar precision cannot be reconciled
+  when it is finally written in C#, so the exploration would be wasted rather than merely
+  unvalidated. "It's only Python for now" is not a licence to exceed NT8's fidelity.
+- The design must be **checked against what NT8 can express while it is being written**, not
+  at port time. That is what the expressibility checklist in the standing-constraint section
+  is for, and it is why the order-lifetime research was done now rather than when M19 starts.
+- **Tier-1-only status becomes per archetype and must be visible**, not remembered — M17's
+  registry field and results column. A ranking that mixes a reconciled archetype with an
+  unpromoted one is comparing a measurement with an assumption.
+- The cost is that a promising Python result carries **unquantified port risk** until the
+  reconciliation runs. Accepted, on the grounds that it is only paid for candidates worth
+  paying it for.
+
+**Promotion criteria — what "we believe we have something that works" should mean.** Left
+loose it will collapse into "the profit factor looked good", which is the multiple-comparisons
+trap §11.4 exists to prevent, and the port is expensive enough to be worth a bar. A candidate
+should clear the null before it earns C# time: beat the random-entry arm (M7a), survive
+walk-forward (M7b), and hold up across contracts rather than resting on one quarter (M14).
+Not a gate to enforce mechanically, but the checks to have run before spending
+NinjaTrader time.
+
+**`PullBackAndGo.cs` is ported before any original is built.** The alternative was to let
+EMA crossover be the first exercise of the new long-side code. Rejected: a long-side fill
+bug found against `PullBackAndGo`'s NT8 trade list is a bug, whereas the same bug found on an
+original archetype is indistinguishable from the strategy simply being bad. It is long-only
+`EnterLongStopMarket`, the exact mirror of DeadCatBounce's entry, so it tests the new path
+precisely and it has ground truth. `InsideBar.cs` and `InsideBarTrailing.cs` remain unported
+and are the cheapest further archetypes available — `InsideBar` in particular is the
+compression-then-break idea with C# attached, which is why M19 recommends porting it before
+building a squeeze from scratch.
+
+**The bracket engine is extracted during M18, not before it and not after.** Before is
+designing an abstraction from one example; after means fidelity-critical code sat duplicated
+on `main`. Extracting mid-M18 with byte-identity as the gate gets an abstraction designed
+against two real shapes without the duplication ever shipping. See M17.
+
+**Archetypes are flat between trades; stop-and-reverse is not supported.** The loop's
+`in_position` boolean assumes flat-to-flat and reversal collides with the one-bar entry
+lifetime. Recorded as a deliberate limitation rather than discovered as a position-tracking
+bug. See M15.
 
 **Roll dates need no reconciliation against NT8.** All 18 MNQ roll dates moved when the
 archive made volume crossovers detectable, which raised whether Tier 1 and Tier 2 still agree

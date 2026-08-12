@@ -32,7 +32,12 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
 
 ## Gotchas that cost real time to find
 
-- Entry orders are **not GTC** — NT8's managed approach cancels them after one bar.
+- Entry orders are **not GTC** — NT8's managed approach cancels them after one bar. **This is
+  an unset parameter, not a platform limit**: the long-form overload takes
+  `isLiveUntilCancelled` and `DeadCatBounce.cs` calls the three-argument one. `TimeInForce.Gtc`
+  is a different layer (exchange-side) and does not affect it. Longer-lived orders are fully
+  expressible — `docs/roadmap.md`, "Order lifetime in NT8", has the three routes and their
+  costs. The simulation keeps the one-bar lifetime because that is what the C# does.
 - The trigger is `min(Low[0], Close[0] - 2 ticks)`, not the bar's low. Binds on ~⅓ of signals.
 - `IsFillLimitOnTouch = false`: targets need `low < target`, not `<=`.
 - Ambiguous bars (stop and target both in range) resolve to whichever is **nearer the open**.
@@ -145,13 +150,73 @@ worker, where `close`, `ema.below` and `sma.below` all arrive as `numpy.memmap`.
 
 ## Planned, not yet done
 
-**M7 — walk-forward, Monte Carlo, and a random-entry control arm.** All three: `walkforward.py`
-(rolling IS/OOS splits), `montecarlo.py` (permuting the trade sequence), and `randomentry.py`
-— random entries on the same bars, brackets and costs. The third is the one worth building
-first: against PF 0.746 it separates "worse than random", "no better than random" and "better
-but not past costs", three diagnoses that currently look identical. Permuting an existing
-sequence cannot, because it takes the entries as given. It also shares machinery with M11's
-permutation test.
+`docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
+**Order: M9 → M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 → M7b →
+M19 → M12.**
+
+**New archetypes are developed in Python only.** EMA crossover and squeeze breakout have no
+NinjaScript, and none gets written until a candidate looks worth trading — most will not
+survive costs, and NinjaTrader time is the scarce resource. Consequences: the prime directive
+**still binds during development** (a Python archetype that drifts past NT8's fidelity cannot
+be reconciled when it is finally ported, so the exploration is wasted, not merely
+unvalidated); designs must be checked against what NT8 can express *while being written*, via
+the expressibility checklist in the roadmap; and **"validated against NT8" becomes a
+per-archetype property** that M17 carries as a registry field and results column, so a
+ranking cannot mix a measurement with an assumption.
+
+**M15 — direction in the simulator.** The actual blocker on every new archetype: the `@njit`
+loop is short-only in ~8 places, and EMA crossover, squeeze breakout and all three unported
+NinjaScripts are long-capable. One sign multiplier `d = ±1`, not two code paths — forking
+would fork the bracket machinery, which is where the 1143/1144 evidence lives. Because ×(±1.0)
+is exact in IEEE 754, **the regression gate is byte-identity of every short-only trade log**,
+not "the reconciliation still passes". Also adds `EXIT_SIGNAL` (every exit today is a bracket
+level) and makes M9's `direction` field load-bearing. Stop-and-reverse is explicitly **not**
+supported. Validated by porting `PullBackAndGo.cs` — long-only `EnterLongStopMarket`, with C#
+ground truth, so a long-side fill bug is found against NT8 rather than blamed on a new
+strategy.
+
+**M16 — the indicator-parity debt: ATR, StdDev, Bollinger, Keltner.** `indicators.py` flagged
+this from the start. Five consumers, not one: Keltner for the squeeze, all three unported
+NinjaScripts (`ATR()`), EMA crossover's stop rule, ATR-multiple brackets, and the compression
+classifiers. Expect **exactly the EMA bug — seeding, not formula**. Read each out of NT8 and
+pin it; do not answer from memory. Keltner is the one most likely to be silently wrong
+(platforms disagree on midline and multiplier). Note BB/KC grids are swept over period *and*
+multiplier, so the 66 MB → 595 MB lesson applies with an extra factor: keep boolean gates only.
+
+**M17 — the archetype protocol.** `sweep.py` is hardcoded to `DeadCatParams` in six places.
+**Strategy is a third axis above the `Dataset`, alongside M13's resolution and M14's
+contract** — same pattern, same one-`Dataset`-per-value shape, same nullable results column.
+Build one mechanism, not three, and land `strategy`/`resolution`/`contract` together before
+the stale DuckDB re-run so the schema settles once. Also makes `prepare` stop computing every
+archetype's indicators unconditionally, which M10 needs anyway. The shared bracket engine is
+extracted **during** M18 — before is designing from one example, after means duplicated
+fidelity-critical code shipped.
+
+**M18 — EMA crossover.** The one archetype built now, to prove M15 and M17. **Treat it as a
+known-negative control, not an edge candidate**: MA crossover on 1-minute index futures is
+reliably unprofitable, so if it reads better than random the first hypothesis is a bug —
+specifically lookahead. Use NT8's `CrossAbove(a, b, n)` semantics, not the naive one-bar form,
+or a later NinjaScript will disagree. Third entry mechanism (market-on-next-open, no trigger).
+Needs an ATR stop, so M16 is a hard prerequisite. **It will break the sweep's performance
+assumptions** — tens of thousands of legs per combination against DeadCatBounce's ~1,400,
+which is why the numpy-native summary path moved ahead of M10.
+
+**M19 — squeeze breakout.** Queued, not scheduled; the expensive archetype. "Squeeze" means at
+least three things — recommend the **Bollinger-bandwidth** form first (one indicator, drops
+the Keltner parity question, shares its quantity with M10.1's regime classifier), and port
+`InsideBar.cs` before building anything from scratch since it is the same compression-then-break
+idea **with C# ground truth**. Real cost is a two-sided OCO entry model the loop lacks. Traps:
+lookahead (bands must come from *completed* bars), a high ambiguous-bar rate, and results that
+cluster by volatility regime so the aggregate PF averages two populations.
+
+**M7 — split into M7a and M7b, with M7a pulled forward.** `randomentry.py` moves ahead of the
+archetypes; `walkforward.py` and `montecarlo.py` stay late. The roadmap had scheduled the null
+after M11 because it shares machinery with the permutation test, but **that sharing is
+symmetric and the interpretive need is not** — the moment a second archetype exists, every
+comparison between archetypes is a ranking with no scale, and M17 multiplies that surface
+(archetypes × combinations × resolutions × contracts). Against PF 0.746 it separates "worse
+than random", "no better than random" and "better but not past costs". Must be matched on
+**direction** as well as count and time of day, or it measures market drift.
 
 **Moving-average axes.** Periods *and* on/off toggles are both already sweepable, jointly —
 every `DeadCatParams` field except `target_r_multiples` is a legal axis, and `dead_axes()`
@@ -160,7 +225,9 @@ planned: **MA kind as an axis** (kind is fixed by field name; only `nt8_ema`/`nt
 exist), and **multi-timeframe MAs** (everything is computed on the 1-minute close). Traps for
 both are in `docs/roadmap.md` — a new kind must match NT8's recursion rather than the
 textbook one, and a higher-timeframe MA must be stamped from the previous *completed* coarse
-bar or the backtest reads the future.
+bar or the backtest reads the future. **Both get much cheaper once M16 and M17 land**: M16
+establishes the pin-it-against-NT8 procedure a new kind needs, and M17's `required_context`
+already has to key grids by `(kind, period)`. Reconsider after those rather than now.
 
 **M13 — bar resolution as a sweep axis (2/5/15/30 min).** Planned. **The existing 1-minute
 archive is sufficient — no re-export, no AddOn change.** Resampling is **exact, not

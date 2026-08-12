@@ -44,6 +44,35 @@ of bar `t` places an order live for bar `t+1` only.
 Getting this wrong is the difference between an order that rests indefinitely and fills on
 an unrelated later bar, and one that gets a single chance.
 
+**Why, established later by reflecting over `NinjaTrader.Core.dll`.** This is not a rule NT8
+imposes on all strategies — it is the default of a parameter the short overload does not
+expose. The long-form overload carries it:
+
+```csharp
+EnterShortStopMarket(int barsInProgressIndex, bool isLiveUntilCancelled, int quantity,
+                     double stopPrice, string signalName)
+```
+
+`DeadCatBounce.cs:177-180` calls the three-argument form
+`EnterShortStopMarket(int quantity, double stopPrice, string signalName)`, so
+`isLiveUntilCancelled` is false and the managed approach auto-cancels at bar close.
+`NinjaTrader.Cbi.Order.IsLiveUntilCancelled` exposes the resulting state on a live order.
+
+**`TimeInForce` and `isLiveUntilCancelled` are different layers**, which is why setting
+`TimeInForce.Gtc` on the strategy changed nothing. `NinjaTrader.Cbi.TimeInForce`
+(`Day, Gtc, Ioc, Opg, Gtd`) instructs the *exchange* how long to keep a working order;
+`isLiveUntilCancelled` governs whether *NT8* submits a cancel of its own at bar close. One
+does not imply the other.
+
+The simulation reproduces the one-bar lifetime because that is what `DeadCatBounce.cs` does,
+and it stays that way. The generalisation to longer-lived orders — needed by future
+archetypes, and the three routes to it — is specified in
+[roadmap.md](roadmap.md) under "Order lifetime in NT8". **Note that reflection establishes
+the API only.** Whether Strategy Analyzer honours a resting order identically to live, when
+exactly the cancel lands relative to the bar close, and how a resting order interacts with
+the session-close flat are behavioural questions that still need a trade list, and nothing in
+`nqbt/sim/` may assume an answer before then.
+
 ### Trigger is capped below the close
 
 ```csharp
