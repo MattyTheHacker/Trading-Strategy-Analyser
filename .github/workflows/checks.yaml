@@ -75,7 +75,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run pytest
-        run: pytest --cov --cov-branch --cov-report=xml --junitxml=junit.xml
+        run: python -m pytest --cov --cov-branch --cov-report=xml --junitxml=junit.xml
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
