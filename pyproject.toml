@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nqbt"
+version = "0.1.0"
+description = "Tier 1 strategy research and backtesting tool for NQ/MNQ futures"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=2.3",
+    "pandas>=3.0",
+    "pyarrow>=25.0",
+    "numba>=0.66",
+    "TA-Lib>=0.7.1",
+    "duckdb>=1.4",
+    "joblib>=1.5",
+    "tzdata>=2025.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.0"]
+
+[project.scripts]
+nqbt = "nqbt.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["nqbt*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+indent-width = 4
+output-format = "concise"
+
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+
+[tool.ruff.lint]
+extend-select = ["ALL"]
+
+
+[tool.mypy]
+check_untyped_defs = true
+disallow_any_decorated = true
+disallow_any_explicit = true
+disallow_any_generics = true
+disallow_any_unimported = true
+disallow_incomplete_defs = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+enable_error_code = [
+    "deprecated",
+    "explicit-override",
+    "ignore-without-code",
+    "mutable-override",
+    "narrowed-type-not-subtype",
+    "possibly-undefined",
+    "redundant-expr",
+    "redundant-self",
+    "truthy-bool",
+    "truthy-iterable",
+    "unused-awaitable"
+]
+extra_checks = true
+mypy_path = "stubs"
+no_implicit_reexport = true
+strict_bytes = true
+strict_equality = true
+strict_equality_for_none = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_incomplete_stub = true

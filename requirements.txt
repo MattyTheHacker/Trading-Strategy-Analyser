@@ -1,0 +1,13 @@
+numpy>=2.3
+pandas>=3.0
+pyarrow>=25.0
+numba>=0.66
+TA-Lib>=0.7.1
+duckdb>=1.4
+joblib>=1.5
+tzdata>=2025.2
+pytest>=9.0
+pytest-cov>=7.1.0
+flake8>=7.3.0
+ruff>=0.16.0
+mypy>=2.3.0
