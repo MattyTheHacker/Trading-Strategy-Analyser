@@ -25,7 +25,9 @@ jobs:
           private-key: ${{ secrets.PR_AUTO_UPDATE_PRIVATE_KEY }}
 
       - name: Approve the PR
-        run: gh pr review "$PR_NUMBER" --approve --repo "$REPO" --body "Approved: \"ready to merge\" applied by @$SENDER."
+        run: >-
+          gh pr review "$PR_NUMBER" --approve --repo "$REPO"
+          --body "Approved: \"ready to merge\" applied by @$SENDER."
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

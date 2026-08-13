@@ -50,7 +50,7 @@ python -m venv .venv
 Raw NT8 exports are gitignored and split by resolution, because tick and minute exports
 share the same `.Last.txt` naming and must never be globbed together:
 
-```
+```text
 data/minute/ MNQ 03-24.Last.txt    manual export   yyyyMMdd HHmmss;o;h;l;c;v (UTC)
 data/addon/  MNQ 03-24.Last.txt    AddOn snapshot  same format
 data/archive/MNQ 03-24.Last.txt    the durable union -- the only thing ingest reads
@@ -125,7 +125,7 @@ print(sweep.rank(res, "profit_factor", top=10, min_trades=200))
 
 ## Architecture
 
-```
+```text
 nqbt/
   instruments.py   NQ/MNQ specs. Every dollar figure flows through here — NQ and MNQ
                    share a tick size but their tick values differ 10x.

@@ -307,6 +307,7 @@ neighbours and double-counts calendar days. Architecturally identical to M13 —
 *above* the `Dataset` — so build one mechanism, not two.
 
 **Spec features not yet built.** The build spec calls for these; none exist yet:
+
 - Moving-average **trailing stop mode** as a per-run toggle (only the structural
   swing-high stop is implemented). Needs `MovingAverageGrid(keep_values=True)`.
 - **Round-number stop avoidance** — never place a stop exactly on a round number.
@@ -384,6 +385,7 @@ defines no statistic of its own. Streamlit for the read-only views, and don't st
 the review outputs are stable.
 
 **Open items.**
+
 - **NQ is fully wired up** — 19 contracts, 1,633,461 bars over 2021-12-05 → 2026-08-10, all
   18 rolls on genuine crossovers, sweeps running in parallel. Instrument scaling is proven
   exact (same bars, both specs, ×10 gross P&L per leg, commission unscaled).
