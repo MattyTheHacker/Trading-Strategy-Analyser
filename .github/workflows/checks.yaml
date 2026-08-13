@@ -48,5 +48,25 @@ jobs:
         if: ${{ !cancelled() }}
 
         uses: codecov/codecov-action@v5
+
+  pymarkdown:
+      name: Lint Markdown files using PyMarkdown
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+  
+        - name: Set up Python
+          uses: actions/setup-python@v5
+          with:
+            python-version-file: .python-version
+            cache: 'pip'
+  
+        - name: Install dependencies
+          run: |
+            python -m pip install --upgrade pip
+            pip install pymarkdownlnt
+  
+        - name: Run PyMarkdown scan
+          run: pymarkdown scan .
         with:
           use_oidc: true
