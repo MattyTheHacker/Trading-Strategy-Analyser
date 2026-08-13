@@ -1,0 +1,30 @@
+name: "Automatically enable auto-merge on PRs"
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - ready_for_review
+    branches:
+      - main
+
+jobs:
+  enable-automerge:
+    if: github.event.pull_request.draft == false
+    permissions:
+      pull-requests: write
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Access Token
+        uses: actions/create-github-app-token@v3
+        id: generate-token
+        with:
+          client-id: ${{ vars.PR_AUTO_UPDATE_CLIENT_ID }}
+          private-key: ${{ secrets.PR_AUTO_UPDATE_PRIVATE_KEY }}
+
+      - name: Enable auto-merge for the PR
+        run: gh pr merge "$PR_URL" --auto --squash
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
