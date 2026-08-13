@@ -2,6 +2,7 @@
 requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
+
 [project]
 name = "nqbt"
 version = "0.1.0"
@@ -18,17 +19,26 @@ dependencies = [
     "tzdata>=2025.2",
 ]
 
+
 [project.optional-dependencies]
 dev = ["pytest>=9.0"]
+
 
 [project.scripts]
 nqbt = "nqbt.cli:main"
 
+
 [tool.setuptools.packages.find]
 include = ["nqbt*"]
 
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+
+[tool.pymarkdown.plugins.MD013]
+enabled = false
+
 
 [tool.ruff]
 line-length = 110
