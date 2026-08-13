@@ -16,8 +16,15 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
+      - name: Generate Access Token
+        uses: actions/create-github-app-token@v3
+        id: generate-token
+        with:
+          client-id: ${{ vars.PR_AUTO_UPDATE_CLIENT_ID }}
+          private-key: ${{ secrets.PR_AUTO_UPDATE_PRIVATE_KEY }}
+
       - name: Enable auto-merge for the PR
         run: gh pr merge "$PR_URL" --auto --squash
         env:
-          GH_TOKEN: ${{ secrets.PR_AUTO_UPDATE_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
