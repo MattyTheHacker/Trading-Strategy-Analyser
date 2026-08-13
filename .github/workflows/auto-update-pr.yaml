@@ -6,7 +6,7 @@ jobs:
   pr-auto-update:
     name: Automatic PR Updater
     runs-on: ubuntu-latest
-    if: github.repository == 'CSSUoB/cssuob.github.io' && github.actor != 'dependabot[bot]'
+    if: github.repository == 'MattyTheHacker/Trading-Strategy-Analyser' && github.actor != 'dependabot[bot]'
     permissions: 
       pull-requests: write
       contents: write
@@ -15,7 +15,7 @@ jobs:
         uses: actions/create-github-app-token@v3
         id: generate-token
         with:
-          app-id: ${{ vars.PR_AUTO_UPDATE_CLIENT_ID }}
+          client-id: ${{ vars.PR_AUTO_UPDATE_CLIENT_ID }}
           private-key: ${{ secrets.PR_AUTO_UPDATE_PRIVATE_KEY }}
 
       - uses: CSSUoB/pr-auto-updater@v3.0.0

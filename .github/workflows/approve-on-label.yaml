@@ -1,0 +1,33 @@
+name: "Approve PR when marked ready to merge"
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+
+jobs:
+  approve:
+    if: >-
+      github.event.label.name == 'ready to merge' &&
+      github.event.pull_request.user.login == github.repository_owner &&
+      github.event.pull_request.draft == false
+
+    permissions:
+      pull-requests: write
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Access Token
+        uses: actions/create-github-app-token@v3
+        id: generate-token
+        with:
+          client-id: ${{ vars.PR_AUTO_UPDATE_CLIENT_ID }}
+          private-key: ${{ secrets.PR_AUTO_UPDATE_PRIVATE_KEY }}
+
+      - name: Approve the PR
+        run: gh pr review "$PR_NUMBER" --approve --repo "$REPO" --body "Approved: \"ready to merge\" applied by @$SENDER."
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          SENDER: ${{ github.event.sender.login }}
