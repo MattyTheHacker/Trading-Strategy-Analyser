@@ -48,6 +48,8 @@ jobs:
         if: ${{ !cancelled() }}
 
         uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
 
   pymarkdown:
       name: Lint Markdown files using PyMarkdown
@@ -68,5 +70,3 @@ jobs:
   
         - name: Run PyMarkdown scan
           run: pymarkdown scan .
-        with:
-          use_oidc: true
