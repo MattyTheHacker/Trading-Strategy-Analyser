@@ -137,10 +137,11 @@ def run_combination(
     trades = runner.run_deadcat(data, params, instrument)
     row = params.as_dict()
     row.pop("target_r_multiples", None)
-    if trades.empty:
-        summary = {c: 0 for c in stats.Summary.columns()}
-    else:
-        summary = stats.summarise(trades).as_dict()
+    # No empty-log branch here on purpose. There used to be one, building an all-int zero
+    # dict, and it disagreed with ``summarise``'s own empty case on the dtype of 22 of the
+    # 28 columns -- which reaches DuckDB, where a barren combination could then define a
+    # column's type for the whole table. One policy, and it lives in ``stats``.
+    summary = stats.summarise(trades).as_dict()
     return {**row, **summary}, trades
 
 
