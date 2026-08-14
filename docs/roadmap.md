@@ -19,7 +19,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~1~~ | ~~Re-export NQ manually~~ | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
 | ~~2~~ | ~~Run the simulation against NQ~~ | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact: same bars through both specs give identical geometry and ×10 gross P&L on every leg. |
 | ~~3~~ | ~~**M9** — split context from simulation~~ | **Done 2026-08-12.** `nqbt/context.py` and `nqbt/trades.py` exist, the layering is enforced by import-analysis tests, and every producer path was captured before and after: the moves are byte-identical across all 14 files, the schema additions leave every pre-existing column identical. |
-| 3a | **M20a** — code review: the three findings that block M15 | A pass over the code found `explain.py` disagreeing with the simulation on **50%** of trades, `stats.summarise` raising on an empty log, and the bracket machinery **already duplicated** inside `simulate_deadcat`. The third is the one that matters: M15 must apply `d` to every line of it, and there are two copies. Unify first. |
+| ~~3a~~ | ~~**M20a** — code review: the three findings that block M15~~ | **Done 2026-08-14.** All three fixed, every captured trade log byte-identical to the pre-M20a baseline. `_resolve_brackets` is now the single bracket implementation, so M15 has one copy to multiply by `d`; `entry_bracket` is the single trigger computation, shared by the loop and the audit trail; `Summary.empty()` replaces the splat that raised. |
 | 3b | **M15** — direction in the simulator, then port `PullBackAndGo.cs` | The actual blocker on every new archetype, and it is half of M9 already: M9 adds `direction` to the trade schema for the importer's sake, M15 makes it load-bearing in the `@njit` loop. PullBackAndGo is long-only with existing C#, so it proves the long path against a real NT8 trade list before anything un-groundable is built. |
 | 3c | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | Five consumers, not one. Blocks the squeeze, blocks all three unported NinjaScripts, and gives EMA crossover a stop rule. Paying it once here stops it being rediscovered per archetype. |
 | 3d | **M17 + M13 + M14** — strategy, resolution and contract as axes above the `Dataset` | **One mechanism, not three.** All three add an axis outside `DeadCatParams`, all three need one `Dataset` per value, all three need a nullable results column. Doing them together settles the schema once, before the stale DuckDB re-run rather than after. |
@@ -32,7 +32,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | 10 | **M19** — squeeze breakout | Queued, not scheduled. Needs an OCO entry model the loop does not have (§M19), so it is the expensive archetype; build it once M18 has proven the protocol. |
 | 11 | **M12** — web GUI | Gated on the review's outputs being stable. |
 
-**Next up: M20a, then M15.** Steps 1–3 are complete. M20a is three measured defects that sit directly in M15's path — see §M20. M20b (typing and tooling) and M20c (structural cleanups) are standing work with no gate on them.
+**Next up: M15.** Steps 1–3a are complete, so the simulator now has one bracket implementation rather than two and M15 can apply its sign to it once — see §M20a. M20b (typing and tooling) and M20c (structural cleanups) remain standing work with no gate on them.
 
 **What changed and why.** Steps 3a–3c, 5 and 10 are new; steps 4 and 6 moved earlier. The
 request was "add EMA crossover and squeeze breakout", but neither is reachable today and
@@ -343,20 +343,58 @@ rather than trusting them, since the code they point at is scheduled to move.
 
 | # | Finding | Evidence | Severity |
 |---|---|---|---|
-| 1 | `explain.py` computes the entry trigger as `Low[0]`, omitting the `Close[0] − 2 ticks` cap the simulation applies | `risk_points` disagrees with the trade log on **100 of 200 trades (50%)** on MNQ 03-24 | **High** — this is the NT8 audit trail |
-| 2 | `stats.summarise` raises `TypeError` on an empty trade log | `Summary` has 28 fields; the empty guard supplies 26 | **Medium** — latent |
-| 3 | The bracket-resolution logic in `simulate_deadcat` is duplicated between the in-position branch and the entry-bar branch | ~85 near-identical lines, `deadcat.py:144–227` against `262–342` | **High** — directly obstructs M15 |
+| ~~1~~ | ~~`explain.py` computes the entry trigger as `Low[0]`~~ | **Fixed.** Rate was 35.7% over the whole window, not the 50% a 200-trade prefix showed — see §M20a | ~~High~~ |
+| ~~2~~ | ~~`stats.summarise` raises `TypeError` on an empty trade log~~ | **Fixed** — `Summary.empty()`, and `run_combination`'s rival policy is gone | ~~Medium~~ |
+| ~~3~~ | ~~The bracket-resolution logic in `simulate_deadcat` is duplicated~~ | **Fixed** — `_resolve_brackets`, byte-identity proven | ~~High~~ |
 | 4 | `simulate_deadcat` takes 23 positional parameters, `_write` takes 18 | 8 call sites, all positional | Medium |
-| 5 | 47 bare `np.ndarray` annotations carry no dtype | zero uses of `numpy.typing.NDArray` in the package | Medium |
-| 6 | No type checker, no linter, no CI, no `py.typed` | `pyproject.toml` configures pytest and nothing else | Medium |
-| 7 | `explain.py` and `cli.py` have no tests | no test file imports either | Medium — explains finding 1 |
+| 5 | Bare `np.ndarray` annotations carry no dtype | **75 occurrences across 7 modules**, not the 47 first counted; zero uses of `numpy.typing.NDArray` | Medium |
+| 6 | The tooling exists but almost none of it gates | **Stale as written.** `[tool.ruff]`, `[tool.mypy]` and `.github/workflows/checks.yaml` all exist now. But nothing runs ruff or mypy, and `pymarkdown scan .` **does not recurse** — it lints `CLAUDE.md` and `README.md` only, so this file's own 4 findings have never been seen by CI | Medium |
+| 7 | `cli.py` has no tests | `explain.py` now has `tests/test_explain.py`, added by M20a; `cli.py` is still untested | Medium — explained finding 1 |
 | 8 | `sweep.SWEEPABLE` reads `DeadCatParams.__slots__` | `sweep.py:36` | Low now, **blocks M17** |
 | 9 | `results.best()` interpolates its `by` argument into SQL | `results.py:182` | Low |
 | 10 | `bars[...].to_numpy(np.float64)` repeated 12 times across `conditions.py` and `context.py` | grep | Low |
 
 ---
 
-### M20a — the three that block M15, and must land before it
+### ~~M20a~~ — the three that block M15  **(done 2026-08-14)**
+
+**All three are fixed and the gate held: every captured trade log is byte-identical to the
+pre-M20a baseline** — the pinned MNQ 03-24 reconciliation window at 1,380 legs, a costed run,
+the same bars through the NQ spec, and 113,164 sweep legs over 8 combinations serial and
+parallel, all at `float_format="%.17g"`. The three fixes are `_resolve_brackets` (one bracket
+implementation), `entry_bracket` (one trigger computation, shared with `explain.py`) and
+`Summary.empty()`. The suite is 206 tests.
+
+**Three things worth keeping from doing it.**
+
+**1. The 50% headline was a prefix, not a rate.** The finding below says `explain.py`
+disagreed on "100 of 200 trades (50%)". Measured over the *whole* current MNQ 03-24 window
+the trigger cap binds on **123 of 345 trades (35.7%)**, which is the "~⅓ of signals"
+`CLAUDE.md` has always recorded. The rate reads 80% over the first 20 trades, 48% over the
+first 100 and 41% over the first 200 — capped signals are not evenly distributed through the
+window, and the original figure came from a 200-trade prefix of the shorter pre-archive log.
+The defect was identical either way, but **a prefix of a trade log is not a sample of it**,
+and this file quoted one as though it were.
+
+**2. Extraction into an `@njit` device function is free, measured rather than assumed.**
+`simulate_deadcat` over 132,454 bars: 0.235 / 0.232 / 0.236 ms unified against
+0.245 / 0.231 / 0.235 ms forked, three consecutive 30-iteration runs each. Numba inlines it.
+**The measurement trap here is the first run after a compile**, which reads ~0.29 ms in both
+versions — a single cold measurement of each would have compared noise and could have shown
+the unification either winning or losing by 20%. Same family as M9's `Series.hasnans` trap:
+time the steady state, and take more than one sample of it.
+
+**3. The pragma audit found one more of the same shape, deliberately left alone.** Of the
+four remaining `# pragma: no cover` sites, three — `archive.py`, `instruments.py`,
+`sim/runner.py` — are `raise` statements guarding invariants, so they are loud by
+construction and safe uncovered. The fourth, `stats.py:140`, is *not*: it is a silent numeric
+branch computing Sharpe and Sortino per trade rather than per day when a log carries no
+times. Unreachable from the package today because every producer attaches times. Not fixed
+here, because M20 may not move a number — but it is the empty-log defect's twin and wants an
+issue rather than a comment.
+
+**The original findings follow, kept because they are the reasoning for the shape of the
+fix.**
 
 **1. `explain.py` disagrees with the simulation on half of all trades.**
 
