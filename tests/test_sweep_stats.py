@@ -83,6 +83,52 @@ def test_leg_summary_matches_nt8s_way_of_counting():
     assert stats.summarise(log).trades == 1
 
 
+# -- the empty log, which used to raise ---------------------------------------
+
+
+def test_summarising_an_empty_log_returns_zeros_rather_than_raising():
+    """The guard splatted 26 arguments into a 28-field dataclass and raised on every call."""
+    s = stats.summarise(trade_log([]))
+    assert s.trades == 0 and s.legs == 0
+    assert s.net_pnl == 0.0 and s.profit_factor == 0.0
+
+
+INTEGER_SUMMARY_FIELDS = {
+    "trades", "legs", "wins", "losses", "scratches", "max_consecutive_losses",
+}
+"""Stated here independently of ``Summary``'s annotations, so this is a second opinion.
+
+``max_consecutive_losses`` is the one that matters: it sits at field 17, so the splat this
+replaced would have handed it a float even had someone fixed the argument count.
+"""
+
+
+def test_the_empty_summary_gives_each_field_its_declared_type():
+    s = stats.Summary.empty()
+    for name in stats.Summary.columns():
+        value = getattr(s, name)
+        if name in INTEGER_SUMMARY_FIELDS:
+            assert isinstance(value, int) and not isinstance(value, bool), name
+        else:
+            assert isinstance(value, float), name
+
+
+def test_a_barren_combination_summarises_exactly_like_an_empty_log():
+    """One empty-log policy, not two.
+
+    ``run_combination`` used to build its own all-int zero dict, which disagreed with
+    ``summarise``'s empty case on the dtype of 22 of the 28 columns.
+    """
+    bars = synthetic_bars(n=800)
+    # No bar can clear the warm-up, so the signal never fires and the log comes back empty.
+    params = DeadCatParams(bars_required_to_trade=10_000)
+    data = sweep.prepare_for(bars, sweep.Grid.of(params))
+    row, log = sweep.run_combination(data, params, NQ)
+    assert log.empty, "fixture produced trades; the test proves nothing"
+    for name, value in stats.Summary.empty().as_dict().items():
+        assert row[name] == value and type(row[name]) is type(value), name
+
+
 # -- grid ---------------------------------------------------------------------
 
 
