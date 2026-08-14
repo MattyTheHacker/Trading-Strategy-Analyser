@@ -243,6 +243,24 @@ supported. Validated by porting `PullBackAndGo.cs` — long-only `EnterLongStopM
 ground truth, so a long-side fill bug is found against NT8 rather than blamed on a new
 strategy.
 
+**M15.1 — done.** `simulate_deadcat`, `_resolve_brackets`, `entry_bracket`, `_limit_filled`
+and `_write` now take a `direction: float` parameter and every stop/target/fill/P&L/MAE/MFE
+comparison is expressed through it, per the substitution table in issue #14. `DeadCatBounce`
+still always calls with `SHORT` — it has no long variant — so this is purely a capability the
+next archetype (M15.4, `PullBackAndGo.cs`) draws on. `_sided()` is the one place that picks
+which raw OHLC value is adverse/favourable for a direction, since that is a data selection,
+not something a sign multiplication alone can express; `_targets_reached_first` was left
+untouched, as specified, since its open-relative distances are already direction-free. Gate:
+`tools/compare_trade_logs.py` reports zero differing bytes across all 14 captured files
+before and after. Generalising the entry-fill test surfaced a real latent bug, independent of
+M15: `pending_bar`'s sentinel `-1` equals `i - 1` at `i == 0`, so the fill test was always
+being evaluated on the very first bar. Short-only, this was silently harmless — a
+zero-initialised `pending_trigger` makes `open <= 0` false for any real price — but a long's
+`open >= 0` is true immediately, filling against a trigger that was never actually set. Fixed
+with an explicit `pending_bar >= 0` guard, which is a no-op for the short side (confirmed by
+the byte-identity gate) and would otherwise have produced a spurious trade on bar 0 of every
+long-capable archetype.
+
 **M16 — the indicator-parity debt: ATR, StdDev, Bollinger, Keltner.** `indicators.py` flagged
 this from the start. Five consumers, not one: Keltner for the squeeze, all three unported
 NinjaScripts (`ATR()`), EMA crossover's stop rule, ATR-multiple brackets, and the compression
