@@ -141,90 +141,16 @@ def simulate_deadcat(
             if run_low > low[i]:
                 run_low = low[i]
 
-            stop_hit = high[i] >= stop
-            any_target_hit = False
-            nearest_target = 0.0
-            for leg in range(n_legs):
-                if leg_open[leg] and not np.isnan(leg_target[leg]):
-                    if _limit_filled(low[i], leg_target[leg], fill_limit_on_touch):
-                        if not any_target_hit or abs(leg_target[leg] - open_[i]) < abs(
-                            nearest_target - open_[i]
-                        ):
-                            nearest_target = leg_target[leg]
-                        any_target_hit = True
-            ambiguous = stop_hit and any_target_hit
-            targets_first = ambiguous and _targets_reached_first(
-                open_[i], stop, nearest_target, ambiguity_policy
+            written, in_position = _resolve_brackets(
+                out, written, trade_id, entry_bar, i,
+                entry_price, initial_stop, stop, risk,
+                leg_open, leg_target, leg_quantities, run_high, run_low,
+                open_[i], high[i], low[i], close[i], force_flat[i],
+                slippage, point_value, commission_per_contract,
+                fill_limit_on_touch, ambiguity_policy,
             )
-
-            if stop_hit and not targets_first:
-                # The whole position leaves at the stop, adverse slippage on a buy-stop
-                # meaning a higher fill.
-                fill = stop + slippage
-                for leg in range(n_legs):
-                    if leg_open[leg]:
-                        written = _write(
-                            out, written, trade_id, leg, entry_bar, i, entry_price, fill,
-                            initial_stop, leg_target[leg], leg_quantities[leg],
-                            EXIT_STOP, risk, run_high, run_low, point_value,
-                            commission_per_contract, ambiguous,
-                        )
-                        if written < 0:
-                            return -1
-                        leg_open[leg] = False
-                in_position = False
-            else:
-                for leg in range(n_legs):
-                    if leg_open[leg] and not np.isnan(leg_target[leg]):
-                        if _limit_filled(low[i], leg_target[leg], fill_limit_on_touch):
-                            # Limit order: fills at its price, never worse, no slippage.
-                            written = _write(
-                                out, written, trade_id, leg, entry_bar, i, entry_price,
-                                leg_target[leg], initial_stop, leg_target[leg],
-                                leg_quantities[leg], EXIT_TARGET, risk, run_high, run_low,
-                                point_value, commission_per_contract, ambiguous,
-                            )
-                            if written < 0:
-                                return -1
-                            leg_open[leg] = False
-
-                if targets_first:
-                    # The inferred path reached the targets on the way down and the stop
-                    # on the way back up, so whatever is still open leaves on this same bar.
-                    fill = stop + slippage
-                    for leg in range(n_legs):
-                        if leg_open[leg]:
-                            written = _write(
-                                out, written, trade_id, leg, entry_bar, i, entry_price,
-                                fill, initial_stop, leg_target[leg], leg_quantities[leg],
-                                EXIT_STOP, risk, run_high, run_low, point_value,
-                                commission_per_contract, ambiguous,
-                            )
-                            if written < 0:
-                                return -1
-                            leg_open[leg] = False
-
-                still_open = False
-                for leg in range(n_legs):
-                    if leg_open[leg]:
-                        still_open = True
-                        break
-                in_position = still_open
-
-                if in_position and force_flat[i]:
-                    fill = close[i] + slippage
-                    for leg in range(n_legs):
-                        if leg_open[leg]:
-                            written = _write(
-                                out, written, trade_id, leg, entry_bar, i, entry_price,
-                                fill, initial_stop, leg_target[leg], leg_quantities[leg],
-                                EXIT_SESSION_CLOSE, risk, run_high, run_low, point_value,
-                                commission_per_contract, ambiguous,
-                            )
-                            if written < 0:
-                                return -1
-                            leg_open[leg] = False
-                    in_position = False
+            if written < 0:
+                return -1
 
         # ---- a resting entry order lives for exactly this one bar -------------------
         elif pending_bar == i - 1:
@@ -239,7 +165,6 @@ def simulate_deadcat(
 
             if filled:
                 trade_id += 1
-                in_position = True
                 entry_price = fill
                 entry_bar = i
                 initial_stop = pending_stop
@@ -258,88 +183,19 @@ def simulate_deadcat(
                         leg_target[leg] = _round_to_tick(raw, tick_size)
 
                 # The entry bar can reach the stop as well: entry sits at the signal
-                # bar's low, the stop above the signal bar's high.
-                stop_hit = high[i] >= stop
-                any_target_hit = False
-                nearest_target = 0.0
-                for leg in range(n_legs):
-                    if not np.isnan(leg_target[leg]) and _limit_filled(
-                        low[i], leg_target[leg], fill_limit_on_touch
-                    ):
-                        if not any_target_hit or abs(leg_target[leg] - open_[i]) < abs(
-                            nearest_target - open_[i]
-                        ):
-                            nearest_target = leg_target[leg]
-                        any_target_hit = True
-                ambiguous = stop_hit and any_target_hit
-                targets_first = ambiguous and _targets_reached_first(
-                    open_[i], stop, nearest_target, ambiguity_policy
+                # bar's low, the stop above the signal bar's high. Same resolution as any
+                # other bar -- the `leg_open` guards inside are simply no-ops here, since
+                # every leg was opened a few lines above.
+                written, in_position = _resolve_brackets(
+                    out, written, trade_id, entry_bar, i,
+                    entry_price, initial_stop, stop, risk,
+                    leg_open, leg_target, leg_quantities, run_high, run_low,
+                    open_[i], high[i], low[i], close[i], force_flat[i],
+                    slippage, point_value, commission_per_contract,
+                    fill_limit_on_touch, ambiguity_policy,
                 )
-
-                if stop_hit and not targets_first:
-                    exit_fill = stop + slippage
-                    for leg in range(n_legs):
-                        written = _write(
-                            out, written, trade_id, leg, entry_bar, i, entry_price,
-                            exit_fill, initial_stop, leg_target[leg], leg_quantities[leg],
-                            EXIT_STOP, risk, run_high, run_low, point_value,
-                            commission_per_contract, ambiguous,
-                        )
-                        if written < 0:
-                            return -1
-                        leg_open[leg] = False
-                    in_position = False
-                else:
-                    for leg in range(n_legs):
-                        if not np.isnan(leg_target[leg]) and _limit_filled(
-                            low[i], leg_target[leg], fill_limit_on_touch
-                        ):
-                            written = _write(
-                                out, written, trade_id, leg, entry_bar, i, entry_price,
-                                leg_target[leg], initial_stop, leg_target[leg],
-                                leg_quantities[leg], EXIT_TARGET, risk, run_high, run_low,
-                                point_value, commission_per_contract, ambiguous,
-                            )
-                            if written < 0:
-                                return -1
-                            leg_open[leg] = False
-                    if targets_first:
-                        exit_fill = stop + slippage
-                        for leg in range(n_legs):
-                            if leg_open[leg]:
-                                written = _write(
-                                    out, written, trade_id, leg, entry_bar, i,
-                                    entry_price, exit_fill, initial_stop, leg_target[leg],
-                                    leg_quantities[leg], EXIT_STOP, risk, run_high,
-                                    run_low, point_value, commission_per_contract,
-                                    ambiguous,
-                                )
-                                if written < 0:
-                                    return -1
-                                leg_open[leg] = False
-
-                    still_open = False
-                    for leg in range(n_legs):
-                        if leg_open[leg]:
-                            still_open = True
-                            break
-                    in_position = still_open
-
-                    if in_position and force_flat[i]:
-                        exit_fill = close[i] + slippage
-                        for leg in range(n_legs):
-                            if leg_open[leg]:
-                                written = _write(
-                                    out, written, trade_id, leg, entry_bar, i,
-                                    entry_price, exit_fill, initial_stop,
-                                    leg_target[leg], leg_quantities[leg],
-                                    EXIT_SESSION_CLOSE, risk, run_high, run_low,
-                                    point_value, commission_per_contract, ambiguous,
-                                )
-                                if written < 0:
-                                    return -1
-                                leg_open[leg] = False
-                        in_position = False
+                if written < 0:
+                    return -1
 
             pending_bar = -1  # filled or not, the order is gone
 
@@ -384,6 +240,146 @@ def simulate_deadcat(
                     return -1
 
     return written
+
+
+@njit(cache=True)
+def _resolve_brackets(
+    out: np.ndarray,
+    written: int,
+    trade_id: int,
+    entry_bar: int,
+    i: int,
+    entry_price: float,
+    initial_stop: float,
+    stop: float,
+    risk: float,
+    leg_open: np.ndarray,
+    leg_target: np.ndarray,
+    leg_quantities: np.ndarray,
+    run_high: float,
+    run_low: float,
+    open_px: float,
+    high_px: float,
+    low_px: float,
+    close_px: float,
+    must_flatten: bool,
+    slippage: float,
+    point_value: float,
+    commission_per_contract: float,
+    fill_limit_on_touch: bool,
+    ambiguity_policy: int,
+) -> tuple[int, bool]:
+    """Resolve one bar against the live stop and targets, closing whatever leaves.
+
+    Returns the new write count and whether the position is still open. A write count of
+    ``-1`` means ``out`` overflowed and the caller must abandon the run.
+
+    **This is the fidelity-critical code**, and until M20a it existed twice: once for a bar
+    while in a position and once, textually independently, for the bar an entry filled on.
+    The two were behaviourally equivalent -- the entry-bar copy dropped the ``leg_open``
+    guards because every leg had just been opened, which makes them no-ops rather than a
+    difference -- but every rule the 1143/1144 NT8 reconciliation validated appeared in
+    both, so there were two places for Tier 1 and Tier 2 to drift and the reconciliation
+    only ever covered one of them.
+
+    Unified here specifically so that M15 can multiply one copy by its direction sign
+    instead of two. The short-only byte-identity gate cannot catch a sign applied
+    inconsistently across two copies, because at ``d = -1`` both reduce to today's code
+    whether or not they agree at ``d = +1``.
+
+    Order of resolution, which is the part that carries the evidence: the stop takes the
+    whole position unless the ambiguity policy says the targets were reached first; targets
+    fill at their own price with no slippage, being limit orders; anything still open after
+    a targets-first bar leaves at the stop on that same bar; and force-flat is last, so a
+    position that reached a target and then ran out of session records both.
+    """
+    n_legs = leg_open.size
+
+    stop_hit = high_px >= stop
+    any_target_hit = False
+    nearest_target = 0.0
+    for leg in range(n_legs):
+        if leg_open[leg] and not np.isnan(leg_target[leg]):
+            if _limit_filled(low_px, leg_target[leg], fill_limit_on_touch):
+                if not any_target_hit or abs(leg_target[leg] - open_px) < abs(
+                    nearest_target - open_px
+                ):
+                    nearest_target = leg_target[leg]
+                any_target_hit = True
+    ambiguous = stop_hit and any_target_hit
+    targets_first = ambiguous and _targets_reached_first(
+        open_px, stop, nearest_target, ambiguity_policy
+    )
+
+    if stop_hit and not targets_first:
+        # The whole position leaves at the stop, adverse slippage on a buy-stop meaning a
+        # higher fill.
+        fill = stop + slippage
+        for leg in range(n_legs):
+            if leg_open[leg]:
+                written = _write(
+                    out, written, trade_id, leg, entry_bar, i, entry_price, fill,
+                    initial_stop, leg_target[leg], leg_quantities[leg],
+                    EXIT_STOP, risk, run_high, run_low, point_value,
+                    commission_per_contract, ambiguous,
+                )
+                if written < 0:
+                    return -1, False
+                leg_open[leg] = False
+        return written, False
+
+    for leg in range(n_legs):
+        if leg_open[leg] and not np.isnan(leg_target[leg]):
+            if _limit_filled(low_px, leg_target[leg], fill_limit_on_touch):
+                # Limit order: fills at its price, never worse, no slippage.
+                written = _write(
+                    out, written, trade_id, leg, entry_bar, i, entry_price,
+                    leg_target[leg], initial_stop, leg_target[leg],
+                    leg_quantities[leg], EXIT_TARGET, risk, run_high, run_low,
+                    point_value, commission_per_contract, ambiguous,
+                )
+                if written < 0:
+                    return -1, False
+                leg_open[leg] = False
+
+    if targets_first:
+        # The inferred path reached the targets on the way down and the stop on the way
+        # back up, so whatever is still open leaves on this same bar.
+        fill = stop + slippage
+        for leg in range(n_legs):
+            if leg_open[leg]:
+                written = _write(
+                    out, written, trade_id, leg, entry_bar, i, entry_price, fill,
+                    initial_stop, leg_target[leg], leg_quantities[leg],
+                    EXIT_STOP, risk, run_high, run_low, point_value,
+                    commission_per_contract, ambiguous,
+                )
+                if written < 0:
+                    return -1, False
+                leg_open[leg] = False
+
+    still_open = False
+    for leg in range(n_legs):
+        if leg_open[leg]:
+            still_open = True
+            break
+
+    if still_open and must_flatten:
+        fill = close_px + slippage
+        for leg in range(n_legs):
+            if leg_open[leg]:
+                written = _write(
+                    out, written, trade_id, leg, entry_bar, i, entry_price, fill,
+                    initial_stop, leg_target[leg], leg_quantities[leg],
+                    EXIT_SESSION_CLOSE, risk, run_high, run_low, point_value,
+                    commission_per_contract, ambiguous,
+                )
+                if written < 0:
+                    return -1, False
+                leg_open[leg] = False
+        still_open = False
+
+    return written, still_open
 
 
 @njit(cache=True)
