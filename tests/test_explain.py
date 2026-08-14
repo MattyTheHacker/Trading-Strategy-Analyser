@@ -20,6 +20,7 @@ from nqbt.instruments import MNQ
 from nqbt.sim import deadcat, explain
 from nqbt.sim.runner import run_deadcat
 from nqbt.sim.types import DeadCatParams
+from nqbt.trades import SHORT
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
@@ -105,7 +106,7 @@ def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close():
     tick = 0.25
     # An inverted hammer: closes near its low, so the cap binds.
     trigger, stop, risk = entry = deadcat.entry_bracket(
-        100.0, 99.0, 99.25, 2 * tick, 2 * tick
+        100.0, 99.0, 99.25, 2 * tick, 2 * tick, SHORT
     )
     assert trigger == pytest.approx(98.75)  # min(99.0, 99.25 - 0.5)
     assert stop == pytest.approx(100.5)
@@ -115,6 +116,6 @@ def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close():
 
 def test_entry_bracket_leaves_the_low_alone_when_the_close_is_high():
     tick = 0.25
-    trigger, stop, risk = deadcat.entry_bracket(100.0, 99.0, 99.9, 2 * tick, 2 * tick)
+    trigger, stop, risk = deadcat.entry_bracket(100.0, 99.0, 99.9, 2 * tick, 2 * tick, SHORT)
     assert trigger == pytest.approx(99.0)  # min(99.0, 99.4) -- the low wins
     assert risk == pytest.approx(1.5)

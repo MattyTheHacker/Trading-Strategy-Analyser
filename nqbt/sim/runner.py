@@ -77,6 +77,7 @@ def run_deadcat(
         params.block_entry_at_session_close,
         params.fill_limit_on_touch,
         params.ambiguity_policy,
+        trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo (M15.4) does.
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
