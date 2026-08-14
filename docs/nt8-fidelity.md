@@ -154,7 +154,7 @@ that default — the largest observed risk is 24.25 points.
 **TA-Lib's EMA does not match NT8's.** TA-Lib seeds with an SMA of the first `period`
 values and emits nothing before index `period-1`; NT8 seeds from the raw price at bar 0:
 
-```
+```csharp
 Value[0] = CurrentBar == 0 ? Input[0]
          : Input[0] * (2/(1+Period)) + (1 - 2/(1+Period)) * Value[1]
 ```
