@@ -17,6 +17,7 @@ from nqbt.instruments import Instrument
 from nqbt.sim.deadcat import entry_bracket
 from nqbt.sim.runner import deadcat_signal
 from nqbt.sim.types import DeadCatParams
+from nqbt.trades import SHORT
 
 
 def explain_trades(
@@ -62,6 +63,7 @@ def explain_trades(
             h, l, c,
             params.entry_offset_ticks * tick,
             params.stop_offset_ticks * tick,
+            SHORT,  # DeadCatBounce is short-only; see nqbt.sim.deadcat.entry_bracket.
         )
 
         entry_price = float(legs["entry_price"].iloc[0])

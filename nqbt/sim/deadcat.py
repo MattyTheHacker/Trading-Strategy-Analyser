@@ -72,7 +72,6 @@ from nqbt.trades import (
     EXIT_STOP,
     EXIT_TARGET,
     N_COLUMNS,
-    SHORT,
 )
 
 
@@ -100,13 +99,17 @@ def simulate_deadcat(
     block_entry_at_session_close: bool,
     fill_limit_on_touch: bool,
     ambiguity_policy: int,
+    direction: float,
     out: np.ndarray,
 ) -> int:
     """Run the archetype over one dataset, writing one row per leg exit.
 
     ``signal`` is the precomputed conjunction of every active entry filter, and
-    ``force_flat`` marks bars at or past the exit-on-session-close cutoff. Returns the
-    number of rows written to ``out``; a negative return means ``out`` was too small.
+    ``force_flat`` marks bars at or past the exit-on-session-close cutoff. ``direction``
+    is ``+1.0`` for a long-capable archetype's long side or ``-1.0`` for short (see
+    ``nqbt.trades.LONG``/``SHORT``); DeadCatBounce always calls this with ``SHORT``, since
+    the NinjaScript has no long variant. Returns the number of rows written to ``out``; a
+    negative return means ``out`` was too small.
     """
     n = close.size
     n_legs = leg_quantities.size
@@ -147,21 +150,29 @@ def simulate_deadcat(
                 leg_open, leg_target, leg_quantities, run_high, run_low,
                 open_[i], high[i], low[i], close[i], force_flat[i],
                 slippage, point_value, commission_per_contract,
-                fill_limit_on_touch, ambiguity_policy,
+                fill_limit_on_touch, ambiguity_policy, direction,
             )
             if written < 0:
                 return -1
 
         # ---- a resting entry order lives for exactly this one bar -------------------
-        elif pending_bar == i - 1:
+        # pending_bar >= 0 matters at i == 0: the sentinel -1 would otherwise equal
+        # i - 1 there too. The short-only loop never noticed, because a zero-initialised
+        # pending_trigger makes `open_[i] <= pending_trigger` false for any real price and
+        # the touch test below is never reached; direction generalises the comparison to
+        # `direction * open_[i] >= direction * pending_trigger`, which a long's positive
+        # price satisfies against that same zero trigger immediately.
+        elif pending_bar >= 0 and pending_bar == i - 1:
             filled = False
             fill = 0.0
-            if open_[i] <= pending_trigger:
-                fill = open_[i] - slippage  # gapped through the trigger
+            if direction * open_[i] >= direction * pending_trigger:
+                fill = open_[i] + direction * slippage  # gapped through the trigger
                 filled = True
-            elif low[i] <= pending_trigger:
-                fill = pending_trigger - slippage
-                filled = True
+            else:
+                _, touch = _sided(low[i], high[i], direction)
+                if direction * touch >= direction * pending_trigger:
+                    fill = pending_trigger + direction * slippage
+                    filled = True
 
             if filled:
                 trade_id += 1
@@ -169,7 +180,7 @@ def simulate_deadcat(
                 entry_bar = i
                 initial_stop = pending_stop
                 stop = pending_stop
-                risk = pending_stop - pending_trigger
+                risk = direction * (pending_trigger - pending_stop)
                 run_high = high[i]
                 run_low = low[i]
                 for leg in range(n_legs):
@@ -179,7 +190,7 @@ def simulate_deadcat(
                     else:
                         # RoundToTickSize in the NinjaScript: a 1.5x multiple of an odd
                         # tick count lands on a half tick, which no exchange accepts.
-                        raw = pending_trigger - risk * target_r[leg] * tp_multiplier
+                        raw = pending_trigger + direction * risk * target_r[leg] * tp_multiplier
                         leg_target[leg] = _round_to_tick(raw, tick_size)
 
                 # The entry bar can reach the stop as well: entry sits at the signal
@@ -192,7 +203,7 @@ def simulate_deadcat(
                     leg_open, leg_target, leg_quantities, run_high, run_low,
                     open_[i], high[i], low[i], close[i], force_flat[i],
                     slippage, point_value, commission_per_contract,
-                    fill_limit_on_touch, ambiguity_policy,
+                    fill_limit_on_touch, ambiguity_policy, direction,
                 )
                 if written < 0:
                     return -1
@@ -203,14 +214,15 @@ def simulate_deadcat(
         if in_position:
             ref = i - ratchet_lag
             if ref >= 0:
-                new_stop = high[ref] + stop_offset
-                if new_stop < stop:
+                adverse_ref, _ = _sided(low[ref], high[ref], direction)
+                new_stop = adverse_ref - direction * stop_offset
+                if direction * new_stop > direction * stop:
                     stop = new_stop
         elif i >= bars_required and signal[i] and not (
             block_entry_at_session_close and force_flat[i]
         ):
             trigger, candidate_stop, candidate_risk = entry_bracket(
-                high[i], low[i], close[i], entry_offset, stop_offset
+                high[i], low[i], close[i], entry_offset, stop_offset, direction
             )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
             too_risky = candidate_risk > max_risk_ticks * tick_size
@@ -227,14 +239,14 @@ def simulate_deadcat(
     # bar rather than dropped -- an untracked open position would silently lose its P&L.
     if in_position:
         last = n - 1
-        exit_fill = close[last] + slippage
+        exit_fill = close[last] - direction * slippage
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
                     out, written, trade_id, leg, entry_bar, last, entry_price, exit_fill,
                     initial_stop, leg_target[leg], leg_quantities[leg],
                     EXIT_END_OF_DATA, risk, run_high, run_low, point_value,
-                    commission_per_contract, False,
+                    commission_per_contract, False, direction,
                 )
                 if written < 0:
                     return -1
@@ -268,6 +280,7 @@ def _resolve_brackets(
     commission_per_contract: float,
     fill_limit_on_touch: bool,
     ambiguity_policy: int,
+    direction: float,
 ) -> tuple[int, bool]:
     """Resolve one bar against the live stop and targets, closing whatever leaves.
 
@@ -282,7 +295,7 @@ def _resolve_brackets(
     both, so there were two places for Tier 1 and Tier 2 to drift and the reconciliation
     only ever covered one of them.
 
-    Unified here specifically so that M15 can multiply one copy by its direction sign
+    Unified here specifically so that M15 could multiply one copy by its direction sign
     instead of two. The short-only byte-identity gate cannot catch a sign applied
     inconsistently across two copies, because at ``d = -1`` both reduce to today's code
     whether or not they agree at ``d = +1``.
@@ -294,13 +307,14 @@ def _resolve_brackets(
     position that reached a target and then ran out of session records both.
     """
     n_legs = leg_open.size
+    adverse_px, favourable_px = _sided(low_px, high_px, direction)
 
-    stop_hit = high_px >= stop
+    stop_hit = direction * adverse_px <= direction * stop
     any_target_hit = False
     nearest_target = 0.0
     for leg in range(n_legs):
         if leg_open[leg] and not np.isnan(leg_target[leg]):
-            if _limit_filled(low_px, leg_target[leg], fill_limit_on_touch):
+            if _limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
                 if not any_target_hit or abs(leg_target[leg] - open_px) < abs(
                     nearest_target - open_px
                 ):
@@ -312,16 +326,15 @@ def _resolve_brackets(
     )
 
     if stop_hit and not targets_first:
-        # The whole position leaves at the stop, adverse slippage on a buy-stop meaning a
-        # higher fill.
-        fill = stop + slippage
+        # The whole position leaves at the stop, adverse slippage meaning a worse fill.
+        fill = stop - direction * slippage
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
                     out, written, trade_id, leg, entry_bar, i, entry_price, fill,
                     initial_stop, leg_target[leg], leg_quantities[leg],
                     EXIT_STOP, risk, run_high, run_low, point_value,
-                    commission_per_contract, ambiguous,
+                    commission_per_contract, ambiguous, direction,
                 )
                 if written < 0:
                     return -1, False
@@ -330,29 +343,29 @@ def _resolve_brackets(
 
     for leg in range(n_legs):
         if leg_open[leg] and not np.isnan(leg_target[leg]):
-            if _limit_filled(low_px, leg_target[leg], fill_limit_on_touch):
+            if _limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
                 # Limit order: fills at its price, never worse, no slippage.
                 written = _write(
                     out, written, trade_id, leg, entry_bar, i, entry_price,
                     leg_target[leg], initial_stop, leg_target[leg],
                     leg_quantities[leg], EXIT_TARGET, risk, run_high, run_low,
-                    point_value, commission_per_contract, ambiguous,
+                    point_value, commission_per_contract, ambiguous, direction,
                 )
                 if written < 0:
                     return -1, False
                 leg_open[leg] = False
 
     if targets_first:
-        # The inferred path reached the targets on the way down and the stop on the way
-        # back up, so whatever is still open leaves on this same bar.
-        fill = stop + slippage
+        # The inferred path reached the targets first and the stop on the way back,
+        # so whatever is still open leaves on this same bar.
+        fill = stop - direction * slippage
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
                     out, written, trade_id, leg, entry_bar, i, entry_price, fill,
                     initial_stop, leg_target[leg], leg_quantities[leg],
                     EXIT_STOP, risk, run_high, run_low, point_value,
-                    commission_per_contract, ambiguous,
+                    commission_per_contract, ambiguous, direction,
                 )
                 if written < 0:
                     return -1, False
@@ -365,14 +378,14 @@ def _resolve_brackets(
             break
 
     if still_open and must_flatten:
-        fill = close_px + slippage
+        fill = close_px - direction * slippage
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
                     out, written, trade_id, leg, entry_bar, i, entry_price, fill,
                     initial_stop, leg_target[leg], leg_quantities[leg],
                     EXIT_SESSION_CLOSE, risk, run_high, run_low, point_value,
-                    commission_per_contract, ambiguous,
+                    commission_per_contract, ambiguous, direction,
                 )
                 if written < 0:
                     return -1, False
@@ -384,7 +397,12 @@ def _resolve_brackets(
 
 @njit(cache=True)
 def entry_bracket(
-    high: float, low: float, close: float, entry_offset: float, stop_offset: float
+    high: float,
+    low: float,
+    close: float,
+    entry_offset: float,
+    stop_offset: float,
+    direction: float,
 ) -> tuple[float, float, float]:
     """One signal bar's order arithmetic: trigger, initial stop, planned risk.
 
@@ -399,13 +417,37 @@ def entry_bracket(
 
     So: one implementation, called from both places, and the audit trail is by
     construction the arithmetic under audit. Do not inline either copy back.
+
+    ``direction`` is ``+1.0`` long / ``-1.0`` short (see ``nqbt.trades.LONG``/``SHORT``).
+    A short entry's trigger is the *favourable* side of the signal bar -- the low -- capped
+    by whichever of it and ``close - 2 ticks`` is further favourable still; the stop sits
+    ``stop_offset`` beyond the *adverse* side, the high. A long entry mirrors this exactly:
+    favourable is the high, adverse the low, and the close-based cap adds rather than
+    subtracts. At ``direction = -1.0`` every line below reduces to the short-only formula
+    this function used to be.
     """
-    trigger = low
-    close_based = close - entry_offset
-    if close_based < trigger:
+    adverse, favourable = _sided(low, high, direction)
+    close_based = close + direction * entry_offset
+    trigger = favourable
+    if direction * close_based > direction * trigger:
         trigger = close_based
-    stop = high + stop_offset
-    return trigger, stop, stop - trigger
+    stop = adverse - direction * stop_offset
+    risk = direction * (trigger - stop)
+    return trigger, stop, risk
+
+
+@njit(cache=True)
+def _sided(low: float, high: float, direction: float) -> tuple[float, float]:
+    """Which raw price is adverse and which is favourable for this direction.
+
+    Short (``direction < 0``): adverse is the high -- price rising against the position --
+    and favourable is the low. Long is the mirror image. Centralised here because it is
+    the one piece of the generalisation that is a data selection rather than an arithmetic
+    substitution: no multiplication by ``direction`` picks between two different arrays.
+    """
+    if direction > 0.0:
+        return low, high
+    return high, low
 
 
 AMBIGUITY_WORST_CASE = 0
@@ -438,18 +480,23 @@ def _targets_reached_first(
 
 
 @njit(cache=True)
-def _limit_filled(low: float, limit: float, on_touch: bool) -> bool:
-    """Whether a buy limit at ``limit`` fills, given the bar's low.
+def _limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: float) -> bool:
+    """Whether a limit order at ``limit`` fills, given the bar's favourable-side extreme.
 
     NT8 runs with ``IsFillLimitOnTouch = false`` -- set in the strategy's ``SetDefaults``
     and left unchecked in the Strategy Analyzer -- so price merely *reaching* the limit
     is not a fill. It has to trade through. Measured against a real NT8 trade list, every
     single disagreement about a target fill was a bar whose low equalled the target
     exactly, so this distinction is worth a tick of pedantry.
+
+    A short's target sits below entry, so ``favourable_px`` is the bar's low and the target
+    fills once price falls to or through it. A long's target sits above entry, so
+    ``favourable_px`` is the high and the comparison flips -- exactly what multiplying by
+    ``direction`` does. At ``direction = -1.0`` this reduces to the short-only form.
     """
     if on_touch:
-        return low <= limit
-    return low < limit
+        return direction * favourable_px >= direction * limit
+    return direction * favourable_px > direction * limit
 
 
 @njit(cache=True)
@@ -494,12 +541,16 @@ def _write(
     point_value: float,
     commission_per_contract: float,
     ambiguous: bool,
+    direction: float,
 ) -> int:
     """Append one leg exit. Returns the new row count, or -1 if ``out`` is full."""
     if written >= out.shape[0]:
         return -1
 
-    gross = (entry_price - exit_price) * quantity * point_value
+    # Positive when the trade made money: (exit - entry) for a long, (entry - exit) for a
+    # short, which is exactly what multiplying by direction gives.
+    pnl_per_unit = (exit_price - entry_price) * direction
+    gross = pnl_per_unit * quantity * point_value
     commission = commission_per_contract * quantity
     net = gross - commission
 
@@ -512,19 +563,18 @@ def _write(
     out[written, C_INITIAL_STOP] = initial_stop
     out[written, C_TARGET_PRICE] = target_price
     out[written, C_QUANTITY] = quantity
-    # Constant until M15 generalises the loop, at which point this becomes the sign `d`
-    # that every comparison above is expressed through. Recorded per row now rather than
-    # assumed by readers of the log.
-    out[written, C_DIRECTION] = SHORT
+    out[written, C_DIRECTION] = direction
     out[written, C_EXIT_REASON] = reason
     out[written, C_GROSS_PNL] = gross
     out[written, C_COMMISSION] = commission
     out[written, C_NET_PNL] = net
-    out[written, C_R_MULTIPLE] = (entry_price - exit_price) / risk if risk > 0.0 else np.nan
+    out[written, C_R_MULTIPLE] = pnl_per_unit / risk if risk > 0.0 else np.nan
     out[written, C_RISK_POINTS] = risk
-    # Short position: adverse is price rising above entry, favourable is falling below.
-    out[written, C_MAE] = run_high - entry_price
-    out[written, C_MFE] = entry_price - run_low
+    # run_high/run_low are tracked unconditionally regardless of direction, so whichever
+    # one is adverse (worse for this side) is picked out by taking whichever term is
+    # larger -- the other term is negative or smaller by construction.
+    out[written, C_MAE] = max(direction * (entry_price - run_high), direction * (entry_price - run_low))
+    out[written, C_MFE] = max(direction * (run_high - entry_price), direction * (run_low - entry_price))
     out[written, C_BARS_HELD] = exit_bar - entry_bar
     out[written, C_AMBIGUOUS] = 1.0 if ambiguous else 0.0
     return written + 1
