@@ -108,7 +108,7 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
 Python 3.14 venv at `.venv`. Run tools as `./.venv/Scripts/python.exe -m ...`.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest          # 174 tests
+./.venv/Scripts/python.exe -m pytest          # 206 tests
 nqbt ingest | contracts | splice | run
 ```
 
@@ -178,11 +178,39 @@ path. The `Dataset` is shared, not copied: `Dataset.slim()` drops the 121 MB bar
 13 MB index-only view, and joblib memmaps the arrays — **confirmed** by probing a live
 worker, where `close`, `ema.below` and `sma.below` all arrive as `numpy.memmap`.
 
+**M20a has landed**, so M15 is unblocked. All three defects are fixed, every captured trade
+log is byte-identical to the pre-M20a baseline, and the whole point was to leave M15 one
+copy of the bracket machinery to multiply by `d` instead of two.
+
+- **The bracket machinery is now `_resolve_brackets`**, called by both the in-position path
+  and the entry-bar path. The entry-bar copy's `leg_open` guards were no-ops, not a
+  difference, so the unified version reduces to the old behaviour exactly. This is where the
+  1143/1144 evidence lives; **do not fork it again**.
+- **`entry_bracket` is the one trigger/stop/risk computation**, called by the `@njit` loop
+  and by `explain.py`. The audit trail is now by construction the arithmetic under audit —
+  previously it recomputed the trigger as `Low[0]`, dropping the `Close[0] − 2 ticks` cap.
+- **`Summary.empty()`** replaces a splat that put 26 arguments into a 28-field dataclass and
+  raised on every call. `sweep.run_combination` no longer keeps a second, all-int empty-log
+  policy of its own.
+
+**The 50% figure that justified the explain fix was a prefix, not a rate.** Over the whole
+current MNQ 03-24 window the trigger cap binds on **123 of 345 trades (35.7%)** — the "~⅓ of
+signals" recorded in the gotchas above. It reads 80% over the first 20 trades, 48% over the
+first 100 and 41% over the first 200, because capped signals are not evenly distributed
+through the window. **Quote whole-window rates**; a prefix of a trade log is not a sample of
+it. The defect was real either way, and `verification/README.md` records this.
+
+Two things M20a deliberately did **not** change, because M20 may not move a number:
+`stats.py:140` is a silent branch computing Sharpe and Sortino per trade rather than per day
+for a log with no times — unreachable today, same shape as the empty-log defect, and it wants
+an issue. And `verification/explain_2024Q1.csv` is annotated rather than regenerated: it is
+the record of what the audit trail said while it was being trusted.
+
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: M20a → M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 →
-M7b → M19 → M12.** M9 is done — see Status.
+**Order: M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 →
+M7b → M19 → M12.** M9 and M20a are done — see Status.
 
 **New archetypes are developed in Python only.** EMA crossover and squeeze breakout have no
 NinjaScript, and none gets written until a candidate looks worth trading — most will not
@@ -194,26 +222,15 @@ the expressibility checklist in the roadmap; and **"validated against NT8" becom
 per-archetype property** that M17 carries as a registry field and results column, so a
 ranking cannot mix a measurement with an assumption.
 
-**M20 — code quality: a standing rubric, and three measured defects that block M15.**
-A pass over the code found: `explain.py` recomputes the entry trigger as `Low[0]`, omitting
-the `Close[0] − 2 ticks` cap, so the **NT8 audit trail disagrees with the simulation's
-`risk_points` on 50% of trades** — and it has no tests, which is why; `stats.summarise`
-raises `TypeError` on an empty log (26 arguments into a 28-field dataclass, behind a
-`# pragma: no cover` whose comment is also wrong); and **the bracket machinery is already
-duplicated inside `simulate_deadcat`** — ~85 near-identical lines resolving stop/target/
-ambiguity/force-flat once for the in-position path and again for the entry-bar path.
+**~~M20a~~ — done.** See Status. The standing rubric it carries is in `docs/roadmap.md` §M20
+and still governs every change.
 
-That third one is why M20a is scheduled before M15 rather than whenever. M15's stated design
-is "one sign, not two code paths, because forking would fork the bracket machinery" — but it
-is forked already, so M15 would apply `d` to two copies. **The short-only byte-identity gate
-does not protect against this**: both copies reduce to today's code at `d = −1` whether or not
-they agree at `d = +1`. Unify, prove byte-identity, then apply `d`.
-
-M20b (a type checker, `py.typed`, and dtype-parameterised `NDArray` instead of 47 bare
+M20b (a type checker, `py.typed`, and dtype-parameterised `NDArray` instead of bare
 `np.ndarray` — the bool-vs-float64 distinction is load-bearing and currently invisible) and
 M20c (23-parameter `@njit` signatures → `NamedTuple`, **verified bit-identical and free**,
 `tools/numba_tuple_probe.py`) are standing work with no gate. Full findings, evidence and the
-standing rubric are in `docs/roadmap.md` §M20.
+standing rubric are in `docs/roadmap.md` §M20. Note the ruff/mypy/CI finding there is stale —
+all three now exist; what is missing is that nothing runs ruff or mypy.
 
 **M15 — direction in the simulator.** The actual blocker on every new archetype: the `@njit`
 loop is short-only in ~8 places, and EMA crossover, squeeze breakout and all three unported

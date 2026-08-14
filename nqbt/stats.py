@@ -12,6 +12,7 @@ count. :func:`leg_summary` reproduces that view when reconciling against Strateg
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
+from typing import get_type_hints
 
 import numpy as np
 import pandas as pd
@@ -62,6 +63,19 @@ class Summary:
     @classmethod
     def columns(cls) -> list[str]:
         return [f.name for f in fields(cls)]
+
+    @classmethod
+    def empty(cls) -> Summary:
+        """The zero summary, for a combination that produced no trades.
+
+        Keyed by field name and typed from the annotations rather than splatted
+        positionally: the version this replaces passed 26 arguments into a 28-field
+        dataclass and raised on every call, which went unnoticed because the only caller
+        had grown a second, divergent empty-log policy of its own. A constructor that
+        cannot be miscounted is the point, so do not "simplify" it back to a splat.
+        """
+        hints = get_type_hints(cls)
+        return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})
 
 
 def _max_drawdown(equity: pd.Series) -> float:
@@ -128,7 +142,7 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
 def summarise(trades: pd.DataFrame) -> Summary:
     """Reduce a leg-level trade log to one row of performance statistics."""
     if trades.empty:
-        return Summary(*([0] * 5 + [0.0] * 20 + [0]))  # pragma: no cover - guarded below
+        return Summary.empty()
 
     t = per_trade(trades)
     pnl = t["net_pnl"]
