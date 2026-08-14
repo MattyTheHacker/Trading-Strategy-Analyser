@@ -14,6 +14,7 @@ import pandas as pd
 
 from nqbt.context import Dataset
 from nqbt.instruments import Instrument
+from nqbt.sim.deadcat import entry_bracket
 from nqbt.sim.runner import deadcat_signal
 from nqbt.sim.types import DeadCatParams
 
@@ -55,9 +56,13 @@ def explain_trades(
         upper = h - max(c, o)
         lower = min(c, o) - l
 
-        trigger = l
-        stop = h + params.stop_offset_ticks * tick
-        risk = stop - trigger
+        # Shared with the loop, not restated. See ``entry_bracket``: the copy that used to
+        # sit here dropped the Close[0] - 2 ticks cap and was wrong on half of all trades.
+        trigger, stop, risk = entry_bracket(
+            h, l, c,
+            params.entry_offset_ticks * tick,
+            params.stop_offset_ticks * tick,
+        )
 
         entry_price = float(legs["entry_price"].iloc[0])
         gapped = data.open[entry_bar] <= trigger

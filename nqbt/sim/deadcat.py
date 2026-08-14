@@ -353,16 +353,9 @@ def simulate_deadcat(
         elif i >= bars_required and signal[i] and not (
             block_entry_at_session_close and force_flat[i]
         ):
-            # min(Low[0], Close[0] - 2 ticks): on an inverted hammer the close sits near
-            # the low by construction, so this usually pushes the trigger *below* the low
-            # and makes the fill materially harder to get.
-            trigger = low[i]
-            close_based = close[i] - entry_offset
-            if close_based < trigger:
-                trigger = close_based
-
-            candidate_stop = high[i] + stop_offset
-            candidate_risk = candidate_stop - trigger
+            trigger, candidate_stop, candidate_risk = entry_bracket(
+                high[i], low[i], close[i], entry_offset, stop_offset
+            )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
             too_risky = candidate_risk > max_risk_ticks * tick_size
             if (
@@ -391,6 +384,32 @@ def simulate_deadcat(
                     return -1
 
     return written
+
+
+@njit(cache=True)
+def entry_bracket(
+    high: float, low: float, close: float, entry_offset: float, stop_offset: float
+) -> tuple[float, float, float]:
+    """One signal bar's order arithmetic: trigger, initial stop, planned risk.
+
+    Public because ``explain.py`` calls it too, and that is the whole point. This used to
+    be written out twice, and the two copies disagreed: the audit trail took the trigger to
+    be simply ``Low[0]``, dropping the ``Close[0] - 2 ticks`` cap that the simulation
+    applies. Since the cap binds on about half of all signals, ``nqbt run --explain`` --
+    the tool a human uses to tick a trade off against a chart before trusting anything
+    downstream -- reported the wrong ``trigger``, ``risk_points``, ``risk_ticks`` and
+    ``fill_type`` on half its rows, while agreeing on the stop, which is what made it look
+    right on inspection.
+
+    So: one implementation, called from both places, and the audit trail is by
+    construction the arithmetic under audit. Do not inline either copy back.
+    """
+    trigger = low
+    close_based = close - entry_offset
+    if close_based < trigger:
+        trigger = close_based
+    stop = high + stop_offset
+    return trigger, stop, stop - trigger
 
 
 AMBIGUITY_WORST_CASE = 0
