@@ -11,6 +11,7 @@ import pytest
 from nqbt.instruments import MNQ, NQ
 from nqbt.sim import deadcat
 from nqbt.sim.types import DeadCatParams
+from nqbt.trades import LONG, SHORT
 
 TICK = 0.25
 OFFSET = 2 * TICK  # stop sits 2 ticks beyond the reference high
@@ -35,6 +36,7 @@ def run(
     block_entry_at_close=True,
     fill_limit_on_touch=True,   # tests target exact prices; opt out explicitly
     ambiguity_policy=0,
+    direction=SHORT,
 ):
     """Simulate hand-written OHLC rows. ``signal_at`` lists signal bar indices."""
     arr = np.asarray(rows, dtype=np.float64)
@@ -55,7 +57,7 @@ def run(
         np.asarray(targets, dtype=np.float64),
         TICK, instrument.point_value, 2.0, entry_offset, tp_multiplier, max_risk_ticks,
         commission, slippage, bars_required, min_reward_risk, ratchet_lag,
-        block_entry_at_close, fill_limit_on_touch, ambiguity_policy, out,
+        block_entry_at_close, fill_limit_on_touch, ambiguity_policy, direction, out,
     )
     assert count >= 0, "trade buffer overflowed"
 
@@ -512,3 +514,42 @@ def test_ratchet_lag_zero_uses_the_just_closed_bars_high():
     assert lag0["exit_bar"].unique() == [3]
     # The looser lag=1 stop survives bar 3 and the position is still open at the end.
     assert set(lag1["exit_reason"]) == {"end_of_data"}
+
+
+# -- direction (M15.1) ---------------------------------------------------------
+
+
+def test_long_side_is_the_mirror_image_of_the_short_side():
+    # Exactly test_stop_exits_every_remaining_leg_at_once's bars, reflected around 100:
+    # new_open = 200-open, new_close = 200-close, new_high = 200-low, new_low = 200-high.
+    # A long-capable archetype run with direction=LONG over the reflected bars must
+    # reproduce every price and ratio from the short original, since the reflection and
+    # the direction flip cancel exactly.
+    trades = run(
+        [
+            (98, 100, 96, 99),
+            (99, 100, 98, 99),    # 1: fill at 100, stop 95.5
+            (99, 100, 95.5, 96),  # 2: touches the stop
+        ],
+        signal_at=[0],
+        direction=LONG,
+    )
+    assert trades["entry_price"].iloc[0] == pytest.approx(100.0)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(95.5)
+    assert trades["risk_points"].iloc[0] == pytest.approx(4.5)
+    assert len(trades) == 4
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert trades["exit_price"].unique() == pytest.approx([95.5])
+    # Same magnitude loss as the short original: R is dimensionless, so a mirrored losing
+    # trade reads as the same -1.0R on either side.
+    assert trades["r_multiple"].unique() == pytest.approx([-1.0])
+    assert (trades["direction"] == LONG).all()
+
+
+def test_targets_reached_first_is_direction_free():
+    # _targets_reached_first takes no direction argument -- it works from the bar's open
+    # alone, via abs() distance, which is already mirror-invariant. This pins that down so
+    # a future "fix" that adds a sign to it cannot silently break just the long side.
+    short_case = deadcat._targets_reached_first(100.0, 104.0, 95.0, 1)
+    long_case = deadcat._targets_reached_first(100.0, 96.0, 105.0, 1)  # mirrored around 100
+    assert short_case == long_case
