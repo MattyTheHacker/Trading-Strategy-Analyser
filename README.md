@@ -40,8 +40,7 @@ Python 3.14 with cp314 wheels for every dependency — no downgrade needed.
 
 ```bash
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt
-.venv/Scripts/pip install -e . --no-deps
+.venv/Scripts/pip install -e ".[dev]"
 .venv/Scripts/python -m pytest
 ```
 
