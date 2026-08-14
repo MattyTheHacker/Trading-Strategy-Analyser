@@ -71,4 +71,4 @@ jobs:
             pip install pymarkdownlnt
   
         - name: Run PyMarkdown scan
-          run: pymarkdown scan .
+          run: pymarkdown scan --recurse .
