@@ -124,16 +124,21 @@ def _previous_bar_green(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
 
 @njit(cache=True)
 def _previous_bar_red(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
-    """``Close[1] <= Open[1]``.
+    """``Close[1] < Open[1]``.
 
-    ``PullBackAndGo.cs`` rejects on ``Close[1] > Open[1]``, so a doji-closed previous bar
-    counts as red and passes -- the same boundary treatment as
-    :func:`_previous_bar_green`, not simply its negation (a doji satisfies both).
+    ``PullBackAndGo.cs`` rejects on ``Close[1] >= Open[1]``, so a doji-closed previous bar
+    is **not** red and does not pass. This is the one boundary where the two strategies do
+    not mirror each other: :func:`_previous_bar_green` admits a doji and this rejects one,
+    which makes the pair exact complements rather than a pair that overlaps at equality.
+
+    The C# used to read ``Close[1] > Open[1]`` here, which did make them symmetric, and the
+    port followed it. The strictening cost 103 of 760 signals on MNQ 03-24 -- 13.6% -- so it
+    is worth checking the operator rather than assuming the mirror holds.
     """
     n = open_.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
-        out[i] = close[i - 1] <= open_[i - 1]
+        out[i] = close[i - 1] < open_[i - 1]
     return out
 
 

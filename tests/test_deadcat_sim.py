@@ -125,6 +125,36 @@ def test_touching_the_trigger_exactly_fills():
     assert trades["entry_price"].iloc[0] == pytest.approx(100.0)
 
 
+def test_a_buy_stop_at_the_market_is_never_submitted():
+    # PullBackAndGo triggers on a bare High[0]. When the signal bar closes on its high the
+    # trigger equals the market it would be submitted into, which is not a stop order at
+    # all -- NT8 declines it. This was 86 of the 502 PullBackAndGo trades on MNQ 03-24,
+    # and the signal bar closed on its high in 86 of 86 of them against 2 of 416 taken.
+    rows = [
+        (101, 104, 100, 104),   # 0: signal, closes ON its high -> trigger 104 == market
+        (104, 106, 103, 105),   # 1: would have filled easily
+    ]
+    assert len(run(rows, signal_at=[0], direction=LONG)) == 0
+
+    # One tick of daylight between the close and the high and it is a real stop order.
+    rows[0] = (101, 104, 100, 103.75)
+    assert len(run(rows, signal_at=[0], direction=LONG)) == 4
+
+
+def test_a_sell_stop_at_the_market_is_never_submitted_either():
+    rows = [
+        (104, 105, 100, 100),   # 0: signal, closes ON its low -> trigger 100 == market
+        (100, 101, 98, 99),     # 1: would have filled easily
+    ]
+    assert len(run(rows, signal_at=[0])) == 0
+
+    # DeadCatBounce is immune by construction: its trigger is min(Low[0], Close[0] - 2
+    # ticks), so the cap puts it 2 ticks under the close on exactly the bars that would
+    # otherwise be unsubmittable. No DeadCatBounce signal in MNQ 03-24's 132,454 bars
+    # has a trigger at or above its close, which is why this rule never showed up there.
+    assert len(run(rows, signal_at=[0], entry_offset=2.0)) == 4
+
+
 def test_no_new_signal_is_taken_while_in_a_position():
     trades = run(
         [
@@ -226,6 +256,52 @@ def test_stop_can_fire_on_the_entry_bar():
     assert set(trades["exit_reason"]) == {"stop"}
     assert (trades["entry_bar"] == trades["exit_bar"]).all()
     assert (trades["bars_held"] == 0).all()
+
+
+def test_a_bar_that_gaps_through_the_stop_fills_at_its_open():
+    # A stop is a market order once triggered, so a bar that opens beyond it offers no
+    # trade at the stop level. Filling at the stop anyway was worth $222.50 of a $292.50
+    # result over the 1,664-leg PullBackAndGo reconciliation; NT8 fills at the open.
+    trades = run(
+        [
+            (102, 104, 100, 101),      # 0: signal, trigger 100, stop 104.5
+            (101, 102, 100, 101),      # 1: fills at 100, stop stays 104.5
+            (106, 107, 105, 106),      # 2: opens 1.5 above the stop -- gapped through
+        ],
+        signal_at=[0],
+    )
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert trades["exit_price"].unique() == pytest.approx([106.0])  # not 104.5
+
+
+def test_a_long_gapping_through_its_stop_fills_at_the_open_too():
+    trades = run(
+        [
+            (101, 104, 100, 103),      # 0: signal, trigger 104, stop 99.5
+            (103, 105, 102, 104),      # 1: fills at 104, stop stays 99.5
+            (98, 99, 97, 98),          # 2: opens 1.5 below the stop -- gapped through
+        ],
+        signal_at=[0],
+        direction=LONG,
+    )
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert trades["exit_price"].unique() == pytest.approx([98.0])  # not 99.5
+
+
+def test_the_entry_bar_never_uses_the_gap_rule():
+    # The position did not exist at this bar's open, so an open beyond the initial stop
+    # says nothing: price still had to travel down to the trigger to open the short at
+    # all, and only then back up to the stop -- which it reaches at the stop's own price.
+    trades = run(
+        [
+            (102, 104, 100, 101),      # 0: signal, trigger 100, stop 104.5
+            (105, 106, 99, 100),       # 1: opens above the stop, dips to fill, then runs
+        ],
+        signal_at=[0],
+    )
+    assert trades["entry_price"].unique() == pytest.approx([100.0])
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert trades["exit_price"].unique() == pytest.approx([104.5])  # not the 105 open
 
 
 def test_session_close_flattens_whatever_is_left():

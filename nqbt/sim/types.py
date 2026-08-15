@@ -135,25 +135,43 @@ class PullBackAndGoParams:
     order, ratcheting stop and R-multiple bracket as DeadCatBounce, reflected to the long
     side, with C# to check the Python against once M15.5 reconciles it.
 
-    Deliberately **leaner than** :class:`DeadCatParams`, not just its mirror, because
-    ``PullBackAndGo.cs`` genuinely has fewer properties -- matching the C# text means not
-    inventing configurability it does not have:
+    Still leaner than :class:`DeadCatParams`, because ``PullBackAndGo.cs`` genuinely has
+    fewer properties -- matching the C# text means not inventing configurability it does
+    not have:
 
-    - No ``Use*`` toggles. All four trend filters (EMA, slow SMA, fast SMA, VWAP) are
-      unconditional in the C#'s single combined ``if``, unlike DeadCatBounce's four
-      independent, individually-switchable ``if`` statements.
-    - No ``OrderQuantity``. Every ``EnterLongStopMarket`` call omits the quantity argument,
-      so each of the four legs trades NT8's default of one contract -- fixed, not swept.
     - No ``TPMultiplier`` or ``MaxRiskPerTrade``. Neither property exists on the strategy,
       so there is no target scaling and no risk cap to reject a signal with.
     - No ``EntryOffsetTicks``. The trigger is simply ``High[0]`` -- ``entry_bracket`` reaches
       that exactly when ``entry_offset_ticks=0``, so ``run_pullbackandgo`` passes ``0``
-      directly rather than exposing a field that would always be zero.
+      directly rather than exposing a field that would always be zero. This is also what
+      exposes the archetype to NT8's stop-entry submittability rule, which DeadCatBounce's
+      2-tick cap makes unreachable -- see ``docs/nt8-fidelity.md``.
+
+    **These defaults are not the NinjaScript's, because it does not have any.**
+    ``PullBackAndGo.cs`` sets only ``EmaPeriod``, ``SlowSMAPeriod`` and ``FastSMAPeriod`` in
+    ``SetDefaults``; ``OrderQuantity`` and all six toggles are left uninitialised, so in
+    Strategy Analyzer they present as ``0`` and ``false`` until set by hand -- and an
+    ``OrderQuantity`` of 0 places four orders for nothing and trades nothing at all. What
+    the values below reproduce is instead **the configuration the M15.5 reconciliation was
+    run under**, which is the only combination with a trade list behind it. See
+    ``docs/nt8-fidelity.md``.
     """
 
     ema_period: int = 21
     slow_sma_period: int = 175
     fast_sma_period: int = 60
+    order_quantity: int = 4
+
+    use_ema: bool = True
+    use_slow_sma: bool = True
+    use_fast_sma: bool = True
+    use_vwap: bool = False
+    """VWAP is off in the reconciled configuration, and deliberately so: nothing has ever
+    checked nqbt's VWAP against NT8's ``OrderFlowVWAP``, so switching it on mixes an
+    unvalidated indicator into an otherwise validated archetype."""
+
+    require_previous_red: bool = True
+    require_new_low: bool = True
 
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
@@ -163,11 +181,17 @@ class PullBackAndGoParams:
     ratchet_lag: int = 1
     """Which bar the trailing stop references at each bar close.
 
-    ``PullBackAndGo.cs`` ratchets to a bare ``Low[1]`` -- the bar *before* the just-closed
-    one, lag 1 -- unlike DeadCatBounce's default lag-0 ``High[0]``. Also unlike
-    DeadCatBounce, the ratchet reapplies no offset at all; ``run_pullbackandgo`` passes
-    ``ratchet_offset_ticks=0`` to :func:`nqbt.sim.deadcat.simulate_deadcat` for exactly
-    this reason, not as a sweepable field, since the C# has no property for it either."""
+    ``PullBackAndGo.cs`` ratchets to ``Low[1]`` -- the bar *before* the just-closed one,
+    lag 1 -- unlike DeadCatBounce's default lag-0 ``High[0]``. Confirmed against the trade
+    list: lag 1 leaves 120 disagreeing legs of 1,664 where lags 0, 2 and 3 leave ~1,100."""
+
+    ratchet_offset_ticks: int = 2
+    """Ticks beyond the ratchet's reference low, as ``Low[1] - (TickSize * 2)``.
+
+    Was ``0`` when the C# ratcheted to a bare ``Low[1]``. Because ``ratchet_lag=1`` puts the
+    first evaluation on the signal bar itself, the offset makes the entry-bar ratchet reduce
+    to exactly the initial stop and therefore a no-op, where the bare form tightened by two
+    ticks before any bar had closed with the position open."""
 
     ambiguity_policy: int = 1
     """See :attr:`DeadCatParams.ambiguity_policy` -- the same Tier-1 concept, same default."""
@@ -178,11 +202,13 @@ class PullBackAndGoParams:
     block_entry_at_session_close: bool = True
     """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as DeadCatBounce."""
 
-    round_targets: bool = False
-    """``PullBackAndGo.cs`` never calls ``RoundToTickSize`` on its profit targets, unlike
-    DeadCatBounce.cs. Ported as written rather than assumed symmetric -- see
-    :func:`nqbt.sim.deadcat.simulate_deadcat`'s ``round_targets`` docstring for why this is
-    a live question for M15.5's NT8 reconciliation, not a settled one."""
+    round_targets: bool = True
+    """``PullBackAndGo.cs`` never calls ``RoundToTickSize`` and **NT8 snaps the targets
+    anyway.** Ported un-rounded on the reasoning that matching the C# text beats assuming
+    symmetry with DeadCatBounce; the M15.5 trade list settled it the other way, taking the
+    reconciliation from 176 disagreeing legs to 120. The discriminating case is a half-tick
+    target nqbt placed at 16504.375 and NT8 filled at 16504.50. The snap is the platform's
+    rather than the script's -- no NinjaScript can opt out of the exchange's tick grid."""
 
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """L1/L2/L3 at 1R/1.5R/2R; L4 is the runner with no target, matching the NinjaScript."""
@@ -194,14 +220,28 @@ class PullBackAndGoParams:
     """Adverse slippage on market and stop orders. Never applied to limit targets."""
 
     def __post_init__(self) -> None:
+        if self.order_quantity < len(self.target_r_multiples):
+            raise ValueError(
+                f"order_quantity {self.order_quantity} cannot fill "
+                f"{len(self.target_r_multiples)} legs; NT8 caps this with a Range(4, ...) "
+                "attribute on OrderQuantity"
+            )
         for name in ("ema_period", "slow_sma_period", "fast_sma_period"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be >= 1")
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
-        """One contract per leg -- ``EnterLongStopMarket`` never specifies a quantity."""
-        return (1,) * len(self.target_r_multiples)
+        """Contracts per leg, with the remainder on the last leg.
+
+        ``baseQuantity = orderQuantity / 4`` with integer division, then
+        ``baseQuantity + remainder`` on L4 -- identical to DeadCatBounce's split, so 10
+        contracts go 2/2/2/4 rather than 3/3/2/2.
+        """
+        n = len(self.target_r_multiples)
+        base = self.order_quantity // n
+        remainder = self.order_quantity % n
+        return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict:
         out = {}
