@@ -210,7 +210,9 @@ the record of what the audit trail said while it was being trusted.
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
 **Order: M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 →
-M7b → M19 → M12.** M9 and M20a are done — see Status.
+M7b → M19 → M12.** M9, M20a and M15 (M15.1–M15.4) are done — see Status. M15.5, the NT8
+reconciliation, is outstanding but needs NinjaTrader rather than code time and blocks
+nothing else in this order.
 
 **New archetypes are developed in Python only.** EMA crossover and squeeze breakout have no
 NinjaScript, and none gets written until a candidate looks worth trading — most will not
@@ -277,6 +279,54 @@ exactly 48 legs (12 trades) across all 8 combinations, at three real signal mome
 confirming the mechanism rather than a coincidence. Every surviving leg is unchanged: joined
 on `(entry_time, leg)` (`trade_id` itself shifts after any earlier removal, same as the M9
 leg-count note above), all 113,116 common rows across the sweep match exactly.
+
+**M15.4 — done (Tier 1 only; M15.5's NT8 reconciliation is still outstanding).**
+`PullBackAndGo.cs` ported as `nqbt/sim/pullback.py` and `PullBackAndGoParams`, reusing
+`simulate_deadcat` — not a fork — with `direction=LONG`. The issue's own "blocked on ATR"
+reasoning turned out stale: reading the current submodule source, `PullBackAndGo.cs` never
+calls `ATR()`, so #19 was never actually a prerequisite. Checking the source before porting
+paid for itself immediately.
+
+Two real, present-day extensions to `simulate_deadcat` came out of the comparison against
+`DeadCatBounce.cs`, both verified byte-identical for DeadCatBounce with the pinned
+14-file gate before landing:
+
+- **`ratchet_offset_ticks`, separate from `stop_offset_ticks`.** `DeadCatBounce.cs`
+  ratchets to `High[0] + 2 ticks` every bar, reapplying its own entry offset.
+  `PullBackAndGo.cs` ratchets to a bare `Low[1]`, no offset at all — and because
+  `ratchet_lag=1` means the ratchet's first evaluation lands on the *signal* bar itself
+  (the same bar `entry_bracket` used), the offset difference tightens the stop immediately
+  on the entry bar, before any bar has closed with the position open. Caught by a test
+  before it could be mistaken for a bug later.
+- **`round_targets`.** `DeadCatBounce.cs` calls `RoundToTickSize` on every target;
+  `PullBackAndGo.cs` never does. Ported un-rounded, matching the C# text rather than
+  assuming symmetry with DeadCatBounce — whether NT8 silently snaps such a price at
+  submission is exactly the kind of question M15.5's reconciliation exists to settle, not
+  something to guess at from here.
+
+`nqbt/conditions.py` gained the long-side mirrors — `hammer`, `made_new_low`,
+`previous_bar_red`, `above_series` — and `MovingAverageGrid`/`Dataset` now carry `above`
+alongside `below` for every period and VWAP. `above_series` is **not** `~below_series`:
+each C# treats its own equality boundary as a pass independently, so the two overlap
+exactly at `close == ma` rather than partition it.
+
+`PullBackAndGoParams` is deliberately leaner than `DeadCatParams`: no `Use*` toggles (all
+four trend filters are unconditional in the C#), no `OrderQuantity` (every leg is a fixed
+one contract — `EnterLongStopMarket` never passes a quantity), no `TPMultiplier` or
+`MaxRiskPerTrade` (neither property exists on this strategy).
+
+Gate: full suite 234 passed (222 + 12 new). `tools/compare_trade_logs.py` reports zero
+differing bytes for DeadCatBounce across all 14 files after the `simulate_deadcat`
+extension, confirming both new parameters are true no-ops for it at their DCB-preserving
+values.
+
+**M15.5 — outstanding, needs NinjaTrader.** Nothing above has been checked against a real
+NT8 trade list yet; `PullBackAndGoParams`'s defaults are a Tier-1-only assumption until
+then, most importantly the un-rounded targets.
+
+**M15 epic — direction in the simulator: done.** M15.1–M15.4 have landed; only M15.5 (the
+NT8 reconciliation, `needs-ninjatrader`) remains, and it blocks nothing else in the order
+of work.
 
 **M16 — the indicator-parity debt: ATR, StdDev, Bollinger, Keltner.** `indicators.py` flagged
 this from the start. Five consumers, not one: Keltner for the squeeze, all three unported
