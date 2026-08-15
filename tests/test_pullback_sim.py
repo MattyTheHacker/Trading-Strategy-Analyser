@@ -273,10 +273,32 @@ def test_every_entry_condition_actually_binds():
 # -- params -----------------------------------------------------------------
 
 
-def test_leg_quantities_are_always_one_per_leg():
+def test_leg_quantities_split_the_order_with_the_remainder_last():
+    # OrderQuantity now exists on the C#, split baseQuantity = qty / 4 with the remainder
+    # added to L4 -- identical to DeadCatBounce, so 10 goes 2/2/2/4 and not 3/3/2/2.
     assert PullBackAndGoParams().leg_quantities == (1, 1, 1, 1)
-    three_legs = PullBackAndGoParams(target_r_multiples=(1.0, 2.0, float("nan")))
+    assert PullBackAndGoParams(order_quantity=10).leg_quantities == (2, 2, 2, 4)
+    three_legs = PullBackAndGoParams(
+        order_quantity=3, target_r_multiples=(1.0, 2.0, float("nan"))
+    )
     assert three_legs.leg_quantities == (1, 1, 1)
+
+
+def test_params_reject_an_order_quantity_that_cannot_fill_every_leg():
+    with pytest.raises(ValueError, match="cannot fill"):
+        PullBackAndGoParams(order_quantity=3)
+
+
+def test_every_filter_can_be_switched_off_independently():
+    # Each is its own early-return `if` in the C#, so switching one off must leave the
+    # rest exactly as they were. The C# leaves all six uninitialised in SetDefaults; these
+    # defaults reproduce the M15.5 reconciliation instead, which is the only combination
+    # with a trade list behind it.
+    p = PullBackAndGoParams()
+    assert (p.use_ema, p.use_slow_sma, p.use_fast_sma, p.use_vwap) == (
+        True, True, True, False,
+    )
+    assert (p.require_previous_red, p.require_new_low) == (True, True)
 
 
 def test_params_reject_a_non_positive_period():
