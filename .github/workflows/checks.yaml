@@ -15,10 +15,6 @@ permissions:
 
 jobs:
   pytest:
-    # The name is set explicitly so the matrix does not append its values to it.
-    # "Run test suite with pytest" is a required status check in the main ruleset;
-    # a generated name like "pytest (jit-enabled)" would never report that context
-    # and every PR would block on a check that can no longer arrive.
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     permissions:
@@ -109,8 +105,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # Runs shellcheck over every `run:` block as well as validating expressions
-      # and `uses:` refs. The runner image ships shellcheck, so this needs no setup.
       - name: Run actionlint
         uses: raven-actions/actionlint@v2
