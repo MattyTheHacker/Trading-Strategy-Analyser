@@ -28,10 +28,10 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~2~~ | ~~Run the simulation against NQ~~ | — | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact. |
 | ~~3~~ | ~~**M9** — split context from simulation~~ | — | **Done 2026-08-12.** `nqbt/context.py` and `nqbt/trades.py` exist, layering enforced by import-analysis tests, every producer path byte-identical across all 14 files. |
 | ~~3a~~ | ~~**M20a** — the three findings that block M15~~ | [#9] | **Done 2026-08-14.** `_resolve_brackets` is the single bracket implementation, `entry_bracket` the single trigger computation, `Summary.empty()` replaces the splat that raised. |
-| **3b** | **M15** — direction in the simulator | [#13] | **Next up.** The actual blocker on every new archetype. M9 added `direction` for the importer's sake; M15 makes it load-bearing in the `@njit` loop. |
-| 3c | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | [#19] | Five consumers, not one. Paying it once here stops it being rediscovered per archetype. |
-| 3d | **M17 + M13 + M14** — strategy, resolution and contract as axes | [#24], [#30], [#31] | **One mechanism, not three.** All three add an axis outside `DeadCatParams`. Doing them together settles the schema once, before the stale DuckDB re-run. |
-| 4 | **M7a** — `randomentry.py` | [#32] | The null that makes a *second* archetype interpretable. Cheap once M15 lands. |
+| ~~3b~~ | ~~**M15** — direction in the simulator~~ | [#13] | **Done 2026-08-15**, reconciled included. `d = ±1` through the whole loop, `PullBackAndGo` ported and diffed leg-for-leg against a real NT8 trade list. That reconciliation found two fill-semantics defects — see below. |
+| — | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | [#19] | **Out of the code queue; batched into a NinjaTrader session.** Five consumers, not one, but [#20], [#21] and [#22] are all readings rather than code. [#23] is the exception and can be taken any time. |
+| **3c** | **M17 + M13 + M14** — strategy, resolution and contract as axes | [#24], [#30], [#31] | **Next up.** **One mechanism, not three.** All three add an axis outside `DeadCatParams`. Doing them together settles the schema once, before the stale DuckDB re-run. |
+| 4 | **M7a** — `randomentry.py` | [#32] | The null that makes a *second* archetype interpretable. Cheap now M15 has landed — and M15 is also what lets the null be matched on direction, which it must be. |
 | 5 | **M18** — EMA crossover | [#34] | The one archetype built now, to prove the protocol. A legitimate known-negative control. |
 | 6 | Numpy-native summary path | [#33] | **Pulled forward.** Crossover generates ~30× the legs, so the 71% of runtime that is pandas stops being an annoyance and becomes the sweep. |
 | 7 | **M10** — regime, volume, trend, time of day | [#39] | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
@@ -41,17 +41,55 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | 11 | **M12** — web GUI | [#52] | Gated on the review's outputs being stable. |
 
 **Standing work, no gate:** M20b typing and tooling ([#53]), M20c structural cleanups ([#58]),
-and the Tier-2 verification epic ([#65]) which needs NinjaTrader time rather than code time.
+the Tier-2 verification epic ([#65]) which needs NinjaTrader time rather than code time, and
+tracking `verification/` in git ([#91]).
 
 **Why the order looks like this.** The request was "add EMA crossover and squeeze breakout",
-but neither is reachable today and neither is where the cost is: the simulator is
-**short-only** (M15), the indicators they need have an unpaid NT8-parity debt (M16), and
-`sweep.py` is hardcoded to `DeadCatParams` (M17). That infrastructure is ~all the work; the
-archetypes themselves are then small. It also pays for the three NinjaScripts already written
-and never ported — `InsideBar.cs`, `InsideBarTrailing.cs`, `PullBackAndGo.cs`, all
-long-capable, all using `ATR()`.
+but neither was reachable and neither was where the cost is: the simulator was
+**short-only** (M15, now paid), the indicators they need have an unpaid NT8-parity debt
+(M16), and `sweep.py` is hardcoded to `DeadCatParams` (M17). That infrastructure is ~all the
+work; the archetypes themselves are then small. It also pays for the NinjaScripts written and
+never ported — `PullBackAndGo.cs` is now done, leaving `InsideBar.cs` and
+`InsideBarTrailing.cs`, both long-capable and both using `ATR()`.
 
-**Unscheduled and cheap once M15 and M16 land:** porting `InsideBar.cs` and
+**Why M16 left the code queue, which is a change from the order above.** M16 was scheduled
+ahead of M17, but its three substantive sub-issues are each *"read the value out of NT8 and
+pin it"* — the milestone's own instruction is **do not answer from memory**, so hand-rolling
+the recursions before the readings exist is precisely the failure it was written to prevent.
+That makes M16 NinjaTrader time, and it now shares that constraint with [#66] and [#67].
+M17 has no NT8 dependency, is an equally hard prerequisite for M18, and is therefore the
+better use of code time. **Split the queue by resource, not by milestone number:**
+
+| resource | work |
+|---|---|
+| code time | M17 ([#25]–[#29]) with M13 ([#30]) and M14 ([#31]); [#23] whenever convenient |
+| NinjaTrader time | [#20], [#21], [#22] (M16 pins), [#66] (NQ), [#67] (order lifetime), [#92] (a second long-side contract) |
+
+Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
+true — M18 needs both.
+
+### What M15.5 changed, and the lesson that outlives it
+
+The `PullBackAndGo` reconciliation was not a formality. It found **two direction-general
+fill-semantics defects**, both recorded with their evidence in `docs/nt8-fidelity.md`:
+
+- **A stop that gaps fills at the open.** Modelled on the entry side since the beginning and
+  never on the exit side, so every gapped stop exit was optimistic. **It moved the short side
+  too** — always to a worse fill, never a better one — which is why nothing in the existing
+  suite caught it.
+- **A stop entry at or through the market is never submitted.** DeadCatBounce's trigger cap
+  makes this structurally impossible for it, so the simulator had no notion of
+  submittability at all.
+
+**The lesson is the one worth carrying forward: a single archetype cannot exercise the fill
+model.** Both defects were unreachable from DeadCatBounce by construction, not by luck, and
+both had been live for the entire life of the project. Expect the same when M18 introduces
+market-on-next-open entries and `EXIT_SIGNAL` exits — each new mechanism is a new part of the
+fill model with no evidence behind it yet, and [#38]'s shared bracket engine will inherit
+whatever is wrong. This is the argument for reconciling each archetype rather than trusting
+the shared engine because the first one passed.
+
+**Unscheduled, and cheap once M16 lands — M15 is no longer the blocker:** porting `InsideBar.cs` and
 `InsideBarTrailing.cs`. Both have C# ground truth, which makes them the cheapest *trustworthy*
 archetypes available, unlike M18 and M19. `InsideBar` is the structural form of the squeeze
 idea and is worth porting before M19 is built from scratch. `InsideBarTrailing` is the second
@@ -143,9 +181,11 @@ depends on holding overnight or across a weekend is not buildable under these ru
 is a design constraint to apply *while* writing the Python, not a discovery to make at port
 time. Concretely, for planned work:
 
-- **M15** ([#16]). A resting entry order must be cancelled at the flatten point, not merely
-  left to expire. It is the one cancellation condition that applies to every archetype
-  regardless of its own invalidation logic.
+- ~~**M15** ([#16])~~ — **done.** A resting entry order is cancelled at the flatten point
+  rather than left to expire. It is the one cancellation condition that applies to every
+  archetype regardless of its own invalidation logic, so a new archetype inherits it and must
+  not re-implement it. Note it was **not** a no-op: `block_entry_at_session_close` only ever
+  guarded a *new* signal on that bar, never an order resting from the one before.
 - **M13** ([#30]). The forced-exit share should rise sharply with bar size. At 30-minute bars a
   position opened near the close has almost no bars in which to reach a target, so more of its
   outcomes are decided by the clock than by the rules. Worth measuring alongside the
@@ -355,6 +395,21 @@ how much trouble each has actually caused in this codebase, not by general princ
 - **A byte-identity gate on short-only logs does not cover a change that is symmetric in `d`.**
   Both copies of a forked bracket reduce to today's behaviour at `d = −1` regardless of whether
   they agree at `d = +1`. Unify *before* introducing `d`, and gate the unification separately.
+- **A byte-identity gate cannot see a rule that is missing from both directions**, and this is
+  no longer hypothetical — it passed cleanly through all of M15 while two fill rules were
+  absent from the simulator entirely ([#18]). It proves *"this change moved nothing"*, which is
+  a different claim from *"the model is right"*. Only a trade list makes the second one.
+- **One archetype cannot exercise the fill model.** Both of [#18]'s defects were unreachable
+  from DeadCatBounce **by construction** — its trigger cap makes an unsubmittable entry
+  impossible, and its reconciled window happened to contain no gapped stop exit — so neither
+  was a gap in test coverage that more tests would have closed. Every new entry or exit
+  mechanism is a new part of the fill model with no evidence behind it, and [#38]'s shared
+  engine will inherit whatever is wrong. Reconcile per archetype; do not trust the engine
+  because the first one passed.
+- **Documentation must not carry a figure that goes stale.** State the rule; point at where the
+  live number is produced. Reconciliation rates, leg counts, P&L and test counts all move on
+  ordinary PRs, and `CLAUDE.md` is loaded into every session, so a stale number there is a
+  wrong fact asserted with authority.
 - **`# pragma: no cover` marks code that is never run, which is exactly where a defect can sit
   indefinitely.** The empty-log defect sat behind one, and the audit that found it turned up a
   second of the same shape ([#81]). A pragma is a claim about coverage, not about correctness.
@@ -376,20 +431,34 @@ how much trouble each has actually caused in this codebase, not by general princ
 
 One paragraph of reasoning each. Scope and acceptance criteria are in the linked issue.
 
-### M15 — direction in the simulator ([#13])
+### ~~M15~~ — direction in the simulator: done ([#13])
 
-`simulate_deadcat` is short-only in roughly eight places — stop hit, target fill, P&L, MAE/MFE,
-entry trigger, entry fill test, ratchet, slippage sign — and every archetype that is not
-DeadCatBounce is long-capable. The design is **one sign multiplier `d = ±1`, not two code
-paths**, because the bracket machinery carries the fidelity evidence: the ambiguous-bar rule,
-`IsFillLimitOnTouch`, the ratchet and the force-flat path are what the 1143/1144 reconciliation
-actually validated, and forking gives Tier 1 and Tier 2 two places to drift. Because ×(±1.0) is
-exact in IEEE 754 and `fl(a − b) = −fl(b − a)` always, the gate is **byte-identity of every
-short-only trade log**, which is stronger and cheaper than re-running the reconciliation. The
-long path is then proven by porting `PullBackAndGo.cs` ([#17]) and reconciling it ([#18]) —
+Kept because the reasoning generalises, and because one part of it turned out to be wrong in
+an instructive way.
+
+`simulate_deadcat` was short-only in roughly eight places — stop hit, target fill, P&L,
+MAE/MFE, entry trigger, entry fill test, ratchet, slippage sign. The design was **one sign
+multiplier `d = ±1`, not two code paths**, because the bracket machinery carries the fidelity
+evidence: the ambiguous-bar rule, `IsFillLimitOnTouch`, the ratchet and the force-flat path
+are what the reconciliation actually validated, and forking gives Tier 1 and Tier 2 two places
+to drift. That held — the machinery was not forked, and `_sided()` is the single exception,
+picking which raw OHLC value is adverse or favourable because that is a data selection rather
+than something a sign multiplication can express.
+
+Because ×(±1.0) is exact in IEEE 754 and `fl(a − b) = −fl(b − a)` always, the gate was
+**byte-identity of every short-only trade log**, chosen as stronger and cheaper than
+re-running the reconciliation. **That was right about what it covered and wrong about what
+that was worth.** It caught nothing because there was nothing to catch, and it is structurally
+blind to a rule that is *missing from both directions* — which is exactly what [#18] then
+found, twice. The gate remains correct for a direction-symmetric refactor; it is not a
+substitute for a reconciliation, and the two answer different questions.
+
+The long path was proven by porting `PullBackAndGo.cs` ([#17]) and reconciling it ([#18]) —
 long-only `EnterLongStopMarket` with C# ground truth, so a long-side fill bug is found against
-NT8 rather than blamed on a new strategy. Stop-and-reverse is explicitly out of scope; see
-"Decisions taken".
+NT8 rather than blamed on a new strategy. **That decision paid for itself immediately**: both
+defects [#18] found were in the *shared* bracket code, present since the beginning, and on an
+original archetype they would have been indistinguishable from the strategy simply being bad.
+Stop-and-reverse remains out of scope; see "Decisions taken".
 
 ### M16 — the indicator-parity debt ([#19])
 
@@ -611,7 +680,16 @@ key grids by `(kind, period)`. Reconsider after those rather than now.
 
 ### Tier-2 verification — needs NinjaTrader time, not code time ([#65])
 
-Two outstanding items, neither blocking anything. **Reconcile NQ against NT8** ([#66]): NQ
+Three outstanding items, none blocking anything, and **M16's [#20], [#21] and [#22] are the
+same resource** even though they sit under a different milestone — run them as one session.
+
+**A second long-side contract** ([#92]) is the newest, split out of [#18]. The long side is
+reconciled, but against one contract's post-merge tail rather than a full contract, because
+that export was back-adjusted-merged before a certain date and only the later portion agrees
+with the archive. Re-running the same contract reproduces the same window; a fully liquid one
+(MNQ 06-24 or 09-24) is what adds evidence.
+
+**Reconcile NQ against NT8** ([#66]): NQ
 inherits its fill-semantics confidence from MNQ rather than earning it. Everything downstream of
 the bars is proven instrument-agnostic — same bars through both specs give identical geometry and
 gross P&L of exactly ×10 per leg — so the *simulation* is not in doubt; what is unverified is
@@ -744,11 +822,14 @@ default is now known to be right for this machine.
   Annotating against the per-contract cache sidesteps back-adjustment and roll-date questions
   entirely and is almost certainly right; the continuous series only earns its place if a review
   needs indicators with lookbacks that cross a roll.
-- **CI does not lint this file.** `pymarkdown scan .` **does not recurse** — verified: it reports
-  nothing, while `pymarkdown scan docs/roadmap.md` reports findings. Only top-level `CLAUDE.md`
-  and `README.md` are linted, so nothing under `docs/` has ever been checked. Fixing it needs
-  `-r` plus an exclusion for `.venv`, which otherwise contributes ~40 findings from vendored
-  licence files.
+- **Documentation must not carry figures that go stale.** State the rule; point at where the
+  live number is produced — `docs/nt8-fidelity.md` for agreement rates, a `pytest` run for the
+  test count, `nqbt splice --diagnostics` for bar and roll counts. `CLAUDE.md` loads into every
+  session, so a stale figure there is a wrong fact asserted with authority, and these numbers
+  move on almost every fill-rule change.
+- **`verification/` is gitignored in its entirety** ([#91]), including its `README.md` — which
+  `CLAUDE.md` cites as the authority on what the stored captures mean. The CSVs are
+  regenerable; the prose is not, and it exists on one machine.
 
 [#9]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/9
 [#10]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/10
@@ -765,8 +846,10 @@ default is now known to be right for this machine.
 [#23]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/23
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
+[#26]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/26
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
+[#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
@@ -812,3 +895,5 @@ default is now known to be right for this machine.
 [#75]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/75
 [#76]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/76
 [#81]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/81
+[#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91
+[#92]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/92

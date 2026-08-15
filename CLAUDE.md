@@ -42,6 +42,18 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
 - `IsFillLimitOnTouch = false`: targets need `low < target`, not `<=`.
 - Ambiguous bars (stop and target both in range) resolve to whichever is **nearer the open**.
   A blanket worst case is *more* pessimistic than NT8, not equal to it.
+- **A stop that gaps fills at the open, not at the stop price.** A stop is a market order
+  once triggered, so a bar opening past it offers no trade at the level. This holds for
+  **exits as well as entries** — the entry path always modelled it and the exit path did not,
+  which made every gapped stop exit optimistic until M15.5. It does *not* apply on the entry
+  bar: the position did not exist at that bar's open, so price still had to travel through
+  the trigger to open it and only then back to the stop.
+- **A stop entry at or through the market is never submitted.** `EnterLongStopMarket(High[0])`
+  on a bar that closed on its high is a buy stop at the price the market is already at; that
+  is not a stop order and NT8 declines it. DeadCatBounce is immune **by construction** — its
+  `min(Low[0], Close[0] - 2 ticks)` cap puts the trigger below the close on exactly the bars
+  that would otherwise be unsubmittable — which is why this only surfaced once a second
+  archetype used a bare `High[0]`. One archetype cannot exercise the fill model.
 - `MaxRiskPerTrade` is in **ticks**, not dollars.
 - **TA-Lib's EMA ≠ NT8's EMA** (different seeding). `indicators.py` hand-rolls NT8's
   recursion. TA-Lib is reserved for MACD/RSI/BB/ATR, which have the same problem unfixed.
@@ -108,7 +120,7 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
 Python 3.14 venv at `.venv`. Run tools as `./.venv/Scripts/python.exe -m ...`.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest          # 206 tests
+./.venv/Scripts/python.exe -m pytest
 nqbt ingest | contracts | splice | run
 ```
 
@@ -130,25 +142,30 @@ commands that duplicate the Python API.
   are a different format and orders of magnitude larger. **Never glob across resolutions**;
   `ingest.parse_export` hard-fails on a tick file.
 - `verification/nt8_reconciliation_MNQ_03-24.csv` is a **pre-fix** run despite its name — see
-  `verification/README.md` before comparing anything against it.
+  `verification/README.md` before comparing anything against it. The whole `verification/`
+  folder is **gitignored and exists only on this machine** (#91).
 
 ## Status
 
 Done and validated: ingestion with a durable archive and exact rewrite detection, contract
-splicing with back-adjustment, NT8-compatible indicators, the DeadCatBounce simulation, the
-sweep + statistics + DuckDB results layer, and parallel sweeps over cores. Reconciliation
-against NT8 is **1143/1144 leg exits identical (99.91%)**.
+splicing with back-adjustment, NT8-compatible indicators, the DeadCatBounce and
+PullBackAndGo simulations, the sweep + statistics + DuckDB results layer, and parallel
+sweeps over cores.
 
-That reconciliation was re-checked after the archive and the NQ re-export landed, and still
-holds — but **do not check it by leg count**. The extra leading history legitimately adds
-signals, so a current run yields 1,380 legs against the stored 1,168. Join on
-`(entry_time, leg)` instead: all 1,168 are present with identical times, prices, stops,
-targets, exit reasons and P&L. The bar-index offset is *not* constant (38,279 → 38,296);
-the drift is 17 out-of-session stray prints and is inert. `verification/README.md` has it.
+**Both archetypes are reconciled against real NT8 trade lists. `docs/nt8-fidelity.md` is
+the live record** — agreement rates, per-rule evidence, and what each residual disagreement
+is. Quote it rather than a figure from here: these numbers move whenever a fill rule
+changes, and M15.5 changed two.
 
-**NQ now runs end to end** — ingest, splice, prepare, parallel sweep — over 1,633,461 bars.
-It is unprofitable on its own data too (best PF 0.829 of 96 combinations, 0 profitable).
-No NQ result has been reconciled against NT8; MNQ remains the only fill-semantics evidence.
+**Do not check a reconciliation by leg count.** Leading history legitimately adds signals,
+so a current run yields more legs than any stored capture, and `trade_id` shifts after any
+earlier removal. Join on `(entry_time, leg)` instead. The bar-index offset is *not*
+constant either; that drift is out-of-session stray prints and is inert.
+`verification/README.md` has the detail — note it is **gitignored and local-only** (#91).
+
+**NQ runs end to end** — ingest, splice, prepare, parallel sweep — and is unprofitable on
+its own data too. No NQ result has been reconciled against NT8 (#66); MNQ remains the only
+fill-semantics evidence.
 
 **M9 has landed.** `Dataset`/`prepare` are now `nqbt/context.py`; the trade-log schema is
 `nqbt/trades.py` with `validate()` called at the producer boundary, and it carries
@@ -185,7 +202,7 @@ copy of the bracket machinery to multiply by `d` instead of two.
 - **The bracket machinery is now `_resolve_brackets`**, called by both the in-position path
   and the entry-bar path. The entry-bar copy's `leg_open` guards were no-ops, not a
   difference, so the unified version reduces to the old behaviour exactly. This is where the
-  1143/1144 evidence lives; **do not fork it again**.
+  reconciliation evidence lives; **do not fork it again**.
 - **`entry_bracket` is the one trigger/stop/risk computation**, called by the `@njit` loop
   and by `explain.py`. The audit trail is now by construction the arithmetic under audit —
   previously it recomputed the trigger as `Low[0]`, dropping the `Close[0] − 2 ticks` cap.
@@ -193,11 +210,10 @@ copy of the bracket machinery to multiply by `d` instead of two.
   raised on every call. `sweep.run_combination` no longer keeps a second, all-int empty-log
   policy of its own.
 
-**The 50% figure that justified the explain fix was a prefix, not a rate.** Over the whole
-current MNQ 03-24 window the trigger cap binds on **123 of 345 trades (35.7%)** — the "~⅓ of
-signals" recorded in the gotchas above. It reads 80% over the first 20 trades, 48% over the
-first 100 and 41% over the first 200, because capped signals are not evenly distributed
-through the window. **Quote whole-window rates**; a prefix of a trade log is not a sample of
+**The 50% figure that justified the explain fix was a prefix, not a rate.** Measured over
+the whole window the trigger cap binds on roughly a third of signals, but it reads far
+higher over the first twenty trades and decays from there, because capped signals are not
+evenly distributed. **Quote whole-window rates**; a prefix of a trade log is not a sample of
 it. The defect was real either way, and `verification/README.md` records this.
 
 Two things M20a deliberately did **not** change, because M20 may not move a number:
@@ -209,10 +225,17 @@ the record of what the audit trail said while it was being trusted.
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: M15 → M16 → M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 →
-M7b → M19 → M12.** M9, M20a and M15 (M15.1–M15.4) are done — see Status. M15.5, the NT8
-reconciliation, is outstanding but needs NinjaTrader rather than code time and blocks
-nothing else in this order.
+**Order: M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 → M7b → M19 → M12**, with
+**M16 batched into a NinjaTrader session** rather than sitting in the code queue. M9, M20a
+and M15 are done — see Status.
+
+**M16 moved out of the code queue deliberately.** Its three substantive sub-issues
+(#20 ATR, #21 StdDev/Bollinger, #22 Keltner) each require reading values out of NT8, and the
+own rule is *do not answer from memory* — so writing the recursions before the readings exist
+is the mistake it was written to prevent. It is NinjaTrader time, and it shares that
+constraint with #66 and #67. **M17 is the next code work**: pure Python, no NT8 dependency,
+and an equally hard prerequisite for M18. #23 (True Range at session and roll boundaries) is
+the one part of M16 that is a decision rather than a measurement, so it can be taken any time.
 
 **New archetypes are developed in Python only.** EMA crossover and squeeze breakout have no
 NinjaScript, and none gets written until a candidate looks worth trading — most will not
@@ -234,99 +257,45 @@ M20c (23-parameter `@njit` signatures → `NamedTuple`, **verified bit-identical
 standing rubric are in `docs/roadmap.md` §M20. Note the ruff/mypy/CI finding there is stale —
 all three now exist; what is missing is that nothing runs ruff or mypy.
 
-**M15 — direction in the simulator.** The actual blocker on every new archetype: the `@njit`
-loop is short-only in ~8 places, and EMA crossover, squeeze breakout and all three unported
-NinjaScripts are long-capable. One sign multiplier `d = ±1`, not two code paths — forking
-would fork the bracket machinery, which is where the 1143/1144 evidence lives. Because ×(±1.0)
-is exact in IEEE 754, **the regression gate is byte-identity of every short-only trade log**,
-not "the reconciliation still passes". Also adds `EXIT_SIGNAL` (every exit today is a bracket
-level) and makes M9's `direction` field load-bearing. Stop-and-reverse is explicitly **not**
-supported. Validated by porting `PullBackAndGo.cs` — long-only `EnterLongStopMarket`, with C#
-ground truth, so a long-side fill bug is found against NT8 rather than blamed on a new
-strategy.
+**~~M15~~ — direction in the simulator: done, reconciled, closed.** The whole epic
+(M15.1–M15.5) has landed. What its dependents need to know:
 
-**M15.1 — done.** `simulate_deadcat`, `_resolve_brackets`, `entry_bracket`, `_limit_filled`
-and `_write` now take a `direction: float` parameter and every stop/target/fill/P&L/MAE/MFE
-comparison is expressed through it, per the substitution table in issue #14. `DeadCatBounce`
-still always calls with `SHORT` — it has no long variant — so this is purely a capability the
-next archetype (M15.4, `PullBackAndGo.cs`) draws on. `_sided()` is the one place that picks
-which raw OHLC value is adverse/favourable for a direction, since that is a data selection,
-not something a sign multiplication alone can express; `_targets_reached_first` was left
-untouched, as specified, since its open-relative distances are already direction-free. Gate:
-`tools/compare_trade_logs.py` reports zero differing bytes across all 14 captured files
-before and after. Generalising the entry-fill test surfaced a real latent bug, independent of
-M15: `pending_bar`'s sentinel `-1` equals `i - 1` at `i == 0`, so the fill test was always
-being evaluated on the very first bar. Short-only, this was silently harmless — a
-zero-initialised `pending_trigger` makes `open <= 0` false for any real price — but a long's
-`open >= 0` is true immediately, filling against a trigger that was never actually set. Fixed
-with an explicit `pending_bar >= 0` guard, which is a no-op for the short side (confirmed by
-the byte-identity gate) and would otherwise have produced a spurious trade on bar 0 of every
-long-capable archetype.
+- **One sign multiplier `d = ±1`, never two code paths.** Every stop/target/fill/P&L/MAE/MFE
+  comparison in `simulate_deadcat`, `_resolve_brackets`, `entry_bracket`, `_limit_filled` and
+  `_write` runs through it. `_sided()` is the one place that picks which raw OHLC value is
+  adverse or favourable, because that is a data selection and not something a sign
+  multiplication can express. **Do not fork this for a new direction or archetype.**
+- **The gate for a direction-symmetric change is byte-identity of every short-only trade
+  log**, not "the reconciliation still passes" — ×(±1.0) is exact in IEEE 754, so both halves
+  of a forked bracket reduce to today's behaviour at `d = −1` whether or not they agree at
+  `d = +1`. `tools/capture_trade_logs.py` + `tools/compare_trade_logs.py` are that gate.
+- **`EXIT_SIGNAL` is reserved but unused.** For a rule-driven exit with no bracket level of
+  its own — M18 and `InsideBarTrailing.cs` need it, DeadCatBounce does not, and a test guards
+  structurally that `nqbt/sim/deadcat.py` never imports it.
+- **A resting entry order is cancelled on a `force_flat` bar**, not tested for fill.
+  `block_entry_at_session_close` only guards a *new* signal on that bar, not an order resting
+  from the one before. This removes real legs from a continuous sweep; that is the fix
+  working.
+- **`ratchet_offset_ticks` is separate from `stop_offset_ticks`.** DeadCatBounce ratchets to
+  `High[0] + 2 ticks`, reapplying its entry offset; PullBackAndGo ratchets to a bare `Low[1]`.
+  With `ratchet_lag=1` the first evaluation lands on the *signal* bar, so the offset
+  difference tightens the stop before any bar has closed with the position open.
+- **`above_series` is not `~below_series`.** Each C# treats its own equality boundary as a
+  pass independently, so the two overlap at `close == ma` rather than partition it.
+- **Stop-and-reverse is explicitly not supported.** The loop's `in_position` boolean assumes
+  flat-to-flat, and reversal collides with the one-bar entry lifetime. A deliberate
+  limitation, not an unfound bug.
 
-**M15.2 — done.** `EXIT_SIGNAL = 4.0` is reserved in `nqbt/trades.py`'s `EXIT_REASONS` for a
-rule-driven exit with no bracket level of its own — EMA crossover (M18) and
-`InsideBarTrailing.cs` need it, DeadCatBounce does not. `nqbt/sim/deadcat.py` does not import
-it, and a test guards that structurally rather than just checking today's trade logs don't
-contain it.
+`PullBackAndGoParams`'s defaults **reproduce the reconciled configuration, not the
+NinjaScript's** — `PullBackAndGo.cs` leaves seven properties uninitialised in `SetDefaults`,
+so it has no defaults to copy and an `OrderQuantity` of 0 trades nothing. `use_vwap` stays
+off: nothing has checked nqbt's VWAP against `OrderFlowVWAP`.
 
-**M15.3 — done, and not a no-op.** A resting entry order is now cancelled on a `force_flat`
-bar instead of being tested for fill — the account rules forbid a new position once flat is
-required, and nothing previously stopped one filling there; `block_entry_at_session_close`
-only guards a *new* signal being accepted on that bar, not an order that rested from the one
-before. The single-contract MNQ 03-24 capture is unchanged, but the continuous sweep loses
-exactly 48 legs (12 trades) across all 8 combinations, at three real signal moments —
-2025-08-05, 2026-02-02 and 2026-07-16 — that all land at 17:00 ET, the session-close bar,
-confirming the mechanism rather than a coincidence. Every surviving leg is unchanged: joined
-on `(entry_time, leg)` (`trade_id` itself shifts after any earlier removal, same as the M9
-leg-count note above), all 113,116 common rows across the sweep match exactly.
-
-**M15.4 — done (Tier 1 only; M15.5's NT8 reconciliation is still outstanding).**
-`PullBackAndGo.cs` ported as `nqbt/sim/pullback.py` and `PullBackAndGoParams`, reusing
-`simulate_deadcat` — not a fork — with `direction=LONG`. The issue's own "blocked on ATR"
-reasoning turned out stale: reading the current submodule source, `PullBackAndGo.cs` never
-calls `ATR()`, so #19 was never actually a prerequisite. Checking the source before porting
-paid for itself immediately.
-
-Two real, present-day extensions to `simulate_deadcat` came out of the comparison against
-`DeadCatBounce.cs`, both verified byte-identical for DeadCatBounce with the pinned
-14-file gate before landing:
-
-- **`ratchet_offset_ticks`, separate from `stop_offset_ticks`.** `DeadCatBounce.cs`
-  ratchets to `High[0] + 2 ticks` every bar, reapplying its own entry offset.
-  `PullBackAndGo.cs` ratchets to a bare `Low[1]`, no offset at all — and because
-  `ratchet_lag=1` means the ratchet's first evaluation lands on the *signal* bar itself
-  (the same bar `entry_bracket` used), the offset difference tightens the stop immediately
-  on the entry bar, before any bar has closed with the position open. Caught by a test
-  before it could be mistaken for a bug later.
-- **`round_targets`.** `DeadCatBounce.cs` calls `RoundToTickSize` on every target;
-  `PullBackAndGo.cs` never does. Ported un-rounded, matching the C# text rather than
-  assuming symmetry with DeadCatBounce — whether NT8 silently snaps such a price at
-  submission is exactly the kind of question M15.5's reconciliation exists to settle, not
-  something to guess at from here.
-
-`nqbt/conditions.py` gained the long-side mirrors — `hammer`, `made_new_low`,
-`previous_bar_red`, `above_series` — and `MovingAverageGrid`/`Dataset` now carry `above`
-alongside `below` for every period and VWAP. `above_series` is **not** `~below_series`:
-each C# treats its own equality boundary as a pass independently, so the two overlap
-exactly at `close == ma` rather than partition it.
-
-`PullBackAndGoParams` is deliberately leaner than `DeadCatParams`: no `Use*` toggles (all
-four trend filters are unconditional in the C#), no `OrderQuantity` (every leg is a fixed
-one contract — `EnterLongStopMarket` never passes a quantity), no `TPMultiplier` or
-`MaxRiskPerTrade` (neither property exists on this strategy).
-
-Gate: full suite 234 passed (222 + 12 new). `tools/compare_trade_logs.py` reports zero
-differing bytes for DeadCatBounce across all 14 files after the `simulate_deadcat`
-extension, confirming both new parameters are true no-ops for it at their DCB-preserving
-values.
-
-**M15.5 — outstanding, needs NinjaTrader.** Nothing above has been checked against a real
-NT8 trade list yet; `PullBackAndGoParams`'s defaults are a Tier-1-only assumption until
-then, most importantly the un-rounded targets.
-
-**M15 epic — direction in the simulator: done.** M15.1–M15.4 have landed; only M15.5 (the
-NT8 reconciliation, `needs-ninjatrader`) remains, and it blocks nothing else in the order
-of work.
+Two lessons from the epic worth keeping. **Checking the C# before porting paid immediately**
+— #19 was recorded as a prerequisite because PullBackAndGo "needs ATR", and the current
+source never calls `ATR()`. And **one archetype cannot exercise the fill model** — M15.5 found two
+real fill-semantics defects that DeadCatBounce's own geometry made unreachable, one of which
+had been silently making every gapped stop exit optimistic. See the gotchas above.
 
 **M16 — the indicator-parity debt: ATR, StdDev, Bollinger, Keltner.** `indicators.py` flagged
 this from the start. Five consumers, not one: Keltner for the squeeze, all three unported
@@ -367,8 +336,9 @@ archetypes; `walkforward.py` and `montecarlo.py` stay late. The roadmap had sche
 after M11 because it shares machinery with the permutation test, but **that sharing is
 symmetric and the interpretive need is not** — the moment a second archetype exists, every
 comparison between archetypes is a ranking with no scale, and M17 multiplies that surface
-(archetypes × combinations × resolutions × contracts). Against PF 0.746 it separates "worse
-than random", "no better than random" and "better but not past costs". Must be matched on
+(archetypes × combinations × resolutions × contracts). Against a losing archetype it
+separates "worse than random", "no better than random" and "better but not past costs" —
+three diagnoses that look identical today. Must be matched on
 **direction** as well as count and time of day, or it measures market drift.
 
 **Moving-average axes.** Periods *and* on/off toggles are both already sweepable, jointly —
@@ -488,14 +458,15 @@ the review outputs are stable.
 
 **Open items.**
 
-- **NQ is fully wired up** — 19 contracts, 1,633,461 bars over 2021-12-05 → 2026-08-10, all
-  18 rolls on genuine crossovers, sweeps running in parallel. Instrument scaling is proven
-  exact (same bars, both specs, ×10 gross P&L per leg, commission unscaled).
-- **TODO: reconcile NQ against NT8.** No NQ Strategy Analyzer export has ever been compared
-  trade-for-trade, so NQ inherits its fill-semantics confidence from MNQ rather than earning
-  it. Needs NinjaTrader time, not code time; blocks nothing. The recipe is written out in
-  `docs/roadmap.md` under "Outstanding: reconcile NQ against NT8" — export **Trades**, not
-  the summary, or every rule that matters stays hidden.
+- **NQ is fully wired up** — every roll on a genuine volume crossover, sweeps running in
+  parallel. `nqbt contracts` and `nqbt splice --diagnostics` report the current contract,
+  bar and roll counts; don't cite them from here. Instrument scaling is proven exact (same
+  bars, both specs, ×10 gross P&L per leg, commission unscaled).
+- **TODO: reconcile NQ against NT8 (#66).** No NQ Strategy Analyzer export has ever been
+  compared trade-for-trade, so NQ inherits its fill-semantics confidence from MNQ rather
+  than earning it. Needs NinjaTrader time, not code time; blocks nothing. The recipe is in
+  `docs/roadmap.md` — export **Trades**, not the summary, or every rule that matters stays
+  hidden.
 - **Holiday early closes are probably not force-flatted.** `force_flat_mask` derives its cutoff
   from the template's fixed 17:00 ET close, not from the session's observed last bar, so on a
   CME half-day (Thanksgiving, Christmas Eve, July 3) nothing reaches the cutoff and the mask
@@ -516,7 +487,9 @@ the review outputs are stable.
   Plan is drop and re-run, once M10's labels exist so the re-run comes back stratified.
 - MAE/MFE use a different definition from NT8's (mine measure to the exit bar's extreme,
   NT8's cap at the exit). Reporting only, no P&L effect. Unresolved.
-- The DeadCatBounce archetype is **unprofitable across all 192 combinations tested** at
-  realistic costs (best PF 0.746). **Decided: not a blocker.** Build the system out first
-  and treat DeadCatBounce as the test fixture that proves it works; which archetype is
-  actually worth trading is a later question.
+- The DeadCatBounce archetype is **unprofitable across every combination tested so far** at
+  realistic costs, on both roots, with no combination reaching a profit factor of 1.
+  **Decided: not a blocker.** Build the system out first and treat DeadCatBounce as the test
+  fixture that proves it works; which archetype is actually worth trading is a later
+  question. Note the M15.5 gapped-stop fix moved results *worse* across the board, so any
+  figure predating it is optimistic.
