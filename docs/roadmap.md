@@ -30,7 +30,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~3a~~ | ~~**M20a** — the three findings that block M15~~ | [#9] | **Done 2026-08-14.** `_resolve_brackets` is the single bracket implementation, `entry_bracket` the single trigger computation, `Summary.empty()` replaces the splat that raised. |
 | ~~3b~~ | ~~**M15** — direction in the simulator~~ | [#13] | **Done 2026-08-15**, reconciled included. `d = ±1` through the whole loop, `PullBackAndGo` ported and diffed leg-for-leg against a real NT8 trade list. That reconciliation found two fill-semantics defects — see below. |
 | — | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | [#19] | **Out of the code queue; batched into a NinjaTrader session.** Five consumers, not one, but [#20], [#21] and [#22] are all readings rather than code. [#23] is the exception and can be taken any time. |
-| **3c** | **M17 + M13 + M14** — strategy, resolution and contract as axes | [#24], [#30], [#31] | **Next up.** **One mechanism, not three.** All three add an axis outside `DeadCatParams`. Doing them together settles the schema once, before the stale DuckDB re-run. |
+| **3c** | **M17 + M13 + M14** — strategy, resolution and contract as axes | [#24], [#30], [#31] | **In progress.** M17.1–M17.3 landed 2026-08-15: the registry exists, `sweep.py` names no parameter class, and `prepare` builds only what a `ContextSpec` declares. [#28] and [#29] remain and need M13 ([#30]) and M14 ([#31]) first — **one mechanism, not three**, so the schema settles once before the stale DuckDB re-run. |
 | 4 | **M7a** — `randomentry.py` | [#32] | The null that makes a *second* archetype interpretable. Cheap now M15 has landed — and M15 is also what lets the null be matched on direction, which it must be. |
 | 5 | **M18** — EMA crossover | [#34] | The one archetype built now, to prove the protocol. A legitimate known-negative control. |
 | 6 | Numpy-native summary path | [#33] | **Pulled forward.** Crossover generates ~30× the legs, so the 71% of runtime that is pandas stops being an annoyance and becomes the sweep. |
@@ -62,7 +62,7 @@ better use of code time. **Split the queue by resource, not by milestone number:
 
 | resource | work |
 |---|---|
-| code time | M17 ([#25]–[#29]) with M13 ([#30]) and M14 ([#31]); [#23] whenever convenient |
+| code time | M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]); [#23] whenever convenient |
 | NinjaTrader time | [#20], [#21], [#22] (M16 pins), [#66] (NQ), [#67] (order lifetime), [#92] (a second long-side contract) |
 
 Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
@@ -478,20 +478,34 @@ extra factor — keep boolean gates only.
 
 ### M17 — the archetype protocol ([#24])
 
-`sweep.py` is hardcoded to `DeadCatParams` in six places, so adding a second archetype today
-means forking it. The insight that shapes the work is that **strategy, resolution and contract
-are the same feature**: all three add an axis that sits *above* the `Dataset` rather than inside
-`DeadCatParams`, all three need one `Dataset` per value, and all three need a nullable results
-column. Build one mechanism ([#28]), not three wrappers that diverge, and land them together
-before the stale DuckDB re-run ([#71]) so the schema settles once instead of three times.
-`Grid.dead_axes()` is the piece worth preserving rather than reinventing — it stops a swept
-period whose toggle is off everywhere multiplying runtime for nothing, and every archetype will
-have its own version of that mistake available. The `tier2` registry field ([#25]) is not
-bookkeeping: per the standing constraint, "validated against NT8" stops being a project-wide
-fact once originals exist. `required_context` ([#27]) makes `prepare` stop computing every
-archetype's indicators unconditionally, which M10 needs anyway, so doing it here is free rather
-than speculative. The shared bracket engine is extracted **during** M18 ([#38]) — before is
-designing from one example, after means duplicated fidelity-critical code shipped.
+**M17.1–M17.3 have landed; M17.4 and M17.5 have not.** `sweep.py` used to name
+`DeadCatParams` in six places, so a second archetype meant forking it. It now names none:
+`nqbt/archetypes.py` supplies the parameter class, the legal axes, the toggle map, the
+context spec and the run function, and a new archetype registers rather than forking.
+
+The insight that shapes what remains is that **strategy, resolution and contract are the same
+feature**: all three add an axis that sits *above* the `Dataset` rather than inside a params
+class, all three need one `Dataset` per value, and all three need a nullable results column.
+Build one mechanism ([#28]), not three wrappers that diverge, and land them together before
+the stale DuckDB re-run ([#71]) so the schema settles once instead of three times. That is
+why M13 ([#30]) and M14 ([#31]) come before [#28] rather than after it.
+
+Three things the landed part settled, worth not relitigating:
+
+- **`Grid.dead_axes()` was preserved, not reinvented**, and its gate map now comes from the
+  archetype — so a new archetype inherits the guard instead of getting its own version of the
+  same mistake. A test asserts every gate names a real field of its own params class, because
+  a typo'd gate does not raise, it just stops guarding.
+- **`sweepable` reads `dataclasses.fields()`** ([#60]), not `__slots__`. This was folded in
+  rather than deferred because M17 is exactly the change that would have triggered it.
+- **`ContextSpec` lives in `context.py`, not beside the registry** — it describes a
+  `Dataset`, and `context.py` must not import from `nqbt.sim`. Grids are keyed by
+  `(kind, period)`, which is the half of [#72] that no longer needs doing.
+
+The `tier2` registry field ([#25]) is not bookkeeping: per the standing constraint,
+"validated against NT8" stops being a project-wide fact once originals exist. The shared
+bracket engine is extracted **during** M18 ([#38]) — before is designing from one example,
+after means duplicated fidelity-critical code shipped.
 
 ### M18 — EMA crossover ([#34])
 
