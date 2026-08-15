@@ -279,6 +279,23 @@ def test_no_entry_is_taken_on_a_force_flat_bar():
     assert trades.empty
 
 
+def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point():
+    # block_entry_at_session_close only stops a *new* signal being accepted on a
+    # force-flat bar (see test_no_entry_is_taken_on_a_force_flat_bar); it does not reach
+    # an order that rested from the bar before. Bar 1 here is the same gap-through-trigger
+    # shape as test_gap_through_the_trigger_fills_at_the_open, so without cancellation this
+    # would fill -- the account rules forbid a new position once flat is required.
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100
+            (98, 99, 97, 98),      # 1: force-flat; would gap through the trigger
+        ],
+        signal_at=[0],
+        force_flat_at=[1],
+    )
+    assert trades.empty
+
+
 # -- ratcheting stop ----------------------------------------------------------
 
 
