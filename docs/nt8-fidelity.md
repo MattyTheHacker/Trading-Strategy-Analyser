@@ -1,10 +1,17 @@
 # NT8 fidelity: what the simulation reproduces, and how it was established
 
-Everything here was verified against a real NinjaTrader 8 Strategy Analyzer run — first a
-summary, then a full trade-list export of 1,208 leg exits on MNQ 03-24. Several of these
-rules are invisible in a summary and only surfaced from the trade list. They are recorded
-because rediscovering them is expensive and because getting any one of them wrong shifts
-results by more than any parameter does.
+Everything here was verified against real NinjaTrader 8 Strategy Analyzer runs — first a
+summary, then a full trade-list export of 1,208 leg exits on MNQ 03-24 for DeadCatBounce,
+and later a second export of 3,156 leg exits on the same contract for PullBackAndGo, which
+is what put the long side under the same scrutiny. Several of these rules are invisible in
+a summary and only surfaced from a trade list. They are recorded because rediscovering them
+is expensive and because getting any one of them wrong shifts results by more than any
+parameter does.
+
+**Two rules below were found only by the long side**, having been unreachable from
+DeadCatBounce: gapped stop fills, which its window happened not to contain, and stop-entry
+submittability, which its trigger cap makes structurally impossible. A single archetype is
+not enough to establish fill semantics, and that is the general lesson of the second run.
 
 ## Reconciliation result
 
@@ -32,6 +39,52 @@ The comparison window deliberately excludes both ends:
   so it has 4 entries from bars we do not have.
 
 Between those boundaries, **286 of 286 entries match with identical entry prices**.
+
+## Reconciliation result — PullBackAndGo (the long side)
+
+Window 2023-12-11 → 2024-03-15, MNQ 03-24 single contract, EMA 21 / SMA 60 / SMA 175 and
+both candle filters on, VWAP off, `OrderQuantity` 4, zero commission, zero slippage:
+
+| | NT8 | nqbt |
+|---|---|---|
+| trades | 418 | 416 |
+| leg exits (joined) | 1,664 | 1,664 |
+| identical entry price | — | 1,664 (100%) |
+| identical exit price | — | 1,660 (99.76%) |
+| identical exit bar | — | 1,662 (99.88%) |
+| identical exit reason | — | 1,661 (99.82%) |
+| **identical on every field** | — | **1,659 (99.70%)** |
+
+The residual 5 legs are all ambiguous bars resolving the other way — the same class as
+DeadCatBounce's single leg, at a comparable rate. Nothing new is inferred from them.
+
+**nqbt takes no trade NT8 did not.** The 2 NT8-only trades are at-market buy stops NT8
+accepted and filled at the expected prices, against 86 otherwise identical signals it
+declined — see "A stop entry must sit beyond the market". They sit inside the declined
+group's distribution on body, range, wick, risk and volume, so no rule is inferred from
+n=2; a small bar revision between NT8's live database and the archive snapshot is the most
+economical explanation, and both are thin bars (43 and 195 contracts).
+
+### Why the window is not the full contract
+
+**NT8's series is back-adjusted-merged before ~2023-12-10** and the archive's per-contract
+file is not, so the two tiers are not looking at the same bars there and no amount of care
+in the simulation would reconcile them. The arithmetic is exact rather than inferred:
+
+| | |
+|---|---|
+| NT8's first trade | 2023-09-10 23:31, entry 15716.00 |
+| archive MNQ 03-24 at that minute | **no bar** — 135 sparse volume-1 prints that day |
+| archive MNQ 12-23 at that minute | High 15518.50, **+210.75 = 15716.00** |
+
+405 of 789 entries match raw MNQ 03-24 to the tick and the earliest is 2023-12-10, which is
+NT8's configured rollover. Re-running from 2023-12-11 would cover the same trades this
+window already does, so it buys nothing; a *different*, fully liquid contract is the way to
+add legs. Both window ends are clean: the tail needs no exclusion because both sides stop at
+the same trade, 2024-03-15 10:21, with nothing after it on either side.
+
+This is the merge caveat `CLAUDE.md` records for roll dates, arriving from the other
+direction — NT8 stitches contracts on a **configured** date, not an observed one.
 
 ## Rules the simulation implements
 
@@ -89,6 +142,44 @@ many entries.
 On bar `t+1`: a gap through the trigger fills at the open, otherwise a trade down to the
 trigger fills at the trigger. No touch, no fill, order gone.
 
+### A stop entry must sit beyond the market to be submitted
+
+A stop-market order whose trigger is not strictly beyond the price it is submitted into is
+not a stop order, and NT8 declines it. The market at submission is the signal bar's close,
+`Calculate.OnBarClose` being what it is.
+
+`PullBackAndGo.cs` triggers on a bare `High[0]`, so a bar that **closes on its high** asks
+for a buy stop at the market. This was the whole of the 86 trades nqbt took and NT8 did not:
+the signal bar closed on its high in **86 of 86** of them, against **2 of 416** among the
+trades NT8 did take. `High == Close` on 24.8% of all MNQ 03-24 bars.
+
+**DeadCatBounce cannot reach this**, which is why the first reconciliation never saw it. Its
+`min(Low[0], Close[0] − 2 ticks)` cap binds on exactly the bars that would otherwise be
+unsubmittable and puts the trigger two ticks under the close: **0 of 132,454 bars** carry a
+DeadCatBounce trigger at or above its close. The cap recorded above as a fill-rate detail
+turns out to also be what makes the short archetype structurally immune.
+
+### A stop fills at the open when the bar gaps through it
+
+A stop is a market order once triggered, so a bar that opens past it offers no trade at the
+stop level and the fill is the first price there is. Filling at the stop price regardless
+was worth **$222.50 of a $292.50 result** over the 1,664 reconciled legs; NT8's exit price
+equals the exit bar's open on **115 of the 116** disagreeing stop fills.
+
+Traced at 2023-12-11 09:15: the ratchet reaches 16288.25 and the 09:18 bar opens at
+16287.00, already through it. NT8 fills 16287.00, nqbt filled 16288.25.
+
+**The rule does not apply on the entry bar.** The position did not exist at that bar's open,
+so an open beyond the initial stop says nothing — price still had to travel through the
+trigger to open the position at all, and only then could it come back to the stop, which it
+reaches at the stop's own price.
+
+This one is not long-specific: it moved 56 of 1,380 legs on the pinned MNQ 03-24
+DeadCatBounce capture, always to a worse fill and never a better one. It survived the first
+reconciliation because **none of those legs fall inside that run's 1,168-leg window** — all
+1,168 still match on every field. A reconciliation window is evidence about the bars it
+contains and nothing else.
+
 ### Limit orders must trade *through*, not touch
 
 `IsFillLimitOnTouch = false` — set in `SetDefaults` and unchecked in the Strategy Analyzer.
@@ -135,10 +226,20 @@ The stop set at the close of bar `i` is live during bar `i+1`. `ratchet_lag` exp
 older `High[1]` variant, which holds trades roughly a third longer (2.12 vs 1.65 average
 bars) and behaves like a genuinely different strategy.
 
-### Targets snap to the tick grid
+### Targets snap to the tick grid — even when the C# does not ask for it
 
-`RoundToTickSize` in the NinjaScript. A 1.5× multiple of an odd tick count otherwise lands
-on a half tick, which no exchange accepts.
+`RoundToTickSize` in `DeadCatBounce.cs`. A 1.5× multiple of an odd tick count otherwise
+lands on a half tick, which no exchange accepts.
+
+**`PullBackAndGo.cs` never calls it, and NT8 snaps the targets anyway.** The port originally
+took the C# at its word and left them un-rounded, on the reasoning that matching the text
+beats assuming symmetry; the trade list settled it the other way. Rounding took the
+reconciliation from 176 to 120 disagreeing legs, and the discriminating case is a half-tick
+target that nqbt placed at 16504.375 and NT8 filled at 16504.50.
+
+So the snap is the platform's, not the script's, and `round_targets` should be true for any
+archetype — it is a property of what an exchange will accept, which no NinjaScript can opt
+out of.
 
 ### Max risk is in ticks, not dollars
 
