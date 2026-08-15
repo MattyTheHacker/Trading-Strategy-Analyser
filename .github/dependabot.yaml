@@ -1,6 +1,33 @@
 version: 2
 updates:
+  # ninjatrader-scripts -- the NinjaScript ground truth. Dependabot tracks the
+  # submodule's default branch and opens a PR moving the pointer, which is what
+  # the auto-update-submodule.yaml workflow used to do by hand. No group here:
+  # there is exactly one submodule, so grouping would be a no-op.
+  - package-ecosystem: "gitmodules"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 1
+
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "daily"
+    open-pull-requests-limit: 1
+    groups:
+      python:
+        patterns:
+          - "*"
+
+  # Without this, action versions drift silently and nothing notices -- checkout
+  # sat on v4 against a current v7, and github-script on v7 against a current v9.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns:
+          - "*"
