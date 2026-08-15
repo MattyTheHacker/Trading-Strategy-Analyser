@@ -37,6 +37,8 @@ def run(
     fill_limit_on_touch=True,   # tests target exact prices; opt out explicitly
     ambiguity_policy=0,
     direction=SHORT,
+    ratchet_offset_ticks=2.0,   # DeadCatBounce.cs reapplies the entry's stop offset
+    round_targets=True,        # DeadCatBounce.cs calls RoundToTickSize; PBG does not
 ):
     """Simulate hand-written OHLC rows. ``signal_at`` lists signal bar indices."""
     arr = np.asarray(rows, dtype=np.float64)
@@ -57,7 +59,8 @@ def run(
         np.asarray(targets, dtype=np.float64),
         TICK, instrument.point_value, 2.0, entry_offset, tp_multiplier, max_risk_ticks,
         commission, slippage, bars_required, min_reward_risk, ratchet_lag,
-        block_entry_at_close, fill_limit_on_touch, ambiguity_policy, direction, out,
+        ratchet_offset_ticks, block_entry_at_close, fill_limit_on_touch, ambiguity_policy,
+        direction, round_targets, out,
     )
     assert count >= 0, "trade buffer overflowed"
 

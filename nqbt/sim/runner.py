@@ -74,10 +74,12 @@ def run_deadcat(
         params.bars_required_to_trade,
         params.min_reward_risk,
         params.ratchet_lag,
+        float(params.stop_offset_ticks),  # ratchet reapplies the same offset as the entry
         params.block_entry_at_session_close,
         params.fill_limit_on_touch,
         params.ambiguity_policy,
-        trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo (M15.4) does.
+        trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo does.
+        True,  # DeadCatBounce.cs rounds every target with RoundToTickSize
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound

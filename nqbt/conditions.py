@@ -33,9 +33,13 @@ __all__ = [
     "BarGeometry",
     "bar_geometry",
     "inverted_hammer",
+    "hammer",
     "made_new_high",
+    "made_new_low",
     "previous_bar_green",
+    "previous_bar_red",
     "below_series",
+    "above_series",
     "count_true",
 ]
 
@@ -63,12 +67,44 @@ def _inverted_hammer(
 
 
 @njit(cache=True)
+def _hammer(
+    open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray
+) -> np.ndarray:
+    """Lower wick at least twice the body, upper wick no larger than the body.
+
+    Ported from ``PullBackAndGo.cs`` -- the mirror of :func:`_inverted_hammer` with the
+    wick roles swapped, as a bullish pullback-into-an-uptrend hammer rather than a bearish
+    inverted one. ``body > 0`` rules out a doji the same way.
+    """
+    n = open_.size
+    out = np.zeros(n, dtype=np.bool_)
+    for i in range(n):
+        body = abs(close[i] - open_[i])
+        top = close[i] if close[i] > open_[i] else open_[i]
+        bottom = close[i] if close[i] < open_[i] else open_[i]
+        upper = high[i] - top
+        lower = bottom - low[i]
+        out[i] = (lower >= body * 2.0) and (upper <= body) and (body > 0.0)
+    return out
+
+
+@njit(cache=True)
 def _made_new_high(high: np.ndarray) -> np.ndarray:
     """``High[0] > High[1]``. The first bar has no predecessor and cannot qualify."""
     n = high.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
         out[i] = high[i] > high[i - 1]
+    return out
+
+
+@njit(cache=True)
+def _made_new_low(low: np.ndarray) -> np.ndarray:
+    """``Low[0] < Low[1]``, ``PullBackAndGo.cs``'s mirror of :func:`_made_new_high`."""
+    n = low.size
+    out = np.zeros(n, dtype=np.bool_)
+    for i in range(1, n):
+        out[i] = low[i] < low[i - 1]
     return out
 
 
@@ -86,8 +122,32 @@ def _previous_bar_green(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
     return out
 
 
+@njit(cache=True)
+def _previous_bar_red(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
+    """``Close[1] <= Open[1]``.
+
+    ``PullBackAndGo.cs`` rejects on ``Close[1] > Open[1]``, so a doji-closed previous bar
+    counts as red and passes -- the same boundary treatment as
+    :func:`_previous_bar_green`, not simply its negation (a doji satisfies both).
+    """
+    n = open_.size
+    out = np.zeros(n, dtype=np.bool_)
+    for i in range(1, n):
+        out[i] = close[i - 1] <= open_[i - 1]
+    return out
+
+
 def inverted_hammer(bars: pd.DataFrame) -> np.ndarray:
     return _inverted_hammer(
+        bars["open"].to_numpy(np.float64),
+        bars["high"].to_numpy(np.float64),
+        bars["low"].to_numpy(np.float64),
+        bars["close"].to_numpy(np.float64),
+    )
+
+
+def hammer(bars: pd.DataFrame) -> np.ndarray:
+    return _hammer(
         bars["open"].to_numpy(np.float64),
         bars["high"].to_numpy(np.float64),
         bars["low"].to_numpy(np.float64),
@@ -99,8 +159,18 @@ def made_new_high(bars: pd.DataFrame) -> np.ndarray:
     return _made_new_high(bars["high"].to_numpy(np.float64))
 
 
+def made_new_low(bars: pd.DataFrame) -> np.ndarray:
+    return _made_new_low(bars["low"].to_numpy(np.float64))
+
+
 def previous_bar_green(bars: pd.DataFrame) -> np.ndarray:
     return _previous_bar_green(
+        bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64)
+    )
+
+
+def previous_bar_red(bars: pd.DataFrame) -> np.ndarray:
+    return _previous_bar_red(
         bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64)
     )
 
@@ -115,13 +185,27 @@ def below_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
     return ~(close > series)
 
 
+def above_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
+    """``Close > series`` -- the uptrend gate, as ``PullBackAndGo.cs`` evaluates it.
+
+    It rejects when ``Close[0] < ma[0]``, so equality *passes* here too -- not the negation
+    of :func:`below_series`, which also passes on equality. The two overlap exactly at
+    ``close == series``, independently, because each strategy's own C# chose to treat its
+    own boundary that way.
+    """
+    return ~(close < series)
+
+
 @dataclass(slots=True)
 class BarGeometry:
     """Parameter-free conditions, computed once for the whole dataset."""
 
     inverted_hammer: np.ndarray
+    hammer: np.ndarray
     made_new_high: np.ndarray
+    made_new_low: np.ndarray
     previous_bar_green: np.ndarray
+    previous_bar_red: np.ndarray
 
     def __len__(self) -> int:
         return self.inverted_hammer.size
@@ -130,8 +214,11 @@ class BarGeometry:
 def bar_geometry(bars: pd.DataFrame) -> BarGeometry:
     return BarGeometry(
         inverted_hammer=inverted_hammer(bars),
+        hammer=hammer(bars),
         made_new_high=made_new_high(bars),
+        made_new_low=made_new_low(bars),
         previous_bar_green=previous_bar_green(bars),
+        previous_bar_red=previous_bar_red(bars),
     )
 
 
@@ -147,14 +234,20 @@ class MovingAverageGrid:
     kind: str
     periods: np.ndarray
     below: np.ndarray
-    """``Close < MA``, ``[n_periods, n_bars]`` bool."""
+    """``Close < MA``, ``[n_periods, n_bars]`` bool. Read as NT8's downtrend gate does --
+    see :func:`below_series`."""
+    above: np.ndarray
+    """``Close > MA``, ``[n_periods, n_bars]`` bool, for a long-capable archetype's uptrend
+    gate -- see :func:`above_series`. Computed alongside :attr:`below` from the same MA
+    pass rather than lazily, since ``prepare`` already builds this grid for every archetype
+    unconditionally (M17 is what makes that conditional)."""
     values: np.ndarray | None = None
     """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept.
 
     Eight bytes per element against one makes this the difference between 580 MB and
     64 MB for 39 periods over 1.65M bars, which matters once a parallel sweep starts
-    handing the grid to every worker. Entry gates only ever need :attr:`below`; the
-    values are needed solely by the moving-average trailing stop.
+    handing the grid to every worker. Entry gates only ever need :attr:`below` or
+    :attr:`above`; the values are needed solely by the moving-average trailing stop.
     """
 
     def row(self, period: int) -> int:
@@ -169,6 +262,9 @@ class MovingAverageGrid:
     def below_for(self, period: int) -> np.ndarray:
         return self.below[self.row(period)]
 
+    def above_for(self, period: int) -> np.ndarray:
+        return self.above[self.row(period)]
+
     def values_for(self, period: int) -> np.ndarray:
         if self.values is None:
             raise ValueError(
@@ -179,7 +275,11 @@ class MovingAverageGrid:
 
     @property
     def nbytes(self) -> int:
-        return self.below.nbytes + (0 if self.values is None else self.values.nbytes)
+        return (
+            self.below.nbytes
+            + self.above.nbytes
+            + (0 if self.values is None else self.values.nbytes)
+        )
 
 
 def moving_average_grid(
@@ -203,15 +303,17 @@ def moving_average_grid(
 
     close = np.ascontiguousarray(close, dtype=np.float64)
     below = np.empty((unique.size, close.size), dtype=np.bool_)
+    above = np.empty((unique.size, close.size), dtype=np.bool_)
     values = np.empty((unique.size, close.size), dtype=np.float64) if keep_values else None
 
     for i, period in enumerate(unique):
         ma = fn(close, int(period))
         below[i] = below_series(close, ma)
+        above[i] = above_series(close, ma)
         if values is not None:
             values[i] = ma
 
-    return MovingAverageGrid(kind=kind, periods=unique, below=below, values=values)
+    return MovingAverageGrid(kind=kind, periods=unique, below=below, above=above, values=values)
 
 
 @njit(cache=True)

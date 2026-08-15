@@ -96,26 +96,46 @@ def simulate_deadcat(
     bars_required: int,
     min_reward_risk: float,
     ratchet_lag: int,
+    ratchet_offset_ticks: float,
     block_entry_at_session_close: bool,
     fill_limit_on_touch: bool,
     ambiguity_policy: int,
     direction: float,
+    round_targets: bool,
     out: np.ndarray,
 ) -> int:
-    """Run the archetype over one dataset, writing one row per leg exit.
+    """Run one bracket archetype over one dataset, writing one row per leg exit.
 
-    ``signal`` is the precomputed conjunction of every active entry filter, and
-    ``force_flat`` marks bars at or past the exit-on-session-close cutoff. ``direction``
-    is ``+1.0`` for a long-capable archetype's long side or ``-1.0`` for short (see
-    ``nqbt.trades.LONG``/``SHORT``); DeadCatBounce always calls this with ``SHORT``, since
-    the NinjaScript has no long variant. Returns the number of rows written to ``out``; a
-    negative return means ``out`` was too small.
+    Shared by DeadCatBounce and PullBackAndGo.cs -- both are a stop order in the trade
+    direction, a ratcheting stop, and up to four R-multiple targets with the last leg a
+    runner. ``signal`` is the precomputed conjunction of every active entry filter, and
+    ``force_flat`` marks bars at or past the exit-on-session-close cutoff. ``direction`` is
+    ``+1.0`` long / ``-1.0`` short (see ``nqbt.trades.LONG``/``SHORT``); DeadCatBounce
+    always calls this with ``SHORT``, since the NinjaScript has no long variant.
+
+    ``ratchet_offset_ticks`` is separate from ``stop_offset_ticks`` because the two C#
+    strategies genuinely differ here, not just in direction: ``DeadCatBounce.cs`` ratchets
+    to ``High[0] + 2 ticks`` every bar, reapplying the same offset used for the initial
+    stop, while ``PullBackAndGo.cs`` ratchets to a bare ``Low[1]`` with no offset at all.
+    ``run_deadcat`` passes ``stop_offset_ticks`` here to reproduce its behaviour exactly;
+    ``run_pullbackandgo`` passes ``0``.
+
+    ``round_targets`` exists for the same reason: ``DeadCatBounce.cs`` rounds every target
+    onto the tick grid via ``RoundToTickSize``, but ``PullBackAndGo.cs`` does not call it at
+    all, so its targets are ported un-rounded even though that can land on a half tick --
+    matching the C# text rather than assuming symmetry. Whether NT8 silently snaps such a
+    price at submission is a live-platform question M15.5's reconciliation has to settle,
+    not something to guess at here.
+
+    Returns the number of rows written to ``out``; a negative return means ``out`` was too
+    small.
     """
     n = close.size
     n_legs = leg_quantities.size
     slippage = slippage_ticks * tick_size
     stop_offset = stop_offset_ticks * tick_size
     entry_offset = entry_offset_ticks * tick_size
+    ratchet_offset = ratchet_offset_ticks * tick_size
 
     written = 0
     trade_id = 0
@@ -194,10 +214,12 @@ def simulate_deadcat(
                     if np.isnan(target_r[leg]):
                         leg_target[leg] = np.nan
                     else:
-                        # RoundToTickSize in the NinjaScript: a 1.5x multiple of an odd
+                        # RoundToTickSize in DeadCatBounce.cs: a 1.5x multiple of an odd
                         # tick count lands on a half tick, which no exchange accepts.
+                        # PullBackAndGo.cs never calls it -- see round_targets in the
+                        # docstring -- so this must stay conditional, not assumed.
                         raw = pending_trigger + direction * risk * target_r[leg] * tp_multiplier
-                        leg_target[leg] = _round_to_tick(raw, tick_size)
+                        leg_target[leg] = _round_to_tick(raw, tick_size) if round_targets else raw
 
                 # The entry bar can reach the stop as well: entry sits at the signal
                 # bar's low, the stop above the signal bar's high. Same resolution as any
@@ -221,7 +243,7 @@ def simulate_deadcat(
             ref = i - ratchet_lag
             if ref >= 0:
                 adverse_ref, _ = _sided(low[ref], high[ref], direction)
-                new_stop = adverse_ref - direction * stop_offset
+                new_stop = adverse_ref - direction * ratchet_offset
                 if direction * new_stop > direction * stop:
                     stop = new_stop
         elif i >= bars_required and signal[i] and not (
