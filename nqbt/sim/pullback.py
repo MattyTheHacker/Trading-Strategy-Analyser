@@ -37,13 +37,13 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
     if params.require_previous_red:
         signal &= data.geometry.previous_bar_red
     if params.use_ema:
-        signal &= data.ema.above_for(params.ema_period)
+        signal &= data.ma_gate("ema", params.ema_period, above=True)
     if params.use_fast_sma:
-        signal &= data.sma.above_for(params.fast_sma_period)
+        signal &= data.ma_gate("sma", params.fast_sma_period, above=True)
     if params.use_slow_sma:
-        signal &= data.sma.above_for(params.slow_sma_period)
+        signal &= data.ma_gate("sma", params.slow_sma_period, above=True)
     if params.use_vwap:
-        signal &= data.above_vwap
+        signal &= data.vwap_gate(above=True)
     return signal
 
 

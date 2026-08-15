@@ -70,15 +70,18 @@ def capture(outdir: Path) -> None:
         require_previous_green=True, require_new_high=True,
         fill_limit_on_touch=True, ambiguity_policy=0,
     )
-    data = context.prepare(bars, ema_periods=(21,), sma_periods=(60, 175))
+    data = context.prepare(bars, context.ContextSpec((21,), (60, 175), needs_vwap=True))
     write(run_deadcat(data, recon, MNQ), outdir / "recon.csv")
 
     # 2 and 3. Current settings with costs, through both instrument specs.
     live = DeadCatParams(commission_per_contract=1.24, slippage_ticks=1.0)
     data = context.prepare(
         bars,
-        ema_periods=(live.ema_period,),
-        sma_periods=(live.fast_sma_period, live.slow_sma_period),
+        context.ContextSpec(
+            ema_periods=(live.ema_period,),
+            sma_periods=(live.fast_sma_period, live.slow_sma_period),
+            needs_vwap=True,
+        ),
     )
     live_trades = run_deadcat(data, live, MNQ)
     write(live_trades, outdir / "live_mnq.csv")

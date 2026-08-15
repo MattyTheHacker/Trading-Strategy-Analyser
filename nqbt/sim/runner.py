@@ -31,13 +31,13 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
     if params.require_previous_green:
         signal &= data.geometry.previous_bar_green
     if params.use_ema:
-        signal &= data.ema.below_for(params.ema_period)
+        signal &= data.ma_gate("ema", params.ema_period, above=False)
     if params.use_slow_sma:
-        signal &= data.sma.below_for(params.slow_sma_period)
+        signal &= data.ma_gate("sma", params.slow_sma_period, above=False)
     if params.use_fast_sma:
-        signal &= data.sma.below_for(params.fast_sma_period)
+        signal &= data.ma_gate("sma", params.fast_sma_period, above=False)
     if params.use_vwap:
-        signal &= data.below_vwap
+        signal &= data.vwap_gate(above=False)
     return signal
 
 

@@ -32,7 +32,7 @@ def explain_trades(
     The dataset must have been prepared with ``keep_ma_values=True``; the moving-average
     values themselves are needed to show *why* each trend gate passed, not just that it did.
     """
-    if data.ema.values is None or data.sma.values is None:
+    if any(g.values is None for g in data.mas.values()):
         raise ValueError(
             "explain_trades needs raw indicator values; call "
             "context.prepare(..., keep_ma_values=True)"
@@ -42,9 +42,14 @@ def explain_trades(
     index = data.index
     tick = instrument.tick_size
 
-    ema = data.ema.values_for(params.ema_period)
-    fast = data.sma.values_for(params.fast_sma_period)
-    slow = data.sma.values_for(params.slow_sma_period)
+    ema = data.ma_values("ema", params.ema_period)
+    fast = data.ma_values("sma", params.fast_sma_period)
+    slow = data.ma_values("sma", params.slow_sma_period)
+    # The audit trail reports every gate whether or not this combination reads it, so VWAP
+    # is required here even when ``use_vwap`` is off. That is why ``cli.py`` sets
+    # ``needs_vwap=True`` unconditionally rather than taking the spec from the grid: a
+    # sweep declares what it reads, but ``--explain`` exists to show what it did not.
+    vwap = data.vwap_values()
 
     rows = []
     for trade_id, legs in list(trades.groupby("trade_id"))[:limit]:
@@ -91,7 +96,7 @@ def explain_trades(
             "ema": ema[s], "below_ema": not (c > ema[s]),
             "fast_sma": fast[s], "below_fast_sma": not (c > fast[s]),
             "slow_sma": slow[s], "below_slow_sma": not (c > slow[s]),
-            "vwap": data.vwap[s], "below_vwap": not (c > data.vwap[s]),
+            "vwap": vwap[s], "below_vwap": not (c > vwap[s]),
             "signal_fired": bool(signal[s]),
             # -- order arithmetic -------------------------------------------------
             "trigger": trigger,
