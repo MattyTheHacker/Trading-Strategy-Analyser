@@ -32,12 +32,17 @@ stop mid-session -- so without this a trade would simply vanish from the log and
 would go unaccounted. Liquidated at the final bar's close and labelled distinctly so the
 stats layer can exclude it rather than mistake it for a real exit.
 """
+EXIT_SIGNAL = 4.0
+"""A rule-driven exit -- "close when the MAs cross back" -- with no bracket level of its
+own. DeadCatBounce has no such exit and never produces this; it exists for EMA crossover
+(M18) and ``InsideBarTrailing.cs``, both of which do."""
 
 EXIT_REASONS = {
     EXIT_STOP: "stop",
     EXIT_TARGET: "target",
     EXIT_SESSION_CLOSE: "session_close",
     EXIT_END_OF_DATA: "end_of_data",
+    EXIT_SIGNAL: "signal",
 }
 """Reasons the *simulator* can give. An imported trade is not restricted to these.
 

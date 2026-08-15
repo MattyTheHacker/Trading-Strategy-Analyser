@@ -72,6 +72,17 @@ def test_column_indices_address_their_own_names():
         assert trades.COLUMNS[index] == name
 
 
+def test_exit_signal_is_reserved_for_a_future_rule_driven_exit():
+    # DeadCatBounce has no rule-driven exit -- every exit today is a bracket level or the
+    # session close. EXIT_SIGNAL exists for EMA crossover (M18) and InsideBarTrailing.cs.
+    assert trades.EXIT_REASONS[trades.EXIT_SIGNAL] == "signal"
+    other_reasons = {
+        trades.EXIT_STOP, trades.EXIT_TARGET, trades.EXIT_SESSION_CLOSE,
+        trades.EXIT_END_OF_DATA,
+    }
+    assert trades.EXIT_SIGNAL not in other_reasons
+
+
 def test_every_nullable_column_is_actually_in_the_schema():
     assert trades.NULLABLE <= set(trades.SCHEMA)
 
@@ -223,6 +234,14 @@ def test_the_trade_schema_knows_nothing_about_bars_or_strategies():
         if m.startswith(("nqbt.sim", "nqbt.context", "nqbt.conditions", "nqbt.indicators"))
     }
     assert not offenders, f"nqbt/trades.py must stay standalone; found {offenders}"
+
+
+def test_deadcat_does_not_reference_exit_signal():
+    # A structural guard, not just a today-it-doesn't-happen-to-fire one: DeadCatBounce has
+    # no rule-driven exit, so the loop should not even import the constant it would need to
+    # produce one. Catches the reservation being wired in silently before an archetype that
+    # actually needs it exists.
+    assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
 
 
 def test_market_context_knows_nothing_about_trades():

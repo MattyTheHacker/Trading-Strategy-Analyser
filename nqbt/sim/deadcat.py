@@ -165,14 +165,20 @@ def simulate_deadcat(
         elif pending_bar >= 0 and pending_bar == i - 1:
             filled = False
             fill = 0.0
-            if direction * open_[i] >= direction * pending_trigger:
-                fill = open_[i] + direction * slippage  # gapped through the trigger
-                filled = True
-            else:
-                _, touch = _sided(low[i], high[i], direction)
-                if direction * touch >= direction * pending_trigger:
-                    fill = pending_trigger + direction * slippage
+            # A bar at or past the flatten cutoff cancels a resting order rather than
+            # letting it fill: no new position may open once the account rules require
+            # being flat. force_flat[i] here, not block_entry_at_session_close -- that
+            # flag only stops a *new* signal being accepted on a force-flat bar, and does
+            # not reach an order that rested from the bar before.
+            if not force_flat[i]:
+                if direction * open_[i] >= direction * pending_trigger:
+                    fill = open_[i] + direction * slippage  # gapped through the trigger
                     filled = True
+                else:
+                    _, touch = _sided(low[i], high[i], direction)
+                    if direction * touch >= direction * pending_trigger:
+                        fill = pending_trigger + direction * slippage
+                        filled = True
 
             if filled:
                 trade_id += 1
@@ -208,7 +214,7 @@ def simulate_deadcat(
                 if written < 0:
                     return -1
 
-            pending_bar = -1  # filled or not, the order is gone
+            pending_bar = -1  # filled, cancelled at the flatten point, or just missed -- gone
 
         # ---- close of bar i: ratchet, or look for a new signal ----------------------
         if in_position:

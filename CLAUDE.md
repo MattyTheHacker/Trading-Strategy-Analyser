@@ -261,6 +261,23 @@ with an explicit `pending_bar >= 0` guard, which is a no-op for the short side (
 the byte-identity gate) and would otherwise have produced a spurious trade on bar 0 of every
 long-capable archetype.
 
+**M15.2 — done.** `EXIT_SIGNAL = 4.0` is reserved in `nqbt/trades.py`'s `EXIT_REASONS` for a
+rule-driven exit with no bracket level of its own — EMA crossover (M18) and
+`InsideBarTrailing.cs` need it, DeadCatBounce does not. `nqbt/sim/deadcat.py` does not import
+it, and a test guards that structurally rather than just checking today's trade logs don't
+contain it.
+
+**M15.3 — done, and not a no-op.** A resting entry order is now cancelled on a `force_flat`
+bar instead of being tested for fill — the account rules forbid a new position once flat is
+required, and nothing previously stopped one filling there; `block_entry_at_session_close`
+only guards a *new* signal being accepted on that bar, not an order that rested from the one
+before. The single-contract MNQ 03-24 capture is unchanged, but the continuous sweep loses
+exactly 48 legs (12 trades) across all 8 combinations, at three real signal moments —
+2025-08-05, 2026-02-02 and 2026-07-16 — that all land at 17:00 ET, the session-close bar,
+confirming the mechanism rather than a coincidence. Every surviving leg is unchanged: joined
+on `(entry_time, leg)` (`trade_id` itself shifts after any earlier removal, same as the M9
+leg-count note above), all 113,116 common rows across the sweep match exactly.
+
 **M16 — the indicator-parity debt: ATR, StdDev, Bollinger, Keltner.** `indicators.py` flagged
 this from the start. Five consumers, not one: Keltner for the squeeze, all three unported
 NinjaScripts (`ATR()`), EMA crossover's stop rule, ATR-multiple brackets, and the compression
