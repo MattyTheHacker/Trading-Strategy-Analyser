@@ -33,6 +33,7 @@ class Dataset:
     force_flat: np.ndarray
     geometry: conditions.BarGeometry
     below_vwap: np.ndarray
+    above_vwap: np.ndarray
     vwap: np.ndarray
     ema: MovingAverageGrid
     sma: MovingAverageGrid
@@ -92,6 +93,7 @@ def prepare(
         force_flat=force_flat,
         geometry=conditions.bar_geometry(bars),
         below_vwap=conditions.below_series(close, vwap),
+        above_vwap=conditions.above_series(close, vwap),
         vwap=vwap,
         ema=conditions.moving_average_grid(
             close, ema_periods, "ema", keep_values=keep_ma_values

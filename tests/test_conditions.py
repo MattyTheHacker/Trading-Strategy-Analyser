@@ -37,12 +37,42 @@ def test_inverted_hammer_boundary_is_inclusive_on_both_tests():
     assert conditions.inverted_hammer(frame)[0]
 
 
-# -- new high / previous green ------------------------------------------------
+# -- hammer (PullBackAndGo.cs's mirror) ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "row,expected,why",
+    [
+        ((10.5, 11.0, 8.0, 10.0), True, "lower 2.0 >= 2x body 0.5, no upper wick"),
+        ((10.5, 11.0, 10.0, 10.0), False, "lower 0.5 < 2x body 0.5"),
+        ((10.5, 13.0, 8.0, 10.0), False, "upper wick 2.5 exceeds body 0.5"),
+        ((10.0, 13.0, 10.0, 10.0), False, "doji: body is zero so it cannot qualify"),
+        ((10.0, 11.0, 8.0, 10.5), True, "green bar with a long lower wick still counts"),
+    ],
+)
+def test_hammer(row, expected, why):
+    assert conditions.hammer(bars([row]))[0] == expected, why
+
+
+def test_hammer_is_inverted_hammers_wick_roles_swapped():
+    # Same rows, opposite geometry: a bar that qualifies as one should not also qualify
+    # as the other except in the degenerate doji case (neither qualifies).
+    for row in [(10.0, 13.0, 10.0, 10.5), (10.5, 11.0, 8.0, 10.0), (10, 11, 9, 10)]:
+        frame = bars([row])
+        assert not (conditions.inverted_hammer(frame)[0] and conditions.hammer(frame)[0])
+
+
+# -- new high/low, previous green/red ------------------------------------------
 
 
 def test_made_new_high_requires_a_strictly_higher_high():
     frame = bars([(1, 10, 1, 5), (1, 11, 1, 5), (1, 11, 1, 5), (1, 10, 1, 5)])
     assert list(conditions.made_new_high(frame)) == [False, True, False, False]
+
+
+def test_made_new_low_requires_a_strictly_lower_low():
+    frame = bars([(1, 10, 5, 5), (1, 10, 4, 5), (1, 10, 4, 5), (1, 10, 5, 5)])
+    assert list(conditions.made_new_low(frame)) == [False, True, False, False]
 
 
 def test_previous_bar_green_treats_a_flat_close_as_green():
@@ -57,10 +87,25 @@ def test_previous_bar_green_treats_a_flat_close_as_green():
     assert conditions.previous_bar_green(green)[1]
 
 
+def test_previous_bar_red_treats_a_flat_close_as_red():
+    # PullBackAndGo.cs rejects only on Close[1] > Open[1], so equality passes -- a doji
+    # satisfies previous_bar_green and previous_bar_red simultaneously, not just one.
+    flat = bars([(10, 11, 9, 10), (1, 2, 0, 1)])
+    assert conditions.previous_bar_red(flat)[1]
+
+    red = bars([(10, 11, 9, 9), (1, 2, 0, 1)])
+    assert conditions.previous_bar_red(red)[1]
+
+    green = bars([(10, 11, 9, 11), (1, 2, 0, 1)])
+    assert not conditions.previous_bar_red(green)[1]
+
+
 def test_first_bar_can_never_satisfy_a_lookback_condition():
     frame = bars([(1, 10, 1, 5)])
     assert not conditions.made_new_high(frame)[0]
+    assert not conditions.made_new_low(frame)[0]
     assert not conditions.previous_bar_green(frame)[0]
+    assert not conditions.previous_bar_red(frame)[0]
 
 
 # -- trend gate ---------------------------------------------------------------
@@ -71,6 +116,17 @@ def test_below_series_passes_on_equality():
     close = np.array([9.0, 10.0, 11.0])
     ma = np.array([10.0, 10.0, 10.0])
     assert list(conditions.below_series(close, ma)) == [True, True, False]
+
+
+def test_above_series_passes_on_equality():
+    # PullBackAndGo.cs rejects on Close < ma, so Close == ma passes here too -- the two
+    # gates are not negations of one another, they overlap exactly at close == ma.
+    close = np.array([9.0, 10.0, 11.0])
+    ma = np.array([10.0, 10.0, 10.0])
+    assert list(conditions.above_series(close, ma)) == [False, True, True]
+    below = conditions.below_series(close, ma)
+    above = conditions.above_series(close, ma)
+    assert (below & above)[1], "close == ma must satisfy both gates independently"
 
 
 # -- moving average grid ------------------------------------------------------
@@ -92,8 +148,11 @@ def test_grid_drops_raw_values_unless_asked():
 
     full = conditions.moving_average_grid(close, [21, 60], keep_values=True)
     assert full.values.shape == (2, 50)
-    # Eight bytes per element versus one is the whole point.
-    assert full.nbytes > lean.nbytes * 8
+    # Eight bytes per element versus one is the whole point -- compare like-shaped arrays
+    # directly rather than the grid totals, which also carry the below+above bool pair
+    # regardless of keep_values and would dilute the ratio.
+    assert full.values.nbytes == full.below.nbytes * 8
+    assert full.nbytes > lean.nbytes
 
 
 def test_grid_row_lookup_is_by_period_not_position():
@@ -118,6 +177,15 @@ def test_grid_rows_match_the_standalone_indicator():
     grid = conditions.moving_average_grid(close, [21, 175], kind="sma", keep_values=True)
     assert grid.values_for(175) == pytest.approx(indicators.nt8_sma(close, 175))
     assert list(grid.below_for(21)) == list(conditions.below_series(close, indicators.nt8_sma(close, 21)))
+
+
+def test_grid_carries_above_alongside_below():
+    close = np.array([9.0, 10.0, 11.0, 12.0], dtype=np.float64)
+    grid = conditions.moving_average_grid(close, [1], kind="sma")
+    # SMA(1) == close, so below and above must both read the equality boundary as passing.
+    assert list(grid.below_for(1)) == list(conditions.below_series(close, close))
+    assert list(grid.above_for(1)) == list(conditions.above_series(close, close))
+    assert all(grid.below_for(1)) and all(grid.above_for(1))
 
 
 def test_grid_supports_both_kinds():
@@ -160,3 +228,11 @@ def test_bar_geometry_bundles_the_parameter_free_conditions():
     assert list(geom.inverted_hammer) == [True, True]
     assert list(geom.made_new_high) == [False, True]
     assert list(geom.previous_bar_green) == [False, True]
+
+
+def test_bar_geometry_bundles_the_long_side_mirror_conditions():
+    frame = bars([(10.5, 11, 8, 10), (10.5, 11, 7, 10)])
+    geom = conditions.bar_geometry(frame)
+    assert list(geom.hammer) == [True, True]
+    assert list(geom.made_new_low) == [False, True]
+    assert list(geom.previous_bar_red) == [False, True]
