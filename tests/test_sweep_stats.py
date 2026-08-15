@@ -170,19 +170,19 @@ def test_gated_axis_is_allowed_when_its_toggle_is_also_swept():
     assert len(g) == 4
 
 
-def test_required_periods_cover_every_combination():
+def test_required_context_covers_every_combination():
     base = DeadCatParams(use_slow_sma=True)
     g = sweep.Grid.of(base, ema_period=[9, 21], fast_sma_period=[40, 60],
                       slow_sma_period=[150, 200])
-    ema, sma = g.required_periods()
-    assert ema == [9, 21]
-    assert sma == [40, 60, 150, 200]
+    spec = g.required_context()
+    assert spec.ema_periods == (9, 21)
+    assert spec.sma_periods == (40, 60, 150, 200)
 
 
-def test_required_periods_include_unswept_defaults():
+def test_required_context_includes_unswept_defaults():
     g = sweep.Grid.of(DeadCatParams(ema_period=11, fast_sma_period=80), use_vwap=[True, False])
-    ema, sma = g.required_periods()
-    assert 11 in ema and 80 in sma
+    spec = g.required_context()
+    assert 11 in spec.ema_periods and 80 in spec.sma_periods
 
 
 # -- parallel execution -------------------------------------------------------

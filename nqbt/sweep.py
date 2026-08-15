@@ -1,5 +1,11 @@
 """Parameter sweep over a strategy archetype.
 
+Which archetype is a property of the :class:`Grid`, resolved through
+:mod:`nqbt.archetypes`. Nothing here names a parameter class or a run function: the
+registry supplies the legal axes, the toggle map ``dead_axes`` guards with, the series
+``prepare`` has to build, and the simulation to call. That indirection is the whole of
+M17 -- before it, adding a second archetype meant forking this module.
+
 Combo-major: build the dataset once, then loop combinations and run the full jitted
 simulation over the whole series for each. Deliberately the straightforward shape --
 correctness first. A bar-major restructuring would reuse cache better across combinations,
@@ -22,18 +28,16 @@ from __future__ import annotations
 import itertools
 import math
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
-from nqbt import context, stats
+from nqbt import archetypes, context, stats
+from nqbt.archetypes import Archetype, ContextSpec, Params
 from nqbt.context import Dataset
 from nqbt.instruments import MNQ, Instrument
-from nqbt.sim import runner
-from nqbt.sim.types import DeadCatParams
-
-SWEEPABLE = {f for f in DeadCatParams.__slots__} - {"target_r_multiples"}
 
 
 class SweepError(RuntimeError):
@@ -44,19 +48,33 @@ class SweepError(RuntimeError):
 class Grid:
     """Values to try for each parameter. Anything omitted keeps its default.
 
-    ``Grid(ema_period=[9, 21], use_vwap=[True, False])`` is 4 combinations; every other
-    field of :class:`DeadCatParams` stays at its default for all of them.
+    ``Grid.of(ema_period=[9, 21], use_vwap=[True, False])`` is 4 combinations; every other
+    field of the archetype's parameter class stays at its default for all of them.
+
+    The archetype is a property of the grid rather than an argument to :func:`sweep`,
+    because it decides what ``base`` and ``axes`` even mean -- which fields are legal, and
+    which toggle gates which period. Passing them separately would let the two disagree.
     """
 
     axes: dict[str, list] = field(default_factory=dict)
-    base: DeadCatParams = field(default_factory=DeadCatParams)
+    base: Params = None  # type: ignore[assignment]  # __post_init__ fills it
+    archetype: Archetype = archetypes.DEFAULT
 
     def __post_init__(self) -> None:
-        unknown = set(self.axes) - SWEEPABLE
+        if self.base is None:  # type: ignore[comparison-overlap]
+            self.base = self.archetype.params_cls()
+        if not isinstance(self.base, self.archetype.params_cls):
+            raise SweepError(
+                f"archetype {self.archetype.name!r} takes "
+                f"{self.archetype.params_cls.__name__}, but base is a "
+                f"{type(self.base).__name__}"
+            )
+        sweepable = self.archetype.sweepable
+        unknown = set(self.axes) - sweepable
         if unknown:
             raise SweepError(
-                f"unknown sweep parameter(s): {sorted(unknown)}. "
-                f"Sweepable: {sorted(SWEEPABLE)}"
+                f"unknown sweep parameter(s) for {self.archetype.name}: {sorted(unknown)}. "
+                f"Sweepable: {sorted(sweepable)}"
             )
         for name, values in self.axes.items():
             if not values:
@@ -70,22 +88,18 @@ class Grid:
                 "the toggle or drop the axis."
             )
 
-    # A period only matters when its filter is switched on.
-    _GATED_BY = {
-        "ema_period": "use_ema",
-        "fast_sma_period": "use_fast_sma",
-        "slow_sma_period": "use_slow_sma",
-    }
-
     def dead_axes(self) -> dict[str, str]:
         """Swept periods whose filter is off for every combination.
 
         Easy to do by accident: the NinjaScript's current defaults leave the slow SMA and
         VWAP filters disabled, so sweeping ``slow_sma_period`` across four values yields
         four identical rows and a 4x runtime bill.
+
+        The gate map comes from the archetype, so every new one gets this guard rather
+        than getting its own version of the same mistake.
         """
         dead = {}
-        for axis, toggle in self._GATED_BY.items():
+        for axis, toggle in self.archetype.gated_by.items():
             if axis not in self.axes:
                 continue
             values = self.axes.get(toggle, [getattr(self.base, toggle)])
@@ -94,8 +108,19 @@ class Grid:
         return dead
 
     @classmethod
-    def of(cls, base: DeadCatParams | None = None, **axes) -> Grid:
-        return cls(axes={k: list(v) for k, v in axes.items()}, base=base or DeadCatParams())
+    def of(
+        cls, base: Params | None = None, *, archetype: Archetype | None = None, **axes
+    ) -> Grid:
+        """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
+        if archetype is None:
+            archetype = (
+                archetypes.for_params(base) if base is not None else archetypes.DEFAULT
+            )
+        return cls(
+            axes={k: list(v) for k, v in axes.items()},
+            base=base if base is not None else archetype.params_cls(),
+            archetype=archetype,
+        )
 
     def __len__(self) -> int:
         n = 1
@@ -103,8 +128,8 @@ class Grid:
             n *= len(values)
         return n
 
-    def combinations(self):
-        """Yield one :class:`DeadCatParams` per point in the grid."""
+    def combinations(self) -> Iterator[Params]:
+        """Yield one parameter instance per point in the grid."""
         if not self.axes:
             yield self.base
             return
@@ -112,31 +137,43 @@ class Grid:
         for values in itertools.product(*(self.axes[n] for n in names)):
             yield replace(self.base, **dict(zip(names, values)))
 
-    def required_periods(self) -> tuple[list[int], list[int]]:
-        """Every EMA and SMA period any combination will ask for.
+    def axis_values(self) -> dict[str, list]:
+        """Every value each parameter will take across the sweep, swept or not.
 
-        The moving-average grids refuse a period they were not built for, so this has to
-        cover the whole sweep up front rather than being discovered mid-loop.
+        The archetype reads this to declare its context needs. It is deliberately the
+        whole parameter set rather than just ``axes``: a period that is *never* swept
+        still has to have its grid built, and reading only the axes is how a default
+        period gets silently left out.
         """
-        ema = set(self.axes.get("ema_period", [self.base.ema_period]))
-        sma = set(self.axes.get("fast_sma_period", [self.base.fast_sma_period]))
-        sma |= set(self.axes.get("slow_sma_period", [self.base.slow_sma_period]))
-        return sorted(ema), sorted(sma)
+        return {
+            name: list(self.axes.get(name, [getattr(self.base, name)]))
+            for name in self.archetype.sweepable
+        }
+
+    def required_context(self) -> ContextSpec:
+        """Every precomputed series any combination in this grid will read."""
+        return self.archetype.context_for(self.axis_values())
 
 
 def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs) -> Dataset:
-    """Build the shared dataset covering every period the grid needs."""
-    ema, sma = grid.required_periods()
-    return context.prepare(bars, ema_periods=ema, sma_periods=sma, **kwargs)
+    """Build the shared dataset covering every series the grid needs."""
+    spec = grid.required_context()
+    return context.prepare(
+        bars, ema_periods=spec.ema_periods, sma_periods=spec.sma_periods, **kwargs
+    )
 
 
 def run_combination(
-    data: Dataset, params: DeadCatParams, instrument: Instrument = MNQ
+    data: Dataset,
+    params: Params,
+    instrument: Instrument = MNQ,
+    archetype: Archetype = archetypes.DEFAULT,
 ) -> tuple[dict, pd.DataFrame]:
     """Simulate one combination, returning its summary row and its trade log."""
-    trades = runner.run_deadcat(data, params, instrument)
+    trades = archetype.run(data, params, instrument)
     row = params.as_dict()
-    row.pop("target_r_multiples", None)
+    for name in archetype.not_sweepable:
+        row.pop(name, None)
     # No empty-log branch here on purpose. There used to be one, building an all-int zero
     # dict, and it disagreed with ``summarise``'s own empty case on the dtype of 22 of the
     # 28 columns -- which reaches DuckDB, where a barren combination could then define a
@@ -181,7 +218,7 @@ def _run_chunk(
     logs: dict[int, pd.DataFrame] = {}
     for offset, params in enumerate(itertools.islice(grid.combinations(), start, stop)):
         combo_id = start + offset
-        row, trades = run_combination(data, params, instrument)
+        row, trades = run_combination(data, params, instrument, grid.archetype)
         row["combo_id"] = combo_id
         rows.append(row)
         if keep_trades:
@@ -197,7 +234,7 @@ def _sweep_serial(
     logs: dict[int, pd.DataFrame] = {}
     started = time.perf_counter()
     for i, params in enumerate(grid.combinations()):
-        row, trades = run_combination(data, params, instrument)
+        row, trades = run_combination(data, params, instrument, grid.archetype)
         row["combo_id"] = i
         rows.append(row)
         if keep_trades:

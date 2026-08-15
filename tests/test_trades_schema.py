@@ -244,6 +244,23 @@ def test_deadcat_does_not_reference_exit_signal():
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
 
 
+def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them():
+    """``archetypes.py`` may reach down; nothing below it may reach back up.
+
+    It imports ``nqbt.sim`` by design -- knowing how to reach an archetype is exactly its
+    job. The rule that matters is the other direction: if ``context.py`` ever imported it,
+    the market context would depend transitively on the simulator and the review layer
+    could no longer annotate real trades with it.
+    """
+    for lower in ("context.py", "trades.py", "stats.py", "conditions.py", "indicators.py"):
+        assert "nqbt.archetypes" not in imports_of(lower), (
+            f"nqbt/{lower} must not import the archetype registry"
+        )
+    # And the premise: it really does reach down, so the rule above is a rule and not a
+    # description of a module that happens to import nothing.
+    assert "nqbt.sim" in imports_of("archetypes.py")
+
+
 def test_market_context_knows_nothing_about_trades():
     """``context.py`` is the half of a backtest with no strategy in it.
 
