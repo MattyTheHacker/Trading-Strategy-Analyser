@@ -48,8 +48,11 @@ def audited():
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(),
-        ema_periods=(params.ema_period,),
-        sma_periods=(params.fast_sma_period, params.slow_sma_period),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
         keep_ma_values=True,
     )
     log = run_deadcat(data, params, MNQ)

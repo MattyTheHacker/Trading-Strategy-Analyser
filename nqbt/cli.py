@@ -95,10 +95,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.end:
         bars = bars[bars.index <= args.end]
 
+    # VWAP unconditionally: --explain reports every gate whether or not this
+    # combination reads it, and the audit trail is the point of the command.
     data = context.prepare(
         bars,
-        ema_periods=(params.ema_period,),
-        sma_periods=(params.fast_sma_period, params.slow_sma_period),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
         keep_ma_values=bool(args.explain),
     )
     trades = runner.run_deadcat(data, params, instrument)
