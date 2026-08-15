@@ -125,3 +125,87 @@ class DeadCatParams:
             value = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
         return out
+
+
+@dataclass(slots=True)
+class PullBackAndGoParams:
+    """Rule set for the PullBackAndGo archetype -- DeadCatBounce's long-side mirror.
+
+    Ported for M15.4 as the validation case for a bidirectional simulator: the same stop
+    order, ratcheting stop and R-multiple bracket as DeadCatBounce, reflected to the long
+    side, with C# to check the Python against once M15.5 reconciles it.
+
+    Deliberately **leaner than** :class:`DeadCatParams`, not just its mirror, because
+    ``PullBackAndGo.cs`` genuinely has fewer properties -- matching the C# text means not
+    inventing configurability it does not have:
+
+    - No ``Use*`` toggles. All four trend filters (EMA, slow SMA, fast SMA, VWAP) are
+      unconditional in the C#'s single combined ``if``, unlike DeadCatBounce's four
+      independent, individually-switchable ``if`` statements.
+    - No ``OrderQuantity``. Every ``EnterLongStopMarket`` call omits the quantity argument,
+      so each of the four legs trades NT8's default of one contract -- fixed, not swept.
+    - No ``TPMultiplier`` or ``MaxRiskPerTrade``. Neither property exists on the strategy,
+      so there is no target scaling and no risk cap to reject a signal with.
+    - No ``EntryOffsetTicks``. The trigger is simply ``High[0]`` -- ``entry_bracket`` reaches
+      that exactly when ``entry_offset_ticks=0``, so ``run_pullbackandgo`` passes ``0``
+      directly rather than exposing a field that would always be zero.
+    """
+
+    ema_period: int = 21
+    slow_sma_period: int = 175
+    fast_sma_period: int = 60
+
+    bars_required_to_trade: int = 20
+    stop_offset_ticks: int = 2
+    """Ticks below the signal bar's low for the stop. Hardcoded as ``TickSize * 2`` in the
+    NinjaScript, the same as DeadCatBounce's, just on the other side of price."""
+
+    ratchet_lag: int = 1
+    """Which bar the trailing stop references at each bar close.
+
+    ``PullBackAndGo.cs`` ratchets to a bare ``Low[1]`` -- the bar *before* the just-closed
+    one, lag 1 -- unlike DeadCatBounce's default lag-0 ``High[0]``. Also unlike
+    DeadCatBounce, the ratchet reapplies no offset at all; ``run_pullbackandgo`` passes
+    ``ratchet_offset_ticks=0`` to :func:`nqbt.sim.deadcat.simulate_deadcat` for exactly
+    this reason, not as a sweepable field, since the C# has no property for it either."""
+
+    ambiguity_policy: int = 1
+    """See :attr:`DeadCatParams.ambiguity_policy` -- the same Tier-1 concept, same default."""
+
+    fill_limit_on_touch: bool = False
+    """``IsFillLimitOnTouch = false`` in the NinjaScript, same as DeadCatBounce."""
+
+    block_entry_at_session_close: bool = True
+    """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as DeadCatBounce."""
+
+    round_targets: bool = False
+    """``PullBackAndGo.cs`` never calls ``RoundToTickSize`` on its profit targets, unlike
+    DeadCatBounce.cs. Ported as written rather than assumed symmetric -- see
+    :func:`nqbt.sim.deadcat.simulate_deadcat`'s ``round_targets`` docstring for why this is
+    a live question for M15.5's NT8 reconciliation, not a settled one."""
+
+    target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
+    """L1/L2/L3 at 1R/1.5R/2R; L4 is the runner with no target, matching the NinjaScript."""
+
+    # -- costs, absent from the NinjaScript but required for an honest backtest --
+    commission_per_contract: float = 0.0
+    """Round-turn commission per contract, charged once per leg on exit."""
+    slippage_ticks: float = 0.0
+    """Adverse slippage on market and stop orders. Never applied to limit targets."""
+
+    def __post_init__(self) -> None:
+        for name in ("ema_period", "slow_sma_period", "fast_sma_period"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be >= 1")
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """One contract per leg -- ``EnterLongStopMarket`` never specifies a quantity."""
+        return (1,) * len(self.target_r_multiples)
+
+    def as_dict(self) -> dict:
+        out = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            out[f.name] = list(value) if isinstance(value, tuple) else value
+        return out
