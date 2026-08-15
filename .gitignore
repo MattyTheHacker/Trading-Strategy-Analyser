@@ -12,3 +12,4 @@ verification
 .ruff_cache/
 .coverage
 coverage.xml
+docs/discretionary_trading_concepts.md
