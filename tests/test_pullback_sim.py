@@ -8,6 +8,8 @@ merely mirroring it -- see nqbt.sim.types.PullBackAndGoParams for the full list 
 the entry-condition wiring (nqbt.sim.pullback.pullback_signal), which is new code.
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -36,7 +38,7 @@ def run(
     ratchet_lag=1,          # PullBackAndGo.cs ratchets off Low[1]
     fill_limit_on_touch=True,
     ambiguity_policy=0,
-    round_targets=False,    # PullBackAndGo.cs never calls RoundToTickSize
+    round_targets=False,    # engine default here; PullBackAndGoParams ships True (M15.5)
 ):
     """Simulate hand-written OHLC rows with PullBackAndGo's defaults."""
     arr = np.asarray(rows, dtype=np.float64)
@@ -174,10 +176,13 @@ def test_ratchet_keeps_tracking_the_bare_low_one_bar_back_and_never_loosens():
 
 
 def test_targets_are_left_unrounded():
+    # An engine test for the round_targets flag, not a claim about the archetype: the
+    # M15.5 reconciliation showed NT8 snaps PullBackAndGo's targets even though the C#
+    # never calls RoundToTickSize, so PullBackAndGoParams now defaults it to True. What
+    # this pins is that the flag is what does the rounding and nothing else does.
+    #
     # Trigger 104.25 (bare High[0]), stop 99.5 (Low[0] - 2 ticks), risk 4.75. Leg 2's
-    # target is 104.25 + 4.75*1.5 = 111.375 -- a genuine half tick on the 0.25 grid, which
-    # DeadCatBounce.cs's RoundToTickSize would snap to 111.25 or 111.5. PullBackAndGo.cs
-    # never calls it, so this must survive exactly as computed.
+    # target is 104.25 + 4.75*1.5 = 111.375 -- a genuine half tick on the 0.25 grid.
     trades = run(
         [
             (100, 104.25, 100, 101),  # 0: signal, trigger 104.25, stop 99.5, risk 4.75
@@ -289,16 +294,59 @@ def test_params_reject_an_order_quantity_that_cannot_fill_every_leg():
         PullBackAndGoParams(order_quantity=3)
 
 
-def test_every_filter_can_be_switched_off_independently():
-    # Each is its own early-return `if` in the C#, so switching one off must leave the
-    # rest exactly as they were. The C# leaves all six uninitialised in SetDefaults; these
-    # defaults reproduce the M15.5 reconciliation instead, which is the only combination
-    # with a trade list behind it.
+def test_default_filters_are_the_reconciled_configuration():
+    # The C# leaves all six uninitialised in SetDefaults, so there is no NinjaScript
+    # default to mirror. These reproduce the M15.5 reconciliation, the only combination
+    # with a trade list behind it; VWAP is off because nqbt's has never been checked
+    # against OrderFlowVWAP. See docs/nt8-fidelity.md.
     p = PullBackAndGoParams()
     assert (p.use_ema, p.use_slow_sma, p.use_fast_sma, p.use_vwap) == (
         True, True, True, False,
     )
     assert (p.require_previous_red, p.require_new_low) == (True, True)
+
+
+def test_every_filter_can_be_switched_off_independently():
+    # Each filter is its own early-return `if` in the C#, so switching one off must relax
+    # that condition and leave every other one exactly as it was. Asserting the defaults
+    # is not enough: it never runs the branches.
+    data = context.prepare(
+        synthetic_bars(),
+        ema_periods=(21,),
+        sma_periods=(60, 175),
+    )
+    # With every optional filter off the signal is the bare hammer and nothing else.
+    all_off = PullBackAndGoParams(
+        bars_required_to_trade=200,
+        use_ema=False,
+        use_slow_sma=False,
+        use_fast_sma=False,
+        use_vwap=False,
+        require_previous_red=False,
+        require_new_low=False,
+    )
+    bare = pullback_signal(data, all_off)
+    assert (bare == data.geometry.hammer).all()
+    assert bare.sum() > 0
+
+    # Each filter is then measured against that anchor rather than against the full
+    # conjunction, which on this many bars leaves too few signals to tell anything apart.
+    for field in (
+        "require_new_low",
+        "require_previous_red",
+        "use_ema",
+        "use_fast_sma",
+        "use_slow_sma",
+        "use_vwap",
+    ):
+        only = pullback_signal(data, replace(all_off, **{field: True}))
+        assert only.sum() < bare.sum(), f"{field} never bound, so its branch is untested"
+        assert not (only & ~bare).any(), f"{field} admitted a signal that is not a hammer"
+
+    # And the reconciled default set is a subset of the anchor, narrower than any of them.
+    full = pullback_signal(data, PullBackAndGoParams(bars_required_to_trade=200))
+    assert 0 < full.sum() < bare.sum()
+    assert not (full & ~bare).any()
 
 
 def test_params_reject_a_non_positive_period():
