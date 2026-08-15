@@ -352,19 +352,34 @@ bar or the backtest reads the future. **Both get much cheaper once M16 and M17 l
 establishes the pin-it-against-NT8 procedure a new kind needs, and M17's `required_context`
 already has to key grids by `(kind, period)`. Reconsider after those rather than now.
 
-**M13 — bar resolution as a sweep axis (2/5/15/30 min).** Planned. **The existing 1-minute
-archive is sufficient — no re-export, no AddOn change.** Resampling is **exact, not
-approximate**: OHLC aggregation is associative, so a 5-minute bar built from five 1-minute
-bars is bit-identical to one NT8 builds from ticks. Do *not* reach for `data/tick/`; that
-would be the more-precise-than-NT8 error. Bucket by **minutes since the session open**, never
-wall clock: 2/3/5/10/15/30/60 all divide the 1,080-minute offset to 18:00 ET so the two
-agree, which is exactly why an untested implementation looks fine until someone tries 7.
+**M13 — bar resolution as a sweep axis (2/5/15/30 min).** `nqbt/resample.py` exists (#30);
+wiring it into a sweep is #28. **The existing 1-minute archive is sufficient — no re-export,
+no AddOn change.** Resampling is **exact, not approximate**: OHLC aggregation is associative,
+so a 5-minute bar built from five 1-minute bars is bit-identical to one NT8 builds from
+ticks. Do *not* reach for `data/tick/`; that would be the more-precise-than-NT8 error.
+
+Bucket by **minutes since the session open**, never wall clock — and note the usual
+one-line justification for why this rarely bites is **wrong**. Agreement with a
+midnight-anchored grid needs a boundary at the session *open* **and** its *close*: 18:00 ET
+is 1,080 minutes past midnight and 17:00 ET is 1,020, so the condition is
+`N | gcd(1080, 1020)`, i.e. **N divides 60**. Dividing 1,080 is not sufficient — 45 divides
+it and still diverges, because a wall-clock grid then runs a bucket from 16:45 to 17:30,
+through the maintenance break. Every period anyone tries first divides 60, which is exactly
+why an untested implementation looks fine.
+
+Timestamps are **end-of-bar**, so a bar stamped 18:01 is the session's first minute and a
+5-minute bucket covering 18:00–18:05 is stamped 18:05. Off by one there is invisible at
+1 minute and wrong everywhere else. The final bucket of a session is stamped at the
+**observed** last bar, not the theoretical end — that is what handles a period that does not
+divide the session and a holiday early close, and it is the same data-derived choice
+`is_session_close` makes.
+
 Whether NT8 anchors the same way is settled by the *existing* Tier-2 trade-list
 reconciliation at that resolution, not by importing NT8's coarse bars. Resolution changes the
 strategy, not just the sampling — order lifetime, the ratchet and `bars_required_to_trade`
-are all per-bar — so it must be a first-class results column. Expect the ambiguous-bar rate
-to climb well above 1-minute's 3.4%; if a coarse resolution looks profitable, check that
-first.
+are all per-bar — so it must be a first-class results column. **The ambiguous-bar rate does
+climb with bar size**, roughly doubling by 15 minutes on MNQ, and the forced-exit share rises
+with it; if a coarse resolution looks profitable, check both before believing it.
 
 **M14 — per-contract sweeps.** Planned. `sweep.sweep()` already accepts a single contract's
 frame, so what is missing is the cross-contract table, a `contract` column in DuckDB, and the
