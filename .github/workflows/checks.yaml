@@ -86,10 +86,10 @@ jobs:
             junit: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: 'pip'
@@ -107,14 +107,14 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ matrix.junit && !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           report_type: test_results
           use_oidc: true
 
       - name: Upload coverage report to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           use_oidc: true
           flags: ${{ matrix.codecov-flag }}
@@ -123,10 +123,10 @@ jobs:
     name: Lint Markdown files using PyMarkdown
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: 'pip'
