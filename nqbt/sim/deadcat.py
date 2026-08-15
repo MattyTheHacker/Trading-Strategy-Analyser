@@ -171,6 +171,7 @@ def simulate_deadcat(
                 open_[i], high[i], low[i], close[i], force_flat[i],
                 slippage, point_value, commission_per_contract,
                 fill_limit_on_touch, ambiguity_policy, direction,
+                True,  # held since this bar's open, so a gap through the stop fills at it
             )
             if written < 0:
                 return -1
@@ -232,6 +233,7 @@ def simulate_deadcat(
                     open_[i], high[i], low[i], close[i], force_flat[i],
                     slippage, point_value, commission_per_contract,
                     fill_limit_on_touch, ambiguity_policy, direction,
+                    False,  # entered intrabar: the position did not exist at the open
                 )
                 if written < 0:
                     return -1
@@ -254,9 +256,15 @@ def simulate_deadcat(
             )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
             too_risky = candidate_risk > max_risk_ticks * tick_size
+            # A stop-market entry must sit strictly beyond the market it is submitted
+            # into -- a buy stop above it, a sell stop below it -- or it is not a stop
+            # order at all and the platform will not accept it. The market at submission
+            # is the signal bar's close, this being Calculate.OnBarClose.
+            submittable = direction * trigger > direction * close[i]
             if (
                 candidate_risk > 0.0
                 and not too_risky
+                and submittable
                 and _passes_reward_risk(target_r, min_reward_risk)
             ):
                 pending_bar = i
@@ -309,6 +317,7 @@ def _resolve_brackets(
     fill_limit_on_touch: bool,
     ambiguity_policy: int,
     direction: float,
+    held_from_bar_open: bool,
 ) -> tuple[int, bool]:
     """Resolve one bar against the live stop and targets, closing whatever leaves.
 
@@ -333,9 +342,28 @@ def _resolve_brackets(
     fill at their own price with no slippage, being limit orders; anything still open after
     a targets-first bar leaves at the stop on that same bar; and force-flat is last, so a
     position that reached a target and then ran out of session records both.
+
+    **A bar that opens already past the stop fills at its open, not at the stop price.** A
+    stop order is a market order once triggered, so when the bar gaps through it there is no
+    trade available at the stop level and the fill is the first price there is. The entry
+    path has always modelled this for the *entry* order (see ``open_[i]`` gapping through
+    ``pending_trigger`` in :func:`simulate_deadcat`); it simply never reached the exit side,
+    which made every gapped stop exit optimistic -- worth $222.50 of a $292.50 result over
+    the 1,664 legs of the MNQ 03-24 PullBackAndGo reconciliation, where NT8's exit price
+    equals the exit bar's open on 115 of the 116 disagreeing stop fills.
+
+    ``held_from_bar_open`` is what keeps that rule off the entry bar. The position did not
+    exist at that bar's open, so a bar whose open sits past the initial stop says nothing:
+    price still had to travel up through the trigger to open the position at all, and only
+    then could it come back to the stop -- which it reaches at the stop price, not the open.
     """
     n_legs = leg_open.size
     adverse_px, favourable_px = _sided(low_px, high_px, direction)
+
+    # The stop fills at the open when the bar gapped through it, otherwise at its own price.
+    stop_fill = stop
+    if held_from_bar_open and direction * open_px < direction * stop:
+        stop_fill = open_px
 
     stop_hit = direction * adverse_px <= direction * stop
     any_target_hit = False
@@ -355,7 +383,7 @@ def _resolve_brackets(
 
     if stop_hit and not targets_first:
         # The whole position leaves at the stop, adverse slippage meaning a worse fill.
-        fill = stop - direction * slippage
+        fill = stop_fill - direction * slippage
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
@@ -386,7 +414,7 @@ def _resolve_brackets(
     if targets_first:
         # The inferred path reached the targets first and the stop on the way back,
         # so whatever is still open leaves on this same bar.
-        fill = stop - direction * slippage
+        fill = stop_fill - direction * slippage
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(

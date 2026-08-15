@@ -25,18 +25,25 @@ from nqbt.sim.types import PullBackAndGoParams
 
 
 def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
-    """Conjunction of every entry condition.
+    """Conjunction of every active entry condition.
 
-    Unlike DeadCatBounce, none of these are optional -- ``PullBackAndGo.cs`` has no
-    ``Use*`` toggles, so all four trend filters are unconditional here too.
+    The hammer is the only unconditional one; every other filter has a ``Use*`` or
+    ``Require*`` property behind it, each its own early-return ``if`` in the C# rather than
+    one combined condition, so switching one off leaves the rest exactly as they were.
     """
     signal = data.geometry.hammer.copy()
-    signal &= data.geometry.made_new_low
-    signal &= data.geometry.previous_bar_red
-    signal &= data.ema.above_for(params.ema_period)
-    signal &= data.sma.above_for(params.fast_sma_period)
-    signal &= data.sma.above_for(params.slow_sma_period)
-    signal &= data.above_vwap
+    if params.require_new_low:
+        signal &= data.geometry.made_new_low
+    if params.require_previous_red:
+        signal &= data.geometry.previous_bar_red
+    if params.use_ema:
+        signal &= data.ema.above_for(params.ema_period)
+    if params.use_fast_sma:
+        signal &= data.sma.above_for(params.fast_sma_period)
+    if params.use_slow_sma:
+        signal &= data.sma.above_for(params.slow_sma_period)
+    if params.use_vwap:
+        signal &= data.above_vwap
     return signal
 
 
@@ -73,7 +80,7 @@ def run_pullbackandgo(
         params.bars_required_to_trade,
         0.0,  # min_reward_risk: no property on PullBackAndGo.cs
         params.ratchet_lag,
-        0.0,  # ratchet_offset_ticks: the ratchet is a bare Low[1], no offset reapplied
+        float(params.ratchet_offset_ticks),
         params.block_entry_at_session_close,
         params.fill_limit_on_touch,
         params.ambiguity_policy,
