@@ -35,8 +35,8 @@ import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
 from nqbt import archetypes, context, stats
-from nqbt.archetypes import Archetype, ContextSpec, Params
-from nqbt.context import Dataset
+from nqbt.archetypes import Archetype, Params
+from nqbt.context import ContextSpec, Dataset
 from nqbt.instruments import MNQ, Instrument
 
 
@@ -157,10 +157,7 @@ class Grid:
 
 def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs) -> Dataset:
     """Build the shared dataset covering every series the grid needs."""
-    spec = grid.required_context()
-    return context.prepare(
-        bars, ema_periods=spec.ema_periods, sma_periods=spec.sma_periods, **kwargs
-    )
+    return context.prepare(bars, grid.required_context(), **kwargs)
 
 
 def run_combination(

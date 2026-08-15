@@ -27,6 +27,7 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 
 import pandas as pd
 
+from nqbt.context import ContextSpec
 from nqbt.sim import pullback, runner
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
@@ -71,32 +72,6 @@ class Tier2Status(StrEnum):
 
     NOT_CHECKED = "not-checked"
     """No reconciliation attempted and none planned yet."""
-
-
-@dataclass(frozen=True, slots=True)
-class ContextSpec:
-    """Everything an archetype's signal will read out of a :class:`Dataset`.
-
-    Declared up front rather than discovered mid-loop, because the moving-average grids
-    refuse a period they were not built for rather than returning a wrong row -- so the
-    whole sweep's needs have to be known before the first combination runs.
-
-    The union operator is what makes sweeping several archetypes over **one** dataset
-    possible: build the union of their specs, prepare once, and every archetype finds what
-    it asked for. Without it each archetype needs its own ``Dataset`` and the parallel
-    path's memmap sharing stops paying for itself.
-    """
-
-    ema_periods: tuple[int, ...] = ()
-    sma_periods: tuple[int, ...] = ()
-    needs_vwap: bool = False
-
-    def __or__(self, other: ContextSpec) -> ContextSpec:
-        return ContextSpec(
-            ema_periods=tuple(sorted({*self.ema_periods, *other.ema_periods})),
-            sma_periods=tuple(sorted({*self.sma_periods, *other.sma_periods})),
-            needs_vwap=self.needs_vwap or other.needs_vwap,
-        )
 
 
 def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:

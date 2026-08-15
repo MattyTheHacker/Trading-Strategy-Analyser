@@ -245,7 +245,7 @@ def test_slim_drops_the_bar_columns_but_shares_the_arrays(prepared):
     assert lean.index.equals(data.index)
     # Shared, not copied -- copying is exactly the cost slim() exists to avoid.
     assert lean.close is data.close
-    assert lean.ema.below is data.ema.below
+    assert lean.mas["ema"].below is data.mas["ema"].below
 
 
 def test_the_simulator_meets_the_trade_schema(prepared):

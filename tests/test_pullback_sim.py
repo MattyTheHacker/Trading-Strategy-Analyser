@@ -246,8 +246,11 @@ def test_pullback_signal_and_run_wire_together_end_to_end():
     bars = synthetic_bars()
     data = context.prepare(
         bars,
-        ema_periods=(params.ema_period,),
-        sma_periods=(params.fast_sma_period, params.slow_sma_period),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
     )
     signal = pullback_signal(data, params)
     assert signal.dtype == np.bool_
@@ -266,8 +269,11 @@ def test_every_entry_condition_actually_binds():
     params = PullBackAndGoParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(),
-        ema_periods=(params.ema_period,),
-        sma_periods=(params.fast_sma_period, params.slow_sma_period),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
     )
     anchor = data.geometry.hammer
     full = pullback_signal(data, params)
@@ -312,8 +318,11 @@ def test_every_filter_can_be_switched_off_independently():
     # is not enough: it never runs the branches.
     data = context.prepare(
         synthetic_bars(),
-        ema_periods=(21,),
-        sma_periods=(60, 175),
+        context.ContextSpec(
+            ema_periods=(21,),
+            sma_periods=(60, 175),
+            needs_vwap=True,
+        ),
     )
     # With every optional filter off the signal is the bare hammer and nothing else.
     all_off = PullBackAndGoParams(
