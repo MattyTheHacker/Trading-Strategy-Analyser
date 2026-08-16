@@ -31,7 +31,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~3b~~ | ~~**M15** — direction in the simulator~~ | [#13] | **Done 2026-08-15**, reconciled included. `d = ±1` through the whole loop, `PullBackAndGo` ported and diffed leg-for-leg against a real NT8 trade list. That reconciliation found two fill-semantics defects — see below. |
 | — | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | [#19] | **Out of the code queue; batched into a NinjaTrader session.** Five consumers, not one, and [#20], [#21], [#22] and half of [#23] are all readings rather than code. **Now the only thing between here and M18.** |
 | ~~3c~~ | ~~**M17 + M13 + M14** — strategy, resolution and contract as axes~~ | [#24], [#30], [#31] | **Done 2026-08-16.** The registry landed 2026-08-15; `resample.py` ([#30]) and `dispersion.py` ([#31]) followed, then the results schema ([#29]) and `sweep_axes` ([#28]) — **one mechanism, not three**, so the schema settled once before the stale DuckDB re-run ([#71]). |
-| 4 | **M7a** — `randomentry.py` | [#32] | The null that makes a *second* archetype interpretable. Cheap now M15 has landed — and M15 is also what lets the null be matched on direction, which it must be. |
+| ~~4~~ | ~~**M7a** — `randomentry.py`~~ | [#32] | **Done 2026-08-16.** Matched on count, time-of-session and direction; Monte Carlo rather than a single draw. First result reframes DeadCatBounce — better than random, still unprofitable. See below. |
 | 5 | **M18** — EMA crossover | [#34] | The one archetype built now, to prove the protocol. A legitimate known-negative control. |
 | 6 | Numpy-native summary path | [#33] | **Pulled forward.** Crossover generates ~30× the legs, so the 71% of runtime that is pandas stops being an annoyance and becomes the sweep. |
 | 7 | **M10** — regime, volume, trend, time of day | [#39] | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
@@ -62,7 +62,7 @@ better use of code time. **Split the queue by resource, not by milestone number:
 
 | resource | work |
 |---|---|
-| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29])~~ — **all done**. Next: M7a ([#32]), then the numpy summary path ([#33]) |
+| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]) → M7a ([#32])~~ — **all done**. Next: the numpy summary path ([#33]) |
 | NinjaTrader time | [#20], [#21], [#22] (M16 pins), [#23] (the TR reading), [#66] (NQ), [#67] (order lifetime), [#92] (a second long-side contract) |
 
 Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
@@ -589,6 +589,77 @@ model the loop lacks; the order-lifetime research above resolves that resubmissi
 equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the
 second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate,
 and results that cluster by volatility regime so the aggregate PF averages two populations.
+
+### ~~M7a~~ — the random-entry control arm: done ([#32])
+
+`nqbt/randomentry.py`. The methodology is in the module docstring; what belongs here is the
+reasoning that outlives it and the first result, which is not what anyone expected.
+
+**The design principle is hold everything fixed, randomize only what is under test.** The
+quantity under test is *when the strategy chooses to enter*, so the null holds the bars, the
+instrument, the costs, the bracket geometry, the ratchet, the force-flat rule, the direction,
+the number of entry signals and the time-of-session distribution, and randomizes only which
+trading day each signal lands on.
+
+**Time-of-session matching is the load-bearing part, and it is exact rather than coarsened.**
+Intraday index futures have a pronounced volume and volatility seasonality, and a bracket
+built from fixed tick offsets has materially different hit probabilities in a volatile hour
+than a thin one. A null scattering entries uniformly across 23 hours would trade mostly in
+thin overnight bars and lose for reasons unrelated to entry quality — **it would flatter
+every strategy ever tested against it**. Minute-of-session is discrete and low cardinality
+against millions of bars, so exact matching is feasible and bucketing into session phases
+would leave real confounding inside each bucket. That also keeps M7a independent of M10.4
+([#43]), whose labels exist to stratify results rather than to condition a null.
+
+**The day is randomized rather than matched, deliberately.** Choosing which days to be active
+on is part of what an entry rule does, so it is under test; matching on it too would reduce
+the question to intraday timing alone.
+
+**The null runs the archetype's own `run` with a substituted signal.** `run_deadcat` and
+`run_pullbackandgo` gained a `signal=` override for this, and `Archetype` gained a `signal`
+field so the registry can hand over the real signal to match against. That is what makes the
+two arms share one `simulate_deadcat` call rather than two implementations that were reviewed
+and found to agree — the standing trap about forking the bracket applies to a control arm
+exactly as it does to an archetype.
+
+**Many draws, not one.** A single random-entry backtest is the folk version of this idea and
+is not evidence. The output is a Monte Carlo randomization test in the same shape
+`spread_vs_resampling` already uses. Two differences from that test, both real: this one
+**may** report time-dependent statistics, because every draw is a genuine simulation over
+real bars rather than a relabelling; and its p-value carries the add-one correction, so a
+statistic no draw beat reports 1/(n+1) rather than claiming zero.
+
+#### The first result, which reframes DeadCatBounce
+
+Costed MNQ from 2024 (914,700 bars, 1.24 commission, 1 tick slippage), 500 draws:
+
+| statistic | observed | null median | percentile | p |
+|---|---|---|---|---|
+| profit factor | 0.666 | 0.551 | 99.6 | 0.012 |
+| expectancy | −10.24 | −14.78 | 99.8 | 0.008 |
+| win rate | 32.2% | 29.3% | 99.8 | 0.008 |
+
+**The entry rule is better than random and still loses money.** That is the third of the
+three diagnoses this milestone was built to separate — *there is signal; the loss is coming
+from costs, hold time or bracket geometry rather than from entry selection* — and it is a
+different conclusion from "unprofitable, therefore worthless", which is what every previous
+number supported. It does **not** make DeadCatBounce tradeable and does not change its role
+as the test fixture; it changes what the next question about it is.
+
+Three caveats, recorded so the result is not over-read. It is **one pre-specified parameter
+combination on one root**, not a sweep, so no multiple-comparisons correction applies and
+none is implied. **The arms match on signals and diverge on fills** — 74.4% against 47.7%,
+because the `min(Low[0], Close[0] − 2 ticks)` trigger sits just under an inverted hammer and
+well below an average bar — so per-trade rates are the fair comparison and `net_pnl` is not;
+that is why the defaults are `RATE_STATISTICS` and why both trade counts sit on every row.
+And the rule being tested is *bar selection*, which carries bracket geometry with it, so
+"better than random" is a property of the whole rule rather than of directional timing alone.
+
+On that last point the win-rate result is the more informative one: an R-multiple bracket
+scales stop and target together, so win rate is close to scale-invariant and a 3-point
+edge is not obviously explained by the strategy's bars simply being wider. **A null that also
+matched the risk distribution would isolate pure directional timing** and is the natural
+refinement — worth doing before anyone acts on this, not before it is believed.
 
 ### M7 — the null, split into M7a and M7b ([#32], [#50])
 
