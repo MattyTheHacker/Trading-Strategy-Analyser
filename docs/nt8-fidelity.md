@@ -86,6 +86,54 @@ the same trade, 2024-03-15 10:21, with nothing after it on either side.
 This is the merge caveat `CLAUDE.md` records for roll dates, arriving from the other
 direction — NT8 stitches contracts on a **configured** date, not an observed one.
 
+## Reconciliation result — NQ, the second instrument (#66)
+
+NQ had inherited its fill-semantics confidence from MNQ rather than earning it. It has now
+earned it. Window 2023-12-07 → 2024-03-10, `NQ 03-24` single contract, same configuration as
+the MNQ run above, zero commission, zero slippage, both ends excluded:
+
+| | NT8 | nqbt |
+|---|---|---|
+| legs in window | 1,132 | 1,124 |
+| joined on `(entry_time, leg)` | — | 1,112 |
+| identical entry price | — | 1,108 (99.64%) |
+| identical exit price | — | 1,107 (99.55%) |
+| identical exit time | — | 1,110 (99.82%) |
+| identical exit reason | — | 1,111 (99.91%) |
+| **identical on every field** | — | **1,105 (99.37%)** |
+
+**No instrument-dependent behaviour was found**, which was the open question. The residual
+is two trades. One (2023-12-08 13:38, all four legs) is an entry-price difference — NT8
+entered at 16151.50 against nqbt's 16148.25 — and is the only unexplained case here; it is
+one signal, not a pattern, and the other 285 entries in the window agree. The other
+(2024-01-03 15:01) is an ambiguous entry bar where NT8 filled **S1's target and stopped
+S2–S4 on the same bar**, which nqbt cannot express: its ambiguity policy resolves per trade,
+nearest-to-open, and resolved the whole trade to the stop. Same class as the residuals
+already recorded above, and the same rate.
+
+## Reconciliation result — PullBackAndGo on a second contract (#92)
+
+The long side was previously reconciled against one contract's post-merge tail. Window
+2024-03-12 → 2024-06-14, `MNQ 06-24` single contract — fully liquid, and nearly 1,800 legs:
+
+| | NT8 | nqbt |
+|---|---|---|
+| legs in window | 1,800 | 1,792 |
+| joined on `(entry_time, leg)` | — | 1,792 (0 nqbt-only) |
+| identical entry price | — | **1,792 (100%)** |
+| identical exit price | — | 1,787 (99.72%) |
+| identical exit time | — | 1,786 (99.67%) |
+| identical exit reason | — | 1,791 (99.94%) |
+| **identical on every field** | — | **1,785 (99.61%)** |
+
+Every entry price agrees, on a contract that had never been tested. The residual 7 legs are
+dominated by the **L4 runner exiting later in NT8 than in nqbt**, which is the same
+`StopTargetHandling.PerEntryExecution` artefact recorded against S4 in the first
+reconciliation — the two runs now show it on both sides of the market, which makes it a
+property of NT8's per-entry handling rather than of either strategy.
+
+This run is also what corrected the export-timezone rule; see "Sessions" below.
+
 ## Rules the simulation implements
 
 ### Entry orders are not GTC
@@ -263,9 +311,67 @@ Value[0] = CurrentBar == 0 ? Input[0]
 For `EMA(3)` over `0..9`, TA-Lib returns exactly 8.0 and NT8 returns 8.001953125. Since
 `Close[0] > ema[0]` is a hard entry gate, that changes which bars signal. NT8's SMA
 likewise averages a *partial* window before `period` bars where TA-Lib returns NaN. Both
-are hand-rolled in `indicators.py`; TA-Lib is reserved for MACD/RSI/BB/ATR, which carry
-their own NT8 discrepancies and will need the same treatment when an archetype first
-depends on one.
+are hand-rolled in `indicators.py`. TA-Lib remains in use for MACD and RSI, which no
+archetype reads yet and which carry the same unpinned discrepancy.
+
+### M16 — ATR, StdDev, Bollinger and Keltner, read out of NT8
+
+Pinned by `ninjatrader-scripts/Strategies/NqbtIndicatorProbe.cs`, which places no orders and
+dumps NT8's own values at G17. Source: **MNQ 03-24, 1-minute, 89,330 bars from bar 0**.
+Every series below agrees with `indicators.py` on **all 89,330 bars** at `rtol=1e-11` —
+under 2e-7 of a point against a 0.25 tick, so no gate can move. Bit-exact agreement is not
+achievable through a float recursion and is not the standard; True Range, which accumulates
+nothing, *is* exact on every bar.
+
+**True Range** is `max(H−L, |H−prevC|, |L−prevC|)`, and the bare `H−L` at bar 0. Exact on
+89,330/89,330. Read directly out of `ATR(1)`, since the Wilder recursion at period 1 reduces
+to TR itself and NT8 exposes no TR indicator.
+
+**ATR seeds with an expanding simple average, then switches to Wilder.** Emits from bar 0.
+While `CurrentBar < period` the value is the simple average of every TR so far; from
+`period` on it is `(prior×(period−1) + TR) / period`. This is the **same class of defect as
+the EMA — seeding, not formula** — and it is the one M16 predicted. It is not a rounding
+difference: at bar 1 with period 14, seeding Wilder from bar 0 instead differs by over 4
+points on this data, and the recursion never forgets its seed.
+
+| candidate | bars matching of 89,330 |
+|---|---|
+| expanding-SMA seed, then Wilder | **89,330** |
+| pure Wilder from `TR[0]` | 89,020 |
+| rolling SMA of TR | 20 |
+
+**StdDev uses the population divisor and an expanding partial window.** Divisor is the
+sample count, never `n−1`; before `period` bars exist it uses everything so far, exactly as
+`nt8_sma` does. `StdDev[0]` is 0.
+
+It must be computed **two-pass**, subtracting the window mean explicitly. An incremental
+sum-of-squares update is algebraically identical and numerically is not: pandas'
+`rolling(...).std(ddof=0)` differs from NT8 by up to **4.2e-07** over this window. Far below
+a tick, but not the exact agreement a pin exists to establish.
+
+**Bollinger is the SMA plus that same StdDev.** Midline equals `nt8_sma` exactly on all
+89,330 bars; upper and lower are `midline ± k × StdDev` exactly on all 89,330.
+
+**Keltner matches neither half of the common definition**, which is why M16 flagged it as
+the one most likely to be silently wrong:
+
+- The midline is an **SMA of typical price** `(H+L+C)/3` — matched 89,330/89,330. An SMA of
+  close matched 354, an EMA of typical price matched 1, an EMA of close matched 0.
+- The width is `offset ×` the **mean high−low range**, *not* ATR. `(upper − midline) / 1.5`
+  matched `SMA(H−L, 20)` on 89,330/89,330 and matched `ATR(20)` on **20**.
+
+The two quantities both average a per-bar measure of movement, so a wrong one looks
+plausible on a chart; they part company whenever a gap makes True Range exceed the bare
+range. `tests/test_indicators_nt8_parity.py` pins both halves against the export, including
+the negative assertions.
+
+**True Range does not reset at a session boundary** (#23's measurement half). It reads the
+previous bar's close across the 17:00–18:00 ET maintenance break like any other bar. On
+**27 of the 65 session opens** in this window the overnight gap makes TR exceed `H−L`, so
+this is a material choice rather than a formality — the first is 2023-12-07 23:01, where
+`H−L` is 11.50 and TR is 12.50. The roll-boundary half of #23 remains a decision, not a
+measurement: ATR will step at each roll on a back-adjusted series, and a per-contract run
+(`dispersion.py`) is the way to judge an ATR-sensitive rule.
 
 **VWAP** is hand-rolled session-anchored `Σ(typical × volume) / Σ(volume)`, reset at each
 18:00 ET open. `OrderFlowVWAP` at `VWAPResolution.Standard` works from bar data, so minute
@@ -288,8 +394,22 @@ Exports also contain stray prints outside session hours (isolated volume-1 bars 
 Saturdays). NT8 building bars against an ETH template never forms these, so they are
 tagged `in_session=False` at ingest and dropped from the continuous series.
 
-**NT8's trade-list export is in UTC.** Confirmed by the entry-time histogram: the 22:00
-hour is completely empty, which is the 17:00–18:00 ET break in winter.
+**NT8's trade-list export is in the machine's display timezone, not UTC.** This corrects an
+earlier claim here, and the earlier evidence contains the reason it was wrong: the
+entry-time histogram showed an empty 22:00 hour, which is the 17:00–18:00 ET break *in
+winter*. The original window (MNQ 03-24, December–March) sits entirely in GMT, where
+`Europe/London` and UTC coincide, so a display-zone export was indistinguishable from a UTC
+one.
+
+The MNQ 06-24 reconciliation spans 31 March 2024 and settles it. Parsing as UTC joined
+**332 of 1,800 legs**; parsing as `Europe/London` joined **1,792 of 1,792**. The shift is
+exactly 0 hours before 31 March and exactly +1 after — BST, not a data problem.
+
+So a reconciliation over any summer window fails mysteriously unless the export is read in
+the display zone. `tools/reconcile_nt8.py` does, via `EXPORT_TZ`, and it is stated
+explicitly rather than inferred because a wrong zone shifts every trade by a whole hour and
+still parses cleanly. Bar timestamps in `data/archive/` are unaffected — those are converted
+to UTC at export by the AddOn, which already handled both DST traps.
 
 ## Contract data
 

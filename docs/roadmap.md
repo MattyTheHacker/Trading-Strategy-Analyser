@@ -29,7 +29,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~3~~ | ~~**M9** — split context from simulation~~ | — | **Done 2026-08-12.** `nqbt/context.py` and `nqbt/trades.py` exist, layering enforced by import-analysis tests, every producer path byte-identical across all 14 files. |
 | ~~3a~~ | ~~**M20a** — the three findings that block M15~~ | [#9] | **Done 2026-08-14.** `_resolve_brackets` is the single bracket implementation, `entry_bracket` the single trigger computation, `Summary.empty()` replaces the splat that raised. |
 | ~~3b~~ | ~~**M15** — direction in the simulator~~ | [#13] | **Done 2026-08-15**, reconciled included. `d = ±1` through the whole loop, `PullBackAndGo` ported and diffed leg-for-leg against a real NT8 trade list. That reconciliation found two fill-semantics defects — see below. |
-| — | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | [#19] | **Out of the code queue; batched into a NinjaTrader session.** Five consumers, not one, and [#20], [#21], [#22] and half of [#23] are all readings rather than code. **Now the only thing between here and M18.** |
+| ~~—~~ | ~~**M16** — NT8-parity ATR, StdDev, Bollinger, Keltner~~ | [#19] | **Done 2026-08-16.** One probe run answered [#20], [#21], [#22] and [#23]'s measurement half over 89,330 bars. Keltner matched neither half of the usual definition. **M18 is unblocked.** |
 | ~~3c~~ | ~~**M17 + M13 + M14** — strategy, resolution and contract as axes~~ | [#24], [#30], [#31] | **Done 2026-08-16.** The registry landed 2026-08-15; `resample.py` ([#30]) and `dispersion.py` ([#31]) followed, then the results schema ([#29]) and `sweep_axes` ([#28]) — **one mechanism, not three**, so the schema settled once before the stale DuckDB re-run ([#71]). |
 | ~~4~~ | ~~**M7a** — `randomentry.py`~~ | [#32] | **Done 2026-08-16.** Matched on count, time-of-session and direction; Monte Carlo rather than a single draw. First result reframes DeadCatBounce — better than random, still unprofitable. See below. |
 | 5 | **M18** — EMA crossover | [#34] | The one archetype built now, to prove the protocol. A legitimate known-negative control. |
@@ -63,21 +63,22 @@ better use of code time. **Split the queue by resource, not by milestone number:
 | resource | work |
 |---|---|
 | code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]) → M7a ([#32])~~ — **all done**. Next: the numpy summary path ([#33]) |
-| NinjaTrader time | [#20], [#21], [#22] (M16 pins), [#23] (the TR reading), [#66] (NQ), [#67] (order lifetime), [#92] (a second long-side contract) |
+| NinjaTrader time | ~~[#20], [#21], [#22], [#23], [#66], [#92]~~ — **all done 2026-08-16**. Only [#67] (order lifetime) remains, and M19 is not scheduled |
 
 Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
 true — M18 needs both.
 
-**With M17 done the code column no longer reaches M18.** M7a ([#32]) and the numpy summary
-path ([#33]) are both unblocked and both pure Python, but after them the queue runs dry
-against Phase 2: [#37]'s ATR stop makes M16 a hard prerequisite, and M16 is readings. Book
-the NinjaTrader session before the code column empties rather than after — six items share
-that one sitting.
+**The NinjaTrader queue is now empty except [#67], and M18 is unblocked.** That session
+paid for itself several times over: it closed M16 and both outstanding reconciliations, and
+it found two things that reasoning would not have — Keltner matching neither half of the
+common definition, and the trade-list export being in the machine's display timezone rather
+than UTC. [#67] is the only item left and it gates M19, which is queued rather than
+scheduled, so nothing is waiting on it.
 
-**[#23] is half a reading, so it belongs above, not "whenever convenient".** This file used
-to call it a decision rather than a measurement, but its first requirement is *confirm
-against NT8 whether True Range resets at a session boundary*. Only the roll-boundary half is
-a decision that can be taken at a desk.
+**[#23]'s roll-boundary half is still a decision, not a measurement.** The session-boundary
+half is settled: True Range does not reset. On a back-adjusted series ATR will step at each
+roll, and the guidance is to judge an ATR-sensitive rule per contract ([#31]) rather than to
+special-case the splice.
 
 ### What M15.5 changed, and the lesson that outlives it
 
@@ -483,21 +484,37 @@ defects [#18] found were in the *shared* bracket code, present since the beginni
 original archetype they would have been indistinguishable from the strategy simply being bad.
 Stop-and-reverse remains out of scope; see "Decisions taken".
 
-### M16 — the indicator-parity debt ([#19])
+### ~~M16~~ — the indicator-parity debt: done ([#19])
 
-`indicators.py` flagged this from the start: TA-Lib is still used for MACD, RSI, Bollinger and
-ATR, all of which carry the same NT8 discrepancy the EMA had. **Expect exactly that bug —
-seeding, not formula.** TA-Lib warms up with a simple average and emits nothing before index
-`period-1`; NT8 seeds from bar 0 and emits from bar 0, which is why `nt8_sma` reproduces a
-partial-window warm-up. There are five consumers, not one, which is what makes this a milestone
-rather than a squeeze detail: Keltner for the squeeze, all three unported NinjaScripts, EMA
-crossover's stop rule, ATR-multiple brackets ([#76]), and the compression classifiers. Read each
-out of NT8 and pin it against hand-computed values ([#20], [#21], [#22]) — do not answer from
-memory. Keltner is the one most likely to be silently wrong, because platforms disagree on both
-the midline and what the multiplier applies to. True Range reads the *previous* close, so
-session and roll boundaries need a decision rather than a default ([#23]). One memory note: BB
-and KC are swept over period *and* multiplier, so the 66 MB → 595 MB lesson applies with an
-extra factor — keep boolean gates only.
+Every value is in `docs/nt8-fidelity.md` §M16 with its evidence; this is what the exercise
+taught, which is the part that generalises.
+
+**The prediction was right, and it was worth making.** M16 said to expect *seeding, not
+formula*, and that is exactly what ATR turned out to be: an expanding simple average of True
+Range until the period fills, then Wilder. Pure Wilder from bar 0 — the textbook form —
+agreed on 89,020 of 89,330 bars, which is the dangerous kind of wrong: it looks correct
+everywhere except the warm-up, and the recursion never forgets its seed.
+
+**"Do not answer from memory" earned its keep on Keltner.** It was flagged here as the one
+most likely to be silently wrong, and it was wrong in *both* halves at once — the midline is
+an SMA of typical price rather than an EMA of close, and the width is the mean high−low range
+rather than ATR. ATR agreed on **20 bars out of 89,330**. Any implementation written from
+memory would have been wrong twice, and both mistakes produce a plausible-looking channel.
+
+**One probe answered four issues.** `NqbtIndicatorProbe.cs` exports every candidate series
+side by side from bar 0, so the questions are settled by reading a table rather than by
+running an experiment per hypothesis. Exporting `ATR(1)` was the trick worth keeping: NT8
+exposes no True Range indicator, but Wilder at period 1 reduces to TR exactly.
+
+**A pin is about method as well as formula.** StdDev's rule is unremarkable — population
+divisor, expanding window — but reproducing it requires a *two-pass* computation. pandas'
+`rolling(...).std(ddof=0)` is algebraically identical and drifts by up to 4.2e-07. That is
+far below a tick and would never show up in a result; it would simply mean the pin was not a
+pin.
+
+Still true and still unpaid: BB and KC are swept over period *and* multiplier, so the
+66 MB → 595 MB lesson applies with an extra factor — **keep boolean gates only**. And
+[#23]'s roll-boundary half remains a decision rather than a measurement.
 
 ### ~~M17~~ — the archetype protocol: done ([#24])
 
@@ -838,25 +855,33 @@ the backtest reads the future. **Both get much cheaper once M16 and M17 land** �
 the pin-it-against-NT8 procedure a new kind needs, and M17's `required_context` already has to
 key grids by `(kind, period)`. Reconsider after those rather than now.
 
-### Tier-2 verification — needs NinjaTrader time, not code time ([#65])
+### Tier-2 verification — [#67] is all that remains ([#65])
 
-Three outstanding items, none blocking anything, and **M16's [#20], [#21] and [#22] are the
-same resource** even though they sit under a different milestone — run them as one session.
+**~~A second long-side contract~~ ([#92]) — done.** `MNQ 06-24`, fully liquid: 1,792 of 1,792
+legs joined, **100% identical entry price**, 99.61% identical on every field. The residual is
+dominated by the L4 runner exiting later in NT8, which is the same
+`StopTargetHandling.PerEntryExecution` artefact already recorded against S4 — now seen on
+both sides of the market, which makes it a property of NT8's per-entry handling rather than
+of either strategy.
 
-**A second long-side contract** ([#92]) is the newest, split out of [#18]. The long side is
-reconciled, but against one contract's post-merge tail rather than a full contract, because
-that export was back-adjusted-merged before a certain date and only the later portion agrees
-with the archive. Re-running the same contract reproduces the same window; a fully liquid one
-(MNQ 06-24 or 09-24) is what adds evidence.
+**~~Reconcile NQ against NT8~~ ([#66]) — done.** 1,105 of 1,112 joined legs identical on
+every field (99.37%), and **no instrument-dependent behaviour was found**, which was the
+open question. NQ no longer inherits its confidence from MNQ.
 
-**Reconcile NQ against NT8** ([#66]): NQ
-inherits its fill-semantics confidence from MNQ rather than earning it. Everything downstream of
-the bars is proven instrument-agnostic — same bars through both specs give identical geometry and
-gross P&L of exactly ×10 per leg — so the *simulation* is not in doubt; what is unverified is
-whether NT8 itself behaves identically on NQ. There is no reason to expect a difference, which is
-precisely why an unexamined assumption could sit there indefinitely. Export **Trades**, not the
-summary, or every rule that matters stays hidden, and exclude both window ends. **Settle the four
-order-lifetime questions** ([#67]) that reflection cannot answer — listed above.
+That run also corrected a rule this project had been carrying since the first
+reconciliation: **the trade-list export is in the machine's display timezone, not UTC.** The
+original evidence — an empty 22:00 hour — was sound but window-specific, because
+December–March is GMT and London coincides with UTC there. Over the summer MNQ 06-24 window
+the difference is a full hour, and parsing as UTC joined 332 of 1,800 legs against 1,792 of
+1,792. **A wrong timezone parses cleanly and reads as a failed reconciliation**, so it is now
+explicit configuration in `tools/reconcile_nt8.py` rather than an inferred default.
+
+`tools/reconcile_nt8.py` is the reusable mechanism these produced. Per the standing rule that
+each archetype earns its own reconciliation, the next one does not start from scratch.
+
+**Settle the four order-lifetime questions** ([#67]) that reflection cannot answer — listed
+above. It is the only NinjaTrader item left, and it gates M19, which is queued rather than
+scheduled.
 
 ---
 

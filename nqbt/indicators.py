@@ -19,9 +19,16 @@ The two converge but are not equal: for ``EMA(3)`` over ``0..9`` TA-Lib returns 
 TA-Lib returns NaN, and it maintains the average by recursive add/subtract rather than
 re-summing the window. Both behaviours are reproduced here.
 
-TA-Lib is still the right tool for MACD, RSI, Bollinger Bands and ATR, which no archetype
-uses yet. Those carry their own NT8 discrepancies (NT8's RSI smooths differently) and will
-need the same treatment when an archetype first depends on one.
+**ATR, StdDev, Bollinger and Keltner** were pinned against an NT8 export of 89,330 bars
+(M16). Every rule and its evidence is in ``docs/nt8-fidelity.md``; two are worth knowing
+before reading the code, because both differ from the textbook:
+
+- ATR seeds with an expanding *simple* average of True Range, then switches to Wilder.
+- Keltner is built on the **mean high-low range**, not on ATR, around an SMA of typical
+  price.
+
+TA-Lib remains in use for MACD and RSI, which no archetype reads yet and which carry the
+same unpinned discrepancy.
 """
 
 from __future__ import annotations
@@ -30,8 +37,13 @@ import numpy as np
 from numba import njit
 
 __all__ = [
+    "nt8_atr",
+    "nt8_bollinger",
     "nt8_ema",
+    "nt8_keltner",
     "nt8_sma",
+    "nt8_stddev",
+    "nt8_true_range",
     "session_vwap",
     "typical_price",
     "new_session_flags",
@@ -80,6 +92,117 @@ def nt8_sma(values: np.ndarray, period: int) -> np.ndarray:
             total = out[i - 1] * i
             out[i] = (total + values[i]) / (i + 1)
     return out
+
+
+@njit(cache=True)
+def nt8_true_range(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
+    """True Range: ``max(H-L, |H-prevC|, |L-prevC|)``, and the bare range at bar 0.
+
+    The previous close is used across session and roll boundaries alike -- NT8 does not
+    reset it, and on 27 of 65 session opens in the pinning window the overnight gap makes
+    the difference. See ``docs/nt8-fidelity.md``.
+    """
+    n = high.size
+    out = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return out
+
+    out[0] = high[0] - low[0]
+    for i in range(1, n):
+        prev = close[i - 1]
+        span = high[i] - low[i]
+        up = abs(high[i] - prev)
+        down = abs(low[i] - prev)
+        out[i] = max(span, max(up, down))
+    return out
+
+
+@njit(cache=True)
+def nt8_atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> np.ndarray:
+    """Average True Range, seeded NT8's way rather than Wilder's.
+
+    Emits from bar 0. Until ``period`` bars exist the value is the expanding simple average
+    of True Range; from then on it is the Wilder recursion
+    ``(prior * (period - 1) + TR) / period``. Seeding with a plain simple average is the
+    same class of difference the EMA has, and it persists: the recursion never forgets its
+    seed.
+    """
+    tr = nt8_true_range(high, low, close)
+    n = tr.size
+    out = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return out
+
+    out[0] = tr[0]
+    running = tr[0]
+    for i in range(1, n):
+        if i < period:
+            running += tr[i]
+            out[i] = running / (i + 1)
+        else:
+            out[i] = (out[i - 1] * (period - 1) + tr[i]) / period
+    return out
+
+
+@njit(cache=True)
+def nt8_stddev(values: np.ndarray, period: int) -> np.ndarray:
+    """Population standard deviation over an expanding window capped at ``period``.
+
+    Divisor is the sample count, not ``n-1``, and a partial window is used before ``period``
+    bars exist -- the same warm-up :func:`nt8_sma` has.
+
+    Computed in two passes, subtracting the window mean explicitly. An incremental
+    sum-of-squares update is algebraically identical and drifts: pandas' rolling standard
+    deviation differs from this by up to 4.2e-07 over the pinning window, which is far
+    below a tick but is not the exact agreement a pin is for.
+    """
+    n = values.size
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        start = i - period + 1
+        if start < 0:
+            start = 0
+        count = i - start + 1
+
+        total = 0.0
+        for j in range(start, i + 1):
+            total += values[j]
+        mean = total / count
+
+        acc = 0.0
+        for j in range(start, i + 1):
+            diff = values[j] - mean
+            acc += diff * diff
+        out[i] = np.sqrt(acc / count)
+    return out
+
+
+def nt8_bollinger(
+    values: np.ndarray, period: int, num_std: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Bollinger Bands as ``(upper, middle, lower)``.
+
+    The midline is :func:`nt8_sma` and the bands are that midline plus and minus
+    ``num_std`` times :func:`nt8_stddev` -- both exact on all 89,330 pinned bars.
+    """
+    middle = nt8_sma(values, period)
+    spread = num_std * nt8_stddev(values, period)
+    return middle + spread, middle, middle - spread
+
+
+def nt8_keltner(
+    high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int, offset: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Keltner Channels as ``(upper, midline, lower)``.
+
+    **Neither half matches the common definition**, and this is the one M16 expected to be
+    silently wrong. The midline is an SMA of *typical* price, not an EMA of close; the width
+    is ``offset`` times the mean **high-low range**, not times ATR. Using ATR here agreed
+    with NT8 on 20 of 89,330 bars.
+    """
+    midline = nt8_sma(typical_price(high, low, close), period)
+    width = offset * nt8_sma(high - low, period)
+    return midline + width, midline, midline - width
 
 
 @njit(cache=True)

@@ -56,7 +56,8 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
   archetype used a bare `High[0]`. One archetype cannot exercise the fill model.
 - `MaxRiskPerTrade` is in **ticks**, not dollars.
 - **TA-Lib's EMA ≠ NT8's EMA** (different seeding). `indicators.py` hand-rolls NT8's
-  recursion. TA-Lib is reserved for MACD/RSI/BB/ATR, which have the same problem unfixed.
+  recursion. ATR/StdDev/Bollinger/Keltner are now pinned too (see below); TA-Lib is left
+  only for MACD and RSI, which no archetype reads and which carry the same problem unfixed.
 - **Exports are moving windows, not snapshots.** NT8 serves each contract for a limited
   period and drops the tail once it expires, so a folder of exports loses history over time.
   `data/archive/` is the durable union and **the only thing ingestion reads**; `archive.py`
@@ -99,7 +100,21 @@ simulated. The trap is letting that precision leak backwards into `nqbt/sim/` �
   filters to in-session first. Measured on MNQ 03-24: including all 47 strays changes
   nothing — 1,380 legs either way, no differing field — so this is a known asymmetry, not a
   live bug. Re-measure rather than assume if the parser ever starts keeping more of them.
-- NT8 trade-list exports are in **UTC**. Bar timestamps are **end-of-bar, UTC**.
+- **NT8 trade-list exports are in the machine's display timezone (`Europe/London`), not UTC.**
+  They only looked like UTC because the first reconciliation window was December–March, when
+  London *is* UTC. Over a summer window the export is BST and every trade is an hour out —
+  parsing MNQ 06-24 as UTC joined 332 of 1,800 legs; as `Europe/London`, 1,792 of 1,792.
+  `tools/reconcile_nt8.py` handles it. Bar timestamps in `data/archive/` are **end-of-bar,
+  UTC** — the AddOn converts at export.
+- **TA-Lib's ATR/StdDev/Bollinger/Keltner are all wrong for NT8 too, and Keltner doubly so.**
+  Pinned in M16 against 89,330 bars: ATR seeds with an *expanding simple average* of True
+  Range before switching to Wilder; StdDev uses the *population* divisor over an expanding
+  window and must be computed two-pass; Bollinger is `SMA ± k·StdDev`. **Keltner matches
+  neither half of the usual definition** — its midline is an SMA of *typical price*, and its
+  width is the mean *high−low range*, **not ATR** (ATR agreed on 20 bars of 89,330). Use
+  `indicators.nt8_*`; `docs/nt8-fidelity.md` §M16 has the evidence.
+- **True Range does not reset at a session boundary.** It reads the previous bar's close
+  across the maintenance break, and on 27 of 65 session opens the gap makes TR exceed `H−L`.
 - **Every position must be flat before the session close** — a prop-firm account rule, so it is
   not negotiable and not a parameter. Already implemented (`sessions.force_flat_mask`,
   `EXIT_SESSION_CLOSE`, `block_entry_at_session_close`) and matching NT8's
@@ -172,8 +187,9 @@ constant either; that drift is out-of-session stray prints and is inert.
 `verification/README.md` has the detail — note it is **gitignored and local-only** (#91).
 
 **NQ runs end to end** — ingest, splice, prepare, parallel sweep — and is unprofitable on
-its own data too. No NQ result has been reconciled against NT8 (#66); MNQ remains the only
-fill-semantics evidence.
+its own data too. **NQ is now reconciled against NT8 (#66)**: 1,105 of 1,112 joined legs
+identical on every field (99.37%) on NQ 03-24, with no instrument-dependent behaviour found.
+Both roots therefore carry fill-semantics evidence of their own.
 
 **M9 has landed.** `Dataset`/`prepare` are now `nqbt/context.py`; the trade-log schema is
 `nqbt/trades.py` with `validate()` called at the producer boundary, and it carries
@@ -554,11 +570,9 @@ the review outputs are stable.
   parallel. `nqbt contracts` and `nqbt splice --diagnostics` report the current contract,
   bar and roll counts; don't cite them from here. Instrument scaling is proven exact (same
   bars, both specs, ×10 gross P&L per leg, commission unscaled).
-- **TODO: reconcile NQ against NT8 (#66).** No NQ Strategy Analyzer export has ever been
-  compared trade-for-trade, so NQ inherits its fill-semantics confidence from MNQ rather
-  than earning it. Needs NinjaTrader time, not code time; blocks nothing. The recipe is in
-  `docs/roadmap.md` — export **Trades**, not the summary, or every rule that matters stays
-  hidden.
+- ~~**Reconcile NQ against NT8 (#66)**~~ — **done.** 99.37% of joined legs identical on every
+  field, no instrument-dependent behaviour. `docs/nt8-fidelity.md` has the table and the two
+  residual trades. `tools/reconcile_nt8.py` is the mechanism, reusable for the next archetype.
 - **Holiday early closes are probably not force-flatted.** `force_flat_mask` derives its cutoff
   from the template's fixed 17:00 ET close, not from the session's observed last bar, so on a
   CME half-day (Thanksgiving, Christmas Eve, July 3) nothing reaches the cutoff and the mask
