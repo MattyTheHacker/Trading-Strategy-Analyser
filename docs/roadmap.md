@@ -626,7 +626,28 @@ is self-limiting: 1, 2, 5 and 15 minutes is ≈1.8× a 1-minute sweep, not 4×.
 
 ### M14 — per-contract sweeps ([#31])
 
-`sweep.sweep()` already accepts a single contract's frame, so what is missing is the
+**`nqbt/dispersion.py` has landed.** The `contract` results column is [#29] and folding it
+into one axis mechanism alongside strategy and resolution is [#28]; the per-contract loop
+here is deliberately thin so [#28] can absorb it and keep the statistics.
+
+Two things the build settled that are worth not relitigating. **Both spread measures are
+reported, because the milestone has two jobs that disagree** — the IQR answers "does the bulk
+of contracts differ?" and the range answers "is any one contract extreme?", which is the
+data-integrity question below. Reporting only the robust measure would discard the signal
+this milestone is most useful for, and a test pins that a single rogue contract moves the
+range while leaving the IQR alone. And **`stats.trade_statistic` was added rather than a
+second profit-factor implementation** — the permutation test needs thousands of evaluations
+and `summarise` is too slow, so the fast path shares `_ratio` and a test asserts exact
+equality with `summarise` on real logs. That is the same discipline [#33] plans for the
+numpy-native summary path, applied early because this is where it first became necessary.
+
+**The first result is the argument for the framing.** DeadCatBounce's per-contract variation
+on MNQ is indistinguishable from relabelling the same trades, on both measures, even though
+the best contract reads roughly double the worst.
+
+The original reasoning follows, and still holds.
+
+`sweep.sweep()` already accepts a single contract's frame, so what was missing is the
 cross-contract table, a `contract` column, and the framing. **Report the spread, not the
 winner:** a contract is ~3 months of front-month, so "best contract" is very nearly "best
 quarter", and picking the best of 19 × N combinations is the multiple-comparisons trap §11.4

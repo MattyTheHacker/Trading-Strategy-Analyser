@@ -400,17 +400,36 @@ are all per-bar — so it must be a first-class results column. **The ambiguous-
 climb with bar size**, roughly doubling by 15 minutes on MNQ, and the forced-exit share rises
 with it; if a coarse resolution looks profitable, check both before believing it.
 
-**M14 — per-contract sweeps.** Planned. `sweep.sweep()` already accepts a single contract's
-frame, so what is missing is the cross-contract table, a `contract` column in DuckDB, and the
-framing. **Report the spread, not the winner**: a contract is ~3 months of front-month, so
-"best contract" is mostly "best quarter", and picking the best of 19 × N combinations is the
-multiple-comparisons trap §11.4 already guards against. Overlaps M7's walk-forward — share
-the machinery. Its distinct value is that it uses **raw, not back-adjusted** prices (the only
-way to test round-number stops), contains **no roll** so it is directly Tier-2 reproducible
-(the cheapest route to the NQ reconciliation), and makes an outlier contract read as the data
-bug it usually is. Default to the **front-month window**; full contract life overlaps its
-neighbours and double-counts calendar days. Architecturally identical to M13 — both are axes
-*above* the `Dataset` — so build one mechanism, not two.
+**M14 — per-contract sweeps.** `nqbt/dispersion.py` exists (#31); the `contract` results
+column is #29 and folding it into one axis mechanism is #28.
+
+**Report the spread, not the winner.** A contract is ~3 months of front-month, so "best
+contract" is mostly "best quarter", and picking the best of 19 × N combinations is the
+multiple-comparisons trap §11.4 guards against. `dispersion()` is therefore returned in
+`combo_id` order and never sorted by performance, and a test fails if it starts.
+
+**A spread with no null is a number, not a finding.** `spread_vs_resampling()` permutes
+trades between contracts, keeping group sizes exactly, and asks whether the observed spread
+survives. It reports **two** measures because the milestone has two jobs that disagree: the
+IQR answers "does the bulk of contracts differ?" and is robust, while the range answers "is
+any one contract extreme?", which is the data-integrity question — the IQR is blind to a
+single rogue contract *by construction*. Restricted to `stats.TRADE_PNL_STATISTICS`, since
+permuting destroys the ordering Sharpe or max drawdown depend on. **A small p-value means
+"not obviously noise", never "a real per-contract effect"**: permutation destroys
+within-contract regime persistence, so the null has less spread than reality and the test
+over-rejects.
+
+Its distinct value is that it uses **raw, not back-adjusted** prices (the only way to test
+round-number stops), contains **no roll** so it is directly Tier-2 reproducible (the cheapest
+route to the NQ reconciliation, #66), and makes an outlier contract read as the data bug it
+usually is. Windows default to the **front-month** one, read off the continuous series' own
+`contract` column so they are the splicer's decisions rather than a second opinion — they are
+non-overlapping and sum to the continuous series exactly, which a test pins. `full_life=True`
+exists but adjacent contracts then overlap by months and aggregates double-count.
+
+**First result: DeadCatBounce's per-contract variation on MNQ is indistinguishable from
+noise** on both measures, despite the best contract reading roughly double the worst. Treat
+a per-contract difference as a hypothesis, not a finding, until it clears this.
 
 **Spec features not yet built.** The build spec calls for these; none exist yet:
 
