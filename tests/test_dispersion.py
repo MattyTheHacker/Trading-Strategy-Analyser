@@ -36,6 +36,7 @@ def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.Da
                     "mfe_points": 2.0,
                     "r_multiple": share / 10.0,
                     "ambiguous_bar": False,
+                    "exit_reason": "target",
                     "entry_time": base + pd.Timedelta(days=trade_id),
                     "exit_time": base + pd.Timedelta(days=trade_id, minutes=5),
                 }
