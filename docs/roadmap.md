@@ -502,6 +502,14 @@ Three things the landed part settled, worth not relitigating:
   `Dataset`, and `context.py` must not import from `nqbt.sim`. Grids are keyed by
   `(kind, period)`, which is the half of [#72] that no longer needs doing.
 
+**M17.5 ([#29]) has landed**, so the schema is settled before [#28] fills it and before the
+stale-database re-run ([#71]). `strategy`, `resolution`, `contract` and `tier2` exist on both
+DuckDB tables, nullable, with `batch_id` on `sweeps`; a database written before them gains
+them by migration and keeps its rows. `stats.Summary` gained `session_close_share` in the
+same change — measured at **0.0001 on DeadCatBounce over 1-minute continuous MNQ** (one leg
+in 9,824), which is the baseline the resolution sweep is expected to move sharply. The
+reasoning for the row granularity is in "Decisions taken".
+
 The `tier2` registry field ([#25]) is not bookkeeping: per the standing constraint,
 "validated against NT8" stops being a project-wide fact once originals exist. The shared
 bracket engine is extracted **during** M18 ([#38]) — before is designing from one example,
@@ -815,6 +823,31 @@ Residual risk, recorded rather than dismissed: a spliced-series result cannot be
 Strategy Analyzer bar-for-bar around a roll. If a sweep that crosses one ever produces something
 surprising, the roll boundary is a candidate explanation, and the segment tables in
 `nqbt splice --diagnostics` are where to look first.
+
+**One `sweeps` row per axis point, tied by `batch_id`** ([#29]). A run varying strategy,
+resolution or contract is several **datasets**, and `bars`, `first_bar` and `last_bar` are
+properties of a dataset — one row spanning nineteen contracts could not honestly fill them,
+and sweep-level tags would have to read "varies", which is the state that makes the tag
+useless exactly when it matters. So each axis point writes its own row with its own honest
+counts, and a nullable `batch_id` says which rows were one experiment. Without it the only
+way to regroup them is `created_utc` plus a matching `axes` blob, which is fragile in the
+direction that silently merges two experiments.
+
+Two things the build settled, both of which were latent bugs rather than choices.
+**`save_sweep` now inserts by name**, because `ALTER TABLE` appends the new columns at the
+end while a fresh `CREATE TABLE` declares them in the middle — one positional statement
+cannot serve both, and `root`/`instrument`/`strategy`/`contract` are four adjacent VARCHARs,
+so a transposition stores a plausible row rather than raising. That is the same rule M9
+applied to `combos`, arriving at `sweeps` for the same reason. And **the axis columns are
+migrated explicitly** rather than left to `_append_or_create`'s drop-what-you-do-not-know
+policy: dropping a *statistic* leaves a visible gap, which is the accepted trade, but
+dropping `contract` does not leave a gap — it relabels the row as a different run.
+
+**Pin the dtypes when a tag can be null.** DuckDB types a new table from the frame that
+creates it, and an all-null `object` column infers as **INTEGER** — so a first sweep over the
+spliced series, where `contract` is null by definition, would have created `combos.contract`
+as an integer column that no contract name could ever afterwards be inserted into. Measured,
+not reasoned about; `tests/test_sweep_stats.py` pins it.
 
 **Stored sweeps — drop and re-run, not yet** ([#71]). Everything in `results/sweeps.duckdb` was
 computed against a continuous series with different roll dates, so those rows are not comparable

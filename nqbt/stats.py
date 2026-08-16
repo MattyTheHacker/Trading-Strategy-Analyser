@@ -17,7 +17,18 @@ from typing import get_type_hints
 import numpy as np
 import pandas as pd
 
+from nqbt.trades import EXIT_REASONS, EXIT_SESSION_CLOSE
+
 TRADING_DAYS_PER_YEAR = 252
+
+SESSION_CLOSE = EXIT_REASONS[EXIT_SESSION_CLOSE]
+"""The ``exit_reason`` string for a position closed by the clock.
+
+Read out of :data:`nqbt.trades.EXIT_REASONS` rather than spelled again here, so the label
+and the code it maps from cannot drift apart. Importing :mod:`nqbt.trades` is within the
+layering rule -- ``stats.py`` may not reach into :mod:`nqbt.sim`, but the trade schema is
+what it is defined over.
+"""
 
 
 @dataclass(slots=True)
@@ -55,6 +66,22 @@ class Summary:
 
     The one statistic that says how much of the result rests on an assumption the bar data
     cannot settle. A candidate with a high share deserves a second look before Tier 2."""
+    session_close_share: float
+    """Fraction of leg exits taken by the clock rather than by the strategy's own rules.
+
+    Reported rather than buried in the trade log because a strategy taking 40% of its exits
+    at the session close **is not the strategy its rules describe**, and no aggregate here
+    says so -- the profit factor of such a run is largely a measurement of the flatten time.
+
+    Flat-before-the-close is a prop-account rule, so this is never a bug to be fixed; it is
+    a property of the archetype at that bar size. Expect it to rise sharply with resolution
+    (#30): a position opened near the close has fewer and fewer bars in which to reach a
+    target, so more of its outcomes are decided by the clock. Read it beside
+    :attr:`ambiguous_share` whenever a coarse resolution looks profitable.
+
+    Over **legs**, matching :attr:`ambiguous_share`'s denominator -- a leg exit is an exit.
+    An imported real-fill log has an ``exit_reason`` NT8 wrote (``Stop1..4``, ``Exit``),
+    none of which is this label, so it reports 0.0 rather than a wrong number."""
     commission_paid: float
 
     def as_dict(self) -> dict:
@@ -185,6 +212,11 @@ def summarise(trades: pd.DataFrame) -> Summary:
         sharpe=sharpe,
         sortino=sortino,
         ambiguous_share=float(trades["ambiguous_bar"].mean()),
+        # Indexed, not ``.get``-ed. ``validate`` requires ``exit_reason`` of every producer,
+        # so a log without it is a wiring bug and should say so here rather than quietly
+        # report 0.0 -- which would read as "this strategy never runs into the close".
+        # That silent-branch shape is what #81 records against the Sharpe path above.
+        session_close_share=float((trades["exit_reason"] == SESSION_CLOSE).mean()),
         commission_paid=float(trades["commission"].sum()),
     )
 

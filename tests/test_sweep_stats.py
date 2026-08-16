@@ -1,5 +1,8 @@
 """Tests for the sweep harness, statistics and DuckDB results layer."""
 
+import json
+
+import duckdb
 import numpy as np
 import pandas as pd
 import pytest
@@ -10,13 +13,19 @@ from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams
 
 
-def trade_log(rows) -> pd.DataFrame:
-    """Build a leg-level log. Each row is (trade_id, leg, net_pnl, bars, ambiguous)."""
+def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
+    """Build a leg-level log. Each row is (trade_id, leg, net_pnl, bars, ambiguous).
+
+    ``exit_reasons`` defaults to every leg exiting at its target, which is a real reason
+    rather than a placeholder -- ``session_close_share`` reads this column, so a log full of
+    ``""`` would make that statistic vacuously 0 in every test that does not set it.
+    """
     frame = pd.DataFrame(rows, columns=["trade_id", "leg", "net_pnl", "bars_held", "ambiguous_bar"])
     frame["commission"] = 0.5
     frame["mae_points"] = 1.0
     frame["mfe_points"] = 2.0
     frame["r_multiple"] = frame["net_pnl"] / 10.0
+    frame["exit_reason"] = exit_reasons if exit_reasons is not None else "target"
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
     frame["entry_time"] = base + pd.to_timedelta(frame["trade_id"], unit="D")
     frame["exit_time"] = frame["entry_time"] + pd.Timedelta(minutes=5)
@@ -75,6 +84,57 @@ def test_ambiguous_share_reports_assumption_exposure() -> None:
     log = trade_log([(1, 1, 5.0, 1, True), (2, 1, 5.0, 1, False),
                      (3, 1, 5.0, 1, False), (4, 1, 5.0, 1, False)])
     assert stats.summarise(log).ambiguous_share == pytest.approx(0.25)
+
+
+def test_session_close_share_counts_exits_taken_by_the_clock() -> None:
+    log = trade_log(
+        [(1, 1, 5.0, 1, False), (2, 1, 5.0, 1, False), (3, 1, -5.0, 1, False), (4, 1, 5.0, 1, False)],
+        exit_reasons=["target", "session_close", "stop", "session_close"],
+    )
+    assert stats.summarise(log).session_close_share == pytest.approx(0.5)
+
+
+def test_session_close_share_is_zero_when_nothing_runs_into_the_close() -> None:
+    log = trade_log([(1, 1, 5.0, 1, False), (2, 1, -5.0, 1, False)],
+                    exit_reasons=["target", "stop"])
+    assert stats.summarise(log).session_close_share == 0.0
+
+
+def test_session_close_share_is_measured_over_legs_like_ambiguous_share() -> None:
+    """Denominator pinned, because the two defensible choices differ by 4x here.
+
+    One trade of four legs, one of which the clock closed. Over legs that is 0.25; over
+    trades it would be 1.0, since the trade did end at the close. Legs is chosen to match
+    ``ambiguous_share``, so the two diagnostics in adjacent columns are comparable.
+    """
+    log = trade_log(
+        [(1, leg, 5.0, 1, False) for leg in range(1, 5)],
+        exit_reasons=["target", "target", "target", "session_close"],
+    )
+    s = stats.summarise(log)
+    assert s.trades == 1 and s.legs == 4
+    assert s.session_close_share == pytest.approx(0.25)
+
+
+def test_session_close_share_reads_the_label_the_simulator_actually_writes() -> None:
+    """Guards the guard: the tests above would pass on a typo shared with the source.
+
+    ``stats.SESSION_CLOSE`` is derived from ``trades.EXIT_REASONS`` rather than spelled
+    twice, and this asserts the derivation lands on the string the mapping produces.
+    """
+    assert stats.SESSION_CLOSE == trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE]
+    assert stats.SESSION_CLOSE == "session_close"
+
+
+def test_a_log_without_an_exit_reason_raises_rather_than_reporting_zero() -> None:
+    """A missing column is a wiring bug, and 0.0 would read as a finding about the market.
+
+    The same shape as #81's silent Sharpe branch, which is why this is indexed rather than
+    defaulted -- ``trades.validate`` requires the column of every producer.
+    """
+    log = trade_log([(1, 1, 5.0, 1, False)]).drop(columns=["exit_reason"])
+    with pytest.raises(KeyError, match="exit_reason"):
+        stats.summarise(log)
 
 
 def test_leg_summary_matches_nt8s_way_of_counting() -> None:
@@ -350,3 +410,249 @@ def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db) -> None:
     rows = results.query("SELECT sweep_id, ema_period, profit_factor FROM combos ORDER BY sweep_id", db)
     assert len(rows) == 6
     assert rows["profit_factor"].notna().all()
+
+
+# -- the axis columns (M17.5) --------------------------------------------------
+
+
+def save(db, results_frame=None, **kwargs) -> int:
+    """``save_sweep`` with the arguments that are noise for these tests filled in."""
+    defaults = {"root": "MNQ", "instrument": "MNQ", "bars": fake_bars(), "axes": {}}
+    return results.save_sweep(
+        fake_results() if results_frame is None else results_frame,
+        db_path=db, **{**defaults, **kwargs}
+    )
+
+
+def test_axis_tags_land_on_both_tables(db) -> None:
+    save(db, strategy="PullBackAndGo", resolution=5, contract="MNQ 03-24",
+         tier2="reconciled")
+    swept = results.query("SELECT * FROM sweeps", db).iloc[0]
+    assert (swept["strategy"], swept["resolution"]) == ("PullBackAndGo", 5)
+    assert (swept["contract"], swept["tier2"]) == ("MNQ 03-24", "reconciled")
+    combos = results.query("SELECT * FROM combos", db)
+    assert set(combos["strategy"]) == {"PullBackAndGo"}
+    assert set(combos["resolution"]) == {5}
+    assert set(combos["contract"]) == {"MNQ 03-24"}
+    assert set(combos["tier2"]) == {"reconciled"}
+
+
+def test_a_null_contract_means_the_spliced_series_not_a_missing_value(db) -> None:
+    save(db, strategy="DeadCatBounce", resolution=1)
+    row = results.query("SELECT contract FROM sweeps", db).iloc[0]
+    assert row["contract"] is None
+    assert "spliced" in results.NULL_MEANS["contract"]
+
+
+def test_an_untagged_save_still_works_and_leaves_the_axes_null(db) -> None:
+    """Every existing caller passes none of these, and must keep working unchanged."""
+    save(db)
+    row = results.query("SELECT * FROM sweeps", db).iloc[0]
+    for name in results.AXIS_COLUMNS:
+        assert pd.isna(row[name]), name
+    assert pd.isna(row["batch_id"])
+
+
+def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db) -> None:
+    """The trap that makes this worth pinning rather than trusting.
+
+    DuckDB types a new table from the frame that creates it, and an all-null *object*
+    column infers as INTEGER -- so a first sweep over the continuous series, where
+    ``contract`` is null by definition, would create ``combos.contract`` as an integer and
+    every later per-contract sweep would fail to insert into it.
+    """
+    save(db)  # contract is null throughout: the case that sets the column's type
+    described = dict(
+        (name, sql_type)
+        for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)
+    )
+    assert described["contract"] == "VARCHAR"
+    assert described["resolution"] == "BIGINT"
+    # And the type holds: a real contract name inserts into the column the null one made.
+    save(db, contract="MNQ 06-24", resolution=15)
+    assert set(results.query("SELECT contract FROM combos", db)["contract"].dropna()) == {
+        "MNQ 06-24"
+    }
+
+
+def test_per_row_axis_values_survive_rather_than_being_overwritten(db) -> None:
+    """What ``sweep_axes`` needs: a frame already spanning axis points keeps its own tags."""
+    frame = fake_results()
+    frame["contract"] = ["MNQ 03-24", "MNQ 06-24", "MNQ 09-24"]
+    frame["resolution"] = [1, 5, 15]
+    save(db, results_frame=frame, strategy="DeadCatBounce")
+    stored = results.query("SELECT contract, resolution FROM combos ORDER BY resolution", db)
+    assert list(stored["contract"]) == ["MNQ 03-24", "MNQ 06-24", "MNQ 09-24"]
+    assert list(stored["resolution"]) == [1, 5, 15]
+
+
+def test_batch_id_ties_one_multi_axis_run_together(db) -> None:
+    batch = results.next_batch_id(db)
+    for minutes in (1, 5, 15):
+        save(db, resolution=minutes, batch_id=batch)
+    save(db, resolution=1)  # a separate, later single sweep
+    grouped = results.query(
+        "SELECT batch_id, COUNT(*) n FROM sweeps GROUP BY 1 ORDER BY n DESC", db
+    )
+    assert list(grouped["n"]) == [3, 1]
+    assert grouped.iloc[0]["batch_id"] == batch
+
+
+def test_next_batch_id_advances_past_the_batches_already_stored(db) -> None:
+    first = results.next_batch_id(db)
+    save(db, batch_id=first)
+    assert results.next_batch_id(db) == first + 1
+
+
+def test_list_sweeps_shows_what_a_row_was_run_on(db) -> None:
+    save(db, strategy="DeadCatBounce", resolution=15, contract="MNQ 03-24",
+         tier2="reconciled")
+    listed = results.list_sweeps(db)
+    for name in (*results.AXIS_COLUMNS, "batch_id"):
+        assert name in listed.columns, name
+    assert listed.loc[0, "resolution"] == 15
+
+
+# -- migrating a database written before the axis columns existed --------------
+
+
+def legacy_database(db) -> None:
+    """A ``sweeps``/``combos`` pair in the pre-M17.5 shape, with a row in each.
+
+    Written with raw SQL rather than by an older ``save_sweep``, so the test does not
+    depend on code that no longer exists.
+    """
+    con = duckdb.connect(str(db))
+    con.execute(
+        "CREATE TABLE sweeps (sweep_id BIGINT PRIMARY KEY, created_utc TIMESTAMP, "
+        "root VARCHAR, instrument VARCHAR, back_adjust BOOLEAN, bars BIGINT, "
+        "first_bar TIMESTAMP, last_bar TIMESTAMP, combos BIGINT, elapsed_s DOUBLE, "
+        "axes VARCHAR, notes VARCHAR, host VARCHAR)"
+    )
+    con.execute(
+        "INSERT INTO sweeps VALUES (1, NOW(), 'MNQ', 'MNQ', true, 10, NOW(), NOW(), "
+        "1, 0.5, '{}', 'old', 'box')"
+    )
+    con.execute("CREATE TABLE combos (sweep_id BIGINT, combo_id BIGINT, profit_factor DOUBLE)")
+    con.execute("INSERT INTO combos VALUES (1, 0, 1.23)")
+    con.close()
+
+
+def test_an_existing_database_gains_the_columns_and_keeps_its_rows(db) -> None:
+    legacy_database(db)
+    results.connect(db).close()
+    swept = results.query("SELECT * FROM sweeps", db)
+    assert len(swept) == 1 and swept.loc[0, "notes"] == "old"
+    combos = results.query("SELECT * FROM combos", db)
+    assert len(combos) == 1 and combos.loc[0, "profit_factor"] == pytest.approx(1.23)
+    for name in results.AXIS_COLUMNS:
+        assert pd.isna(swept.loc[0, name]) and pd.isna(combos.loc[0, name]), name
+    assert pd.isna(swept.loc[0, "batch_id"])
+
+
+def test_a_migrated_database_puts_every_value_in_the_column_it_names(db) -> None:
+    """Why ``save_sweep`` inserts by name, and not merely because a positional one raised.
+
+    ALTER appends the axis columns at the end, while a fresh database declares them in the
+    middle, so one positional insert statement cannot serve both. The clash that surfaced
+    this was ``'MNQ'`` into a BOOLEAN, which raises -- but ``root``/``instrument``/
+    ``strategy``/``contract`` are four adjacent VARCHARs, and transposing those stores a
+    plausible row that reads as a result rather than an error.
+    """
+    legacy_database(db)
+    results.save_sweep(
+        fake_results(), root="NQ", instrument="MNQ", bars=fake_bars(),
+        axes={"ema_period": [9]}, back_adjust=True, notes="tagged", elapsed_s=2.5,
+        strategy="PullBackAndGo", resolution=5, contract="MNQ 06-24", tier2="reconciled",
+        batch_id=7, db_path=db,
+    )
+    row = results.query("SELECT * FROM sweeps WHERE sweep_id = 2", db).iloc[0]
+    assert row["root"] == "NQ" and row["instrument"] == "MNQ"
+    assert row["strategy"] == "PullBackAndGo" and row["contract"] == "MNQ 06-24"
+    assert row["tier2"] == "reconciled" and row["batch_id"] == 7
+    assert bool(row["back_adjust"]) is True
+    assert row["bars"] == len(fake_bars()) and row["combos"] == 3
+    assert row["notes"] == "tagged" and row["elapsed_s"] == pytest.approx(2.5)
+    assert json.loads(row["axes"]) == {"ema_period": [9]}
+
+
+def test_migrating_twice_is_a_no_op(db) -> None:
+    legacy_database(db)
+    for _ in range(3):
+        results.connect(db).close()
+    assert len(results.query("SELECT * FROM sweeps", db)) == 1
+
+
+def test_a_migrated_database_stores_tags_on_new_rows_beside_untagged_old_ones(db) -> None:
+    """The requirement in one assertion: old rows null, new rows tagged, same table."""
+    legacy_database(db)
+    save(db, strategy="PullBackAndGo", resolution=5, contract="MNQ 06-24")
+    rows = results.query("SELECT sweep_id, strategy, resolution FROM sweeps ORDER BY sweep_id", db)
+    assert pd.isna(rows.loc[0, "strategy"])
+    assert rows.loc[1, "strategy"] == "PullBackAndGo" and rows.loc[1, "resolution"] == 5
+    combos = results.query("SELECT contract FROM combos ORDER BY sweep_id", db)
+    assert pd.isna(combos.loc[0, "contract"]) and combos.loc[1, "contract"] == "MNQ 06-24"
+
+
+def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db) -> None:
+    """The other half of writing by name, and the one that would read as a result.
+
+    A frame *narrower* than the table has to be widened with nulls in the right places. By
+    position it would instead slide every value left, so ``net_pnl`` would be stored under
+    ``brand_new_stat`` and the row would look entirely plausible.
+    """
+    wider = fake_results()
+    wider["brand_new_stat"] = [1.0, 2.0, 3.0]
+    save(db, results_frame=wider)
+    save(db, results_frame=fake_results())  # narrower: no brand_new_stat this time
+    rows = results.query(
+        "SELECT sweep_id, brand_new_stat, net_pnl FROM combos ORDER BY sweep_id, combo_id", db
+    )
+    assert list(rows[rows["sweep_id"] == 1]["brand_new_stat"]) == [1.0, 2.0, 3.0]
+    assert rows[rows["sweep_id"] == 2]["brand_new_stat"].isna().all()
+    assert list(rows[rows["sweep_id"] == 2]["net_pnl"]) == [500.0, 900.0, 40.0]
+
+
+def test_axis_values_from_numpy_survive_the_json_round_trip(db) -> None:
+    """A grid built from ``np.arange`` holds numpy scalars, which ``json.dumps`` refuses."""
+    save(db, axes={"ema_period": list(np.arange(9, 12, dtype=np.int64))})
+    stored = results.query("SELECT axes FROM sweeps", db).loc[0, "axes"]
+    assert json.loads(stored) == {"ema_period": [9, 10, 11]}
+
+
+def test_saving_a_shortlisted_combinations_trade_log(db) -> None:
+    sid = save(db, strategy="DeadCatBounce", resolution=1)
+    log = trade_log([(1, 1, 5.0, 2, False), (2, 1, -3.0, 4, True)])
+    log["source"] = "sim"
+    log["instrument"] = "MNQ"
+    results.save_trades(log, sweep_id=sid, combo_id=2, db_path=db)
+    stored = results.query("SELECT * FROM trades ORDER BY trade_id", db)
+    assert list(stored["sweep_id"]) == [sid, sid]
+    assert list(stored["combo_id"]) == [2, 2]
+    assert list(stored["net_pnl"]) == [5.0, -3.0]
+    assert set(stored["source"]) == {"sim"}
+
+
+def test_best_can_be_narrowed_to_one_sweep(db) -> None:
+    save(db)
+    save(db, results_frame=fake_results().assign(profit_factor=[3.0, 3.1, 3.2]))
+    everywhere = results.best(by="profit_factor", top=5, min_trades=30, db_path=db)
+    assert set(everywhere["sweep_id"]) == {1, 2}
+    just_one = results.best(sweep_id=1, by="profit_factor", top=5, min_trades=30, db_path=db)
+    assert set(just_one["sweep_id"]) == {1}
+
+
+def test_axis_columns_are_not_dropped_the_way_an_unknown_statistic_is(db) -> None:
+    """The distinction ``AXIS_COLUMNS`` exists to make.
+
+    A legacy ``combos`` table drops a column it does not know -- deliberate, and right for a
+    statistic. These four are migrated instead, because a dropped ``contract`` does not read
+    as a gap, it reads as a different run.
+    """
+    legacy_database(db)
+    frame = fake_results()
+    frame["brand_new_stat"] = [1.0, 2.0, 3.0]
+    save(db, results_frame=frame, contract="MNQ 03-24")
+    stored = results.query("SELECT * FROM combos WHERE sweep_id = 2", db)
+    assert "brand_new_stat" not in stored.columns, "premise: unknown statistics are dropped"
+    assert set(stored["contract"]) == {"MNQ 03-24"}
