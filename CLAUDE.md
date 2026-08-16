@@ -131,6 +131,14 @@ commands that duplicate the Python API.
 
 ## Conventions
 
+- **Reasoning goes in `docs/`, not in the source** (#105). Code should be readable on its own
+  terms — prefer a clearer name or a smaller function over a comment explaining an unclear
+  one. Docstrings say **what** a thing is and how to use it, and stay short. A brief comment is
+  fine where something is genuinely non-obvious: a subtle index, a deliberate deviation, a
+  workaround. Arguments, justifications, measurements, decision records and traps belong in
+  `docs/roadmap.md` or `docs/nt8-fidelity.md`, with at most a one-line pointer from the code.
+  **This reverses the earlier "docstrings say why" rule**, which drove `nqbt/` to 33% prose by
+  line; #105 carries the migration, which is a migration and not a deletion.
 - Trade logs are **one row per leg exit**; `stats.summarise` aggregates to one row per trade.
   NT8's "total trades" is the leg count, so use `stats.leg_summary` when reconciling.
 - `r_multiple` uses **planned** risk (`stop − trigger`), matching how the C# places targets.
