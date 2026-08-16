@@ -47,9 +47,19 @@ def run_deadcat(
     instrument: Instrument = MNQ,
     *,
     with_times: bool = True,
+    signal: np.ndarray | None = None,
 ) -> pd.DataFrame:
-    """Simulate one parameter combination and return its leg-level trade log."""
-    signal = deadcat_signal(data, params)
+    """Simulate one parameter combination and return its leg-level trade log.
+
+    ``signal`` overrides the computed entry signal, which is what the random-entry control
+    arm (:mod:`nqbt.randomentry`) substitutes. It exists so the null runs **this** function
+    rather than its own copy of the ``simulate_deadcat`` call: a null assembled from a
+    forked bracket would be measuring a different simulator from the strategy it is the
+    control for, which is the one thing it must not do. Everything downstream of the signal
+    -- brackets, ratchet, costs, force-flat, direction -- is therefore identical by
+    construction rather than by review.
+    """
+    signal = deadcat_signal(data, params) if signal is None else signal
     quantities = np.asarray(params.leg_quantities, dtype=np.int64)
     targets = np.asarray(params.target_r_multiples, dtype=np.float64)
     out = deadcat.allocate_output(int(signal.sum()), quantities.size)

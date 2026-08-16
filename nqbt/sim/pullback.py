@@ -53,9 +53,15 @@ def run_pullbackandgo(
     instrument: Instrument = MNQ,
     *,
     with_times: bool = True,
+    signal: np.ndarray | None = None,
 ) -> pd.DataFrame:
-    """Simulate one parameter combination and return its leg-level trade log."""
-    signal = pullback_signal(data, params)
+    """Simulate one parameter combination and return its leg-level trade log.
+
+    ``signal`` overrides the computed entry signal -- see :func:`nqbt.sim.runner.run_deadcat`
+    for why the random-entry control arm injects one here rather than calling
+    ``simulate_deadcat`` itself.
+    """
+    signal = pullback_signal(data, params) if signal is None else signal
     quantities = np.asarray(params.leg_quantities, dtype=np.int64)
     targets = np.asarray(params.target_r_multiples, dtype=np.float64)
     out = deadcat.allocate_output(int(signal.sum()), quantities.size)
