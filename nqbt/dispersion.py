@@ -169,9 +169,7 @@ def sweep_contracts(
     statistics below. ``contract`` is moved back to the leading column because that is this
     function's own promise -- ``sweep_axes`` leads with the full axis point.
     """
-    frames = contract_frames(
-        root, full_life=full_life, back_adjust=back_adjust, cache_dir=cache_dir
-    )
+    frames = contract_frames(root, full_life=full_life, back_adjust=back_adjust, cache_dir=cache_dir)
     cover = coverage(frames)
 
     # No empty-table guard here, deliberately. ``Grid`` rejects an axis with no values and
@@ -180,9 +178,7 @@ def sweep_contracts(
     # empty set of contracts. A branch for "no results" would be unreachable, and the
     # roadmap's standing trap is that unreachable code behind an uncovered branch is exactly
     # where a defect sits unnoticed.
-    results, axis_logs = sweep.sweep_axes(
-        frames, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs
-    )
+    results, axis_logs = sweep.sweep_axes(frames, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs)
     contract_column = results.pop("contract")
     results.insert(0, "contract", contract_column)
     logs = {(point.contract, combo_id): log for (point, combo_id), log in axis_logs.items()}
@@ -223,9 +219,7 @@ def dispersion(
                 f"{by}_min": finite.min() if finite.size else np.nan,
                 f"{by}_max": finite.max() if finite.size else np.nan,
                 f"{by}_iqr": (
-                    float(np.subtract(*np.percentile(finite, [75, 25])))
-                    if finite.size
-                    else np.nan
+                    float(np.subtract(*np.percentile(finite, [75, 25]))) if finite.size else np.nan
                 ),
                 f"{by}_range": float(finite.max() - finite.min()) if finite.size else np.nan,
             }
@@ -300,9 +294,7 @@ def spread_vs_resampling(
     grouped = {c: stats.per_trade(log)["net_pnl"].to_numpy(float) for c, log in logs.items()}
     usable = {c: pnl for c, pnl in grouped.items() if pnl.size >= min_trades}
     if len(usable) < 2:
-        raise DispersionError(
-            f"need at least 2 contracts with >= {min_trades} trades; got {len(usable)}"
-        )
+        raise DispersionError(f"need at least 2 contracts with >= {min_trades} trades; got {len(usable)}")
 
     observed_stats = {c: stats.trade_statistic(pnl, by) for c, pnl in usable.items()}
     observed_values = np.fromiter(observed_stats.values(), dtype=float, count=len(usable))

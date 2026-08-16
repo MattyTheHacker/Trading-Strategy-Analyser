@@ -14,8 +14,10 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     )
     if merges:
         changed = [m for m in merges if m.added or m.revised]
-        print(f"archive: {len(merges)} contracts, {sum(m.bars for m in merges):,} bars "
-              f"({len(changed)} changed by this merge)")
+        print(
+            f"archive: {len(merges)} contracts, {sum(m.bars for m in merges):,} bars "
+            f"({len(changed)} changed by this merge)"
+        )
         for merge in changed:
             print(f"  {merge}")
         print()
@@ -87,9 +89,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         slippage_ticks=args.slippage,
     )
     instrument = get_instrument(args.root)
-    bars = splice.load_continuous(
-        args.root, back_adjust=args.back_adjust, cache_dir=args.cache_dir
-    )
+    bars = splice.load_continuous(args.root, back_adjust=args.back_adjust, cache_dir=args.cache_dir)
     if args.start:
         bars = bars[bars.index >= args.start]
     if args.end:
@@ -120,11 +120,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
     max_dd = float((equity.cummax() - equity).max())
 
     print(f"{args.root} {bars.index[0].date()} -> {bars.index[-1].date()}  {len(bars):,} bars")
-    print(f"  params        EMA {params.ema_period}, SMA {params.fast_sma_period}/"
-          f"{params.slow_sma_period}, qty {params.order_quantity} "
-          f"{params.leg_quantities}")
-    print(f"  costs         ${params.commission_per_contract:.2f}/contract RT, "
-          f"{params.slippage_ticks:g} ticks slippage")
+    print(
+        f"  params        EMA {params.ema_period}, SMA {params.fast_sma_period}/"
+        f"{params.slow_sma_period}, qty {params.order_quantity} "
+        f"{params.leg_quantities}"
+    )
+    print(
+        f"  costs         ${params.commission_per_contract:.2f}/contract RT, "
+        f"{params.slippage_ticks:g} ticks slippage"
+    )
     print(f"  trades        {len(per_trade):,}  ({len(trades):,} leg exits)")
     print(f"  win rate      {wins.mean():.2%}")
     print(f"  net P&L       ${per_trade.sum():,.2f}")
@@ -132,10 +136,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(f"  profit factor {pf:.3f}")
     print(f"  max drawdown  ${max_dd:,.2f}")
     print(f"  mean R        {trades['r_multiple'].mean():+.3f}")
-    print(f"  ambiguous     {trades['ambiguous_bar'].mean():.2%} of leg exits "
-          "(bar held both stop and target; stop assumed)")
-    print("  exit reasons  " + ", ".join(
-        f"{k} {v:,}" for k, v in trades["exit_reason"].value_counts().items()))
+    print(
+        f"  ambiguous     {trades['ambiguous_bar'].mean():.2%} of leg exits "
+        "(bar held both stop and target; stop assumed)"
+    )
+    print(
+        "  exit reasons  " + ", ".join(f"{k} {v:,}" for k, v in trades["exit_reason"].value_counts().items())
+    )
 
     if args.trades:
         trades.to_csv(args.trades, index=False)
@@ -167,9 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_ingest = sub.add_parser("ingest", help="parse NT8 exports into the Parquet cache")
     p_ingest.add_argument("--root", help="limit to one instrument root, e.g. MNQ")
-    p_ingest.add_argument(
-        "--force", action="store_true", help="reparse in full, ignoring the manifest"
-    )
+    p_ingest.add_argument("--force", action="store_true", help="reparse in full, ignoring the manifest")
     p_ingest.set_defaults(func=_cmd_ingest)
 
     p_list = sub.add_parser("contracts", help="show what is currently cached")
@@ -194,23 +199,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="require an observed volume crossover; fail rather than roll at the "
         "coverage boundary (NT8 data will not satisfy this)",
     )
-    p_splice.add_argument(
-        "--diagnostics", action="store_true", help="print the per-roll volume tables"
-    )
+    p_splice.add_argument("--diagnostics", action="store_true", help="print the per-roll volume tables")
     p_splice.set_defaults(func=_cmd_splice)
 
-    p_run = sub.add_parser(
-        "run", help="simulate one DeadCatBounce parameter set over the continuous series"
-    )
+    p_run = sub.add_parser("run", help="simulate one DeadCatBounce parameter set over the continuous series")
     p_run.add_argument("--root", default="MNQ")
     p_run.add_argument("--back-adjust", action="store_true")
     p_run.add_argument("--ema", type=int, default=21)
     p_run.add_argument("--slow-sma", type=int, default=175)
     p_run.add_argument("--fast-sma", type=int, default=60)
     p_run.add_argument("--quantity", type=int, default=4)
-    p_run.add_argument(
-        "--commission", type=float, default=0.0, help="round-turn dollars per contract"
-    )
+    p_run.add_argument("--commission", type=float, default=0.0, help="round-turn dollars per contract")
     p_run.add_argument("--slippage", type=float, default=0.0, help="ticks, adverse")
     p_run.add_argument("--start", help="ISO date; restrict the window, e.g. 2024-01-01")
     p_run.add_argument("--end", help="ISO date")

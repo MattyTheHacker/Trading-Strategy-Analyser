@@ -117,14 +117,10 @@ class Grid:
         return dead
 
     @classmethod
-    def of(
-        cls, base: Params | None = None, *, archetype: Archetype | None = None, **axes
-    ) -> Grid:
+    def of(cls, base: Params | None = None, *, archetype: Archetype | None = None, **axes) -> Grid:
         """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
         if archetype is None:
-            archetype = (
-                archetypes.for_params(base) if base is not None else archetypes.DEFAULT
-            )
+            archetype = archetypes.for_params(base) if base is not None else archetypes.DEFAULT
         return cls(
             axes={k: list(v) for k, v in axes.items()},
             base=base if base is not None else archetype.params_cls(),
@@ -155,8 +151,7 @@ class Grid:
         period gets silently left out.
         """
         return {
-            name: list(self.axes.get(name, [getattr(self.base, name)]))
-            for name in self.archetype.sweepable
+            name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable
         }
 
     def required_context(self) -> ContextSpec:
@@ -198,9 +193,7 @@ tens of microseconds against a combination's tens of milliseconds.
 """
 
 
-def chunk_bounds(
-    total: int, n_workers: int, chunk_size: int | None = None
-) -> list[tuple[int, int]]:
+def chunk_bounds(total: int, n_workers: int, chunk_size: int | None = None) -> list[tuple[int, int]]:
     """Half-open ``[start, stop)`` ranges covering ``total`` combinations exactly once."""
     if total <= 0:
         return []
@@ -210,7 +203,11 @@ def chunk_bounds(
 
 
 def _run_chunk(
-    data: Dataset, grid: Grid, instrument: Instrument, start: int, stop: int,
+    data: Dataset,
+    grid: Grid,
+    instrument: Instrument,
+    start: int,
+    stop: int,
     keep_trades: bool,
 ) -> tuple[list[dict], dict[int, pd.DataFrame]]:
     """Run combinations ``[start, stop)``. Module level so loky can pickle it.
@@ -233,7 +230,10 @@ def _run_chunk(
 
 
 def _sweep_serial(
-    data: Dataset, grid: Grid, instrument: Instrument, keep_trades: bool,
+    data: Dataset,
+    grid: Grid,
+    instrument: Instrument,
+    keep_trades: bool,
     progress_every: int,
 ) -> tuple[list[dict], dict[int, pd.DataFrame]]:
     rows: list[dict] = []
@@ -252,8 +252,13 @@ def _sweep_serial(
 
 
 def _sweep_parallel(
-    data: Dataset, grid: Grid, instrument: Instrument, keep_trades: bool,
-    n_jobs: int, chunk_size: int | None, progress_every: int,
+    data: Dataset,
+    grid: Grid,
+    instrument: Instrument,
+    keep_trades: bool,
+    n_jobs: int,
+    chunk_size: int | None,
+    progress_every: int,
 ) -> tuple[list[dict], dict[int, pd.DataFrame]]:
     """Spread chunks over processes, sharing one copy of the dataset.
 
@@ -269,8 +274,7 @@ def _sweep_parallel(
     bounds = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
     payload = data.slim()
     batches = Parallel(n_jobs=n_jobs, verbose=10 if progress_every else 0)(
-        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades)
-        for start, stop in bounds
+        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades) for start, stop in bounds
     )
 
     rows: list[dict] = []
@@ -313,9 +317,7 @@ def sweep(
     if effective_n_jobs(n_jobs) == 1:
         rows, logs = _sweep_serial(data, grid, instrument, keep_trades, progress_every)
     else:
-        rows, logs = _sweep_parallel(
-            data, grid, instrument, keep_trades, n_jobs, chunk_size, progress_every
-        )
+        rows, logs = _sweep_parallel(data, grid, instrument, keep_trades, n_jobs, chunk_size, progress_every)
 
     frame = pd.DataFrame(rows)
     if not frame.empty:
@@ -420,8 +422,14 @@ def sweep_axes(
                     tier2=str(grid.archetype.tier2),
                 )
                 table, point_logs = sweep(
-                    frame, grid, instrument, data=data, keep_trades=keep_trades,
-                    n_jobs=n_jobs, chunk_size=chunk_size, progress_every=progress_every,
+                    frame,
+                    grid,
+                    instrument,
+                    data=data,
+                    keep_trades=keep_trades,
+                    n_jobs=n_jobs,
+                    chunk_size=chunk_size,
+                    progress_every=progress_every,
                 )
                 tables.append(_tag(table, point))
                 for combo_id, log in point_logs.items():
@@ -442,8 +450,9 @@ def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
     return tagged
 
 
-def rank(results: pd.DataFrame, by: str = "profit_factor", top: int = 20,
-         min_trades: int = 30) -> pd.DataFrame:
+def rank(
+    results: pd.DataFrame, by: str = "profit_factor", top: int = 20, min_trades: int = 30
+) -> pd.DataFrame:
     """Shortlist candidates, ignoring combinations with too few trades to mean anything.
 
     A profit factor computed from four trades is noise, and without a floor it will

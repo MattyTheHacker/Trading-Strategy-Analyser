@@ -140,10 +140,21 @@ Matching filled trades instead would mean redrawing until the counts agreed, whi
 among null draws on an outcome and is a worse cure than the disease.
 """
 
-COUNT_SENSITIVE = frozenset({
-    "net_pnl", "gross_profit", "gross_loss", "commission_paid", "max_drawdown",
-    "trades", "legs", "wins", "losses", "scratches", "max_consecutive_losses",
-})
+COUNT_SENSITIVE = frozenset(
+    {
+        "net_pnl",
+        "gross_profit",
+        "gross_loss",
+        "commission_paid",
+        "max_drawdown",
+        "trades",
+        "legs",
+        "wins",
+        "losses",
+        "scratches",
+        "max_consecutive_losses",
+    }
+)
 """Statistics that are sums or path properties, so a difference in trade count moves them.
 
 Permitted, but never silently: :attr:`NullResult.count_sensitive` flags them and both trade
@@ -244,7 +255,7 @@ class SessionMinutePool:
 
     def pool_for(self, minute: int) -> np.ndarray:
         """Every bar sharing one minute-of-session."""
-        return self.bars_by_minute[self.starts[minute]:self.starts[minute + 1]]
+        return self.bars_by_minute[self.starts[minute] : self.starts[minute + 1]]
 
 
 def matched_random_signal(
@@ -279,9 +290,7 @@ def matched_random_signal(
     not arise at all, because ``build_continuous`` has already filtered them out.
     """
     if signal.shape != (len(data),):
-        raise RandomEntryError(
-            f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
-        )
+        raise RandomEntryError(f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar")
     live = int(signal.sum())
     if not live:
         raise RandomEntryError(
@@ -299,8 +308,13 @@ def matched_random_signal(
 
 
 def _null_summary(
-    data: Dataset, params: Params, archetype: Archetype, instrument: Instrument,
-    signal: np.ndarray, seed: int, pool: SessionMinutePool,
+    data: Dataset,
+    params: Params,
+    archetype: Archetype,
+    instrument: Instrument,
+    signal: np.ndarray,
+    seed: int,
+    pool: SessionMinutePool,
 ) -> dict:
     """One null realisation: draw a matched signal, simulate it, summarise it.
 
@@ -345,17 +359,13 @@ def null_summaries(
     seeds = np.random.SeedSequence(seed).generate_state(iterations)
 
     if effective_n_jobs(n_jobs) == 1:
-        rows = [
-            _null_summary(data, params, archetype, instrument, signal, int(s), pool)
-            for s in seeds
-        ]
+        rows = [_null_summary(data, params, archetype, instrument, signal, int(s), pool) for s in seeds]
     else:
         # ``slim()`` for the same reason the sweep does it: the bar frame is the expensive
         # part of the payload and only its index is read downstream.
         lean = data.slim()
         rows = Parallel(n_jobs=n_jobs)(
-            delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool)
-            for s in seeds
+            delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool) for s in seeds
         )
     return pd.DataFrame(rows)
 
@@ -398,14 +408,19 @@ def compare(
     unknown = set(statistics) - set(stats.Summary.columns())
     if unknown:
         raise RandomEntryError(
-            f"not statistics of a Summary: {sorted(unknown)}. "
-            f"Choose from {stats.Summary.columns()}"
+            f"not statistics of a Summary: {sorted(unknown)}. Choose from {stats.Summary.columns()}"
         )
 
     observed = stats.summarise(archetype.run(data, params, instrument)).as_dict()
     null = null_summaries(
-        data, params, archetype, instrument,
-        iterations=iterations, seed=seed, n_jobs=n_jobs, template=template,
+        data,
+        params,
+        archetype,
+        instrument,
+        iterations=iterations,
+        seed=seed,
+        n_jobs=n_jobs,
+        template=template,
     )
 
     results = {}
@@ -424,7 +439,11 @@ def compare(
                 "there is no distribution to place the observation in"
             )
         results[name] = _place(
-            name, value, draws, alpha, iterations,
+            name,
+            value,
+            draws,
+            alpha,
+            iterations,
             observed_trades=int(observed["trades"]),
             null_median_trades=float(null["trades"].median()),
         )
@@ -432,8 +451,14 @@ def compare(
 
 
 def _place(
-    name: str, observed: float, draws: np.ndarray, alpha: float, iterations: int,
-    *, observed_trades: int, null_median_trades: float,
+    name: str,
+    observed: float,
+    draws: np.ndarray,
+    alpha: float,
+    iterations: int,
+    *,
+    observed_trades: int,
+    null_median_trades: float,
 ) -> NullResult:
     """Locate ``observed`` in the null draws and name the diagnosis.
 
@@ -444,9 +469,7 @@ def _place(
     resolution of a Monte Carlo test.
     """
     below = float((draws < observed).mean())
-    at_least_as_extreme = int(
-        min((draws >= observed).sum(), (draws <= observed).sum())
-    )
+    at_least_as_extreme = int(min((draws >= observed).sum(), (draws <= observed).sum()))
     p_value = min(1.0, 2.0 * (at_least_as_extreme + 1) / (draws.size + 1))
 
     if p_value > alpha:
