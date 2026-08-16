@@ -61,7 +61,7 @@ def audited():
     return log, detail
 
 
-def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited):
+def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited) -> None:
     """The regression test for the defect: it disagreed on 50% of trades.
 
     ``trigger`` is not a column of the trade log, but the log pins it exactly --
@@ -83,7 +83,7 @@ def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited):
     assert np.allclose(joined["trigger"], implied_trigger, rtol=0, atol=0)
 
 
-def test_the_capped_trigger_actually_binds_in_this_fixture(audited):
+def test_the_capped_trigger_actually_binds_in_this_fixture(audited) -> None:
     """Guards the test above from passing vacuously.
 
     If the close-based cap never bound, the old ``trigger = Low[0]`` would agree with the
@@ -95,7 +95,7 @@ def test_the_capped_trigger_actually_binds_in_this_fixture(audited):
     assert capped.mean() > 0.2, f"cap bound on only {capped.mean():.1%} of trades"
 
 
-def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited):
+def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited) -> None:
     """``fill_type`` reads the trigger too, so it was wrong on the same rows."""
     log, detail = audited
     gapped = detail["fill_type"] == "gap_at_open"
@@ -104,7 +104,7 @@ def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited):
     assert (detail.loc[touched, "entry_price"] == detail.loc[touched, "trigger"]).all()
 
 
-def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close():
+def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close() -> None:
     """The helper's own rule, stated independently of the loop that calls it."""
     tick = 0.25
     # An inverted hammer: closes near its low, so the cap binds.
@@ -117,7 +117,7 @@ def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close():
     assert len(entry) == 3
 
 
-def test_entry_bracket_leaves_the_low_alone_when_the_close_is_high():
+def test_entry_bracket_leaves_the_low_alone_when_the_close_is_high() -> None:
     tick = 0.25
     trigger, stop, risk = deadcat.entry_bracket(100.0, 99.0, 99.9, 2 * tick, 2 * tick, SHORT)
     assert trigger == pytest.approx(99.0)  # min(99.0, 99.4) -- the low wins

@@ -217,7 +217,7 @@ def all_archetypes() -> list[Archetype]:
     return [_REGISTRY[n] for n in names()]
 
 
-def for_params(params) -> Archetype:
+def for_params(params: Params) -> Archetype:
     """The archetype whose ``params_cls`` is exactly ``type(params)``.
 
     Lets ``Grid.of(base=PullBackAndGoParams())`` pick the right archetype without the

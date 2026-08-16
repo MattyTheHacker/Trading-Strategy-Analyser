@@ -15,6 +15,7 @@ import json
 import platform
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd
@@ -127,7 +128,12 @@ def _append_or_create(
     con.execute(f"INSERT INTO {table} SELECT * FROM incoming")
 
 
-def _jsonable(value):
+def _jsonable(value: Any) -> Any:  # type: ignore[explicit-any]
+    """Unwrap a numpy scalar so an axis value survives ``json.dumps``.
+
+    Genuinely ``Any``: an axis holds whatever its parameter field holds. The config sets
+    ``disallow_any_explicit``, so this is waived here rather than widened silently.
+    """
     if hasattr(value, "item"):
         return value.item()
     return value

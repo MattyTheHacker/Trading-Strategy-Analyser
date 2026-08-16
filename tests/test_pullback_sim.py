@@ -80,7 +80,7 @@ def run(
 # -- entry mechanics: bare High[0], no close-based cap -------------------------
 
 
-def test_signal_places_a_buy_stop_at_the_bare_high():
+def test_signal_places_a_buy_stop_at_the_bare_high() -> None:
     # Signal bar: high 101.5, low 97 -> trigger 101.5 (no close-based cap), stop 96.5.
     trades = run(
         [
@@ -95,7 +95,7 @@ def test_signal_places_a_buy_stop_at_the_bare_high():
     assert trades["risk_points"].iloc[0] == pytest.approx(5.0)
 
 
-def test_gap_up_through_the_trigger_fills_at_the_open():
+def test_gap_up_through_the_trigger_fills_at_the_open() -> None:
     trades = run(
         [
             (100, 101.5, 97, 101),  # 0: signal, trigger 101.5
@@ -106,7 +106,7 @@ def test_gap_up_through_the_trigger_fills_at_the_open():
     assert trades["entry_price"].iloc[0] == pytest.approx(103.0)
 
 
-def test_unfilled_order_is_cancelled_after_one_bar():
+def test_unfilled_order_is_cancelled_after_one_bar() -> None:
     trades = run(
         [
             (100, 101.5, 97, 101),   # 0: signal, trigger 101.5
@@ -118,7 +118,7 @@ def test_unfilled_order_is_cancelled_after_one_bar():
     assert trades.empty
 
 
-def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point():
+def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point() -> None:
     trades = run(
         [
             (100, 101.5, 97, 101),  # 0: signal, trigger 101.5
@@ -133,7 +133,7 @@ def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point():
 # -- the ratchet: bare Low[1], not High[0] + offset -----------------------------
 
 
-def test_ratchet_tightens_immediately_on_the_entry_bar_because_the_offsets_differ():
+def test_ratchet_tightens_immediately_on_the_entry_bar_because_the_offsets_differ() -> None:
     # Entry stop is Low[0] - 2 ticks = 96.5 (entry_bracket uses stop_offset_ticks). But
     # ratchet_lag=1 means the ratchet evaluates at ref = entry_bar - 1 = the signal bar
     # itself on the very bar the fill happens, reading Low[0] with *no* offset -- 97, not
@@ -153,7 +153,7 @@ def test_ratchet_tightens_immediately_on_the_entry_bar_because_the_offsets_diffe
     assert trades["initial_stop"].unique() == pytest.approx([96.5])  # the plan, unchanged
 
 
-def test_ratchet_keeps_tracking_the_bare_low_one_bar_back_and_never_loosens():
+def test_ratchet_keeps_tracking_the_bare_low_one_bar_back_and_never_loosens() -> None:
     trades = run(
         [
             (100, 101.5, 97, 101),     # 0: signal, trigger 101.5, entry-stop 96.5
@@ -175,7 +175,7 @@ def test_ratchet_keeps_tracking_the_bare_low_one_bar_back_and_never_loosens():
 # -- targets are not rounded to the tick grid -----------------------------------
 
 
-def test_targets_are_left_unrounded():
+def test_targets_are_left_unrounded() -> None:
     # An engine test for the round_targets flag, not a claim about the archetype: the
     # M15.5 reconciliation showed NT8 snaps PullBackAndGo's targets even though the C#
     # never calls RoundToTickSize, so PullBackAndGoParams now defaults it to True. What
@@ -202,7 +202,7 @@ def test_targets_are_left_unrounded():
     assert abs(off_grid) > 1e-9
 
 
-def test_round_targets_true_would_have_snapped_the_same_bars():
+def test_round_targets_true_would_have_snapped_the_same_bars() -> None:
     # Same bars as above with round_targets=True (DeadCatBounce's setting) confirm the
     # flag is what makes the difference, not something else about this scenario.
     trades = run(
@@ -241,7 +241,7 @@ def synthetic_bars(n: int = 4000, seed: int = 11) -> pd.DataFrame:
     return frame
 
 
-def test_pullback_signal_and_run_wire_together_end_to_end():
+def test_pullback_signal_and_run_wire_together_end_to_end() -> None:
     params = PullBackAndGoParams(bars_required_to_trade=200)
     bars = synthetic_bars()
     data = context.prepare(
@@ -264,7 +264,7 @@ def test_pullback_signal_and_run_wire_together_end_to_end():
     assert (log["initial_stop"] < log["entry_price"]).all()
 
 
-def test_every_entry_condition_actually_binds():
+def test_every_entry_condition_actually_binds() -> None:
     # Guards the test above from passing vacuously if one condition never mattered.
     params = PullBackAndGoParams(bars_required_to_trade=200)
     data = context.prepare(
@@ -284,7 +284,7 @@ def test_every_entry_condition_actually_binds():
 # -- params -----------------------------------------------------------------
 
 
-def test_leg_quantities_split_the_order_with_the_remainder_last():
+def test_leg_quantities_split_the_order_with_the_remainder_last() -> None:
     # OrderQuantity now exists on the C#, split baseQuantity = qty / 4 with the remainder
     # added to L4 -- identical to DeadCatBounce, so 10 goes 2/2/2/4 and not 3/3/2/2.
     assert PullBackAndGoParams().leg_quantities == (1, 1, 1, 1)
@@ -295,12 +295,12 @@ def test_leg_quantities_split_the_order_with_the_remainder_last():
     assert three_legs.leg_quantities == (1, 1, 1)
 
 
-def test_params_reject_an_order_quantity_that_cannot_fill_every_leg():
+def test_params_reject_an_order_quantity_that_cannot_fill_every_leg() -> None:
     with pytest.raises(ValueError, match="cannot fill"):
         PullBackAndGoParams(order_quantity=3)
 
 
-def test_default_filters_are_the_reconciled_configuration():
+def test_default_filters_are_the_reconciled_configuration() -> None:
     # The C# leaves all six uninitialised in SetDefaults, so there is no NinjaScript
     # default to mirror. These reproduce the M15.5 reconciliation, the only combination
     # with a trade list behind it; VWAP is off because nqbt's has never been checked
@@ -312,7 +312,7 @@ def test_default_filters_are_the_reconciled_configuration():
     assert (p.require_previous_red, p.require_new_low) == (True, True)
 
 
-def test_every_filter_can_be_switched_off_independently():
+def test_every_filter_can_be_switched_off_independently() -> None:
     # Each filter is its own early-return `if` in the C#, so switching one off must relax
     # that condition and leave every other one exactly as it was. Asserting the defaults
     # is not enough: it never runs the branches.
@@ -358,6 +358,6 @@ def test_every_filter_can_be_switched_off_independently():
     assert not (full & ~bare).any()
 
 
-def test_params_reject_a_non_positive_period():
+def test_params_reject_a_non_positive_period() -> None:
     with pytest.raises(ValueError, match="must be >= 1"):
         PullBackAndGoParams(ema_period=0)

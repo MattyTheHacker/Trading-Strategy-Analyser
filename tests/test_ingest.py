@@ -42,7 +42,7 @@ def run(export, cache, **kw):
     return result, entry
 
 
-def test_parses_ohlcv_and_utc_timestamps(export, cache):
+def test_parses_ohlcv_and_utc_timestamps(export, cache) -> None:
     result, _ = run(export, cache)
     assert result.action == "created"
     assert result.rows_added == 3
@@ -55,21 +55,21 @@ def test_parses_ohlcv_and_utc_timestamps(export, cache):
     assert frame["volume"].dtype == np.int64
 
 
-def test_attaches_session_classification(export, cache):
+def test_attaches_session_classification(export, cache) -> None:
     run(export, cache)
     frame = ingest.load_contract(CONTRACT, cache)
     assert frame["in_session"].all()
     assert (frame["trading_day"] == pd.Timestamp("2024-03-08")).all()
 
 
-def test_second_ingest_of_unchanged_file_is_a_no_op(export, cache):
+def test_second_ingest_of_unchanged_file_is_a_no_op(export, cache) -> None:
     run(export, cache)
     result, _ = run(export, cache)
     assert result.action == "up-to-date"
     assert result.rows_added == 0
 
 
-def test_appended_rows_are_parsed_without_rereading_the_head(export, cache):
+def test_appended_rows_are_parsed_without_rereading_the_head(export, cache) -> None:
     _, first = run(export, cache)
     extra = "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"
     write(export, LINES + [extra])
@@ -86,7 +86,7 @@ def test_appended_rows_are_parsed_without_rereading_the_head(export, cache):
     assert frame["close"].iloc[-1] == pytest.approx(18000.25)
 
 
-def test_partial_trailing_line_is_deferred_until_complete(export, cache):
+def test_partial_trailing_line_is_deferred_until_complete(export, cache) -> None:
     run(export, cache)
     # Simulate reading mid-write: the final line has no newline terminator yet.
     partial = "20240308 213300;18001.75;18002.50"
@@ -102,7 +102,7 @@ def test_partial_trailing_line_is_deferred_until_complete(export, cache):
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
 
 
-def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cache):
+def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cache) -> None:
     """The failure that silently corrupted the real cache.
 
     Exporting during a session captures the newest bar part-formed. When it completes,
@@ -128,7 +128,7 @@ def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cac
     assert result.action == "reparsed"
 
 
-def test_a_bar_withdrawn_between_exports_is_dropped_from_the_cache(export, cache):
+def test_a_bar_withdrawn_between_exports_is_dropped_from_the_cache(export, cache) -> None:
     """NT8 re-exports do not always contain every bar a previous export did.
 
     An append-only cache keeps the withdrawn bar forever as a phantom, because appending
@@ -146,7 +146,7 @@ def test_a_bar_withdrawn_between_exports_is_dropped_from_the_cache(export, cache
     assert result.action == "reparsed"
 
 
-def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export, cache):
+def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export, cache) -> None:
     # Same byte count, different content: size alone cannot distinguish this.
     run(export, cache)
     swapped = [*LINES[:2], "20240308 213200;18002.50;18004.00;18001.25;18003.75;143"]
@@ -158,7 +158,7 @@ def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export, cache):
     assert frame["close"].iloc[-1] == pytest.approx(18003.75)
 
 
-def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(export, cache, tmp_path):
+def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(export, cache, tmp_path) -> None:
     import json
 
     run(export, cache)
@@ -176,7 +176,7 @@ def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(expor
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
 
 
-def test_regenerated_export_triggers_a_full_reparse(export, cache):
+def test_regenerated_export_triggers_a_full_reparse(export, cache) -> None:
     run(export, cache)
     # A re-export with a different head must not be treated as an append.
     rewritten = ["20240308 212900;17999.00;18000.50;17998.75;18000.25;55", *LINES]
@@ -191,7 +191,7 @@ def test_regenerated_export_triggers_a_full_reparse(export, cache):
     assert frame.index[0] == pd.Timestamp("2024-03-08 21:29:00", tz="UTC")
 
 
-def test_truncated_export_triggers_a_full_reparse(export, cache):
+def test_truncated_export_triggers_a_full_reparse(export, cache) -> None:
     run(export, cache)
     write(export, LINES[:1])
     result, _ = run(export, cache)
@@ -200,14 +200,14 @@ def test_truncated_export_triggers_a_full_reparse(export, cache):
     assert any("shrank" in w for w in result.warnings)
 
 
-def test_force_reparses_even_when_unchanged(export, cache):
+def test_force_reparses_even_when_unchanged(export, cache) -> None:
     run(export, cache)
     result, _ = run(export, cache, force=True)
     assert result.action == "reparsed"
     assert result.rows_total == 3
 
 
-def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path):
+def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -223,7 +223,7 @@ def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path):
     assert frame["close"].iloc[0] == pytest.approx(18004.00)
 
 
-def test_out_of_session_prints_are_kept_but_flagged(cache, tmp_path):
+def test_out_of_session_prints_are_kept_but_flagged(cache, tmp_path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -240,7 +240,7 @@ def test_out_of_session_prints_are_kept_but_flagged(cache, tmp_path):
     assert any("outside session hours" in w for w in result.warnings)
 
 
-def test_ohlc_violations_are_rejected_loudly(cache, tmp_path):
+def test_ohlc_violations_are_rejected_loudly(cache, tmp_path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -251,7 +251,7 @@ def test_ohlc_violations_are_rejected_loudly(cache, tmp_path):
         run(src, cache)
 
 
-def test_discover_exports_finds_and_parses_contract_names(tmp_path):
+def test_discover_exports_finds_and_parses_contract_names(tmp_path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     for name in ["MNQ 03-24.Last.txt", "NQ 12-25.Last.txt", "notes.txt", "junk.Last.txt"]:
@@ -264,7 +264,7 @@ def test_discover_exports_finds_and_parses_contract_names(tmp_path):
     assert {c.nt8_name for c in mnq_only} == {"MNQ 03-24"}
 
 
-def test_ingest_all_reports_when_nothing_is_found(tmp_path):
+def test_ingest_all_reports_when_nothing_is_found(tmp_path) -> None:
     empty = tmp_path / "data"
     empty.mkdir()
     with pytest.raises(ingest.IngestError, match="no NT8 exports"):

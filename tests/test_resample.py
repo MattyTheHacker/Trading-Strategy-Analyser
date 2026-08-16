@@ -81,7 +81,7 @@ def groups_from_output(source: pd.DataFrame, out: pd.DataFrame) -> list[pd.DataF
 
 
 @pytest.mark.parametrize("minutes", [2, 3, 5, 7, 15, 30])
-def test_every_bar_matches_the_minutes_it_was_built_from(minutes):
+def test_every_bar_matches_the_minutes_it_was_built_from(minutes) -> None:
     src = minute_bars()
     out = resample.resample(src, minutes)
     assert len(out) < len(src)
@@ -95,21 +95,21 @@ def test_every_bar_matches_the_minutes_it_was_built_from(minutes):
         assert row.volume == members["volume"].sum()
 
 
-def test_no_bar_is_lost_or_double_counted():
+def test_no_bar_is_lost_or_double_counted() -> None:
     src = minute_bars()
     out = resample.resample(src, 5)
     assert sum(len(g) for g in groups_from_output(src, out)) == len(src)
     assert out["volume"].sum() == src["volume"].sum()
 
 
-def test_one_minute_is_the_identity_and_returns_the_frame_untouched():
+def test_one_minute_is_the_identity_and_returns_the_frame_untouched() -> None:
     """The 1-minute path carries every reconciliation; resampling must not perturb it."""
     src = minute_bars()
     assert resample.resample(src, 1) is src
 
 
 @pytest.mark.parametrize("bad", [0, -1, -5])
-def test_a_period_below_one_minute_is_refused(bad):
+def test_a_period_below_one_minute_is_refused(bad) -> None:
     with pytest.raises(ResampleError, match="must be >= 1"):
         resample.resample(minute_bars(1), bad)
 
@@ -118,7 +118,7 @@ def test_a_period_below_one_minute_is_refused(bad):
 
 
 @pytest.mark.parametrize("minutes", [2, 3, 5, 7, 15, 30, 60])
-def test_every_bucket_closes_a_whole_number_of_periods_after_the_session_open(minutes):
+def test_every_bucket_closes_a_whole_number_of_periods_after_the_session_open(minutes) -> None:
     src = minute_bars()
     out = resample.resample(src, minutes)
     end_minute = resample.minutes_since_open(out.index)
@@ -131,14 +131,14 @@ def test_every_bucket_closes_a_whole_number_of_periods_after_the_session_open(mi
         )
 
 
-def test_the_first_bar_of_a_session_covers_the_first_period_from_the_open():
+def test_the_first_bar_of_a_session_covers_the_first_period_from_the_open() -> None:
     src = minute_bars()
     out = resample.resample(src, 5)
     first_per_day = out.groupby(out["trading_day"]).head(1)
     assert (resample.minutes_since_open(first_per_day.index) == 5).all()
 
 
-def test_the_last_bar_of_a_session_is_stamped_at_the_close_not_past_it():
+def test_the_last_bar_of_a_session_is_stamped_at_the_close_not_past_it() -> None:
     """With 7, the final bucket would otherwise run to 17:06 -- an hour into the break."""
     src = minute_bars()
     out = resample.resample(src, 7)
@@ -153,7 +153,7 @@ def test_the_last_bar_of_a_session_is_stamped_at_the_close_not_past_it():
 
 
 @pytest.mark.parametrize("minutes", [2, 5, 7, 15, 30])
-def test_no_bar_spans_the_maintenance_break_or_the_weekend(minutes):
+def test_no_bar_spans_the_maintenance_break_or_the_weekend(minutes) -> None:
     """Both fall out of including the trading day in the grouping key.
 
     The break and the weekend are the same defect wearing different clothes: a bucket that
@@ -170,14 +170,14 @@ def test_no_bar_spans_the_maintenance_break_or_the_weekend(minutes):
         assert len(members) <= minutes, f"bar {row.Index} holds {len(members)} minutes"
 
 
-def test_a_bars_own_close_stamp_classifies_to_the_session_it_aggregated():
+def test_a_bars_own_close_stamp_classifies_to_the_session_it_aggregated() -> None:
     """Catches a bucket stamped past the close, which would re-date it to the next day."""
     src = minute_bars(sessions_wanted=5)
     out = resample.resample(src, 7)
     assert (sessions.classify(out.index).trading_day == out["trading_day"].to_numpy()).all()
 
 
-def test_out_of_session_prints_are_dropped_rather_than_given_a_bucket():
+def test_out_of_session_prints_are_dropped_rather_than_given_a_bucket() -> None:
     """A Saturday print has no session to be anchored to. See CLAUDE.md on stray prints."""
     src = minute_bars(1)
     stray = src.iloc[[0]].copy()
@@ -205,7 +205,7 @@ def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
 
 
 @pytest.mark.parametrize("minutes", AGREES_WITH_WALL_CLOCK)
-def test_session_and_midnight_anchoring_agree_for_divisors_of_sixty(minutes):
+def test_session_and_midnight_anchoring_agree_for_divisors_of_sixty(minutes) -> None:
     """The coincidence that makes the bug invisible, pinned as a property.
 
     Every period anyone reaches for first is in this list, which is exactly why nobody
@@ -217,7 +217,7 @@ def test_session_and_midnight_anchoring_agree_for_divisors_of_sixty(minutes):
 
 
 @pytest.mark.parametrize("minutes", [7, 11, 16, 25, 8, 45])
-def test_the_two_anchorings_diverge_for_a_period_that_does_not_divide_sixty(minutes):
+def test_the_two_anchorings_diverge_for_a_period_that_does_not_divide_sixty(minutes) -> None:
     """The other half, and the reason the agreement above is not a licence.
 
     8 and 45 are the interesting entries: both divide 1,080, so the *open* lines up and
@@ -237,7 +237,7 @@ def test_the_two_anchorings_diverge_for_a_period_that_does_not_divide_sixty(minu
 # -- real bars -----------------------------------------------------------------
 
 
-def test_a_real_contract_resamples_with_every_bar_inside_one_session():
+def test_a_real_contract_resamples_with_every_bar_inside_one_session() -> None:
     """Synthetic sessions are tidy; real ones have gaps, thin nights and early closes."""
     pytest.importorskip("pyarrow")
     splice = pytest.importorskip("nqbt.splice")
