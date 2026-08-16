@@ -190,6 +190,19 @@ def test_keltner_width_is_the_mean_range_not_atr(pinned) -> None:
     assert not np.allclose(half_width, atr, **TOLERANCE)
 
 
+@pytest.mark.parametrize("period", [1, 2, 14, 20])
+def test_the_new_indicators_handle_short_and_empty_inputs(period: int) -> None:
+    empty = np.array([], dtype=np.float64)
+    assert indicators.nt8_true_range(empty, empty, empty).size == 0
+    assert indicators.nt8_atr(empty, empty, empty, period).size == 0
+    assert indicators.nt8_stddev(empty, period).size == 0
+
+    high, low, close = np.array([10.0]), np.array([8.0]), np.array([9.0])
+    assert indicators.nt8_true_range(high, low, close)[0] == pytest.approx(2.0)
+    assert indicators.nt8_atr(high, low, close, period)[0] == pytest.approx(2.0)
+    assert indicators.nt8_stddev(close, period)[0] == 0.0
+
+
 def test_keltner_is_symmetric(pinned) -> None:
     upper, midline, lower = indicators.nt8_keltner(
         pinned["high"], pinned["low"], pinned["close"], 20, 1.5
