@@ -48,9 +48,5 @@ if __name__ == "__main__":
     c = Costs(0.25, 2.0, 1.24, 0.5)
 
     a, b = with_tuple(x, c), with_scalars(x, *c)
-    print(f"bit-identical result: {a == b}   ({a!r})")
 
     tt, ts = bench(with_tuple, x, c), bench(with_scalars, x, *c)
-    print(f"namedtuple {tt:6.1f} ms   scalars {ts:6.1f} ms   ratio {tt / ts:.3f}")
-    print(f"cache=True accepted for both (no exception raised at definition)")
-    print(f"signatures compiled: tuple={len(with_tuple.signatures)} scalars={len(with_scalars.signatures)}")

@@ -54,8 +54,8 @@ def test_volume_crossover_is_detected_when_the_export_covers_it() -> None:
 def test_confirmation_skips_a_one_day_blip_and_finds_the_real_roll() -> None:
     # Back leads on 03-05, falls behind again on 03-06, then leads for good from 03-07.
     week = ["2024-03-04", "2024-03-05", "2024-03-06", "2024-03-07", "2024-03-08"]
-    front = make_frame(week, 100.0, dict(zip(week, [900, 100, 900, 100, 100])))
-    back = make_frame(week, 110.0, dict(zip(week, [100, 900, 100, 900, 900])))
+    front = make_frame(week, 100.0, dict(zip(week, [900, 100, 900, 100, 100], strict=False)))
+    back = make_frame(week, 110.0, dict(zip(week, [100, 900, 100, 900, 900], strict=False)))
 
     lenient = splice.detect_roll(FRONT, BACK, front, back, confirm_sessions=1)
     assert lenient.roll_day == pd.Timestamp("2024-03-05")
@@ -69,8 +69,8 @@ def test_volume_is_compared_over_shared_bars_only() -> None:
     # The real failure mode: the front export stops mid-session on the last day, so its
     # daily total collapses. A calendar comparison would call that a crossover; a
     # bar-aligned one correctly does not.
-    front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
-    back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
+    front = make_frame(DAYS, 100.0, dict.fromkeys(DAYS, 900), bars={"2024-03-08": 2})
+    back = make_frame(DAYS, 110.0, dict.fromkeys(DAYS, 300))
 
     table = splice.overlap_volume(front, back)
     assert not table["back_wins"].any()
@@ -83,8 +83,8 @@ def test_a_stub_session_cannot_decide_the_roll() -> None:
     # sides are short; the ratio is an hour of overnight trade standing in for a session.
     # MNQ 03-23 -> 06-23 read 1.46 on such a stub and rolled a day early.
     week = ["2024-03-05", "2024-03-06", "2024-03-07"]
-    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300])), bars={"2024-03-06": 1})
-    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900])), bars={"2024-03-06": 1})
+    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300], strict=False)), bars={"2024-03-06": 1})
+    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900], strict=False)), bars={"2024-03-06": 1})
 
     table = splice.overlap_volume(front, back)
     assert table.loc[pd.Timestamp("2024-03-06"), "back_wins"]
@@ -99,16 +99,16 @@ def test_a_full_session_still_decides_the_roll_on_its_first_win() -> None:
     # The guard must not cost a legitimate same-day crossover: identical to the case
     # above except that the deciding session is a full one.
     week = ["2024-03-05", "2024-03-06", "2024-03-07"]
-    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300])))
-    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900])))
+    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300], strict=False)))
+    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900], strict=False)))
 
     roll = splice.detect_roll(FRONT, BACK, front, back)
     assert roll.roll_day == pd.Timestamp("2024-03-06")
 
 
 def test_rolls_at_the_coverage_boundary_when_the_crossover_is_missing() -> None:
-    front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
-    back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
+    front = make_frame(DAYS, 100.0, dict.fromkeys(DAYS, 900), bars={"2024-03-08": 2})
+    back = make_frame(DAYS, 110.0, dict.fromkeys(DAYS, 300))
 
     roll = splice.detect_roll(FRONT, BACK, front, back)
     assert roll.method == splice.METHOD_COVERAGE
@@ -118,8 +118,8 @@ def test_rolls_at_the_coverage_boundary_when_the_crossover_is_missing() -> None:
 
 
 def test_strict_mode_refuses_to_guess() -> None:
-    front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
-    back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
+    front = make_frame(DAYS, 100.0, dict.fromkeys(DAYS, 900), bars={"2024-03-08": 2})
+    back = make_frame(DAYS, 110.0, dict.fromkeys(DAYS, 300))
 
     with pytest.raises(splice.SpliceError, match="Supply history"):
         splice.detect_roll(FRONT, BACK, front, back, allow_coverage_boundary=False)
@@ -190,7 +190,7 @@ def test_shifts_accumulate_across_multiple_rolls() -> None:
         [
             frames[BACK],
             make_frame(days2, 110.0, {"2024-06-05": 900, "2024-06-06": 800, "2024-06-07": 100}),
-        ]
+        ],
     )
     frames[LATER] = make_frame(days2, 125.0, {"2024-06-05": 100, "2024-06-06": 200, "2024-06-07": 900})
 
@@ -209,7 +209,7 @@ def test_report_stays_quiet_about_a_healthy_coverage_roll() -> None:
         {"2024-03-06": 900, "2024-03-07": 900, "2024-03-08": 100},
         bars={"2024-03-08": 2},
     )
-    back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
+    back = make_frame(DAYS, 110.0, dict.fromkeys(DAYS, 300))
     _, report = splice.build_continuous([FRONT, BACK], {FRONT: front, BACK: back})
 
     assert not report.all_crossovers_observed  # coverage boundary, as expected
@@ -222,8 +222,8 @@ def test_report_stays_quiet_about_a_healthy_coverage_roll() -> None:
 def test_report_flags_a_roll_that_fires_while_the_front_still_dominates() -> None:
     # Front is still doing 900 against the back's 60 over shared bars: ratio 0.067. The
     # data ran out long before the market rolled, and that is worth surfacing.
-    front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
-    back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
+    front = make_frame(DAYS, 100.0, dict.fromkeys(DAYS, 900), bars={"2024-03-08": 2})
+    back = make_frame(DAYS, 110.0, dict.fromkeys(DAYS, 300))
     _, report = splice.build_continuous([FRONT, BACK], {FRONT: front, BACK: back})
 
     assert report.rolls[0].looks_early

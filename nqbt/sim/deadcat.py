@@ -159,10 +159,8 @@ def simulate_deadcat(
     for i in range(n):
         # ---- exits, using the stop and targets set at the close of bar i-1 ----------
         if in_position:
-            if run_high < high[i]:
-                run_high = high[i]
-            if run_low > low[i]:
-                run_low = low[i]
+            run_high = max(run_high, high[i])
+            run_low = min(run_low, low[i])
 
             written, in_position = _resolve_brackets(
                 out,
@@ -288,7 +286,7 @@ def simulate_deadcat(
                     stop = new_stop
         elif i >= bars_required and signal[i] and not (block_entry_at_session_close and force_flat[i]):
             trigger, candidate_stop, candidate_risk = entry_bracket(
-                high[i], low[i], close[i], entry_offset, stop_offset, direction
+                high[i], low[i], close[i], entry_offset, stop_offset, direction,
             )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
             too_risky = candidate_risk > max_risk_ticks * tick_size

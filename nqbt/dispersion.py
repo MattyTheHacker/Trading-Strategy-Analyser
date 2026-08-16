@@ -41,13 +41,16 @@ which are what this module is really for.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
 from nqbt import ingest, paths, sessions, splice, sweep
 from nqbt.instruments import MNQ, ContractId, Instrument
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 MIN_TRADES = 30
 """Below this a per-contract statistic is reported but excluded from dispersion.
@@ -63,7 +66,7 @@ class DispersionError(RuntimeError):
 
 
 def front_month_windows(
-    root: str, *, back_adjust: bool = True, cache_dir: Path = paths.CACHE_DIR
+    root: str, *, back_adjust: bool = True, cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:
     """Each contract's front-month window, read off the continuous series.
 
@@ -83,7 +86,7 @@ def front_month_windows(
             "start": grouped.apply(lambda d: d.index.min()),
             "end": grouped.apply(lambda d: d.index.max()),
             "continuous_bars": grouped.size(),
-        }
+        },
     )
     windows.index.name = "contract"
     return windows.sort_values("start")
@@ -116,7 +119,8 @@ def contract_frames(
         if len(bars):
             frames[name] = bars
     if not frames:
-        raise DispersionError(f"no cached per-contract bars for {root}")
+        msg = f"no cached per-contract bars for {root}"
+        raise DispersionError(msg)
     return frames
 
 
@@ -138,7 +142,7 @@ def coverage(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
                 "sessions": int(pd.unique(info.trading_day[info.in_session]).size),
                 "start": bars.index.min(),
                 "end": bars.index.max(),
-            }
+            },
         )
     return pd.DataFrame(rows).sort_values("start").reset_index(drop=True)
 
@@ -187,7 +191,7 @@ def sweep_contracts(
 
 
 def dispersion(
-    results: pd.DataFrame, by: str = "profit_factor", *, min_trades: int = MIN_TRADES
+    results: pd.DataFrame, by: str = "profit_factor", *, min_trades: int = MIN_TRADES,
 ) -> pd.DataFrame:
     """How much ``by`` varies across contracts, per combination.
 
@@ -201,7 +205,8 @@ def dispersion(
     all, whatever its median says.
     """
     if by not in results.columns:
-        raise DispersionError(f"no column {by!r} in results; have {sorted(results.columns)}")
+        msg = f"no column {by!r} in results; have {sorted(results.columns)}"
+        raise DispersionError(msg)
 
     rows = []
     for combo_id, group in results.groupby("combo_id", sort=True):
@@ -222,7 +227,7 @@ def dispersion(
                     float(np.subtract(*np.percentile(finite, [75, 25]))) if finite.size else np.nan
                 ),
                 f"{by}_range": float(finite.max() - finite.min()) if finite.size else np.nan,
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -286,22 +291,29 @@ def spread_vs_resampling(
     from nqbt import stats
 
     if by not in stats.TRADE_PNL_STATISTICS:
-        raise DispersionError(
+        msg = (
             f"{by!r} is not permutable: shuffling trades between contracts destroys the "
             f"ordering it depends on. Choose from {list(stats.TRADE_PNL_STATISTICS)}."
+        )
+        raise DispersionError(
+            msg,
         )
 
     grouped = {c: stats.per_trade(log)["net_pnl"].to_numpy(float) for c, log in logs.items()}
     usable = {c: pnl for c, pnl in grouped.items() if pnl.size >= min_trades}
     if len(usable) < 2:
-        raise DispersionError(f"need at least 2 contracts with >= {min_trades} trades; got {len(usable)}")
+        msg = f"need at least 2 contracts with >= {min_trades} trades; got {len(usable)}"
+        raise DispersionError(msg)
 
     observed_stats = {c: stats.trade_statistic(pnl, by) for c, pnl in usable.items()}
     observed_values = np.fromiter(observed_stats.values(), dtype=float, count=len(usable))
     if not np.isfinite(observed_values).all():
-        raise DispersionError(
+        msg = (
             f"{by} is not finite on every contract, so no spread can be measured. A "
             "contract with no losing trade reports an infinite profit factor."
+        )
+        raise DispersionError(
+            msg,
         )
 
     pooled = np.concatenate(list(usable.values()))

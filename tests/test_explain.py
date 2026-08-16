@@ -96,7 +96,7 @@ def test_the_capped_trigger_actually_binds_in_this_fixture(audited) -> None:
 
 def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited) -> None:
     """``fill_type`` reads the trigger too, so it was wrong on the same rows."""
-    log, detail = audited
+    _log, detail = audited
     gapped = detail["fill_type"] == "gap_at_open"
     assert (detail.loc[gapped, "entry_price"] == detail.loc[gapped, "entry_open"]).all()
     touched = ~gapped
@@ -116,6 +116,6 @@ def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close() -> None:
 
 def test_entry_bracket_leaves_the_low_alone_when_the_close_is_high() -> None:
     tick = 0.25
-    trigger, stop, risk = deadcat.entry_bracket(100.0, 99.0, 99.9, 2 * tick, 2 * tick, SHORT)
+    trigger, _stop, risk = deadcat.entry_bracket(100.0, 99.0, 99.9, 2 * tick, 2 * tick, SHORT)
     assert trigger == pytest.approx(99.0)  # min(99.0, 99.4) -- the low wins
     assert risk == pytest.approx(1.5)

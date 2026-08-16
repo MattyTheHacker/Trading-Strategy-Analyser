@@ -36,17 +36,20 @@ from __future__ import annotations
 import itertools
 import math
 import time
-from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
 from nqbt import archetypes, context, resample, stats
-from nqbt.archetypes import Archetype, Params
 from nqbt.context import ContextSpec, Dataset
 from nqbt.instruments import MNQ, Instrument
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping, Sequence
+
+    from nqbt.archetypes import Archetype, Params
 
 
 class SweepError(RuntimeError):
@@ -73,28 +76,38 @@ class Grid:
         if self.base is None:  # type: ignore[comparison-overlap]
             self.base = self.archetype.params_cls()
         if not isinstance(self.base, self.archetype.params_cls):
-            raise SweepError(
+            msg = (
                 f"archetype {self.archetype.name!r} takes "
                 f"{self.archetype.params_cls.__name__}, but base is a "
                 f"{type(self.base).__name__}"
             )
+            raise SweepError(
+                msg,
+            )
         sweepable = self.archetype.sweepable
         unknown = set(self.axes) - sweepable
         if unknown:
-            raise SweepError(
+            msg = (
                 f"unknown sweep parameter(s) for {self.archetype.name}: {sorted(unknown)}. "
                 f"Sweepable: {sorted(sweepable)}"
             )
+            raise SweepError(
+                msg,
+            )
         for name, values in self.axes.items():
             if not values:
-                raise SweepError(f"axis {name!r} has no values")
+                msg = f"axis {name!r} has no values"
+                raise SweepError(msg)
         dead = self.dead_axes()
         if dead:
             detail = "; ".join(f"{a} (needs {t}=True)" for a, t in dead.items())
-            raise SweepError(
+            msg = (
                 f"these axes cannot affect any result: {detail}. Every combination would "
                 "be identical along them, multiplying runtime for nothing. Either enable "
                 "the toggle or drop the axis."
+            )
+            raise SweepError(
+                msg,
             )
 
     def dead_axes(self) -> dict[str, str]:
@@ -140,7 +153,7 @@ class Grid:
             return
         names = list(self.axes)
         for values in itertools.product(*(self.axes[n] for n in names)):
-            yield replace(self.base, **dict(zip(names, values)))
+            yield replace(self.base, **dict(zip(names, values, strict=False)))
 
     def axis_values(self) -> dict[str, list]:
         """Every value each parameter will take across the sweep, swept or not.
@@ -246,8 +259,7 @@ def _sweep_serial(
         if keep_trades:
             logs[i] = trades
         if progress_every and (i + 1) % progress_every == 0:
-            rate = (i + 1) / (time.perf_counter() - started)
-            print(f"  {i + 1:,}/{len(grid):,} combos  {rate:,.0f}/s")
+            (i + 1) / (time.perf_counter() - started)
     return rows, logs
 
 
@@ -391,15 +403,18 @@ def sweep_axes(
     """
     grid_list = [grids] if isinstance(grids, Grid) else list(grids)
     if not grid_list:
-        raise SweepError("sweep_axes needs at least one grid")
+        msg = "sweep_axes needs at least one grid"
+        raise SweepError(msg)
     if not resolutions:
-        raise SweepError("resolutions is empty; pass (1,) for plain 1-minute bars")
+        msg = "resolutions is empty; pass (1,) for plain 1-minute bars"
+        raise SweepError(msg)
 
     sources: Mapping[str | None, pd.DataFrame] = (
         {None: bars} if isinstance(bars, pd.DataFrame) else dict(bars)
     )
     if not sources:
-        raise SweepError("no bars to sweep: the contract mapping is empty")
+        msg = "no bars to sweep: the contract mapping is empty"
+        raise SweepError(msg)
 
     # One spec covering every grid, so the axis point builds *one* dataset that all of them
     # read. This is what ``ContextSpec.__or__`` exists for -- a dataset each would multiply
@@ -451,7 +466,7 @@ def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
 
 
 def rank(
-    results: pd.DataFrame, by: str = "profit_factor", top: int = 20, min_trades: int = 30
+    results: pd.DataFrame, by: str = "profit_factor", top: int = 20, min_trades: int = 30,
 ) -> pd.DataFrame:
     """Shortlist candidates, ignoring combinations with too few trades to mean anything.
 

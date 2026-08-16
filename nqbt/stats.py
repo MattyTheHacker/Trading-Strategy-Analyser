@@ -158,7 +158,7 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
                 "ambiguous_bar",
                 "entry_time",
                 "exit_time",
-            ]
+            ],
         )
     agg = {
         "net_pnl": ("net_pnl", "sum"),
@@ -194,8 +194,8 @@ def summarise(trades: pd.DataFrame) -> Summary:
     r = trades["r_multiple"].replace([np.inf, -np.inf], np.nan).dropna()
 
     return Summary(
-        trades=int(len(t)),
-        legs=int(len(trades)),
+        trades=len(t),
+        legs=len(trades),
         wins=int(wins.sum()),
         losses=int(losses.sum()),
         scratches=int((pnl == 0).sum()),
@@ -251,8 +251,9 @@ def trade_statistic(pnl: np.ndarray, name: str) -> float:
     disagree, this one is wrong. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
+        msg = f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         raise ValueError(
-            f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
+            msg,
         )
     if pnl.size == 0:
         return 0.0
@@ -276,7 +277,7 @@ def leg_summary(trades: pd.DataFrame) -> dict:
     wins, losses = pnl > 0, pnl < 0
     equity = pnl.cumsum()
     return {
-        "legs": int(len(trades)),
+        "legs": len(trades),
         "wins": int(wins.sum()),
         "losses": int(losses.sum()),
         "scratches": int((pnl == 0).sum()),

@@ -70,7 +70,7 @@ def test_second_ingest_of_unchanged_file_is_a_no_op(export, cache) -> None:
 def test_appended_rows_are_parsed_without_rereading_the_head(export, cache) -> None:
     _, first = run(export, cache)
     extra = "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"
-    write(export, LINES + [extra])
+    write(export, [*LINES, extra])
 
     result, entry = run(export, cache)
     assert result.action == "appended"
@@ -94,7 +94,7 @@ def test_partial_trailing_line_is_deferred_until_complete(export, cache) -> None
     assert result.rows_added == 0
 
     # Once the writer finishes the line, it is picked up intact.
-    write(export, LINES + ["20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
+    write(export, [*LINES, "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
     result, _ = run(export, cache)
     assert result.rows_added == 1
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
@@ -108,12 +108,12 @@ def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cac
     the file head alone cannot see that, so the partial bar used to be frozen forever.
     """
     partial = "20240308 213300;18001.75;18002.00;18001.50;18001.80;12"
-    write(export, LINES + [partial])
+    write(export, [*LINES, partial])
     run(export, cache)
     assert ingest.load_contract(CONTRACT, cache)["volume"].iloc[-1] == 12
 
     complete = "20240308 213300;18001.75;18010.00;17995.00;18008.25;884"
-    write(export, LINES + [complete, "20240308 213400;18008.25;18009.00;18007.00;18008.00;61"])
+    write(export, [*LINES, complete, "20240308 213400;18008.25;18009.00;18007.00;18008.00;61"])
     result, _ = run(export, cache)
 
     frame = ingest.load_contract(CONTRACT, cache)
@@ -168,7 +168,7 @@ def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(expor
     path.write_text(json.dumps(stored))
 
     assert ingest.load_manifest(path) == {}
-    write(export, LINES + ["20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
+    write(export, [*LINES, "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
     result, _ = run(export, cache)
     assert result.action == "reparsed"
     assert len(ingest.load_contract(CONTRACT, cache)) == 4

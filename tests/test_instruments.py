@@ -19,7 +19,7 @@ def test_point_and_tick_conversions_round_trip() -> None:
 
 
 @pytest.mark.parametrize(
-    "price,mode,expected",
+    ("price", "mode", "expected"),
     [
         (16019.26, "nearest", 16019.25),
         (16019.40, "nearest", 16019.50),

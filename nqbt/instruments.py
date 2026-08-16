@@ -86,7 +86,8 @@ class Instrument:
         elif mode == "down":
             n = math.floor(n + eps)
         else:  # pragma: no cover - guarded by the Literal type
-            raise ValueError(f"unknown round mode: {mode!r}")
+            msg = f"unknown round mode: {mode!r}"
+            raise ValueError(msg)
         return round(n * self.tick_size, self.price_decimals)
 
     def is_on_tick(self, price: float) -> bool:
@@ -102,10 +103,12 @@ class Instrument:
         rather than silently trading one lot.
         """
         if stop_distance_points <= 0:
-            raise ValueError("stop_distance_points must be positive")
+            msg = "stop_distance_points must be positive"
+            raise ValueError(msg)
         per_contract = self.points_to_dollars(stop_distance_points)
         if per_contract <= 0:
-            raise ValueError("stop distance rounds to zero dollars of risk")
+            msg = "stop distance rounds to zero dollars of risk"
+            raise ValueError(msg)
         return int(risk_dollars // per_contract)
 
 
@@ -132,7 +135,8 @@ def get_instrument(symbol: str) -> Instrument:
         return INSTRUMENTS[symbol.strip().upper()]
     except KeyError:
         known = ", ".join(sorted(INSTRUMENTS))
-        raise KeyError(f"unknown instrument {symbol!r}; known instruments: {known}") from None
+        msg = f"unknown instrument {symbol!r}; known instruments: {known}"
+        raise KeyError(msg) from None
 
 
 # "MNQ 03-24", "NQ 12-25" -- the naming NT8's Historical Data export produces.
@@ -153,9 +157,12 @@ class ContractId:
 
     def __post_init__(self) -> None:
         if self.month not in MONTH_CODES:
-            raise ValueError(
+            msg = (
                 f"{self.root} {self.month:02d}-{self.year}: month must be one of "
                 f"{sorted(MONTH_CODES)} (NQ/MNQ are quarterly contracts)"
+            )
+            raise ValueError(
+                msg,
             )
 
     @classmethod
@@ -163,7 +170,8 @@ class ContractId:
         """Parse an NT8-style contract name such as ``"MNQ 03-24"``."""
         m = _CONTRACT_RE.match(text)
         if not m:
-            raise ValueError(f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'")
+            msg = f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
+            raise ValueError(msg)
         return cls(
             root=m["root"].upper(),
             month=int(m["month"]),

@@ -82,7 +82,7 @@ class ResampleError(ValueError):
 
 
 def minutes_since_open(
-    index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH
+    index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> np.ndarray:
     """How far each **end-of-bar** timestamp sits past its session's open, in minutes.
 
@@ -139,7 +139,8 @@ def resample(
     stray prints" note in ``CLAUDE.md``.
     """
     if minutes < 1:
-        raise ResampleError(f"minutes must be >= 1, got {minutes}")
+        msg = f"minutes must be >= 1, got {minutes}"
+        raise ResampleError(msg)
     if minutes == 1:
         return bars
     if bars.empty:
@@ -177,6 +178,6 @@ def resample(
 
     first_of_group = np.flatnonzero(starts_group)
     out.index = pd.DatetimeIndex(
-        stamped[first_of_group].astype("datetime64[ns]"), tz="UTC", name=bars.index.name
+        stamped[first_of_group].astype("datetime64[ns]"), tz="UTC", name=bars.index.name,
     )
     return out[list(bars.columns)]

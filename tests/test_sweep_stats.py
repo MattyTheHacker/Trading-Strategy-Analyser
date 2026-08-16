@@ -38,12 +38,13 @@ def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
 def test_summary_counts_trades_not_legs() -> None:
     # Two trades of four legs each. NT8 would call this eight trades; a person calls it two.
     log = trade_log(
-        [(1, l, 10.0, 3, False) for l in range(1, 5)] + [(2, l, -5.0, 2, False) for l in range(1, 5)]
+        [(1, l, 10.0, 3, False) for l in range(1, 5)] + [(2, l, -5.0, 2, False) for l in range(1, 5)],
     )
     s = stats.summarise(log)
     assert s.trades == 2
     assert s.legs == 8
-    assert s.wins == 1 and s.losses == 1
+    assert s.wins == 1
+    assert s.losses == 1
     assert s.win_rate == pytest.approx(0.5)
     assert s.net_pnl == pytest.approx(40.0 - 20.0)
 
@@ -83,7 +84,7 @@ def test_scratches_are_neither_wins_nor_losses() -> None:
 
 def test_ambiguous_share_reports_assumption_exposure() -> None:
     log = trade_log(
-        [(1, 1, 5.0, 1, True), (2, 1, 5.0, 1, False), (3, 1, 5.0, 1, False), (4, 1, 5.0, 1, False)]
+        [(1, 1, 5.0, 1, True), (2, 1, 5.0, 1, False), (3, 1, 5.0, 1, False), (4, 1, 5.0, 1, False)],
     )
     assert stats.summarise(log).ambiguous_share == pytest.approx(0.25)
 
@@ -113,7 +114,8 @@ def test_session_close_share_is_measured_over_legs_like_ambiguous_share() -> Non
         exit_reasons=["target", "target", "target", "session_close"],
     )
     s = stats.summarise(log)
-    assert s.trades == 1 and s.legs == 4
+    assert s.trades == 1
+    assert s.legs == 4
     assert s.session_close_share == pytest.approx(0.25)
 
 
@@ -123,7 +125,7 @@ def test_session_close_share_reads_the_label_the_simulator_actually_writes() -> 
     ``stats.SESSION_CLOSE`` is derived from ``trades.EXIT_REASONS`` rather than spelled
     twice, and this asserts the derivation lands on the string the mapping produces.
     """
-    assert stats.SESSION_CLOSE == trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE]
+    assert trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE] == stats.SESSION_CLOSE
     assert stats.SESSION_CLOSE == "session_close"
 
 
@@ -150,8 +152,10 @@ def test_leg_summary_matches_nt8s_way_of_counting() -> None:
 def test_summarising_an_empty_log_returns_zeros_rather_than_raising() -> None:
     """The guard splatted 26 arguments into a 28-field dataclass and raised on every call."""
     s = stats.summarise(trade_log([]))
-    assert s.trades == 0 and s.legs == 0
-    assert s.net_pnl == 0.0 and s.profit_factor == 0.0
+    assert s.trades == 0
+    assert s.legs == 0
+    assert s.net_pnl == 0.0
+    assert s.profit_factor == 0.0
 
 
 INTEGER_SUMMARY_FIELDS = {
@@ -253,7 +257,8 @@ def test_required_context_covers_every_combination() -> None:
 def test_required_context_includes_unswept_defaults() -> None:
     g = sweep.Grid.of(DeadCatParams(ema_period=11, fast_sma_period=80), use_vwap=[True, False])
     spec = g.required_context()
-    assert 11 in spec.ema_periods and 80 in spec.sma_periods
+    assert 11 in spec.ema_periods
+    assert 80 in spec.sma_periods
 
 
 # -- parallel execution -------------------------------------------------------
@@ -471,7 +476,7 @@ def test_the_strategy_axis_takes_a_grid_each_rather_than_a_name_each(axis_bars) 
     """
     deadcat = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
     pullback = sweep.Grid.of(
-        PullBackAndGoParams(bars_required_to_trade=200), require_previous_red=[True, False]
+        PullBackAndGoParams(bars_required_to_trade=200), require_previous_red=[True, False],
     )
     frame, _ = sweep.sweep_axes(axis_bars, [deadcat, pullback], NQ)
     assert set(frame["strategy"]) == {"DeadCatBounce", "PullBackAndGo"}
@@ -498,7 +503,7 @@ def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
         sweep.Grid(axes={}, base=DeadCatParams(bars_required_to_trade=200), archetype=tier1),
     ]
     frame, _ = sweep.sweep_axes(axis_bars, grids, NQ)
-    by_strategy = dict(zip(frame["strategy"], frame["tier2"]))
+    by_strategy = dict(zip(frame["strategy"], frame["tier2"], strict=False))
     assert by_strategy == {"DeadCatBounce": "reconciled", "UnreconciledProbe": "tier-1-only"}
 
 
@@ -525,7 +530,9 @@ def test_every_grid_at_one_axis_point_shares_a_single_dataset(axis_bars, monkeyp
     assert len(calls) == 2, "one prepare per axis point, not one per grid"
     # And the union really is a union: VWAP comes from the first grid, period 9 the second.
     for spec in calls:
-        assert spec.needs_vwap and 9 in spec.ema_periods and 21 in spec.ema_periods
+        assert spec.needs_vwap
+        assert 9 in spec.ema_periods
+        assert 21 in spec.ema_periods
 
 
 # -- the axes compose ----------------------------------------------------------
@@ -539,7 +546,7 @@ def test_the_axes_multiply_and_every_block_is_distinguishable(axis_bars) -> None
     frames = contract_frames(axis_bars)
     frame, _ = sweep.sweep_axes(frames, grids, NQ, resolutions=[1, 5])
     assert len(frame) == 2 * 2 * 2  # contracts x resolutions x strategies, one combo each
-    keys = set(zip(frame["strategy"], frame["resolution"], frame["contract"]))
+    keys = set(zip(frame["strategy"], frame["resolution"], frame["contract"], strict=False))
     assert len(keys) == 8, "two blocks share an axis point and would aggregate as one"
 
 
@@ -609,7 +616,7 @@ def fake_results(n=3) -> pd.DataFrame:
             "trades": [100, 200, 5][:n],
             "profit_factor": [1.2, 1.5, 9.9][:n],
             "net_pnl": [500.0, 900.0, 40.0][:n],
-        }
+        },
     )
 
 
@@ -637,7 +644,7 @@ def test_save_and_reload_a_sweep(db) -> None:
 def test_sweep_ids_increment_and_rows_stay_tagged(db) -> None:
     for _ in range(3):
         results.save_sweep(
-            fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db
+            fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db,
         )
     assert list(results.list_sweeps(db)["sweep_id"]) == [3, 2, 1]
     counts = results.query("SELECT sweep_id, COUNT(*) n FROM combos GROUP BY 1 ORDER BY 1", db)
@@ -674,7 +681,7 @@ def save(db, results_frame=None, **kwargs) -> int:
     """``save_sweep`` with the arguments that are noise for these tests filled in."""
     defaults = {"root": "MNQ", "instrument": "MNQ", "bars": fake_bars(), "axes": {}}
     return results.save_sweep(
-        fake_results() if results_frame is None else results_frame, db_path=db, **{**defaults, **kwargs}
+        fake_results() if results_frame is None else results_frame, db_path=db, **{**defaults, **kwargs},
     )
 
 
@@ -715,10 +722,10 @@ def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db)
     every later per-contract sweep would fail to insert into it.
     """
     save(db)  # contract is null throughout: the case that sets the column's type
-    described = dict(
-        (name, sql_type)
+    described = {
+        name: sql_type
         for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)
-    )
+    }
     assert described["contract"] == "VARCHAR"
     assert described["resolution"] == "BIGINT"
     # And the type holds: a real contract name inserts into the column the null one made.
@@ -775,11 +782,11 @@ def legacy_database(db) -> None:
         "CREATE TABLE sweeps (sweep_id BIGINT PRIMARY KEY, created_utc TIMESTAMP, "
         "root VARCHAR, instrument VARCHAR, back_adjust BOOLEAN, bars BIGINT, "
         "first_bar TIMESTAMP, last_bar TIMESTAMP, combos BIGINT, elapsed_s DOUBLE, "
-        "axes VARCHAR, notes VARCHAR, host VARCHAR)"
+        "axes VARCHAR, notes VARCHAR, host VARCHAR)",
     )
     con.execute(
         "INSERT INTO sweeps VALUES (1, NOW(), 'MNQ', 'MNQ', true, 10, NOW(), NOW(), "
-        "1, 0.5, '{}', 'old', 'box')"
+        "1, 0.5, '{}', 'old', 'box')",
     )
     con.execute("CREATE TABLE combos (sweep_id BIGINT, combo_id BIGINT, profit_factor DOUBLE)")
     con.execute("INSERT INTO combos VALUES (1, 0, 1.23)")
@@ -790,9 +797,11 @@ def test_an_existing_database_gains_the_columns_and_keeps_its_rows(db) -> None:
     legacy_database(db)
     results.connect(db).close()
     swept = results.query("SELECT * FROM sweeps", db)
-    assert len(swept) == 1 and swept.loc[0, "notes"] == "old"
+    assert len(swept) == 1
+    assert swept.loc[0, "notes"] == "old"
     combos = results.query("SELECT * FROM combos", db)
-    assert len(combos) == 1 and combos.loc[0, "profit_factor"] == pytest.approx(1.23)
+    assert len(combos) == 1
+    assert combos.loc[0, "profit_factor"] == pytest.approx(1.23)
     for name in results.AXIS_COLUMNS:
         assert pd.isna(swept.loc[0, name]) and pd.isna(combos.loc[0, name]), name
     assert pd.isna(swept.loc[0, "batch_id"])
@@ -825,12 +834,17 @@ def test_a_migrated_database_puts_every_value_in_the_column_it_names(db) -> None
         db_path=db,
     )
     row = results.query("SELECT * FROM sweeps WHERE sweep_id = 2", db).iloc[0]
-    assert row["root"] == "NQ" and row["instrument"] == "MNQ"
-    assert row["strategy"] == "PullBackAndGo" and row["contract"] == "MNQ 06-24"
-    assert row["tier2"] == "reconciled" and row["batch_id"] == 7
+    assert row["root"] == "NQ"
+    assert row["instrument"] == "MNQ"
+    assert row["strategy"] == "PullBackAndGo"
+    assert row["contract"] == "MNQ 06-24"
+    assert row["tier2"] == "reconciled"
+    assert row["batch_id"] == 7
     assert bool(row["back_adjust"]) is True
-    assert row["bars"] == len(fake_bars()) and row["combos"] == 3
-    assert row["notes"] == "tagged" and row["elapsed_s"] == pytest.approx(2.5)
+    assert row["bars"] == len(fake_bars())
+    assert row["combos"] == 3
+    assert row["notes"] == "tagged"
+    assert row["elapsed_s"] == pytest.approx(2.5)
     assert json.loads(row["axes"]) == {"ema_period": [9]}
 
 
@@ -847,9 +861,11 @@ def test_a_migrated_database_stores_tags_on_new_rows_beside_untagged_old_ones(db
     save(db, strategy="PullBackAndGo", resolution=5, contract="MNQ 06-24")
     rows = results.query("SELECT sweep_id, strategy, resolution FROM sweeps ORDER BY sweep_id", db)
     assert pd.isna(rows.loc[0, "strategy"])
-    assert rows.loc[1, "strategy"] == "PullBackAndGo" and rows.loc[1, "resolution"] == 5
+    assert rows.loc[1, "strategy"] == "PullBackAndGo"
+    assert rows.loc[1, "resolution"] == 5
     combos = results.query("SELECT contract FROM combos ORDER BY sweep_id", db)
-    assert pd.isna(combos.loc[0, "contract"]) and combos.loc[1, "contract"] == "MNQ 06-24"
+    assert pd.isna(combos.loc[0, "contract"])
+    assert combos.loc[1, "contract"] == "MNQ 06-24"
 
 
 def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db) -> None:
@@ -864,7 +880,7 @@ def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db
     save(db, results_frame=wider)
     save(db, results_frame=fake_results())  # narrower: no brand_new_stat this time
     rows = results.query(
-        "SELECT sweep_id, brand_new_stat, net_pnl FROM combos ORDER BY sweep_id, combo_id", db
+        "SELECT sweep_id, brand_new_stat, net_pnl FROM combos ORDER BY sweep_id, combo_id", db,
     )
     assert list(rows[rows["sweep_id"] == 1]["brand_new_stat"]) == [1.0, 2.0, 3.0]
     assert rows[rows["sweep_id"] == 2]["brand_new_stat"].isna().all()

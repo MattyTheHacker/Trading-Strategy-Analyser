@@ -85,7 +85,7 @@ def pinned():
         "kc_midline",
         "kc_upper",
     )
-    return dict(zip(names, columns))
+    return dict(zip(names, columns, strict=False))
 
 
 def test_true_range_is_the_bare_range_on_the_first_bar(pinned) -> None:

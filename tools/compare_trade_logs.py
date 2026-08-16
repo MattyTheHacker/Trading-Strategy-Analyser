@@ -25,12 +25,10 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
     failures = 0
     names = sorted(p.name for p in before.iterdir() if p.is_file())
     if not names:
-        print(f"no files in {before}")
         return 1
 
     missing = [n for n in names if not (after / n).exists()]
     for name in missing:
-        print(f"FAIL {name}: absent from {after}")
         failures += 1
 
     for name in (n for n in names if n not in missing):
@@ -39,31 +37,25 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
 
         unexpected = [c for c in new.columns if c not in old.columns and c not in added]
         if unexpected:
-            print(f"FAIL {name}: unexpected new column(s) {unexpected}")
             failures += 1
         dropped = [c for c in old.columns if c not in new.columns]
         if dropped:
-            print(f"FAIL {name}: column(s) disappeared {dropped}")
             failures += 1
             continue
 
         try:
             pd.testing.assert_frame_equal(old, new[old.columns], check_exact=True)
-        except AssertionError as exc:
-            print(f"FAIL {name}: {str(exc).splitlines()[0]}")
+        except AssertionError:
             failures += 1
             continue
 
         gained = [c for c in new.columns if c not in old.columns]
-        note = f"  (+{','.join(gained)})" if gained else ""
-        print(f"  ok  {name}  {len(old):,} rows x {len(old.columns)} cols{note}")
+        f"  (+{','.join(gained)})" if gained else ""
 
-    if failures:
-        print(f"\n{failures} FAILURE(S)")
-    elif added:
-        print("\nALL PRE-EXISTING COLUMNS IDENTICAL")
+    if failures or added:
+        pass
     else:
-        print("\nBYTE-FOR-BYTE IDENTICAL")
+        pass
     return failures
 
 
