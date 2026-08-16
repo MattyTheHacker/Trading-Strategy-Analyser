@@ -214,8 +214,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
     missing = [c for c in SCHEMA if c not in frame.columns]
     if missing:
         raise TradeSchemaError(
-            f"trade log is missing required column(s): {missing}. "
-            "The schema is nqbt.trades.SCHEMA."
+            f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
         )
     if frame.empty:
         return frame
@@ -235,9 +234,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         )
     unknown = set(frame["source"].unique()) - set(SOURCES)
     if unknown:
-        raise TradeSchemaError(
-            f"unknown source(s) {sorted(unknown)}; expected one of {SOURCES}"
-        )
+        raise TradeSchemaError(f"unknown source(s) {sorted(unknown)}; expected one of {SOURCES}")
     if (frame["quantity"].to_numpy() <= 0).any():
         raise TradeSchemaError(
             "quantity must be positive on every row; a short position is expressed by "

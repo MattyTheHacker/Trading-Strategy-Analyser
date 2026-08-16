@@ -70,9 +70,7 @@ def _read(path: Path) -> dict[bytes, bytes]:
     return rows
 
 
-def merge_contract(
-    source_paths: Sequence[Path], archive_path: Path
-) -> MergeResult:
+def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeResult:
     """Fold every source into ``archive_path``, which may not exist yet."""
     original: dict[bytes, bytes] = _read(archive_path) if archive_path.exists() else {}
     merged = dict(original)
@@ -131,9 +129,7 @@ def _write(path: Path, rows: dict[bytes, bytes]) -> None:
     temp.replace(path)
 
 
-def _contracts(
-    source_dirs: Iterable[Path], root: str | None
-) -> dict[str, list[Path]]:
+def _contracts(source_dirs: Iterable[Path], root: str | None) -> dict[str, list[Path]]:
     """Source files per contract, in the precedence order the folders were given."""
     found: dict[str, list[Path]] = {}
     for directory in source_dirs:

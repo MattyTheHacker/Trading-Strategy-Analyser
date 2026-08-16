@@ -72,7 +72,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("before", type=Path)
     parser.add_argument("after", type=Path)
     parser.add_argument(
-        "--added", nargs="*", default=[],
+        "--added",
+        nargs="*",
+        default=[],
         help="columns the change is expected to add; all others must match exactly",
     )
     args = parser.parse_args(argv[1:])

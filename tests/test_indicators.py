@@ -11,8 +11,7 @@ RAMP = np.arange(10, dtype=np.float64)
 
 def test_nt8_ema_matches_the_hand_computed_recursion() -> None:
     # k = 2/(1+3) = 0.5, seeded with values[0] rather than a warm-up average.
-    expected = [0.0, 0.5, 1.25, 2.125, 3.0625, 4.03125, 5.015625, 6.0078125,
-                7.00390625, 8.001953125]
+    expected = [0.0, 0.5, 1.25, 2.125, 3.0625, 4.03125, 5.015625, 6.0078125, 7.00390625, 8.001953125]
     assert indicators.nt8_ema(RAMP, 3) == pytest.approx(expected)
 
 
@@ -112,8 +111,9 @@ def test_typical_price() -> None:
 
 
 def test_new_session_flags_marks_each_days_first_bar() -> None:
-    days = np.array(["2024-03-07", "2024-03-07", "2024-03-08", "2024-03-08", "2024-03-11"],
-                    dtype="datetime64[D]")
+    days = np.array(
+        ["2024-03-07", "2024-03-07", "2024-03-08", "2024-03-08", "2024-03-11"], dtype="datetime64[D]"
+    )
     assert list(indicators.new_session_flags(days)) == [True, False, True, False, True]
 
 

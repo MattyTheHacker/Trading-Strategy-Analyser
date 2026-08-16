@@ -89,18 +89,14 @@ def results_table(rows) -> pd.DataFrame:
 
 def test_dispersion_is_returned_in_combo_order_not_performance_order() -> None:
     """The leaderboard this module exists to refuse must not appear by accident."""
-    table = results_table(
-        [("A", 0, 100, 0.5), ("B", 0, 100, 0.6), ("A", 1, 100, 2.0), ("B", 1, 100, 2.2)]
-    )
+    table = results_table([("A", 0, 100, 0.5), ("B", 0, 100, 0.6), ("A", 1, 100, 2.0), ("B", 1, 100, 2.2)])
     out = dispersion.dispersion(table)
     assert list(out["combo_id"]) == [0, 1], "sorted by performance; combo 1 is far better"
 
 
 def test_a_contract_below_the_trade_floor_is_excluded_and_counted() -> None:
     """A profit factor from four trades is noise, and noise has the widest spread."""
-    table = results_table(
-        [("A", 0, 400, 0.9), ("B", 0, 350, 1.0), ("C", 0, 4, 12.0)]
-    )
+    table = results_table([("A", 0, 400, 0.9), ("B", 0, 350, 1.0), ("C", 0, 4, 12.0)])
     out = dispersion.dispersion(table, min_trades=30).iloc[0]
     assert out["contracts"] == 3
     assert out["contracts_used"] == 2
@@ -476,9 +472,7 @@ def test_the_per_contract_results_match_running_that_contract_directly(swept, ca
     direct, _ = sweep.sweep(frames["MNQ 03-24"], grid, NQ)
     mine = results[results["contract"] == "MNQ 03-24"].reset_index(drop=True)
     for column in ("combo_id", "trades", "net_pnl", "profit_factor"):
-        pd.testing.assert_series_equal(
-            mine[column], direct[column], check_names=False, check_dtype=False
-        )
+        pd.testing.assert_series_equal(mine[column], direct[column], check_names=False, check_dtype=False)
 
 
 def test_a_root_where_nothing_trades_says_so_rather_than_returning_an_empty_table(cache) -> None:

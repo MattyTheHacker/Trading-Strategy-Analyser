@@ -95,9 +95,7 @@ def run_pullbackandgo(
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
-        raise RuntimeError(
-            "trade buffer overflowed; allocate_output's signal-count bound was violated"
-        )
+        raise RuntimeError("trade buffer overflowed; allocate_output's signal-count bound was violated")
 
     return trades.validate(
         trades.trades_to_frame(

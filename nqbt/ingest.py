@@ -118,9 +118,7 @@ def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifes
     return entries
 
 
-def save_manifest(
-    manifest: dict[str, ContractManifest], path: Path = paths.MANIFEST_PATH
-) -> None:
+def save_manifest(manifest: dict[str, ContractManifest], path: Path = paths.MANIFEST_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {k: asdict(v) for k, v in sorted(manifest.items())}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -182,14 +180,10 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
         engine="c",
     )
 
-    ts = pd.to_datetime(
-        frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce"
-    )
+    ts = pd.to_datetime(frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce")
     bad = ts.isna()
     if bad.all():
-        raise IngestError(
-            f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'"
-        )
+        raise IngestError(f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'")
     frame = frame.loc[~bad].copy()
     frame.index = pd.DatetimeIndex(ts.loc[~bad], name="ts_utc")
     frame = frame.drop(columns=["timestamp"])
@@ -205,9 +199,7 @@ def _empty_frame() -> pd.DataFrame:
     return frame
 
 
-def _finalise(
-    frame: pd.DataFrame, *, source_name: str, dropped_timestamps: int = 0
-) -> pd.DataFrame:
+def _finalise(frame: pd.DataFrame, *, source_name: str, dropped_timestamps: int = 0) -> pd.DataFrame:
     """Sort, deduplicate, validate OHLC sanity and attach session classification."""
     frame = frame.sort_index(kind="stable")
     frame = frame[~frame.index.duplicated(keep="last")]
@@ -231,9 +223,7 @@ def _finalise(
 # -- ingestion ----------------------------------------------------------------
 
 
-def discover_exports(
-    data_dir: Path = paths.MINUTE_DIR, root: str | None = None
-) -> dict[ContractId, Path]:
+def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None) -> dict[ContractId, Path]:
     """Find raw exports, keyed by contract, optionally filtered to one root symbol."""
     found: dict[ContractId, Path] = {}
     for path in sorted(data_dir.glob("*.Last.txt")):
@@ -252,15 +242,11 @@ def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR)
     return cache_dir / "bars" / contract.root / f"{contract.cache_key}.parquet"
 
 
-def load_contract(
-    contract: ContractId, cache_dir: Path = paths.CACHE_DIR
-) -> pd.DataFrame:
+def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
     """Read one contract's cached bars."""
     path = contract_cache_path(contract, cache_dir)
     if not path.exists():
-        raise FileNotFoundError(
-            f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first"
-        )
+        raise FileNotFoundError(f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first")
     return pd.read_parquet(path)
 
 
@@ -408,9 +394,7 @@ def ingest_all(
 
     results: list[IngestResult] = []
     for contract, source in sorted(exports.items()):
-        result, _ = ingest_contract(
-            contract, source, cache_dir=cache_dir, manifest=manifest, force=force
-        )
+        result, _ = ingest_contract(contract, source, cache_dir=cache_dir, manifest=manifest, force=force)
         results.append(result)
 
     save_manifest(manifest, manifest_path)

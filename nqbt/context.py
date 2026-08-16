@@ -221,9 +221,7 @@ def prepare(
         geometry=conditions.bar_geometry(bars),
         spec=spec,
         mas={
-            kind: conditions.moving_average_grid(
-                close, periods, kind, keep_values=keep_ma_values
-            )
+            kind: conditions.moving_average_grid(close, periods, kind, keep_values=keep_ma_values)
             for kind, periods in spec.periods_by_kind().items()
         },
         vwap=vwap,

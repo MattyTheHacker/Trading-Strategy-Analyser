@@ -34,8 +34,7 @@ def explain_trades(
     """
     if any(g.values is None for g in data.mas.values()):
         raise ValueError(
-            "explain_trades needs raw indicator values; call "
-            "context.prepare(..., keep_ma_values=True)"
+            "explain_trades needs raw indicator values; call context.prepare(..., keep_ma_values=True)"
         )
 
     signal = deadcat_signal(data, params)
@@ -65,7 +64,9 @@ def explain_trades(
         # Shared with the loop, not restated. See ``entry_bracket``: the copy that used to
         # sit here dropped the Close[0] - 2 ticks cap and was wrong on half of all trades.
         trigger, stop, risk = entry_bracket(
-            h, l, c,
+            h,
+            l,
+            c,
             params.entry_offset_ticks * tick,
             params.stop_offset_ticks * tick,
             SHORT,  # DeadCatBounce is short-only; see nqbt.sim.deadcat.entry_bracket.
@@ -78,7 +79,10 @@ def explain_trades(
             "trade_id": trade_id,
             "signal_time": index[s],
             "signal_bar": s,
-            "sig_open": o, "sig_high": h, "sig_low": l, "sig_close": c,
+            "sig_open": o,
+            "sig_high": h,
+            "sig_low": l,
+            "sig_close": c,
             # -- inverted hammer -------------------------------------------------
             "body": body,
             "upper_wick": upper,
@@ -93,10 +97,14 @@ def explain_trades(
             "prev_high": data.high[p] if p >= 0 else np.nan,
             "new_high_ok": (h > data.high[p]) if p >= 0 else False,
             # -- trend gates: operands, so the verdict is checkable ---------------
-            "ema": ema[s], "below_ema": not (c > ema[s]),
-            "fast_sma": fast[s], "below_fast_sma": not (c > fast[s]),
-            "slow_sma": slow[s], "below_slow_sma": not (c > slow[s]),
-            "vwap": vwap[s], "below_vwap": not (c > vwap[s]),
+            "ema": ema[s],
+            "below_ema": not (c > ema[s]),
+            "fast_sma": fast[s],
+            "below_fast_sma": not (c > fast[s]),
+            "slow_sma": slow[s],
+            "below_slow_sma": not (c > slow[s]),
+            "vwap": vwap[s],
+            "below_vwap": not (c > vwap[s]),
             "signal_fired": bool(signal[s]),
             # -- order arithmetic -------------------------------------------------
             "trigger": trigger,
@@ -128,7 +136,10 @@ def explain_trades(
 
 
 def ratchet_history(
-    data: Dataset, params: DeadCatParams, trades: pd.DataFrame, trade_id: int,
+    data: Dataset,
+    params: DeadCatParams,
+    trades: pd.DataFrame,
+    trade_id: int,
     instrument: Instrument,
 ) -> pd.DataFrame:
     """Bar-by-bar stop history for one trade, to check the ratchet by hand.
