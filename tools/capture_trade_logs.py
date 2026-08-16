@@ -65,10 +65,17 @@ def capture(outdir: Path) -> None:
     # 1. The pinned reconciliation window. These two settings are what reproduce the
     #    stored pre-fix run; do not "modernise" them.
     recon = DeadCatParams(
-        ema_period=21, slow_sma_period=175, fast_sma_period=60,
-        use_ema=True, use_slow_sma=True, use_fast_sma=True, use_vwap=True,
-        require_previous_green=True, require_new_high=True,
-        fill_limit_on_touch=True, ambiguity_policy=0,
+        ema_period=21,
+        slow_sma_period=175,
+        fast_sma_period=60,
+        use_ema=True,
+        use_slow_sma=True,
+        use_fast_sma=True,
+        use_vwap=True,
+        require_previous_green=True,
+        require_new_high=True,
+        fill_limit_on_touch=True,
+        ambiguity_policy=0,
     )
     data = context.prepare(bars, context.ContextSpec((21,), (60, 175), needs_vwap=True))
     write(run_deadcat(data, recon, MNQ), outdir / "recon.csv")
@@ -86,9 +93,7 @@ def capture(outdir: Path) -> None:
     live_trades = run_deadcat(data, live, MNQ)
     write(live_trades, outdir / "live_mnq.csv")
     write(run_deadcat(data, live, NQ), outdir / "live_nq.csv")
-    pd.Series(stats.summarise(live_trades).as_dict()).to_csv(
-        outdir / "live_summary.csv", float_format=EXACT
-    )
+    pd.Series(stats.summarise(live_trades).as_dict()).to_csv(outdir / "live_summary.csv", float_format=EXACT)
     print(f"  single-contract legs: recon and live captured ({len(live_trades):,} live)")
 
     # 4. A real sweep, both execution paths.
@@ -96,7 +101,9 @@ def capture(outdir: Path) -> None:
     continuous = continuous[continuous.index >= SWEEP_FROM]
     grid = sweep.Grid.of(
         DeadCatParams(commission_per_contract=1.24, slippage_ticks=1.0),
-        ema_period=[11, 21], fast_sma_period=[60, 80], use_vwap=[True, False],
+        ema_period=[11, 21],
+        fast_sma_period=[60, 80],
+        use_vwap=[True, False],
     )
     prepared = sweep.prepare_for(continuous, grid)
     serial, logs = sweep.sweep(continuous, grid, MNQ, data=prepared, keep_trades=True)

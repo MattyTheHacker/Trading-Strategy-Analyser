@@ -30,15 +30,15 @@ def run(
     bars_required=0,
     min_reward_risk=0.0,
     ratchet_lag=1,
-    entry_offset=0.0,   # 0 => trigger is just Low[0]; tests opt in explicitly
+    entry_offset=0.0,  # 0 => trigger is just Low[0]; tests opt in explicitly
     tp_multiplier=1.0,
     max_risk_ticks=1e9,
     block_entry_at_close=True,
-    fill_limit_on_touch=True,   # tests target exact prices; opt out explicitly
+    fill_limit_on_touch=True,  # tests target exact prices; opt out explicitly
     ambiguity_policy=0,
     direction=SHORT,
-    ratchet_offset_ticks=2.0,   # DeadCatBounce.cs reapplies the entry's stop offset
-    round_targets=True,        # DeadCatBounce.cs calls RoundToTickSize; PBG does not
+    ratchet_offset_ticks=2.0,  # DeadCatBounce.cs reapplies the entry's stop offset
+    round_targets=True,  # DeadCatBounce.cs calls RoundToTickSize; PBG does not
 ):
     """Simulate hand-written OHLC rows. ``signal_at`` lists signal bar indices."""
     arr = np.asarray(rows, dtype=np.float64)
@@ -54,21 +54,38 @@ def run(
 
     out = deadcat.allocate_output(max(int(signal.sum()), 1), len(quantities))
     count = deadcat.simulate_deadcat(
-        o, h, l, c, signal, force_flat,
+        o,
+        h,
+        l,
+        c,
+        signal,
+        force_flat,
         np.asarray(quantities, dtype=np.int64),
         np.asarray(targets, dtype=np.float64),
-        TICK, instrument.point_value, 2.0, entry_offset, tp_multiplier, max_risk_ticks,
-        commission, slippage, bars_required, min_reward_risk, ratchet_lag,
-        ratchet_offset_ticks, block_entry_at_close, fill_limit_on_touch, ambiguity_policy,
-        direction, round_targets, out,
+        TICK,
+        instrument.point_value,
+        2.0,
+        entry_offset,
+        tp_multiplier,
+        max_risk_ticks,
+        commission,
+        slippage,
+        bars_required,
+        min_reward_risk,
+        ratchet_lag,
+        ratchet_offset_ticks,
+        block_entry_at_close,
+        fill_limit_on_touch,
+        ambiguity_policy,
+        direction,
+        round_targets,
+        out,
     )
     assert count >= 0, "trade buffer overflowed"
 
     from nqbt import trades as trades_mod
 
-    return trades_mod.validate(
-        trades_mod.trades_to_frame(out, count, instrument=instrument.symbol)
-    )
+    return trades_mod.validate(trades_mod.trades_to_frame(out, count, instrument=instrument.symbol))
 
 
 # -- entry mechanics ----------------------------------------------------------
@@ -79,7 +96,7 @@ def test_signal_places_an_order_that_fills_on_the_next_bar() -> None:
     trades = run(
         [
             (102, 104, 100, 101),  # 0: signal
-            (101, 102, 99, 100),   # 1: trades down through 100 -> fill at 100
+            (101, 102, 99, 100),  # 1: trades down through 100 -> fill at 100
             (100, 101, 99, 100),
         ],
         signal_at=[0],
@@ -98,7 +115,7 @@ def test_unfilled_order_is_cancelled_after_one_bar() -> None:
         [
             (102, 104, 100, 101),  # 0: signal, trigger 100
             (102, 103, 101, 102),  # 1: never touches 100 -> order cancelled
-            (101, 102, 99, 100),   # 2: would have filled a resting order
+            (101, 102, 99, 100),  # 2: would have filled a resting order
         ],
         signal_at=[0],
     )
@@ -109,7 +126,7 @@ def test_gap_through_the_trigger_fills_at_the_open() -> None:
     trades = run(
         [
             (102, 104, 100, 101),  # 0: signal, trigger 100
-            (98, 99, 97, 98),      # 1: opens below the trigger
+            (98, 99, 97, 98),  # 1: opens below the trigger
         ],
         signal_at=[0],
     )
@@ -131,8 +148,8 @@ def test_a_buy_stop_at_the_market_is_never_submitted() -> None:
     # all -- NT8 declines it. This was 86 of the 502 PullBackAndGo trades on MNQ 03-24,
     # and the signal bar closed on its high in 86 of 86 of them against 2 of 416 taken.
     rows = [
-        (101, 104, 100, 104),   # 0: signal, closes ON its high -> trigger 104 == market
-        (104, 106, 103, 105),   # 1: would have filled easily
+        (101, 104, 100, 104),  # 0: signal, closes ON its high -> trigger 104 == market
+        (104, 106, 103, 105),  # 1: would have filled easily
     ]
     assert len(run(rows, signal_at=[0], direction=LONG)) == 0
 
@@ -143,8 +160,8 @@ def test_a_buy_stop_at_the_market_is_never_submitted() -> None:
 
 def test_a_sell_stop_at_the_market_is_never_submitted_either() -> None:
     rows = [
-        (104, 105, 100, 100),   # 0: signal, closes ON its low -> trigger 100 == market
-        (100, 101, 98, 99),     # 1: would have filled easily
+        (104, 105, 100, 100),  # 0: signal, closes ON its low -> trigger 100 == market
+        (100, 101, 98, 99),  # 1: would have filled easily
     ]
     assert len(run(rows, signal_at=[0])) == 0
 
@@ -159,8 +176,8 @@ def test_no_new_signal_is_taken_while_in_a_position() -> None:
     trades = run(
         [
             (102, 104, 100, 101),  # 0: signal
-            (101, 102, 99, 100),   # 1: fill at 100
-            (100, 101, 99, 100),   # 2: signal ignored, already short
+            (101, 102, 99, 100),  # 1: fill at 100
+            (100, 101, 99, 100),  # 2: signal ignored, already short
             (100, 101, 99, 100),
         ],
         signal_at=[0, 2],
@@ -184,7 +201,7 @@ def test_targets_fill_at_their_price_and_scale_out_independently() -> None:
             (102, 104, 100, 101),
             (101, 102, 100, 101),  # 1: fill at 100
             (100, 101, 95.5, 96),  # 2: reaches the 1R target only
-            (96, 97, 91, 92),      # 3: reaches 1.5R and 2R
+            (96, 97, 91, 92),  # 3: reaches 1.5R and 2R
         ],
         signal_at=[0],
     )
@@ -206,8 +223,8 @@ def test_stop_exits_every_remaining_leg_at_once() -> None:
     trades = run(
         [
             (102, 104, 100, 101),
-            (101, 102, 100, 101),   # 1: fill at 100, stop 104.5
-            (101, 104.5, 100, 104), # 2: touches the stop
+            (101, 102, 100, 101),  # 1: fill at 100, stop 104.5
+            (101, 104.5, 100, 104),  # 2: touches the stop
         ],
         signal_at=[0],
     )
@@ -222,8 +239,8 @@ def test_stop_wins_when_a_bar_contains_both_stop_and_target() -> None:
     trades = run(
         [
             (102, 104, 100, 101),
-            (101, 102, 100, 101),      # 1: fill at 100, stop 104.5, 1R target 95.5
-            (101, 104.5, 91, 100),     # 2: spans stop and every target
+            (101, 102, 100, 101),  # 1: fill at 100, stop 104.5, 1R target 95.5
+            (101, 104.5, 91, 100),  # 2: spans stop and every target
         ],
         signal_at=[0],
     )
@@ -247,8 +264,8 @@ def test_stop_can_fire_on_the_entry_bar() -> None:
     # Entry at the signal bar's low, stop above its high: one wide bar reaches both.
     trades = run(
         [
-            (102, 104, 100, 101),      # 0: signal, trigger 100, stop 104.5
-            (101, 105, 99, 104),       # 1: fills at 100 then runs to 105
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
+            (101, 105, 99, 104),  # 1: fills at 100 then runs to 105
         ],
         signal_at=[0],
     )
@@ -264,9 +281,9 @@ def test_a_bar_that_gaps_through_the_stop_fills_at_its_open() -> None:
     # result over the 1,664-leg PullBackAndGo reconciliation; NT8 fills at the open.
     trades = run(
         [
-            (102, 104, 100, 101),      # 0: signal, trigger 100, stop 104.5
-            (101, 102, 100, 101),      # 1: fills at 100, stop stays 104.5
-            (106, 107, 105, 106),      # 2: opens 1.5 above the stop -- gapped through
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
+            (101, 102, 100, 101),  # 1: fills at 100, stop stays 104.5
+            (106, 107, 105, 106),  # 2: opens 1.5 above the stop -- gapped through
         ],
         signal_at=[0],
     )
@@ -277,9 +294,9 @@ def test_a_bar_that_gaps_through_the_stop_fills_at_its_open() -> None:
 def test_a_long_gapping_through_its_stop_fills_at_the_open_too() -> None:
     trades = run(
         [
-            (101, 104, 100, 103),      # 0: signal, trigger 104, stop 99.5
-            (103, 105, 102, 104),      # 1: fills at 104, stop stays 99.5
-            (98, 99, 97, 98),          # 2: opens 1.5 below the stop -- gapped through
+            (101, 104, 100, 103),  # 0: signal, trigger 104, stop 99.5
+            (103, 105, 102, 104),  # 1: fills at 104, stop stays 99.5
+            (98, 99, 97, 98),  # 2: opens 1.5 below the stop -- gapped through
         ],
         signal_at=[0],
         direction=LONG,
@@ -294,8 +311,8 @@ def test_the_entry_bar_never_uses_the_gap_rule() -> None:
     # all, and only then back up to the stop -- which it reaches at the stop's own price.
     trades = run(
         [
-            (102, 104, 100, 101),      # 0: signal, trigger 100, stop 104.5
-            (105, 106, 99, 100),       # 1: opens above the stop, dips to fill, then runs
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
+            (105, 106, 99, 100),  # 1: opens above the stop, dips to fill, then runs
         ],
         signal_at=[0],
     )
@@ -324,7 +341,7 @@ def test_position_open_when_the_data_ends_is_liquidated_not_dropped() -> None:
     trades = run(
         [
             (102, 104, 100, 101),
-            (101, 102, 99, 100),   # 1: fill at 100
+            (101, 102, 99, 100),  # 1: fill at 100
             (100, 101, 99, 99.5),  # 2: data ends with the position still open
         ],
         signal_at=[0],
@@ -367,7 +384,7 @@ def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point() 
     trades = run(
         [
             (102, 104, 100, 101),  # 0: signal, trigger 100
-            (98, 99, 97, 98),      # 1: force-flat; would gap through the trigger
+            (98, 99, 97, 98),  # 1: force-flat; would gap through the trigger
         ],
         signal_at=[0],
         force_flat_at=[1],
@@ -384,9 +401,9 @@ def test_stop_ratchets_down_but_never_loosens() -> None:
     # Bar 4 then reaches 101.5 and stops out, even though the original 104.5 is untouched.
     trades = run(
         [
-            (102, 104, 100, 101),   # 0: signal, stop 104.5
-            (101, 102, 100, 101),   # 1: fill at 100
-            (100, 101, 99, 100),    # 2: close -> stop 102.5
+            (102, 104, 100, 101),  # 0: signal, stop 104.5
+            (101, 102, 100, 101),  # 1: fill at 100
+            (100, 101, 99, 100),  # 2: close -> stop 102.5
             (100, 100.5, 99, 100),  # 3: close -> stop 101.5 (High[2]=101 + 0.5)
             (100, 101.5, 99, 100),  # 4: touches 101.5
         ],
@@ -401,10 +418,10 @@ def test_a_rising_high_does_not_loosen_the_stop() -> None:
     trades = run(
         [
             (102, 104, 100, 101),
-            (101, 102, 100, 101),    # 1: fill, stop 104.5
-            (100, 100.5, 99, 100),   # 2: close -> stop 101 (High[1]=102... wait, 102.5)
-            (100, 103, 99, 100),     # 3: high rises; stop must not widen back out
-            (100, 102.6, 99, 100),   # 4: above the loosened level, below the kept one
+            (101, 102, 100, 101),  # 1: fill, stop 104.5
+            (100, 100.5, 99, 100),  # 2: close -> stop 101 (High[1]=102... wait, 102.5)
+            (100, 103, 99, 100),  # 3: high rises; stop must not widen back out
+            (100, 102.6, 99, 100),  # 4: above the loosened level, below the kept one
         ],
         signal_at=[0],
     )
@@ -424,8 +441,8 @@ def test_slippage_is_adverse_on_stops_and_absent_on_limits() -> None:
         [
             (102, 104, 100, 101),
             (101, 104, 100, 101),
-            (100, 101, 95.5, 96),      # 1R target hit
-            (96, 104.5, 95, 104),      # stop hit for the rest
+            (100, 101, 95.5, 96),  # 1R target hit
+            (96, 104.5, 95, 104),  # stop hit for the rest
         ],
         signal_at=[0],
         slippage=1.0,  # one tick
@@ -468,9 +485,9 @@ def test_mae_and_mfe_track_the_short_position_correctly() -> None:
     trades = run(
         [
             (102, 104, 100, 101),
-            (101, 103, 100, 101),   # 1: fill at 100, high 103
-            (100, 102, 94, 95),     # 2: low 94
-            (95, 104.5, 94, 104),   # 3: stop out, high 104.5
+            (101, 103, 100, 101),  # 1: fill at 100, high 103
+            (100, 102, 94, 95),  # 2: low 94
+            (95, 104.5, 94, 104),  # 3: stop out, high 104.5
         ],
         signal_at=[0],
     )
@@ -530,14 +547,12 @@ def test_params_reject_a_quantity_that_cannot_fill_every_leg() -> None:
 def test_trigger_is_capped_two_ticks_below_the_close() -> None:
     # Signal bar closes at 101 with a low of 100. Close - 2 ticks = 100.5, which is above
     # the low, so the low still wins and the trigger is unchanged.
-    unchanged = run([(102, 104, 100, 101), (101, 102, 99, 100)],
-                    signal_at=[0], entry_offset=2.0)
+    unchanged = run([(102, 104, 100, 101), (101, 102, 99, 100)], signal_at=[0], entry_offset=2.0)
     assert unchanged["entry_price"].iloc[0] == pytest.approx(100.0)
 
     # An inverted hammer closes near its low: close 100.25, low 100. Now
     # close - 2 ticks = 99.75 sits *below* the low and becomes the trigger.
-    capped = run([(102, 104, 100, 100.25), (101, 102, 99, 100)],
-                 signal_at=[0], entry_offset=2.0)
+    capped = run([(102, 104, 100, 100.25), (101, 102, 99, 100)], signal_at=[0], entry_offset=2.0)
     assert capped["entry_price"].iloc[0] == pytest.approx(99.75)
 
 
@@ -550,8 +565,7 @@ def test_capped_trigger_makes_a_marginal_fill_miss() -> None:
 
 
 def test_capped_trigger_widens_the_risk_it_measures() -> None:
-    capped = run([(102, 104, 100, 100.25), (101, 102, 99, 100)],
-                 signal_at=[0], entry_offset=2.0)
+    capped = run([(102, 104, 100, 100.25), (101, 102, 99, 100)], signal_at=[0], entry_offset=2.0)
     # stop 104.5 against a 99.75 trigger rather than 100.
     assert capped["risk_points"].iloc[0] == pytest.approx(4.75)
 
@@ -569,14 +583,15 @@ def test_tp_multiplier_scales_every_target() -> None:
         [
             (102, 104, 100, 101),
             (101, 102, 100, 101),
-            (100, 101, 82, 83),   # deep enough to fill all three
+            (100, 101, 82, 83),  # deep enough to fill all three
         ],
-        signal_at=[0], tp_multiplier=2.0,
+        signal_at=[0],
+        tp_multiplier=2.0,
     )
     by_leg = trades.set_index("leg")
-    assert by_leg.loc[1, "target_price"] == pytest.approx(91.0)   # 100 - 4.5*1*2
-    assert by_leg.loc[2, "target_price"] == pytest.approx(86.5)   # 100 - 4.5*1.5*2
-    assert by_leg.loc[3, "target_price"] == pytest.approx(82.0)   # 100 - 4.5*2*2
+    assert by_leg.loc[1, "target_price"] == pytest.approx(91.0)  # 100 - 4.5*1*2
+    assert by_leg.loc[2, "target_price"] == pytest.approx(86.5)  # 100 - 4.5*1.5*2
+    assert by_leg.loc[3, "target_price"] == pytest.approx(82.0)  # 100 - 4.5*2*2
 
 
 def test_targets_are_rounded_onto_the_tick_grid() -> None:
@@ -584,7 +599,7 @@ def test_targets_are_rounded_onto_the_tick_grid() -> None:
     # accepts. RoundToTickSize in the NinjaScript snaps it, so we must too.
     trades = run(
         [
-            (102, 103.75, 100, 101),   # stop 104.25, trigger 100 -> risk 4.25
+            (102, 103.75, 100, 101),  # stop 104.25, trigger 100 -> risk 4.25
             (101, 102, 100, 101),
             (100, 101, 85, 86),
         ],
@@ -599,10 +614,10 @@ def test_targets_are_rounded_onto_the_tick_grid() -> None:
 
 def test_ratchet_lag_zero_uses_the_just_closed_bars_high() -> None:
     rows = [
-        (102, 104, 100, 101),   # 0: signal, stop 104.5
-        (101, 102, 100, 101),   # 1: fill at 100
-        (100, 101, 99, 100),    # 2: close -> lag0 stop 101.5, lag1 stop 102.5
-        (100, 102, 99, 100),    # 3: high 102 takes out 101.5 but not 102.5
+        (102, 104, 100, 101),  # 0: signal, stop 104.5
+        (101, 102, 100, 101),  # 1: fill at 100
+        (100, 101, 99, 100),  # 2: close -> lag0 stop 101.5, lag1 stop 102.5
+        (100, 102, 99, 100),  # 3: high 102 takes out 101.5 but not 102.5
     ]
     lag0 = run(rows, signal_at=[0], ratchet_lag=0)
     lag1 = run(rows, signal_at=[0], ratchet_lag=1)
@@ -624,7 +639,7 @@ def test_long_side_is_the_mirror_image_of_the_short_side() -> None:
     trades = run(
         [
             (98, 100, 96, 99),
-            (99, 100, 98, 99),    # 1: fill at 100, stop 95.5
+            (99, 100, 98, 99),  # 1: fill at 100, stop 95.5
             (99, 100, 95.5, 96),  # 2: touches the stop
         ],
         signal_at=[0],

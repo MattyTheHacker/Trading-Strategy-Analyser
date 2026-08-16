@@ -33,9 +33,15 @@ parses. See docs/nt8-fidelity.md, "Trade-list exports are in machine local time"
 # The reconciled configuration, not the NinjaScript's SetDefaults. See docs/nt8-fidelity.md.
 CONFIGS = {
     "DeadCatBounce": DeadCatParams(
-        ema_period=21, slow_sma_period=175, fast_sma_period=60,
-        use_ema=True, use_slow_sma=True, use_fast_sma=True, use_vwap=True,
-        require_previous_green=True, require_new_high=True,
+        ema_period=21,
+        slow_sma_period=175,
+        fast_sma_period=60,
+        use_ema=True,
+        use_slow_sma=True,
+        use_fast_sma=True,
+        use_vwap=True,
+        require_previous_green=True,
+        require_new_high=True,
     ),
     "PullBackAndGo": PullBackAndGoParams(),
 }
@@ -50,21 +56,22 @@ def parse_nt8(path: Path) -> pd.DataFrame:
 
     def when(column: str) -> pd.Series:
         naive = pd.to_datetime(raw[column], format="%d/%m/%Y %I:%M:%S %p")
-        return (
-            naive.dt.tz_localize(EXPORT_TZ, ambiguous="infer", nonexistent="shift_forward")
-            .dt.tz_convert("UTC")
+        return naive.dt.tz_localize(EXPORT_TZ, ambiguous="infer", nonexistent="shift_forward").dt.tz_convert(
+            "UTC"
         )
 
-    out = pd.DataFrame({
-        "entry_time": when("Entry time"),
-        "exit_time": when("Exit time"),
-        "leg": raw["Entry name"].str.extract(r"(\d+)")[0].astype(int),
-        "entry_price": raw["Entry price"].astype(float),
-        "exit_price": raw["Exit price"].astype(float),
-        "net_pnl": money(raw["Profit"]),
-        "exit_reason": raw["Exit name"].map(EXIT_NAMES),
-        "bars": raw["Bars"].astype(int),
-    })
+    out = pd.DataFrame(
+        {
+            "entry_time": when("Entry time"),
+            "exit_time": when("Exit time"),
+            "leg": raw["Entry name"].str.extract(r"(\d+)")[0].astype(int),
+            "entry_price": raw["Entry price"].astype(float),
+            "exit_price": raw["Exit price"].astype(float),
+            "net_pnl": money(raw["Profit"]),
+            "exit_reason": raw["Exit name"].map(EXIT_NAMES),
+            "bars": raw["Bars"].astype(int),
+        }
+    )
     if out["exit_reason"].isna().any():
         unknown = sorted(raw.loc[out["exit_reason"].isna(), "Exit name"].unique())
         raise SystemExit(f"unmapped NT8 exit name(s): {unknown}")
@@ -76,9 +83,7 @@ def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
     params = CONFIGS[archetype_name]
     bars = ingest.load_contract(ContractId.parse(contract))
     instrument = NQ if contract.startswith("NQ") else MNQ
-    data = context.prepare(bars, archetype.context_for({
-        k: [v] for k, v in params.as_dict().items()
-    }))
+    data = context.prepare(bars, archetype.context_for({k: [v] for k, v in params.as_dict().items()}))
     log = archetype.run(data, params, instrument)
     return log.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 
@@ -91,7 +96,10 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
     nt8_inner = nt8[(nt8["entry_time"] > lo) & (nt8["entry_time"] < hi)]
 
     joined = nt8_inner.merge(
-        inner, on=["entry_time", "leg"], how="outer", suffixes=("_nt8", "_nqbt"),
+        inner,
+        on=["entry_time", "leg"],
+        how="outer",
+        suffixes=("_nt8", "_nqbt"),
         indicator=True,
     )
     both = joined[joined["_merge"] == "both"]
@@ -117,14 +125,23 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
         every &= np.asarray(ok)
         print(f"  {name:<22}{int(np.sum(ok)):,} ({np.mean(ok):.2%})")
     print(f"  {'identical everywhere':<22}{int(every.sum()):,} ({every.mean():.2%})")
-    print(f"  net P&L           NT8 {both['net_pnl_nt8'].sum():,.2f}   "
-          f"nqbt {both['net_pnl_nqbt'].sum():,.2f}")
+    print(
+        f"  net P&L           NT8 {both['net_pnl_nt8'].sum():,.2f}   nqbt {both['net_pnl_nqbt'].sum():,.2f}"
+    )
 
     bad = both[~every]
     if len(bad):
         print(f"\n  first {min(5, len(bad))} disagreeing legs:")
-        cols = ["entry_time", "leg", "exit_time_nt8", "exit_time_nqbt",
-                "exit_price_nt8", "exit_price_nqbt", "exit_reason_nt8", "exit_reason_nqbt"]
+        cols = [
+            "entry_time",
+            "leg",
+            "exit_time_nt8",
+            "exit_time_nqbt",
+            "exit_price_nt8",
+            "exit_price_nqbt",
+            "exit_reason_nt8",
+            "exit_reason_nqbt",
+        ]
         print(bad[cols].head(5).to_string(index=False))
 
 

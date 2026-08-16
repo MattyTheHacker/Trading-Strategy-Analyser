@@ -71,13 +71,20 @@ bar.
 
 @pytest.fixture(scope="module")
 def pinned():
-    rows = [
-        [float(v) for v in line.split(";")]
-        for line in NT8_FIRST_40_BARS.strip().splitlines()
-    ]
+    rows = [[float(v) for v in line.split(";")] for line in NT8_FIRST_40_BARS.strip().splitlines()]
     columns = np.array(rows, dtype=np.float64).T
-    names = ("open", "high", "low", "close", "atr14", "sma20", "stddev20",
-             "bb_upper", "kc_midline", "kc_upper")
+    names = (
+        "open",
+        "high",
+        "low",
+        "close",
+        "atr14",
+        "sma20",
+        "stddev20",
+        "bb_upper",
+        "kc_midline",
+        "kc_upper",
+    )
     return dict(zip(names, columns))
 
 
@@ -155,18 +162,14 @@ def test_bollinger_is_the_sma_plus_that_same_stddev(pinned) -> None:
 
 
 def test_keltner_matches_nt8(pinned) -> None:
-    upper, midline, _ = indicators.nt8_keltner(
-        pinned["high"], pinned["low"], pinned["close"], 20, 1.5
-    )
+    upper, midline, _ = indicators.nt8_keltner(pinned["high"], pinned["low"], pinned["close"], 20, 1.5)
     assert np.allclose(midline, pinned["kc_midline"], **TOLERANCE)
     assert np.allclose(upper, pinned["kc_upper"], **TOLERANCE)
 
 
 def test_keltner_centres_on_typical_price_not_close(pinned) -> None:
     """#22's first question, and the one most likely to be got wrong from memory."""
-    _, midline, _ = indicators.nt8_keltner(
-        pinned["high"], pinned["low"], pinned["close"], 20, 1.5
-    )
+    _, midline, _ = indicators.nt8_keltner(pinned["high"], pinned["low"], pinned["close"], 20, 1.5)
     assert np.allclose(midline, pinned["kc_midline"], **TOLERANCE)
     assert not np.allclose(midline, indicators.nt8_sma(pinned["close"], 20), **TOLERANCE)
     typical = indicators.typical_price(pinned["high"], pinned["low"], pinned["close"])
@@ -180,9 +183,7 @@ def test_keltner_width_is_the_mean_range_not_atr(pinned) -> None:
     one looks plausible on a chart -- but they differ whenever a gap makes True Range exceed
     the bare high-low range.
     """
-    upper, midline, _ = indicators.nt8_keltner(
-        pinned["high"], pinned["low"], pinned["close"], 20, 1.5
-    )
+    upper, midline, _ = indicators.nt8_keltner(pinned["high"], pinned["low"], pinned["close"], 20, 1.5)
     half_width = (upper - midline) / 1.5
     mean_range = indicators.nt8_sma(pinned["high"] - pinned["low"], 20)
     atr = indicators.nt8_atr(pinned["high"], pinned["low"], pinned["close"], 20)
@@ -204,7 +205,5 @@ def test_the_new_indicators_handle_short_and_empty_inputs(period: int) -> None:
 
 
 def test_keltner_is_symmetric(pinned) -> None:
-    upper, midline, lower = indicators.nt8_keltner(
-        pinned["high"], pinned["low"], pinned["close"], 20, 1.5
-    )
+    upper, midline, lower = indicators.nt8_keltner(pinned["high"], pinned["low"], pinned["close"], 20, 1.5)
     assert np.allclose(upper - midline, midline - lower)
