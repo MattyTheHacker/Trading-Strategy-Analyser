@@ -27,6 +27,7 @@ dev = [
     "ruff>=0.16.2",
     "mypy>=2.3.0",
     "pandas-stubs>=3.0.5.260730",
+    "pymarkdownlnt>=0.9.39",
 ]
 
 
