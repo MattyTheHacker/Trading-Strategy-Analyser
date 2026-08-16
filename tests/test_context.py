@@ -37,20 +37,20 @@ def bars(n: int = 800, seed: int = 3) -> pd.DataFrame:
 # -- the spec decides what exists ---------------------------------------------
 
 
-def test_vwap_is_absent_when_nothing_asked_for_it():
+def test_vwap_is_absent_when_nothing_asked_for_it() -> None:
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,), needs_vwap=False))
     assert data.vwap is None
     assert data.below_vwap is None
     assert data.above_vwap is None
 
 
-def test_vwap_is_present_when_the_spec_asks():
+def test_vwap_is_present_when_the_spec_asks() -> None:
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,), needs_vwap=True))
     assert data.vwap_values().shape == (len(data),)
     assert data.vwap_gate(above=True).dtype == np.bool_
 
 
-def test_only_the_declared_kinds_get_a_grid():
+def test_only_the_declared_kinds_get_a_grid() -> None:
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
     assert set(data.mas) == {"ema"}, "an sma grid was built that nobody asked for"
 
@@ -58,7 +58,7 @@ def test_only_the_declared_kinds_get_a_grid():
     assert set(both.mas) == {"ema", "sma"}
 
 
-def test_grids_are_addressed_by_kind_and_period_together():
+def test_grids_are_addressed_by_kind_and_period_together() -> None:
     """What #72 needs: the kind stops being fixed by a field's name."""
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,), sma_periods=(21,)))
     ema21 = data.ma_gate("ema", 21, above=False)
@@ -70,13 +70,13 @@ def test_grids_are_addressed_by_kind_and_period_together():
 # -- reading something that was not built says so ------------------------------
 
 
-def test_reading_an_undeclared_kind_names_what_was_built():
+def test_reading_an_undeclared_kind_names_what_was_built() -> None:
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
     with pytest.raises(ContextError, match=r"no sma grid.*\['ema'\]"):
         data.ma_gate("sma", 21, above=False)
 
 
-def test_reading_undeclared_vwap_points_at_the_spec():
+def test_reading_undeclared_vwap_points_at_the_spec() -> None:
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,), needs_vwap=False))
     with pytest.raises(ContextError, match="needs_vwap"):
         data.vwap_gate(above=False)
@@ -84,7 +84,7 @@ def test_reading_undeclared_vwap_points_at_the_spec():
         data.vwap_values()
 
 
-def test_a_period_outside_the_grid_still_raises_rather_than_returning_a_wrong_row():
+def test_a_period_outside_the_grid_still_raises_rather_than_returning_a_wrong_row() -> None:
     """Pre-existing guarantee, re-pinned through the new accessor."""
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
     with pytest.raises(KeyError, match="ema\\(50\\)"):
@@ -94,7 +94,7 @@ def test_a_period_outside_the_grid_still_raises_rather_than_returning_a_wrong_ro
 # -- above is not the complement of below --------------------------------------
 
 
-def test_the_two_gates_overlap_at_equality_rather_than_partitioning():
+def test_the_two_gates_overlap_at_equality_rather_than_partitioning() -> None:
     """Each NinjaScript treats its own boundary as a pass; see docs/nt8-fidelity.md."""
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
     below = data.ma_gate("ema", 21, above=False)
@@ -107,13 +107,13 @@ def test_the_two_gates_overlap_at_equality_rather_than_partitioning():
 # -- the spec comes from the grid, not from a guess ----------------------------
 
 
-def test_a_deadcatbounce_sweep_gets_no_vwap_because_its_default_is_off():
+def test_a_deadcatbounce_sweep_gets_no_vwap_because_its_default_is_off() -> None:
     grid = sweep.Grid.of(DeadCatParams(), ema_period=[9, 21])
     assert grid.required_context().needs_vwap is False
     assert sweep.prepare_for(bars(), grid).vwap is None
 
 
-def test_sweeping_the_vwap_toggle_makes_prepare_build_it():
+def test_sweeping_the_vwap_toggle_makes_prepare_build_it() -> None:
     grid = sweep.Grid.of(DeadCatParams(), use_vwap=[True, False])
     data = sweep.prepare_for(bars(), grid)
     assert data.vwap is not None, "a combination switches VWAP on and would have crashed"
@@ -122,7 +122,7 @@ def test_sweeping_the_vwap_toggle_makes_prepare_build_it():
     assert len(results) == 2
 
 
-def test_pullbackandgo_declares_vwap_off_but_reads_the_above_gates():
+def test_pullbackandgo_declares_vwap_off_but_reads_the_above_gates() -> None:
     grid = sweep.Grid.of(PullBackAndGoParams(bars_required_to_trade=20))
     data = sweep.prepare_for(bars(), grid)
     assert data.vwap is None
@@ -131,7 +131,7 @@ def test_pullbackandgo_declares_vwap_off_but_reads_the_above_gates():
     assert len(results) == 1
 
 
-def test_specs_union_so_several_archetypes_can_share_one_dataset():
+def test_specs_union_so_several_archetypes_can_share_one_dataset() -> None:
     a = sweep.Grid.of(DeadCatParams()).required_context()
     b = sweep.Grid.of(PullBackAndGoParams()).required_context()
     both = a | b
@@ -144,7 +144,7 @@ def test_specs_union_so_several_archetypes_can_share_one_dataset():
             assert data.ma_gate("ema", period, above=True).shape == (len(data),)
 
 
-def test_periods_by_kind_omits_a_kind_with_no_periods():
+def test_periods_by_kind_omits_a_kind_with_no_periods() -> None:
     assert ContextSpec(ema_periods=(21,)).periods_by_kind() == {"ema": (21,)}
     assert ContextSpec().periods_by_kind() == {}
 
@@ -152,7 +152,7 @@ def test_periods_by_kind_omits_a_kind_with_no_periods():
 # -- the size claim ------------------------------------------------------------
 
 
-def test_dropping_an_undeclared_series_actually_shrinks_the_dataset():
+def test_dropping_an_undeclared_series_actually_shrinks_the_dataset() -> None:
     """The whole point: this is per-worker memory once joblib memmaps it."""
     frame = bars(4000)
     periods = {"ema_periods": (21,), "sma_periods": (60, 175)}
@@ -163,7 +163,7 @@ def test_dropping_an_undeclared_series_actually_shrinks_the_dataset():
     assert with_vwap.nbytes - without.nbytes == 10 * len(frame)
 
 
-def test_slim_keeps_the_declared_arrays_shared_rather_than_copied():
+def test_slim_keeps_the_declared_arrays_shared_rather_than_copied() -> None:
     data = context.prepare(bars(), ContextSpec(ema_periods=(21,), needs_vwap=True))
     lean = data.slim()
     assert list(lean.bars.columns) == []

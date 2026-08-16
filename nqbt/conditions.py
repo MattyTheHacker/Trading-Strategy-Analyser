@@ -20,6 +20,7 @@ The confluence-count pattern is supported directly: rather than requiring all N 
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -288,7 +289,7 @@ class MovingAverageGrid:
 
 
 def moving_average_grid(
-    close: np.ndarray, periods, kind: str = "ema", *, keep_values: bool = False
+    close: np.ndarray, periods: Iterable[int], kind: str = "ema", *, keep_values: bool = False
 ) -> MovingAverageGrid:
     """Compute every distinct MA period a sweep needs, once.
 

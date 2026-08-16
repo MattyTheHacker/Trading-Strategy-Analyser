@@ -464,8 +464,8 @@ def continuous_path(root: str, back_adjust: bool, cache_dir: Path = paths.CACHE_
 def splice_root(
     root: str,
     *,
-    data_dir=paths.ARCHIVE_DIR,
-    cache_dir=paths.CACHE_DIR,
+    data_dir: Path = paths.ARCHIVE_DIR,
+    cache_dir: Path = paths.CACHE_DIR,
     back_adjust: bool = False,
     confirm_sessions: int = 1,
     allow_coverage_boundary: bool = True,
@@ -494,7 +494,7 @@ def splice_root(
 
 
 def load_continuous(
-    root: str, *, back_adjust: bool = False, cache_dir=paths.CACHE_DIR
+    root: str, *, back_adjust: bool = False, cache_dir: Path = paths.CACHE_DIR
 ) -> pd.DataFrame:
     path = continuous_path(root, back_adjust, cache_dir)
     if not path.exists():

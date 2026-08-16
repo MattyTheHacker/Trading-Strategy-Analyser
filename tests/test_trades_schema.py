@@ -55,12 +55,12 @@ def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
 # -- the schema itself --------------------------------------------------------
 
 
-def test_the_schema_is_the_tags_plus_the_matrix_columns():
+def test_the_schema_is_the_tags_plus_the_matrix_columns() -> None:
     assert trades.SCHEMA == trades.TAGS + trades.COLUMNS
     assert trades.N_COLUMNS == len(trades.COLUMNS)
 
 
-def test_column_indices_address_their_own_names():
+def test_column_indices_address_their_own_names() -> None:
     # The jitted loop writes by index and everything else reads by name; if these ever
     # disagree the trade log is silently transposed rather than wrong in an obvious way.
     for index, name in (
@@ -72,7 +72,7 @@ def test_column_indices_address_their_own_names():
         assert trades.COLUMNS[index] == name
 
 
-def test_exit_signal_is_reserved_for_a_future_rule_driven_exit():
+def test_exit_signal_is_reserved_for_a_future_rule_driven_exit() -> None:
     # DeadCatBounce has no rule-driven exit -- every exit today is a bracket level or the
     # session close. EXIT_SIGNAL exists for EMA crossover (M18) and InsideBarTrailing.cs.
     assert trades.EXIT_REASONS[trades.EXIT_SIGNAL] == "signal"
@@ -83,11 +83,11 @@ def test_exit_signal_is_reserved_for_a_future_rule_driven_exit():
     assert trades.EXIT_SIGNAL not in other_reasons
 
 
-def test_every_nullable_column_is_actually_in_the_schema():
+def test_every_nullable_column_is_actually_in_the_schema() -> None:
     assert trades.NULLABLE <= set(trades.SCHEMA)
 
 
-def test_required_and_nullable_partition_the_schema():
+def test_required_and_nullable_partition_the_schema() -> None:
     assert set(trades.REQUIRED) | trades.NULLABLE == set(trades.SCHEMA)
     assert not set(trades.REQUIRED) & trades.NULLABLE
 
@@ -95,26 +95,26 @@ def test_required_and_nullable_partition_the_schema():
 # -- validate -----------------------------------------------------------------
 
 
-def test_a_conforming_log_passes_and_is_returned_unchanged():
+def test_a_conforming_log_passes_and_is_returned_unchanged() -> None:
     log = leg_log()
     assert trades.validate(log) is log
 
 
-def test_an_empty_log_with_the_right_columns_passes():
+def test_an_empty_log_with_the_right_columns_passes() -> None:
     trades.validate(leg_log(0))
 
 
-def test_a_missing_column_is_named_in_the_error():
+def test_a_missing_column_is_named_in_the_error() -> None:
     with pytest.raises(TradeSchemaError, match="direction"):
         trades.validate(leg_log().drop(columns=["direction"]))
 
 
-def test_a_missing_tag_is_rejected_like_any_other_column():
+def test_a_missing_tag_is_rejected_like_any_other_column() -> None:
     with pytest.raises(TradeSchemaError, match="instrument"):
         trades.validate(leg_log().drop(columns=["instrument"]))
 
 
-def test_nulls_are_allowed_exactly_where_documented():
+def test_nulls_are_allowed_exactly_where_documented() -> None:
     # An imported trade has no planned stop and no bars to measure excursions across.
     log = leg_log()
     for name in trades.NULLABLE:
@@ -122,47 +122,47 @@ def test_nulls_are_allowed_exactly_where_documented():
     trades.validate(log)
 
 
-def test_a_null_in_a_required_column_is_rejected_with_a_count():
+def test_a_null_in_a_required_column_is_rejected_with_a_count() -> None:
     log = leg_log()
     log.loc[0, "net_pnl"] = np.nan
     with pytest.raises(TradeSchemaError, match=r"net_pnl \(1\)"):
         trades.validate(log)
 
 
-def test_a_null_tag_is_rejected():
+def test_a_null_tag_is_rejected() -> None:
     log = leg_log()
     log.loc[1, "instrument"] = None
     with pytest.raises(TradeSchemaError, match="instrument"):
         trades.validate(log)
 
 
-def test_direction_must_be_plus_or_minus_one():
+def test_direction_must_be_plus_or_minus_one() -> None:
     with pytest.raises(TradeSchemaError, match="direction"):
         trades.validate(leg_log(direction=0.0))
 
 
-def test_a_long_log_is_accepted():
+def test_a_long_log_is_accepted() -> None:
     # Nothing produces one yet -- M15 does -- but the schema must not assume short.
     trades.validate(leg_log(direction=trades.LONG))
 
 
-def test_a_negative_quantity_is_rejected_rather_than_read_as_a_short():
+def test_a_negative_quantity_is_rejected_rather_than_read_as_a_short() -> None:
     # The one encoding mistake that would silently double-count direction.
     with pytest.raises(TradeSchemaError, match="direction, not by a negative size"):
         trades.validate(leg_log(quantity=np.int64(-1)))
 
 
-def test_leg_numbering_starts_at_one():
+def test_leg_numbering_starts_at_one() -> None:
     with pytest.raises(TradeSchemaError, match="leg numbering"):
         trades.validate(leg_log(leg=np.int64(0)))
 
 
-def test_an_unknown_source_is_rejected():
+def test_an_unknown_source_is_rejected() -> None:
     with pytest.raises(TradeSchemaError, match="backtest"):
         trades.validate(leg_log(source="backtest"))
 
 
-def test_an_exit_reason_outside_the_simulator_enum_is_allowed():
+def test_an_exit_reason_outside_the_simulator_enum_is_allowed() -> None:
     # NT8's executions grid names exits Stop1..4 and Exit. Constraining exit_reason to
     # EXIT_REASONS would force the importer to invent a mapping it has no basis for.
     trades.validate(leg_log(exit_reason="Stop3"))
@@ -171,7 +171,7 @@ def test_an_exit_reason_outside_the_simulator_enum_is_allowed():
 # -- trades_to_frame ----------------------------------------------------------
 
 
-def test_trades_to_frame_tags_every_row():
+def test_trades_to_frame_tags_every_row() -> None:
     matrix = np.zeros((2, trades.N_COLUMNS))
     matrix[:, trades.C_QUANTITY] = 1
     matrix[:, trades.C_LEG] = 0  # written as leg + 1 by the loop
@@ -182,7 +182,7 @@ def test_trades_to_frame_tags_every_row():
     assert (frame["source"] == "sim").all()
 
 
-def test_trades_to_frame_requires_an_instrument():
+def test_trades_to_frame_requires_an_instrument() -> None:
     # A trade log without one cannot be summed in dollars: NQ and MNQ differ 10x.
     with pytest.raises(TypeError):
         trades.trades_to_frame(np.zeros((1, trades.N_COLUMNS)), 1)
@@ -210,14 +210,14 @@ def imports_of(module: str) -> set[str]:
     return found
 
 
-def test_the_import_analysis_sees_both_forms_of_import():
+def test_the_import_analysis_sees_both_forms_of_import() -> None:
     """Guards the guard. Without this the layering tests silently pass on anything."""
     seen = imports_of("sim/runner.py")
     assert "nqbt.context.Dataset" in seen, "from X import Y must resolve to X.Y"
     assert "nqbt.trades" in seen, "from nqbt import trades must resolve to nqbt.trades"
 
 
-def test_stats_does_not_import_from_the_simulator():
+def test_stats_does_not_import_from_the_simulator() -> None:
     """The rule the review layer depends on.
 
     ``stats.py`` must work on any trade log, including one imported from real fills that
@@ -227,7 +227,7 @@ def test_stats_does_not_import_from_the_simulator():
     assert not {m for m in imports_of("stats.py") if m.startswith("nqbt.sim")}
 
 
-def test_the_trade_schema_knows_nothing_about_bars_or_strategies():
+def test_the_trade_schema_knows_nothing_about_bars_or_strategies() -> None:
     offenders = {
         m
         for m in imports_of("trades.py")
@@ -236,7 +236,7 @@ def test_the_trade_schema_knows_nothing_about_bars_or_strategies():
     assert not offenders, f"nqbt/trades.py must stay standalone; found {offenders}"
 
 
-def test_deadcat_does_not_reference_exit_signal():
+def test_deadcat_does_not_reference_exit_signal() -> None:
     # A structural guard, not just a today-it-doesn't-happen-to-fire one: DeadCatBounce has
     # no rule-driven exit, so the loop should not even import the constant it would need to
     # produce one. Catches the reservation being wired in silently before an archetype that
@@ -244,7 +244,7 @@ def test_deadcat_does_not_reference_exit_signal():
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
 
 
-def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them():
+def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -> None:
     """``archetypes.py`` may reach down; nothing below it may reach back up.
 
     It imports ``nqbt.sim`` by design -- knowing how to reach an archetype is exactly its
@@ -261,7 +261,7 @@ def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them():
     assert "nqbt.sim" in imports_of("archetypes.py")
 
 
-def test_market_context_knows_nothing_about_trades():
+def test_market_context_knows_nothing_about_trades() -> None:
     """``context.py`` is the half of a backtest with no strategy in it.
 
     It has to stay that way for the review layer to annotate real trades against the same

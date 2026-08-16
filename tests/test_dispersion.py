@@ -56,7 +56,7 @@ def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.Da
         [0.0, 5.0, -5.0, 0.0],  # scratches
     ],
 )
-def test_the_fast_statistic_equals_the_reference_exactly(name, pnl):
+def test_the_fast_statistic_equals_the_reference_exactly(name, pnl) -> None:
     """``summarise`` is the reference; ``trade_statistic`` only exists to be faster.
 
     Exact equality rather than ``approx``: they share ``_ratio`` and operate on the same
@@ -68,12 +68,12 @@ def test_the_fast_statistic_equals_the_reference_exactly(name, pnl):
     assert fast == reference, f"{name}: {fast!r} != {reference!r}"
 
 
-def test_a_time_dependent_statistic_is_refused_rather_than_approximated():
+def test_a_time_dependent_statistic_is_refused_rather_than_approximated() -> None:
     with pytest.raises(ValueError, match="per-trade P&L alone"):
         stats.trade_statistic(np.array([1.0, -1.0]), "sharpe")
 
 
-def test_an_empty_trade_vector_is_zero_not_a_crash():
+def test_an_empty_trade_vector_is_zero_not_a_crash() -> None:
     for name in stats.TRADE_PNL_STATISTICS:
         assert stats.trade_statistic(np.array([]), name) == 0.0
 
@@ -86,7 +86,7 @@ def results_table(rows) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["contract", "combo_id", "trades", "profit_factor"])
 
 
-def test_dispersion_is_returned_in_combo_order_not_performance_order():
+def test_dispersion_is_returned_in_combo_order_not_performance_order() -> None:
     """The leaderboard this module exists to refuse must not appear by accident."""
     table = results_table(
         [("A", 0, 100, 0.5), ("B", 0, 100, 0.6), ("A", 1, 100, 2.0), ("B", 1, 100, 2.2)]
@@ -95,7 +95,7 @@ def test_dispersion_is_returned_in_combo_order_not_performance_order():
     assert list(out["combo_id"]) == [0, 1], "sorted by performance; combo 1 is far better"
 
 
-def test_a_contract_below_the_trade_floor_is_excluded_and_counted():
+def test_a_contract_below_the_trade_floor_is_excluded_and_counted() -> None:
     """A profit factor from four trades is noise, and noise has the widest spread."""
     table = results_table(
         [("A", 0, 400, 0.9), ("B", 0, 350, 1.0), ("C", 0, 4, 12.0)]
@@ -108,7 +108,7 @@ def test_a_contract_below_the_trade_floor_is_excluded_and_counted():
     assert out["profit_factor_range"] == pytest.approx(0.1)
 
 
-def test_an_infinite_profit_factor_is_dropped_rather_than_poisoning_the_spread():
+def test_an_infinite_profit_factor_is_dropped_rather_than_poisoning_the_spread() -> None:
     """A contract with no losing trade reports inf, which would make every spread inf."""
     table = results_table([("A", 0, 100, 0.9), ("B", 0, 100, 1.1), ("C", 0, 100, np.inf)])
     out = dispersion.dispersion(table).iloc[0]
@@ -116,12 +116,12 @@ def test_an_infinite_profit_factor_is_dropped_rather_than_poisoning_the_spread()
     assert np.isfinite(out["profit_factor_range"])
 
 
-def test_trades_total_counts_every_contract_including_the_dropped_ones():
+def test_trades_total_counts_every_contract_including_the_dropped_ones() -> None:
     table = results_table([("A", 0, 400, 0.9), ("C", 0, 4, 12.0)])
     assert dispersion.dispersion(table).iloc[0]["trades_total"] == 404
 
 
-def test_an_unknown_statistic_names_what_is_available():
+def test_an_unknown_statistic_names_what_is_available() -> None:
     with pytest.raises(DispersionError, match="no column 'sharpe_ratio'"):
         dispersion.dispersion(results_table([("A", 0, 50, 1.0)]), by="sharpe_ratio")
 
@@ -129,7 +129,7 @@ def test_an_unknown_statistic_names_what_is_available():
 # -- the permutation test ------------------------------------------------------
 
 
-def test_spread_from_one_pooled_population_looks_like_noise():
+def test_spread_from_one_pooled_population_looks_like_noise() -> None:
     """Every contract drawn from the same distribution: neither measure should fire."""
     rng = np.random.default_rng(4)
     logs = {f"C{i}": leg_log(rng.normal(5, 100, 200).tolist()) for i in range(8)}
@@ -139,7 +139,7 @@ def test_spread_from_one_pooled_population_looks_like_noise():
         assert result["p_value"] > 0.05, f"{name} flagged one population as differing"
 
 
-def test_a_broadly_different_set_of_contracts_moves_the_iqr():
+def test_a_broadly_different_set_of_contracts_moves_the_iqr() -> None:
     """Half the contracts from a different population: the robust measure should see it."""
     rng = np.random.default_rng(4)
     logs = {f"C{i}": leg_log(rng.normal(5, 100, 200).tolist()) for i in range(5)}
@@ -148,7 +148,7 @@ def test_a_broadly_different_set_of_contracts_moves_the_iqr():
     assert out["spread"]["iqr"]["p_value"] < 0.05, "no power against a real bulk difference"
 
 
-def test_one_rogue_contract_moves_the_range_and_not_the_iqr():
+def test_one_rogue_contract_moves_the_range_and_not_the_iqr() -> None:
     """The documented division of labour between the two measures.
 
     A single bad contract -- which in practice means a bad roll date or a hole, not a market
@@ -166,7 +166,7 @@ def test_one_rogue_contract_moves_the_range_and_not_the_iqr():
     )
 
 
-def test_every_permutation_reproduces_the_observed_group_sizes():
+def test_every_permutation_reproduces_the_observed_group_sizes() -> None:
     """Otherwise the null mixes a spread effect with a sample-size effect.
 
     Checked by construction: unequal groups whose small member is the one that would move.
@@ -183,7 +183,7 @@ def test_every_permutation_reproduces_the_observed_group_sizes():
     assert set(out["spread"]) == set(dispersion.SPREAD_MEASURES)
 
 
-def test_the_permutation_test_is_deterministic_for_a_seed():
+def test_the_permutation_test_is_deterministic_for_a_seed() -> None:
     rng = np.random.default_rng(5)
     logs = {f"C{i}": leg_log(rng.normal(5, 100, 120).tolist()) for i in range(4)}
     a = dispersion.spread_vs_resampling(logs, iterations=100, seed=7)
@@ -191,7 +191,7 @@ def test_the_permutation_test_is_deterministic_for_a_seed():
     assert a == b
 
 
-def test_a_time_dependent_statistic_is_refused_by_the_permutation_test():
+def test_a_time_dependent_statistic_is_refused_by_the_permutation_test() -> None:
     """Shuffling trades between contracts destroys the ordering Sharpe is computed over."""
     rng = np.random.default_rng(6)
     logs = {f"C{i}": leg_log(rng.normal(5, 100, 80).tolist()) for i in range(3)}
@@ -199,13 +199,13 @@ def test_a_time_dependent_statistic_is_refused_by_the_permutation_test():
         dispersion.spread_vs_resampling(logs, by="sharpe")
 
 
-def test_one_usable_contract_cannot_have_a_spread():
+def test_one_usable_contract_cannot_have_a_spread() -> None:
     logs = {"A": leg_log([10.0] * 100), "B": leg_log([10.0] * 3)}
     with pytest.raises(DispersionError, match="at least 2 contracts"):
         dispersion.spread_vs_resampling(logs, min_trades=30)
 
 
-def test_the_observed_statistic_matches_the_reference_per_contract():
+def test_the_observed_statistic_matches_the_reference_per_contract() -> None:
     """The reported per-contract numbers are the same ones ``summarise`` would give."""
     rng = np.random.default_rng(8)
     logs = {f"C{i}": leg_log(rng.normal(5, 100, 100).tolist()) for i in range(3)}
@@ -288,7 +288,7 @@ def cache(tmp_path):
     return tmp_path, frames, series
 
 
-def test_front_month_windows_are_contiguous_and_do_not_overlap(cache):
+def test_front_month_windows_are_contiguous_and_do_not_overlap(cache) -> None:
     tmp_path, _, _ = cache
     windows = dispersion.front_month_windows("MNQ", cache_dir=tmp_path)
     assert list(windows.index) == ["MNQ 03-24", "MNQ 06-24"]
@@ -296,7 +296,7 @@ def test_front_month_windows_are_contiguous_and_do_not_overlap(cache):
     assert (windows["start"].to_numpy()[1:] > windows["end"].to_numpy()[:-1]).all()
 
 
-def test_the_windows_account_for_the_continuous_series_exactly(cache):
+def test_the_windows_account_for_the_continuous_series_exactly(cache) -> None:
     """The strongest available check that these are the splicer's own decisions.
 
     Front-month windows are non-overlapping and sum to the continuous series. If they did
@@ -308,7 +308,7 @@ def test_the_windows_account_for_the_continuous_series_exactly(cache):
     assert int(windows["continuous_bars"].sum()) == len(series)
 
 
-def test_the_front_month_window_is_a_strict_subset_of_a_contracts_life(cache):
+def test_the_front_month_window_is_a_strict_subset_of_a_contracts_life(cache) -> None:
     """The contracts overlap; the windows must not, or aggregates double-count."""
     tmp_path, frames, _ = cache
     windowed = dispersion.contract_frames("MNQ", cache_dir=tmp_path)
@@ -324,7 +324,7 @@ def test_the_front_month_window_is_a_strict_subset_of_a_contracts_life(cache):
     assert len(overlap) > 0, "the fixture's contracts do not overlap; the test proves nothing"
 
 
-def test_contract_frames_return_the_cached_prices_untouched(cache):
+def test_contract_frames_return_the_cached_prices_untouched(cache) -> None:
     """Raw, never back-adjusted -- see the module docstring on round-number stops."""
     tmp_path, frames, _ = cache
     got = dispersion.contract_frames("MNQ", cache_dir=tmp_path)
@@ -332,7 +332,7 @@ def test_contract_frames_return_the_cached_prices_untouched(cache):
         pd.testing.assert_series_equal(frame["close"], frames[name].loc[frame.index, "close"])
 
 
-def test_coverage_reports_a_sample_size_for_every_contract(cache):
+def test_coverage_reports_a_sample_size_for_every_contract(cache) -> None:
     tmp_path, _, _ = cache
     cover = dispersion.coverage(dispersion.contract_frames("MNQ", cache_dir=tmp_path))
     assert len(cover) == 2
@@ -342,7 +342,7 @@ def test_coverage_reports_a_sample_size_for_every_contract(cache):
     assert cover["start"].is_monotonic_increasing
 
 
-def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path):
+def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path) -> None:
     """The continuous series names contracts whose per-contract cache is missing."""
     from nqbt import splice
 
@@ -356,7 +356,7 @@ def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path):
         dispersion.contract_frames("MNQ", cache_dir=empty)
 
 
-def test_a_window_that_selects_no_bars_leaves_the_contract_out(cache):
+def test_a_window_that_selects_no_bars_leaves_the_contract_out(cache) -> None:
     """Guards the ``if len(bars)`` skip, which would otherwise ship an empty frame."""
     tmp_path, _, series = cache
     moved = series.copy()
@@ -375,7 +375,7 @@ def test_a_window_that_selects_no_bars_leaves_the_contract_out(cache):
     assert set(frames) == {"MNQ 03-24"}, "a contract with no bars in its window was kept"
 
 
-def test_a_root_where_no_window_selects_any_bars_says_so(cache):
+def test_a_root_where_no_window_selects_any_bars_says_so(cache) -> None:
     """Every contract cached, none of them covering its own window.
 
     The shape of a stale cache: the continuous series was spliced from bars that have since
@@ -412,7 +412,7 @@ def swept(cache):
     return dispersion.sweep_contracts("MNQ", grid, NQ, cache_dir=tmp_path, keep_trades=True)
 
 
-def test_sweep_contracts_returns_one_row_per_contract_and_combination(swept):
+def test_sweep_contracts_returns_one_row_per_contract_and_combination(swept) -> None:
     results, _, _ = swept
     assert len(results) == 2 * 2
     assert set(results["contract"]) == {"MNQ 03-24", "MNQ 06-24"}
@@ -420,7 +420,7 @@ def test_sweep_contracts_returns_one_row_per_contract_and_combination(swept):
     assert results["trades"].sum() > 0, "the fixture traded nothing; the test proves nothing"
 
 
-def test_every_result_row_carries_its_own_sample_size(swept):
+def test_every_result_row_carries_its_own_sample_size(swept) -> None:
     """A profit factor from 30 trades must not sit unlabelled beside one from 400."""
     results, cover, _ = swept
     for column in ("bars", "in_session_bars", "sessions", "trades"):
@@ -431,12 +431,12 @@ def test_every_result_row_carries_its_own_sample_size(swept):
     assert (joined["bars"] == joined["bars_cover"]).all(), "coverage joined to the wrong row"
 
 
-def test_contract_is_the_leading_column_so_no_row_is_anonymous(swept):
+def test_contract_is_the_leading_column_so_no_row_is_anonymous(swept) -> None:
     results, _, _ = swept
     assert results.columns[0] == "contract"
 
 
-def test_trade_logs_come_back_keyed_by_contract_and_combination(swept):
+def test_trade_logs_come_back_keyed_by_contract_and_combination(swept) -> None:
     _, _, logs = swept
     assert set(logs) == {
         ("MNQ 03-24", 0),
@@ -449,7 +449,7 @@ def test_trade_logs_come_back_keyed_by_contract_and_combination(swept):
         assert {"trade_id", "net_pnl"} <= set(log.columns)
 
 
-def test_no_logs_are_kept_unless_asked_for(cache):
+def test_no_logs_are_kept_unless_asked_for(cache) -> None:
     """A wide sweep's logs do not fit in memory, so the default must not hold them."""
     from nqbt import sweep
     from nqbt.instruments import NQ
@@ -461,7 +461,7 @@ def test_no_logs_are_kept_unless_asked_for(cache):
     assert logs == {}
 
 
-def test_the_per_contract_results_match_running_that_contract_directly(swept, cache):
+def test_the_per_contract_results_match_running_that_contract_directly(swept, cache) -> None:
     """The loop must not perturb what a single-contract sweep would have produced."""
     from nqbt import sweep
     from nqbt.instruments import NQ
@@ -480,7 +480,7 @@ def test_the_per_contract_results_match_running_that_contract_directly(swept, ca
         )
 
 
-def test_a_root_where_nothing_trades_says_so_rather_than_returning_an_empty_table(cache):
+def test_a_root_where_nothing_trades_says_so_rather_than_returning_an_empty_table(cache) -> None:
     """``bars_required_to_trade`` past the end of every contract produces no rows at all."""
     from nqbt import sweep
     from nqbt.instruments import NQ
@@ -492,7 +492,7 @@ def test_a_root_where_nothing_trades_says_so_rather_than_returning_an_empty_tabl
     assert (results["trades"] == 0).all()
 
 
-def test_the_whole_pipeline_runs_from_a_sweep_through_to_a_p_value(swept):
+def test_the_whole_pipeline_runs_from_a_sweep_through_to_a_p_value(swept) -> None:
     """The path a user actually walks, rather than each piece in isolation."""
     results, _, logs = swept
     spread = dispersion.dispersion(results, min_trades=1)
@@ -506,7 +506,7 @@ def test_the_whole_pipeline_runs_from_a_sweep_through_to_a_p_value(swept):
     assert out["contracts"] == 2
 
 
-def test_a_contract_with_no_losing_trade_is_refused_rather_than_reported_as_infinite():
+def test_a_contract_with_no_losing_trade_is_refused_rather_than_reported_as_infinite() -> None:
     """An infinite profit factor would make every spread infinite and every p-value 1."""
     logs = {"A": leg_log([10.0] * 40), "B": leg_log([5.0, -5.0] * 20)}
     with pytest.raises(DispersionError, match="not finite"):

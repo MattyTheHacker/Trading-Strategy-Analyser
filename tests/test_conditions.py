@@ -25,11 +25,11 @@ def bars(rows) -> pd.DataFrame:
         ((10.0, 12.0, 9.5, 10.5), True, "upper 1.5 >= 1.0, lower 0.5 <= body 0.5"),
     ],
 )
-def test_inverted_hammer(row, expected, why):
+def test_inverted_hammer(row, expected, why) -> None:
     assert conditions.inverted_hammer(bars([row]))[0] == expected, why
 
 
-def test_inverted_hammer_boundary_is_inclusive_on_both_tests():
+def test_inverted_hammer_boundary_is_inclusive_on_both_tests() -> None:
     # upper == 2x body and lower == body: DeadCatBounce.cs uses >= and <=, so this passes.
     frame = bars([(10.0, 11.0, 9.5, 10.5)])  # body 0.5, upper 0.5... not yet 2x
     assert not conditions.inverted_hammer(frame)[0]
@@ -50,11 +50,11 @@ def test_inverted_hammer_boundary_is_inclusive_on_both_tests():
         ((10.0, 11.0, 8.0, 10.5), True, "green bar with a long lower wick still counts"),
     ],
 )
-def test_hammer(row, expected, why):
+def test_hammer(row, expected, why) -> None:
     assert conditions.hammer(bars([row]))[0] == expected, why
 
 
-def test_hammer_is_inverted_hammers_wick_roles_swapped():
+def test_hammer_is_inverted_hammers_wick_roles_swapped() -> None:
     # Same rows, opposite geometry: a bar that qualifies as one should not also qualify
     # as the other except in the degenerate doji case (neither qualifies).
     for row in [(10.0, 13.0, 10.0, 10.5), (10.5, 11.0, 8.0, 10.0), (10, 11, 9, 10)]:
@@ -65,17 +65,17 @@ def test_hammer_is_inverted_hammers_wick_roles_swapped():
 # -- new high/low, previous green/red ------------------------------------------
 
 
-def test_made_new_high_requires_a_strictly_higher_high():
+def test_made_new_high_requires_a_strictly_higher_high() -> None:
     frame = bars([(1, 10, 1, 5), (1, 11, 1, 5), (1, 11, 1, 5), (1, 10, 1, 5)])
     assert list(conditions.made_new_high(frame)) == [False, True, False, False]
 
 
-def test_made_new_low_requires_a_strictly_lower_low():
+def test_made_new_low_requires_a_strictly_lower_low() -> None:
     frame = bars([(1, 10, 5, 5), (1, 10, 4, 5), (1, 10, 4, 5), (1, 10, 5, 5)])
     assert list(conditions.made_new_low(frame)) == [False, True, False, False]
 
 
-def test_previous_bar_green_treats_a_flat_close_as_green():
+def test_previous_bar_green_treats_a_flat_close_as_green() -> None:
     # DeadCatBounce.cs rejects only on Close[1] < Open[1], so equality passes.
     flat = bars([(10, 11, 9, 10), (1, 2, 0, 1)])
     assert conditions.previous_bar_green(flat)[1]
@@ -87,7 +87,7 @@ def test_previous_bar_green_treats_a_flat_close_as_green():
     assert conditions.previous_bar_green(green)[1]
 
 
-def test_previous_bar_red_rejects_a_flat_close():
+def test_previous_bar_red_rejects_a_flat_close() -> None:
     # PullBackAndGo.cs rejects on Close[1] >= Open[1], so a doji is not red. This is the
     # one boundary the two strategies do not mirror: previous_bar_green admits a doji and
     # this rejects one, making the pair exact complements rather than overlapping at
@@ -104,7 +104,7 @@ def test_previous_bar_red_rejects_a_flat_close():
     assert not conditions.previous_bar_red(green)[1]
 
 
-def test_first_bar_can_never_satisfy_a_lookback_condition():
+def test_first_bar_can_never_satisfy_a_lookback_condition() -> None:
     frame = bars([(1, 10, 1, 5)])
     assert not conditions.made_new_high(frame)[0]
     assert not conditions.made_new_low(frame)[0]
@@ -115,14 +115,14 @@ def test_first_bar_can_never_satisfy_a_lookback_condition():
 # -- trend gate ---------------------------------------------------------------
 
 
-def test_below_series_passes_on_equality():
+def test_below_series_passes_on_equality() -> None:
     # The C# rejects when Close > ma, so Close == ma must pass the filter.
     close = np.array([9.0, 10.0, 11.0])
     ma = np.array([10.0, 10.0, 10.0])
     assert list(conditions.below_series(close, ma)) == [True, True, False]
 
 
-def test_above_series_passes_on_equality():
+def test_above_series_passes_on_equality() -> None:
     # PullBackAndGo.cs rejects on Close < ma, so Close == ma passes here too -- the two
     # gates are not negations of one another, they overlap exactly at close == ma.
     close = np.array([9.0, 10.0, 11.0])
@@ -136,14 +136,14 @@ def test_above_series_passes_on_equality():
 # -- moving average grid ------------------------------------------------------
 
 
-def test_grid_deduplicates_and_sorts_periods():
+def test_grid_deduplicates_and_sorts_periods() -> None:
     close = np.arange(50, dtype=np.float64)
     grid = conditions.moving_average_grid(close, [21, 5, 21, 60], kind="ema")
     assert list(grid.periods) == [5, 21, 60]
     assert grid.below.shape == (3, 50)
 
 
-def test_grid_drops_raw_values_unless_asked():
+def test_grid_drops_raw_values_unless_asked() -> None:
     close = np.arange(50, dtype=np.float64)
     lean = conditions.moving_average_grid(close, [21, 60])
     assert lean.values is None
@@ -159,7 +159,7 @@ def test_grid_drops_raw_values_unless_asked():
     assert full.nbytes > lean.nbytes
 
 
-def test_grid_row_lookup_is_by_period_not_position():
+def test_grid_row_lookup_is_by_period_not_position() -> None:
     close = np.arange(50, dtype=np.float64)
     grid = conditions.moving_average_grid(close, [60, 21, 5], keep_values=True)
     assert grid.row(5) == 0
@@ -168,13 +168,13 @@ def test_grid_row_lookup_is_by_period_not_position():
     assert grid.values_for(21) is not grid.values[21 % 3]
 
 
-def test_grid_rejects_a_period_it_was_not_built_for():
+def test_grid_rejects_a_period_it_was_not_built_for() -> None:
     grid = conditions.moving_average_grid(np.arange(50, dtype=np.float64), [21])
     with pytest.raises(KeyError, match="not in this grid"):
         grid.row(22)
 
 
-def test_grid_rows_match_the_standalone_indicator():
+def test_grid_rows_match_the_standalone_indicator() -> None:
     from nqbt import indicators
 
     close = np.random.default_rng(2).normal(20000, 40, 500)
@@ -183,7 +183,7 @@ def test_grid_rows_match_the_standalone_indicator():
     assert list(grid.below_for(21)) == list(conditions.below_series(close, indicators.nt8_sma(close, 21)))
 
 
-def test_grid_carries_above_alongside_below():
+def test_grid_carries_above_alongside_below() -> None:
     close = np.array([9.0, 10.0, 11.0, 12.0], dtype=np.float64)
     grid = conditions.moving_average_grid(close, [1], kind="sma")
     # SMA(1) == close, so below and above must both read the equality boundary as passing.
@@ -192,14 +192,14 @@ def test_grid_carries_above_alongside_below():
     assert all(grid.below_for(1)) and all(grid.above_for(1))
 
 
-def test_grid_supports_both_kinds():
+def test_grid_supports_both_kinds() -> None:
     close = np.arange(50, dtype=np.float64)
     ema = conditions.moving_average_grid(close, [10], kind="ema", keep_values=True)
     sma = conditions.moving_average_grid(close, [10], kind="sma", keep_values=True)
     assert ema.values_for(10)[-1] != pytest.approx(sma.values_for(10)[-1])
 
 
-def test_grid_rejects_bad_input():
+def test_grid_rejects_bad_input() -> None:
     close = np.arange(50, dtype=np.float64)
     with pytest.raises(ValueError, match="no periods"):
         conditions.moving_average_grid(close, [])
@@ -212,7 +212,7 @@ def test_grid_rejects_bad_input():
 # -- confluence ---------------------------------------------------------------
 
 
-def test_count_true_backs_the_confluence_pattern():
+def test_count_true_backs_the_confluence_pattern() -> None:
     stack = np.array(
         [
             [True, True, False, False],
@@ -225,7 +225,7 @@ def test_count_true_backs_the_confluence_pattern():
     assert list(conditions.count_true(stack) >= 2) == [True, True, True, False]
 
 
-def test_bar_geometry_bundles_the_parameter_free_conditions():
+def test_bar_geometry_bundles_the_parameter_free_conditions() -> None:
     frame = bars([(10, 13, 10, 10.5), (10, 14, 10, 10.5)])
     geom = conditions.bar_geometry(frame)
     assert len(geom) == 2
@@ -234,7 +234,7 @@ def test_bar_geometry_bundles_the_parameter_free_conditions():
     assert list(geom.previous_bar_green) == [False, True]
 
 
-def test_bar_geometry_bundles_the_long_side_mirror_conditions():
+def test_bar_geometry_bundles_the_long_side_mirror_conditions() -> None:
     frame = bars([(10.5, 11, 8, 10), (10.5, 11, 7, 10)])
     geom = conditions.bar_geometry(frame)
     assert list(geom.hammer) == [True, True]

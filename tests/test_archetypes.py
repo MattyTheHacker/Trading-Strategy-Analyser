@@ -20,18 +20,18 @@ from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 # -- the registry -------------------------------------------------------------
 
 
-def test_both_ported_archetypes_are_registered():
+def test_both_ported_archetypes_are_registered() -> None:
     assert archetypes.names() == ["DeadCatBounce", "PullBackAndGo"]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
 
 
-def test_an_unknown_name_lists_the_known_ones():
+def test_an_unknown_name_lists_the_known_ones() -> None:
     with pytest.raises(ArchetypeError, match="EmaCrossover"):
         archetypes.get("EmaCrossover")
 
 
-def test_registering_a_duplicate_name_is_refused():
+def test_registering_a_duplicate_name_is_refused() -> None:
     """``name`` is a results column, so two archetypes sharing one merge into a row group."""
     clash = Archetype(
         name="DeadCatBounce",
@@ -43,26 +43,27 @@ def test_registering_a_duplicate_name_is_refused():
         archetypes.register(clash)
 
 
-def test_the_default_is_deadcatbounce():
+def test_the_default_is_deadcatbounce() -> None:
     """Every stored result and captured trade log was produced with it."""
     assert archetypes.DEFAULT is archetypes.DEADCATBOUNCE
 
 
-def test_for_params_infers_the_archetype_from_its_parameter_class():
+def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(DeadCatParams()) is archetypes.DEADCATBOUNCE
     assert archetypes.for_params(PullBackAndGoParams()) is archetypes.PULLBACKANDGO
 
 
-def test_for_params_refuses_to_guess_for_an_unregistered_class():
+def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
     @dataclass(slots=True)
     class Unknown:
         pass
 
     with pytest.raises(ArchetypeError, match="pass archetype="):
-        archetypes.for_params(Unknown())
+        # Not a Params -- that is the point of the test, so the checker is told so here.
+        archetypes.for_params(Unknown())  # type: ignore[arg-type]
 
 
-def test_both_archetypes_are_reconciled_and_say_so():
+def test_both_archetypes_are_reconciled_and_say_so() -> None:
     """``tier2`` is the column that stops a ranking mixing a measurement with an assumption."""
     for a in archetypes.all_archetypes():
         assert a.tier2 is Tier2Status.RECONCILED
@@ -71,7 +72,7 @@ def test_both_archetypes_are_reconciled_and_say_so():
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------
 
 
-def test_sweepable_is_every_field_except_the_declared_exclusions():
+def test_sweepable_is_every_field_except_the_declared_exclusions() -> None:
     a = archetypes.DEADCATBOUNCE
     assert a.sweepable == frozenset(f.name for f in fields(DeadCatParams)) - {
         "target_r_multiples"
@@ -80,7 +81,7 @@ def test_sweepable_is_every_field_except_the_declared_exclusions():
     assert "ema_period" in a.sweepable
 
 
-def test_sweepable_sees_inherited_fields_that_slots_would_hide():
+def test_sweepable_sees_inherited_fields_that_slots_would_hide() -> None:
     """The #60 failure, made to actually fail rather than asserted about.
 
     ``__slots__`` holds only the fields declared on the class itself. A params class that
@@ -109,7 +110,7 @@ def test_sweepable_sees_inherited_fields_that_slots_would_hide():
     assert probe.sweepable == {"inherited_period", "own_period"}
 
 
-def test_an_axis_the_archetype_does_not_have_is_rejected_by_name():
+def test_an_axis_the_archetype_does_not_have_is_rejected_by_name() -> None:
     """DeadCatBounce has no ``require_previous_red``; PullBackAndGo has no ``tp_multiplier``."""
     with pytest.raises(sweep.SweepError, match="require_previous_red"):
         sweep.Grid.of(DeadCatParams(), require_previous_red=[True, False])
@@ -120,7 +121,7 @@ def test_an_axis_the_archetype_does_not_have_is_rejected_by_name():
 # -- ContextSpec ---------------------------------------------------------------
 
 
-def test_specs_union_so_several_archetypes_can_share_one_dataset():
+def test_specs_union_so_several_archetypes_can_share_one_dataset() -> None:
     a = ContextSpec(ema_periods=(9, 21), sma_periods=(60,), needs_vwap=False)
     b = ContextSpec(ema_periods=(21, 50), sma_periods=(175,), needs_vwap=True)
     both = a | b
@@ -129,7 +130,7 @@ def test_specs_union_so_several_archetypes_can_share_one_dataset():
     assert both.needs_vwap is True
 
 
-def test_vwap_is_requested_only_when_some_combination_switches_it_on():
+def test_vwap_is_requested_only_when_some_combination_switches_it_on() -> None:
     off = sweep.Grid.of(DeadCatParams(use_vwap=False))
     assert off.required_context().needs_vwap is False
 
@@ -140,7 +141,7 @@ def test_vwap_is_requested_only_when_some_combination_switches_it_on():
     assert always.required_context().needs_vwap is True
 
 
-def test_axis_values_reports_defaults_for_parameters_that_are_not_swept():
+def test_axis_values_reports_defaults_for_parameters_that_are_not_swept() -> None:
     """Reading only ``axes`` is how an unswept period gets left out of the grid."""
     grid = sweep.Grid.of(DeadCatParams(ema_period=11), fast_sma_period=[40, 60])
     values = grid.axis_values()
@@ -152,7 +153,7 @@ def test_axis_values_reports_defaults_for_parameters_that_are_not_swept():
 # -- the gate map is per archetype, and has to name real fields ----------------
 
 
-def test_every_gate_names_a_real_field_on_its_own_params_class():
+def test_every_gate_names_a_real_field_on_its_own_params_class() -> None:
     """A typo'd gate does not raise -- it just never fires, so ``dead_axes`` stops guarding.
 
     Structural rather than a spot check, so a newly registered archetype cannot bring a
@@ -165,7 +166,7 @@ def test_every_gate_names_a_real_field_on_its_own_params_class():
             assert toggle in known, f"{a.name}: gate {toggle!r} is not a field"
 
 
-def test_dead_axes_guards_pullbackandgo_too():
+def test_dead_axes_guards_pullbackandgo_too() -> None:
     """The guard came with the archetype rather than being reimplemented per strategy."""
     base = PullBackAndGoParams(use_slow_sma=False)
     with pytest.raises(sweep.SweepError, match="slow_sma_period"):
@@ -178,19 +179,19 @@ def test_dead_axes_guards_pullbackandgo_too():
 # -- Grid wiring ---------------------------------------------------------------
 
 
-def test_a_grid_infers_its_archetype_from_base():
+def test_a_grid_infers_its_archetype_from_base() -> None:
     assert sweep.Grid.of(PullBackAndGoParams()).archetype is archetypes.PULLBACKANDGO
     assert sweep.Grid.of(DeadCatParams()).archetype is archetypes.DEADCATBOUNCE
     assert sweep.Grid.of().archetype is archetypes.DEFAULT
 
 
-def test_a_base_of_the_wrong_class_is_refused_rather_than_run():
+def test_a_base_of_the_wrong_class_is_refused_rather_than_run() -> None:
     """Otherwise the archetype's ``run`` gets parameters it will read the wrong fields off."""
     with pytest.raises(sweep.SweepError, match="takes DeadCatParams"):
         sweep.Grid(base=PullBackAndGoParams(), archetype=archetypes.DEADCATBOUNCE)
 
 
-def test_a_grid_survives_pickling():
+def test_a_grid_survives_pickling() -> None:
     """The parallel path ships the grid to every worker, archetype included."""
     grid = sweep.Grid.of(PullBackAndGoParams(), ema_period=[9, 21])
     back = loads(dumps(grid))
@@ -198,7 +199,7 @@ def test_a_grid_survives_pickling():
     assert [p.ema_period for p in back.combinations()] == [9, 21]
 
 
-def test_combinations_yield_the_archetypes_own_parameter_class():
+def test_combinations_yield_the_archetypes_own_parameter_class() -> None:
     combos = list(sweep.Grid.of(PullBackAndGoParams(), ema_period=[9, 21]).combinations())
     assert [type(c) for c in combos] == [PullBackAndGoParams, PullBackAndGoParams]
 
@@ -225,7 +226,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     return frame
 
 
-def test_a_pullbackandgo_grid_sweeps_end_to_end():
+def test_a_pullbackandgo_grid_sweeps_end_to_end() -> None:
     """What M17 is for: a second archetype swept without forking ``sweep.py``.
 
     Before the registry this was impossible -- ``run_combination`` named ``run_deadcat``
@@ -246,7 +247,7 @@ def test_a_pullbackandgo_grid_sweeps_end_to_end():
     assert "require_previous_green" not in results.columns
 
 
-def test_the_two_archetypes_disagree_on_direction_over_the_same_bars():
+def test_the_two_archetypes_disagree_on_direction_over_the_same_bars() -> None:
     """Guards against the registry dispatching both names to the same ``run``.
 
     A lookup that silently returned DeadCatBounce for everything would pass every test

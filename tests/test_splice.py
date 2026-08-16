@@ -41,7 +41,7 @@ def make_frame(
 DAYS = ["2024-03-06", "2024-03-07", "2024-03-08"]
 
 
-def test_volume_crossover_is_detected_when_the_export_covers_it():
+def test_volume_crossover_is_detected_when_the_export_covers_it() -> None:
     front = make_frame(DAYS, 100.0, {"2024-03-06": 900, "2024-03-07": 800, "2024-03-08": 100})
     back = make_frame(DAYS, 110.0, {"2024-03-06": 100, "2024-03-07": 200, "2024-03-08": 900})
 
@@ -51,7 +51,7 @@ def test_volume_crossover_is_detected_when_the_export_covers_it():
     assert roll.crossover_observed
 
 
-def test_confirmation_skips_a_one_day_blip_and_finds_the_real_roll():
+def test_confirmation_skips_a_one_day_blip_and_finds_the_real_roll() -> None:
     # Back leads on 03-05, falls behind again on 03-06, then leads for good from 03-07.
     week = ["2024-03-04", "2024-03-05", "2024-03-06", "2024-03-07", "2024-03-08"]
     front = make_frame(week, 100.0, dict(zip(week, [900, 100, 900, 100, 100])))
@@ -65,7 +65,7 @@ def test_confirmation_skips_a_one_day_blip_and_finds_the_real_roll():
     assert strict.roll_day == pd.Timestamp("2024-03-07")
 
 
-def test_volume_is_compared_over_shared_bars_only():
+def test_volume_is_compared_over_shared_bars_only() -> None:
     # The real failure mode: the front export stops mid-session on the last day, so its
     # daily total collapses. A calendar comparison would call that a crossover; a
     # bar-aligned one correctly does not.
@@ -79,7 +79,7 @@ def test_volume_is_compared_over_shared_bars_only():
     assert table.loc[pd.Timestamp("2024-03-08"), "shared_bars"] == 2
 
 
-def test_a_stub_session_cannot_decide_the_roll():
+def test_a_stub_session_cannot_decide_the_roll() -> None:
     # Both contracts are near-empty on 03-06 -- NT8's data has exactly this hole a few
     # days before most rolls. Restricting to shared bars does not help here, because both
     # sides are short; the ratio is an hour of overnight trade standing in for a session.
@@ -97,7 +97,7 @@ def test_a_stub_session_cannot_decide_the_roll():
     assert roll.roll_day == pd.Timestamp("2024-03-07")
 
 
-def test_a_full_session_still_decides_the_roll_on_its_first_win():
+def test_a_full_session_still_decides_the_roll_on_its_first_win() -> None:
     # The guard must not cost a legitimate same-day crossover: identical to the case
     # above except that the deciding session is a full one.
     week = ["2024-03-05", "2024-03-06", "2024-03-07"]
@@ -108,7 +108,7 @@ def test_a_full_session_still_decides_the_roll_on_its_first_win():
     assert roll.roll_day == pd.Timestamp("2024-03-06")
 
 
-def test_rolls_at_the_coverage_boundary_when_the_crossover_is_missing():
+def test_rolls_at_the_coverage_boundary_when_the_crossover_is_missing() -> None:
     front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
     back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
 
@@ -119,7 +119,7 @@ def test_rolls_at_the_coverage_boundary_when_the_crossover_is_missing():
     assert any("no volume crossover" in n for n in roll.notes)
 
 
-def test_strict_mode_refuses_to_guess():
+def test_strict_mode_refuses_to_guess() -> None:
     front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
     back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
 
@@ -127,7 +127,7 @@ def test_strict_mode_refuses_to_guess():
         splice.detect_roll(FRONT, BACK, front, back, allow_coverage_boundary=False)
 
 
-def test_non_overlapping_contracts_are_rejected():
+def test_non_overlapping_contracts_are_rejected() -> None:
     front = make_frame(["2024-03-06"], 100.0, 900)
     back = make_frame(["2024-06-06"], 110.0, 900)
     with pytest.raises(splice.SpliceError, match="share no in-session bars"):
@@ -143,7 +143,7 @@ def two_contract_frames():
     return {FRONT: front, BACK: back}
 
 
-def test_segments_are_disjoint_and_the_index_stays_clean():
+def test_segments_are_disjoint_and_the_index_stays_clean() -> None:
     frames = two_contract_frames()
     series, report = splice.build_continuous([FRONT, BACK], frames)
 
@@ -155,13 +155,13 @@ def test_segments_are_disjoint_and_the_index_stays_clean():
     assert set(roll_day_rows["contract"]) == {"MNQ 06-24"}
 
 
-def test_raw_series_keeps_the_contract_gap():
+def test_raw_series_keeps_the_contract_gap() -> None:
     series, _ = splice.build_continuous([FRONT, BACK], two_contract_frames())
     assert series[series["contract"] == "MNQ 03-24"]["close"].iloc[0] == pytest.approx(100.0)
     assert series[series["contract"] == "MNQ 06-24"]["close"].iloc[0] == pytest.approx(110.0)
 
 
-def test_back_adjustment_lifts_history_onto_the_current_contract():
+def test_back_adjustment_lifts_history_onto_the_current_contract() -> None:
     frames = two_contract_frames()
     series, report = splice.build_continuous([FRONT, BACK], frames, back_adjust=True)
 
@@ -176,7 +176,7 @@ def test_back_adjustment_lifts_history_onto_the_current_contract():
     assert back_rows["close"].iloc[0] == pytest.approx(110.0)
 
 
-def test_back_adjustment_preserves_real_price_movement_across_the_roll():
+def test_back_adjustment_preserves_real_price_movement_across_the_roll() -> None:
     # Both contracts are flat here, so a correct adjustment leaves no jump at all.
     frames = two_contract_frames()
     series, _ = splice.build_continuous([FRONT, BACK], frames, back_adjust=True)
@@ -185,7 +185,7 @@ def test_back_adjustment_preserves_real_price_movement_across_the_roll():
     assert series["close"].iloc[i] - series["close"].iloc[i - 1] == pytest.approx(0.0)
 
 
-def test_shifts_accumulate_across_multiple_rolls():
+def test_shifts_accumulate_across_multiple_rolls() -> None:
     days2 = ["2024-06-05", "2024-06-06", "2024-06-07"]
     frames = two_contract_frames()
     frames[BACK] = pd.concat(
@@ -203,7 +203,7 @@ def test_shifts_accumulate_across_multiple_rolls():
     assert list(report.segments["shift"]) == pytest.approx([25.0, 15.0, 0.0])
 
 
-def test_report_stays_quiet_about_a_healthy_coverage_roll():
+def test_report_stays_quiet_about_a_healthy_coverage_roll() -> None:
     # Front winds down to 100 while the back runs 300 across a full session; over the two
     # shared bars that is 60 vs 100, a ratio of 0.6 -- the back contract is clearly
     # taking over, so the roll needs no warning even though no crossover was observed.
@@ -221,7 +221,7 @@ def test_report_stays_quiet_about_a_healthy_coverage_roll():
     assert report.warnings == []
 
 
-def test_report_flags_a_roll_that_fires_while_the_front_still_dominates():
+def test_report_flags_a_roll_that_fires_while_the_front_still_dominates() -> None:
     # Front is still doing 900 against the back's 60 over shared bars: ratio 0.067. The
     # data ran out long before the market rolled, and that is worth surfacing.
     front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
@@ -234,7 +234,7 @@ def test_report_flags_a_roll_that_fires_while_the_front_still_dominates():
     assert "verify this handover" in report.summary()
 
 
-def test_single_contract_needs_no_roll():
+def test_single_contract_needs_no_roll() -> None:
     frames = {FRONT: make_frame(DAYS, 100.0, 900)}
     series, report = splice.build_continuous([FRONT], frames)
     assert report.rolls == []
@@ -242,7 +242,7 @@ def test_single_contract_needs_no_roll():
     assert set(series["contract"]) == {"MNQ 03-24"}
 
 
-def test_out_of_session_bars_never_reach_the_continuous_series():
+def test_out_of_session_bars_never_reach_the_continuous_series() -> None:
     frames = two_contract_frames()
     stray = frames[FRONT].iloc[[0]].copy()
     stray.index = pd.DatetimeIndex([pd.Timestamp("2024-03-09 15:44:00", tz="UTC")], name="ts_utc")
