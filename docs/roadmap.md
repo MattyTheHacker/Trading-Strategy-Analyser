@@ -29,8 +29,8 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~3~~ | ~~**M9** — split context from simulation~~ | — | **Done 2026-08-12.** `nqbt/context.py` and `nqbt/trades.py` exist, layering enforced by import-analysis tests, every producer path byte-identical across all 14 files. |
 | ~~3a~~ | ~~**M20a** — the three findings that block M15~~ | [#9] | **Done 2026-08-14.** `_resolve_brackets` is the single bracket implementation, `entry_bracket` the single trigger computation, `Summary.empty()` replaces the splat that raised. |
 | ~~3b~~ | ~~**M15** — direction in the simulator~~ | [#13] | **Done 2026-08-15**, reconciled included. `d = ±1` through the whole loop, `PullBackAndGo` ported and diffed leg-for-leg against a real NT8 trade list. That reconciliation found two fill-semantics defects — see below. |
-| — | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | [#19] | **Out of the code queue; batched into a NinjaTrader session.** Five consumers, not one, but [#20], [#21] and [#22] are all readings rather than code. [#23] is the exception and can be taken any time. |
-| **3c** | **M17 + M13 + M14** — strategy, resolution and contract as axes | [#24], [#30], [#31] | **In progress.** M17.1–M17.3 landed 2026-08-15: the registry exists, `sweep.py` names no parameter class, and `prepare` builds only what a `ContextSpec` declares. [#28] and [#29] remain and need M13 ([#30]) and M14 ([#31]) first — **one mechanism, not three**, so the schema settles once before the stale DuckDB re-run. |
+| — | **M16** — NT8-parity ATR, StdDev, Bollinger, Keltner | [#19] | **Out of the code queue; batched into a NinjaTrader session.** Five consumers, not one, and [#20], [#21], [#22] and half of [#23] are all readings rather than code. **Now the only thing between here and M18.** |
+| ~~3c~~ | ~~**M17 + M13 + M14** — strategy, resolution and contract as axes~~ | [#24], [#30], [#31] | **Done 2026-08-16.** The registry landed 2026-08-15; `resample.py` ([#30]) and `dispersion.py` ([#31]) followed, then the results schema ([#29]) and `sweep_axes` ([#28]) — **one mechanism, not three**, so the schema settled once before the stale DuckDB re-run ([#71]). |
 | 4 | **M7a** — `randomentry.py` | [#32] | The null that makes a *second* archetype interpretable. Cheap now M15 has landed — and M15 is also what lets the null be matched on direction, which it must be. |
 | 5 | **M18** — EMA crossover | [#34] | The one archetype built now, to prove the protocol. A legitimate known-negative control. |
 | 6 | Numpy-native summary path | [#33] | **Pulled forward.** Crossover generates ~30× the legs, so the 71% of runtime that is pandas stops being an annoyance and becomes the sweep. |
@@ -62,11 +62,22 @@ better use of code time. **Split the queue by resource, not by milestone number:
 
 | resource | work |
 |---|---|
-| code time | M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]); [#23] whenever convenient |
-| NinjaTrader time | [#20], [#21], [#22] (M16 pins), [#66] (NQ), [#67] (order lifetime), [#92] (a second long-side contract) |
+| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29])~~ — **all done**. Next: M7a ([#32]), then the numpy summary path ([#33]) |
+| NinjaTrader time | [#20], [#21], [#22] (M16 pins), [#23] (the TR reading), [#66] (NQ), [#67] (order lifetime), [#92] (a second long-side contract) |
 
 Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
 true — M18 needs both.
+
+**With M17 done the code column no longer reaches M18.** M7a ([#32]) and the numpy summary
+path ([#33]) are both unblocked and both pure Python, but after them the queue runs dry
+against Phase 2: [#37]'s ATR stop makes M16 a hard prerequisite, and M16 is readings. Book
+the NinjaTrader session before the code column empties rather than after — six items share
+that one sitting.
+
+**[#23] is half a reading, so it belongs above, not "whenever convenient".** This file used
+to call it a decision rather than a measurement, but its first requirement is *confirm
+against NT8 whether True Range resets at a session boundary*. Only the roll-boundary half is
+a decision that can be taken at a desk.
 
 ### What M15.5 changed, and the lesson that outlives it
 
@@ -476,19 +487,37 @@ session and roll boundaries need a decision rather than a default ([#23]). One m
 and KC are swept over period *and* multiplier, so the 66 MB → 595 MB lesson applies with an
 extra factor — keep boolean gates only.
 
-### M17 — the archetype protocol ([#24])
+### ~~M17~~ — the archetype protocol: done ([#24])
 
-**M17.1–M17.3 have landed; M17.4 and M17.5 have not.** `sweep.py` used to name
-`DeadCatParams` in six places, so a second archetype meant forking it. It now names none:
-`nqbt/archetypes.py` supplies the parameter class, the legal axes, the toggle map, the
-context spec and the run function, and a new archetype registers rather than forking.
+`sweep.py` used to name `DeadCatParams` in six places, so a second archetype meant forking
+it. It now names none: `nqbt/archetypes.py` supplies the parameter class, the legal axes, the
+toggle map, the context spec and the run function, and a new archetype registers rather than
+forking.
 
-The insight that shapes what remains is that **strategy, resolution and contract are the same
+The insight that shaped the rest was that **strategy, resolution and contract are the same
 feature**: all three add an axis that sits *above* the `Dataset` rather than inside a params
 class, all three need one `Dataset` per value, and all three need a nullable results column.
-Build one mechanism ([#28]), not three wrappers that diverge, and land them together before
-the stale DuckDB re-run ([#71]) so the schema settles once instead of three times. That is
-why M13 ([#30]) and M14 ([#31]) come before [#28] rather than after it.
+So it is one mechanism ([#28]), not three wrappers that diverge, landed together before the
+stale DuckDB re-run ([#71]) so the schema settled once instead of three times. That is why
+M13 ([#30]) and M14 ([#31]) came before [#28] rather than after it.
+
+**What `sweep_axes` settled, worth not relitigating.** The strategy axis is a **list of
+grids, not a list of archetype names** — each archetype has its own parameter class, so
+`ema_period=[9, 21]` is not necessarily a legal axis of the next one, and a single grid
+re-based onto another archetype would raise or, worse, silently sweep a different field. The
+contract axis is **carried by `bars` itself** (one frame, or a `{contract: frame}` mapping),
+because a contract axis *is* which bars; that avoids a mutually-exclusive parameter pair and
+lets `dispersion.sweep_contracts` hand its frames straight in. Every grid at one axis point
+**shares a single `Dataset`**, built from the union of their `ContextSpec`s — a dataset each
+would multiply what the parallel path memmaps to every worker by the number of strategies,
+and a test pins the call count rather than trusting it. And `combo_id` stays the grid's own
+index so it means the same parameters at every axis point, which is what makes a
+cross-resolution comparison a comparison; it deliberately does *not* carry across grids,
+which is why `strategy` is part of the log key.
+
+`dispersion.sweep_contracts` is now a thin wrapper over it, as its own docstring asked for.
+All 48 dispersion tests passed unchanged through that refactor, and the whole capture set is
+byte-for-byte identical.
 
 Three things the landed part settled, worth not relitigating:
 
@@ -502,7 +531,7 @@ Three things the landed part settled, worth not relitigating:
   `Dataset`, and `context.py` must not import from `nqbt.sim`. Grids are keyed by
   `(kind, period)`, which is the half of [#72] that no longer needs doing.
 
-**M17.5 ([#29]) has landed**, so the schema is settled before [#28] fills it and before the
+**The results schema ([#29]) settled first**, before [#28] filled it and before the
 stale-database re-run ([#71]). `strategy`, `resolution`, `contract` and `tier2` exist on both
 DuckDB tables, nullable, with `batch_id` on `sweeps`; a database written before them gains
 them by migration and keeps its rows. `stats.Summary` gained `session_close_share` in the
@@ -634,9 +663,11 @@ is self-limiting: 1, 2, 5 and 15 minutes is ≈1.8× a 1-minute sweep, not 4×.
 
 ### M14 — per-contract sweeps ([#31])
 
-**`nqbt/dispersion.py` has landed.** The `contract` results column is [#29] and folding it
-into one axis mechanism alongside strategy and resolution is [#28]; the per-contract loop
-here is deliberately thin so [#28] can absorb it and keep the statistics.
+**`nqbt/dispersion.py` has landed, and [#28] has since absorbed its loop.**
+`sweep_contracts` is now a wrapper over `sweep.sweep_axes` that keeps what this module is
+actually for — the front-month windows, the coverage join, and the statistics below — and
+moves `contract` back to the leading column because that is its own promise. All 48 tests
+here passed unchanged through that refactor, which is the evidence it moved nothing.
 
 Two things the build settled that are worth not relitigating. **Both spread measures are
 reported, because the milestone has two jobs that disagree** — the IQR answers "does the bulk

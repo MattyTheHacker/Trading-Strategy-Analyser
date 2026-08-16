@@ -225,10 +225,14 @@ the record of what the audit trail said while it was being trusted.
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 → M7b → M19 → M12**, with
-**M16 batched into a NinjaTrader session** rather than sitting in the code queue. M9, M20a
-and M15 are done — see Status. **M17 is in progress**: M17.1–M17.3 landed, M17.4 and M17.5
-wait on M13 and M14.
+**Order: M7a → numpy summary → M18 → M10 → M11 → M7b → M19 → M12**, with **M16 batched into
+a NinjaTrader session** rather than sitting in the code queue. M9, M20a, M15 and
+**M17(+M13+M14)** are all done — see Status.
+
+**The code queue no longer reaches M18.** M7a (#32) and the numpy summary path (#33) are
+unblocked and pure Python, but after them Phase 2 is gated on M16: #37's ATR stop is a hard
+prerequisite and M16 is readings, not code. Six items share that one NinjaTrader sitting
+(#20, #21, #22, half of #23, #66, #67, #92) — book it before the code column empties.
 
 **M16 moved out of the code queue deliberately.** Its three substantive sub-issues
 (#20 ATR, #21 StdDev/Bollinger, #22 Keltner) each require reading values out of NT8, and the
@@ -306,9 +310,9 @@ pin it; do not answer from memory. Keltner is the one most likely to be silently
 (platforms disagree on midline and multiplier). Note BB/KC grids are swept over period *and*
 multiplier, so the 66 MB → 595 MB lesson applies with an extra factor: keep boolean gates only.
 
-**M17 — the archetype protocol. M17.1–M17.3 have landed; M17.4 and M17.5 have not.**
+**~~M17 — the archetype protocol~~ — done, with M13 and M14.**
 
-What exists now, and what a new archetype therefore inherits:
+What a new archetype inherits:
 
 - **`nqbt/archetypes.py` is the registry.** An `Archetype` records the parameter class, the
   legal axes, the toggle map `dead_axes` guards with, the series its signal reads, the run
@@ -327,11 +331,28 @@ What exists now, and what a new archetype therefore inherits:
   `--explain` exists to show what it did *not*, so taking its spec from the grid would
   silently drop a column from the NT8 audit trail.
 
-Still to do: **M17.4** (`sweep_axes`, one mechanism for strategy × resolution × contract) and
-**M17.5** (the nullable results columns). Both need M13 and M14 first — land
-`strategy`/`resolution`/`contract` **together**, before the stale DuckDB re-run, so the
-schema settles once. The shared bracket engine is extracted **during** M18 — before is
-designing from one example, after means duplicated fidelity-critical code shipped.
+- **`sweep.sweep_axes` is the one mechanism for strategy × resolution × contract.** The
+  strategy axis is a **list of grids, not archetype names** — each archetype has its own
+  parameter class, so one grid re-based onto another would raise or silently sweep a
+  different field. The contract axis is carried by `bars` itself: one frame means the
+  spliced series, a `{contract: frame}` mapping runs each separately. Every grid at one axis
+  point **shares one `Dataset`**, built from the union of their `ContextSpec`s, and a test
+  pins the `prepare` call count. `combo_id` is the grid's own index so it means the same
+  parameters at every axis point — but *not* across grids, which is why `strategy` is part
+  of the log key. **Do not add a second wrapper for a new axis.**
+- **The results schema carries `strategy`, `resolution`, `contract`, `tier2`** on both
+  DuckDB tables, nullable, plus `batch_id` on `sweeps`. One `sweeps` row per axis point,
+  because `bars`/`first_bar`/`last_bar` are properties of a dataset. **`contract` null means
+  the spliced series**; null elsewhere means the row predates the columns. `save_sweep`
+  inserts **by name** — a migrated database has the new columns at the end and a fresh one
+  has them in the middle. Pin dtypes on a nullable tag: an all-null `object` column infers
+  as **INTEGER** in DuckDB, which would have made `combos.contract` unwritable.
+- **`stats.Summary.session_close_share`** — exits taken by the clock, over legs, matching
+  `ambiguous_share`. Reads 0.0001 on DeadCatBounce at 1 minute; expect it to climb sharply
+  with bar size, and read it before believing a coarse resolution.
+
+The shared bracket engine is still extracted **during** M18 — before is designing from one
+example, after means duplicated fidelity-critical code shipped.
 
 **M18 — EMA crossover.** The one archetype built now, to prove M15 and M17. **Treat it as a
 known-negative control, not an edge candidate**: MA crossover on 1-minute index futures is
@@ -371,8 +392,8 @@ bar or the backtest reads the future. **Both get much cheaper once M16 and M17 l
 establishes the pin-it-against-NT8 procedure a new kind needs, and M17's `required_context`
 already has to key grids by `(kind, period)`. Reconsider after those rather than now.
 
-**M13 — bar resolution as a sweep axis (2/5/15/30 min).** `nqbt/resample.py` exists (#30);
-wiring it into a sweep is #28. **The existing 1-minute archive is sufficient — no re-export,
+**~~M13~~ — bar resolution as a sweep axis (2/5/15/30 min): done.** `nqbt/resample.py` (#30)
+is wired into `sweep_axes` (#28). **The existing 1-minute archive is sufficient — no re-export,
 no AddOn change.** Resampling is **exact, not approximate**: OHLC aggregation is associative,
 so a 5-minute bar built from five 1-minute bars is bit-identical to one NT8 builds from
 ticks. Do *not* reach for `data/tick/`; that would be the more-precise-than-NT8 error.
@@ -400,8 +421,9 @@ are all per-bar — so it must be a first-class results column. **The ambiguous-
 climb with bar size**, roughly doubling by 15 minutes on MNQ, and the forced-exit share rises
 with it; if a coarse resolution looks profitable, check both before believing it.
 
-**M14 — per-contract sweeps.** `nqbt/dispersion.py` exists (#31); the `contract` results
-column is #29 and folding it into one axis mechanism is #28.
+**~~M14~~ — per-contract sweeps: done.** `nqbt/dispersion.py` (#31) keeps the windows,
+coverage and statistics; its per-contract loop is now `sweep.sweep_axes` (#28), and the
+`contract` results column is #29.
 
 **Report the spread, not the winner.** A contract is ~3 months of front-month, so "best
 contract" is mostly "best quarter", and picking the best of 19 × N combinations is the

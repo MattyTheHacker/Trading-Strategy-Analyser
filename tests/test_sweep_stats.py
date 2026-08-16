@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import results, sessions, stats, sweep, trades
+from nqbt import context, resample, results, sessions, stats, sweep, trades
 from nqbt.instruments import NQ
 from nqbt.sim import runner
-from nqbt.sim.types import DeadCatParams
+from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
@@ -215,6 +215,12 @@ def test_grid_rejects_unknown_parameters() -> None:
         sweep.Grid.of(emma_period=[9])
 
 
+def test_grid_rejects_an_axis_with_no_values() -> None:
+    # An empty axis multiplies the grid by zero, so the sweep would silently run nothing.
+    with pytest.raises(sweep.SweepError, match="has no values"):
+        sweep.Grid.of(ema_period=[])
+
+
 def test_grid_rejects_an_axis_whose_filter_is_switched_off() -> None:
     # The NinjaScript's current defaults leave the slow SMA off, so sweeping its period
     # would produce identical rows and multiply runtime for nothing.
@@ -342,6 +348,247 @@ def test_parallel_sweep_keys_trade_logs_by_combo_id(prepared) -> None:
     frame, logs = sweep.sweep(bars, grid, data=data, n_jobs=2, keep_trades=True)
     assert sorted(logs) == list(range(len(grid)))
     assert list(frame["combo_id"]) == list(range(len(grid)))
+
+
+# -- sweep_axes: strategy, resolution and contract (M17.4) --------------------
+
+
+@pytest.fixture(scope="module")
+def axis_bars():
+    """Enough bars that a 15-minute resample still has a workable series."""
+    return synthetic_bars(n=12_000)
+
+
+@pytest.fixture(scope="module")
+def axis_grid():
+    return sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
+
+
+def test_the_default_call_is_one_axis_point_tagged_with_what_it_ran(axis_bars, axis_grid) -> None:
+    frame, logs = sweep.sweep_axes(axis_bars, axis_grid, NQ)
+    assert len(frame) == len(axis_grid)
+    assert set(frame["strategy"]) == {"DeadCatBounce"}
+    assert set(frame["resolution"]) == {1}
+    assert frame["contract"].isna().all(), "a single frame is the spliced series"
+    assert set(frame["tier2"]) == {"reconciled"}
+    assert logs == {}
+
+
+def test_the_axis_columns_lead_so_no_row_is_anonymous(axis_bars, axis_grid) -> None:
+    frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ)
+    assert list(frame.columns[:4]) == list(sweep.AxisPoint._fields)
+
+
+def test_the_axis_point_names_the_same_columns_the_results_store_declares() -> None:
+    """Pins the two together without coupling ``sweep`` to ``results``.
+
+    ``sweep_axes`` produces the tags and ``save_sweep`` stores them; if the names drift the
+    columns silently arrive null rather than failing.
+    """
+    assert sweep.AxisPoint._fields == tuple(results.AXIS_COLUMNS)
+
+
+def test_one_axis_point_reproduces_a_plain_sweep_exactly(axis_bars, axis_grid) -> None:
+    """The mechanism must not perturb the path every stored result was produced on."""
+    plain, _ = sweep.sweep(axis_bars, axis_grid, NQ)
+    axed, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ)
+    assert plain["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
+    pd.testing.assert_frame_equal(
+        axed.drop(columns=list(sweep.AxisPoint._fields)), plain
+    )
+
+
+# -- the resolution axis -------------------------------------------------------
+
+
+def test_the_resolution_axis_runs_each_bar_size_and_tags_it(axis_bars, axis_grid) -> None:
+    frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5, 15])
+    assert len(frame) == 3 * len(axis_grid)
+    assert sorted(frame["resolution"].unique()) == [1, 5, 15]
+    for minutes in (1, 5, 15):
+        block = frame[frame["resolution"] == minutes]
+        assert sorted(block["combo_id"]) == list(range(len(axis_grid)))
+
+
+def test_a_coarser_resolution_really_is_run_on_coarser_bars(axis_bars, axis_grid) -> None:
+    """Guards the guard: tagging a row '5' while running 1-minute bars would look fine.
+
+    Fewer bars means fewer signals, so the leg counts must actually move -- and the 5-minute
+    run must match what resampling by hand and sweeping directly produces.
+    """
+    frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5])
+    one = frame[frame["resolution"] == 1].reset_index(drop=True)
+    five = frame[frame["resolution"] == 5].reset_index(drop=True)
+    assert five["legs"].sum() < one["legs"].sum(), "coarser bars produced no fewer legs"
+
+    direct, _ = sweep.sweep(resample.resample(axis_bars, 5), axis_grid, NQ)
+    pd.testing.assert_frame_equal(
+        five.drop(columns=list(sweep.AxisPoint._fields)), direct
+    )
+
+
+def test_the_one_minute_path_is_the_untouched_frame(axis_bars) -> None:
+    """``resample(bars, 1)`` returns the same object, so resolution 1 cannot drift."""
+    assert resample.resample(axis_bars, 1) is axis_bars
+
+
+# -- the contract axis ---------------------------------------------------------
+
+
+def contract_frames(bars) -> dict:
+    """Two disjoint halves standing in for two front-month windows."""
+    midpoint = len(bars) // 2
+    return {"MNQ 03-24": bars.iloc[:midpoint], "MNQ 06-24": bars.iloc[midpoint:]}
+
+
+def test_the_contract_axis_runs_each_frame_and_names_it(axis_bars, axis_grid) -> None:
+    frames = contract_frames(axis_bars)
+    frame, _ = sweep.sweep_axes(frames, axis_grid, NQ)
+    assert len(frame) == 2 * len(axis_grid)
+    assert set(frame["contract"]) == {"MNQ 03-24", "MNQ 06-24"}
+    assert frame["contract"].notna().all(), "a named contract must never tag as spliced"
+
+
+def test_a_per_contract_row_matches_sweeping_that_contract_directly(axis_bars, axis_grid) -> None:
+    frames = contract_frames(axis_bars)
+    frame, _ = sweep.sweep_axes(frames, axis_grid, NQ)
+    direct, _ = sweep.sweep(frames["MNQ 06-24"], axis_grid, NQ)
+    mine = frame[frame["contract"] == "MNQ 06-24"].reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        mine.drop(columns=list(sweep.AxisPoint._fields)), direct
+    )
+
+
+# -- the strategy axis ---------------------------------------------------------
+
+
+def test_the_strategy_axis_takes_a_grid_each_rather_than_a_name_each(axis_bars) -> None:
+    """Two archetypes, each swept over its *own* parameters.
+
+    This is why the axis is grids and not names: ``require_previous_red`` is a field of
+    PullBackAndGo alone, so no single grid could express both sides of this call.
+    """
+    deadcat = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
+    pullback = sweep.Grid.of(
+        PullBackAndGoParams(bars_required_to_trade=200), require_previous_red=[True, False]
+    )
+    frame, _ = sweep.sweep_axes(axis_bars, [deadcat, pullback], NQ)
+    assert set(frame["strategy"]) == {"DeadCatBounce", "PullBackAndGo"}
+    assert len(frame) == len(deadcat) + len(pullback)
+    # combo_id restarts per grid, which is exactly why strategy is part of the key.
+    for name in ("DeadCatBounce", "PullBackAndGo"):
+        block = frame[frame["strategy"] == name]
+        assert sorted(block["combo_id"]) == [0, 1]
+
+
+def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
+    """A per-archetype property, so it cannot be a column written once for the run."""
+    from nqbt import archetypes as registry
+
+    tier1 = registry.Archetype(
+        name="UnreconciledProbe",
+        params_cls=DeadCatParams,
+        run=registry.DEADCATBOUNCE.run,
+        tier2=registry.Tier2Status.TIER1_ONLY,
+    )
+    grids = [
+        sweep.Grid.of(DeadCatParams(bars_required_to_trade=200)),
+        sweep.Grid(axes={}, base=DeadCatParams(bars_required_to_trade=200), archetype=tier1),
+    ]
+    frame, _ = sweep.sweep_axes(axis_bars, grids, NQ)
+    by_strategy = dict(zip(frame["strategy"], frame["tier2"]))
+    assert by_strategy == {"DeadCatBounce": "reconciled", "UnreconciledProbe": "tier-1-only"}
+
+
+def test_every_grid_at_one_axis_point_shares_a_single_dataset(axis_bars, monkeypatch) -> None:
+    """The memory argument, pinned.
+
+    ``prepare`` is the expensive part and the parallel path memmaps its arrays to every
+    worker, so a dataset per grid would multiply that by the number of strategies. The union
+    of the grids' ``ContextSpec``s is what makes one dataset serve them all.
+    """
+    calls = []
+    real = context.prepare
+
+    def counting(bars, spec=context.DEFAULT_SPEC, **kwargs):
+        calls.append(spec)
+        return real(bars, spec, **kwargs)
+
+    monkeypatch.setattr(context, "prepare", counting)
+    grids = [
+        sweep.Grid.of(DeadCatParams(bars_required_to_trade=200, use_vwap=True)),
+        sweep.Grid.of(PullBackAndGoParams(bars_required_to_trade=200), ema_period=[9, 21]),
+    ]
+    sweep.sweep_axes(axis_bars, grids, NQ, resolutions=[1, 5])
+    assert len(calls) == 2, "one prepare per axis point, not one per grid"
+    # And the union really is a union: VWAP comes from the first grid, period 9 the second.
+    for spec in calls:
+        assert spec.needs_vwap and 9 in spec.ema_periods and 21 in spec.ema_periods
+
+
+# -- the axes compose ----------------------------------------------------------
+
+
+def test_the_axes_multiply_and_every_block_is_distinguishable(axis_bars) -> None:
+    grids = [
+        sweep.Grid.of(DeadCatParams(bars_required_to_trade=200)),
+        sweep.Grid.of(PullBackAndGoParams(bars_required_to_trade=200)),
+    ]
+    frames = contract_frames(axis_bars)
+    frame, _ = sweep.sweep_axes(frames, grids, NQ, resolutions=[1, 5])
+    assert len(frame) == 2 * 2 * 2  # contracts x resolutions x strategies, one combo each
+    keys = set(zip(frame["strategy"], frame["resolution"], frame["contract"]))
+    assert len(keys) == 8, "two blocks share an axis point and would aggregate as one"
+
+
+def test_combo_id_means_the_same_parameters_at_every_axis_point(axis_bars, axis_grid) -> None:
+    """What makes a cross-resolution comparison a comparison rather than a coincidence."""
+    frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5, 15])
+    for combo_id, params in enumerate(axis_grid.combinations()):
+        block = frame[frame["combo_id"] == combo_id]
+        assert len(block) == 3
+        assert set(block["ema_period"]) == {params.ema_period}
+
+
+# -- logs and parallelism ------------------------------------------------------
+
+
+def test_logs_come_back_keyed_by_axis_point_and_combination(axis_bars, axis_grid) -> None:
+    frames = contract_frames(axis_bars)
+    _, logs = sweep.sweep_axes(frames, axis_grid, NQ, resolutions=[1, 5], keep_trades=True)
+    assert len(logs) == 2 * 2 * len(axis_grid)
+    for (point, combo_id), log in logs.items():
+        assert isinstance(point, sweep.AxisPoint)
+        assert point.contract in {"MNQ 03-24", "MNQ 06-24"}
+        assert point.resolution in {1, 5}
+        assert combo_id in range(len(axis_grid))
+        assert {"trade_id", "net_pnl"} <= set(log.columns)
+
+
+def test_no_logs_are_kept_unless_asked_for(axis_bars, axis_grid) -> None:
+    _, logs = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5])
+    assert logs == {}
+
+
+def test_a_parallel_multi_axis_sweep_matches_serial_exactly(axis_bars, axis_grid) -> None:
+    """The guarantee ``sweep`` already gives, which must survive the axes above it."""
+    frames = contract_frames(axis_bars)
+    serial, _ = sweep.sweep_axes(frames, axis_grid, NQ, resolutions=[1, 5], n_jobs=1)
+    parallel, _ = sweep.sweep_axes(frames, axis_grid, NQ, resolutions=[1, 5], n_jobs=2)
+    assert serial["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
+    pd.testing.assert_frame_equal(serial, parallel)
+
+
+# -- refusals ------------------------------------------------------------------
+
+
+def test_sweep_axes_refuses_an_empty_axis(axis_bars, axis_grid) -> None:
+    with pytest.raises(sweep.SweepError, match="at least one grid"):
+        sweep.sweep_axes(axis_bars, [], NQ)
+    with pytest.raises(sweep.SweepError, match="resolutions is empty"):
+        sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[])
+    with pytest.raises(sweep.SweepError, match="contract mapping is empty"):
+        sweep.sweep_axes({}, axis_grid, NQ)
 
 
 # -- results store ------------------------------------------------------------
