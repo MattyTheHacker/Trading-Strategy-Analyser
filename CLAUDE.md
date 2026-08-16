@@ -227,7 +227,8 @@ the record of what the audit trail said while it was being trusted.
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
 **Order: M17(+M13+M14) → M7a → M18 → numpy summary → M10 → M11 → M7b → M19 → M12**, with
 **M16 batched into a NinjaTrader session** rather than sitting in the code queue. M9, M20a
-and M15 are done — see Status.
+and M15 are done — see Status. **M17 is in progress**: M17.1–M17.3 landed, M17.4 and M17.5
+wait on M13 and M14.
 
 **M16 moved out of the code queue deliberately.** Its three substantive sub-issues
 (#20 ATR, #21 StdDev/Bollinger, #22 Keltner) each require reading values out of NT8, and the
@@ -305,14 +306,32 @@ pin it; do not answer from memory. Keltner is the one most likely to be silently
 (platforms disagree on midline and multiplier). Note BB/KC grids are swept over period *and*
 multiplier, so the 66 MB → 595 MB lesson applies with an extra factor: keep boolean gates only.
 
-**M17 — the archetype protocol.** `sweep.py` is hardcoded to `DeadCatParams` in six places.
-**Strategy is a third axis above the `Dataset`, alongside M13's resolution and M14's
-contract** — same pattern, same one-`Dataset`-per-value shape, same nullable results column.
-Build one mechanism, not three, and land `strategy`/`resolution`/`contract` together before
-the stale DuckDB re-run so the schema settles once. Also makes `prepare` stop computing every
-archetype's indicators unconditionally, which M10 needs anyway. The shared bracket engine is
-extracted **during** M18 — before is designing from one example, after means duplicated
-fidelity-critical code shipped.
+**M17 — the archetype protocol. M17.1–M17.3 have landed; M17.4 and M17.5 have not.**
+
+What exists now, and what a new archetype therefore inherits:
+
+- **`nqbt/archetypes.py` is the registry.** An `Archetype` records the parameter class, the
+  legal axes, the toggle map `dead_axes` guards with, the series its signal reads, the run
+  function, and a `Tier2Status`. `sweep.py` names no parameter class and no run function.
+  **Register a new archetype; do not fork the sweep.**
+- **`sweepable` reads `dataclasses.fields()`, never `__slots__`** — `__slots__` holds only
+  the fields declared on the class itself, so an inherited one would vanish, and a dropped
+  axis does not raise, it makes every combination along it identical.
+- **`prepare` builds what a `ContextSpec` declares, not everything.** `ContextSpec` lives in
+  `context.py` because it describes a `Dataset`. Grids are keyed by **`(kind, period)`** —
+  `data.ma_gate(kind, period, above=)` — which is what MA-kind-as-an-axis needs. Reading a
+  series nobody declared raises `ContextError` naming the spec field to set, rather than
+  returning `None` into a boolean AND. Measured saving on the stock DeadCatBounce grid: VWAP
+  alone is ~20% of the dataset, and the parallel path memmaps it per worker.
+- **`cli.py` asks for VWAP unconditionally on purpose.** A sweep declares what it reads;
+  `--explain` exists to show what it did *not*, so taking its spec from the grid would
+  silently drop a column from the NT8 audit trail.
+
+Still to do: **M17.4** (`sweep_axes`, one mechanism for strategy × resolution × contract) and
+**M17.5** (the nullable results columns). Both need M13 and M14 first — land
+`strategy`/`resolution`/`contract` **together**, before the stale DuckDB re-run, so the
+schema settles once. The shared bracket engine is extracted **during** M18 — before is
+designing from one example, after means duplicated fidelity-critical code shipped.
 
 **M18 — EMA crossover.** The one archetype built now, to prove M15 and M17. **Treat it as a
 known-negative control, not an edge candidate**: MA crossover on 1-minute index futures is
