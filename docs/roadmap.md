@@ -396,8 +396,20 @@ how much trouble each has actually caused in this codebase, not by general princ
 6. **Is the abstraction extracted from two examples or invented from one?** M17 gets this right
    about the bracket engine ([#38]). M20a's bracket unification is the opposite case — deleting
    a copy, not inventing a shape.
-7. **Does the docstring say why, not what?** Already the house style and the reason this codebase
-   is navigable. The bar for new code is the existing bar.
+7. **Is the reasoning in the code, where it does not belong?** ([#105]) Code should be readable
+   on its own terms — prefer a clearer name or a smaller function over a comment explaining an
+   unclear one. Docstrings say **what** a thing is and how to use it, and stay short. A brief
+   comment is fine where something is genuinely non-obvious: a subtle index, a deliberate
+   deviation, a workaround. **Reasoning, justification, measurements, decision records and
+   traps go in `docs/`**, with at most a one-line pointer from the source.
+
+   **This reverses what this item used to say**, which was *"does the docstring say why, not
+   what — already the house style"*. That rubric produced a package where **33% of every line
+   is prose** and the four highest prose-to-code ratios are the four newest modules, while the
+   oldest sit near 0.3×. The homes were always here: this file's own header claims the
+   **why**, and `docs/nt8-fidelity.md` claims the fidelity evidence. The source drifted into
+   doing their job. [#105] carries the migration — and it *is* a migration, not a deletion,
+   because much of that prose is evidence the project paid for.
 
 ### Standing traps
 
@@ -1070,3 +1082,4 @@ default is now known to be right for this machine.
 [#81]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/81
 [#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91
 [#92]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/92
+[#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
