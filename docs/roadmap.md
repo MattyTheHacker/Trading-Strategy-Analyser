@@ -610,10 +610,13 @@ starting with FastAPI and discovering the front end is the whole project.
 aggregation is associative, so a 5-minute bar built from five 1-minute bars is *bit-identical*
 to one NT8 builds from ticks; reaching for `data/tick/` would be the more-precise-than-NT8 error
 the prime directive forbids. The trap is anchoring: bucket by **minutes since the session open**,
-never wall clock. For the periods anyone actually sweeps this is harmless — 18:00 ET is 1,080
-minutes past midnight and 2/3/5/10/15/30/60 all divide it — and **that coincidence is exactly
-why it must be tested rather than assumed**, since it holds for every period likely to be tried
-first and then silently fails on 7. Whether NT8 anchors the same way is settled by the *existing*
+never wall clock. For the periods anyone actually sweeps this is harmless, and **that
+coincidence is exactly why it must be tested rather than assumed**. The precise condition was
+established while building [#30] and is sharper than the one this file used to state:
+agreement needs a boundary at the session *open* **and** its *close*, so with 18:00 ET at
+1,080 minutes past midnight and 17:00 ET at 1,020, it is `N | gcd(1080, 1020)` — **N divides
+60**. Dividing 1,080 alone is not enough: 45 does, and still diverges, because a wall-clock
+grid then runs a bucket from 16:45 to 17:30 through the maintenance break. Whether NT8 anchors the same way is settled by the *existing*
 Tier-2 reconciliation at that resolution, not by importing NT8's coarse bars. Resolution changes
 the strategy, not just the sampling — order lifetime, the ratchet and `bars_required_to_trade`
 are all per-bar — so it must be a first-class results column, and comparing profit factor across
