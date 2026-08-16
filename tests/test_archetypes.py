@@ -59,7 +59,8 @@ def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
         pass
 
     with pytest.raises(ArchetypeError, match="pass archetype="):
-        archetypes.for_params(Unknown())
+        # Not a Params -- that is the point of the test, so the checker is told so here.
+        archetypes.for_params(Unknown())  # type: ignore[arg-type]
 
 
 def test_both_archetypes_are_reconciled_and_say_so() -> None:

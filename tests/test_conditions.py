@@ -25,7 +25,7 @@ def bars(rows) -> pd.DataFrame:
         ((10.0, 12.0, 9.5, 10.5), True, "upper 1.5 >= 1.0, lower 0.5 <= body 0.5"),
     ],
 )
-def test_inverted_hammer(row, expected, why):
+def test_inverted_hammer(row, expected, why) -> None:
     assert conditions.inverted_hammer(bars([row]))[0] == expected, why
 
 
@@ -50,7 +50,7 @@ def test_inverted_hammer_boundary_is_inclusive_on_both_tests() -> None:
         ((10.0, 11.0, 8.0, 10.5), True, "green bar with a long lower wick still counts"),
     ],
 )
-def test_hammer(row, expected, why):
+def test_hammer(row, expected, why) -> None:
     assert conditions.hammer(bars([row]))[0] == expected, why
 
 
