@@ -210,12 +210,13 @@ def save_sweep(
         }
         columns = ", ".join(row)
         placeholders = ", ".join("?" * len(row))
-        con.execute(
-            f"INSERT INTO sweeps ({columns}) VALUES ({placeholders})", list(row.values())
-        )
+        con.execute(f"INSERT INTO sweeps ({columns}) VALUES ({placeholders})", list(row.values()))
 
         tagged = _tag_axes(
-            results, strategy=strategy, resolution=resolution, contract=contract,
+            results,
+            strategy=strategy,
+            resolution=resolution,
+            contract=contract,
             tier2=tier2,
         )
         tagged.insert(0, "sweep_id", sweep_id)
@@ -226,8 +227,12 @@ def save_sweep(
 
 
 def _tag_axes(
-    results: pd.DataFrame, *, strategy: str | None, resolution: int | None,
-    contract: str | None, tier2: str | None,
+    results: pd.DataFrame,
+    *,
+    strategy: str | None,
+    resolution: int | None,
+    contract: str | None,
+    tier2: str | None,
 ) -> pd.DataFrame:
     """Stamp the axis columns onto every combination row, with their types pinned.
 
@@ -257,9 +262,7 @@ def _tag_axes(
     return tagged
 
 
-def _append_or_create(
-    con: duckdb.DuckDBPyConnection, table: str, frame: pd.DataFrame
-) -> None:
+def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.DataFrame) -> None:
     """Insert ``frame`` into ``table``, creating it from the frame's own columns if new.
 
     An existing table is written **by name, not by position**. Without this, adding a
@@ -305,7 +308,9 @@ def _jsonable(value: Any) -> Any:  # type: ignore[explicit-any]
 
 
 def save_trades(
-    trades: pd.DataFrame, sweep_id: int, combo_id: int,
+    trades: pd.DataFrame,
+    sweep_id: int,
+    combo_id: int,
     db_path: Path = paths.SWEEPS_DB,
 ) -> None:
     """Store one combination's trade log, for a shortlisted candidate worth inspecting.
@@ -349,13 +354,14 @@ def list_sweeps(db_path: Path = paths.SWEEPS_DB) -> pd.DataFrame:
 
 
 def best(
-    sweep_id: int | None = None, by: str = "profit_factor", top: int = 20,
-    min_trades: int = 30, db_path: Path = paths.SWEEPS_DB,
+    sweep_id: int | None = None,
+    by: str = "profit_factor",
+    top: int = 20,
+    min_trades: int = 30,
+    db_path: Path = paths.SWEEPS_DB,
 ) -> pd.DataFrame:
     """Top candidates, across every sweep unless one is named."""
     where = f"WHERE trades >= {int(min_trades)}"
     if sweep_id is not None:
         where += f" AND sweep_id = {int(sweep_id)}"
-    return query(
-        f"SELECT * FROM combos {where} ORDER BY {by} DESC LIMIT {int(top)}", db_path
-    )
+    return query(f"SELECT * FROM combos {where} ORDER BY {by} DESC LIMIT {int(top)}", db_path)

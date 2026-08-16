@@ -35,10 +35,10 @@ def run(
     commission=0.0,
     instrument=MNQ,
     bars_required=0,
-    ratchet_lag=1,          # PullBackAndGo.cs ratchets off Low[1]
+    ratchet_lag=1,  # PullBackAndGo.cs ratchets off Low[1]
     fill_limit_on_touch=True,
     ambiguity_policy=0,
-    round_targets=False,    # engine default here; PullBackAndGoParams ships True (M15.5)
+    round_targets=False,  # engine default here; PullBackAndGoParams ships True (M15.5)
 ):
     """Simulate hand-written OHLC rows with PullBackAndGo's defaults."""
     arr = np.asarray(rows, dtype=np.float64)
@@ -54,27 +54,38 @@ def run(
 
     out = deadcat.allocate_output(max(int(signal.sum()), 1), len(quantities))
     count = deadcat.simulate_deadcat(
-        o, h, l, c, signal, force_flat,
+        o,
+        h,
+        l,
+        c,
+        signal,
+        force_flat,
         np.asarray(quantities, dtype=np.int64),
         np.asarray(targets, dtype=np.float64),
-        TICK, instrument.point_value,
-        2.0,    # stop_offset_ticks: Low[0] - 2 ticks
-        0.0,    # entry_offset_ticks: no close-based cap, trigger is bare High[0]
-        1.0,    # tp_multiplier: no property on PullBackAndGo.cs
-        1e9,    # max_risk_ticks: no cap on PullBackAndGo.cs
-        commission, slippage, bars_required,
-        0.0,    # min_reward_risk: no property on PullBackAndGo.cs
+        TICK,
+        instrument.point_value,
+        2.0,  # stop_offset_ticks: Low[0] - 2 ticks
+        0.0,  # entry_offset_ticks: no close-based cap, trigger is bare High[0]
+        1.0,  # tp_multiplier: no property on PullBackAndGo.cs
+        1e9,  # max_risk_ticks: no cap on PullBackAndGo.cs
+        commission,
+        slippage,
+        bars_required,
+        0.0,  # min_reward_risk: no property on PullBackAndGo.cs
         ratchet_lag,
-        0.0,    # ratchet_offset_ticks: bare Low[1], no offset reapplied
-        True, fill_limit_on_touch, ambiguity_policy, LONG, round_targets, out,
+        0.0,  # ratchet_offset_ticks: bare Low[1], no offset reapplied
+        True,
+        fill_limit_on_touch,
+        ambiguity_policy,
+        LONG,
+        round_targets,
+        out,
     )
     assert count >= 0, "trade buffer overflowed"
 
     from nqbt import trades as trades_mod
 
-    return trades_mod.validate(
-        trades_mod.trades_to_frame(out, count, instrument=instrument.symbol)
-    )
+    return trades_mod.validate(trades_mod.trades_to_frame(out, count, instrument=instrument.symbol))
 
 
 # -- entry mechanics: bare High[0], no close-based cap -------------------------
@@ -84,7 +95,7 @@ def test_signal_places_a_buy_stop_at_the_bare_high() -> None:
     # Signal bar: high 101.5, low 97 -> trigger 101.5 (no close-based cap), stop 96.5.
     trades = run(
         [
-            (100, 101.5, 97, 101),   # 0: signal
+            (100, 101.5, 97, 101),  # 0: signal
             (101, 101.5, 100, 101),  # 1: touches 101.5 -> fill at trigger
         ],
         signal_at=[0],
@@ -99,7 +110,7 @@ def test_gap_up_through_the_trigger_fills_at_the_open() -> None:
     trades = run(
         [
             (100, 101.5, 97, 101),  # 0: signal, trigger 101.5
-            (103, 104, 102, 103),   # 1: opens above the trigger
+            (103, 104, 102, 103),  # 1: opens above the trigger
         ],
         signal_at=[0],
     )
@@ -109,8 +120,8 @@ def test_gap_up_through_the_trigger_fills_at_the_open() -> None:
 def test_unfilled_order_is_cancelled_after_one_bar() -> None:
     trades = run(
         [
-            (100, 101.5, 97, 101),   # 0: signal, trigger 101.5
-            (100, 101, 99, 100),     # 1: never reaches 101.5 -> cancelled
+            (100, 101.5, 97, 101),  # 0: signal, trigger 101.5
+            (100, 101, 99, 100),  # 1: never reaches 101.5 -> cancelled
             (101, 102, 100, 101.5),  # 2: would have filled a resting order
         ],
         signal_at=[0],
@@ -122,7 +133,7 @@ def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point() 
     trades = run(
         [
             (100, 101.5, 97, 101),  # 0: signal, trigger 101.5
-            (103, 104, 102, 103),   # 1: force-flat; would gap through the trigger
+            (103, 104, 102, 103),  # 1: force-flat; would gap through the trigger
         ],
         signal_at=[0],
         force_flat_at=[1],
@@ -142,9 +153,9 @@ def test_ratchet_tightens_immediately_on_the_entry_bar_because_the_offsets_diffe
     # share one offset, so the two formulas coincide exactly on the signal bar.
     trades = run(
         [
-            (100, 101.5, 97, 101),   # 0: signal, trigger 101.5, entry-stop 96.5
+            (100, 101.5, 97, 101),  # 0: signal, trigger 101.5, entry-stop 96.5
             (101, 101.5, 100, 101),  # 1: fill at 101.5; ratchet(ref=0) -> Low[0] = 97
-            (98, 99, 97, 98),        # 2: low touches 97, not 96.5
+            (98, 99, 97, 98),  # 2: low touches 97, not 96.5
         ],
         signal_at=[0],
     )
@@ -156,12 +167,12 @@ def test_ratchet_tightens_immediately_on_the_entry_bar_because_the_offsets_diffe
 def test_ratchet_keeps_tracking_the_bare_low_one_bar_back_and_never_loosens() -> None:
     trades = run(
         [
-            (100, 101.5, 97, 101),     # 0: signal, trigger 101.5, entry-stop 96.5
-            (101, 101.5, 100, 101),    # 1: fill; ratchet(ref=0) -> Low[0] = 97
-            (100, 101, 98.5, 100),     # 2: no touch; ratchet(ref=1) -> Low[1] = 100
+            (100, 101.5, 97, 101),  # 0: signal, trigger 101.5, entry-stop 96.5
+            (101, 101.5, 100, 101),  # 1: fill; ratchet(ref=0) -> Low[0] = 97
+            (100, 101, 98.5, 100),  # 2: no touch; ratchet(ref=1) -> Low[1] = 100
             (100.5, 101, 100.2, 100.8),  # 3: no touch; ratchet(ref=2) candidate Low[2] =
-                                          #    98.5 is looser than 100, so it is ignored
-            (100, 100.5, 99, 99.5),    # 4: low 99 trades through the still-100 stop
+            #    98.5 is looser than 100, so it is ignored
+            (100, 100.5, 99, 99.5),  # 4: low 99 trades through the still-100 stop
         ],
         signal_at=[0],
     )
@@ -187,8 +198,8 @@ def test_targets_are_left_unrounded() -> None:
         [
             (100, 104.25, 100, 101),  # 0: signal, trigger 104.25, stop 99.5, risk 4.75
             (101, 104.25, 100, 101),  # 1: fill at 104.25; ratchet(ref=0) -> stop = Low[0] = 100
-            (101, 118, 100.5, 117),   # 2: low 100.5 clears the 100 stop; high reaches every
-                                       #    target cleanly, not as an ambiguous stop-touch bar
+            (101, 118, 100.5, 117),  # 2: low 100.5 clears the 100 stop; high reaches every
+            #    target cleanly, not as an ambiguous stop-touch bar
         ],
         signal_at=[0],
     )
@@ -232,7 +243,10 @@ def synthetic_bars(n: int = 4000, seed: int = 11) -> pd.DataFrame:
     low = np.minimum(open_, close) - np.abs(rng.normal(0, 0.5, n))
     frame = pd.DataFrame(
         {
-            "open": open_, "high": high, "low": low, "close": close,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
             "volume": rng.integers(1, 500, n).astype(float),
         },
         index=idx,
@@ -289,9 +303,7 @@ def test_leg_quantities_split_the_order_with_the_remainder_last() -> None:
     # added to L4 -- identical to DeadCatBounce, so 10 goes 2/2/2/4 and not 3/3/2/2.
     assert PullBackAndGoParams().leg_quantities == (1, 1, 1, 1)
     assert PullBackAndGoParams(order_quantity=10).leg_quantities == (2, 2, 2, 4)
-    three_legs = PullBackAndGoParams(
-        order_quantity=3, target_r_multiples=(1.0, 2.0, float("nan"))
-    )
+    three_legs = PullBackAndGoParams(order_quantity=3, target_r_multiples=(1.0, 2.0, float("nan")))
     assert three_legs.leg_quantities == (1, 1, 1)
 
 
@@ -307,7 +319,10 @@ def test_default_filters_are_the_reconciled_configuration() -> None:
     # against OrderFlowVWAP. See docs/nt8-fidelity.md.
     p = PullBackAndGoParams()
     assert (p.use_ema, p.use_slow_sma, p.use_fast_sma, p.use_vwap) == (
-        True, True, True, False,
+        True,
+        True,
+        True,
+        False,
     )
     assert (p.require_previous_red, p.require_new_low) == (True, True)
 

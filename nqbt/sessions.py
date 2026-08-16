@@ -119,9 +119,7 @@ def classify(
     )
 
 
-def _session_edges(
-    trading_day: np.ndarray, in_session: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+def _session_edges(trading_day: np.ndarray, in_session: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Flag the first and last in-session bar of each trading day.
 
     Assumes the arrays are in ascending timestamp order, which ingestion guarantees.
@@ -168,8 +166,6 @@ def force_flat_mask(
     check "must I be flat on this bar?" without any grouping logic.
     """
     naive = info.eastern.tz_localize(None).to_numpy()
-    session_end = info.trading_day.astype("datetime64[s]") + np.timedelta64(
-        template.close_seconds, "s"
-    )
+    session_end = info.trading_day.astype("datetime64[s]") + np.timedelta64(template.close_seconds, "s")
     cutoff = session_end - np.timedelta64(int(exit_on_close_seconds), "s")
     return info.in_session & (naive.astype("datetime64[s]") >= cutoff)

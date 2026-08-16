@@ -113,11 +113,12 @@ grid = sweep.Grid.of(
     DeadCatParams(commission_per_contract=0.74, slippage_ticks=1.0),
     ema_period=[9, 15, 21, 30],
     fast_sma_period=[40, 60, 80],
-    use_slow_sma=[True, False], slow_sma_period=[120, 175],
+    use_slow_sma=[True, False],
+    slow_sma_period=[120, 175],
     use_vwap=[True, False],
     ambiguity_policy=[1, 0],
 )
-res, _ = sweep.sweep(bars, grid, n_jobs=8)   # n_jobs=1 (default) stays in-process
+res, _ = sweep.sweep(bars, grid, n_jobs=8)  # n_jobs=1 (default) stays in-process
 results.save_sweep(res, root="MNQ", instrument="MNQ", bars=bars, axes=grid.axes)
 print(sweep.rank(res, "profit_factor", top=10, min_trades=200))
 ```

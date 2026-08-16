@@ -77,7 +77,9 @@ def test_exit_signal_is_reserved_for_a_future_rule_driven_exit() -> None:
     # session close. EXIT_SIGNAL exists for EMA crossover (M18) and InsideBarTrailing.cs.
     assert trades.EXIT_REASONS[trades.EXIT_SIGNAL] == "signal"
     other_reasons = {
-        trades.EXIT_STOP, trades.EXIT_TARGET, trades.EXIT_SESSION_CLOSE,
+        trades.EXIT_STOP,
+        trades.EXIT_TARGET,
+        trades.EXIT_SESSION_CLOSE,
         trades.EXIT_END_OF_DATA,
     }
     assert trades.EXIT_SIGNAL not in other_reasons
@@ -267,7 +269,5 @@ def test_market_context_knows_nothing_about_trades() -> None:
     It has to stay that way for the review layer to annotate real trades against the same
     conditions a sweep reads.
     """
-    offenders = {
-        m for m in imports_of("context.py") if m.startswith(("nqbt.sim", "nqbt.trades"))
-    }
+    offenders = {m for m in imports_of("context.py") if m.startswith(("nqbt.sim", "nqbt.trades"))}
     assert not offenders, f"nqbt/context.py must not depend on trades or sim; found {offenders}"

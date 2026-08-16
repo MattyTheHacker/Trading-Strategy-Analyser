@@ -75,9 +75,7 @@ def test_both_archetypes_are_reconciled_and_say_so() -> None:
 
 def test_sweepable_is_every_field_except_the_declared_exclusions() -> None:
     a = archetypes.DEADCATBOUNCE
-    assert a.sweepable == frozenset(f.name for f in fields(DeadCatParams)) - {
-        "target_r_multiples"
-    }
+    assert a.sweepable == frozenset(f.name for f in fields(DeadCatParams)) - {"target_r_multiples"}
     assert "target_r_multiples" not in a.sweepable
     assert "ema_period" in a.sweepable
 
@@ -219,7 +217,10 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     low = np.minimum(open_, close) - np.abs(rng.normal(0, 2.0, n))
     frame = pd.DataFrame(
         {
-            "open": open_, "high": high, "low": low, "close": close,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
             "volume": rng.integers(1, 500, n).astype(float),
         },
         index=idx,
@@ -257,9 +258,7 @@ def test_the_two_archetypes_disagree_on_direction_over_the_same_bars() -> None:
     produce trades. The direction column is what separates them.
     """
     bars = synthetic_bars()
-    long_grid = sweep.Grid.of(
-        PullBackAndGoParams(bars_required_to_trade=20, use_slow_sma=False)
-    )
+    long_grid = sweep.Grid.of(PullBackAndGoParams(bars_required_to_trade=20, use_slow_sma=False))
     short_grid = sweep.Grid.of(DeadCatParams(bars_required_to_trade=20))
 
     _, long_logs = sweep.sweep(bars, long_grid, NQ, keep_trades=True)

@@ -33,7 +33,10 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     low = np.minimum(open_, close) - np.abs(rng.normal(0, 0.5, n))
     frame = pd.DataFrame(
         {
-            "open": open_, "high": high, "low": low, "close": close,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
             "volume": rng.integers(1, 500, n).astype(float),
         },
         index=idx,
@@ -73,12 +76,8 @@ def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited) -
     joined = detail.set_index("trade_id").join(first_leg, rsuffix="_log")
 
     assert len(joined) == log["trade_id"].nunique()
-    pd.testing.assert_series_equal(
-        joined["initial_stop"], joined["initial_stop_log"], check_names=False
-    )
-    pd.testing.assert_series_equal(
-        joined["risk_points"], joined["risk_points_log"], check_names=False
-    )
+    pd.testing.assert_series_equal(joined["initial_stop"], joined["initial_stop_log"], check_names=False)
+    pd.testing.assert_series_equal(joined["risk_points"], joined["risk_points_log"], check_names=False)
     implied_trigger = joined["initial_stop"] - joined["risk_points"]
     assert np.allclose(joined["trigger"], implied_trigger, rtol=0, atol=0)
 
@@ -108,9 +107,7 @@ def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close() -> None:
     """The helper's own rule, stated independently of the loop that calls it."""
     tick = 0.25
     # An inverted hammer: closes near its low, so the cap binds.
-    trigger, stop, risk = entry = deadcat.entry_bracket(
-        100.0, 99.0, 99.25, 2 * tick, 2 * tick, SHORT
-    )
+    trigger, stop, risk = entry = deadcat.entry_bracket(100.0, 99.0, 99.25, 2 * tick, 2 * tick, SHORT)
     assert trigger == pytest.approx(98.75)  # min(99.0, 99.25 - 0.5)
     assert stop == pytest.approx(100.5)
     assert risk == pytest.approx(stop - trigger)

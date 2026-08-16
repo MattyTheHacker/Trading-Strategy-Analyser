@@ -245,7 +245,6 @@ def for_params(params: Params) -> Archetype:
         )
     if len(matches) > 1:
         raise ArchetypeError(
-            f"{type(params).__name__} is shared by {[a.name for a in matches]}; "
-            "pass archetype= explicitly"
+            f"{type(params).__name__} is shared by {[a.name for a in matches]}; pass archetype= explicitly"
         )
     return matches[0]

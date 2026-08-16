@@ -37,8 +37,9 @@ def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
 
 def test_summary_counts_trades_not_legs() -> None:
     # Two trades of four legs each. NT8 would call this eight trades; a person calls it two.
-    log = trade_log([(1, l, 10.0, 3, False) for l in range(1, 5)]
-                    + [(2, l, -5.0, 2, False) for l in range(1, 5)])
+    log = trade_log(
+        [(1, l, 10.0, 3, False) for l in range(1, 5)] + [(2, l, -5.0, 2, False) for l in range(1, 5)]
+    )
     s = stats.summarise(log)
     assert s.trades == 2
     assert s.legs == 8
@@ -81,8 +82,9 @@ def test_scratches_are_neither_wins_nor_losses() -> None:
 
 
 def test_ambiguous_share_reports_assumption_exposure() -> None:
-    log = trade_log([(1, 1, 5.0, 1, True), (2, 1, 5.0, 1, False),
-                     (3, 1, 5.0, 1, False), (4, 1, 5.0, 1, False)])
+    log = trade_log(
+        [(1, 1, 5.0, 1, True), (2, 1, 5.0, 1, False), (3, 1, 5.0, 1, False), (4, 1, 5.0, 1, False)]
+    )
     assert stats.summarise(log).ambiguous_share == pytest.approx(0.25)
 
 
@@ -95,8 +97,7 @@ def test_session_close_share_counts_exits_taken_by_the_clock() -> None:
 
 
 def test_session_close_share_is_zero_when_nothing_runs_into_the_close() -> None:
-    log = trade_log([(1, 1, 5.0, 1, False), (2, 1, -5.0, 1, False)],
-                    exit_reasons=["target", "stop"])
+    log = trade_log([(1, 1, 5.0, 1, False), (2, 1, -5.0, 1, False)], exit_reasons=["target", "stop"])
     assert stats.summarise(log).session_close_share == 0.0
 
 
@@ -154,7 +155,12 @@ def test_summarising_an_empty_log_returns_zeros_rather_than_raising() -> None:
 
 
 INTEGER_SUMMARY_FIELDS = {
-    "trades", "legs", "wins", "losses", "scratches", "max_consecutive_losses",
+    "trades",
+    "legs",
+    "wins",
+    "losses",
+    "scratches",
+    "max_consecutive_losses",
 }
 """Stated here independently of ``Summary``'s annotations, so this is a second opinion.
 
@@ -238,8 +244,7 @@ def test_gated_axis_is_allowed_when_its_toggle_is_also_swept() -> None:
 
 def test_required_context_covers_every_combination() -> None:
     base = DeadCatParams(use_slow_sma=True)
-    g = sweep.Grid.of(base, ema_period=[9, 21], fast_sma_period=[40, 60],
-                      slow_sma_period=[150, 200])
+    g = sweep.Grid.of(base, ema_period=[9, 21], fast_sma_period=[40, 60], slow_sma_period=[150, 200])
     spec = g.required_context()
     assert spec.ema_periods == (9, 21)
     assert spec.sma_periods == (40, 60, 150, 200)
@@ -285,7 +290,10 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     low = np.minimum(open_, close) - np.abs(rng.normal(0, 0.5, n))
     frame = pd.DataFrame(
         {
-            "open": open_, "high": high, "low": low, "close": close,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
             "volume": rng.integers(1, 500, n).astype(float),
         },
         index=idx,
@@ -299,7 +307,8 @@ def prepared():
     bars = synthetic_bars()
     grid = sweep.Grid.of(
         DeadCatParams(bars_required_to_trade=200),
-        ema_period=[9, 21], fast_sma_period=[40, 60],
+        ema_period=[9, 21],
+        fast_sma_period=[40, 60],
     )
     return bars, grid, sweep.prepare_for(bars, grid)
 
@@ -330,9 +339,7 @@ def test_the_simulator_meets_the_trade_schema(prepared) -> None:
 def test_a_slim_dataset_simulates_identically(prepared) -> None:
     _, grid, data = prepared
     params = next(grid.combinations())
-    pd.testing.assert_frame_equal(
-        runner.run_deadcat(data, params), runner.run_deadcat(data.slim(), params)
-    )
+    pd.testing.assert_frame_equal(runner.run_deadcat(data, params), runner.run_deadcat(data.slim(), params))
 
 
 def test_parallel_sweep_matches_serial_exactly(prepared) -> None:
@@ -393,9 +400,7 @@ def test_one_axis_point_reproduces_a_plain_sweep_exactly(axis_bars, axis_grid) -
     plain, _ = sweep.sweep(axis_bars, axis_grid, NQ)
     axed, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ)
     assert plain["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
-    pd.testing.assert_frame_equal(
-        axed.drop(columns=list(sweep.AxisPoint._fields)), plain
-    )
+    pd.testing.assert_frame_equal(axed.drop(columns=list(sweep.AxisPoint._fields)), plain)
 
 
 # -- the resolution axis -------------------------------------------------------
@@ -422,9 +427,7 @@ def test_a_coarser_resolution_really_is_run_on_coarser_bars(axis_bars, axis_grid
     assert five["legs"].sum() < one["legs"].sum(), "coarser bars produced no fewer legs"
 
     direct, _ = sweep.sweep(resample.resample(axis_bars, 5), axis_grid, NQ)
-    pd.testing.assert_frame_equal(
-        five.drop(columns=list(sweep.AxisPoint._fields)), direct
-    )
+    pd.testing.assert_frame_equal(five.drop(columns=list(sweep.AxisPoint._fields)), direct)
 
 
 def test_the_one_minute_path_is_the_untouched_frame(axis_bars) -> None:
@@ -454,9 +457,7 @@ def test_a_per_contract_row_matches_sweeping_that_contract_directly(axis_bars, a
     frame, _ = sweep.sweep_axes(frames, axis_grid, NQ)
     direct, _ = sweep.sweep(frames["MNQ 06-24"], axis_grid, NQ)
     mine = frame[frame["contract"] == "MNQ 06-24"].reset_index(drop=True)
-    pd.testing.assert_frame_equal(
-        mine.drop(columns=list(sweep.AxisPoint._fields)), direct
-    )
+    pd.testing.assert_frame_equal(mine.drop(columns=list(sweep.AxisPoint._fields)), direct)
 
 
 # -- the strategy axis ---------------------------------------------------------
@@ -601,13 +602,15 @@ def db(tmp_path):
 
 
 def fake_results(n=3) -> pd.DataFrame:
-    return pd.DataFrame({
-        "combo_id": range(n),
-        "ema_period": [9, 21, 30][:n],
-        "trades": [100, 200, 5][:n],
-        "profit_factor": [1.2, 1.5, 9.9][:n],
-        "net_pnl": [500.0, 900.0, 40.0][:n],
-    })
+    return pd.DataFrame(
+        {
+            "combo_id": range(n),
+            "ema_period": [9, 21, 30][:n],
+            "trades": [100, 200, 5][:n],
+            "profit_factor": [1.2, 1.5, 9.9][:n],
+            "net_pnl": [500.0, 900.0, 40.0][:n],
+        }
+    )
 
 
 def fake_bars() -> pd.DataFrame:
@@ -616,8 +619,14 @@ def fake_bars() -> pd.DataFrame:
 
 
 def test_save_and_reload_a_sweep(db) -> None:
-    sid = results.save_sweep(fake_results(), root="MNQ", instrument="MNQ",
-                             bars=fake_bars(), axes={"ema_period": [9, 21, 30]}, db_path=db)
+    sid = results.save_sweep(
+        fake_results(),
+        root="MNQ",
+        instrument="MNQ",
+        bars=fake_bars(),
+        axes={"ema_period": [9, 21, 30]},
+        db_path=db,
+    )
     assert sid == 1
     listed = results.list_sweeps(db)
     assert len(listed) == 1
@@ -627,16 +636,16 @@ def test_save_and_reload_a_sweep(db) -> None:
 
 def test_sweep_ids_increment_and_rows_stay_tagged(db) -> None:
     for _ in range(3):
-        results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(),
-                           axes={}, db_path=db)
+        results.save_sweep(
+            fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db
+        )
     assert list(results.list_sweeps(db)["sweep_id"]) == [3, 2, 1]
     counts = results.query("SELECT sweep_id, COUNT(*) n FROM combos GROUP BY 1 ORDER BY 1", db)
     assert list(counts["n"]) == [3, 3, 3]
 
 
 def test_best_applies_a_trade_floor(db) -> None:
-    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(),
-                       axes={}, db_path=db)
+    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
     # combo 2 has the best profit factor on five trades, which is noise, not an edge.
     top = results.best(by="profit_factor", top=5, min_trades=30, db_path=db)
     assert 5 not in list(top["trades"])
@@ -649,12 +658,10 @@ def test_rank_ignores_undersampled_combinations() -> None:
 
 
 def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db) -> None:
-    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(),
-                       axes={}, db_path=db)
+    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
     wider = fake_results()
     wider["brand_new_stat"] = [1.0, 2.0, 3.0]
-    results.save_sweep(wider, root="MNQ", instrument="MNQ", bars=fake_bars(),
-                       axes={}, db_path=db)
+    results.save_sweep(wider, root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
     rows = results.query("SELECT sweep_id, ema_period, profit_factor FROM combos ORDER BY sweep_id", db)
     assert len(rows) == 6
     assert rows["profit_factor"].notna().all()
@@ -667,14 +674,12 @@ def save(db, results_frame=None, **kwargs) -> int:
     """``save_sweep`` with the arguments that are noise for these tests filled in."""
     defaults = {"root": "MNQ", "instrument": "MNQ", "bars": fake_bars(), "axes": {}}
     return results.save_sweep(
-        fake_results() if results_frame is None else results_frame,
-        db_path=db, **{**defaults, **kwargs}
+        fake_results() if results_frame is None else results_frame, db_path=db, **{**defaults, **kwargs}
     )
 
 
 def test_axis_tags_land_on_both_tables(db) -> None:
-    save(db, strategy="PullBackAndGo", resolution=5, contract="MNQ 03-24",
-         tier2="reconciled")
+    save(db, strategy="PullBackAndGo", resolution=5, contract="MNQ 03-24", tier2="reconciled")
     swept = results.query("SELECT * FROM sweeps", db).iloc[0]
     assert (swept["strategy"], swept["resolution"]) == ("PullBackAndGo", 5)
     assert (swept["contract"], swept["tier2"]) == ("MNQ 03-24", "reconciled")
@@ -718,9 +723,7 @@ def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db)
     assert described["resolution"] == "BIGINT"
     # And the type holds: a real contract name inserts into the column the null one made.
     save(db, contract="MNQ 06-24", resolution=15)
-    assert set(results.query("SELECT contract FROM combos", db)["contract"].dropna()) == {
-        "MNQ 06-24"
-    }
+    assert set(results.query("SELECT contract FROM combos", db)["contract"].dropna()) == {"MNQ 06-24"}
 
 
 def test_per_row_axis_values_survive_rather_than_being_overwritten(db) -> None:
@@ -739,9 +742,7 @@ def test_batch_id_ties_one_multi_axis_run_together(db) -> None:
     for minutes in (1, 5, 15):
         save(db, resolution=minutes, batch_id=batch)
     save(db, resolution=1)  # a separate, later single sweep
-    grouped = results.query(
-        "SELECT batch_id, COUNT(*) n FROM sweeps GROUP BY 1 ORDER BY n DESC", db
-    )
+    grouped = results.query("SELECT batch_id, COUNT(*) n FROM sweeps GROUP BY 1 ORDER BY n DESC", db)
     assert list(grouped["n"]) == [3, 1]
     assert grouped.iloc[0]["batch_id"] == batch
 
@@ -753,8 +754,7 @@ def test_next_batch_id_advances_past_the_batches_already_stored(db) -> None:
 
 
 def test_list_sweeps_shows_what_a_row_was_run_on(db) -> None:
-    save(db, strategy="DeadCatBounce", resolution=15, contract="MNQ 03-24",
-         tier2="reconciled")
+    save(db, strategy="DeadCatBounce", resolution=15, contract="MNQ 03-24", tier2="reconciled")
     listed = results.list_sweeps(db)
     for name in (*results.AXIS_COLUMNS, "batch_id"):
         assert name in listed.columns, name
@@ -809,10 +809,20 @@ def test_a_migrated_database_puts_every_value_in_the_column_it_names(db) -> None
     """
     legacy_database(db)
     results.save_sweep(
-        fake_results(), root="NQ", instrument="MNQ", bars=fake_bars(),
-        axes={"ema_period": [9]}, back_adjust=True, notes="tagged", elapsed_s=2.5,
-        strategy="PullBackAndGo", resolution=5, contract="MNQ 06-24", tier2="reconciled",
-        batch_id=7, db_path=db,
+        fake_results(),
+        root="NQ",
+        instrument="MNQ",
+        bars=fake_bars(),
+        axes={"ema_period": [9]},
+        back_adjust=True,
+        notes="tagged",
+        elapsed_s=2.5,
+        strategy="PullBackAndGo",
+        resolution=5,
+        contract="MNQ 06-24",
+        tier2="reconciled",
+        batch_id=7,
+        db_path=db,
     )
     row = results.query("SELECT * FROM sweeps WHERE sweep_id = 2", db).iloc[0]
     assert row["root"] == "NQ" and row["instrument"] == "MNQ"

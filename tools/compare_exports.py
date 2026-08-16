@@ -133,34 +133,44 @@ def main(argv: list[str]) -> int:
         print("*** The exporter's timezone conversion is wrong; do not ingest this folder.")
         print(shifted[["shift_h", "shifted_match"]].to_string())
         agreement = shifted["shifted_match"].mean()
-        print(f"\n*** Once the shift is undone the bars agree on {agreement:.1%} of shared "
-              "timestamps.")
-        print("*** " + ("Only the timezone is wrong -- the data itself is sound."
-                        if agreement > 0.95 else
-                        "The data differs beyond the shift; investigate before trusting it."))
+        print(f"\n*** Once the shift is undone the bars agree on {agreement:.1%} of shared timestamps.")
+        print(
+            "*** "
+            + (
+                "Only the timezone is wrong -- the data itself is sound."
+                if agreement > 0.95
+                else "The data differs beyond the shift; investigate before trusting it."
+            )
+        )
         return 2
 
-    print(f"\ntotals: baseline {table['baseline'].sum():,}  candidate "
-          f"{table['candidate'].sum():,}  net {table['delta'].sum():+,}")
-    print(f"contracts where the candidate has bars the baseline lacks: "
-          f"{int((table['only_candidate'] > 0).sum())}")
-    print(f"contracts where the baseline has bars the candidate lacks: "
-          f"{int((table['only_baseline'] > 0).sum())}")
-    print(f"contracts with differing values on shared timestamps: "
-          f"{int((table['differing'] > 0).sum())}")
+    print(
+        f"\ntotals: baseline {table['baseline'].sum():,}  candidate "
+        f"{table['candidate'].sum():,}  net {table['delta'].sum():+,}"
+    )
+    print(
+        f"contracts where the candidate has bars the baseline lacks: "
+        f"{int((table['only_candidate'] > 0).sum())}"
+    )
+    print(
+        f"contracts where the baseline has bars the candidate lacks: "
+        f"{int((table['only_baseline'] > 0).sum())}"
+    )
+    print(f"contracts with differing values on shared timestamps: {int((table['differing'] > 0).sum())}")
 
     for result in details:
         print(f"\n--- {result['contract']} ---")
-        for label, idx in (("only in baseline", result["_only_baseline_idx"]),
-                           ("only in candidate", result["_only_candidate_idx"])):
+        for label, idx in (
+            ("only in baseline", result["_only_baseline_idx"]),
+            ("only in candidate", result["_only_candidate_idx"]),
+        ):
             counts = sessions_of(idx)
             if not len(counts):
                 continue
             whole = counts[counts > 300]  # a few missing minutes is noise; a session is not
             print(f"  {label}: {len(idx):,} bars across {len(counts)} day(s)")
             if len(whole):
-                print(f"    substantial days: "
-                      + ", ".join(f"{d} ({n:,})" for d, n in whole.items()))
+                print(f"    substantial days: " + ", ".join(f"{d} ({n:,})" for d, n in whole.items()))
     return 0
 
 

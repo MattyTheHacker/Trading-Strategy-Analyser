@@ -148,8 +148,17 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
     """Collapse leg exits into one row per trade."""
     if trades.empty:
         return pd.DataFrame(
-            columns=["net_pnl", "commission", "bars_held", "mae_points", "mfe_points",
-                     "r_multiple", "ambiguous_bar", "entry_time", "exit_time"]
+            columns=[
+                "net_pnl",
+                "commission",
+                "bars_held",
+                "mae_points",
+                "mfe_points",
+                "r_multiple",
+                "ambiguous_bar",
+                "entry_time",
+                "exit_time",
+            ]
         )
     agg = {
         "net_pnl": ("net_pnl", "sum"),
@@ -243,8 +252,7 @@ def trade_statistic(pnl: np.ndarray, name: str) -> float:
     """
     if name not in TRADE_PNL_STATISTICS:
         raise ValueError(
-            f"{name!r} cannot be computed from per-trade P&L alone; "
-            f"choose from {list(TRADE_PNL_STATISTICS)}"
+            f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         )
     if pnl.size == 0:
         return 0.0

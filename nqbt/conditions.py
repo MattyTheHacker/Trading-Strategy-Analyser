@@ -46,9 +46,7 @@ __all__ = [
 
 
 @njit(cache=True)
-def _inverted_hammer(
-    open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray
-) -> np.ndarray:
+def _inverted_hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
     """Upper wick at least twice the body, lower wick no larger than the body.
 
     Ported from ``DeadCatBounce.cs``. The ``body > 0`` requirement means a doji never
@@ -68,9 +66,7 @@ def _inverted_hammer(
 
 
 @njit(cache=True)
-def _hammer(
-    open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray
-) -> np.ndarray:
+def _hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
     """Lower wick at least twice the body, upper wick no larger than the body.
 
     Ported from ``PullBackAndGo.cs`` -- the mirror of :func:`_inverted_hammer` with the
@@ -170,15 +166,11 @@ def made_new_low(bars: pd.DataFrame) -> np.ndarray:
 
 
 def previous_bar_green(bars: pd.DataFrame) -> np.ndarray:
-    return _previous_bar_green(
-        bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64)
-    )
+    return _previous_bar_green(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
 
 
 def previous_bar_red(bars: pd.DataFrame) -> np.ndarray:
-    return _previous_bar_red(
-        bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64)
-    )
+    return _previous_bar_red(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
 
 
 def below_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
@@ -259,10 +251,7 @@ class MovingAverageGrid:
     def row(self, period: int) -> int:
         idx = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
-            raise KeyError(
-                f"{self.kind}({period}) is not in this grid; built for "
-                f"{self.periods.tolist()}"
-            )
+            raise KeyError(f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}")
         return idx
 
     def below_for(self, period: int) -> np.ndarray:
@@ -281,11 +270,7 @@ class MovingAverageGrid:
 
     @property
     def nbytes(self) -> int:
-        return (
-            self.below.nbytes
-            + self.above.nbytes
-            + (0 if self.values is None else self.values.nbytes)
-        )
+        return self.below.nbytes + self.above.nbytes + (0 if self.values is None else self.values.nbytes)
 
 
 def moving_average_grid(

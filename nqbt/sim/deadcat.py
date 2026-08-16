@@ -165,12 +165,31 @@ def simulate_deadcat(
                 run_low = low[i]
 
             written, in_position = _resolve_brackets(
-                out, written, trade_id, entry_bar, i,
-                entry_price, initial_stop, stop, risk,
-                leg_open, leg_target, leg_quantities, run_high, run_low,
-                open_[i], high[i], low[i], close[i], force_flat[i],
-                slippage, point_value, commission_per_contract,
-                fill_limit_on_touch, ambiguity_policy, direction,
+                out,
+                written,
+                trade_id,
+                entry_bar,
+                i,
+                entry_price,
+                initial_stop,
+                stop,
+                risk,
+                leg_open,
+                leg_target,
+                leg_quantities,
+                run_high,
+                run_low,
+                open_[i],
+                high[i],
+                low[i],
+                close[i],
+                force_flat[i],
+                slippage,
+                point_value,
+                commission_per_contract,
+                fill_limit_on_touch,
+                ambiguity_policy,
+                direction,
                 True,  # held since this bar's open, so a gap through the stop fills at it
             )
             if written < 0:
@@ -227,12 +246,31 @@ def simulate_deadcat(
                 # other bar -- the `leg_open` guards inside are simply no-ops here, since
                 # every leg was opened a few lines above.
                 written, in_position = _resolve_brackets(
-                    out, written, trade_id, entry_bar, i,
-                    entry_price, initial_stop, stop, risk,
-                    leg_open, leg_target, leg_quantities, run_high, run_low,
-                    open_[i], high[i], low[i], close[i], force_flat[i],
-                    slippage, point_value, commission_per_contract,
-                    fill_limit_on_touch, ambiguity_policy, direction,
+                    out,
+                    written,
+                    trade_id,
+                    entry_bar,
+                    i,
+                    entry_price,
+                    initial_stop,
+                    stop,
+                    risk,
+                    leg_open,
+                    leg_target,
+                    leg_quantities,
+                    run_high,
+                    run_low,
+                    open_[i],
+                    high[i],
+                    low[i],
+                    close[i],
+                    force_flat[i],
+                    slippage,
+                    point_value,
+                    commission_per_contract,
+                    fill_limit_on_touch,
+                    ambiguity_policy,
+                    direction,
                     False,  # entered intrabar: the position did not exist at the open
                 )
                 if written < 0:
@@ -248,9 +286,7 @@ def simulate_deadcat(
                 new_stop = adverse_ref - direction * ratchet_offset
                 if direction * new_stop > direction * stop:
                     stop = new_stop
-        elif i >= bars_required and signal[i] and not (
-            block_entry_at_session_close and force_flat[i]
-        ):
+        elif i >= bars_required and signal[i] and not (block_entry_at_session_close and force_flat[i]):
             trigger, candidate_stop, candidate_risk = entry_bracket(
                 high[i], low[i], close[i], entry_offset, stop_offset, direction
             )
@@ -279,10 +315,25 @@ def simulate_deadcat(
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
-                    out, written, trade_id, leg, entry_bar, last, entry_price, exit_fill,
-                    initial_stop, leg_target[leg], leg_quantities[leg],
-                    EXIT_END_OF_DATA, risk, run_high, run_low, point_value,
-                    commission_per_contract, False, direction,
+                    out,
+                    written,
+                    trade_id,
+                    leg,
+                    entry_bar,
+                    last,
+                    entry_price,
+                    exit_fill,
+                    initial_stop,
+                    leg_target[leg],
+                    leg_quantities[leg],
+                    EXIT_END_OF_DATA,
+                    risk,
+                    run_high,
+                    run_low,
+                    point_value,
+                    commission_per_contract,
+                    False,
+                    direction,
                 )
                 if written < 0:
                     return -1
@@ -371,15 +422,11 @@ def _resolve_brackets(
     for leg in range(n_legs):
         if leg_open[leg] and not np.isnan(leg_target[leg]):
             if _limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
-                if not any_target_hit or abs(leg_target[leg] - open_px) < abs(
-                    nearest_target - open_px
-                ):
+                if not any_target_hit or abs(leg_target[leg] - open_px) < abs(nearest_target - open_px):
                     nearest_target = leg_target[leg]
                 any_target_hit = True
     ambiguous = stop_hit and any_target_hit
-    targets_first = ambiguous and _targets_reached_first(
-        open_px, stop, nearest_target, ambiguity_policy
-    )
+    targets_first = ambiguous and _targets_reached_first(open_px, stop, nearest_target, ambiguity_policy)
 
     if stop_hit and not targets_first:
         # The whole position leaves at the stop, adverse slippage meaning a worse fill.
@@ -387,10 +434,25 @@ def _resolve_brackets(
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
-                    out, written, trade_id, leg, entry_bar, i, entry_price, fill,
-                    initial_stop, leg_target[leg], leg_quantities[leg],
-                    EXIT_STOP, risk, run_high, run_low, point_value,
-                    commission_per_contract, ambiguous, direction,
+                    out,
+                    written,
+                    trade_id,
+                    leg,
+                    entry_bar,
+                    i,
+                    entry_price,
+                    fill,
+                    initial_stop,
+                    leg_target[leg],
+                    leg_quantities[leg],
+                    EXIT_STOP,
+                    risk,
+                    run_high,
+                    run_low,
+                    point_value,
+                    commission_per_contract,
+                    ambiguous,
+                    direction,
                 )
                 if written < 0:
                     return -1, False
@@ -402,10 +464,25 @@ def _resolve_brackets(
             if _limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
                 # Limit order: fills at its price, never worse, no slippage.
                 written = _write(
-                    out, written, trade_id, leg, entry_bar, i, entry_price,
-                    leg_target[leg], initial_stop, leg_target[leg],
-                    leg_quantities[leg], EXIT_TARGET, risk, run_high, run_low,
-                    point_value, commission_per_contract, ambiguous, direction,
+                    out,
+                    written,
+                    trade_id,
+                    leg,
+                    entry_bar,
+                    i,
+                    entry_price,
+                    leg_target[leg],
+                    initial_stop,
+                    leg_target[leg],
+                    leg_quantities[leg],
+                    EXIT_TARGET,
+                    risk,
+                    run_high,
+                    run_low,
+                    point_value,
+                    commission_per_contract,
+                    ambiguous,
+                    direction,
                 )
                 if written < 0:
                     return -1, False
@@ -418,10 +495,25 @@ def _resolve_brackets(
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
-                    out, written, trade_id, leg, entry_bar, i, entry_price, fill,
-                    initial_stop, leg_target[leg], leg_quantities[leg],
-                    EXIT_STOP, risk, run_high, run_low, point_value,
-                    commission_per_contract, ambiguous, direction,
+                    out,
+                    written,
+                    trade_id,
+                    leg,
+                    entry_bar,
+                    i,
+                    entry_price,
+                    fill,
+                    initial_stop,
+                    leg_target[leg],
+                    leg_quantities[leg],
+                    EXIT_STOP,
+                    risk,
+                    run_high,
+                    run_low,
+                    point_value,
+                    commission_per_contract,
+                    ambiguous,
+                    direction,
                 )
                 if written < 0:
                     return -1, False
@@ -438,10 +530,25 @@ def _resolve_brackets(
         for leg in range(n_legs):
             if leg_open[leg]:
                 written = _write(
-                    out, written, trade_id, leg, entry_bar, i, entry_price, fill,
-                    initial_stop, leg_target[leg], leg_quantities[leg],
-                    EXIT_SESSION_CLOSE, risk, run_high, run_low, point_value,
-                    commission_per_contract, ambiguous, direction,
+                    out,
+                    written,
+                    trade_id,
+                    leg,
+                    entry_bar,
+                    i,
+                    entry_price,
+                    fill,
+                    initial_stop,
+                    leg_target[leg],
+                    leg_quantities[leg],
+                    EXIT_SESSION_CLOSE,
+                    risk,
+                    run_high,
+                    run_low,
+                    point_value,
+                    commission_per_contract,
+                    ambiguous,
+                    direction,
                 )
                 if written < 0:
                     return -1, False
@@ -511,9 +618,7 @@ AMBIGUITY_NEAREST_TO_OPEN = 1
 
 
 @njit(cache=True)
-def _targets_reached_first(
-    open_px: float, stop_px: float, target_px: float, policy: int
-) -> bool:
+def _targets_reached_first(open_px: float, stop_px: float, target_px: float, policy: int) -> bool:
     """On a bar holding both the stop and a target, did price reach the target first?
 
     Bar-close OHLC cannot say, so this is an assumption and it is worth being explicit

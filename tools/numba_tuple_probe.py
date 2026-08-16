@@ -53,5 +53,4 @@ if __name__ == "__main__":
     tt, ts = bench(with_tuple, x, c), bench(with_scalars, x, *c)
     print(f"namedtuple {tt:6.1f} ms   scalars {ts:6.1f} ms   ratio {tt / ts:.3f}")
     print(f"cache=True accepted for both (no exception raised at definition)")
-    print(f"signatures compiled: tuple={len(with_tuple.signatures)} "
-          f"scalars={len(with_scalars.signatures)}")
+    print(f"signatures compiled: tuple={len(with_tuple.signatures)} scalars={len(with_scalars.signatures)}")

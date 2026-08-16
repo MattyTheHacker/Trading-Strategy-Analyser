@@ -132,8 +132,7 @@ class SpliceReport:
 
     def summary(self) -> str:
         lines = [
-            f"{self.root} continuous series"
-            f"{' (back-adjusted)' if self.back_adjusted else ' (raw prices)'}",
+            f"{self.root} continuous series{' (back-adjusted)' if self.back_adjusted else ' (raw prices)'}",
             "",
             "Rolls:",
             *(f"  {r}" for r in self.rolls),
@@ -171,9 +170,7 @@ def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
     fa, ba = _in_session(front), _in_session(back)
     common = fa.index.intersection(ba.index)
     if len(common) == 0:
-        return pd.DataFrame(
-            columns=["front_volume", "back_volume", "shared_bars", "ratio", "back_wins"]
-        )
+        return pd.DataFrame(columns=["front_volume", "back_volume", "shared_bars", "ratio", "back_wins"])
 
     fc, bc = fa.loc[common], ba.loc[common]
     days = fc["trading_day"]
@@ -184,16 +181,12 @@ def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
             "shared_bars": fc.groupby(days).size(),
         }
     )
-    table["ratio"] = table["back_volume"] / table["front_volume"].where(
-        table["front_volume"] > 0
-    )
+    table["ratio"] = table["back_volume"] / table["front_volume"].where(table["front_volume"] > 0)
     table["back_wins"] = table["back_volume"] > table["front_volume"]
     # A verdict is only as good as the window it was measured over. NT8's data has a
     # near-empty session a few days before most rolls -- typically the Sunday 18:00-19:00
     # ET hour and nothing else -- which lands squarely where the crossover is decided.
-    table["conclusive"] = table["shared_bars"] >= (
-        table["shared_bars"].median() * FULL_SESSION_FRACTION
-    )
+    table["conclusive"] = table["shared_bars"] >= (table["shared_bars"].median() * FULL_SESSION_FRACTION)
     return table
 
 
@@ -259,9 +252,7 @@ def detect_roll(
     )
 
 
-def _first_confirmed_crossover(
-    table: pd.DataFrame, confirm_sessions: int
-) -> pd.Timestamp | None:
+def _first_confirmed_crossover(table: pd.DataFrame, confirm_sessions: int) -> pd.Timestamp | None:
     """First session where the back contract leads and keeps leading.
 
     Inconclusive sessions are skipped rather than allowed to decide. Both roots have a
@@ -414,9 +405,7 @@ def build_continuous(
 
     if not series.index.is_unique:
         dupes = int(series.index.duplicated().sum())
-        raise SpliceError(
-            f"continuous series has {dupes} duplicate timestamps; segment boundaries overlap"
-        )
+        raise SpliceError(f"continuous series has {dupes} duplicate timestamps; segment boundaries overlap")
 
     if back_adjust and float(series[["open", "high", "low", "close"]].min().min()) <= 0:
         warnings.append(

@@ -69,9 +69,7 @@ def test_volume_is_compared_over_shared_bars_only() -> None:
     # The real failure mode: the front export stops mid-session on the last day, so its
     # daily total collapses. A calendar comparison would call that a crossover; a
     # bar-aligned one correctly does not.
-    front = make_frame(
-        DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2}
-    )
+    front = make_frame(DAYS, 100.0, {d: 900 for d in DAYS}, bars={"2024-03-08": 2})
     back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})
 
     table = splice.overlap_volume(front, back)
@@ -194,9 +192,7 @@ def test_shifts_accumulate_across_multiple_rolls() -> None:
             make_frame(days2, 110.0, {"2024-06-05": 900, "2024-06-06": 800, "2024-06-07": 100}),
         ]
     )
-    frames[LATER] = make_frame(
-        days2, 125.0, {"2024-06-05": 100, "2024-06-06": 200, "2024-06-07": 900}
-    )
+    frames[LATER] = make_frame(days2, 125.0, {"2024-06-05": 100, "2024-06-06": 200, "2024-06-07": 900})
 
     _, report = splice.build_continuous([FRONT, BACK, LATER], frames, back_adjust=True)
     # Offsets: 100-110 = -10, then 110-125 = -15. Oldest segment carries both.
@@ -208,7 +204,9 @@ def test_report_stays_quiet_about_a_healthy_coverage_roll() -> None:
     # shared bars that is 60 vs 100, a ratio of 0.6 -- the back contract is clearly
     # taking over, so the roll needs no warning even though no crossover was observed.
     front = make_frame(
-        DAYS, 100.0, {"2024-03-06": 900, "2024-03-07": 900, "2024-03-08": 100},
+        DAYS,
+        100.0,
+        {"2024-03-06": 900, "2024-03-07": 900, "2024-03-08": 100},
         bars={"2024-03-08": 2},
     )
     back = make_frame(DAYS, 110.0, {d: 300 for d in DAYS})

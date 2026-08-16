@@ -94,9 +94,7 @@ class Instrument:
 
     # -- risk ------------------------------------------------------------------
 
-    def position_size_for_risk(
-        self, risk_dollars: float, stop_distance_points: float
-    ) -> int:
+    def position_size_for_risk(self, risk_dollars: float, stop_distance_points: float) -> int:
         """Largest whole contract count whose worst case stays within ``risk_dollars``.
 
         Rounds down, so the realised risk is always at or below the cap. Returns 0 when
@@ -165,9 +163,7 @@ class ContractId:
         """Parse an NT8-style contract name such as ``"MNQ 03-24"``."""
         m = _CONTRACT_RE.match(text)
         if not m:
-            raise ValueError(
-                f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
-            )
+            raise ValueError(f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'")
         return cls(
             root=m["root"].upper(),
             month=int(m["month"]),

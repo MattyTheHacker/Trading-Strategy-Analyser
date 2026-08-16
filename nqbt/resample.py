@@ -170,12 +170,7 @@ def resample(
     # DatetimeIndex hands back object dtype, which will not take a timedelta.
     # ``dtype=`` is not optional: pandas hands back datetime64[us] here, and reading that
     # as nanoseconds puts every bar in 1970.
-    ns = (
-        frame.index.tz_convert("UTC")
-        .tz_localize(None)
-        .to_numpy(dtype="datetime64[ns]")
-        .astype("int64")
-    )
+    ns = frame.index.tz_convert("UTC").tz_localize(None).to_numpy(dtype="datetime64[ns]").astype("int64")
     closes = ns + to_close * 60 * 1_000_000_000
     session_last = pd.Series(ns).groupby(day).transform("max").to_numpy()
     stamped = np.minimum(closes, session_last)

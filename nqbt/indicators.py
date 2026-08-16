@@ -212,9 +212,7 @@ def typical_price(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.nd
 
 
 @njit(cache=True)
-def session_vwap(
-    price: np.ndarray, volume: np.ndarray, new_session: np.ndarray
-) -> np.ndarray:
+def session_vwap(price: np.ndarray, volume: np.ndarray, new_session: np.ndarray) -> np.ndarray:
     """Volume weighted average price, re-anchored at each session open.
 
     Mirrors ``OrderFlowVWAP(VWAPResolution.Standard, Bars.TradingHours, ...)``: the

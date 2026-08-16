@@ -35,9 +35,7 @@ def cache(tmp_path):
 
 def run(export, cache, **kw):
     manifest = ingest.load_manifest(cache / "manifest.json")
-    result, entry = ingest.ingest_contract(
-        CONTRACT, export, cache_dir=cache, manifest=manifest, **kw
-    )
+    result, entry = ingest.ingest_contract(CONTRACT, export, cache_dir=cache, manifest=manifest, **kw)
     ingest.save_manifest(manifest, cache / "manifest.json")
     return result, entry
 

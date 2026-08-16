@@ -33,8 +33,13 @@ def session_bars(days: int = 30, seed: int = 11) -> pd.DataFrame:
     high = np.maximum(open_, close) + np.abs(rng.normal(0, 2.0, len(index)))
     low = np.minimum(open_, close) - np.abs(rng.normal(0, 0.5, len(index)))
     frame = pd.DataFrame(
-        {"open": open_, "high": high, "low": low, "close": close,
-         "volume": rng.integers(1, 500, len(index)).astype(float)},
+        {
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.integers(1, 500, len(index)).astype(float),
+        },
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
@@ -123,9 +128,7 @@ def test_the_hoisted_pool_gives_the_same_draw_as_building_it_inline(prepared) ->
     """The optimisation is a 12x speedup on the draw, so it must not change the draw."""
     data, _, signal = prepared
     pool = randomentry.SessionMinutePool.build(data.index)
-    with_pool = randomentry.matched_random_signal(
-        data, signal, np.random.default_rng(3), pool=pool
-    )
+    with_pool = randomentry.matched_random_signal(data, signal, np.random.default_rng(3), pool=pool)
     without = randomentry.matched_random_signal(data, signal, np.random.default_rng(3))
     assert np.array_equal(with_pool, without)
 
@@ -200,7 +203,12 @@ def test_the_observed_value_sits_inside_the_null_range_on_random_bars(prepared) 
 def test_an_observation_above_every_draw_is_better_than_random() -> None:
     draws = np.linspace(0.0, 1.0, 200)
     got = randomentry._place(
-        "profit_factor", 5.0, draws, 0.05, 200, observed_trades=100,
+        "profit_factor",
+        5.0,
+        draws,
+        0.05,
+        200,
+        observed_trades=100,
         null_median_trades=100.0,
     )
     assert got.verdict == randomentry.BETTER
@@ -215,7 +223,12 @@ def test_an_observation_below_every_draw_is_worse_than_random() -> None:
     """
     draws = np.linspace(0.0, 1.0, 200)
     got = randomentry._place(
-        "profit_factor", -3.0, draws, 0.05, 200, observed_trades=100,
+        "profit_factor",
+        -3.0,
+        draws,
+        0.05,
+        200,
+        observed_trades=100,
         null_median_trades=100.0,
     )
     assert got.verdict == randomentry.WORSE
@@ -225,7 +238,12 @@ def test_an_observation_below_every_draw_is_worse_than_random() -> None:
 def test_an_observation_in_the_middle_is_indistinguishable() -> None:
     draws = np.linspace(0.0, 1.0, 200)
     got = randomentry._place(
-        "profit_factor", 0.5, draws, 0.05, 200, observed_trades=100,
+        "profit_factor",
+        0.5,
+        draws,
+        0.05,
+        200,
+        observed_trades=100,
         null_median_trades=100.0,
     )
     assert got.verdict == randomentry.INDISTINGUISHABLE
@@ -239,7 +257,13 @@ def test_the_p_value_never_claims_more_certainty_than_the_draws_support() -> Non
     """
     draws = np.linspace(0.0, 1.0, 50)
     got = randomentry._place(
-        "profit_factor", 99.0, draws, 0.05, 50, observed_trades=10, null_median_trades=10.0,
+        "profit_factor",
+        99.0,
+        draws,
+        0.05,
+        50,
+        observed_trades=10,
+        null_median_trades=10.0,
     )
     assert got.p_value > 0.0
     assert got.p_value == pytest.approx(2.0 / 51.0)
@@ -249,12 +273,22 @@ def test_a_wider_null_makes_the_same_observation_less_significant() -> None:
     """Effect size is not significance: the spread of the null decides."""
     observed = 1.5
     tight = randomentry._place(
-        "profit_factor", observed, np.linspace(0.9, 1.1, 200), 0.05, 200,
-        observed_trades=10, null_median_trades=10.0,
+        "profit_factor",
+        observed,
+        np.linspace(0.9, 1.1, 200),
+        0.05,
+        200,
+        observed_trades=10,
+        null_median_trades=10.0,
     )
     wide = randomentry._place(
-        "profit_factor", observed, np.linspace(-5.0, 8.0, 200), 0.05, 200,
-        observed_trades=10, null_median_trades=10.0,
+        "profit_factor",
+        observed,
+        np.linspace(-5.0, 8.0, 200),
+        0.05,
+        200,
+        observed_trades=10,
+        null_median_trades=10.0,
     )
     assert tight.verdict == randomentry.BETTER
     assert wide.verdict == randomentry.INDISTINGUISHABLE
@@ -266,7 +300,10 @@ def test_a_wider_null_makes_the_same_observation_less_significant() -> None:
 def test_count_sensitive_statistics_are_flagged_and_rate_ones_are_not(prepared) -> None:
     data, params, _ = prepared
     got = randomentry.compare(
-        data, params, instrument=NQ, iterations=30,
+        data,
+        params,
+        instrument=NQ,
+        iterations=30,
         statistics=("profit_factor", "net_pnl"),
     )
     assert got["profit_factor"].count_sensitive is False
@@ -333,9 +370,7 @@ def test_a_strategy_with_no_signals_refuses_rather_than_returning_a_null(prepare
 def test_a_signal_of_the_wrong_length_is_refused(prepared) -> None:
     data, _, _ = prepared
     with pytest.raises(randomentry.RandomEntryError, match="per-bar"):
-        randomentry.matched_random_signal(
-            data, np.zeros(7, dtype=bool), np.random.default_rng(0)
-        )
+        randomentry.matched_random_signal(data, np.zeros(7, dtype=bool), np.random.default_rng(0))
 
 
 def test_an_unknown_statistic_names_what_is_available(prepared) -> None:
@@ -353,22 +388,22 @@ def test_zero_iterations_is_refused(prepared) -> None:
 def stub_log(pnl_per_trade) -> pd.DataFrame:
     """A minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
-    return pd.DataFrame({
-        "trade_id": range(1, len(pnl_per_trade) + 1),
-        "leg": 1,
-        "net_pnl": list(pnl_per_trade),
-        "commission": 0.5,
-        "bars_held": 3,
-        "mae_points": 1.0,
-        "mfe_points": 2.0,
-        "r_multiple": [p / 10.0 for p in pnl_per_trade],
-        "ambiguous_bar": False,
-        "exit_reason": "target",
-        "entry_time": [base + pd.Timedelta(days=i) for i in range(len(pnl_per_trade))],
-        "exit_time": [
-            base + pd.Timedelta(days=i, minutes=5) for i in range(len(pnl_per_trade))
-        ],
-    })
+    return pd.DataFrame(
+        {
+            "trade_id": range(1, len(pnl_per_trade) + 1),
+            "leg": 1,
+            "net_pnl": list(pnl_per_trade),
+            "commission": 0.5,
+            "bars_held": 3,
+            "mae_points": 1.0,
+            "mfe_points": 2.0,
+            "r_multiple": [p / 10.0 for p in pnl_per_trade],
+            "ambiguous_bar": False,
+            "exit_reason": "target",
+            "entry_time": [base + pd.Timedelta(days=i) for i in range(len(pnl_per_trade))],
+            "exit_time": [base + pd.Timedelta(days=i, minutes=5) for i in range(len(pnl_per_trade))],
+        }
+    )
 
 
 def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared) -> None:
