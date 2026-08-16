@@ -168,21 +168,22 @@ def sweep_contracts(
     )
     cover = coverage(frames)
 
+    # No empty-table guard here, deliberately. ``Grid`` rejects an axis with no values and
+    # ``combinations()`` always yields at least ``base``, so a sweep returns one row per
+    # combination even when nothing trades -- and ``contract_frames`` has already refused an
+    # empty set of contracts. A branch for "no results" would be unreachable, and the
+    # roadmap's standing trap is that unreachable code behind an uncovered branch is exactly
+    # where a defect sits unnoticed.
     per_contract: list[pd.DataFrame] = []
     logs: dict[tuple[str, int], pd.DataFrame] = {}
     for name, bars in frames.items():
         table, contract_logs = sweep.sweep(
             bars, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs
         )
-        if table.empty:
-            continue
         table.insert(0, "contract", name)
         per_contract.append(table)
         for combo_id, log in contract_logs.items():
             logs[(name, combo_id)] = log
-
-    if not per_contract:
-        raise DispersionError(f"no contract of {root} produced any result")
 
     results = pd.concat(per_contract, ignore_index=True)
     return results.merge(cover.drop(columns=["start", "end"]), on="contract"), cover, logs

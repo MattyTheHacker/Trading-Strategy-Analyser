@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import dispersion, stats
+from nqbt import dispersion, sessions, stats
 from nqbt.dispersion import DispersionError
 
 
@@ -214,59 +214,300 @@ def test_the_observed_statistic_matches_the_reference_per_contract():
         assert value == stats.summarise(logs[contract]).profit_factor
 
 
-# -- real cached data ----------------------------------------------------------
+# -- a synthetic cache, so the data path is tested rather than skipped ---------
+#
+# These used to be real-data tests guarded by ``pytest.skip`` when the MNQ cache was absent,
+# which meant CI -- the only place that measures coverage -- exercised none of them. Writing
+# a two-contract cache into ``tmp_path`` costs a few hundred bars and tests the same code.
 
 
-def cached_windows():
-    try:
-        return dispersion.front_month_windows("MNQ")
-    except Exception:  # pragma: no cover - the cache is not in CI
-        pytest.skip("no spliced MNQ cache on this machine")
+def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFrame:
+    """One contract's cached bars: whole ETH sessions, wicks wide enough to trade."""
+    rng = np.random.default_rng(seed)
+    stamps: list[pd.Timestamp] = []
+    open_et = pd.Timestamp(start, tz=sessions.EASTERN)
+    for _ in range(sessions_wanted):
+        stamps.extend(open_et + pd.Timedelta(minutes=m) for m in range(1, 1381))
+        open_et += pd.Timedelta(days=1)
+        while open_et.dayofweek in (4, 5):
+            open_et += pd.Timedelta(days=1)
+
+    idx = pd.DatetimeIndex(stamps).tz_convert("UTC")
+    idx.name = "ts_utc"
+    n = len(idx)
+    close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
+    open_ = np.concatenate([[close[0]], close[:-1]])
+    frame = pd.DataFrame(
+        {
+            "open": open_,
+            "high": np.maximum(open_, close) + np.abs(rng.normal(0, 3.0, n)),
+            "low": np.minimum(open_, close) - np.abs(rng.normal(0, 3.0, n)),
+            "close": close,
+            "volume": rng.integers(1, 500, n).astype(float),
+        },
+        index=idx,
+    )
+    info = sessions.classify(idx)
+    frame["trading_day"] = info.trading_day
+    frame["in_session"] = info.in_session
+    return frame
 
 
-def test_front_month_windows_are_contiguous_and_do_not_overlap():
-    windows = cached_windows()
-    assert len(windows) > 1
+@pytest.fixture
+def cache(tmp_path):
+    """A cache holding two contracts and the continuous series spliced from them.
+
+    The contracts **overlap in time** on purpose -- real ones do, and that overlap is the
+    whole reason the front-month window exists.
+    """
+    pytest.importorskip("pyarrow")
+    from nqbt import ingest, splice
+    from nqbt.instruments import ContractId
+
+    frames = {
+        "MNQ 03-24": synthetic_contract("2024-01-01 18:00", 8, seed=1),
+        "MNQ 06-24": synthetic_contract("2024-01-05 18:00", 8, seed=2),
+    }
+    for name, frame in frames.items():
+        path = ingest.contract_cache_path(ContractId.parse(name), tmp_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(path, engine="pyarrow", index=True)
+
+    front, back = frames["MNQ 03-24"], frames["MNQ 06-24"]
+    roll = pd.Timestamp("2024-01-09 18:00", tz=sessions.EASTERN).tz_convert("UTC")
+    series = pd.concat(
+        [
+            front[(front.index < roll) & front["in_session"]].assign(contract="MNQ 03-24"),
+            back[(back.index >= roll) & back["in_session"]].assign(contract="MNQ 06-24"),
+        ]
+    ).drop(columns=["in_session"])
+
+    out = splice.continuous_path("MNQ", True, tmp_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    series.to_parquet(out, engine="pyarrow", index=True)
+    return tmp_path, frames, series
+
+
+def test_front_month_windows_are_contiguous_and_do_not_overlap(cache):
+    tmp_path, _, _ = cache
+    windows = dispersion.front_month_windows("MNQ", cache_dir=tmp_path)
+    assert list(windows.index) == ["MNQ 03-24", "MNQ 06-24"]
     assert windows["start"].is_monotonic_increasing
     assert (windows["start"].to_numpy()[1:] > windows["end"].to_numpy()[:-1]).all()
 
 
-def test_the_windows_account_for_the_continuous_series_exactly():
+def test_the_windows_account_for_the_continuous_series_exactly(cache):
     """The strongest available check that these are the splicer's own decisions.
 
     Front-month windows are non-overlapping and sum to the continuous series. If they did
     not, some calendar days would be double-counted or missing, and every cross-contract
     aggregate would be wrong by that amount.
     """
-    splice = pytest.importorskip("nqbt.splice")
-    windows = cached_windows()
-    series = splice.load_continuous("MNQ", back_adjust=True)
+    tmp_path, _, series = cache
+    windows = dispersion.front_month_windows("MNQ", cache_dir=tmp_path)
     assert int(windows["continuous_bars"].sum()) == len(series)
 
 
-def test_contract_frames_carry_raw_prices_not_back_adjusted_ones():
-    """Back-adjustment shifts historical levels by hundreds of points.
+def test_the_front_month_window_is_a_strict_subset_of_a_contracts_life(cache):
+    """The contracts overlap; the windows must not, or aggregates double-count."""
+    tmp_path, frames, _ = cache
+    windowed = dispersion.contract_frames("MNQ", cache_dir=tmp_path)
+    full = dispersion.contract_frames("MNQ", cache_dir=tmp_path, full_life=True)
 
-    Anything sensitive to the absolute level can only be tested per contract, so a frame
-    that quietly came back adjusted would make that impossible while looking fine.
-    """
-    splice = pytest.importorskip("nqbt.splice")
-    cached_windows()
-    frames = dispersion.contract_frames("MNQ")
-    adjusted = splice.load_continuous("MNQ", back_adjust=True)
+    for name in frames:
+        assert len(windowed[name]) < len(full[name]), f"{name} was not trimmed"
+        assert len(full[name]) == len(frames[name])
 
-    name = next(iter(frames))
-    raw = frames[name]
-    overlap = adjusted[adjusted["contract"] == name]
-    shared = raw.index.intersection(overlap.index)
-    assert len(shared) > 1000, "no overlap to compare"
-    shift = (overlap.loc[shared, "close"] - raw.loc[shared, "close"]).abs().max()
-    assert shift > 1.0, f"{name} looks already back-adjusted (max shift {shift})"
+    a, b = windowed["MNQ 03-24"], windowed["MNQ 06-24"]
+    assert a.index.max() < b.index.min(), "front-month windows overlap"
+    overlap = full["MNQ 03-24"].index.intersection(full["MNQ 06-24"].index)
+    assert len(overlap) > 0, "the fixture's contracts do not overlap; the test proves nothing"
 
 
-def test_coverage_reports_a_sample_size_for_every_contract():
-    cached_windows()
-    cover = dispersion.coverage(dispersion.contract_frames("MNQ"))
+def test_contract_frames_return_the_cached_prices_untouched(cache):
+    """Raw, never back-adjusted -- see the module docstring on round-number stops."""
+    tmp_path, frames, _ = cache
+    got = dispersion.contract_frames("MNQ", cache_dir=tmp_path)
+    for name, frame in got.items():
+        pd.testing.assert_series_equal(frame["close"], frames[name].loc[frame.index, "close"])
+
+
+def test_coverage_reports_a_sample_size_for_every_contract(cache):
+    tmp_path, _, _ = cache
+    cover = dispersion.coverage(dispersion.contract_frames("MNQ", cache_dir=tmp_path))
+    assert len(cover) == 2
     assert (cover["sessions"] > 0).all()
     assert (cover["in_session_bars"] <= cover["bars"]).all()
     assert cover["contract"].is_unique
+    assert cover["start"].is_monotonic_increasing
+
+
+def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path):
+    """The continuous series names contracts whose per-contract cache is missing."""
+    from nqbt import splice
+
+    empty = tmp_path / "empty"
+    src = splice.continuous_path("MNQ", True, cache[0])
+    dst = splice.continuous_path("MNQ", True, empty)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(src.read_bytes())
+
+    with pytest.raises(FileNotFoundError, match="no cached bars"):
+        dispersion.contract_frames("MNQ", cache_dir=empty)
+
+
+def test_a_window_that_selects_no_bars_leaves_the_contract_out(cache):
+    """Guards the ``if len(bars)`` skip, which would otherwise ship an empty frame."""
+    tmp_path, _, series = cache
+    moved = series.copy()
+    moved.loc[moved["contract"] == "MNQ 06-24", "contract"] = "MNQ 09-24"
+    from nqbt import ingest, splice
+    from nqbt.instruments import ContractId
+
+    # A contract in the continuous series whose own cache holds only far-earlier bars.
+    stale = synthetic_contract("2023-01-02 18:00", 2, seed=3)
+    path = ingest.contract_cache_path(ContractId.parse("MNQ 09-24"), tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stale.to_parquet(path, engine="pyarrow", index=True)
+    moved.to_parquet(splice.continuous_path("MNQ", True, tmp_path), engine="pyarrow")
+
+    frames = dispersion.contract_frames("MNQ", cache_dir=tmp_path)
+    assert set(frames) == {"MNQ 03-24"}, "a contract with no bars in its window was kept"
+
+
+def test_a_root_where_no_window_selects_any_bars_says_so(cache):
+    """Every contract cached, none of them covering its own window.
+
+    The shape of a stale cache: the continuous series was spliced from bars that have since
+    been re-ingested elsewhere. Returning ``{}`` here would surface much later as an
+    unexplained empty results table.
+    """
+    from nqbt import ingest
+    from nqbt.instruments import ContractId
+
+    tmp_path, _, _ = cache
+    for name in ("MNQ 03-24", "MNQ 06-24"):
+        stale = synthetic_contract("2019-01-02 18:00", 2, seed=9)
+        stale.to_parquet(
+            ingest.contract_cache_path(ContractId.parse(name), tmp_path),
+            engine="pyarrow",
+            index=True,
+        )
+
+    with pytest.raises(DispersionError, match="no cached per-contract bars"):
+        dispersion.contract_frames("MNQ", cache_dir=tmp_path)
+
+
+# -- sweep_contracts, end to end ----------------------------------------------
+
+
+@pytest.fixture
+def swept(cache):
+    from nqbt import sweep
+    from nqbt.instruments import NQ
+    from nqbt.sim.types import DeadCatParams
+
+    tmp_path, _, _ = cache
+    grid = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
+    return dispersion.sweep_contracts("MNQ", grid, NQ, cache_dir=tmp_path, keep_trades=True)
+
+
+def test_sweep_contracts_returns_one_row_per_contract_and_combination(swept):
+    results, _, _ = swept
+    assert len(results) == 2 * 2
+    assert set(results["contract"]) == {"MNQ 03-24", "MNQ 06-24"}
+    assert sorted(results["combo_id"].unique()) == [0, 1]
+    assert results["trades"].sum() > 0, "the fixture traded nothing; the test proves nothing"
+
+
+def test_every_result_row_carries_its_own_sample_size(swept):
+    """A profit factor from 30 trades must not sit unlabelled beside one from 400."""
+    results, cover, _ = swept
+    for column in ("bars", "in_session_bars", "sessions", "trades"):
+        assert column in results.columns
+        assert (results[column] > 0).all()
+
+    joined = results.merge(cover, on="contract", suffixes=("", "_cover"))
+    assert (joined["bars"] == joined["bars_cover"]).all(), "coverage joined to the wrong row"
+
+
+def test_contract_is_the_leading_column_so_no_row_is_anonymous(swept):
+    results, _, _ = swept
+    assert results.columns[0] == "contract"
+
+
+def test_trade_logs_come_back_keyed_by_contract_and_combination(swept):
+    _, _, logs = swept
+    assert set(logs) == {
+        ("MNQ 03-24", 0),
+        ("MNQ 03-24", 1),
+        ("MNQ 06-24", 0),
+        ("MNQ 06-24", 1),
+    }
+    for (_, combo_id), log in logs.items():
+        assert len(log), f"combo {combo_id} produced an empty log"
+        assert {"trade_id", "net_pnl"} <= set(log.columns)
+
+
+def test_no_logs_are_kept_unless_asked_for(cache):
+    """A wide sweep's logs do not fit in memory, so the default must not hold them."""
+    from nqbt import sweep
+    from nqbt.instruments import NQ
+    from nqbt.sim.types import DeadCatParams
+
+    tmp_path, _, _ = cache
+    grid = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200))
+    _, _, logs = dispersion.sweep_contracts("MNQ", grid, NQ, cache_dir=tmp_path)
+    assert logs == {}
+
+
+def test_the_per_contract_results_match_running_that_contract_directly(swept, cache):
+    """The loop must not perturb what a single-contract sweep would have produced."""
+    from nqbt import sweep
+    from nqbt.instruments import NQ
+    from nqbt.sim.types import DeadCatParams
+
+    results, _, _ = swept
+    tmp_path, _, _ = cache
+    frames = dispersion.contract_frames("MNQ", cache_dir=tmp_path)
+    grid = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
+
+    direct, _ = sweep.sweep(frames["MNQ 03-24"], grid, NQ)
+    mine = results[results["contract"] == "MNQ 03-24"].reset_index(drop=True)
+    for column in ("combo_id", "trades", "net_pnl", "profit_factor"):
+        pd.testing.assert_series_equal(
+            mine[column], direct[column], check_names=False, check_dtype=False
+        )
+
+
+def test_a_root_where_nothing_trades_says_so_rather_than_returning_an_empty_table(cache):
+    """``bars_required_to_trade`` past the end of every contract produces no rows at all."""
+    from nqbt import sweep
+    from nqbt.instruments import NQ
+    from nqbt.sim.types import DeadCatParams
+
+    tmp_path, _, _ = cache
+    grid = sweep.Grid.of(DeadCatParams(bars_required_to_trade=10**9))
+    results, _, _ = dispersion.sweep_contracts("MNQ", grid, NQ, cache_dir=tmp_path)
+    assert (results["trades"] == 0).all()
+
+
+def test_the_whole_pipeline_runs_from_a_sweep_through_to_a_p_value(swept):
+    """The path a user actually walks, rather than each piece in isolation."""
+    results, _, logs = swept
+    spread = dispersion.dispersion(results, min_trades=1)
+    assert list(spread["combo_id"]) == [0, 1]
+    assert (spread["contracts"] == 2).all()
+
+    combo0 = {c: log for (c, combo_id), log in logs.items() if combo_id == 0}
+    out = dispersion.spread_vs_resampling(combo0, iterations=50, seed=0, min_trades=1)
+    assert set(out["spread"]) == set(dispersion.SPREAD_MEASURES)
+    assert 0.0 <= out["spread"]["iqr"]["p_value"] <= 1.0
+    assert out["contracts"] == 2
+
+
+def test_a_contract_with_no_losing_trade_is_refused_rather_than_reported_as_infinite():
+    """An infinite profit factor would make every spread infinite and every p-value 1."""
+    logs = {"A": leg_log([10.0] * 40), "B": leg_log([5.0, -5.0] * 20)}
+    with pytest.raises(DispersionError, match="not finite"):
+        dispersion.spread_vs_resampling(logs, min_trades=1)
