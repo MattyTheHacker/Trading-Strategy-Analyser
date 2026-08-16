@@ -21,6 +21,14 @@ roughly 70% is pandas building and aggregating the trade log rather than the jit
 ``n_jobs`` spreads combinations over processes. The combinations are independent, so this
 is embarrassingly parallel; the only thing that needs care is that the dataset must be
 *shared* rather than copied into every worker. See :func:`_sweep_parallel`.
+
+## Axes above the Dataset
+
+:func:`sweep` varies parameters *inside* one :class:`~nqbt.context.Dataset`. Strategy, bar
+resolution and contract are different in kind: each selects **which dataset gets built**, so
+each needs its own. :func:`sweep_axes` is the one mechanism for all three -- deliberately
+one rather than three wrappers, because they differ only in what varies and would otherwise
+grow three incompatible ways of tagging the same results table.
 """
 
 from __future__ import annotations
@@ -28,13 +36,14 @@ from __future__ import annotations
 import itertools
 import math
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from typing import NamedTuple
 
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
-from nqbt import archetypes, context, stats
+from nqbt import archetypes, context, resample, stats
 from nqbt.archetypes import Archetype, Params
 from nqbt.context import ContextSpec, Dataset
 from nqbt.instruments import MNQ, Instrument
@@ -313,6 +322,124 @@ def sweep(
         cols = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
         frame = frame[cols]
     return frame, logs
+
+
+class AxisPoint(NamedTuple):
+    """Which dataset, and which strategy on it, one block of results came from.
+
+    A :class:`NamedTuple` so it can key the returned trade logs and expand straight into the
+    results row's tag columns -- :attr:`_fields` is deliberately the same four names
+    :data:`nqbt.results.AXIS_COLUMNS` declares, and a test pins that rather than letting the
+    two drift.
+
+    ``tier2`` is **carried, not swept**: it is a property of the strategy rather than an axis
+    of its own. It rides here because it has to reach the results row, where its whole job is
+    to stop a ranking comparing a reconciled archetype against an unreconciled one.
+    """
+
+    strategy: str
+    resolution: int
+    contract: str | None
+    """``None`` means the spliced continuous series, which is not any one contract."""
+    tier2: str
+
+
+def sweep_axes(
+    bars: pd.DataFrame | Mapping[str, pd.DataFrame],
+    grids: Grid | Sequence[Grid],
+    instrument: Instrument = MNQ,
+    *,
+    resolutions: Sequence[int] = (1,),
+    keep_trades: bool = False,
+    n_jobs: int = 1,
+    chunk_size: int | None = None,
+    progress_every: int = 0,
+) -> tuple[pd.DataFrame, dict[tuple[AxisPoint, int], pd.DataFrame]]:
+    """Run one or more grids across strategy, resolution and contract.
+
+    ``bars`` carries the contract axis, because a contract axis *is* which bars: pass one
+    frame for the spliced continuous series, or a ``{contract: frame}`` mapping -- exactly
+    what :func:`nqbt.dispersion.contract_frames` returns -- to run each contract separately.
+    A single frame tags every row with ``contract=None``, which is what that null means.
+
+    The strategy axis is a **list of grids**, not a list of archetype names. Each archetype
+    has its own parameter class, so ``ema_period=[9, 21]`` is not even a legal axis of the
+    next one; a single grid re-based onto another archetype would raise or, worse, silently
+    sweep a different field. One grid per strategy is the only shape that can express two
+    archetypes being swept over their own parameters.
+
+    Returns ``(results, logs)``. Every results row carries the four columns of
+    :class:`AxisPoint` as its leading columns, and ``logs`` is keyed by
+    ``(AxisPoint, combo_id)``.
+
+    **``combo_id`` is the grid's own index, so it means the same thing at every axis point** --
+    that is what makes "combination 7 at 1 minute against combination 7 at 15 minutes" a
+    comparison rather than a coincidence. It does *not* carry across grids: combination 7 of
+    two different archetypes is two unrelated parameter sets, which is why ``strategy`` is
+    part of the key and not a column you may drop.
+
+    Every axis defaults to a single value, so the cost is opt-in one axis at a time. They do
+    compose, and the product is a product: three grids over four resolutions over nineteen
+    contracts is 228 datasets, each paying the full :func:`nqbt.context.prepare` cost.
+
+    Comparing a profit factor across resolutions **at the same period number is meaningless**
+    unless the periods are scaled with the bar size. Order lifetime, the ratchet and
+    ``bars_required_to_trade`` are all counted in bars, so a resolution sweep is a family of
+    related strategies rather than one strategy sampled differently.
+    """
+    grid_list = [grids] if isinstance(grids, Grid) else list(grids)
+    if not grid_list:
+        raise SweepError("sweep_axes needs at least one grid")
+    if not resolutions:
+        raise SweepError("resolutions is empty; pass (1,) for plain 1-minute bars")
+
+    sources: Mapping[str | None, pd.DataFrame] = (
+        {None: bars} if isinstance(bars, pd.DataFrame) else dict(bars)
+    )
+    if not sources:
+        raise SweepError("no bars to sweep: the contract mapping is empty")
+
+    # One spec covering every grid, so the axis point builds *one* dataset that all of them
+    # read. This is what ``ContextSpec.__or__`` exists for -- a dataset each would multiply
+    # the memory the parallel path memmaps to every worker by the number of strategies.
+    spec = ContextSpec()
+    for grid in grid_list:
+        spec = spec | grid.required_context()
+
+    tables: list[pd.DataFrame] = []
+    logs: dict[tuple[AxisPoint, int], pd.DataFrame] = {}
+    for contract, source in sources.items():
+        for minutes in resolutions:
+            frame = resample.resample(source, minutes)
+            data = context.prepare(frame, spec)
+            for grid in grid_list:
+                point = AxisPoint(
+                    strategy=grid.archetype.name,
+                    resolution=minutes,
+                    contract=contract,
+                    tier2=str(grid.archetype.tier2),
+                )
+                table, point_logs = sweep(
+                    frame, grid, instrument, data=data, keep_trades=keep_trades,
+                    n_jobs=n_jobs, chunk_size=chunk_size, progress_every=progress_every,
+                )
+                tables.append(_tag(table, point))
+                for combo_id, log in point_logs.items():
+                    logs[(point, combo_id)] = log
+
+    return pd.concat(tables, ignore_index=True), logs
+
+
+def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
+    """Put the axis point's four columns in front of one sweep's results.
+
+    In front rather than appended: these are what the row *is*, and a table whose leading
+    column is ``combo_id`` invites reading two resolutions as one population.
+    """
+    tagged = table.copy()
+    for position, name in enumerate(AxisPoint._fields):
+        tagged.insert(position, name, getattr(point, name))
+    return tagged
 
 
 def rank(results: pd.DataFrame, by: str = "profit_factor", top: int = 20,

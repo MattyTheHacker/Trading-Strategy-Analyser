@@ -162,6 +162,12 @@ def sweep_contracts(
     :func:`spread_vs_resampling` needs.
 
     This deliberately returns a table rather than a ranking. Use :func:`dispersion`.
+
+    The per-contract loop is :func:`nqbt.sweep.sweep_axes`, which is the one mechanism for
+    strategy, resolution and contract alike (#28). What stays here is what this module is
+    actually for: the front-month windows, the coverage table joined onto every row, and the
+    statistics below. ``contract`` is moved back to the leading column because that is this
+    function's own promise -- ``sweep_axes`` leads with the full axis point.
     """
     frames = contract_frames(
         root, full_life=full_life, back_adjust=back_adjust, cache_dir=cache_dir
@@ -174,18 +180,13 @@ def sweep_contracts(
     # empty set of contracts. A branch for "no results" would be unreachable, and the
     # roadmap's standing trap is that unreachable code behind an uncovered branch is exactly
     # where a defect sits unnoticed.
-    per_contract: list[pd.DataFrame] = []
-    logs: dict[tuple[str, int], pd.DataFrame] = {}
-    for name, bars in frames.items():
-        table, contract_logs = sweep.sweep(
-            bars, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs
-        )
-        table.insert(0, "contract", name)
-        per_contract.append(table)
-        for combo_id, log in contract_logs.items():
-            logs[(name, combo_id)] = log
+    results, axis_logs = sweep.sweep_axes(
+        frames, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs
+    )
+    contract_column = results.pop("contract")
+    results.insert(0, "contract", contract_column)
+    logs = {(point.contract, combo_id): log for (point, combo_id), log in axis_logs.items()}
 
-    results = pd.concat(per_contract, ignore_index=True)
     return results.merge(cover.drop(columns=["start", "end"]), on="contract"), cover, logs
 
 
