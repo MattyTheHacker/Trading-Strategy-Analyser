@@ -233,14 +233,15 @@ the record of what the audit trail said while it was being trusted.
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: M7a → numpy summary → M18 → M10 → M11 → M7b → M19 → M12**, with **M16 batched into
-a NinjaTrader session** rather than sitting in the code queue. M9, M20a, M15 and
-**M17(+M13+M14)** are all done — see Status.
+**Order: numpy summary → M18 → M10 → M11 → M7b → M19 → M12**, with **M16 batched into a
+NinjaTrader session** rather than sitting in the code queue. M9, M20a, M15,
+**M17(+M13+M14)** and **M7a** are all done — see Status.
 
-**The code queue no longer reaches M18.** M7a (#32) and the numpy summary path (#33) are
-unblocked and pure Python, but after them Phase 2 is gated on M16: #37's ATR stop is a hard
+**The code queue no longer reaches M18.** The numpy summary path (#33) is the last unblocked
+pure-Python item; after it, Phase 2 is gated on M16, since #37's ATR stop is a hard
 prerequisite and M16 is readings, not code. Six items share that one NinjaTrader sitting
-(#20, #21, #22, half of #23, #66, #67, #92) — book it before the code column empties.
+(#20, #21, #22, half of #23, #66, #67, #92) — **book it now**, because the code column is
+one milestone from empty.
 
 **M16 moved out of the code queue deliberately.** Its three substantive sub-issues
 (#20 ATR, #21 StdDev/Bollinger, #22 Keltner) each require reading values out of NT8, and the
@@ -379,15 +380,23 @@ idea **with C# ground truth**. Real cost is a two-sided OCO entry model the loop
 lookahead (bands must come from *completed* bars), a high ambiguous-bar rate, and results that
 cluster by volatility regime so the aggregate PF averages two populations.
 
-**M7 — split into M7a and M7b, with M7a pulled forward.** `randomentry.py` moves ahead of the
-archetypes; `walkforward.py` and `montecarlo.py` stay late. The roadmap had scheduled the null
-after M11 because it shares machinery with the permutation test, but **that sharing is
-symmetric and the interpretive need is not** — the moment a second archetype exists, every
-comparison between archetypes is a ranking with no scale, and M17 multiplies that surface
-(archetypes × combinations × resolutions × contracts). Against a losing archetype it
-separates "worse than random", "no better than random" and "better but not past costs" —
-three diagnoses that look identical today. Must be matched on
-**direction** as well as count and time of day, or it measures market drift.
+**~~M7a~~ — the random-entry null: done.** `nqbt/randomentry.py`. What a caller needs to
+know: it matches **count, time-of-session and direction** and randomizes only which trading
+day each signal lands on. Time-of-session matching is **exact, not bucketed** — a null that
+drifts toward thin overnight bars loses for reasons unrelated to entry quality and flatters
+every strategy tested against it. It runs the archetype's **own** `run` via a `signal=`
+override rather than its own copy of the simulation, so brackets, costs and direction are
+identical by construction; `Archetype` carries a `signal` field for this and it is
+**required**, so a new archetype cannot be registered without one. Output is a Monte Carlo
+test (default 200 draws), not a single random backtest. Defaults to `RATE_STATISTICS`
+because the arms match on signals and diverge on fills — read `net_pnl` only against the two
+trade counts, which are on every row. **Hoist `SessionMinutePool`**: rebuilding the grouping
+per draw was 89% of an iteration.
+
+**M7b — walk-forward and Monte Carlo** stays late. `walkforward.py` and `montecarlo.py` are
+unbuilt; they answer different questions from M7a — whether a *parameter choice* survives
+unseen data, and whether an equity path was luckier than its trades justify. M7a's
+machinery is what #48's permutation guard inherits.
 
 **Moving-average axes.** Periods *and* on/off toggles are both already sweepable, jointly —
 every `DeadCatParams` field except `target_r_multiples` is a legal axis, and `dead_axes()`
@@ -576,3 +585,14 @@ the review outputs are stable.
   fixture that proves it works; which archetype is actually worth trading is a later
   question. Note the M15.5 gapped-stop fix moved results *worse* across the board, so any
   figure predating it is optimistic.
+- **But its entry rule is measurably better than random** (M7a, `nqbt/randomentry.py`). On
+  costed MNQ from 2024, against 500 matched random-entry draws, it sits at the 99.6–99.8th
+  percentile on profit factor, expectancy and win rate (p ≈ 0.008–0.012) — while still
+  losing money. That is "there is signal; the loss is in costs, hold time or bracket
+  geometry", **not** "the entry rule is worthless", and the two were indistinguishable
+  before this existed. It does not make the archetype tradeable. Caveats that must travel
+  with the number: one pre-specified combination on one root, not a sweep; the arms match on
+  **signals** and diverge on **fills** (74.4% vs 47.7%), so per-trade rates are the fair
+  comparison and `net_pnl` is not; and the rule under test is bar *selection*, which carries
+  bracket geometry with it. **Quote `docs/roadmap.md` §M7a, not this line**, and re-run
+  rather than citing these figures after any fill-rule change.

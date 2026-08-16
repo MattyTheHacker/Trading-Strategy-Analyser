@@ -25,6 +25,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
+import numpy as np
 import pandas as pd
 
 from nqbt.context import ContextSpec
@@ -137,6 +138,16 @@ class Archetype:
     tier2: Tier2Status
     """See :class:`Tier2Status` -- this reaches the results table, deliberately."""
 
+    signal: Callable[..., np.ndarray]
+    """Compute this archetype's per-bar entry signal from a :class:`Dataset`.
+
+    Recorded separately from :attr:`run` because the random-entry control arm (M7a) needs
+    the *real* signal in order to match its own draws against it -- how many entries there
+    were and at which times of session -- before handing a substitute back to :attr:`run`.
+    Without it the null would have to recompute the signal itself, which is a second
+    definition of the entry rule and exactly what this registry exists to prevent.
+    """
+
     gated_by: Mapping[str, str] = field(default_factory=lambda: MA_GATES)
     """Axis -> the toggle that has to be on for it to change anything. Feeds ``dead_axes``."""
 
@@ -169,6 +180,7 @@ DEADCATBOUNCE = Archetype(
     name="DeadCatBounce",
     params_cls=DeadCatParams,
     run=runner.run_deadcat,
+    signal=runner.deadcat_signal,
     tier2=Tier2Status.RECONCILED,
 )
 
@@ -176,6 +188,7 @@ PULLBACKANDGO = Archetype(
     name="PullBackAndGo",
     params_cls=PullBackAndGoParams,
     run=pullback.run_pullbackandgo,
+    signal=pullback.pullback_signal,
     tier2=Tier2Status.RECONCILED,
 )
 
