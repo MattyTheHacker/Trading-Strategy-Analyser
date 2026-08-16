@@ -189,6 +189,43 @@ def summarise(trades: pd.DataFrame) -> Summary:
     )
 
 
+TRADE_PNL_STATISTICS = ("profit_factor", "net_pnl", "expectancy", "win_rate")
+"""Statistics that depend on nothing but the per-trade P&L vector.
+
+Which makes them the only ones a resampling test may permute: shuffling trades between
+groups destroys entry and exit times, so anything time-dependent -- Sharpe, Sortino, max
+drawdown, consecutive losses -- would be computed over an ordering that never happened.
+"""
+
+
+def trade_statistic(pnl: np.ndarray, name: str) -> float:
+    """One :data:`TRADE_PNL_STATISTICS` value straight from a per-trade P&L vector.
+
+    Exists so a resampling test can evaluate thousands of regroupings without paying for
+    :func:`summarise` each time -- it is roughly two orders of magnitude cheaper.
+
+    **It is not a second definition.** The division goes through the same ``_ratio``, and
+    ``tests/test_dispersion.py`` asserts this returns exactly what :func:`summarise` does on
+    real logs, for every name. :func:`summarise` remains the reference; if the two ever
+    disagree, this one is wrong. Feed it :func:`per_trade` output, never raw legs.
+    """
+    if name not in TRADE_PNL_STATISTICS:
+        raise ValueError(
+            f"{name!r} cannot be computed from per-trade P&L alone; "
+            f"choose from {list(TRADE_PNL_STATISTICS)}"
+        )
+    if pnl.size == 0:
+        return 0.0
+    wins = pnl > 0
+    if name == "profit_factor":
+        return _ratio(float(pnl[wins].sum()), float(-pnl[pnl < 0].sum()))
+    if name == "net_pnl":
+        return float(pnl.sum())
+    if name == "expectancy":
+        return float(pnl.mean())
+    return float(wins.mean())
+
+
 def leg_summary(trades: pd.DataFrame) -> dict:
     """NT8's view: every named entry counted as its own trade.
 
