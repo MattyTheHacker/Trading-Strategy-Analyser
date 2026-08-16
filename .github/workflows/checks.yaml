@@ -1,6 +1,9 @@
 name: Checks, Linting and Tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -21,21 +24,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The compiled path. This is what actually verifies the fidelity-critical
-          # @njit code, so its result is the one that gates a merge -- but see below
-          # for why its coverage figure alone reads far too low.
+          # This is the functionality test but inaccurate coverage
           - name: Run test suite with pytest
             disable-jit: "0"
             codecov-flag: jit-enabled
             junit: true
 
-          # coverage.py cannot see inside @njit-compiled functions -- numba runs machine
-          # code, so every line in nqbt/sim/deadcat.py (and similarly indicators.py,
-          # conditions.py) reads as missed even though it is exercised. This leg re-runs
-          # the same suite with the JIT disabled purely to measure coverage correctly; it
-          # must not replace the leg above. Codecov merges both uploads for the same
-          # commit, so the PR comment reflects the union: real coverage, not the
-          # compiled-path blind spot.
+          # This is the coverage test but inaccurate functionality 
           - name: Measure real coverage with numba JIT disabled
             disable-jit: "1"
             codecov-flag: jit-disabled
@@ -91,7 +86,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pymarkdownlnt
+          pip install -e ".[dev]"
 
       - name: Run PyMarkdown scan
         run: pymarkdown scan --recurse .
