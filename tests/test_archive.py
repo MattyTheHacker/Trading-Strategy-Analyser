@@ -29,7 +29,7 @@ def archived(arch):
     return (arch / "MNQ 03-24.Last.txt").read_text(encoding="utf-8").splitlines()
 
 
-def test_union_of_two_sources_keeps_what_is_unique_to_each(dirs):
+def test_union_of_two_sources_keeps_what_is_unique_to_each(dirs) -> None:
     manual, addon, arch = dirs
     # The real shape of the problem: the manual export holds a contract's final sessions,
     # the AddOn holds earlier history the manual export never had. Neither is a superset.
@@ -45,7 +45,7 @@ def test_union_of_two_sources_keeps_what_is_unique_to_each(dirs):
     assert lines == sorted(lines), "archive must be in timestamp order"
 
 
-def test_a_contract_missing_from_every_source_is_left_untouched(dirs):
+def test_a_contract_missing_from_every_source_is_left_untouched(dirs) -> None:
     manual, addon, arch = dirs
     write(manual / "MNQ 03-24.Last.txt", BASE)
     archive.build_archive([manual, addon], arch)
@@ -57,7 +57,7 @@ def test_a_contract_missing_from_every_source_is_left_untouched(dirs):
     assert len(archived(arch)) == 3
 
 
-def test_a_shrinking_source_cannot_shrink_the_archive(dirs):
+def test_a_shrinking_source_cannot_shrink_the_archive(dirs) -> None:
     manual, addon, arch = dirs
     write(manual / "MNQ 03-24.Last.txt", BASE)
     archive.build_archive([manual, addon], arch)
@@ -68,7 +68,7 @@ def test_a_shrinking_source_cannot_shrink_the_archive(dirs):
     assert len(archived(arch)) == 3
 
 
-def test_the_newest_bar_of_a_source_may_insert_but_never_overwrite(dirs):
+def test_the_newest_bar_of_a_source_may_insert_but_never_overwrite(dirs) -> None:
     manual, addon, arch = dirs
     # A bar caught mid-formation: a real manual export showed 294 contracts of an eventual
     # 890, with a high and close that had not happened yet.
@@ -84,7 +84,7 @@ def test_the_newest_bar_of_a_source_may_insert_but_never_overwrite(dirs):
     assert result.revised == 0
 
 
-def test_a_revised_bar_that_is_not_the_newest_does_overwrite(dirs):
+def test_a_revised_bar_that_is_not_the_newest_does_overwrite(dirs) -> None:
     manual, addon, arch = dirs
     write(manual / "MNQ 03-24.Last.txt", BASE)
     archive.build_archive([manual, addon], arch)
@@ -96,7 +96,7 @@ def test_a_revised_bar_that_is_not_the_newest_does_overwrite(dirs):
     assert archived(arch)[1] == revised
 
 
-def test_later_sources_win_a_disagreement(dirs):
+def test_later_sources_win_a_disagreement(dirs) -> None:
     manual, addon, arch = dirs
     # Both hold the same bar with different values, and neither is its file's newest.
     theirs = "20240308 213100;18001.00;18003.25;18000.75;18002.50;77"
@@ -106,7 +106,7 @@ def test_later_sources_win_a_disagreement(dirs):
     assert archived(arch)[1] == theirs
 
 
-def test_rerunning_an_unchanged_merge_is_byte_identical(dirs):
+def test_rerunning_an_unchanged_merge_is_byte_identical(dirs) -> None:
     manual, addon, arch = dirs
     write(manual / "MNQ 03-24.Last.txt", BASE)
     archive.build_archive([manual, addon], arch)
@@ -119,7 +119,7 @@ def test_rerunning_an_unchanged_merge_is_byte_identical(dirs):
     assert (result.added, result.revised) == (0, 0)
 
 
-def test_sources_that_disagree_do_not_report_churn_on_a_repeat_merge(dirs):
+def test_sources_that_disagree_do_not_report_churn_on_a_repeat_merge(dirs) -> None:
     manual, addon, arch = dirs
     # The sources hold different volumes for the same bar, so every merge has the earlier
     # source overwrite and the later one overwrite back. Counting those intermediate
@@ -136,7 +136,7 @@ def test_sources_that_disagree_do_not_report_churn_on_a_repeat_merge(dirs):
     assert (arch / "MNQ 03-24.Last.txt").read_bytes() == before
 
 
-def test_prices_are_passed_through_as_text(dirs):
+def test_prices_are_passed_through_as_text(dirs) -> None:
     manual, addon, arch = dirs
     # Parsing to float and formatting back is a needless chance to change a value.
     odd = "20240308 213400;18000.10;18000.70;17999.30;18000.30;7"
@@ -145,7 +145,7 @@ def test_prices_are_passed_through_as_text(dirs):
     assert odd in archived(arch)
 
 
-def test_half_written_final_line_is_skipped_not_fatal(dirs):
+def test_half_written_final_line_is_skipped_not_fatal(dirs) -> None:
     manual, addon, arch = dirs
     path = manual / "MNQ 03-24.Last.txt"
     write(path, BASE)
@@ -155,7 +155,7 @@ def test_half_written_final_line_is_skipped_not_fatal(dirs):
     assert result.bars == 3
 
 
-def test_root_filter_only_touches_matching_contracts(dirs):
+def test_root_filter_only_touches_matching_contracts(dirs) -> None:
     manual, addon, arch = dirs
     write(manual / "MNQ 03-24.Last.txt", BASE)
     write(manual / "NQ 03-24.Last.txt", BASE)
@@ -164,7 +164,7 @@ def test_root_filter_only_touches_matching_contracts(dirs):
     assert not (arch / "MNQ 03-24.Last.txt").exists()
 
 
-def test_ingest_reads_the_archive_and_sees_both_sources(dirs, tmp_path):
+def test_ingest_reads_the_archive_and_sees_both_sources(dirs, tmp_path) -> None:
     manual, addon, arch = dirs
     early = "20240308 212800;17998.00;17999.00;17997.50;17998.50;60"
     write(manual / "MNQ 03-24.Last.txt", BASE)
