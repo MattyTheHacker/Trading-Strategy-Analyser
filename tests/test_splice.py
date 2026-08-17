@@ -287,11 +287,23 @@ def test_build_continuous_requires_at_least_one_contract() -> None:
 def test_check_roll_monotonicity_raises_on_out_of_order_rolls() -> None:
     """Verifies the splicer aborts if roll dates regress chronologically."""
     roll1 = splice.RollDecision(
-        FRONT, BACK, pd.Timestamp("2024-03-08"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame(),
+        FRONT,
+        BACK,
+        pd.Timestamp("2024-03-08"),
+        splice.METHOD_VOLUME,
+        0.0,
+        1.0,
+        pd.DataFrame(),
     )
     # Roll 2 happens a day BEFORE Roll 1, which should trigger the monotonicity guard.
     roll2 = splice.RollDecision(
-        BACK, LATER, pd.Timestamp("2024-03-07"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame(),
+        BACK,
+        LATER,
+        pd.Timestamp("2024-03-07"),
+        splice.METHOD_VOLUME,
+        0.0,
+        1.0,
+        pd.DataFrame(),
     )
 
     with pytest.raises(splice.SpliceError, match="roll dates are out of order"):
@@ -329,10 +341,22 @@ def test_segment_fully_consumed_by_surrounding_rolls_emits_warning(monkeypatch) 
     # with real data because detect_roll requires shared in-session bars to pick a roll.
     # We use monkeypatch to safely simulate the edge case and bypass the monotonicity guard.
     roll1 = splice.RollDecision(
-        FRONT, BACK, pd.Timestamp("2024-03-07"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame(),
+        FRONT,
+        BACK,
+        pd.Timestamp("2024-03-07"),
+        splice.METHOD_VOLUME,
+        0.0,
+        1.0,
+        pd.DataFrame(),
     )
     roll2 = splice.RollDecision(
-        BACK, LATER, pd.Timestamp("2024-03-08"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame(),
+        BACK,
+        LATER,
+        pd.Timestamp("2024-03-08"),
+        splice.METHOD_VOLUME,
+        0.0,
+        1.0,
+        pd.DataFrame(),
     )
 
     def mock_detect_roll(f_id, b_id, *args, **kwargs):

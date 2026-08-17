@@ -267,3 +267,62 @@ def test_ingest_all_reports_when_nothing_is_found(tmp_path) -> None:
     empty.mkdir()
     with pytest.raises(ingest.IngestError, match="no NT8 exports"):
         ingest.ingest_all(data_dir=empty, cache_dir=tmp_path / "cache")
+
+
+def test_empty_export_raises_ingest_error(cache, tmp_path) -> None:
+    """Ensure that an empty or whitespace-only file is rejected cleanly."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    # Write a file with no bar data, only an empty string.
+    src = write(data_dir / "MNQ 03-24.Last.txt", [])
+
+    with pytest.raises(ingest.IngestError, match="produced no bars"):
+        run(src, cache)
+
+
+def test_tick_export_is_rejected_early(cache, tmp_path) -> None:
+    """Verify tick-level exports are rejected rather than parsed incorrectly.
+
+    NinjaTrader tick files have 5 fields instead of 6, and a 3-part timestamp
+    separated by spaces (Date Time Subsecond)[cite: 7].
+    """
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    # Tick format: yyyyMMdd HHmmss fff;last;bid;ask;volume
+    tick_line = "20240308 213000 123;18000.25;18000.00;18000.50;1"
+    src = write(data_dir / "MNQ 03-24.Last.txt", [tick_line])
+
+    with pytest.raises(ingest.IngestError, match="looks like a tick export"):
+        run(src, cache)
+
+
+def test_unparseable_timestamps_raise_error(cache, tmp_path) -> None:
+    """Ensures export files with malformed timestamps trigger a failure."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    bad_line = "Not a timestamp;18000.25;18002.00;17999.50;18001.00;120"
+    src = write(data_dir / "MNQ 03-24.Last.txt", [bad_line])
+
+    with pytest.raises(ingest.IngestError, match="no parseable timestamps"):
+        run(src, cache)
+
+
+def test_load_contract_raises_file_not_found_when_missing(tmp_path) -> None:
+    """Loading a contract that has not been cached should abort safely."""
+    with pytest.raises(FileNotFoundError, match="no cached bars for MNQ 03-24"):
+        ingest.load_contract(CONTRACT, tmp_path)
+
+
+def test_ingest_all_builds_archive_when_data_dir_is_none(monkeypatch, export, cache) -> None:
+    """Verifies that ingest_all defaults to refreshing the archive if no data_dir is provided[cite: 7]."""
+    from unittest.mock import MagicMock
+
+    mock_build = MagicMock(return_value=[])
+    monkeypatch.setattr(ingest.archive, "build_archive", mock_build)
+
+    # Point the archive_dir to the tmp_path containing our export fixture so it succeeds
+    ingest.ingest_all(archive_dir=export.parent, cache_dir=cache, root="MNQ")
+
+    mock_build.assert_called_once()
