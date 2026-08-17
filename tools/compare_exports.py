@@ -127,7 +127,6 @@ def main(argv: list[str]) -> int:
         shifted["shifted_match"].mean()
         return 2
 
-
     for result in details:
         for _label, idx in (
             ("only in baseline", result["_only_baseline_idx"]),

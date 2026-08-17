@@ -466,7 +466,10 @@ def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
 
 
 def rank(
-    results: pd.DataFrame, by: str = "profit_factor", top: int = 20, min_trades: int = 30,
+    results: pd.DataFrame,
+    by: str = "profit_factor",
+    top: int = 20,
+    min_trades: int = 30,
 ) -> pd.DataFrame:
     """Shortlist candidates, ignoring combinations with too few trades to mean anything.
 

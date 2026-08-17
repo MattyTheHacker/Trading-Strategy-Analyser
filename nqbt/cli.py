@@ -9,7 +9,10 @@ from nqbt import ingest, paths, splice
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
     merges, results = ingest.ingest_all(
-        data_dir=args.data_dir, cache_dir=args.cache_dir, root=args.root, force=args.force,
+        data_dir=args.data_dir,
+        cache_dir=args.cache_dir,
+        root=args.root,
+        force=args.force,
     )
     if merges:
         changed = [m for m in merges if m.added or m.revised]
@@ -71,7 +74,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     )
     instrument = get_instrument(args.root)
     bars = splice.load_continuous(
-        args.root, back_adjust=args.back_adjust, cache_dir=args.cache_dir,
+        args.root,
+        back_adjust=args.back_adjust,
+        cache_dir=args.cache_dir,
     )
     if args.start:
         bars = bars[bars.index >= args.start]
@@ -101,7 +106,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
     equity = per_trade.cumsum()
     float((equity.cummax() - equity).max())
 
-
     if args.trades:
         trades.to_csv(args.trades, index=False)
 
@@ -130,7 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest = sub.add_parser("ingest", help="parse NT8 exports into the Parquet cache")
     p_ingest.add_argument("--root", help="limit to one instrument root, e.g. MNQ")
     p_ingest.add_argument(
-        "--force", action="store_true", help="reparse in full, ignoring the manifest",
+        "--force",
+        action="store_true",
+        help="reparse in full, ignoring the manifest",
     )
     p_ingest.set_defaults(func=_cmd_ingest)
 
@@ -157,12 +163,15 @@ def build_parser() -> argparse.ArgumentParser:
         "coverage boundary (NT8 data will not satisfy this)",
     )
     p_splice.add_argument(
-        "--diagnostics", action="store_true", help="print the per-roll volume tables",
+        "--diagnostics",
+        action="store_true",
+        help="print the per-roll volume tables",
     )
     p_splice.set_defaults(func=_cmd_splice)
 
     p_run = sub.add_parser(
-        "run", help="simulate one DeadCatBounce parameter set over the continuous series",
+        "run",
+        help="simulate one DeadCatBounce parameter set over the continuous series",
     )
     p_run.add_argument("--root", default="MNQ")
     p_run.add_argument("--back-adjust", action="store_true")
@@ -171,7 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--fast-sma", type=int, default=60)
     p_run.add_argument("--quantity", type=int, default=4)
     p_run.add_argument(
-        "--commission", type=float, default=0.0, help="round-turn dollars per contract",
+        "--commission",
+        type=float,
+        default=0.0,
+        help="round-turn dollars per contract",
     )
     p_run.add_argument("--slippage", type=float, default=0.0, help="ticks, adverse")
     p_run.add_argument("--start", help="ISO date; restrict the window, e.g. 2024-01-01")
@@ -194,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (ingest.IngestError, splice.SpliceError, FileNotFoundError):
+    except ingest.IngestError, splice.SpliceError, FileNotFoundError:
         return 1
 
 

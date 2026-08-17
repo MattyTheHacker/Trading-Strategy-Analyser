@@ -214,7 +214,9 @@ def prepare(
     vwap = below_vwap = above_vwap = None
     if spec.needs_vwap:
         typical = indicators.typical_price(
-            bars["high"].to_numpy(np.float64), bars["low"].to_numpy(np.float64), close,
+            bars["high"].to_numpy(np.float64),
+            bars["low"].to_numpy(np.float64),
+            close,
         )
         vwap = indicators.session_vwap(
             typical,

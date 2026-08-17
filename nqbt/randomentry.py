@@ -215,7 +215,8 @@ class NullResult:
 
 
 def minute_of_session(
-    index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
+    index: pd.DatetimeIndex,
+    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> np.ndarray:
     """How far each bar sits past its session open, in minutes.
 

@@ -286,7 +286,12 @@ def simulate_deadcat(
                     stop = new_stop
         elif i >= bars_required and signal[i] and not (block_entry_at_session_close and force_flat[i]):
             trigger, candidate_stop, candidate_risk = entry_bracket(
-                high[i], low[i], close[i], entry_offset, stop_offset, direction,
+                high[i],
+                low[i],
+                close[i],
+                entry_offset,
+                stop_offset,
+                direction,
             )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
             too_risky = candidate_risk > max_risk_ticks * tick_size

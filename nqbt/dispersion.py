@@ -66,7 +66,10 @@ class DispersionError(RuntimeError):
 
 
 def front_month_windows(
-    root: str, *, back_adjust: bool = True, cache_dir: Path = paths.CACHE_DIR,
+    root: str,
+    *,
+    back_adjust: bool = True,
+    cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:
     """Each contract's front-month window, read off the continuous series.
 
@@ -191,7 +194,10 @@ def sweep_contracts(
 
 
 def dispersion(
-    results: pd.DataFrame, by: str = "profit_factor", *, min_trades: int = MIN_TRADES,
+    results: pd.DataFrame,
+    by: str = "profit_factor",
+    *,
+    min_trades: int = MIN_TRADES,
 ) -> pd.DataFrame:
     """How much ``by`` varies across contracts, per combination.
 

@@ -177,7 +177,9 @@ def nt8_stddev(values: np.ndarray, period: int) -> np.ndarray:
 
 
 def nt8_bollinger(
-    values: np.ndarray, period: int, num_std: float,
+    values: np.ndarray,
+    period: int,
+    num_std: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Bollinger Bands as ``(upper, middle, lower)``.
 
@@ -190,7 +192,11 @@ def nt8_bollinger(
 
 
 def nt8_keltner(
-    high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int, offset: float,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    period: int,
+    offset: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Keltner Channels as ``(upper, midline, lower)``.
 

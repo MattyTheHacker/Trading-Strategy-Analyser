@@ -282,7 +282,11 @@ class MovingAverageGrid:
 
 
 def moving_average_grid(
-    close: np.ndarray, periods: Iterable[int], kind: str = "ema", *, keep_values: bool = False,
+    close: np.ndarray,
+    periods: Iterable[int],
+    kind: str = "ema",
+    *,
+    keep_values: bool = False,
 ) -> MovingAverageGrid:
     """Compute every distinct MA period a sweep needs, once.
 

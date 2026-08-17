@@ -113,7 +113,6 @@ def capture(outdir: Path) -> None:
     sum(len(v) for v in logs.values())
 
 
-
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         return 2

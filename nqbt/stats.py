@@ -251,10 +251,10 @@ def trade_statistic(pnl: np.ndarray, name: str) -> float:
     disagree, this one is wrong. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
-        msg = f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
-        raise ValueError(
-            msg,
+        msg = (
+            f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         )
+        raise ValueError(msg)
     if pnl.size == 0:
         return 0.0
     wins = pnl > 0

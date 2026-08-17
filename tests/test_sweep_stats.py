@@ -476,7 +476,8 @@ def test_the_strategy_axis_takes_a_grid_each_rather_than_a_name_each(axis_bars) 
     """
     deadcat = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
     pullback = sweep.Grid.of(
-        PullBackAndGoParams(bars_required_to_trade=200), require_previous_red=[True, False],
+        PullBackAndGoParams(bars_required_to_trade=200),
+        require_previous_red=[True, False],
     )
     frame, _ = sweep.sweep_axes(axis_bars, [deadcat, pullback], NQ)
     assert set(frame["strategy"]) == {"DeadCatBounce", "PullBackAndGo"}
@@ -644,7 +645,12 @@ def test_save_and_reload_a_sweep(db) -> None:
 def test_sweep_ids_increment_and_rows_stay_tagged(db) -> None:
     for _ in range(3):
         results.save_sweep(
-            fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db,
+            fake_results(),
+            root="MNQ",
+            instrument="MNQ",
+            bars=fake_bars(),
+            axes={},
+            db_path=db,
         )
     assert list(results.list_sweeps(db)["sweep_id"]) == [3, 2, 1]
     counts = results.query("SELECT sweep_id, COUNT(*) n FROM combos GROUP BY 1 ORDER BY 1", db)
@@ -681,7 +687,9 @@ def save(db, results_frame=None, **kwargs) -> int:
     """``save_sweep`` with the arguments that are noise for these tests filled in."""
     defaults = {"root": "MNQ", "instrument": "MNQ", "bars": fake_bars(), "axes": {}}
     return results.save_sweep(
-        fake_results() if results_frame is None else results_frame, db_path=db, **{**defaults, **kwargs},
+        fake_results() if results_frame is None else results_frame,
+        db_path=db,
+        **{**defaults, **kwargs},
     )
 
 
@@ -723,8 +731,7 @@ def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db)
     """
     save(db)  # contract is null throughout: the case that sets the column's type
     described = {
-        name: sql_type
-        for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)
+        name: sql_type for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)
     }
     assert described["contract"] == "VARCHAR"
     assert described["resolution"] == "BIGINT"
@@ -880,7 +887,8 @@ def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db
     save(db, results_frame=wider)
     save(db, results_frame=fake_results())  # narrower: no brand_new_stat this time
     rows = results.query(
-        "SELECT sweep_id, brand_new_stat, net_pnl FROM combos ORDER BY sweep_id, combo_id", db,
+        "SELECT sweep_id, brand_new_stat, net_pnl FROM combos ORDER BY sweep_id, combo_id",
+        db,
     )
     assert list(rows[rows["sweep_id"] == 1]["brand_new_stat"]) == [1.0, 2.0, 3.0]
     assert rows[rows["sweep_id"] == 2]["brand_new_stat"].isna().all()

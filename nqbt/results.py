@@ -125,7 +125,8 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
 def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
     return bool(
         con.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table],
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [table],
         ).fetchone()[0],
     )
 
@@ -283,7 +284,8 @@ def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.Data
     relabels the row as a different run.
     """
     exists = con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table],
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+        [table],
     ).fetchone()[0]
     if not exists:
         con.register("incoming", frame)
