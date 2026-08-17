@@ -8,7 +8,6 @@ write is defined by :mod:`nqbt.trades`. Neither belongs here: the review layer n
 and has no strategy at all.
 """
 
-
 from typing import TYPE_CHECKING
 
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams

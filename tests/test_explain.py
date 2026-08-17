@@ -119,3 +119,100 @@ def test_entry_bracket_leaves_the_low_alone_when_the_close_is_high() -> None:
     trigger, _stop, risk = deadcat.entry_bracket(100.0, 99.0, 99.9, 2 * tick, 2 * tick, SHORT)
     assert trigger == pytest.approx(99.0)  # min(99.0, 99.4) -- the low wins
     assert risk == pytest.approx(1.5)
+
+
+def test_explain_trades_raises_value_error_without_kept_ma_values() -> None:
+    """Ensure explain_trades guards against datasets missing raw indicator values."""
+    params = DeadCatParams(bars_required_to_trade=200)
+
+    # Prepare data explicitly WITHOUT keep_ma_values=True
+    data = context.prepare(
+        synthetic_bars(n=500),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
+        keep_ma_values=False,
+    )
+
+    empty_trades = pd.DataFrame(columns=["trade_id"])
+
+    with pytest.raises(ValueError, match="explain_trades needs raw indicator values"):
+        explain.explain_trades(data, params, empty_trades, MNQ)
+
+
+def test_explain_trades_respects_limit_parameter() -> None:
+    """Verify the limit parameter truncates the audit trail correctly."""
+    params = DeadCatParams(bars_required_to_trade=200)
+    data = context.prepare(
+        synthetic_bars(n=1000),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
+        keep_ma_values=True,
+    )
+
+    log = run_deadcat(data, params, MNQ)
+    assert len(log) > 2, "Need at least 3 trades in the fixture for this test."
+
+    limit_val = 2
+    detail = explain.explain_trades(data, params, log, MNQ, limit=limit_val)
+
+    assert len(detail) == limit_val
+    assert detail["trade_id"].nunique() == limit_val
+
+
+def test_ratchet_history_raises_keyerror_on_unknown_trade() -> None:
+    """Ensure the history builder fails cleanly if given a bad trade ID."""
+    params = DeadCatParams(bars_required_to_trade=200)
+    data = context.prepare(
+        synthetic_bars(n=500),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
+        keep_ma_values=True,
+    )
+
+    log = run_deadcat(data, params, MNQ)
+    invalid_trade_id = -999
+
+    with pytest.raises(KeyError, match=f"no trade with id {invalid_trade_id}"):
+        explain.ratchet_history(data, params, log, invalid_trade_id, MNQ)
+
+
+def test_ratchet_history_calculates_trailing_stops_correctly() -> None:
+    """Validates the bar-by-bar tightening of the stop loss."""
+    params = DeadCatParams(bars_required_to_trade=200)
+    data = context.prepare(
+        synthetic_bars(n=1500),
+        context.ContextSpec(
+            ema_periods=(params.ema_period,),
+            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            needs_vwap=True,
+        ),
+        keep_ma_values=True,
+    )
+
+    log = run_deadcat(data, params, MNQ)
+    first_trade_id = log["trade_id"].iloc[0]
+
+    history = explain.ratchet_history(data, params, log, first_trade_id, MNQ)
+
+    # 1. Ensure we have bar-by-bar history
+    assert not history.empty
+
+    # 2. Check the core ratcheting rule: the stop should only ever move down (for shorts), never up.
+    # Because this is a short strategy, a "tighter" stop means a lower price.
+    stops = history["stop_live_this_bar"].values
+    for i in range(1, len(stops)):
+        assert stops[i] <= stops[i - 1], "Stop loss moved in the wrong direction (widened)."
+
+    # 3. Check that `tightened` flag is accurate
+    tightened_rows = history[history["tightened"]]
+    for _, row in tightened_rows.iterrows():
+        assert row["candidate_from_prev_high"] < row["stop_live_this_bar"]

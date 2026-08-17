@@ -253,3 +253,77 @@ def test_out_of_session_bars_never_reach_the_continuous_series() -> None:
     series, _ = splice.build_continuous([FRONT, BACK], frames)
     assert pd.Timestamp("2024-03-09 15:44:00", tz="UTC") not in series.index
     assert "in_session" not in series.columns
+
+
+def test_load_continuous_raises_file_not_found_when_missing(tmp_path) -> None:
+    """Ensures load_continuous aborts clearly if the parquet file does not exist."""
+    with pytest.raises(FileNotFoundError, match="no continuous series for MNQ"):
+        # tmp_path is an empty temporary directory provided by pytest,
+        # guaranteeing the file will not be present.
+        splice.load_continuous("MNQ", cache_dir=tmp_path)
+
+
+def test_boundary_offset_raises_if_no_prior_shared_bars() -> None:
+    """Verifies failure when a roll is found but there is no previous bar to measure the price offset."""
+    day1, day2 = ["2024-03-06"], ["2024-03-07"]
+
+    # Front has a full session on Day 1, and a tiny stub on Day 2.
+    front = pd.concat([make_frame(day1, 100.0, 900), make_frame(day2, 100.0, 10, bars=1)])
+    # Back has NO data on Day 1, and a full session on Day 2.
+    back = make_frame(day2, 110.0, 900)
+
+    # The coverage fallback will pick Day 2 for the roll, but `_boundary_offset`
+    # won't find any shared bars on Day 1 to calculate the gap.
+    with pytest.raises(splice.SpliceError, match="no shared bar before"):
+        splice.detect_roll(FRONT, BACK, front, back)
+
+
+def test_build_continuous_requires_at_least_one_contract() -> None:
+    """Ensure the continuous builder rejects an empty contract list."""
+    with pytest.raises(splice.SpliceError, match="need at least one contract"):
+        splice.build_continuous([], {})
+
+
+def test_check_roll_monotonicity_raises_on_out_of_order_rolls() -> None:
+    """Verifies the splicer aborts if roll dates regress chronologically."""
+    roll1 = splice.RollDecision(
+        FRONT, BACK, pd.Timestamp("2024-03-08"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame()
+    )
+    # Roll 2 happens a day BEFORE Roll 1, which should trigger the monotonicity guard.
+    roll2 = splice.RollDecision(
+        BACK, LATER, pd.Timestamp("2024-03-07"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame()
+    )
+
+    with pytest.raises(splice.SpliceError, match="roll dates are out of order"):
+        splice._check_roll_monotonicity([roll1, roll2])
+
+
+def test_back_adjustment_warns_if_prices_drop_below_zero() -> None:
+    """Ensure a warning is surfaced if large roll gaps push historical prices negative."""
+    # Front trades around 100. Back trades around -5.
+    # Offset = 100 - (-5) = 105. Back-adjusting will shift the Front prices by -105,
+    # driving the adjusted Front prices below zero.
+    front = make_frame(DAYS, 100.0, dict.fromkeys(DAYS, 900))
+    back = make_frame(DAYS, -5.0, dict.fromkeys(DAYS, 900))
+
+    _, report = splice.build_continuous([FRONT, BACK], {FRONT: front, BACK: back}, back_adjust=True)
+
+    assert any("drove prices to or below zero" in w for w in report.warnings)
+
+
+def test_segment_fully_consumed_by_surrounding_rolls_emits_warning() -> None:
+    """Tests the edge case where a contract's valid window is squeezed to 0 bars."""
+    days = ["2024-03-06", "2024-03-07", "2024-03-08"]
+    front = make_frame(days, 100.0, {"2024-03-06": 900, "2024-03-07": 900, "2024-03-08": 100})
+
+    # Both BACK and LATER experience their crossover on the exact same day (03-08).
+    # This means the BACK contract is valid starting 03-08, but expires on 03-08.
+    back = make_frame(days, 110.0, {"2024-03-06": 100, "2024-03-07": 100, "2024-03-08": 900})
+    later = make_frame(days, 120.0, {"2024-03-06": 0, "2024-03-07": 100, "2024-03-08": 950})
+
+    frames = {FRONT: front, BACK: back, LATER: later}
+    series, report = splice.build_continuous([FRONT, BACK, LATER], frames)
+
+    assert any("contributes no bars" in w for w in report.warnings)
+    # The middle contract (MNQ 06-24) should not exist in the final series.
+    assert "MNQ 06-24" not in series["contract"].values
