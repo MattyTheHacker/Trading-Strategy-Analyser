@@ -300,30 +300,50 @@ def test_check_roll_monotonicity_raises_on_out_of_order_rolls() -> None:
 
 def test_back_adjustment_warns_if_prices_drop_below_zero() -> None:
     """Ensure a warning is surfaced if large roll gaps push historical prices negative."""
+    days = ["2024-03-06", "2024-03-07", "2024-03-08"]
+
+    # We must create a valid volume crossover so detect_roll succeeds naturally.
+    front_vols = {"2024-03-06": 900, "2024-03-07": 800, "2024-03-08": 100}
+    back_vols = {"2024-03-06": 100, "2024-03-07": 200, "2024-03-08": 900}
+
     # Front trades around 100. Back trades around -5.
-    # Offset = 100 - (-5) = 105. Back-adjusting will shift the Front prices by -105,
-    # driving the adjusted Front prices below zero.
-    front = make_frame(DAYS, 100.0, dict.fromkeys(DAYS, 900))
-    back = make_frame(DAYS, -5.0, dict.fromkeys(DAYS, 900))
+    # Offset = 100 - (-5) = 105. Back-adjusting will shift the Front prices by -105.
+    front = make_frame(days, 100.0, front_vols)
+    back = make_frame(days, -5.0, back_vols)
 
     _, report = splice.build_continuous([FRONT, BACK], {FRONT: front, BACK: back}, back_adjust=True)
 
     assert any("drove prices to or below zero" in w for w in report.warnings)
 
 
-def test_segment_fully_consumed_by_surrounding_rolls_emits_warning() -> None:
+def test_segment_fully_consumed_by_surrounding_rolls_emits_warning(monkeypatch) -> None:
     """Tests the edge case where a contract's valid window is squeezed to 0 bars."""
     days = ["2024-03-06", "2024-03-07", "2024-03-08"]
-    front = make_frame(days, 100.0, {"2024-03-06": 900, "2024-03-07": 900, "2024-03-08": 100})
+    front = make_frame(days, 100.0, 900)
 
-    # Both BACK and LATER experience their crossover on the exact same day (03-08).
-    # This means the BACK contract is valid starting 03-08, but expires on 03-08.
-    back = make_frame(days, 110.0, {"2024-03-06": 100, "2024-03-07": 100, "2024-03-08": 900})
-    later = make_frame(days, 120.0, {"2024-03-06": 0, "2024-03-07": 100, "2024-03-08": 950})
+    # The BACK contract only has data on 03-08.
+    back = make_frame(["2024-03-08"], 110.0, 900)
+    later = make_frame(days, 120.0, 900)
+
+    # The defensive warning in build_continuous is mathematically unreachable
+    # with real data because detect_roll requires shared in-session bars to pick a roll.
+    # We use monkeypatch to safely simulate the edge case and bypass the monotonicity guard.
+    roll1 = splice.RollDecision(
+        FRONT, BACK, pd.Timestamp("2024-03-07"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame()
+    )
+    roll2 = splice.RollDecision(
+        BACK, LATER, pd.Timestamp("2024-03-08"), splice.METHOD_VOLUME, 0.0, 1.0, pd.DataFrame()
+    )
+
+    def mock_detect_roll(f_id, b_id, *args, **kwargs):
+        if f_id == FRONT and b_id == BACK:
+            return roll1
+        return roll2
+
+    monkeypatch.setattr(splice, "detect_roll", mock_detect_roll)
 
     frames = {FRONT: front, BACK: back, LATER: later}
     series, report = splice.build_continuous([FRONT, BACK, LATER], frames)
 
     assert any("contributes no bars" in w for w in report.warnings)
-    # The middle contract (MNQ 06-24) should not exist in the final series.
     assert "MNQ 06-24" not in series["contract"].values
