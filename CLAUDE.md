@@ -173,9 +173,10 @@ commands that duplicate the Python API.
 Done and validated: ingestion with a durable archive and exact rewrite detection, contract
 splicing with back-adjustment, NT8-compatible indicators, the DeadCatBounce and
 PullBackAndGo simulations, the sweep + statistics + DuckDB results layer, parallel sweeps
-over cores, the numpy-native summary path that keeps a combination off pandas, and
+over cores, the numpy-native summary path that keeps a combination off pandas,
 **M18's EmaCrossover** — the first original archetype, with the shared bracket engine
-extracted out from under all three.
+extracted out from under all three — and **M10.4's time-of-day labels**, the first of M10's
+market-context conditions.
 
 **Both archetypes are reconciled against real NT8 trade lists. `docs/nt8-fidelity.md` is
 the live record** — agreement rates, per-rule evidence, and what each residual disagreement
@@ -341,6 +342,38 @@ bar early would have come back spectacularly profitable, not at the null's media
   ~11.5× the legs, not the ~30× predicted. `allocate_output` reserves **27 MB per worker**, so
   read a permissive grid's signal count before launching it, not after.
 
+**M10.4 has landed: `nqbt/timeofday.py` is the first piece of M10.** Session phase (seven
+coarse ET buckets) and bar of session (the integer index from the open), both out of one
+`classify()` pass over `resample.minutes_since_open`, plus `phase_filter` as a sweepable entry
+filter on all three archetypes. Quote `docs/roadmap.md` § M10.4, not this line. What a caller
+needs to know:
+
+- **ET, and the test says why.** The DST pin asserts both that the cash-open bars carry the
+  same *Eastern* minutes either side of 2024-03-10 **and** that their *UTC* minutes differ.
+  Without the second half it is a tautology that passes over a UTC implementation.
+- **A bar is labelled by the minute it covers, not the minute it is stamped at.** A bar
+  stamped 09:30 is the pre-open; the first cash-open bar is stamped 09:31. Same off-by-one as
+  M13's `bucket_index`, and invisible in aggregate.
+- **Bar of session is clock-derived, never counted off the data.** An ordinal count renumbers
+  everything after a hole, so index *k* would mean a different time of day in different
+  sessions — the exact confound #41's relative volume divides out. It *is*
+  `resample.bucket_index`'s bucket, which is what makes the two share one definition.
+  `prepare` takes `bar_minutes`; `sweep_axes` passes the resolution it already knows.
+- **`phase_filter` is a bitmask int so it is sweepable.** A tuple would have to join
+  `not_sweepable`. `ALL_PHASES` is the default and each signal **skips the conjunction
+  entirely** at that value — not an optimisation: an out-of-session stray passes *no* mask,
+  `ALL_PHASES` included, so ANDing at the default would quietly drop the strays.
+- **Gated.** All 12 captured trade logs byte-identical, `sha256` too; the two sweep summary
+  tables differ only by the added `phase_filter` column.
+- **First result is a stratification, not a finding.** Costed MNQ from 2024, stock
+  `DeadCatParams`: profit factor by phase runs 0.561 (overnight) to 0.871 (midday) against an
+  aggregate 0.666, and the seven trade counts sum to the unfiltered total exactly. **Do not
+  read the midday cell as an edge** — best of seven chosen after looking, and no cell reaches
+  1. What it says is that the aggregate was averaging populations differing by 55%.
+- **The last phase's forced-exit artefact is real and small here.** `session_close_share` is
+  0.0016 on `CLOSE` against 0.0001 overall. Read it before attributing anything to the clock,
+  and expect it to matter at 15 and 30 minutes where it does not at 1.
+
 **M20a has landed**, so M15 is unblocked. All three defects are fixed, every captured trade
 log is byte-identical to the pre-M20a baseline, and the whole point was to leave M15 one
 copy of the bracket machinery to multiply by `d` instead of two.
@@ -372,8 +405,9 @@ the record of what the audit trail said while it was being trusted.
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
 **Order: M10 → M11 → M7b → M19 → M12.** M9, M20a, M15, **M16**,
-**M17(+M13+M14)**, **M7a**, **the numpy summary path (#33)** and **M18** are all done — see
-Status.
+**M17(+M13+M14)**, **M7a**, **the numpy summary path (#33)**, **M18** and **M10.4** are all
+done — see Status. M10's remaining three are the regime classifier (#40), volume (#41) and the
+trend label (#42).
 
 **The NinjaTrader queue is empty except #67, and nothing is waiting on it.** That session
 (2026-08-16) closed #20, #21, #22, #23's measurement half, #66 and #92 in one sitting. #67
@@ -381,7 +415,7 @@ Status.
 this section as a reason to book NT8 time** — the code column is what is short.
 
 **~~M18~~ — EMA crossover: done, and it reads as the known negative it was built to be.**
-See Status. **Next is M10.**
+See Status. **M10 is under way: ~~M10.4~~ (time of day, `nqbt/timeofday.py`) has landed.**
 
 **#23's roll-boundary half is still open**, and it is a decision rather than a measurement,
 so it can be taken any time. The session half is settled: True Range does not reset.
@@ -629,12 +663,8 @@ DuckDB tables **by name rather than by position**, which is what makes M17's nul
 
 **M10 — the conditions the review needs and we lack.** Regime classification
 (`nqbt/regime.py`, Kaufman efficiency ratio → directional / consolidating / unclassifiable,
-the middle band being the no-trade state); volume, absolute *and* relative; a compact trend
-label off the existing MA grids; and time of day itself (`nqbt/timeofday.py`) as a
-first-class dimension for both sweeps and the review — a coarse session-phase label plus a
-bar-of-session index, **measured in ET, never UTC**, or the cash open smears across two
-buckets for half the year. It doubles as a sweepable entry filter: a rule that only works at
-the open reads as unprofitable when averaged over 23 hours.
+the middle band being the no-trade state); volume, absolute *and* relative; and a compact
+trend label off the existing MA grids. **~~Time of day~~ is done — see Status.**
 
 **Volume is one quantity and its decomposition, not three conditions.** Absolute volume is
 the raw count; time of day is its dominant systematic component; relative volume is absolute
