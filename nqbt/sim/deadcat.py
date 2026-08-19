@@ -324,4 +324,3 @@ def simulate_deadcat(
                     return -1
 
     return written
-

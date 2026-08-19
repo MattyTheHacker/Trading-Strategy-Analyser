@@ -318,12 +318,14 @@ def test_the_trade_schema_knows_nothing_about_bars_or_strategies() -> None:
     assert not offenders, f"nqbt/trades.py must stay standalone; found {offenders}"
 
 
-def test_deadcat_does_not_reference_exit_signal() -> None:
-    # A structural guard, not just a today-it-doesn't-happen-to-fire one: DeadCatBounce has
-    # no rule-driven exit, so the loop should not even import the constant it would need to
-    # produce one. Catches the reservation being wired in silently before an archetype that
-    # actually needs it exists.
+def test_only_the_archetype_with_a_rule_driven_exit_references_exit_signal() -> None:
+    # A structural guard, not just a today-it-doesn't-happen-to-fire one. DeadCatBounce has
+    # no rule-driven exit and the shared bracket engine has no rules at all, so neither
+    # should import the constant it would need to produce one. EmaCrossover is the archetype
+    # the reservation was made for, and it must be the only one spending it.
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
+    assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/bracket.py")
+    assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/pullback.py")
 
 
 def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -> None:
