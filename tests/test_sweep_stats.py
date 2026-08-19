@@ -490,6 +490,24 @@ def test_the_strategy_axis_takes_a_grid_each_rather_than_a_name_each(axis_bars) 
         assert sorted(block["combo_id"]) == [0, 1]
 
 
+def test_the_original_archetype_sweeps_beside_a_ported_one(axis_bars) -> None:
+    """The protocol test M18 exists to be. EmaCrossover shares no parameter with
+    DeadCatBounce, reads a different set of series, enters by a different mechanism and
+    exits on a rule -- and ``sweep_axes`` needs no knowledge of any of that.
+    """
+    from nqbt.sim.types import EmaCrossoverParams
+
+    deadcat = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
+    cross = sweep.Grid.of(
+        EmaCrossoverParams(bars_required_to_trade=200),
+        atr_stop_multiple=[1.5, 2.5],
+    )
+    frame, _ = sweep.sweep_axes(axis_bars, [deadcat, cross], NQ)
+    assert set(frame["strategy"]) == {"DeadCatBounce", "EmaCrossover"}
+    tiers = dict(zip(frame["strategy"], frame["tier2"], strict=True))
+    assert tiers == {"DeadCatBounce": "reconciled", "EmaCrossover": "tier-1-only"}
+
+
 def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
     """A per-archetype property, so it cannot be a column written once for the run."""
     from nqbt import archetypes as registry

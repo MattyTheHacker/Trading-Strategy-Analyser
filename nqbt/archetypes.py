@@ -25,8 +25,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from nqbt.context import ContextSpec
-from nqbt.sim import pullback, runner
-from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+from nqbt.sim import crossover, pullback, runner
+from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -103,6 +103,26 @@ def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
     )
 
 
+def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
+    """What EmaCrossover reads: two EMA grids, their raw values, and an ATR.
+
+    Two things separate it from :func:`moving_average_context`. It needs
+    ``needs_ma_values`` because its rule compares two averages to *each other*, which no
+    boolean close-versus-average gate can answer -- and that is the 8x memory the grids
+    otherwise avoid, so it is requested by the one archetype that needs it rather than
+    switched on globally. And the ATR is requested only when some combination uses the ATR
+    stop, the same way VWAP is: a swing-stop-only sweep should not build one.
+    """
+    fast = {int(v) for v in values.get("fast_period", ())}
+    slow = {int(v) for v in values.get("slow_period", ())}
+    atr = {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
+    return ContextSpec(
+        ema_periods=tuple(sorted(fast | slow)),
+        atr_periods=tuple(sorted(atr)),
+        needs_ma_values=True,
+    )
+
+
 # A period only matters when its filter is switched on. Shared by both archetypes because
 # both spell the toggles the same way; an archetype that does not can pass its own.
 MA_GATES: Mapping[str, str] = {
@@ -110,6 +130,17 @@ MA_GATES: Mapping[str, str] = {
     "fast_sma_period": "use_fast_sma",
     "slow_sma_period": "use_slow_sma",
 }
+
+CROSSOVER_GATES: Mapping[str, str] = {
+    "atr_period": "use_atr_stop",
+    "atr_stop_multiple": "use_atr_stop",
+}
+"""EmaCrossover has no MA toggles -- both averages are always read -- but its two stop modes
+are exclusive, so the ATR fields are dead when every combination uses the swing stop.
+
+``swing_lookback`` cannot be guarded the same way: ``dead_axes`` asks whether a toggle is
+true *somewhere*, which cannot express "dead when this one is never false".
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,7 +241,24 @@ PULLBACKANDGO = Archetype(
     tier2=Tier2Status.RECONCILED,
 )
 
-_REGISTRY: dict[str, Archetype] = {a.name: a for a in (DEADCATBOUNCE, PULLBACKANDGO)}
+EMACROSSOVER = Archetype(
+    name="EmaCrossover",
+    params_cls=EmaCrossoverParams,
+    run=crossover.run_crossover,
+    legs=crossover.crossover_legs,
+    signal=crossover.crossover_signal,
+    tier2=Tier2Status.TIER1_ONLY,
+    gated_by=CROSSOVER_GATES,
+    context_for=crossover_context,
+)
+"""The first original archetype: no NinjaScript, and TIER1_ONLY until there is one.
+
+Registering it is the point of M17 -- ``sweep.py`` names neither its parameter class nor its
+run function, so the second entry mechanism and the first signal exit arrive without the
+sweep changing at all.
+"""
+
+_REGISTRY: dict[str, Archetype] = {a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, PULLBACKANDGO)}
 
 DEFAULT = DEADCATBOUNCE
 """What a ``Grid`` assumes when nothing says otherwise.

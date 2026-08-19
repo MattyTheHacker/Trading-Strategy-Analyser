@@ -15,20 +15,21 @@ import pytest
 from nqbt import archetypes, sessions, sweep
 from nqbt.archetypes import Archetype, ArchetypeError, ContextSpec, Tier2Status
 from nqbt.instruments import NQ
-from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
 
 # -- the registry -------------------------------------------------------------
 
 
-def test_both_ported_archetypes_are_registered() -> None:
-    assert archetypes.names() == ["DeadCatBounce", "PullBackAndGo"]
+def test_every_archetype_is_registered() -> None:
+    assert archetypes.names() == ["DeadCatBounce", "EmaCrossover", "PullBackAndGo"]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
+    assert archetypes.get("EmaCrossover") is archetypes.EMACROSSOVER
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
 
 
 def test_an_unknown_name_lists_the_known_ones() -> None:
-    with pytest.raises(ArchetypeError, match="EmaCrossover"):
-        archetypes.get("EmaCrossover")
+    with pytest.raises(ArchetypeError, match="DeadCatBounce"):
+        archetypes.get("InsideBar")
 
 
 def test_registering_a_duplicate_name_is_refused() -> None:
@@ -53,6 +54,7 @@ def test_the_default_is_deadcatbounce() -> None:
 def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(DeadCatParams()) is archetypes.DEADCATBOUNCE
     assert archetypes.for_params(PullBackAndGoParams()) is archetypes.PULLBACKANDGO
+    assert archetypes.for_params(EmaCrossoverParams()) is archetypes.EMACROSSOVER
 
 
 def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
@@ -65,10 +67,16 @@ def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
         archetypes.for_params(Unknown())  # type: ignore[arg-type]
 
 
-def test_both_archetypes_are_reconciled_and_say_so() -> None:
-    """``tier2`` is the column that stops a ranking mixing a measurement with an assumption."""
-    for a in archetypes.all_archetypes():
-        assert a.tier2 is Tier2Status.RECONCILED
+def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
+    """``tier2`` is the column that stops a ranking mixing a measurement with an assumption.
+
+    Both ports have a real NT8 trade list behind them. EmaCrossover has no NinjaScript at
+    all, so it must not claim one -- this is the assertion that would fail if someone
+    registered an original with the reconciled ports' status copied across.
+    """
+    assert archetypes.DEADCATBOUNCE.tier2 is Tier2Status.RECONCILED
+    assert archetypes.PULLBACKANDGO.tier2 is Tier2Status.RECONCILED
+    assert archetypes.EMACROSSOVER.tier2 is Tier2Status.TIER1_ONLY
 
 
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------

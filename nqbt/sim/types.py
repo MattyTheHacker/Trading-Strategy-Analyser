@@ -60,7 +60,7 @@ class DeadCatParams:
 
     Worth sweeping as an axis: the spread between the two is a direct measure of how much
     of a candidate's edge rests on an assumption the bar data cannot settle. See
-    :func:`nqbt.sim.deadcat._targets_reached_first`."""
+    :func:`nqbt.sim.bracket.targets_reached_first`."""
 
     fill_limit_on_touch: bool = False
     """Whether a profit target fills when price merely reaches it.
@@ -246,6 +246,137 @@ class PullBackAndGoParams:
         ``baseQuantity + remainder`` on L4 -- identical to DeadCatBounce's split, so 10
         contracts go 2/2/2/4 rather than 3/3/2/2.
         """
+        n = len(self.target_r_multiples)
+        base = self.order_quantity // n
+        remainder = self.order_quantity % n
+        return tuple([base] * (n - 1) + [base + remainder])
+
+    def as_dict(self) -> dict:
+        out = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            out[f.name] = list(value) if isinstance(value, tuple) else value
+        return out
+
+
+STOP_MIN_TICKS = 1.0
+"""Fewest ticks a protective stop may sit from the fill, below which the entry is skipped.
+
+A stop at or through the price it protects is not a stop order, which is the same rule NT8
+applies to a stop-market *entry* -- see ``docs/nt8-fidelity.md``. It is reachable here and
+not in the two ported archetypes, because a market-on-next-open entry has no trigger price
+to anchor the stop to and the swing mode's reference can be gapped straight through.
+"""
+
+
+@dataclass(slots=True)
+class EmaCrossoverParams:
+    """Rule set for the EmaCrossover archetype -- the first original, with no NinjaScript.
+
+    **A known-negative control, not an edge candidate.** MA crossover on 1-minute index
+    futures is the most-tested idea in retail futures and is reliably unprofitable at
+    realistic costs; if it reads meaningfully better than the random-entry arm the first
+    hypothesis is lookahead. See ``docs/roadmap.md`` § M18.
+
+    Three defaults that would otherwise be wrong are fixed explicitly, and each is a field
+    here rather than a constant so the alternative stays reachable: the cross uses NT8's
+    ``CrossAbove(a, b, n)`` semantics (:attr:`cross_lookback`), the entry is
+    market-on-next-open rather than a resting stop, and the stop is an ATR multiple
+    (:attr:`use_atr_stop`) because a crossover has no signal wick to anchor to.
+    """
+
+    fast_period: int = 9
+    slow_period: int = 21
+    """EMA periods, NT8-seeded via :func:`nqbt.indicators.nt8_ema`. Equal periods never
+    cross and are rejected."""
+
+    cross_lookback: int = 1
+    """``n`` in ``CrossAbove(fast, slow, n)`` -- a cross within the last ``n`` bars counts.
+
+    ``1`` is the bar of the cross itself, which is the naive form. Larger values let an
+    entry missed at the session's flatten point be taken on a later bar."""
+
+    trade_long: bool = True
+    trade_short: bool = True
+    """Which sides to take. Both on is the point of the archetype; switching one off is how
+    the two halves get measured separately."""
+
+    exit_on_opposite_cross: bool = True
+    """Close the position when the regime flips, at the next bar's open.
+
+    This is the ``EXIT_SIGNAL`` exit -- a rule-driven exit with no bracket level of its own,
+    which nothing else in the project produces. Off leaves only the stop, the targets and
+    the session close."""
+
+    order_quantity: int = 4
+
+    use_atr_stop: bool = True
+    """ATR-multiple stop when on, structural swing stop when off.
+
+    Sweeping this is what #37 means by keeping the swing mode as an alternative axis. Note
+    ``dead_axes`` can only guard the ATR fields against it: it gates an axis on a toggle
+    being *true* somewhere, so :attr:`swing_lookback` cannot be guarded the same way and a
+    grid that never turns this off will sweep it for nothing."""
+
+    atr_period: int = 14
+    atr_stop_multiple: float = 2.0
+    """Stop distance as a multiple of ATR at the signal bar -- the last *completed* bar, so
+    the stop cannot read the bar it is placed on."""
+
+    swing_lookback: int = 3
+    """Completed bars the swing stop takes its extreme from, the signal bar included."""
+
+    stop_offset_ticks: int = 2
+    """Ticks beyond the swing extreme, matching the two ported archetypes. Not applied to
+    the ATR stop, whose multiple already sets the distance."""
+
+    tp_multiplier: float = 1.0
+    target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
+    """Per-leg targets in R, ``nan`` marking a runner.
+
+    **R means something different here.** It is ``stop - entry``, which with an ATR stop is
+    volatility-scaled rather than structure-scaled, so these numbers are not comparable to
+    DeadCatBounce's at the same values. Same trap as comparing profit factor across bar
+    resolutions."""
+
+    bars_required_to_trade: int = 200
+
+    ambiguity_policy: int = 1
+    """See :attr:`DeadCatParams.ambiguity_policy` -- same concept, same default."""
+
+    fill_limit_on_touch: bool = False
+    block_entry_at_session_close: bool = True
+    round_targets: bool = True
+    """Snap targets onto the tick grid. On because NT8 snaps them at submission whatever the
+    script does -- the M15.5 trade list settled that for PullBackAndGo."""
+
+    commission_per_contract: float = 0.0
+    slippage_ticks: float = 0.0
+    """Adverse slippage on the entry and on both market exits -- the stop and the signal
+    exit. Never applied to a limit target."""
+
+    def __post_init__(self) -> None:
+        if self.order_quantity < len(self.target_r_multiples):
+            msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_r_multiples)} legs"
+            raise ValueError(msg)
+        for name in ("fast_period", "slow_period", "atr_period", "swing_lookback"):
+            if getattr(self, name) < 1:
+                msg = f"{name} must be >= 1"
+                raise ValueError(msg)
+        if self.cross_lookback < 1:
+            msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
+            raise ValueError(msg)
+        if self.fast_period == self.slow_period:
+            msg = (
+                f"fast_period and slow_period are both {self.fast_period}; identical "
+                "averages never cross, so every combination along that axis trades nothing"
+            )
+            raise ValueError(msg)
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """Contracts per leg, with the remainder on the last -- the same split as the two
+        ported archetypes, so a scale-out is comparable across all three."""
         n = len(self.target_r_multiples)
         base = self.order_quantity // n
         remainder = self.order_quantity % n
