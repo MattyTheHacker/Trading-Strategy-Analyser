@@ -298,6 +298,67 @@ if (risk > maxRiskPerTrade * TickSize) return;
 `MaxRiskPerTrade = 250` means 250 ticks = 62.5 MNQ points, **not** $250. It never binds at
 that default — the largest observed risk is 24.25 points.
 
+### M18 — the crossover rules, and that none of them has evidence yet
+
+`EmaCrossover` is the first archetype with **no NinjaScript**, so nothing below is backed by
+a trade list. It is recorded here anyway, because the point of writing the rules down before
+there is a C# is that the port has something to be checked *against* — and because the
+prime directive binds during development. A rule chosen here that NT8 cannot express makes
+the archetype unreconcilable later, which wastes the exploration rather than merely leaving
+it unvalidated. Each item below therefore names the NinjaScript it would be written as.
+
+`Archetype.tier2` is `TIER1_ONLY`, and it reaches the results table so a ranking cannot put
+these rules beside the reconciled ones without saying which is which.
+
+**`CrossAbove(a, b, n)` is a window, not a bar.** NinjaScript asks whether the cross happened
+within the last `n` bars, so the naive form
+
+```python
+fast[i] > slow[i] and fast[i - 1] <= slow[i - 1]
+```
+
+is the `n = 1` case and not the definition. `conditions.cross_above` implements the window,
+with `n` swept via `cross_lookback`. Equality is resolved on the *prior* bar (`<=`), so two
+series that touch and then separate upward have crossed — vanishingly unlikely for EMAs and
+entirely reachable for SMAs of tick-grid prices, which is why the boundary is pinned rather
+than left to whichever operator got typed.
+
+**The entry is market-on-next-open, and it is unconditional.** `EnterLong()` / `EnterShort()`
+under `Calculate.OnBarClose` submit a market order at the close of bar `i`, which NT8 fills
+at the open of bar `i+1`. There is no trigger price, so no "no touch, no fill" and no
+submittability rule — the two things that shape every DeadCatBounce entry do not apply. What
+does apply is the flatten point: a bar at or past the cutoff cancels the order rather than
+filling it, exactly as it cancels a resting stop-market entry.
+
+**The signal exit fills at the next bar's open too**, and takes precedence over the stop and
+the targets on that bar. Both follow from it being a market order: it is filled at the bar's
+first price, and NT8's managed approach cancels a position's brackets when something else
+flattens it. This is the only place `EXIT_SIGNAL` is produced.
+
+**The protective stop has no structural anchor.** A crossover has no signal wick, so the
+default is an ATR multiple hung off the fill — planned risk is then exactly
+`atr * multiple` — read from the ATR at the **signal** bar, the last completed one. The
+alternative mode is the adverse extreme of the last `swing_lookback` completed bars plus the
+usual two ticks, which is the closest thing to DeadCatBounce's stop. Both are swept.
+
+**An entry whose stop would sit at or through its own fill is skipped.** This is the
+existing "a stop entry at or through the market is never submitted" rule applied to the
+protective stop, and it is reachable here for the same reason the entry rule became
+reachable with PullBackAndGo: the fill is wherever the next bar opens rather than at a
+trigger the stop was placed against, so a gap can put the swing reference on the wrong side.
+
+**Flat between trades, not stop-and-reverse.** The classic crossover reverses in a single
+order. Here the flip closes the position and opens the new one as two fills at the same open
+price, each paying its own slippage and commission and each appearing as its own trade in
+the log. That is a real difference from published crossover results and from what
+`EnterShort()` while long would do in NT8, and it is the one item on this list that a port
+would have to be written *around* rather than to.
+
+**`r_multiple` means something different.** R is `stop - entry`, so with an ATR stop the
+four-leg scale-out is volatility-scaled rather than structure-scaled. Crossover results are
+**not comparable to DeadCatBounce results at the same R numbers** — the same trap as
+comparing profit factor across bar resolutions.
+
 ## Indicators
 
 **TA-Lib's EMA does not match NT8's.** TA-Lib seeds with an SMA of the first `period`

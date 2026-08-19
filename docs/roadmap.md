@@ -32,7 +32,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~—~~ | ~~**M16** — NT8-parity ATR, StdDev, Bollinger, Keltner~~ | [#19] | **Done 2026-08-16.** One probe run answered [#20], [#21], [#22] and [#23]'s measurement half over 89,330 bars. Keltner matched neither half of the usual definition. **M18 is unblocked.** |
 | ~~3c~~ | ~~**M17 + M13 + M14** — strategy, resolution and contract as axes~~ | [#24], [#30], [#31] | **Done 2026-08-16.** The registry landed 2026-08-15; `resample.py` ([#30]) and `dispersion.py` ([#31]) followed, then the results schema ([#29]) and `sweep_axes` ([#28]) — **one mechanism, not three**, so the schema settled once before the stale DuckDB re-run ([#71]). |
 | ~~4~~ | ~~**M7a** — `randomentry.py`~~ | [#32] | **Done 2026-08-16.** Matched on count, time-of-session and direction; Monte Carlo rather than a single draw. First result reframes DeadCatBounce — better than random, still unprofitable. See below. |
-| 5 | **M18** — EMA crossover | [#34] | The one archetype built now, to prove the protocol. A legitimate known-negative control. |
+| ~~5~~ | ~~**M18** — EMA crossover~~ | [#34] | **Done 2026-08-19.** Third entry mechanism, first `EXIT_SIGNAL`, first original. It reads as a known negative against M7a's arm, which is the result it was built to produce. |
 | ~~6~~ | ~~Numpy-native summary path~~ | [#33] | **Done 2026-08-19**, and taken *before* M18 rather than after — 3.1× on a combination, with the summary now inside the noise of the simulation. M18's ~30× legs land on a sweep that no longer pays for a DataFrame per combination. |
 | 7 | **M10** — regime, volume, trend, time of day | [#39] | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
 | 8 | **M11** — the trade review | [#44] | The stated goal. Needs 3 and 7. Deliberately *not* displaced by the archetype work. |
@@ -62,13 +62,13 @@ better use of code time. **Split the queue by resource, not by milestone number:
 
 | resource | work |
 |---|---|
-| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]) → M7a ([#32]) → the numpy summary path ([#33])~~ — **all done**. Next: M18 ([#34]) |
+| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]) → M7a ([#32]) → the numpy summary path ([#33]) → M18 ([#34])~~ — **all done**. Next: M10 ([#39]) |
 | NinjaTrader time | ~~[#20], [#21], [#22], [#23], [#66], [#92]~~ — **all done 2026-08-16**. Only [#67] (order lifetime) remains, and M19 is not scheduled |
 
 Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
-true — M18 needs both.
+true — M18 needed both, and it has them.
 
-**The NinjaTrader queue is now empty except [#67], and M18 is unblocked.** That session
+**The NinjaTrader queue is now empty except [#67], and M18 has since landed without it.** That session
 paid for itself several times over: it closed M16 and both outstanding reconciliations, and
 it found two things that reasoning would not have — Keltner matching neither half of the
 common definition, and the trade-list export being in the machine's display timezone rather
@@ -95,9 +95,11 @@ fill-semantics defects**, both recorded with their evidence in `docs/nt8-fidelit
 
 **The lesson is the one worth carrying forward: a single archetype cannot exercise the fill
 model.** Both defects were unreachable from DeadCatBounce by construction, not by luck, and
-both had been live for the entire life of the project. Expect the same when M18 introduces
-market-on-next-open entries and `EXIT_SIGNAL` exits — each new mechanism is a new part of the
-fill model with no evidence behind it yet, and [#38]'s shared bracket engine will inherit
+both had been live for the entire life of the project. **M18 confirmed it, and confirmed that
+two archetypes are not enough either:** its market-on-next-open entry reached a rule neither
+port could — an entry whose protective stop lands at or through its own fill — because both
+ports place the stop against a trigger the fill is defined relative to. Each new mechanism is
+a new part of the fill model with no evidence behind it yet, and `bracket.py` inherits
 whatever is wrong. This is the argument for reconciling each archetype rather than trusting
 the shared engine because the first one passed.
 
@@ -105,7 +107,8 @@ the shared engine because the first one passed.
 `InsideBarTrailing.cs`. Both have C# ground truth, which makes them the cheapest *trustworthy*
 archetypes available, unlike M18 and M19. `InsideBar` is the structural form of the squeeze
 idea and is worth porting before M19 is built from scratch. `InsideBarTrailing` is the second
-consumer of `EXIT_SIGNAL`.
+consumer of `EXIT_SIGNAL`, which M18 has now made a working exit rather than a reservation —
+and it is the first chance to check the signal exit against a trade list.
 
 **Not scheduled:** M8 (premise measured and mostly false, and [#33] has since removed the
 overhead that capped it — see `CLAUDE.md`), the three unbuilt
@@ -208,9 +211,13 @@ time. Concretely, for planned work:
   stratification will show it as anomalous. **That is an artefact, not a finding.** Any
   time-of-day result touching the last phase has to separate "this hour trades badly" from
   "this hour's trades were closed by the clock".
-- **M18 and M19** ([#34], [#51]). Crossover holds until an opposite cross, so it will hit
-  force-flat often — expect the forced-exit share to be a large fraction of its exits. A
-  squeeze rests orders, which must be cancelled at the flatten point.
+- **M18 and M19** ([#34], [#51]). The prediction here was that crossover, holding until an
+  opposite cross, would take a large fraction of its exits from the clock. **Measured: 1.0%**
+  on costed MNQ from 2024 at EMA(9)/EMA(21). The reasoning was sound and the premise was
+  wrong — crosses on 1-minute bars are frequent enough (one signal every ~22 bars) that holds
+  end long before the session does. Expect the share to climb with the MA periods and with
+  bar size, and read it rather than predicting it. A squeeze rests orders, which must be
+  cancelled at the flatten point.
 - **Statistics.** The share of exits at `EXIT_SESSION_CLOSE` deserves to be a reported column
   rather than something buried in the trade log. A strategy taking 40% of its exits from the
   clock is not really the strategy its rules describe, and the aggregate profit factor will not
@@ -570,29 +577,85 @@ in 9,824), which is the baseline the resolution sweep is expected to move sharpl
 reasoning for the row granularity is in "Decisions taken".
 
 The `tier2` registry field ([#25]) is not bookkeeping: per the standing constraint,
-"validated against NT8" stops being a project-wide fact once originals exist. The shared
-bracket engine is extracted **during** M18 ([#38]) — before is designing from one example,
-after means duplicated fidelity-critical code shipped.
+"validated against NT8" stops being a project-wide fact once originals exist, and M18 is what
+made it one — `EmaCrossover` is `TIER1_ONLY` beside two `RECONCILED` ports. The shared bracket
+engine was extracted **during** M18 ([#38]); see below for what the second shape moved.
 
-### M18 — EMA crossover ([#34])
+### ~~M18~~ — EMA crossover: done ([#34])
 
-The first original archetype, chosen to prove M15 and M17 because it is the cheapest thing that
-exercises both: bidirectional, and it exits on a signal rather than a bracket level. **Treat it
-as a known-negative control, not an edge candidate.** MA crossover on 1-minute index futures is
-the most-tested idea in retail futures and is reliably unprofitable at realistic costs, so if it
-reads meaningfully better than M7a's random arm the first hypothesis is a **bug** — specifically
-lookahead, since crossover is unusually easy to compute one bar early. Recording that now
-matters because a PF above 1 will otherwise be exciting rather than suspicious. Three defaults
-are all wrong and must be fixed explicitly: use NT8's `CrossAbove(a, b, n)` semantics rather
-than the naive one-bar form ([#35]) or a later NinjaScript will disagree; the entry is
-market-on-next-open ([#36]), a third mechanism with no trigger price and no "no touch, no fill";
-and the stop has no structural swing to anchor to, so it needs an ATR multiple ([#37]), which
-makes M16 a hard prerequisite rather than a convenience. It will also break the sweep's
-performance assumptions — tens of thousands of legs per combination against DeadCatBounce's
-~1,400 — which is why the numpy-native summary path ([#33]) moved ahead of M10, and then
-ahead of M18 itself. **That is now paid**: a combination no longer builds a DataFrame, so the
-per-leg cost that would have dominated a crossover sweep is the `@njit` loop rather than
-pandas. Still do a single-combination timing before running a wide grid.
+The first original archetype, chosen to prove M15 and M17 because it is the cheapest thing
+that exercises both: bidirectional, and it exits on a signal rather than a bracket level.
+Everything below is the record of what it actually cost and what it actually read; the rules
+themselves are in `docs/nt8-fidelity.md` § M18, marked as having no evidence behind them yet.
+
+**It reads as a known negative, which is the result it was built to produce.** On costed MNQ
+from 2024 (914,700 bars, EMA(9)/EMA(21), commission $1.24, 1 tick slippage) it returns a
+profit factor of 0.866 on 41,784 trades. Against 200 matched random-entry draws (M7a) it sits
+at the **49th percentile on profit factor**, the 47th on expectancy and the **1st on win
+rate** — indistinguishable from random on two of the three and *worse* than random on the
+third. The direction split is 83,532 long legs against 83,604 short.
+
+**That reading is also the lookahead check.** The stated worry was that a crossover is
+unusually easy to compute one bar early, and that the symptom would be an exciting profit
+factor rather than an exception. A rule that read the fill bar's own cross would have come
+back spectacularly profitable; this one comes back at the null's median. There is a direct
+test as well — `crossover_signal` recomputed over a prefix must equal the prefix of the full
+computation — but the control arm is the one that would have caught a defect the direct test
+was not shaped to see.
+
+**The trade-count explosion is real but a third of the guess.** One combination:
+
+| | per combination | legs |
+|---|---|---|
+| `EmaCrossover` | 49.0 ms | 167,136 |
+| `DeadCatBounce` | 3.3 ms | 14,556 |
+
+**~11.5× the legs and ~15× the time**, against the "tens of thousands against ~1,400" this
+section predicted, which was closer to 30×. Of the 49 ms, 4.9 ms is the signal (two EMA
+comparisons plus the cross window, computed per combination because `cross_lookback` is an
+axis) and 11.4 ms is `summarise_legs`. `allocate_output` reserves **27 MB per worker** at
+these settings — the `n_signals × n_legs` bound stays correct and stops being free, so a
+permissive grid should have its signal count read off before it is launched, not after.
+
+**The exit mix is not what was predicted.** 51.3% signal, 25.2% stop, 22.4% target, **1.0%
+session close**. The forced-exit share was expected to be a large fraction; see the M10.4
+note above for why the reasoning was sound and the premise was not.
+
+**Three defaults were wrong and each is now a swept field rather than a constant.** NT8's
+`CrossAbove(a, b, n)` semantics rather than the naive one-bar form ([#35]); market-on-next-open
+entry ([#36]), a third mechanism with no trigger price and no "no touch, no fill"; and an ATR
+multiple for the stop ([#37]), which is what made M16 a hard prerequisite rather than a
+convenience. The swing-extreme stop survives as the alternative mode, sweepable via
+`use_atr_stop`.
+
+**One thing the loop needed that was not on the list.** An entry whose protective stop would
+land at or through its own fill is skipped — the existing stop-entry submittability rule
+applied to the protective stop. It is unreachable in both ports, because their stop is placed
+against a trigger the fill is defined relative to; here the fill is wherever the next bar
+opens, so a gap can put the swing reference on the wrong side of it. **Second time an
+archetype has reached a rule the first two could not**, after M15.5's two fill-semantics
+defects. One archetype cannot exercise the fill model, and it turns out two cannot either.
+
+**Flat between trades, not stop-and-reverse, is a real difference and not a limitation
+worked around.** The flip closes the position and opens the new one as two fills at the same
+open price, each paying its own slippage and commission. Economically a reversal; in the log,
+two trades. Any comparison against published crossover results has to say so. It is also what
+`pending_exit` exists for: without allowing the entry to be scheduled on the bar the exit is
+scheduled, a one-bar lookback would only ever go long, because crosses alternate.
+
+**The bracket engine came out during M18, per [#38].** `nqbt/sim/bracket.py` holds the stop,
+the targets, the ambiguity policy, the limit-fill rule and the leg writer; `simulate_deadcat`
+keeps what is specific to a stop-market entry with a ratcheting stop. The second real shape
+is what showed the split falls between the **entry** half and the **bracket** half rather
+than anywhere else — crossover replaces the whole entry mechanism and reuses the bracket half
+untouched. All 14 captured DeadCatBounce trade logs are byte-for-byte identical across the
+extraction and across the whole milestone.
+
+**What M19 inherits.** `EXIT_SIGNAL` is now exercised rather than reserved. The bracket engine
+is a set of `@njit` device functions any loop can call, so a squeeze breakout needs to write
+only its two-sided OCO entry. And the per-combination cost of a high-leg archetype is now
+known rather than assumed, which is what the numpy summary path ([#33]) was moved ahead of
+M18 to buy.
 
 ### M19 — squeeze breakout ([#51])
 
@@ -1024,14 +1087,20 @@ archetype is indistinguishable from the strategy simply being bad. It is long-on
 precisely and it has ground truth. `InsideBar.cs` and `InsideBarTrailing.cs` remain unported and
 are the cheapest further archetypes available.
 
-**The bracket engine is extracted during M18, not before it and not after.** Before is designing
-an abstraction from one example; after means fidelity-critical code sat duplicated on `main`.
-Extracting mid-M18 with byte-identity as the gate gets an abstraction designed against two real
-shapes without the duplication ever shipping. See [#38].
+**~~The bracket engine is extracted during M18~~ — done ([#38]).** Before would have been
+designing an abstraction from one example; after would have meant fidelity-critical code
+sitting duplicated on `main`. Extracted mid-M18 with byte-identity as the gate, so the
+abstraction was designed against two real shapes and the duplication never shipped. The split
+it found is entry half versus bracket half: `nqbt/sim/bracket.py` is the second, and a new
+archetype writes only the first.
 
-**Archetypes are flat between trades; stop-and-reverse is not supported.** The loop's
-`in_position` boolean assumes flat-to-flat and reversal collides with the one-bar entry
-lifetime. Recorded as a deliberate limitation rather than discovered as a position-tracking bug.
+**Archetypes are flat between trades; stop-and-reverse is not supported.** Each loop's
+`in_position` boolean assumes flat-to-flat, and for the stop-market archetypes reversal also
+collides with the one-bar entry lifetime. Recorded as a deliberate limitation rather than
+discovered as a position-tracking bug. M18 is what it costs in practice: a crossover's regime
+flip closes and reopens as **two fills at the same open price**, each paying its own slippage
+and commission, where the classic form reverses in one order. That is a real difference from
+published crossover results and belongs in any comparison against them.
 See [#13].
 
 **Roll dates need no reconciliation against NT8.** All 18 MNQ roll dates moved when the archive
