@@ -170,6 +170,86 @@ def test_an_exit_reason_outside_the_simulator_enum_is_allowed() -> None:
     trades.validate(leg_log(exit_reason="Stop3"))
 
 
+# -- validate_legs, the boundary a caller that never builds a frame crosses -----
+
+
+def leg_matrix(n: int = 3, **overrides) -> trades.LegMatrix:
+    """A minimal schema-conforming leg matrix, as the jitted loop would leave it."""
+    matrix = np.zeros((n + 2, trades.N_COLUMNS))  # a tail of unwritten rows, like the real one
+    matrix[:n, trades.C_TRADE_ID] = np.arange(1, n + 1)
+    matrix[:n, trades.C_LEG] = 1
+    matrix[:n, trades.C_QUANTITY] = 1
+    matrix[:n, trades.C_DIRECTION] = trades.SHORT
+    matrix[:n, trades.C_EXIT_REASON] = trades.EXIT_TARGET
+    matrix[:n, trades.C_TARGET_PRICE] = np.nan  # nullable, and the loop really writes this
+    for name, value in overrides.items():
+        matrix[:n, getattr(trades, name)] = value
+    return trades.LegMatrix(matrix, n)
+
+
+def test_a_conforming_leg_matrix_passes_and_is_returned_unchanged() -> None:
+    legs = leg_matrix()
+    assert trades.validate_legs(legs) is legs
+
+
+def test_the_unwritten_tail_is_not_inspected() -> None:
+    """``allocate_output`` sizes to an upper bound, so the rows past ``count`` are zeros.
+
+    A zero row has ``quantity`` 0 and ``direction`` 0, both of which the checks below
+    reject -- reading past ``count`` would fail every run.
+    """
+    trades.validate_legs(leg_matrix(n=1))
+
+
+def test_an_empty_leg_matrix_passes() -> None:
+    trades.validate_legs(trades.LegMatrix(np.zeros((4, trades.N_COLUMNS)), 0))
+
+
+def test_a_matrix_of_the_wrong_width_is_refused() -> None:
+    with pytest.raises(TradeSchemaError, match="leg matrix is"):
+        trades.validate_legs(trades.LegMatrix(np.zeros((3, 4)), 3))
+
+
+def test_a_count_past_the_end_of_the_matrix_is_refused() -> None:
+    with pytest.raises(TradeSchemaError, match="exceeds"):
+        trades.validate_legs(trades.LegMatrix(np.zeros((3, trades.N_COLUMNS)), 9))
+
+
+def test_a_null_in_a_required_column_names_the_column() -> None:
+    with pytest.raises(TradeSchemaError, match=r"net_pnl \(3\)"):
+        trades.validate_legs(leg_matrix(C_NET_PNL=np.nan))
+
+
+def test_a_null_in_a_nullable_column_is_accepted() -> None:
+    # target_price is null on any leg with no target, which is how the loop writes a runner.
+    trades.validate_legs(leg_matrix(C_R_MULTIPLE=np.nan, C_MAE=np.nan))
+
+
+def test_a_direction_that_is_neither_long_nor_short_is_refused() -> None:
+    with pytest.raises(TradeSchemaError, match="direction must be"):
+        trades.validate_legs(leg_matrix(C_DIRECTION=0.0))
+
+
+def test_a_non_positive_quantity_is_refused() -> None:
+    with pytest.raises(TradeSchemaError, match="quantity must be positive"):
+        trades.validate_legs(leg_matrix(C_QUANTITY=-1.0))
+
+
+def test_leg_numbering_below_one_is_refused() -> None:
+    with pytest.raises(TradeSchemaError, match="leg numbering"):
+        trades.validate_legs(leg_matrix(C_LEG=0.0))
+
+
+def test_an_exit_reason_outside_the_simulator_enum_is_refused_on_a_matrix() -> None:
+    """The mirror of the frame rule above, and deliberately the opposite answer.
+
+    A frame's ``exit_reason`` may be a label NT8 wrote; a matrix can only have come from
+    the simulator, so a code outside the enum there is a bug rather than an import.
+    """
+    with pytest.raises(TradeSchemaError, match="unknown exit_reason"):
+        trades.validate_legs(leg_matrix(C_EXIT_REASON=9.0))
+
+
 # -- trades_to_frame ----------------------------------------------------------
 
 

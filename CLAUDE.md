@@ -172,8 +172,8 @@ commands that duplicate the Python API.
 
 Done and validated: ingestion with a durable archive and exact rewrite detection, contract
 splicing with back-adjustment, NT8-compatible indicators, the DeadCatBounce and
-PullBackAndGo simulations, the sweep + statistics + DuckDB results layer, and parallel
-sweeps over cores.
+PullBackAndGo simulations, the sweep + statistics + DuckDB results layer, parallel sweeps
+over cores, and the numpy-native summary path that keeps a combination off pandas.
 
 **Both archetypes are reconciled against real NT8 trade lists. `docs/nt8-fidelity.md` is
 the live record** — agreement rates, per-rule evidence, and what each residual disagreement
@@ -279,6 +279,33 @@ path. The `Dataset` is shared, not copied: `Dataset.slim()` drops the 121 MB bar
 13 MB index-only view, and joblib memmaps the arrays — **confirmed** by probing a live
 worker, where `close`, `ema.below` and `sma.below` all arrive as `numpy.memmap`.
 
+**#33 has landed: a sweep no longer builds a trade log it throws away.**
+`stats.summarise_legs` reads the simulation's raw `trades.LegMatrix`; `stats.summarise` is
+unchanged and remains the reference. A combination over the full 1.65M-bar spliced series
+went **28.3 ms → 9.0 ms** against the `@njit` loop's own 9.3 ms — the summary is now inside
+the noise of the simulation. All 14 captured files are byte-identical across the change,
+including the two sweep summary tables the new path produced over 218,164 legs. What a
+caller needs to know:
+
+- **Both paths share `_summarise_arrays`** and differ only in how the per-trade vectors are
+  obtained. That is what reduces "do they agree?" to "do they group the legs the same way?"
+  — **do not re-inline it into either caller.**
+- **Pandas' `groupby.sum` is Kahan-compensated**, and `_grouped_sum` carries the same
+  compensation term for that reason alone. A plain running sum disagrees with pandas in the
+  last bit on ~21% of four-leg groups, `np.add.reduceat` on ~35%, and the costed
+  DeadCatBounce case catches it on real trades. Every *ungrouped* pandas reduction is
+  bit-identical to numpy's, strided column views included; only the grouping needed care.
+- **`Dataset.day_codes` is local, not UTC.** `summarise` groups daily P&L by
+  `DatetimeIndex.date`, which is the index's timezone. On the UTC archive the two coincide,
+  so a UTC-only version would have passed every test and been an hour out on a
+  `Europe/London` index.
+- **`Archetype.legs` is required beside `run`.** An archetype registered with only `run`
+  would silently be the slow one in a sweep, and the symptom would be a wall clock.
+- **`trades.validate_legs` is the producer boundary a sweep now crosses**, since it never
+  calls `validate`. Same invariants, plus one `validate` deliberately omits: on a matrix,
+  `exit_reason` must be in `EXIT_REASONS`, because only the simulator can have written it.
+- **`keep_trades` changes what `run_combination` returns, never what it measures.**
+
 **M20a has landed**, so M15 is unblocked. All three defects are fixed, every captured trade
 log is byte-identical to the pre-M20a baseline, and the whole point was to leave M15 one
 copy of the bracket machinery to multiply by `d` instead of two.
@@ -309,19 +336,19 @@ the record of what the audit trail said while it was being trusted.
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: numpy summary → M18 → M10 → M11 → M7b → M19 → M12.** M9, M20a, M15,
-**M16**, **M17(+M13+M14)** and **M7a** are all done — see Status.
+**Order: M18 → M10 → M11 → M7b → M19 → M12.** M9, M20a, M15,
+**M16**, **M17(+M13+M14)**, **M7a** and **the numpy summary path (#33)** are all done — see
+Status.
 
 **The NinjaTrader queue is empty except #67, and nothing is waiting on it.** That session
 (2026-08-16) closed #20, #21, #22, #23's measurement half, #66 and #92 in one sitting. #67
 (order lifetime) gates only M19, which is queued rather than scheduled. **Do not re-read
 this section as a reason to book NT8 time** — the code column is what is short.
 
-**M18 is unblocked, and so is the numpy summary path (#33).** #37's ATR stop was the hard
-prerequisite and #20 paid it; #33's was #11, closed in M20a. Both are pure Python. The
-roadmap puts M18 at 5 and #33 at 6 while its resource table names #33 as next for code
-time — that tension is real and unresolved: #33 makes M18's wide sweeps affordable, M18
-gives #33 the ~30×-legs workload it is meant to be A/B'd against.
+**M18 is unblocked and is next.** #37's ATR stop was the hard prerequisite and #20 paid it.
+The ordering tension with #33 is resolved by #33 having landed first: a combination no
+longer builds a DataFrame, so crossover's ~30× legs meet a sweep whose per-leg cost is the
+`@njit` loop rather than pandas.
 
 **#23's roll-boundary half is still open**, and it is a decision rather than a measurement,
 so it can be taken any time. The session half is settled: True Range does not reset.
@@ -557,23 +584,15 @@ a per-contract difference as a hypothesis, not a finding, until it clears this.
 - **Confluence counting** wired into an archetype. `conditions.count_true` exists and is
   tested, but no archetype consumes it, so "at least N of M filters" is not yet sweepable.
 
-**M8 — bar-major restructuring. The premise has now been measured and is mostly false.**
-Profiling one combination over 1.65M bars:
-
-| | share of a combination |
-|---|---|
-| `stats.summarise` (pandas aggregation) | **51%** |
-| `trades_to_frame` (pandas construction) | **20%** |
-| `simulate_deadcat` (the `@njit` loop) | 23% |
-| `deadcat_signal` (boolean ANDs) | 2% |
-
-Bar-major restructures the 23%. Making the simulation *entirely free* would still only be
-~1.3× — Amdahl caps it there. **The real target is the 71% spent building a DataFrame per
-combination and aggregating it with pandas**, which is pure overhead in a sweep that
-throws the trade log away. A numpy-native summary path — keeping `stats.summarise` as the
-reference implementation and testing the two agree exactly — is worth roughly 3×, and
-composes with the parallel speedup. Do M8 only if that lands first and profiling still
-points at the loop.
+**M8 — bar-major restructuring. The premise was measured, found mostly false, and the
+overhead that capped it has since been removed.** Profiling one combination over 1.65M bars
+put `stats.summarise` at 51%, `trades_to_frame` at 20%, the `@njit` loop at 23% and the
+signal ANDs at 2%. Bar-major restructures the 23%, so making the simulation *entirely free*
+was only ever worth ~1.3× — Amdahl caps it there. **#33 took the 71% instead**, and a
+combination is now 9.0 ms against 28.3 ms, of which 9.3 ms is the loop. M8's ceiling is
+unchanged and its share of a combination is now most of it, so **it is still not scheduled**:
+re-profile before believing any figure here, and do M8 only if the loop is genuinely what a
+real sweep is waiting on.
 
 **~~M9~~ — done.** See Status. What it leaves for its dependents: `direction` exists on every
 trade row but is a constant until M15 makes it load-bearing; `nqbt/trades.NULLABLE` states

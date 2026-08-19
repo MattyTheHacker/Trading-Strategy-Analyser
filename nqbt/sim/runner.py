@@ -46,15 +46,18 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
     return signal
 
 
-def run_deadcat(
+def deadcat_legs(
     data: Dataset,
     params: DeadCatParams,
     instrument: Instrument = MNQ,
     *,
-    with_times: bool = True,
     signal: np.ndarray | None = None,
-) -> pd.DataFrame:
-    """Simulate one parameter combination and return its leg-level trade log.
+) -> trades.LegMatrix:
+    """Simulate one parameter combination and return its raw leg matrix.
+
+    The producer boundary for a caller that only wants statistics: a sweep summarises this
+    directly rather than paying for a DataFrame it throws away. :func:`run_deadcat` is the
+    same simulation with the frame built on top.
 
     ``signal`` overrides the computed entry signal, which is what the random-entry control
     arm (:mod:`nqbt.randomentry`) substitutes. It exists so the null runs **this** function
@@ -101,10 +104,23 @@ def run_deadcat(
         msg = "trade buffer overflowed; allocate_output's signal-count bound was violated"
         raise RuntimeError(msg)
 
+    return trades.validate_legs(trades.LegMatrix(out, count))
+
+
+def run_deadcat(
+    data: Dataset,
+    params: DeadCatParams,
+    instrument: Instrument = MNQ,
+    *,
+    with_times: bool = True,
+    signal: np.ndarray | None = None,
+) -> pd.DataFrame:
+    """Simulate one parameter combination and return its leg-level trade log."""
+    legs = deadcat_legs(data, params, instrument, signal=signal)
     return trades.validate(
         trades.trades_to_frame(
-            out,
-            count,
+            legs.matrix,
+            legs.count,
             data.index if with_times else None,
             instrument=instrument.symbol,
             source="sim",

@@ -52,17 +52,16 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
     return signal
 
 
-def run_pullbackandgo(
+def pullbackandgo_legs(
     data: Dataset,
     params: PullBackAndGoParams,
     instrument: Instrument = MNQ,
     *,
-    with_times: bool = True,
     signal: np.ndarray | None = None,
-) -> pd.DataFrame:
-    """Simulate one parameter combination and return its leg-level trade log.
+) -> trades.LegMatrix:
+    """Simulate one parameter combination and return its raw leg matrix.
 
-    ``signal`` overrides the computed entry signal -- see :func:`nqbt.sim.runner.run_deadcat`
+    ``signal`` overrides the computed entry signal -- see :func:`nqbt.sim.runner.deadcat_legs`
     for why the random-entry control arm injects one here rather than calling
     ``simulate_deadcat`` itself.
     """
@@ -103,10 +102,23 @@ def run_pullbackandgo(
         msg = "trade buffer overflowed; allocate_output's signal-count bound was violated"
         raise RuntimeError(msg)
 
+    return trades.validate_legs(trades.LegMatrix(out, count))
+
+
+def run_pullbackandgo(
+    data: Dataset,
+    params: PullBackAndGoParams,
+    instrument: Instrument = MNQ,
+    *,
+    with_times: bool = True,
+    signal: np.ndarray | None = None,
+) -> pd.DataFrame:
+    """Simulate one parameter combination and return its leg-level trade log."""
+    legs = pullbackandgo_legs(data, params, instrument, signal=signal)
     return trades.validate(
         trades.trades_to_frame(
-            out,
-            count,
+            legs.matrix,
+            legs.count,
             data.index if with_times else None,
             instrument=instrument.symbol,
             source="sim",
