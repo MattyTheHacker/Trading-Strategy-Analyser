@@ -15,13 +15,12 @@ M15 needs exactly the same gate and a stronger one -- every short-only trade log
 byte-identical after the loop is generalised -- so this is deliberately a tool rather than
 a throwaway. See ``docs/roadmap.md`` under M9 and M15.
 
-**Every frame is written with ``float_format="%.17g"``, and that is not cosmetic.** Pandas'
-default CSV writer is *not* round-trip exact for float64: round-tripping a real trade log
-through ``to_csv``/``read_csv`` moves 4 of 1,664 ``r_multiple`` values by one ULP. A gate
-written in the default format therefore compares text-rounded numbers and can miss a
-sub-ULP change -- which is exactly the class of difference a sign or associativity error in
-the simulation produces. 17 significant digits round-trips float64 exactly, so byte-identity
-of these files is byte-identity of the floats.
+**Every frame is written with ``float_format="%.17g"``**, which is explicit and costs
+nothing but is *not* what makes the gate exact -- ``compare_trade_logs.py`` reading with
+``float_precision="round_trip"`` is. Either writer is exact against that reader, and 17-digit
+text against pandas' *default* parser is worse than the default writer. Measured in #113;
+the table is in ``CLAUDE.md``. The claim this paragraph used to make -- "4 of 1,664
+``r_multiple`` values" -- was measuring the reader and attributing it to the writer.
 
 The four paths are chosen to cover what a single run does not:
 

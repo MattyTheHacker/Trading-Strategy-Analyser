@@ -237,6 +237,16 @@ unchanged across M9, M15 and M20a, and only its module moved, so one shim covers
 | M20a | `f992c05`→`9caf653` | identical | identical |
 | M15.2/3 cancel | `96be12a`→`cc1be25` | 10 files differ | differ |
 | M15.5 fills | `cb2e2c7`→`0871831` | 14 files differ | differ |
+| #113 ruff auto-fix | `2243779`→`752155c` | identical | identical |
+
+**#113 was gated retroactively (2026-08-19), because it should not have been ungated.** A
+"Ruff auto-fix" PR reached into the `@njit` loop: `simulate_deadcat`'s MAE/MFE tracking went
+from `if run_high < high[i]` to `run_high = max(run_high, high[i])`, and `archive.py`'s
+merge inverted the branch that implements "the newest bar may insert but never overwrite".
+Both are equivalent on inspection — and inspection is not the gate. All 14 files come back
+identical on both the gate and `sha256`. **The lesson is where the change was, not what it
+was:** a lint PR is the last place anyone looks for a simulator change, so read what an
+auto-fixer touched under `nqbt/sim/` before merging, not after.
 
 The last two *should* differ — force-flat cancellation removes real legs (113,164 → 113,116)
 and M15.5 changed fill semantics. Both are the fix working, not a regression.
@@ -299,23 +309,22 @@ the record of what the audit trail said while it was being trusted.
 ## Planned, not yet done
 
 `docs/roadmap.md` carries the dependency order and the traps; this section is the summary.
-**Order: numpy summary → M18 → M10 → M11 → M7b → M19 → M12**, with **M16 batched into a
-NinjaTrader session** rather than sitting in the code queue. M9, M20a, M15,
-**M17(+M13+M14)** and **M7a** are all done — see Status.
+**Order: numpy summary → M18 → M10 → M11 → M7b → M19 → M12.** M9, M20a, M15,
+**M16**, **M17(+M13+M14)** and **M7a** are all done — see Status.
 
-**The code queue no longer reaches M18.** The numpy summary path (#33) is the last unblocked
-pure-Python item; after it, Phase 2 is gated on M16, since #37's ATR stop is a hard
-prerequisite and M16 is readings, not code. Six items share that one NinjaTrader sitting
-(#20, #21, #22, half of #23, #66, #67, #92) — **book it now**, because the code column is
-one milestone from empty.
+**The NinjaTrader queue is empty except #67, and nothing is waiting on it.** That session
+(2026-08-16) closed #20, #21, #22, #23's measurement half, #66 and #92 in one sitting. #67
+(order lifetime) gates only M19, which is queued rather than scheduled. **Do not re-read
+this section as a reason to book NT8 time** — the code column is what is short.
 
-**M16 moved out of the code queue deliberately.** Its three substantive sub-issues
-(#20 ATR, #21 StdDev/Bollinger, #22 Keltner) each require reading values out of NT8, and the
-own rule is *do not answer from memory* — so writing the recursions before the readings exist
-is the mistake it was written to prevent. It is NinjaTrader time, and it shares that
-constraint with #66 and #67. **M17 is the next code work**: pure Python, no NT8 dependency,
-and an equally hard prerequisite for M18. #23 (True Range at session and roll boundaries) is
-the one part of M16 that is a decision rather than a measurement, so it can be taken any time.
+**M18 is unblocked, and so is the numpy summary path (#33).** #37's ATR stop was the hard
+prerequisite and #20 paid it; #33's was #11, closed in M20a. Both are pure Python. The
+roadmap puts M18 at 5 and #33 at 6 while its resource table names #33 as next for code
+time — that tension is real and unresolved: #33 makes M18's wide sweeps affordable, M18
+gives #33 the ~30×-legs workload it is meant to be A/B'd against.
+
+**#23's roll-boundary half is still open**, and it is a decision rather than a measurement,
+so it can be taken any time. The session half is settled: True Range does not reset.
 
 **New archetypes are developed in Python only.** EMA crossover and squeeze breakout have no
 NinjaScript, and none gets written until a candidate looks worth trading — most will not
@@ -381,13 +390,12 @@ source never calls `ATR()`. And **one archetype cannot exercise the fill model**
 real fill-semantics defects that DeadCatBounce's own geometry made unreachable, one of which
 had been silently making every gapped stop exit optimistic. See the gotchas above.
 
-**M16 — the indicator-parity debt: ATR, StdDev, Bollinger, Keltner.** `indicators.py` flagged
-this from the start. Five consumers, not one: Keltner for the squeeze, all three unported
-NinjaScripts (`ATR()`), EMA crossover's stop rule, ATR-multiple brackets, and the compression
-classifiers. Expect **exactly the EMA bug — seeding, not formula**. Read each out of NT8 and
-pin it; do not answer from memory. Keltner is the one most likely to be silently wrong
-(platforms disagree on midline and multiplier). Note BB/KC grids are swept over period *and*
-multiplier, so the 66 MB → 595 MB lesson applies with an extra factor: keep boolean gates only.
+**~~M16 — the indicator-parity debt~~ — done.** `nt8_atr`, `nt8_stddev`, `nt8_bollinger` and
+`nt8_keltner` are in `indicators.py`, pinned against 89,330 bars read out of NT8; the
+evidence is `docs/nt8-fidelity.md` §M16 and the gotcha above. It was **exactly the EMA bug —
+seeding, not formula** — except Keltner, which matched neither half of the usual definition.
+What survives for its consumers: BB/KC grids are swept over period *and* multiplier, so the
+66 MB → 595 MB lesson applies with an extra factor — **keep boolean gates only**.
 
 **~~M17 — the archetype protocol~~ — done, with M13 and M14.**
 
@@ -438,7 +446,7 @@ known-negative control, not an edge candidate**: MA crossover on 1-minute index 
 reliably unprofitable, so if it reads better than random the first hypothesis is a bug —
 specifically lookahead. Use NT8's `CrossAbove(a, b, n)` semantics, not the naive one-bar form,
 or a later NinjaScript will disagree. Third entry mechanism (market-on-next-open, no trigger).
-Needs an ATR stop, so M16 is a hard prerequisite. **It will break the sweep's performance
+Needs an ATR stop; M16 paid that prerequisite. **It will break the sweep's performance
 assumptions** — tens of thousands of legs per combination against DeadCatBounce's ~1,400,
 which is why the numpy-native summary path moved ahead of M10.
 
@@ -475,9 +483,9 @@ planned: **MA kind as an axis** (kind is fixed by field name; only `nt8_ema`/`nt
 exist), and **multi-timeframe MAs** (everything is computed on the 1-minute close). Traps for
 both are in `docs/roadmap.md` — a new kind must match NT8's recursion rather than the
 textbook one, and a higher-timeframe MA must be stamped from the previous *completed* coarse
-bar or the backtest reads the future. **Both get much cheaper once M16 and M17 land**: M16
-establishes the pin-it-against-NT8 procedure a new kind needs, and M17's `required_context`
-already has to key grids by `(kind, period)`. Reconsider after those rather than now.
+bar or the backtest reads the future. **Both are now much cheaper, because M16 and M17 have
+landed**: M16 established the pin-it-against-NT8 procedure a new kind needs, and M17's
+`required_context` already keys grids by `(kind, period)`. Due a reconsideration.
 
 **~~M13~~ — bar resolution as a sweep axis (2/5/15/30 min): done.** `nqbt/resample.py` (#30)
 is wired into `sweep_axes` (#28). **The existing 1-minute archive is sufficient — no re-export,
