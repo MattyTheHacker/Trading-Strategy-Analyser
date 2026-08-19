@@ -10,6 +10,12 @@ still match exactly, dtypes included, which is the gate for a schema addition. M
 ``--added source instrument direction``.
 
 Exits non-zero on any difference, so it can gate a script.
+
+Reads with ``float_precision="round_trip"``, which is the other half of the ``%.17g`` that
+``capture_trade_logs.py`` writes with: pandas' **default CSV parser is not correctly
+rounded** and folds adjacent float64 values together, so a bare ``read_csv`` cannot see a
+one-ULP difference no matter how many digits were written. Writing 17 digits and parsing
+them approximately defeats the gate at exactly the precision it claims to guarantee.
 """
 
 from __future__ import annotations
@@ -39,8 +45,8 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
         failures += 1
 
     for name in (n for n in names if n not in missing):
-        old = pd.read_csv(before / name)
-        new = pd.read_csv(after / name)
+        old = pd.read_csv(before / name, float_precision="round_trip")
+        new = pd.read_csv(after / name, float_precision="round_trip")
 
         unexpected = [c for c in new.columns if c not in old.columns and c not in added]
         if unexpected:
