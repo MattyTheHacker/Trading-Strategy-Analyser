@@ -9,7 +9,7 @@
 #                 away and read as uncovered, so its number is meaningless
 #                 as a gate. Reported informationally only.
 #
-# See docs/roadmap.md for the reasoning; keep argument out of this file.
+# See docs/roadmap.md for more info
 
 codecov:
   require_ci_to_pass: true
@@ -105,8 +105,6 @@ comment:
 github_checks:
   annotations: true
 
-# pytest measures nqbt only (--cov=nqbt); these keep anything else that finds
-# its way into a report out of the totals.
 ignore:
   - "tests/**"
   - "tools/**"
