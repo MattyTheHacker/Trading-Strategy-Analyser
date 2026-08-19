@@ -7,6 +7,14 @@ first, so the numbers line up with how a person would count.
 
 NT8's own summary counts each named entry separately, so its "total trades" is the leg
 count. :func:`leg_summary` reproduces that view when reconciling against Strategy Analyzer.
+
+Two functions arrive at the same :class:`Summary`. :func:`summarise` reads a trade-log
+DataFrame and is the reference; :func:`summarise_legs` reads the simulation's raw
+:class:`~nqbt.trades.LegMatrix` and never builds one, which is what makes a sweep
+affordable -- pandas construction plus aggregation was 71% of a combination. They share
+every statistic through :func:`_summarise_arrays` and differ only in how the per-trade
+vectors are obtained, so the one thing that can drift is the grouping. That is what
+``tests/test_numpy_summary.py`` pins, exactly rather than approximately.
 """
 
 from __future__ import annotations
@@ -16,8 +24,23 @@ from typing import get_type_hints
 
 import numpy as np
 import pandas as pd
+from numba import njit
 
-from nqbt.trades import EXIT_REASONS, EXIT_SESSION_CLOSE
+from nqbt.trades import (
+    C_AMBIGUOUS,
+    C_BARS_HELD,
+    C_COMMISSION,
+    C_EXIT_BAR,
+    C_EXIT_REASON,
+    C_MAE,
+    C_MFE,
+    C_NET_PNL,
+    C_R_MULTIPLE,
+    C_TRADE_ID,
+    EXIT_REASONS,
+    EXIT_SESSION_CLOSE,
+    LegMatrix,
+)
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -105,18 +128,18 @@ class Summary:
         return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})
 
 
-def _max_drawdown(equity: pd.Series) -> float:
-    if equity.empty:
+def _max_drawdown(equity: np.ndarray) -> float:
+    if equity.size == 0:
         return 0.0
-    return float((equity.cummax() - equity).max())
+    return float((np.maximum.accumulate(equity) - equity).max())
 
 
-def _max_consecutive(mask: pd.Series) -> int:
+def _max_consecutive(mask: np.ndarray) -> int:
     """Longest run of True values."""
-    if mask.empty or not mask.any():
+    if mask.size == 0 or not mask.any():
         return 0
-    groups = (~mask).cumsum()
-    return int(mask.groupby(groups).cumsum().max())
+    edges = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False]))))
+    return int((edges[1::2] - edges[::2]).max())
 
 
 def _ratio(numerator: float, denominator: float) -> float:
@@ -126,18 +149,18 @@ def _ratio(numerator: float, denominator: float) -> float:
     return numerator / denominator
 
 
-def _risk_adjusted(daily: pd.Series) -> tuple[float, float]:
+def _risk_adjusted(daily: np.ndarray) -> tuple[float, float]:
     """Annualised Sharpe and Sortino from daily P&L.
 
     Computed on daily totals rather than per trade: a per-trade Sharpe rewards taking many
     tiny trades and is not comparable across combinations with different trade counts.
     """
-    if len(daily) < 2:
+    if daily.size < 2:  # noqa: PLR2004
         return 0.0, 0.0
     mean = daily.mean()
     sd = daily.std(ddof=1)
     downside = daily[daily < 0]
-    dsd = downside.std(ddof=1) if len(downside) > 1 else 0.0
+    dsd = downside.std(ddof=1) if downside.size > 1 else 0.0
     scale = np.sqrt(TRADING_DAYS_PER_YEAR)
     sharpe = float(mean / sd * scale) if sd > 0 else 0.0
     sortino = float(mean / dsd * scale) if dsd and dsd > 0 else 0.0
@@ -176,57 +199,226 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
 
 
 def summarise(trades: pd.DataFrame) -> Summary:
-    """Reduce a leg-level trade log to one row of performance statistics."""
+    """Reduce a leg-level trade log to one row of performance statistics.
+
+    The reference implementation. :func:`summarise_legs` is the fast path and must agree
+    with this exactly; where they ever disagree, this one is right.
+    """
     if trades.empty:
         return Summary.empty()
 
     t = per_trade(trades)
-    pnl = t["net_pnl"]
-    wins, losses = pnl > 0, pnl < 0
-    equity = pnl.cumsum()
+    pnl = t["net_pnl"].to_numpy(np.float64)
 
-    if "entry_time" in t.columns:
-        daily = pnl.groupby(pd.DatetimeIndex(t["exit_time"]).date).sum()
+    if "exit_time" in t.columns:
+        daily = _daily_totals(pnl, pd.DatetimeIndex(t["exit_time"]))
     else:  # pragma: no cover - only when times were not attached
         daily = pnl
+
+    return _summarise_arrays(
+        pnl=pnl,
+        bars_held=t["bars_held"].to_numpy(np.float64),
+        mae=t["mae_points"].to_numpy(np.float64),
+        mfe=t["mfe_points"].to_numpy(np.float64),
+        daily=daily,
+        r=_finite(trades["r_multiple"].to_numpy(np.float64)),
+        legs=len(trades),
+        commission_paid=float(trades["commission"].sum()),
+        ambiguous_share=float(trades["ambiguous_bar"].mean()),
+        # Indexed, not ``.get``-ed. ``validate`` requires ``exit_reason`` of every producer,
+        # so a log without it is a wiring bug and should say so here rather than quietly
+        # report 0.0 -- which would read as "this strategy never runs into the close".
+        # That silent-branch shape is what #81 records against the Sharpe path below.
+        session_close_share=float((trades["exit_reason"] == SESSION_CLOSE).mean()),
+    )
+
+
+def _daily_totals(pnl: np.ndarray, exit_times: pd.DatetimeIndex) -> np.ndarray:
+    """Per-trade P&L totalled by the calendar day each trade closed on."""
+    return pd.Series(pnl).groupby(exit_times.date).sum().to_numpy(np.float64)
+
+
+def _finite(values: np.ndarray) -> np.ndarray:
+    """Drop the infinities and nulls an ``r_multiple`` of zero planned risk leaves behind."""
+    return values[np.isfinite(values)]
+
+
+def _summarise_arrays(  # noqa: PLR0913 - one argument per input vector; a bag would hide a swap
+    *,
+    pnl: np.ndarray,
+    bars_held: np.ndarray,
+    mae: np.ndarray,
+    mfe: np.ndarray,
+    daily: np.ndarray,
+    r: np.ndarray,
+    legs: int,
+    commission_paid: float,
+    ambiguous_share: float,
+    session_close_share: float,
+) -> Summary:
+    """Every statistic, from per-trade vectors and the leg-level quantities.
+
+    The single definition both summary paths reach. Splitting it out is what reduces the
+    question "do the two agree?" to "do they group the legs the same way?" -- everything
+    after the grouping is literally the same arithmetic on the same arrays.
+
+    ``pnl``, ``bars_held``, ``mae`` and ``mfe`` are one element per **trade**; ``daily`` is
+    one per calendar day; ``r`` is one per **leg**, with the non-finite values already
+    dropped.
+    """
+    wins, losses = pnl > 0, pnl < 0
+    gross_profit = float(pnl[wins].sum())
+    gross_loss = float(pnl[losses].sum())
     sharpe, sortino = _risk_adjusted(daily)
 
-    r = trades["r_multiple"].replace([np.inf, -np.inf], np.nan).dropna()
-
     return Summary(
-        trades=len(t),
-        legs=len(trades),
+        trades=pnl.size,
+        legs=legs,
         wins=int(wins.sum()),
         losses=int(losses.sum()),
         scratches=int((pnl == 0).sum()),
         win_rate=float(wins.mean()),
         net_pnl=float(pnl.sum()),
-        gross_profit=float(pnl[wins].sum()),
-        gross_loss=float(pnl[losses].sum()),
-        profit_factor=_ratio(float(pnl[wins].sum()), float(-pnl[losses].sum())),
+        gross_profit=gross_profit,
+        gross_loss=gross_loss,
+        profit_factor=_ratio(gross_profit, -gross_loss),
         expectancy=float(pnl.mean()),
         avg_win=float(pnl[wins].mean()) if wins.any() else 0.0,
         avg_loss=float(pnl[losses].mean()) if losses.any() else 0.0,
         largest_win=float(pnl.max()),
         largest_loss=float(pnl.min()),
-        max_drawdown=_max_drawdown(equity),
+        max_drawdown=_max_drawdown(pnl.cumsum()),
         max_consecutive_losses=_max_consecutive(losses),
-        avg_bars_held=float(t["bars_held"].mean()),
-        avg_mae_points=float(t["mae_points"].mean()),
-        avg_mfe_points=float(t["mfe_points"].mean()),
-        mean_r=float(r.mean()) if len(r) else 0.0,
-        r_p10=float(r.quantile(0.10)) if len(r) else 0.0,
-        r_median=float(r.median()) if len(r) else 0.0,
-        r_p90=float(r.quantile(0.90)) if len(r) else 0.0,
+        avg_bars_held=float(bars_held.mean()),
+        avg_mae_points=float(mae.mean()),
+        avg_mfe_points=float(mfe.mean()),
+        mean_r=float(r.mean()) if r.size else 0.0,
+        r_p10=float(np.quantile(r, 0.10)) if r.size else 0.0,
+        r_median=float(np.median(r)) if r.size else 0.0,
+        r_p90=float(np.quantile(r, 0.90)) if r.size else 0.0,
         sharpe=sharpe,
         sortino=sortino,
-        ambiguous_share=float(trades["ambiguous_bar"].mean()),
-        # Indexed, not ``.get``-ed. ``validate`` requires ``exit_reason`` of every producer,
-        # so a log without it is a wiring bug and should say so here rather than quietly
-        # report 0.0 -- which would read as "this strategy never runs into the close".
-        # That silent-branch shape is what #81 records against the Sharpe path above.
-        session_close_share=float((trades["exit_reason"] == SESSION_CLOSE).mean()),
-        commission_paid=float(trades["commission"].sum()),
+        ambiguous_share=ambiguous_share,
+        session_close_share=session_close_share,
+        commission_paid=commission_paid,
+    )
+
+
+class GroupingError(ValueError):
+    """Raised when a leg matrix is not ordered the way the numpy summary path requires."""
+
+
+@njit(cache=True)
+def _run_starts(keys: np.ndarray) -> np.ndarray:
+    """Half-open boundaries of each run of equal ``keys``, plus a closing sentinel."""
+    n = keys.size
+    starts = np.empty(n + 1, np.int64)
+    groups = 0
+    for i in range(n):
+        if i == 0 or keys[i] != keys[i - 1]:
+            starts[groups] = i
+            groups += 1
+    starts[groups] = n
+    return starts[: groups + 1]
+
+
+@njit(cache=True)
+def _grouped_sum(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """Kahan-compensated sum per group -- which is what pandas' ``groupby`` does.
+
+    The compensation is not decoration. Measured over 50,000 four-element groups of random
+    doubles, a plain running sum disagrees with pandas in the last bit on 21% of them and
+    ``np.add.reduceat`` on 35% -- and #33 requires the two summary paths to agree
+    *exactly*. Nulls are skipped for the same reason: ``groupby.sum`` defaults to
+    ``skipna=True``.
+    """
+    out = np.empty(starts.size - 1, np.float64)
+    for g in range(starts.size - 1):
+        total = 0.0
+        compensation = 0.0
+        for i in range(starts[g], starts[g + 1]):
+            value = values[i]
+            if value == value:  # noqa: PLR0124 - NaN is the only value unequal to itself
+                y = value - compensation
+                t = total + y
+                compensation = (t - total) - y
+                total = t
+        out[g] = total
+    return out
+
+
+@njit(cache=True)
+def _grouped_max(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """Largest value per group, skipping nulls as ``groupby.max`` does."""
+    out = np.empty(starts.size - 1, np.float64)
+    for g in range(starts.size - 1):
+        best = np.nan
+        for i in range(starts[g], starts[g + 1]):
+            value = values[i]
+            if value == value and (best != best or value > best):  # noqa: PLR0124
+                best = value
+        out[g] = best
+    return out
+
+
+def _ordered_starts(keys: np.ndarray, what: str) -> np.ndarray:
+    """Group boundaries, refusing keys that are not already in ascending order.
+
+    ``groupby`` returns groups sorted by key whatever order the rows arrived in, so the
+    boundary scan only reproduces it for keys that are already sorted. The simulation
+    writes every leg of a trade before the next trade can open -- it cannot be in two
+    positions at once -- so this holds by construction and the check is a guard against a
+    future producer, not a branch anyone takes.
+    """
+    if keys.size > 1 and not bool(np.all(keys[1:] >= keys[:-1])):
+        msg = (
+            f"{what} must be non-decreasing for the numpy summary path; summarise() the "
+            "frame instead, or fix the producer to emit legs in trade order."
+        )
+        raise GroupingError(msg)
+    return _run_starts(keys)
+
+
+def summarise_legs(legs: LegMatrix, day_codes: np.ndarray | None = None) -> Summary:
+    """Summarise the raw leg matrix, giving exactly what :func:`summarise` gives.
+
+    Skips the DataFrame entirely, which is the point: building and aggregating one was 71%
+    of a sweep combination against the jitted simulation's 23%. Feed it
+    :attr:`nqbt.context.Dataset.day_codes` so the Sharpe and Sortino denominators are days
+    rather than trades; without it they are computed per trade, matching what
+    :func:`summarise` does for a log with no times.
+
+    :func:`summarise` remains the reference. This must agree with it exactly on every
+    field, and ``tests/test_numpy_summary.py`` is what says so.
+    """
+    matrix, count = legs
+    if count == 0:
+        return Summary.empty()
+
+    rows = matrix[:count]
+    starts = _ordered_starts(rows[:, C_TRADE_ID], "trade_id")
+    pnl = _grouped_sum(rows[:, C_NET_PNL], starts)
+
+    if day_codes is None:
+        daily = pnl
+    else:
+        exit_bar = _grouped_max(rows[:, C_EXIT_BAR], starts).astype(np.int64)
+        daily = _grouped_sum(pnl, _ordered_starts(day_codes[exit_bar], "exit day"))
+
+    ambiguous = rows[:, C_AMBIGUOUS]
+    return _summarise_arrays(
+        pnl=pnl,
+        bars_held=_grouped_max(rows[:, C_BARS_HELD], starts),
+        mae=_grouped_max(rows[:, C_MAE], starts),
+        mfe=_grouped_max(rows[:, C_MFE], starts),
+        daily=daily,
+        r=_finite(rows[:, C_R_MULTIPLE]),
+        legs=count,
+        commission_paid=float(rows[:, C_COMMISSION].sum()),
+        # ``!= 0`` rather than a cast, matching ``trades_to_frame``'s ``astype(bool)``
+        # -- which also sends a null to True.
+        ambiguous_share=float((ambiguous != 0).mean()),
+        session_close_share=float((rows[:, C_EXIT_REASON] == EXIT_SESSION_CLOSE).mean()),
     )
 
 

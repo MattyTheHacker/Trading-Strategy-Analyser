@@ -331,8 +331,8 @@ def _null_summary(
     """
     rng = np.random.default_rng(seed)
     drawn = matched_random_signal(data, signal, rng, pool=pool)
-    log = archetype.run(data, params, instrument, signal=drawn)
-    return stats.summarise(log).as_dict()
+    legs = archetype.legs(data, params, instrument, signal=drawn)
+    return stats.summarise_legs(legs, data.day_codes).as_dict()
 
 
 def null_summaries(
@@ -421,7 +421,7 @@ def compare(
             msg,
         )
 
-    observed = stats.summarise(archetype.run(data, params, instrument)).as_dict()
+    observed = stats.summarise_legs(archetype.legs(data, params, instrument), data.day_codes).as_dict()
     null = null_summaries(
         data,
         params,

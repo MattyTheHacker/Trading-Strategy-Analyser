@@ -11,6 +11,10 @@ record array, because that is what Numba handles without friction. :data:`COLUMN
 only place the column order is defined -- read it through :func:`trades_to_frame` rather
 than indexing by number.
 
+That matrix is a :class:`LegMatrix`, and it is a producer's output in its own right rather
+than an intermediate: a sweep summarises it directly and never builds the frame. See
+``docs/roadmap.md`` under "The numpy-native summary path".
+
 One row per **leg exit**, not per trade. A four-leg entry that scales out at three targets
 and trails the runner produces four rows sharing a ``trade_id``, which lets the stats layer
 aggregate either way.
@@ -18,12 +22,10 @@ aggregate either way.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import NamedTuple
 
+import numpy as np
 import pandas as pd
-
-if TYPE_CHECKING:
-    import numpy as np
 
 EXIT_STOP = 0.0
 EXIT_TARGET = 1.0
@@ -54,6 +56,9 @@ NT8's executions grid names its exits ``Stop1..4`` and ``Exit``, which do not ma
 this enum without inventing information. :func:`validate` therefore requires
 ``exit_reason`` to be a string, not a member of this set.
 """
+
+EXIT_CODES = np.array(sorted(EXIT_REASONS), dtype=np.float64)
+"""The same codes as an array, so :func:`validate_legs` can test a column against them."""
 
 LONG = 1.0
 SHORT = -1.0
@@ -158,9 +163,96 @@ Everything else is required on every row from every producer.
 
 REQUIRED = [c for c in SCHEMA if c not in NULLABLE]
 
+REQUIRED_INDICES = tuple(COLUMNS.index(c) for c in COLUMNS if c not in NULLABLE)
+"""Matrix positions of the columns no producer may leave empty.
+
+The same rule as :data:`REQUIRED`, minus the two :data:`TAGS`, which are strings and
+therefore cannot be in a ``float64`` matrix at all.
+"""
+
 
 class TradeSchemaError(ValueError):
     """Raised when a trade log does not meet the schema in this module."""
+
+
+class LegMatrix(NamedTuple):
+    """The jitted simulation's raw output: a preallocated matrix and how much of it is real.
+
+    ``matrix`` is ``(rows, N_COLUMNS)`` ``float64`` laid out in :data:`COLUMNS` order and
+    sized to an upper bound, so only the first ``count`` rows mean anything; the tail is
+    whatever ``allocate_output`` left there.
+
+    A named pair rather than a bare tuple because it is now passed around: a sweep hands it
+    to :func:`nqbt.stats.summarise_legs` instead of building a DataFrame per combination.
+    """
+
+    matrix: np.ndarray
+    count: int
+
+
+def validate_legs(legs: LegMatrix) -> LegMatrix:
+    """Check a raw leg matrix against the schema, returning it unchanged.
+
+    The producer boundary for a caller that never builds the frame. It asserts the same
+    invariants :func:`validate` does -- the ones expressible without the string columns --
+    so taking the numpy summary path does not quietly cost the schema guarantee.
+
+    ``exit_reason`` is checked against :data:`EXIT_REASONS` here, which :func:`validate`
+    deliberately does not do: on a frame the column may hold an imported label NT8 wrote,
+    but a matrix can only have come from the simulator.
+    """
+    matrix, count = legs
+    if matrix.ndim != 2 or matrix.shape[1] != N_COLUMNS:  # noqa: PLR2004
+        msg = f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
+        raise TradeSchemaError(msg)
+    if count > matrix.shape[0]:
+        msg = f"count {count} exceeds the {matrix.shape[0]} rows allocated"
+        raise TradeSchemaError(msg)
+    if count == 0:
+        return legs
+
+    rows = matrix[:count]
+    # Column by column, stopping at the first failure. ``rows[:, REQUIRED_INDICES]`` reads
+    # better and costs a copy of ten columns on every combination of a sweep -- the same
+    # trade-off, and the same answer, as ``validate``'s own short-circuit.
+    for index in REQUIRED_INDICES:
+        if np.isnan(rows[:, index]).any():
+            _raise_matrix_nulls(rows)
+
+    direction = rows[:, C_DIRECTION]
+    if not ((direction == LONG) | (direction == SHORT)).all():
+        msg = (
+            f"direction must be {LONG} (long) or {SHORT} (short); found "
+            f"{sorted(set(direction) - {LONG, SHORT})}"
+        )
+        raise TradeSchemaError(msg)
+    if (rows[:, C_QUANTITY] <= 0).any():
+        msg = (
+            "quantity must be positive on every row; a short position is expressed by "
+            "direction, not by a negative size"
+        )
+        raise TradeSchemaError(msg)
+    if (rows[:, C_LEG] < 1).any():
+        msg = "leg numbering starts at 1"
+        raise TradeSchemaError(msg)
+    reasons = rows[:, C_EXIT_REASON]
+    if not np.isin(reasons, EXIT_CODES).all():
+        unknown = sorted(set(np.unique(reasons)) - set(EXIT_REASONS))
+        msg = f"unknown exit_reason code(s) {unknown}; expected one of {sorted(EXIT_REASONS)}"
+        raise TradeSchemaError(msg)
+    return legs
+
+
+def _raise_matrix_nulls(rows: np.ndarray) -> None:
+    """Name the offending columns now that we know there is at least one."""
+    names = [c for c in COLUMNS if c not in NULLABLE]
+    counts = np.isnan(rows[:, REQUIRED_INDICES]).sum(axis=0)
+    offenders = [(n, int(k)) for n, k in zip(names, counts, strict=True) if k]
+    raise TradeSchemaError(
+        "null values in non-nullable column(s): "
+        + ", ".join(f"{c} ({n})" for c, n in offenders)
+        + ". Columns that may be null are listed in nqbt.trades.NULLABLE.",
+    )
 
 
 def trades_to_frame(

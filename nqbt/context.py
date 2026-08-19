@@ -23,12 +23,11 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 from nqbt import conditions, indicators, sessions
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from nqbt.conditions import MovingAverageGrid
 
 
@@ -101,6 +100,14 @@ class Dataset:
     vwap: np.ndarray | None = None
     below_vwap: np.ndarray | None = None
     above_vwap: np.ndarray | None = None
+    day_codes: np.ndarray | None = None
+    """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
+
+    Days since the epoch in the index's own timezone, which is what makes daily P&L
+    groupable without touching pandas. Precomputed like everything else here because the
+    conversion costs about as much as a whole combination of the simulation, and the numpy
+    summary path would otherwise pay it once per combination.
+    """
 
     def __len__(self) -> int:
         return self.close.size
@@ -167,7 +174,7 @@ class Dataset:
         total = sum(a.nbytes for a in (self.open, self.high, self.low, self.close))
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
-        for a in (self.vwap, self.below_vwap, self.above_vwap):
+        for a in (self.vwap, self.below_vwap, self.above_vwap, self.day_codes):
             if a is not None:
                 total += a.nbytes
         return total
@@ -183,6 +190,21 @@ class Dataset:
         The arrays are shared, not copied: this is a view for shipping, not a deep copy.
         """
         return replace(self, bars=self.bars.iloc[:, :0])
+
+
+def day_codes(index: pd.Index) -> np.ndarray | None:
+    """Each bar's calendar day as an ``int32``, in the index's own timezone.
+
+    ``None`` when the index is not datetime-like, which only a synthetic frame is.
+
+    In the index's timezone rather than UTC because that is what ``DatetimeIndex.date``
+    gives, and the pandas summary path groups daily P&L by exactly that. On a
+    ``Europe/London`` index the two differ for half the year.
+    """
+    if not isinstance(index, pd.DatetimeIndex):
+        return None
+    local = index.tz_localize(None) if index.tz is not None else index
+    return local.to_numpy().astype("datetime64[D]").astype(np.int32)
 
 
 DEFAULT_SPEC = ContextSpec(ema_periods=(21,), sma_periods=(60, 175), needs_vwap=True)
@@ -242,4 +264,5 @@ def prepare(
         vwap=vwap,
         below_vwap=below_vwap,
         above_vwap=above_vwap,
+        day_codes=day_codes(bars.index),
     )

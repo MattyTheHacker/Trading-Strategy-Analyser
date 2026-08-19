@@ -34,6 +34,8 @@ if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
 
+    from nqbt.trades import LegMatrix
+
 
 @runtime_checkable
 class Params(Protocol):
@@ -137,6 +139,18 @@ class Archetype:
     ``Grid.__post_init__``.
     """
 
+    legs: Callable[..., LegMatrix]
+    """The same simulation, stopping at the raw leg matrix.
+
+    Registered beside :attr:`run` rather than derived from it because it is the *earlier*
+    of the two: ``run`` is this plus a DataFrame. A sweep takes this one and summarises the
+    matrix directly, which is where #33's speedup comes from -- building and aggregating a
+    trade log it discards was 71% of a combination.
+
+    Not optional. An archetype registered with only ``run`` would silently be the slow one
+    in a sweep, and the reason to notice would be a wall clock rather than an error.
+    """
+
     tier2: Tier2Status
     """See :class:`Tier2Status` -- this reaches the results table, deliberately."""
 
@@ -182,6 +196,7 @@ DEADCATBOUNCE = Archetype(
     name="DeadCatBounce",
     params_cls=DeadCatParams,
     run=runner.run_deadcat,
+    legs=runner.deadcat_legs,
     signal=runner.deadcat_signal,
     tier2=Tier2Status.RECONCILED,
 )
@@ -190,6 +205,7 @@ PULLBACKANDGO = Archetype(
     name="PullBackAndGo",
     params_cls=PullBackAndGoParams,
     run=pullback.run_pullbackandgo,
+    legs=pullback.pullbackandgo_legs,
     signal=pullback.pullback_signal,
     tier2=Tier2Status.RECONCILED,
 )

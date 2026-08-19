@@ -498,6 +498,7 @@ def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
         name="UnreconciledProbe",
         params_cls=DeadCatParams,
         run=registry.DEADCATBOUNCE.run,
+        legs=registry.DEADCATBOUNCE.legs,
         signal=registry.DEADCATBOUNCE.signal,
         tier2=registry.Tier2Status.TIER1_ONLY,
     )
