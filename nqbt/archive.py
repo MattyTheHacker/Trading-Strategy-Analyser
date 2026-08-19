@@ -22,10 +22,13 @@ nothing here needs to understand a date.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterable, Sequence
+from typing import TYPE_CHECKING
 
 from nqbt import paths
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+    from pathlib import Path
 
 __all__ = ["MergeResult", "build_archive", "merge_contract"]
 
@@ -85,10 +88,9 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
         # never overwrite something already recorded.
         newest = max(rows)
         for key, line in rows.items():
-            if key not in merged:
-                merged[key] = line
-            elif key != newest:
-                merged[key] = line
+            if key == newest and key in merged:
+                continue
+            merged[key] = line
 
     # Counted against the archive as it was, not as each source touched it. Sources
     # routinely disagree -- a manual export and the AddOn hold different volumes for the
@@ -98,8 +100,9 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
     revised = sum(1 for key, line in merged.items() if key in original and original[key] != line)
 
     if len(merged) < len(original):
+        msg = f"{archive_path.name}: archive shrank from {len(original):,} to {len(merged):,}"
         raise RuntimeError(  # pragma: no cover - the merge cannot delete keys
-            f"{archive_path.name}: archive shrank from {len(original):,} to {len(merged):,}"
+            msg,
         )
     archive = merged
 

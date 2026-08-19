@@ -39,7 +39,7 @@ def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.Da
                     "exit_reason": "target",
                     "entry_time": base + pd.Timedelta(days=trade_id),
                     "exit_time": base + pd.Timedelta(days=trade_id, minutes=5),
-                }
+                },
             )
     return pd.DataFrame(rows)
 
@@ -276,7 +276,7 @@ def cache(tmp_path):
         [
             front[(front.index < roll) & front["in_session"]].assign(contract="MNQ 03-24"),
             back[(back.index >= roll) & back["in_session"]].assign(contract="MNQ 06-24"),
-        ]
+        ],
     ).drop(columns=["in_session"])
 
     out = splice.continuous_path("MNQ", True, tmp_path)

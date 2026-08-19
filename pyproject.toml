@@ -47,6 +47,12 @@ testpaths = ["tests"]
 enabled = false
 
 
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:"]
+skip_covered = true
+sort = "cover"
+
+
 [tool.ruff]
 line-length = 110
 indent-width = 4

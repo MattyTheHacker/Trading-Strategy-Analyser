@@ -18,8 +18,12 @@ aggregate either way.
 
 from __future__ import annotations
 
-import numpy as np
+from typing import TYPE_CHECKING
+
 import pandas as pd
+
+if TYPE_CHECKING:
+    import numpy as np
 
 EXIT_STOP = 0.0
 EXIT_TARGET = 1.0
@@ -133,7 +137,7 @@ NULLABLE = frozenset(
         "mae_points",
         "mfe_points",
         "ambiguous_bar",
-    }
+    },
 )
 """Columns a producer may legitimately leave empty, and why each one.
 
@@ -213,8 +217,9 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
     """
     missing = [c for c in SCHEMA if c not in frame.columns]
     if missing:
+        msg = f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
         raise TradeSchemaError(
-            f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
+            msg,
         )
     if frame.empty:
         return frame
@@ -228,20 +233,28 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
 
     direction = frame["direction"].to_numpy()
     if not ((direction == LONG) | (direction == SHORT)).all():
-        raise TradeSchemaError(
+        msg = (
             f"direction must be {LONG} (long) or {SHORT} (short); found "
             f"{sorted(set(direction) - {LONG, SHORT})}"
         )
+        raise TradeSchemaError(
+            msg,
+        )
     unknown = set(frame["source"].unique()) - set(SOURCES)
     if unknown:
-        raise TradeSchemaError(f"unknown source(s) {sorted(unknown)}; expected one of {SOURCES}")
+        msg = f"unknown source(s) {sorted(unknown)}; expected one of {SOURCES}"
+        raise TradeSchemaError(msg)
     if (frame["quantity"].to_numpy() <= 0).any():
-        raise TradeSchemaError(
+        msg = (
             "quantity must be positive on every row; a short position is expressed by "
             "direction, not by a negative size"
         )
+        raise TradeSchemaError(
+            msg,
+        )
     if (frame["leg"].to_numpy() < 1).any():
-        raise TradeSchemaError("leg numbering starts at 1")
+        msg = "leg numbering starts at 1"
+        raise TradeSchemaError(msg)
     return frame
 
 
@@ -252,5 +265,5 @@ def _raise_nulls(frame: pd.DataFrame) -> None:
     raise TradeSchemaError(
         "null values in non-nullable column(s): "
         + ", ".join(f"{c} ({n})" for c, n in offenders.items())
-        + ". Columns that may be null are listed in nqbt.trades.NULLABLE."
+        + ". Columns that may be null are listed in nqbt.trades.NULLABLE.",
     )

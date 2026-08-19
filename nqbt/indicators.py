@@ -37,6 +37,7 @@ import numpy as np
 from numba import njit
 
 __all__ = [
+    "new_session_flags",
     "nt8_atr",
     "nt8_bollinger",
     "nt8_ema",
@@ -46,7 +47,6 @@ __all__ = [
     "nt8_true_range",
     "session_vwap",
     "typical_price",
-    "new_session_flags",
 ]
 
 
@@ -113,7 +113,7 @@ def nt8_true_range(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.n
         span = high[i] - low[i]
         up = abs(high[i] - prev)
         down = abs(low[i] - prev)
-        out[i] = max(span, max(up, down))
+        out[i] = max(span, up, down)
     return out
 
 
@@ -160,8 +160,7 @@ def nt8_stddev(values: np.ndarray, period: int) -> np.ndarray:
     out = np.empty(n, dtype=np.float64)
     for i in range(n):
         start = i - period + 1
-        if start < 0:
-            start = 0
+        start = max(start, 0)
         count = i - start + 1
 
         total = 0.0
@@ -178,7 +177,9 @@ def nt8_stddev(values: np.ndarray, period: int) -> np.ndarray:
 
 
 def nt8_bollinger(
-    values: np.ndarray, period: int, num_std: float
+    values: np.ndarray,
+    period: int,
+    num_std: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Bollinger Bands as ``(upper, middle, lower)``.
 
@@ -191,7 +192,11 @@ def nt8_bollinger(
 
 
 def nt8_keltner(
-    high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int, offset: float
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    period: int,
+    offset: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Keltner Channels as ``(upper, midline, lower)``.
 

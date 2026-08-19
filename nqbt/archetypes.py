@@ -20,17 +20,19 @@ PullBackAndGo already reuses ``simulate_deadcat`` directly.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
-from typing import Any, ClassVar, Protocol, runtime_checkable
-
-import numpy as np
-import pandas as pd
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from nqbt.context import ContextSpec
 from nqbt.sim import pullback, runner
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
+    import numpy as np
+    import pandas as pd
 
 
 @runtime_checkable
@@ -211,14 +213,16 @@ def register(archetype: Archetype) -> Archetype:
     DuckDB and read as one strategy measured twice.
     """
     if archetype.name in _REGISTRY:
-        raise ArchetypeError(f"archetype {archetype.name!r} is already registered")
+        msg = f"archetype {archetype.name!r} is already registered"
+        raise ArchetypeError(msg)
     _REGISTRY[archetype.name] = archetype
     return archetype
 
 
 def get(name: str) -> Archetype:
     if name not in _REGISTRY:
-        raise ArchetypeError(f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}")
+        msg = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
+        raise ArchetypeError(msg)
     return _REGISTRY[name]
 
 
@@ -239,12 +243,16 @@ def for_params(params: Params) -> Archetype:
     """
     matches = [a for a in all_archetypes() if a.params_cls is type(params)]
     if not matches:
-        raise ArchetypeError(
+        msg = (
             f"no registered archetype takes {type(params).__name__}; "
             f"pass archetype= explicitly. Known: {names()}"
         )
-    if len(matches) > 1:
         raise ArchetypeError(
-            f"{type(params).__name__} is shared by {[a.name for a in matches]}; pass archetype= explicitly"
+            msg,
+        )
+    if len(matches) > 1:
+        msg = f"{type(params).__name__} is shared by {[a.name for a in matches]}; pass archetype= explicitly"
+        raise ArchetypeError(
+            msg,
         )
     return matches[0]

@@ -20,12 +20,16 @@ path memmaps the result to each worker.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
 from nqbt import conditions, indicators, sessions
-from nqbt.conditions import MovingAverageGrid
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from nqbt.conditions import MovingAverageGrid
 
 
 class ContextError(KeyError):
@@ -108,9 +112,12 @@ class Dataset:
     def grid(self, kind: str) -> MovingAverageGrid:
         """The grid for one moving-average kind, or a pointed error."""
         if kind not in self.mas:
-            raise ContextError(
+            msg = (
                 f"no {kind} grid in this dataset; prepare() was asked for "
                 f"{sorted(self.mas)}. Add it to the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
             )
         return self.mas[kind]
 
@@ -130,17 +137,23 @@ class Dataset:
 
     def vwap_gate(self, *, above: bool) -> np.ndarray:
         if self.below_vwap is None or self.above_vwap is None:
-            raise ContextError(
+            msg = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
             )
         return self.above_vwap if above else self.below_vwap
 
     def vwap_values(self) -> np.ndarray:
         if self.vwap is None:
-            raise ContextError(
+            msg = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
             )
         return self.vwap
 
@@ -201,7 +214,9 @@ def prepare(
     vwap = below_vwap = above_vwap = None
     if spec.needs_vwap:
         typical = indicators.typical_price(
-            bars["high"].to_numpy(np.float64), bars["low"].to_numpy(np.float64), close
+            bars["high"].to_numpy(np.float64),
+            bars["low"].to_numpy(np.float64),
+            close,
         )
         vwap = indicators.session_vwap(
             typical,

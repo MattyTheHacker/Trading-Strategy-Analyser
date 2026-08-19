@@ -20,28 +20,32 @@ The confluence-count pattern is supported directly: rather than requiring all N 
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 from numba import njit
 
 from nqbt import indicators
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    import pandas as pd
+
 __all__ = [
-    "MovingAverageGrid",
     "BarGeometry",
+    "MovingAverageGrid",
+    "above_series",
     "bar_geometry",
-    "inverted_hammer",
+    "below_series",
+    "count_true",
     "hammer",
+    "inverted_hammer",
     "made_new_high",
     "made_new_low",
     "previous_bar_green",
     "previous_bar_red",
-    "below_series",
-    "above_series",
-    "count_true",
 ]
 
 
@@ -57,8 +61,8 @@ def _inverted_hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):
         body = abs(close[i] - open_[i])
-        top = close[i] if close[i] > open_[i] else open_[i]
-        bottom = close[i] if close[i] < open_[i] else open_[i]
+        top = max(open_[i], close[i])
+        bottom = min(open_[i], close[i])
         upper = high[i] - top
         lower = bottom - low[i]
         out[i] = (upper >= body * 2.0) and (lower <= body) and (body > 0.0)
@@ -77,8 +81,8 @@ def _hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndar
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):
         body = abs(close[i] - open_[i])
-        top = close[i] if close[i] > open_[i] else open_[i]
-        bottom = close[i] if close[i] < open_[i] else open_[i]
+        top = max(open_[i], close[i])
+        bottom = min(open_[i], close[i])
         upper = high[i] - top
         lower = bottom - low[i]
         out[i] = (lower >= body * 2.0) and (upper <= body) and (body > 0.0)
@@ -251,7 +255,8 @@ class MovingAverageGrid:
     def row(self, period: int) -> int:
         idx = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
-            raise KeyError(f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}")
+            msg = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
+            raise KeyError(msg)
         return idx
 
     def below_for(self, period: int) -> np.ndarray:
@@ -262,9 +267,12 @@ class MovingAverageGrid:
 
     def values_for(self, period: int) -> np.ndarray:
         if self.values is None:
-            raise ValueError(
+            msg = (
                 "this grid kept only the boolean gate; rebuild it with keep_values=True "
                 "to read raw moving-average values (needed for the MA trailing stop)"
+            )
+            raise ValueError(
+                msg,
             )
         return self.values[self.row(period)]
 
@@ -274,7 +282,11 @@ class MovingAverageGrid:
 
 
 def moving_average_grid(
-    close: np.ndarray, periods: Iterable[int], kind: str = "ema", *, keep_values: bool = False
+    close: np.ndarray,
+    periods: Iterable[int],
+    kind: str = "ema",
+    *,
+    keep_values: bool = False,
 ) -> MovingAverageGrid:
     """Compute every distinct MA period a sweep needs, once.
 
@@ -283,14 +295,17 @@ def moving_average_grid(
     """
     unique = np.unique(np.asarray(list(periods), dtype=np.int64))
     if unique.size == 0:
-        raise ValueError("no periods supplied")
+        msg = "no periods supplied"
+        raise ValueError(msg)
     if unique[0] < 1:
-        raise ValueError(f"periods must be >= 1, got {unique[0]}")
+        msg = f"periods must be >= 1, got {unique[0]}"
+        raise ValueError(msg)
 
     try:
         fn = {"ema": indicators.nt8_ema, "sma": indicators.nt8_sma}[kind]
     except KeyError:
-        raise ValueError(f"unknown moving average kind {kind!r}; use 'ema' or 'sma'") from None
+        msg = f"unknown moving average kind {kind!r}; use 'ema' or 'sma'"
+        raise ValueError(msg) from None
 
     close = np.ascontiguousarray(close, dtype=np.float64)
     below = np.empty((unique.size, close.size), dtype=np.bool_)

@@ -50,13 +50,18 @@ Two roll methods:
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from nqbt import ingest, paths
-from nqbt.instruments import ContractId
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from nqbt.instruments import ContractId
 
 FULL_SESSION_FRACTION = 0.5
 """Share of a contract's median session length below which a session counts as partial."""
@@ -179,7 +184,7 @@ def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
             "front_volume": fc.groupby(days)["volume"].sum(),
             "back_volume": bc.groupby(days)["volume"].sum(),
             "shared_bars": fc.groupby(days).size(),
-        }
+        },
     )
     table["ratio"] = table["back_volume"] / table["front_volume"].where(table["front_volume"] > 0)
     table["back_wins"] = table["back_volume"] > table["front_volume"]
@@ -204,9 +209,12 @@ def detect_roll(
     notes: list[str] = []
 
     if table.empty:
-        raise SpliceError(
+        msg = (
             f"{front_id.nt8_name} and {back_id.nt8_name} share no in-session bars; "
             "cannot determine a roll date"
+        )
+        raise SpliceError(
+            msg,
         )
 
     roll_day = _first_confirmed_crossover(table, confirm_sessions)
@@ -216,25 +224,31 @@ def detect_roll(
         peak = table["ratio"].max()
         notes.append(
             f"no volume crossover across {len(table)} shared sessions (peak ratio "
-            f"{peak:.2f}); expected with NT8 data, which stops ~4 days before expiry"
+            f"{peak:.2f}); expected with NT8 data, which stops ~4 days before expiry",
         )
         if not allow_coverage_boundary:
-            raise SpliceError(
+            msg = (
                 f"{front_id.nt8_name} -> {back_id.nt8_name}: {notes[-1]}. "
                 "Supply history from a source that covers the crossover, or allow the "
                 "coverage-boundary roll."
             )
+            raise SpliceError(
+                msg,
+            )
         roll_day = _coverage_boundary_roll(front, back)
         method = METHOD_COVERAGE
         if roll_day is None:
-            raise SpliceError(
+            msg = (
                 f"{front_id.nt8_name} -> {back_id.nt8_name}: no volume crossover and "
                 "no usable coverage boundary; the two exports may not overlap enough "
                 "to splice"
             )
+            raise SpliceError(
+                msg,
+            )
         notes.append(
             f"rolled at {roll_day.date()}, where the front contract's data ends and the "
-            "back contract's takes over -- the same handover NT8 itself makes"
+            "back contract's takes over -- the same handover NT8 itself makes",
         )
 
     offset = _boundary_offset(front, back, roll_day, front_id, back_id)
@@ -309,9 +323,12 @@ def _boundary_offset(
     ba = ba[ba["trading_day"] < roll_day]
     common = fa.index.intersection(ba.index)
     if len(common) == 0:
-        raise SpliceError(
+        msg = (
             f"{front_id.nt8_name} -> {back_id.nt8_name}: no shared bar before "
             f"{roll_day.date()} to measure the back-adjustment offset from"
+        )
+        raise SpliceError(
+            msg,
         )
     ts = common[-1]
     return float(fa.loc[ts, "close"] - ba.loc[ts, "close"])
@@ -333,7 +350,8 @@ def build_continuous(
     Returns the series and a :class:`SpliceReport` describing every decision made.
     """
     if len(contracts) < 1:
-        raise SpliceError("need at least one contract to build a series")
+        msg = "need at least one contract to build a series"
+        raise SpliceError(msg)
     contracts = sorted(contracts)
     root = contracts[0].root
 
@@ -346,7 +364,7 @@ def build_continuous(
             confirm_sessions=confirm_sessions,
             allow_coverage_boundary=allow_coverage_boundary,
         )
-        for f, b in zip(contracts, contracts[1:])
+        for f, b in itertools.pairwise(contracts)
     ]
 
     _check_roll_monotonicity(rolls)
@@ -377,7 +395,7 @@ def build_continuous(
         if seg.empty:
             warnings.append(
                 f"{contract.nt8_name} contributes no bars; its window was fully "
-                "consumed by the surrounding rolls"
+                "consumed by the surrounding rolls",
             )
             continue
 
@@ -394,23 +412,25 @@ def build_continuous(
                 "end": seg["trading_day"].iloc[-1],
                 "bars": len(seg),
                 "shift": shifts[i],
-            }
+            },
         )
 
     if not pieces:
-        raise SpliceError("splicing produced no bars")
+        msg = "splicing produced no bars"
+        raise SpliceError(msg)
 
     series = pd.concat(pieces).sort_index(kind="stable")
     series = series.drop(columns=["in_session"])
 
     if not series.index.is_unique:
         dupes = int(series.index.duplicated().sum())
-        raise SpliceError(f"continuous series has {dupes} duplicate timestamps; segment boundaries overlap")
+        msg = f"continuous series has {dupes} duplicate timestamps; segment boundaries overlap"
+        raise SpliceError(msg)
 
     if back_adjust and float(series[["open", "high", "low", "close"]].min().min()) <= 0:
         warnings.append(
             "back-adjustment drove prices to or below zero; the raw series is the only "
-            "usable one over this window"
+            "usable one over this window",
         )
 
     # A coverage-boundary roll is the expected path for NT8 data and is not itself worth
@@ -421,7 +441,7 @@ def build_continuous(
             warnings.append(
                 f"{roll.front.nt8_name} -> {roll.back.nt8_name}: rolled at "
                 f"{roll.roll_day.date()} with the back contract at only "
-                f"{roll.handover_ratio:.0%} of front volume; verify this handover"
+                f"{roll.handover_ratio:.0%} of front volume; verify this handover",
             )
 
     report = SpliceReport(
@@ -435,13 +455,16 @@ def build_continuous(
 
 
 def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
-    for earlier, later in zip(rolls, rolls[1:]):
+    for earlier, later in itertools.pairwise(rolls):
         if later.roll_day <= earlier.roll_day:
-            raise SpliceError(
+            msg = (
                 f"roll dates are out of order: {earlier.front.nt8_name}->"
                 f"{earlier.back.nt8_name} rolls {earlier.roll_day.date()} but "
                 f"{later.front.nt8_name}->{later.back.nt8_name} rolls "
                 f"{later.roll_day.date()}"
+            )
+            raise SpliceError(
+                msg,
             )
 
 
@@ -463,7 +486,8 @@ def splice_root(
     """Build (and optionally cache) the continuous series for one root symbol."""
     contracts = sorted(ingest.discover_exports(data_dir, root=root))
     if not contracts:
-        raise SpliceError(f"no contracts found for {root} in {data_dir}")
+        msg = f"no contracts found for {root} in {data_dir}"
+        raise SpliceError(msg)
     frames = {c: ingest.load_contract(c, cache_dir) for c in contracts}
 
     series, report = build_continuous(
@@ -483,12 +507,18 @@ def splice_root(
 
 
 def load_continuous(
-    root: str, *, back_adjust: bool = False, cache_dir: Path = paths.CACHE_DIR
+    root: str,
+    *,
+    back_adjust: bool = False,
+    cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:
     path = continuous_path(root, back_adjust, cache_dir)
     if not path.exists():
-        raise FileNotFoundError(
+        msg = (
             f"no continuous series for {root}; run `nqbt splice --root {root}"
             f"{' --back-adjust' if back_adjust else ''}` first"
+        )
+        raise FileNotFoundError(
+            msg,
         )
     return pd.read_parquet(path)

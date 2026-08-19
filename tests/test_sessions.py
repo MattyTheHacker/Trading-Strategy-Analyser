@@ -41,7 +41,7 @@ def test_dst_shifts_the_utc_offset_within_one_contract() -> None:
 
 
 @pytest.mark.parametrize(
-    "stamp,why",
+    ("stamp", "why"),
     [
         ("2024-03-09 15:44:00", "Saturday morning print"),
         ("2024-03-09 21:14:00", "Saturday afternoon print"),
@@ -71,7 +71,7 @@ def test_session_edges_mark_first_and_last_in_session_bars_only() -> None:
             "2024-01-16 23:00:00",  # 18:00 ET Tue -> break, excluded
             "2024-01-16 22:00:00",  # Tue 17:00 ET -> Tuesday's session closes
             "2024-01-16 23:01:00",  # Tue 18:01 ET -> Wednesday's session opens
-        )
+        ),
     )
     # classify sorts nothing; the caller supplies ascending order, so re-sort here.
     order = np.argsort(info.eastern.values)

@@ -5,11 +5,16 @@ obvious fix, but only if Numba unboxes the tuple rather than boxing it per call,
 if @njit(cache=True) still works -- the disk cache is what makes parallel workers cheap.
 """
 
+import logging
 import time
 from typing import NamedTuple
 
 import numpy as np
 from numba import njit
+
+from nqbt import logsetup
+
+logger = logging.getLogger(__name__)
 
 
 class Costs(NamedTuple):
@@ -44,13 +49,18 @@ def bench(fn, *args, n=7):
 
 
 if __name__ == "__main__":
+    logsetup.configure(__name__)
     x = np.random.default_rng(0).random(5_000_000)
     c = Costs(0.25, 2.0, 1.24, 0.5)
 
     a, b = with_tuple(x, c), with_scalars(x, *c)
-    print(f"bit-identical result: {a == b}   ({a!r})")
+    logger.info("bit-identical result: %s   (%r)", a == b, a)
 
     tt, ts = bench(with_tuple, x, c), bench(with_scalars, x, *c)
-    print(f"namedtuple {tt:6.1f} ms   scalars {ts:6.1f} ms   ratio {tt / ts:.3f}")
-    print(f"cache=True accepted for both (no exception raised at definition)")
-    print(f"signatures compiled: tuple={len(with_tuple.signatures)} scalars={len(with_scalars.signatures)}")
+    logger.info("namedtuple %6.1f ms   scalars %6.1f ms   ratio %.3f", tt, ts, tt / ts)
+    logger.info("cache=True accepted for both (no exception raised at definition)")
+    logger.info(
+        "signatures compiled: tuple=%d scalars=%d",
+        len(with_tuple.signatures),
+        len(with_scalars.signatures),
+    )

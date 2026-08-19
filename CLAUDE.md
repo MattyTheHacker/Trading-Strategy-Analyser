@@ -202,10 +202,60 @@ resolves both halves of a `from` import, and `test_the_import_analysis_sees_both
 guards that.
 
 The regression gate is now `tools/capture_trade_logs.py` + `tools/compare_trade_logs.py`,
-kept because M15 needs the same one. **They write `float_format="%.17g"` deliberately**:
-pandas' default CSV writer is not round-trip exact for float64 and moves 4 of 1,664
-`r_multiple` values by one ULP, which would let a sign or ordering error slip through the
-very gate meant to catch it. Verified to fail on a deliberate one-ULP perturbation.
+kept because M15 needs the same one. **The float64 precision problem was on the read side
+all along, and was blamed on the write side until #113.** Measured on the 1,664-leg
+`live_mnq.csv` capture, 18,304 float values across 11 columns:
+
+| | read default | read `round_trip` |
+|---|---|---|
+| write default | 342 moved | **exact** |
+| write `%.17g`  | 576 moved | **exact** |
+
+Read the diagonal, not the margins. `float_precision="round_trip"` is what makes the gate
+correct — with it *either* writer is exact. `%.17g` on its own fixes nothing, and paired
+with the default parser it makes matters **worse**, because 17-digit text is precisely what
+a lax parser mis-rounds. `float_precision="high"` is not enough either; it fails the same
+way. The `%.17g` is kept because it is explicit and costs nothing, **not** because it is
+load-bearing — the earlier note claiming it was, and citing "4 of 1,664 `r_multiple`
+values", was measuring the reader and attributing it to the writer.
+
+Until #113 the gate read with a bare `pd.read_csv`, so **a one-ULP difference was invisible
+to it** — a two-byte textual change in a captured log reported `BYTE-FOR-BYTE IDENTICAL`.
+`tests/test_trade_log_gate.py` now pins that it cannot regress.
+
+**Every historical claim was re-run through the fixed gate (#113) and all of them hold.**
+One capture script was run at each commit rather than each commit's own copy, so the
+harness is a constant and any difference is library code; `prepare`'s signature is
+unchanged across M9, M15 and M20a, and only its module moved, so one shim covers them all.
+
+| claim | commits | gate | `sha256` |
+|---|---|---|---|
+| M9 move | `6975a56`→`f71baa3` | identical | identical |
+| M9 schema | `f71baa3`→`8b2c5ab` | pre-existing columns identical | differ (3 columns added) |
+| M15.1 sign | `4be9980`→`96be12a` | identical | **differ — see below** |
+| M15.4 PullBackAndGo | `cc1be25`→`cb2e2c7` | identical | identical |
+| M20a | `f992c05`→`9caf653` | identical | identical |
+| M15.2/3 cancel | `96be12a`→`cc1be25` | 10 files differ | differ |
+| M15.5 fills | `cb2e2c7`→`0871831` | 14 files differ | differ |
+
+The last two *should* differ — force-flat cancellation removes real legs (113,164 → 113,116)
+and M15.5 changed fill semantics. Both are the fix working, not a regression.
+
+**M15.1 is numerically identical but not textually identical, and that is new information.**
+`d = ±1` turns `0.0` into `-0.0`, so 6,908 values across `gross_pnl`, `net_pnl`,
+`r_multiple`, `mae_points` and `mfe_points` flip their sign bit. **Every one of them is
+zero** — verified, none non-zero — and `-0.0 == 0.0`, so sums, the `pnl == 0` scratch test
+and every statistic are unaffected. The right phrase for M15.1 is therefore *numerically*
+identical; only the CSV text moved.
+
+That is also why **`sha256sum` is a cross-check, not the gate**. It is strictly stronger
+than `assert_frame_equal(check_exact=True)` and will flag a benign signed zero as a
+difference. Use it to catch the gate itself being broken — it is code, and it has been
+wrong — but when the two disagree, find out which kind of difference it is before believing
+either. Verifying the gate can still *fail* is part of using it, and a pandas round-trip is
+the wrong way to do that: perturbing a value via `read_csv`/`to_csv` trips a *collateral*
+difference and reports a column you did not touch, which reads like success. **Perturb the
+CSV text directly**, one field, and check the reported column is the one you edited.
 
 The refactor was verified by capturing every producer path before and after — the pinned
 MNQ 03-24 reconciliation window, a costed run, the same bars through the NQ spec, and an
@@ -295,10 +345,14 @@ all three now exist; what is missing is that nothing runs ruff or mypy.
   `_write` runs through it. `_sided()` is the one place that picks which raw OHLC value is
   adverse or favourable, because that is a data selection and not something a sign
   multiplication can express. **Do not fork this for a new direction or archetype.**
-- **The gate for a direction-symmetric change is byte-identity of every short-only trade
+- **The gate for a direction-symmetric change is identity of every short-only trade
   log**, not "the reconciliation still passes" — ×(±1.0) is exact in IEEE 754, so both halves
   of a forked bracket reduce to today's behaviour at `d = −1` whether or not they agree at
   `d = +1`. `tools/capture_trade_logs.py` + `tools/compare_trade_logs.py` are that gate.
+  **Read "identity" as numerical, not textual**: ×(−1.0) sends `0.0` to `-0.0`, which is a
+  different 8 bytes and an equal number, so M15.1 moved 6,908 zeros without moving a result
+  (re-verified in #113). `assert_frame_equal(check_exact=True)` is the right comparison and
+  a file hash is too strict — a signed zero is the one difference to accept.
 - **`EXIT_SIGNAL` is reserved but unused.** For a rule-driven exit with no bracket level of
   its own — M18 and `InsideBarTrailing.cs` need it, DeadCatBounce does not, and a test guards
   structurally that `nqbt/sim/deadcat.py` never imports it.
