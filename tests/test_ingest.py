@@ -70,7 +70,7 @@ def test_second_ingest_of_unchanged_file_is_a_no_op(export, cache) -> None:
 def test_appended_rows_are_parsed_without_rereading_the_head(export, cache) -> None:
     _, first = run(export, cache)
     extra = "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"
-    write(export, LINES + [extra])
+    write(export, [*LINES, extra])
 
     result, entry = run(export, cache)
     assert result.action == "appended"
@@ -94,7 +94,7 @@ def test_partial_trailing_line_is_deferred_until_complete(export, cache) -> None
     assert result.rows_added == 0
 
     # Once the writer finishes the line, it is picked up intact.
-    write(export, LINES + ["20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
+    write(export, [*LINES, "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
     result, _ = run(export, cache)
     assert result.rows_added == 1
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
@@ -108,12 +108,12 @@ def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cac
     the file head alone cannot see that, so the partial bar used to be frozen forever.
     """
     partial = "20240308 213300;18001.75;18002.00;18001.50;18001.80;12"
-    write(export, LINES + [partial])
+    write(export, [*LINES, partial])
     run(export, cache)
     assert ingest.load_contract(CONTRACT, cache)["volume"].iloc[-1] == 12
 
     complete = "20240308 213300;18001.75;18010.00;17995.00;18008.25;884"
-    write(export, LINES + [complete, "20240308 213400;18008.25;18009.00;18007.00;18008.00;61"])
+    write(export, [*LINES, complete, "20240308 213400;18008.25;18009.00;18007.00;18008.00;61"])
     result, _ = run(export, cache)
 
     frame = ingest.load_contract(CONTRACT, cache)
@@ -168,7 +168,7 @@ def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(expor
     path.write_text(json.dumps(stored))
 
     assert ingest.load_manifest(path) == {}
-    write(export, LINES + ["20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
+    write(export, [*LINES, "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"])
     result, _ = run(export, cache)
     assert result.action == "reparsed"
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
@@ -267,3 +267,62 @@ def test_ingest_all_reports_when_nothing_is_found(tmp_path) -> None:
     empty.mkdir()
     with pytest.raises(ingest.IngestError, match="no NT8 exports"):
         ingest.ingest_all(data_dir=empty, cache_dir=tmp_path / "cache")
+
+
+def test_empty_export_raises_ingest_error(cache, tmp_path) -> None:
+    """Ensure that an empty or whitespace-only file is rejected cleanly."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    # Write a file with no bar data, only an empty string.
+    src = write(data_dir / "MNQ 03-24.Last.txt", [])
+
+    with pytest.raises(ingest.IngestError, match="produced no bars"):
+        run(src, cache)
+
+
+def test_tick_export_is_rejected_early(cache, tmp_path) -> None:
+    """Verify tick-level exports are rejected rather than parsed incorrectly.
+
+    NinjaTrader tick files have 5 fields instead of 6, and a 3-part timestamp
+    separated by spaces (Date Time Subsecond).
+    """
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    # Tick format: yyyyMMdd HHmmss fff;last;bid;ask;volume
+    tick_line = "20240308 213000 123;18000.25;18000.00;18000.50;1"
+    src = write(data_dir / "MNQ 03-24.Last.txt", [tick_line])
+
+    with pytest.raises(ingest.IngestError, match="looks like a tick export"):
+        run(src, cache)
+
+
+def test_unparseable_timestamps_raise_error(cache, tmp_path) -> None:
+    """Ensures export files with malformed timestamps trigger a failure."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    bad_line = "Not a timestamp;18000.25;18002.00;17999.50;18001.00;120"
+    src = write(data_dir / "MNQ 03-24.Last.txt", [bad_line])
+
+    with pytest.raises(ingest.IngestError, match="no parseable timestamps"):
+        run(src, cache)
+
+
+def test_load_contract_raises_file_not_found_when_missing(tmp_path) -> None:
+    """Loading a contract that has not been cached should abort safely."""
+    with pytest.raises(FileNotFoundError, match="no cached bars for MNQ 03-24"):
+        ingest.load_contract(CONTRACT, tmp_path)
+
+
+def test_ingest_all_builds_archive_when_data_dir_is_none(monkeypatch, export, cache) -> None:
+    """Verifies that ingest_all defaults to refreshing the archive if no data_dir is provided."""
+    from unittest.mock import MagicMock
+
+    mock_build = MagicMock(return_value=[])
+    monkeypatch.setattr(ingest.archive, "build_archive", mock_build)
+
+    # Point the archive_dir to the tmp_path containing our export fixture so it succeeds
+    ingest.ingest_all(archive_dir=export.parent, cache_dir=cache, root="MNQ")
+
+    mock_build.assert_called_once()

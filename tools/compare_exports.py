@@ -12,14 +12,23 @@ Defaults to data/minute (baseline) against data/addon (candidate). Read-only.
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-from nqbt import ingest, paths
+from nqbt import ingest, logsetup, paths
+
+logger = logging.getLogger(__name__)
 
 VALUE_COLUMNS = ["open", "high", "low", "close", "volume"]
+
+WHOLE_SESSION_BARS = 300
+"""Bars in a day above which a difference is a whole session, not a few missing minutes."""
+
+SOUND_AFTER_SHIFT = 0.95
+"""Agreement once a timezone shift is undone, above which only the zone was wrong."""
 
 
 def load(path: Path) -> pd.DataFrame:
@@ -99,12 +108,13 @@ def sessions_of(index: pd.DatetimeIndex) -> pd.Series:
 
 
 def main(argv: list[str]) -> int:
+    logsetup.configure(__name__)
     baseline_dir = Path(argv[1]) if len(argv) > 1 else paths.MINUTE_DIR
     candidate_dir = Path(argv[2]) if len(argv) > 2 else paths.DATA_DIR / "addon"
 
     if not candidate_dir.exists():
-        print(f"candidate folder does not exist: {candidate_dir}")
-        print("Run Tools -> 'Export historical bars (nqbt)' in NinjaTrader first.")
+        logger.info("candidate folder does not exist: %s", candidate_dir)
+        logger.info("Run Tools -> 'Export historical bars (nqbt)' in NinjaTrader first.")
         return 1
 
     rows, details = [], []
@@ -112,7 +122,7 @@ def main(argv: list[str]) -> int:
         name = candidate_path.name.removesuffix(".Last.txt")
         baseline_path = baseline_dir / candidate_path.name
         if not baseline_path.exists():
-            print(f"{name}: only in candidate, no baseline to compare")
+            logger.info("%s: only in candidate, no baseline to compare", name)
             continue
 
         result = compare(name, load(baseline_path), load(candidate_path))
@@ -121,45 +131,53 @@ def main(argv: list[str]) -> int:
             details.append(result)
 
     if not rows:
-        print("nothing to compare")
+        logger.info("nothing to compare")
         return 1
 
     table = pd.DataFrame(rows).set_index("contract")
-    print(table.to_string())
+    logger.info("%s", table.to_string())
 
     shifted = table[table["shift_h"] != 0]
     if len(shifted):
-        print(f"\n*** {len(shifted)} contract(s) align better at a non-zero hour shift.")
-        print("*** The exporter's timezone conversion is wrong; do not ingest this folder.")
-        print(shifted[["shift_h", "shifted_match"]].to_string())
         agreement = shifted["shifted_match"].mean()
-        print(f"\n*** Once the shift is undone the bars agree on {agreement:.1%} of shared timestamps.")
-        print(
-            "*** "
-            + (
-                "Only the timezone is wrong -- the data itself is sound."
-                if agreement > 0.95
-                else "The data differs beyond the shift; investigate before trusting it."
-            )
+        verdict = (
+            "Only the timezone is wrong -- the data itself is sound."
+            if agreement > SOUND_AFTER_SHIFT
+            else "The data differs beyond the shift; investigate before trusting it."
         )
+        logger.info("")
+        logger.info("*** %d contract(s) align better at a non-zero hour shift.", len(shifted))
+        logger.info("*** The exporter's timezone conversion is wrong; do not ingest this folder.")
+        logger.info("%s", shifted[["shift_h", "shifted_match"]].to_string())
+        logger.info("")
+        logger.info(
+            "*** Once the shift is undone the bars agree on %s of shared timestamps.", f"{agreement:.1%}"
+        )
+        logger.info("*** %s", verdict)
         return 2
 
-    print(
-        f"\ntotals: baseline {table['baseline'].sum():,}  candidate "
-        f"{table['candidate'].sum():,}  net {table['delta'].sum():+,}"
+    logger.info("")
+    logger.info(
+        "totals: baseline %s  candidate %s  net %s",
+        f"{table['baseline'].sum():,}",
+        f"{table['candidate'].sum():,}",
+        f"{table['delta'].sum():+,}",
     )
-    print(
-        f"contracts where the candidate has bars the baseline lacks: "
-        f"{int((table['only_candidate'] > 0).sum())}"
+    logger.info(
+        "contracts where the candidate has bars the baseline lacks: %d",
+        int((table["only_candidate"] > 0).sum()),
     )
-    print(
-        f"contracts where the baseline has bars the candidate lacks: "
-        f"{int((table['only_baseline'] > 0).sum())}"
+    logger.info(
+        "contracts where the baseline has bars the candidate lacks: %d",
+        int((table["only_baseline"] > 0).sum()),
     )
-    print(f"contracts with differing values on shared timestamps: {int((table['differing'] > 0).sum())}")
+    logger.info(
+        "contracts with differing values on shared timestamps: %d", int((table["differing"] > 0).sum())
+    )
 
     for result in details:
-        print(f"\n--- {result['contract']} ---")
+        logger.info("")
+        logger.info("--- %s ---", result["contract"])
         for label, idx in (
             ("only in baseline", result["_only_baseline_idx"]),
             ("only in candidate", result["_only_candidate_idx"]),
@@ -167,10 +185,13 @@ def main(argv: list[str]) -> int:
             counts = sessions_of(idx)
             if not len(counts):
                 continue
-            whole = counts[counts > 300]  # a few missing minutes is noise; a session is not
-            print(f"  {label}: {len(idx):,} bars across {len(counts)} day(s)")
+            whole = counts[counts > WHOLE_SESSION_BARS]
+            logger.info("  %s: %s bars across %d day(s)", label, f"{len(idx):,}", len(counts))
             if len(whole):
-                print(f"    substantial days: " + ", ".join(f"{d} ({n:,})" for d, n in whole.items()))
+                logger.info(
+                    "    substantial days: %s",
+                    ", ".join(f"{d} ({n:,})" for d, n in whole.items()),
+                )
     return 0
 
 

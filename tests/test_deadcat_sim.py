@@ -5,7 +5,6 @@ kept small and round so the arithmetic is checkable by eye.
 """
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from nqbt.instruments import MNQ, NQ

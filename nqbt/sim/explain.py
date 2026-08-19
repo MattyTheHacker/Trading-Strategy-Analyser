@@ -9,15 +9,19 @@ filled, and where every leg left -- so a trade can be ticked off without reading
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 
-from nqbt.context import Dataset
-from nqbt.instruments import Instrument
 from nqbt.sim.deadcat import entry_bracket
 from nqbt.sim.runner import deadcat_signal
-from nqbt.sim.types import DeadCatParams
 from nqbt.trades import SHORT
+
+if TYPE_CHECKING:
+    from nqbt.context import Dataset
+    from nqbt.instruments import Instrument
+    from nqbt.sim.types import DeadCatParams
 
 
 def explain_trades(
@@ -33,8 +37,9 @@ def explain_trades(
     values themselves are needed to show *why* each trend gate passed, not just that it did.
     """
     if any(g.values is None for g in data.mas.values()):
+        msg = "explain_trades needs raw indicator values; call context.prepare(..., keep_ma_values=True)"
         raise ValueError(
-            "explain_trades needs raw indicator values; call context.prepare(..., keep_ma_values=True)"
+            msg,
         )
 
     signal = deadcat_signal(data, params)
@@ -150,7 +155,8 @@ def ratchet_history(
     """
     legs = trades[trades["trade_id"] == trade_id]
     if legs.empty:
-        raise KeyError(f"no trade with id {trade_id}")
+        msg = f"no trade with id {trade_id}"
+        raise KeyError(msg)
 
     entry_bar = int(legs["entry_bar"].iloc[0])
     last_bar = int(legs["exit_bar"].max())
@@ -173,7 +179,7 @@ def ratchet_history(
                 "stop_hit": data.high[i] >= live,
                 "candidate_from_prev_high": candidate,
                 "tightened": bool(tightened),
-            }
+            },
         )
         if tightened:
             stop = candidate

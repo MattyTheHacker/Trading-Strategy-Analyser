@@ -98,14 +98,18 @@ class DeadCatParams:
 
     def __post_init__(self) -> None:
         if self.order_quantity < len(self.target_r_multiples):
-            raise ValueError(
+            msg = (
                 f"order_quantity {self.order_quantity} cannot fill "
                 f"{len(self.target_r_multiples)} legs; NT8 caps this with a Range(4, ...) "
                 "attribute on OrderQuantity"
             )
+            raise ValueError(
+                msg,
+            )
         for name in ("ema_period", "slow_sma_period", "fast_sma_period"):
             if getattr(self, name) < 1:
-                raise ValueError(f"{name} must be >= 1")
+                msg = f"{name} must be >= 1"
+                raise ValueError(msg)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -221,14 +225,18 @@ class PullBackAndGoParams:
 
     def __post_init__(self) -> None:
         if self.order_quantity < len(self.target_r_multiples):
-            raise ValueError(
+            msg = (
                 f"order_quantity {self.order_quantity} cannot fill "
                 f"{len(self.target_r_multiples)} legs; NT8 caps this with a Range(4, ...) "
                 "attribute on OrderQuantity"
             )
+            raise ValueError(
+                msg,
+            )
         for name in ("ema_period", "slow_sma_period", "fast_sma_period"):
             if getattr(self, name) < 1:
-                raise ValueError(f"{name} must be >= 1")
+                msg = f"{name} must be >= 1"
+                raise ValueError(msg)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:

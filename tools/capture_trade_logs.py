@@ -35,18 +35,22 @@ The four paths are chosen to cover what a single run does not:
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-from nqbt import context, ingest, splice, stats, sweep
+from nqbt import context, ingest, logsetup, splice, stats, sweep
 from nqbt.instruments import MNQ, NQ, ContractId
 from nqbt.sim.runner import run_deadcat
 from nqbt.sim.types import DeadCatParams
 
+logger = logging.getLogger(__name__)
+
 CONTRACT = "MNQ 03-24"
 SWEEP_FROM = "2024-01-01"
+EXPECTED_ARGV = 2
 
 EXACT = "%.17g"
 """Round-trips float64 without loss. See the module docstring -- the default does not."""
@@ -60,7 +64,7 @@ def capture(outdir: Path) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
 
     bars = ingest.load_contract(ContractId.parse(CONTRACT))
-    print(f"{CONTRACT}: {len(bars):,} bars  {bars.index[0]} -> {bars.index[-1]}")
+    logger.info("%s: %s bars  %s -> %s", CONTRACT, f"{len(bars):,}", bars.index[0], bars.index[-1])
 
     # 1. The pinned reconciliation window. These two settings are what reproduce the
     #    stored pre-fix run; do not "modernise" them.
@@ -94,7 +98,7 @@ def capture(outdir: Path) -> None:
     write(live_trades, outdir / "live_mnq.csv")
     write(run_deadcat(data, live, NQ), outdir / "live_nq.csv")
     pd.Series(stats.summarise(live_trades).as_dict()).to_csv(outdir / "live_summary.csv", float_format=EXACT)
-    print(f"  single-contract legs: recon and live captured ({len(live_trades):,} live)")
+    logger.info("  single-contract legs: recon and live captured (%s live)", f"{len(live_trades):,}")
 
     # 4. A real sweep, both execution paths.
     continuous = splice.load_continuous("MNQ", back_adjust=True)
@@ -113,14 +117,20 @@ def capture(outdir: Path) -> None:
     for combo_id, log in sorted(logs.items()):
         write(log, outdir / f"sweep_trades_{combo_id}.csv")
     legs = sum(len(v) for v in logs.values())
-    print(f"  {len(continuous):,} continuous bars, {len(serial)} combos, {legs:,} legs")
-
-    print(f"\nwrote {len(list(outdir.iterdir()))} files to {outdir}")
+    logger.info(
+        "  %s continuous bars, %d combos, %s legs",
+        f"{len(continuous):,}",
+        len(serial),
+        f"{legs:,}",
+    )
+    logger.info("")
+    logger.info("wrote %d files to %s", len(list(outdir.iterdir())), outdir)
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__)
+    logsetup.configure(__name__)
+    if len(argv) != EXPECTED_ARGV:
+        logger.info("%s", __doc__)
         return 2
     capture(Path(argv[1]))
     return 0

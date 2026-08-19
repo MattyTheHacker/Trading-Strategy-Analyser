@@ -35,13 +35,14 @@ def test_union_of_two_sources_keeps_what_is_unique_to_each(dirs) -> None:
     # the AddOn holds earlier history the manual export never had. Neither is a superset.
     early = "20240308 212800;17998.00;17999.00;17997.50;17998.50;60"
     late = "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"
-    write(manual / "MNQ 03-24.Last.txt", BASE + [late])
-    write(addon / "MNQ 03-24.Last.txt", [early] + BASE)
+    write(manual / "MNQ 03-24.Last.txt", [*BASE, late])
+    write(addon / "MNQ 03-24.Last.txt", [early, *BASE])
 
     result = archive.build_archive([manual, addon], arch)[0]
     assert result.bars == 5
     lines = archived(arch)
-    assert lines[0] == early and lines[-1] == late
+    assert lines[0] == early
+    assert lines[-1] == late
     assert lines == sorted(lines), "archive must be in timestamp order"
 
 
@@ -75,10 +76,10 @@ def test_the_newest_bar_of_a_source_may_insert_but_never_overwrite(dirs) -> None
     complete = "20240308 213300;18001.75;18010.00;17995.00;18008.25;890"
     partial = "20240308 213300;18001.75;18002.50;18001.00;18002.00;294"
 
-    write(addon / "MNQ 03-24.Last.txt", BASE + [complete])
+    write(addon / "MNQ 03-24.Last.txt", [*BASE, complete])
     archive.build_archive([manual, addon], arch)
 
-    write(manual / "MNQ 03-24.Last.txt", BASE + [partial])
+    write(manual / "MNQ 03-24.Last.txt", [*BASE, partial])
     result = archive.build_archive([manual, addon], arch)[0]
     assert archived(arch)[-1] == complete, "partial bar overwrote a complete one"
     assert result.revised == 0
@@ -140,7 +141,7 @@ def test_prices_are_passed_through_as_text(dirs) -> None:
     manual, addon, arch = dirs
     # Parsing to float and formatting back is a needless chance to change a value.
     odd = "20240308 213400;18000.10;18000.70;17999.30;18000.30;7"
-    write(manual / "MNQ 03-24.Last.txt", BASE + [odd])
+    write(manual / "MNQ 03-24.Last.txt", [*BASE, odd])
     archive.build_archive([manual, addon], arch)
     assert odd in archived(arch)
 
@@ -168,10 +169,13 @@ def test_ingest_reads_the_archive_and_sees_both_sources(dirs, tmp_path) -> None:
     manual, addon, arch = dirs
     early = "20240308 212800;17998.00;17999.00;17997.50;17998.50;60"
     write(manual / "MNQ 03-24.Last.txt", BASE)
-    write(addon / "MNQ 03-24.Last.txt", [early] + BASE)
+    write(addon / "MNQ 03-24.Last.txt", [early, *BASE])
 
     merges, results = ingest.ingest_all(
-        sources=[manual, addon], archive_dir=arch, cache_dir=tmp_path / "cache"
+        sources=[manual, addon],
+        archive_dir=arch,
+        cache_dir=tmp_path / "cache",
     )
-    assert len(merges) == 1 and merges[0].bars == 4
+    assert len(merges) == 1
+    assert merges[0].bars == 4
     assert results[0].rows_total == 4

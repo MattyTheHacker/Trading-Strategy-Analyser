@@ -27,14 +27,17 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from nqbt import archive, paths, sessions
 from nqbt.instruments import ContractId
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 RAW_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
 BAR_DTYPES = {
@@ -157,10 +160,13 @@ def _reject_tick_export(data: bytes, source_name: str) -> None:
     fields = head.split(b";")
     stamp = fields[0].split()
     if len(fields) == 5 and len(stamp) == 3:
-        raise IngestError(
+        msg = (
             f"{source_name} looks like a tick export "
             f"(timestamp;last;bid;ask;volume with sub-second stamps), not minute bars. "
             f"Bar ingestion reads {paths.MINUTE_DIR}; tick files live in {paths.TICK_DIR}."
+        )
+        raise IngestError(
+            msg,
         )
 
 
@@ -183,7 +189,8 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
     ts = pd.to_datetime(frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce")
     bad = ts.isna()
     if bad.all():
-        raise IngestError(f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'")
+        msg = f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'"
+        raise IngestError(msg)
     frame = frame.loc[~bad].copy()
     frame.index = pd.DatetimeIndex(ts.loc[~bad], name="ts_utc")
     frame = frame.drop(columns=["timestamp"])
@@ -209,9 +216,12 @@ def _finalise(frame: pd.DataFrame, *, source_name: str, dropped_timestamps: int 
     body_min = frame[["open", "close"]].min(axis=1)
     invalid = (highs < lows) | (highs < body_max) | (lows > body_min)
     if invalid.any():
-        raise IngestError(
+        msg = (
             f"{source_name}: {int(invalid.sum())} bars violate OHLC ordering, "
             f"first at {frame.index[invalid.argmax()]}"
+        )
+        raise IngestError(
+            msg,
         )
 
     info = sessions.classify(frame.index)
@@ -246,7 +256,8 @@ def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd
     """Read one contract's cached bars."""
     path = contract_cache_path(contract, cache_dir)
     if not path.exists():
-        raise FileNotFoundError(f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first")
+        msg = f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first"
+        raise FileNotFoundError(msg)
     return pd.read_parquet(path)
 
 
@@ -288,7 +299,7 @@ def ingest_contract(
         reason = "shrank" if size < entry.byte_offset else "was regenerated, not appended to"
         warnings.append(
             f"{source.name} {reason}; reparsing in full so revised or withdrawn bars "
-            "are picked up rather than left stale"
+            "are picked up rather than left stale",
         )
 
     if reuse:
@@ -315,7 +326,8 @@ def ingest_contract(
         action = "reparsed" if cache_path.exists() else "created"
 
     if combined.empty:
-        raise IngestError(f"{source.name}: produced no bars")
+        msg = f"{source.name}: produced no bars"
+        raise IngestError(msg)
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     combined.to_parquet(cache_path, engine="pyarrow", compression="zstd", index=True)
@@ -324,7 +336,7 @@ def ingest_contract(
     if out_of_session:
         warnings.append(
             f"{out_of_session:,} bars fall outside session hours (stray prints); "
-            "tagged in_session=False and excluded from the continuous series"
+            "tagged in_session=False and excluded from the continuous series",
         )
 
     updated = ContractManifest(
@@ -390,7 +402,8 @@ def ingest_all(
     exports = discover_exports(data_dir, root=root)
     if not exports:
         target = f" for {root}" if root else ""
-        raise IngestError(f"no NT8 exports{target} found in {data_dir}")
+        msg = f"no NT8 exports{target} found in {data_dir}"
+        raise IngestError(msg)
 
     results: list[IngestResult] = []
     for contract, source in sorted(exports.items()):

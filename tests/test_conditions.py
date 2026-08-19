@@ -15,7 +15,7 @@ def bars(rows) -> pd.DataFrame:
 
 
 @pytest.mark.parametrize(
-    "row,expected,why",
+    ("row", "expected", "why"),
     [
         ((10.0, 13.0, 10.0, 10.5), True, "upper 2.5 >= 2x body 0.5, no lower wick"),
         ((10.0, 11.0, 10.0, 10.5), False, "upper 0.5 < 2x body 0.5"),
@@ -41,7 +41,7 @@ def test_inverted_hammer_boundary_is_inclusive_on_both_tests() -> None:
 
 
 @pytest.mark.parametrize(
-    "row,expected,why",
+    ("row", "expected", "why"),
     [
         ((10.5, 11.0, 8.0, 10.0), True, "lower 2.0 >= 2x body 0.5, no upper wick"),
         ((10.5, 11.0, 10.0, 10.0), False, "lower 0.5 < 2x body 0.5"),
@@ -189,7 +189,8 @@ def test_grid_carries_above_alongside_below() -> None:
     # SMA(1) == close, so below and above must both read the equality boundary as passing.
     assert list(grid.below_for(1)) == list(conditions.below_series(close, close))
     assert list(grid.above_for(1)) == list(conditions.above_series(close, close))
-    assert all(grid.below_for(1)) and all(grid.above_for(1))
+    assert all(grid.below_for(1))
+    assert all(grid.above_for(1))
 
 
 def test_grid_supports_both_kinds() -> None:
@@ -218,7 +219,7 @@ def test_count_true_backs_the_confluence_pattern() -> None:
             [True, True, False, False],
             [True, False, True, False],
             [True, True, True, False],
-        ]
+        ],
     )
     assert list(conditions.count_true(stack)) == [3, 2, 2, 0]
     # "at least 2 of 3" becomes a comparison rather than a hardcoded conjunction.

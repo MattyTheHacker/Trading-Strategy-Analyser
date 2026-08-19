@@ -112,7 +112,8 @@ def test_typical_price() -> None:
 
 def test_new_session_flags_marks_each_days_first_bar() -> None:
     days = np.array(
-        ["2024-03-07", "2024-03-07", "2024-03-08", "2024-03-08", "2024-03-11"], dtype="datetime64[D]"
+        ["2024-03-07", "2024-03-07", "2024-03-08", "2024-03-08", "2024-03-11"],
+        dtype="datetime64[D]",
     )
     assert list(indicators.new_session_flags(days)) == [True, False, True, False, True]
 

@@ -45,7 +45,7 @@ def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
             "mfe_points": np.full(n, 1.5),
             "bars_held": np.ones(n, dtype="int64"),
             "ambiguous_bar": np.zeros(n, dtype=bool),
-        }
+        },
     )
     for name, value in overrides.items():
         frame[name] = value
@@ -57,7 +57,7 @@ def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
 
 def test_the_schema_is_the_tags_plus_the_matrix_columns() -> None:
     assert trades.SCHEMA == trades.TAGS + trades.COLUMNS
-    assert trades.N_COLUMNS == len(trades.COLUMNS)
+    assert len(trades.COLUMNS) == trades.N_COLUMNS
 
 
 def test_column_indices_address_their_own_names() -> None:
@@ -86,7 +86,7 @@ def test_exit_signal_is_reserved_for_a_future_rule_driven_exit() -> None:
 
 
 def test_every_nullable_column_is_actually_in_the_schema() -> None:
-    assert trades.NULLABLE <= set(trades.SCHEMA)
+    assert set(trades.SCHEMA) >= trades.NULLABLE
 
 
 def test_required_and_nullable_partition_the_schema() -> None:

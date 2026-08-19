@@ -9,14 +9,19 @@ combination in a sweep.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
-import pandas as pd
 
 from nqbt import trades
-from nqbt.context import Dataset
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import deadcat
-from nqbt.sim.types import DeadCatParams
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from nqbt.context import Dataset
+    from nqbt.sim.types import DeadCatParams
 
 
 def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
@@ -93,7 +98,8 @@ def run_deadcat(
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
-        raise RuntimeError("trade buffer overflowed; allocate_output's signal-count bound was violated")
+        msg = "trade buffer overflowed; allocate_output's signal-count bound was violated"
+        raise RuntimeError(msg)
 
     return trades.validate(
         trades.trades_to_frame(
@@ -102,5 +108,5 @@ def run_deadcat(
             data.index if with_times else None,
             instrument=instrument.symbol,
             source="sim",
-        )
+        ),
     )

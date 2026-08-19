@@ -22,14 +22,17 @@ from __future__ import annotations
 
 import json
 import platform
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import duckdb
-import pandas as pd
 
 from nqbt import paths
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pandas as pd
 
 AXIS_COLUMNS: dict[str, str] = {
     "strategy": "VARCHAR",
@@ -93,7 +96,7 @@ def connect(db_path: Path = paths.SWEEPS_DB) -> duckdb.DuckDBPyConnection:
             notes        VARCHAR,
             host         VARCHAR
         )
-        """
+        """,
     )
     _migrate_axis_columns(con)
     return con
@@ -122,8 +125,9 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
 def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
     return bool(
         con.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table]
-        ).fetchone()[0]
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [table],
+        ).fetchone()[0],
     )
 
 
@@ -191,7 +195,7 @@ def save_sweep(
         row = {
             "sweep_id": sweep_id,
             "batch_id": batch_id,
-            "created_utc": datetime.now(timezone.utc).replace(tzinfo=None),
+            "created_utc": datetime.now(UTC).replace(tzinfo=None),
             "root": root,
             "instrument": instrument,
             "strategy": strategy,
@@ -280,7 +284,8 @@ def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.Data
     relabels the row as a different run.
     """
     exists = con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table]
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+        [table],
     ).fetchone()[0]
     if not exists:
         con.register("incoming", frame)

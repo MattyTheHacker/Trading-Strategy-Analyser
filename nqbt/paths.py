@@ -10,20 +10,20 @@ from __future__ import annotations
 from pathlib import Path
 
 __all__ = [
-    "Path",
-    "REPO_ROOT",
-    "DATA_DIR",
-    "MINUTE_DIR",
     "ADDON_DIR",
     "ARCHIVE_DIR",
-    "SOURCE_DIRS",
-    "TICK_DIR",
-    "CACHE_DIR",
-    "RESULTS_DIR",
     "BARS_DIR",
+    "CACHE_DIR",
     "CONTINUOUS_DIR",
+    "DATA_DIR",
     "MANIFEST_PATH",
+    "MINUTE_DIR",
+    "REPO_ROOT",
+    "RESULTS_DIR",
+    "SOURCE_DIRS",
     "SWEEPS_DB",
+    "TICK_DIR",
+    "Path",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

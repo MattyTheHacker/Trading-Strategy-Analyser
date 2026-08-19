@@ -91,16 +91,19 @@ equity curve is genuine and every statistic in :class:`nqbt.stats.Summary` is fa
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
 from nqbt import archetypes, resample, stats
-from nqbt.archetypes import Archetype, Params
-from nqbt.context import Dataset
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
+
+if TYPE_CHECKING:
+    from nqbt.archetypes import Archetype, Params
+    from nqbt.context import Dataset
 
 DEFAULT_ITERATIONS = 200
 """Null realisations drawn by default.
@@ -153,7 +156,7 @@ COUNT_SENSITIVE = frozenset(
         "losses",
         "scratches",
         "max_consecutive_losses",
-    }
+    },
 )
 """Statistics that are sums or path properties, so a difference in trade count moves them.
 
@@ -212,7 +215,8 @@ class NullResult:
 
 
 def minute_of_session(
-    index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH
+    index: pd.DatetimeIndex,
+    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> np.ndarray:
     """How far each bar sits past its session open, in minutes.
 
@@ -290,12 +294,16 @@ def matched_random_signal(
     not arise at all, because ``build_continuous`` has already filtered them out.
     """
     if signal.shape != (len(data),):
-        raise RandomEntryError(f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar")
+        msg = f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
+        raise RandomEntryError(msg)
     live = int(signal.sum())
     if not live:
-        raise RandomEntryError(
+        msg = (
             "the strategy produced no entry signals, so there is nothing to match a null "
             "against. Check the filters or the warm-up before reading this as a result."
+        )
+        raise RandomEntryError(
+            msg,
         )
 
     grouped = pool if pool is not None else SessionMinutePool.build(data.index, template)
@@ -352,7 +360,8 @@ def null_summaries(
     made that mandatory rather than tidy.
     """
     if iterations < 1:
-        raise RandomEntryError("iterations must be at least 1")
+        msg = "iterations must be at least 1"
+        raise RandomEntryError(msg)
     archetype = archetype if archetype is not None else archetypes.for_params(params)
     signal = archetype.signal(data, params)
     pool = SessionMinutePool.build(data.index, template)
@@ -407,8 +416,9 @@ def compare(
     archetype = archetype if archetype is not None else archetypes.for_params(params)
     unknown = set(statistics) - set(stats.Summary.columns())
     if unknown:
+        msg = f"not statistics of a Summary: {sorted(unknown)}. Choose from {stats.Summary.columns()}"
         raise RandomEntryError(
-            f"not statistics of a Summary: {sorted(unknown)}. Choose from {stats.Summary.columns()}"
+            msg,
         )
 
     observed = stats.summarise(archetype.run(data, params, instrument)).as_dict()
@@ -429,14 +439,20 @@ def compare(
         draws = null[name].to_numpy(dtype=float)
         draws = draws[np.isfinite(draws)]
         if not np.isfinite(value):
-            raise RandomEntryError(
+            msg = (
                 f"observed {name} is {value}, which no null can be compared against -- a "
                 "run with no losing trade reports an infinite profit factor"
             )
-        if draws.size < 2:
             raise RandomEntryError(
+                msg,
+            )
+        if draws.size < 2:
+            msg = (
                 f"only {draws.size} of {iterations} null draws produced a finite {name}; "
                 "there is no distribution to place the observation in"
+            )
+            raise RandomEntryError(
+                msg,
             )
         results[name] = _place(
             name,

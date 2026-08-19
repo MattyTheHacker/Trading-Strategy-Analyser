@@ -159,10 +159,8 @@ def simulate_deadcat(
     for i in range(n):
         # ---- exits, using the stop and targets set at the close of bar i-1 ----------
         if in_position:
-            if run_high < high[i]:
-                run_high = high[i]
-            if run_low > low[i]:
-                run_low = low[i]
+            run_high = max(run_high, high[i])
+            run_low = min(run_low, low[i])
 
             written, in_position = _resolve_brackets(
                 out,
@@ -288,7 +286,12 @@ def simulate_deadcat(
                     stop = new_stop
         elif i >= bars_required and signal[i] and not (block_entry_at_session_close and force_flat[i]):
             trigger, candidate_stop, candidate_risk = entry_bracket(
-                high[i], low[i], close[i], entry_offset, stop_offset, direction
+                high[i],
+                low[i],
+                close[i],
+                entry_offset,
+                stop_offset,
+                direction,
             )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
             too_risky = candidate_risk > max_risk_ticks * tick_size
@@ -572,11 +575,11 @@ def entry_bracket(
     Public because ``explain.py`` calls it too, and that is the whole point. This used to
     be written out twice, and the two copies disagreed: the audit trail took the trigger to
     be simply ``Low[0]``, dropping the ``Close[0] - 2 ticks`` cap that the simulation
-    applies. Since the cap binds on about half of all signals, ``nqbt run --explain`` --
-    the tool a human uses to tick a trade off against a chart before trusting anything
-    downstream -- reported the wrong ``trigger``, ``risk_points``, ``risk_ticks`` and
-    ``fill_type`` on half its rows, while agreeing on the stop, which is what made it look
-    right on inspection.
+    applies. The cap binds on roughly a third of signals over a whole window, so
+    ``nqbt run --explain`` -- the tool a human uses to tick a trade off against a chart
+    before trusting anything downstream -- reported the wrong ``trigger``, ``risk_points``,
+    ``risk_ticks`` and ``fill_type`` on that share of its rows, while agreeing on the stop,
+    which is what made it look right on inspection.
 
     So: one implementation, called from both places, and the audit trail is by
     construction the arithmetic under audit. Do not inline either copy back.
