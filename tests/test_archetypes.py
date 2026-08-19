@@ -37,6 +37,7 @@ def test_registering_a_duplicate_name_is_refused() -> None:
         name="DeadCatBounce",
         params_cls=DeadCatParams,
         run=archetypes.DEADCATBOUNCE.run,
+        legs=archetypes.DEADCATBOUNCE.legs,
         signal=archetypes.DEADCATBOUNCE.signal,
         tier2=Tier2Status.TIER1_ONLY,
     )
@@ -103,6 +104,7 @@ def test_sweepable_sees_inherited_fields_that_slots_would_hide() -> None:
         name="_slots_probe",
         params_cls=Derived,
         run=archetypes.DEADCATBOUNCE.run,
+        legs=archetypes.DEADCATBOUNCE.legs,
         signal=archetypes.DEADCATBOUNCE.signal,
         tier2=Tier2Status.NOT_CHECKED,
         not_sweepable=frozenset(),

@@ -15,8 +15,10 @@ rather than assumed.
 The expensive work is hoisted out of the loop entirely: candlestick geometry, session
 VWAP, and the moving-average grids for every period in the grid are computed once in
 :func:`nqbt.context.prepare`. What remains per combination is a boolean AND over the
-precomputed gates plus one pass of the simulation -- about 30 ms over 1.65M bars, of which
-roughly 70% is pandas building and aggregating the trade log rather than the jitted loop.
+precomputed gates, one pass of the simulation, and a summary taken straight off the raw
+leg matrix -- about 9 ms over 1.65M bars, nearly all of it the jitted loop. The trade log
+is a DataFrame only when a caller asks to keep one; building and aggregating one per
+combination used to be 71% of this. See ``docs/roadmap.md`` under the numpy summary path.
 
 ``n_jobs`` spreads combinations over processes. The combinations are independent, so this
 is embarrassingly parallel; the only thing that needs care is that the dataset must be
@@ -43,7 +45,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
-from nqbt import archetypes, context, resample, stats
+from nqbt import archetypes, context, resample, stats, trades
 from nqbt.context import ContextSpec, Dataset
 from nqbt.instruments import MNQ, Instrument
 
@@ -185,9 +187,17 @@ def run_combination(
     params: Params,
     instrument: Instrument = MNQ,
     archetype: Archetype = archetypes.DEFAULT,
-) -> tuple[dict, pd.DataFrame]:
-    """Simulate one combination, returning its summary row and its trade log."""
-    trades = archetype.run(data, params, instrument)
+    *,
+    keep_trades: bool = True,
+) -> tuple[dict, pd.DataFrame | None]:
+    """Simulate one combination, returning its summary row and its trade log.
+
+    The summary always comes off the raw leg matrix, whether or not the log is kept, so
+    ``keep_trades`` changes what is returned and never what is measured. The frame is the
+    expensive half -- building and aggregating one was 71% of a combination -- and a sweep
+    that discards it should not pay for it.
+    """
+    legs = archetype.legs(data, params, instrument)
     row = params.as_dict()
     for name in archetype.not_sweepable:
         row.pop(name, None)
@@ -195,8 +205,19 @@ def run_combination(
     # dict, and it disagreed with ``summarise``'s own empty case on the dtype of 22 of the
     # 28 columns -- which reaches DuckDB, where a barren combination could then define a
     # column's type for the whole table. One policy, and it lives in ``stats``.
-    summary = stats.summarise(trades).as_dict()
-    return {**row, **summary}, trades
+    summary = stats.summarise_legs(legs, data.day_codes).as_dict()
+    log = None
+    if keep_trades:
+        log = trades.validate(
+            trades.trades_to_frame(
+                legs.matrix,
+                legs.count,
+                data.index,
+                instrument=instrument.symbol,
+                source="sim",
+            ),
+        )
+    return {**row, **summary}, log
 
 
 CHUNKS_PER_WORKER = 4
@@ -237,11 +258,11 @@ def _run_chunk(
     logs: dict[int, pd.DataFrame] = {}
     for offset, params in enumerate(itertools.islice(grid.combinations(), start, stop)):
         combo_id = start + offset
-        row, trades = run_combination(data, params, instrument, grid.archetype)
+        row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = combo_id
         rows.append(row)
-        if keep_trades:
-            logs[combo_id] = trades
+        if log is not None:
+            logs[combo_id] = log
     return rows, logs
 
 
@@ -256,11 +277,11 @@ def _sweep_serial(
     logs: dict[int, pd.DataFrame] = {}
     started = time.perf_counter()
     for i, params in enumerate(grid.combinations()):
-        row, trades = run_combination(data, params, instrument, grid.archetype)
+        row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = i
         rows.append(row)
-        if keep_trades:
-            logs[i] = trades
+        if log is not None:
+            logs[i] = log
         if progress_every and (i + 1) % progress_every == 0:
             rate = (i + 1) / (time.perf_counter() - started)
             logger.info("  %s/%s combos  %s/s", f"{i + 1:,}", f"{len(grid):,}", f"{rate:,.0f}")

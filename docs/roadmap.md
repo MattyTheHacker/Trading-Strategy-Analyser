@@ -33,7 +33,7 @@ Dependency order, not priority order — each item's prerequisites sit above it.
 | ~~3c~~ | ~~**M17 + M13 + M14** — strategy, resolution and contract as axes~~ | [#24], [#30], [#31] | **Done 2026-08-16.** The registry landed 2026-08-15; `resample.py` ([#30]) and `dispersion.py` ([#31]) followed, then the results schema ([#29]) and `sweep_axes` ([#28]) — **one mechanism, not three**, so the schema settled once before the stale DuckDB re-run ([#71]). |
 | ~~4~~ | ~~**M7a** — `randomentry.py`~~ | [#32] | **Done 2026-08-16.** Matched on count, time-of-session and direction; Monte Carlo rather than a single draw. First result reframes DeadCatBounce — better than random, still unprofitable. See below. |
 | 5 | **M18** — EMA crossover | [#34] | The one archetype built now, to prove the protocol. A legitimate known-negative control. |
-| 6 | Numpy-native summary path | [#33] | **Pulled forward.** Crossover generates ~30× the legs, so the 71% of runtime that is pandas stops being an annoyance and becomes the sweep. |
+| ~~6~~ | ~~Numpy-native summary path~~ | [#33] | **Done 2026-08-19**, and taken *before* M18 rather than after — 3.1× on a combination, with the summary now inside the noise of the simulation. M18's ~30× legs land on a sweep that no longer pays for a DataFrame per combination. |
 | 7 | **M10** — regime, volume, trend, time of day | [#39] | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. |
 | 8 | **M11** — the trade review | [#44] | The stated goal. Needs 3 and 7. Deliberately *not* displaced by the archetype work. |
 | 9 | **M7b** — walk-forward and Monte Carlo | [#50] | Shares machinery with M14 and with §11.4's permutation test. |
@@ -62,7 +62,7 @@ better use of code time. **Split the queue by resource, not by milestone number:
 
 | resource | work |
 |---|---|
-| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]) → M7a ([#32])~~ — **all done**. Next: the numpy summary path ([#33]) |
+| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]) → M7a ([#32]) → the numpy summary path ([#33])~~ — **all done**. Next: M18 ([#34]) |
 | NinjaTrader time | ~~[#20], [#21], [#22], [#23], [#66], [#92]~~ — **all done 2026-08-16**. Only [#67] (order lifetime) remains, and M19 is not scheduled |
 
 Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
@@ -107,7 +107,8 @@ archetypes available, unlike M18 and M19. `InsideBar` is the structural form of 
 idea and is worth porting before M19 is built from scratch. `InsideBarTrailing` is the second
 consumer of `EXIT_SIGNAL`.
 
-**Not scheduled:** M8 (premise measured and mostly false — see `CLAUDE.md`), the three unbuilt
+**Not scheduled:** M8 (premise measured and mostly false, and [#33] has since removed the
+overhead that capped it — see `CLAUDE.md`), the three unbuilt
 spec features ([#74]), `NG 02-26`'s silent skip ([#69]), and the MAE/MFE definition mismatch
 ([#70]).
 
@@ -588,8 +589,10 @@ market-on-next-open ([#36]), a third mechanism with no trigger price and no "no 
 and the stop has no structural swing to anchor to, so it needs an ATR multiple ([#37]), which
 makes M16 a hard prerequisite rather than a convenience. It will also break the sweep's
 performance assumptions — tens of thousands of legs per combination against DeadCatBounce's
-~1,400 — which is why the numpy-native summary path ([#33]) moved ahead of M10. Do a
-single-combination timing before running a wide grid.
+~1,400 — which is why the numpy-native summary path ([#33]) moved ahead of M10, and then
+ahead of M18 itself. **That is now paid**: a combination no longer builds a DataFrame, so the
+per-leg cost that would have dominated a crossover sweep is the `@njit` loop rather than
+pandas. Still do a single-combination timing before running a wide grid.
 
 ### M19 — squeeze breakout ([#51])
 
@@ -606,6 +609,87 @@ model the loop lacks; the order-lifetime research above resolves that resubmissi
 equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the
 second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate,
 and results that cluster by volatility regime so the aggregate PF averages two populations.
+
+### ~~The numpy-native summary path~~ — done ([#33])
+
+`stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame.
+`stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py`
+is what says the two agree.
+
+**Measured on the full spliced MNQ series** — 1,663,489 bars, the 8-combination grid
+`tools/capture_trade_logs.py` uses, 218,164 legs, best of three:
+
+| | per combination |
+|---|---|
+| frame + `summarise` (what this replaces) | 28.3 ms |
+| `summarise_legs` | 9.0 ms |
+| the `@njit` simulation alone | 9.3 ms |
+
+**3.1× on a combination, and the summary is now inside the noise of the simulation** — the
+19 ms of pandas is gone, not reduced. That is the whole of the 71% the profile attributed to
+`trades_to_frame` plus `stats.summarise`, and it composes with the parallel speedup because
+it is per-combination work rather than shared setup.
+
+**Both paths share every statistic.** `_summarise_arrays` takes the per-trade vectors and
+returns the `Summary`; the two entry points differ *only* in how they get those vectors —
+`groupby` on one side, a boundary scan on the other. That is deliberate, and it is what makes
+"do they agree?" a question about the grouping rather than about twenty-eight formulas. Do not
+re-inline it into either caller.
+
+**Pandas' `groupby.sum` is Kahan-compensated, and a plain running sum does not reproduce it.**
+Measured: over 50,000 four-element groups of random doubles, `np.add.reduceat` disagrees with
+pandas on 35% of groups and a naive accumulation on 21%, always in the last bit. The exactness
+`#33` asks for is therefore only reachable by carrying the compensation term, which
+`_grouped_sum` does. `tests/test_numpy_summary.py::test_the_grouped_sum_is_compensated_like_pandas`
+guards it with a four-value group that sums to 0.0 naively and 2.0 compensated, and the test
+above it pins that those two summations genuinely differ — verifying the gate can fail is part
+of using it. The costed DeadCatBounce case in `test_the_two_summary_paths_agree_exactly` also
+catches a naive sum on real trades, so this is live rather than adversarial-only.
+
+**Everything else agrees for free, and that was checked rather than assumed.** Whole-array
+`Series.sum`, `.mean`, `.std(ddof=1)`, `.max`, `.min`, `.cumsum`, `.cummax`, `.median` and
+`.quantile` are all bit-identical to their numpy equivalents here (no `bottleneck` installed),
+strided column views included. Only the grouped reductions needed care.
+
+**A gapless day index is not the same as a UTC one.** `Dataset.day_codes` is each bar's
+calendar day *in the index's own timezone*, because `summarise` groups daily P&L by
+`DatetimeIndex.date` and that is local. On the UTC archive the two coincide, which is exactly
+why reading them off UTC would have passed every test here and been an hour out on a
+`Europe/London` index — the same shape as the trade-list timezone bug in
+`tools/reconcile_nt8.py`. Precomputed in `context.prepare` rather than per combination: the
+conversion over 1.65M bars costs about as much as a whole combination.
+
+**The leg matrix is now a producer's output, not an intermediate.** `runner.deadcat_legs` and
+`pullback.pullbackandgo_legs` stop at `trades.LegMatrix`; `run_deadcat` and
+`run_pullbackandgo` are those plus the frame. `Archetype.legs` is a required registry field
+beside `run`, deliberately not derived from it — an archetype registered with only `run` would
+silently be the slow one in a sweep, and the symptom would be a wall clock rather than an
+error.
+
+**The schema guarantee survives.** A sweep no longer calls `trades.validate`, so
+`trades.validate_legs` asserts the same invariants on the matrix — nulls in required columns,
+`direction ∈ {±1}`, positive quantity, leg numbering from 1. It adds one check `validate`
+deliberately omits: `exit_reason` must be in `EXIT_REASONS`. On a *frame* that column may hold
+a label NT8 wrote (`Stop3`, `Exit`), but a matrix can only have come from the simulator, so a
+code outside the enum there is a bug. It is written column by column with an early exit for the
+same reason `validate` is — the readable `rows[:, REQUIRED_INDICES]` form copies ten columns on
+every combination and cost 12% of one.
+
+**Two things this deliberately did not change.** `run_combination` still computes its summary
+the same way whether or not `keep_trades` is set, so the flag changes what is *returned* and
+never what is *measured*. And `summarise` remains the definition: where the two ever disagree,
+the pandas one is right.
+
+**The evidence it moved nothing** is `tools/capture_trade_logs.py`: all 14 files
+byte-for-byte identical across the change, including `sweep_serial.csv` and
+`sweep_parallel.csv`, which are the summary tables now produced by the new path over 218,164
+legs, and `live_summary.csv`, which is the refactored `summarise`.
+
+**Where the next win is, if anyone wants it.** `sweep.sweep` end to end is 12.3 ms per
+combination against `summarise_legs`' 9.0 — the 3.3 ms difference is `dataclasses.replace` per
+combination, `params.as_dict()` and `Summary.as_dict()`'s `asdict` deep copy. Small in
+absolute terms, but it is now a quarter of a combination rather than a tenth, and M18's wide
+grids multiply it. Not worth doing before there is a workload that needs it.
 
 ### ~~M7a~~ — the random-entry control arm: done ([#32])
 
@@ -777,8 +861,8 @@ this milestone is most useful for, and a test pins that a single rogue contract 
 range while leaving the IQR alone. And **`stats.trade_statistic` was added rather than a
 second profit-factor implementation** — the permutation test needs thousands of evaluations
 and `summarise` is too slow, so the fast path shares `_ratio` and a test asserts exact
-equality with `summarise` on real logs. That is the same discipline [#33] plans for the
-numpy-native summary path, applied early because this is where it first became necessary.
+equality with `summarise` on real logs. That is the same discipline [#33] went on to apply to
+the numpy-native summary path, worked out here first because this is where it became necessary.
 
 **The first result is the argument for the framing.** DeadCatBounce's per-contract variation
 on MNQ is indistinguishable from relabelling the same trades, on both measures, even though

@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, randomentry, sessions, stats, sweep
+from nqbt import archetypes, randomentry, sessions, stats, sweep, trades
 from nqbt.instruments import NQ
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
@@ -406,6 +406,24 @@ def stub_log(pnl_per_trade) -> pd.DataFrame:
     )
 
 
+def stub_legs(pnl_per_trade) -> trades.LegMatrix:
+    """The same stub as a raw leg matrix, which is what ``compare`` actually reads."""
+    matrix = np.zeros((len(pnl_per_trade), trades.N_COLUMNS))
+    matrix[:, trades.C_TRADE_ID] = np.arange(1, len(pnl_per_trade) + 1)
+    matrix[:, trades.C_LEG] = 1
+    matrix[:, trades.C_EXIT_BAR] = np.arange(len(pnl_per_trade))
+    matrix[:, trades.C_NET_PNL] = pnl_per_trade
+    matrix[:, trades.C_R_MULTIPLE] = np.asarray(pnl_per_trade) / 10.0
+    matrix[:, trades.C_COMMISSION] = 0.5
+    matrix[:, trades.C_BARS_HELD] = 3
+    matrix[:, trades.C_MAE] = 1.0
+    matrix[:, trades.C_MFE] = 2.0
+    matrix[:, trades.C_QUANTITY] = 1
+    matrix[:, trades.C_DIRECTION] = trades.SHORT
+    matrix[:, trades.C_EXIT_REASON] = trades.EXIT_TARGET
+    return trades.LegMatrix(matrix, len(pnl_per_trade))
+
+
 def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared) -> None:
     """A run with no losing trade reports an infinite profit factor.
 
@@ -425,10 +443,14 @@ def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared
         # observation rather than about an empty comparison.
         return stub_log([5.0] * 8) if signal is None else stub_log([5.0] * 6 + [-4.0] * 2)
 
+    def all_wins_legs(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+        return stub_legs([5.0] * 8) if signal is None else stub_legs([5.0] * 6 + [-4.0] * 2)
+
     probe = archetypes.Archetype(
         name="AllWinsProbe",
         params_cls=DeadCatParams,
         run=all_wins_when_real,
+        legs=all_wins_legs,
         signal=lambda d, p: signal,
         tier2=archetypes.Tier2Status.TIER1_ONLY,
     )
@@ -448,10 +470,14 @@ def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(prepared
     def wins_only_in_the_null(data_, params_, instrument=NQ, *, signal=None, **kwargs):
         return stub_log([5.0, -4.0]) if signal is None else stub_log([5.0] * 4)
 
+    def wins_only_in_the_null_legs(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+        return stub_legs([5.0, -4.0]) if signal is None else stub_legs([5.0] * 4)
+
     probe = archetypes.Archetype(
         name="InfiniteNullProbe",
         params_cls=DeadCatParams,
         run=wins_only_in_the_null,
+        legs=wins_only_in_the_null_legs,
         signal=lambda d, p: signal,
         tier2=archetypes.Tier2Status.TIER1_ONLY,
     )
