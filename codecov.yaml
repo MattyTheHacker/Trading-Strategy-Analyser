@@ -1,0 +1,118 @@
+# Codecov configuration for nqbt.
+#
+# Two coverage uploads arrive per commit, from the matrix in
+# .github/workflows/checks.yaml:
+#
+#   jit-disabled  NUMBA_DISABLE_JIT=1 — the accurate coverage measurement.
+#                 Every gate below is scoped to this flag.
+#   jit-enabled   the real functionality run, but @njit bodies are compiled
+#                 away and read as uncovered, so its number is meaningless
+#                 as a gate. Reported informationally only.
+#
+# See docs/roadmap.md for the reasoning; keep argument out of this file.
+
+codecov:
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "85...100"
+
+  status:
+    project:
+      default:
+        target: 85%
+        threshold: 0%
+        flags:
+          - jit-disabled
+        if_ci_failed: error
+        removed_code_behavior: adjust_base
+      jit-enabled:
+        flags:
+          - jit-enabled
+        informational: true
+
+    patch:
+      default:
+        target: 90%
+        threshold: 0%
+        flags:
+          - jit-disabled
+        if_ci_failed: error
+      jit-enabled:
+        flags:
+          - jit-enabled
+        informational: true
+
+    # Coverage moving in files the pull request did not touch. Never blocks,
+    # but it is exactly the signal a "lint auto-fix" pull request reaching
+    # into nqbt/sim/ would produce.
+    changes:
+      default:
+        informational: true
+
+flag_management:
+  default_rules:
+    carryforward: false
+
+# Components are visibility only — no component gate, so a target here can
+# never block a merge on its own. The project and patch statuses above are
+# the gates.
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        informational: true
+  individual_components:
+    - component_id: sim
+      name: simulation
+      paths:
+        - nqbt/sim/**
+    - component_id: data
+      name: data pipeline
+      paths:
+        - nqbt/archive.py
+        - nqbt/ingest.py
+        - nqbt/splice.py
+        - nqbt/resample.py
+        - nqbt/sessions.py
+        - nqbt/instruments.py
+    - component_id: analysis
+      name: analysis
+      paths:
+        - nqbt/stats.py
+        - nqbt/sweep.py
+        - nqbt/dispersion.py
+        - nqbt/randomentry.py
+        - nqbt/results.py
+    - component_id: indicators
+      name: indicators
+      paths:
+        - nqbt/indicators.py
+        - nqbt/conditions.py
+
+comment:
+  layout: "header, diff, flags, components, files, footer"
+  behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
+
+github_checks:
+  annotations: true
+
+# pytest measures nqbt only (--cov=nqbt); these keep anything else that finds
+# its way into a report out of the totals.
+ignore:
+  - "tests/**"
+  - "tools/**"
+  - "docs/**"
+  - "data/**"
+  - "results/**"
+  - "verification/**"
+  - "ninjatrader-scripts/**"
+  - "stubs/**"
