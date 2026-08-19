@@ -18,15 +18,16 @@ from nqbt.instruments import MNQ, NQ
 from nqbt.sim import crossover
 from nqbt.sim.crossover import crossover_signal, regime_direction, run_crossover
 from nqbt.sim.types import EmaCrossoverParams
-from nqbt.trades import LONG, SHORT
+from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
 TICK = 0.25
 
 
-def run(
+def simulate(
     rows,
     signal_at=(),
     *,
+    max_rows=None,
     direction=LONG,
     flip_at=(),
     atr=4.0,
@@ -68,7 +69,11 @@ def run(
     for i in force_flat_at:
         force_flat[i] = True
 
-    out = crossover.bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
+    out = (
+        crossover.bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
+        if max_rows is None
+        else np.zeros((max_rows, N_COLUMNS), dtype=np.float64)
+    )
     count = crossover.simulate_crossover(
         o,
         h,
@@ -97,11 +102,14 @@ def run(
         round_targets,
         out,
     )
+    return count, out
+
+
+def run(rows, signal_at=(), **kwargs):
+    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
-
-    from nqbt import trades as trades_mod
-
-    return trades_mod.validate(trades_mod.trades_to_frame(out, count, instrument=instrument.symbol))
+    return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
 
 
 FLAT = [(100.0, 100.5, 99.5, 100.0)] * 6
@@ -441,3 +449,58 @@ def test_as_dict_flattens_the_target_tuple_for_the_results_table() -> None:
     d = EmaCrossoverParams().as_dict()
     assert isinstance(d["target_r_multiples"], list)
     assert d["use_atr_stop"] is True
+
+
+# -- the buffer-overflow guard -------------------------------------------------
+
+# One scenario per place the loop can run out of room, because each has its own guard and
+# a shared one would leave the others unexercised. `allocate_output`'s n_signals x n_legs
+# bound makes all of them unreachable in normal use -- which is exactly why they are worth
+# a test: numba does not bounds-check, so these returns are the only thing between a
+# violated bound and a write past the end of the matrix. Verifying a guard can fire is part
+# of relying on it.
+OVERFLOW_CASES = {
+    "stop while in a position": (
+        [*[(100.0, 100.5, 99.5, 100.0)] * 2, (100.0, 100.5, 95.0, 96.0), *FLAT],
+        {"signal_at": [0]},
+    ),
+    "two targets on one bar": (
+        [*[(100.0, 100.5, 99.5, 100.0)] * 2, (100.0, 106.5, 99.5, 106.0), *FLAT],
+        {"signal_at": [0]},
+    ),
+    "targets first, then the stop": (
+        [*[(100.0, 100.5, 99.5, 100.0)] * 2, (103.0, 104.5, 95.0, 100.0), *FLAT],
+        {"signal_at": [0], "ambiguity_policy": 1},
+    ),
+    "the session close": (
+        FLAT,
+        {"signal_at": [0], "force_flat_at": [3], "atr": 40.0},
+    ),
+    "the entry bar's own stop": (
+        [(100.0, 100.5, 99.5, 100.0), (100.0, 100.5, 95.0, 96.0), *FLAT],
+        {"signal_at": [0]},
+    ),
+    "the signal exit": (
+        [*[(100.0, 100.5, 99.5, 100.0)] * 3, (99.0, 99.5, 98.5, 99.0), *FLAT],
+        {"signal_at": [0], "flip_at": [2], "atr": 40.0},
+    ),
+    "the end of the series": (
+        FLAT,
+        {"signal_at": [0], "atr": 40.0},
+    ),
+}
+
+
+@pytest.mark.parametrize(("rows", "kwargs"), OVERFLOW_CASES.values(), ids=list(OVERFLOW_CASES))
+def test_a_full_buffer_is_reported_rather_than_written_past(rows, kwargs) -> None:
+    # One row of room against a four-leg trade, so the second write has nowhere to go.
+    assert simulate(rows, max_rows=1, **kwargs)[0] == -1
+    # The same scenario with room is a normal trade, which is what says the buffer size is
+    # the only thing under test here.
+    assert not run(rows, **kwargs).empty
+
+
+def test_trading_the_short_side_only_removes_the_long_one() -> None:
+    short_only = EmaCrossoverParams(bars_required_to_trade=50, trade_long=False)
+    log = run_crossover(prepared(short_only), short_only, MNQ)
+    assert set(log["direction"]) == {SHORT}
