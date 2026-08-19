@@ -170,3 +170,43 @@ def test_slim_keeps_the_declared_arrays_shared_rather_than_copied() -> None:
     assert lean.close is data.close
     assert lean.mas["ema"].below is data.mas["ema"].below
     assert lean.vwap is data.vwap
+
+
+# -- ATR and raw moving-average values (M18) ----------------------------------
+
+
+def test_atr_is_absent_unless_the_spec_asks_for_it() -> None:
+    data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
+    assert data.atrs == {}
+    with pytest.raises(ContextError, match="Add it to the archetype's ContextSpec"):
+        data.atr_values(14)
+
+
+def test_atr_is_built_for_exactly_the_declared_periods() -> None:
+    data = context.prepare(bars(), ContextSpec(ema_periods=(21,), atr_periods=(14, 20)))
+    assert sorted(data.atrs) == [14, 20]
+    assert data.atr_values(14).shape == (len(data),)
+    with pytest.raises(ContextError, match=r"no ATR\(9\)"):
+        data.atr_values(9)
+
+
+def test_needs_ma_values_keeps_the_raw_averages() -> None:
+    """A rule comparing two averages to each other cannot be answered by a boolean gate."""
+    gates_only = context.prepare(bars(), ContextSpec(ema_periods=(9, 21)))
+    with pytest.raises(ValueError, match="keep_values=True"):
+        gates_only.ma_values("ema", 9)
+
+    with_values = context.prepare(bars(), ContextSpec(ema_periods=(9, 21), needs_ma_values=True))
+    assert with_values.ma_values("ema", 9).shape == (len(with_values),)
+
+
+def test_the_union_of_two_specs_carries_the_new_fields() -> None:
+    merged = ContextSpec(ema_periods=(9,), atr_periods=(14,), needs_ma_values=True) | ContextSpec(
+        ema_periods=(21,),
+        atr_periods=(20,),
+        needs_vwap=True,
+    )
+    assert merged.ema_periods == (9, 21)
+    assert merged.atr_periods == (14, 20)
+    assert merged.needs_vwap
+    assert merged.needs_ma_values
