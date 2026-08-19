@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
-from nqbt import ingest, paths, splice
+from nqbt import ingest, logsetup, paths, splice
+
+logger = logging.getLogger(__name__)
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -16,28 +19,40 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     )
     if merges:
         changed = [m for m in merges if m.added or m.revised]
-        for _merge in changed:
-            pass
+        logger.info(
+            "archive: %d contracts, %s bars (%d changed by this merge)",
+            len(merges),
+            f"{sum(m.bars for m in merges):,}",
+            len(changed),
+        )
+        for merge in changed:
+            logger.info("  %s", merge)
+        logger.info("")
 
     total = 0
     for result in results:
-        for _warning in result.warnings:
-            pass
+        logger.info("%s", result)
+        for warning in result.warnings:
+            logger.info("    [!] %s", warning)
         total += result.rows_total
+    logger.info("")
+    logger.info("%d contracts, %s bars cached in %s", len(results), f"{total:,}", args.cache_dir)
     return 0
 
 
 def _cmd_contracts(args: argparse.Namespace) -> int:
     manifest = ingest.load_manifest(args.cache_dir / "manifest.json")
     if not manifest:
+        logger.info("nothing ingested yet; run `nqbt ingest`")
         return 1
-    for _key, _entry in sorted(manifest.items()):
-        pass
+    logger.info("%-12s %9s  last bar (UTC)", "contract", "rows")
+    for key, entry in sorted(manifest.items()):
+        logger.info("%-12s %9s  %s", key, f"{entry.rows:,}", entry.last_timestamp)
     return 0
 
 
 def _cmd_splice(args: argparse.Namespace) -> int:
-    _series, report = splice.splice_root(
+    series, report = splice.splice_root(
         args.root,
         data_dir=args.data_dir or paths.ARCHIVE_DIR,
         cache_dir=args.cache_dir,
@@ -45,11 +60,18 @@ def _cmd_splice(args: argparse.Namespace) -> int:
         confirm_sessions=args.confirm_sessions,
         allow_coverage_boundary=not args.strict,
     )
+    logger.info("%s", report.summary())
+    logger.info("")
+    logger.info("%s bars  %s -> %s", f"{len(series):,}", series.index[0], series.index[-1])
+    logger.info("written to %s", splice.continuous_path(args.root, args.back_adjust, args.cache_dir))
 
     if args.diagnostics:
         for roll in report.rolls:
-            for _note in roll.notes:
-                pass
+            logger.info("")
+            logger.info("--- %s -> %s ---", roll.front.nt8_name, roll.back.nt8_name)
+            logger.info("%s", roll.diagnostics.to_string())
+            for note in roll.notes:
+                logger.info("  note: %s", note)
 
     # Rolling at the coverage boundary is normal for NT8 data, so only a handover that
     # looks premature is worth a non-zero exit.
@@ -57,7 +79,6 @@ def _cmd_splice(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-
     from nqbt import context
     from nqbt.instruments import get_instrument
     from nqbt.sim import explain as explain_mod
@@ -97,24 +118,65 @@ def _cmd_run(args: argparse.Namespace) -> int:
     trades = runner.run_deadcat(data, params, instrument)
 
     if trades.empty:
+        logger.info("no trades")
         return 0
 
     per_trade = trades.groupby("trade_id")["net_pnl"].sum()
     wins = per_trade > 0
     losses = -per_trade[~wins].sum()
-    per_trade[wins].sum() / losses if losses > 0 else float("inf")
+    pf = per_trade[wins].sum() / losses if losses > 0 else float("inf")
     equity = per_trade.cumsum()
-    float((equity.cummax() - equity).max())
+    max_dd = float((equity.cummax() - equity).max())
+
+    logger.info(
+        "%s %s -> %s  %s bars",
+        args.root,
+        bars.index[0].date(),
+        bars.index[-1].date(),
+        f"{len(bars):,}",
+    )
+    logger.info(
+        "  params        EMA %d, SMA %d/%d, qty %d %s",
+        params.ema_period,
+        params.fast_sma_period,
+        params.slow_sma_period,
+        params.order_quantity,
+        params.leg_quantities,
+    )
+    logger.info(
+        "  costs         $%.2f/contract RT, %g ticks slippage",
+        params.commission_per_contract,
+        params.slippage_ticks,
+    )
+    logger.info("  trades        %s  (%s leg exits)", f"{len(per_trade):,}", f"{len(trades):,}")
+    logger.info("  win rate      %s", f"{wins.mean():.2%}")
+    logger.info("  net P&L       %s", f"${per_trade.sum():,.2f}")
+    logger.info("  expectancy    %s / trade", f"${per_trade.mean():.2f}")
+    logger.info("  profit factor %.3f", pf)
+    logger.info("  max drawdown  %s", f"${max_dd:,.2f}")
+    logger.info("  mean R        %s", f"{trades['r_multiple'].mean():+.3f}")
+    logger.info(
+        "  ambiguous     %s of leg exits (bar held both stop and target; stop assumed)",
+        f"{trades['ambiguous_bar'].mean():.2%}",
+    )
+    logger.info(
+        "  exit reasons  %s",
+        ", ".join(f"{k} {v:,}" for k, v in trades["exit_reason"].value_counts().items()),
+    )
 
     if args.trades:
         trades.to_csv(args.trades, index=False)
+        logger.info("")
+        logger.info("trade log -> %s", args.trades)
 
     if args.explain:
         detail = explain_mod.explain_trades(data, params, trades, instrument, args.explain)
         detail.to_csv(args.explain_out, index=False)
+        logger.info("hand-check detail for %d trades -> %s", len(detail), args.explain_out)
         first = int(trades["trade_id"].iloc[0])
         hist = explain_mod.ratchet_history(data, params, trades, first, instrument)
         hist.to_csv(args.ratchet_out, index=False)
+        logger.info("ratchet history for trade %d -> %s", first, args.ratchet_out)
 
     return 0
 
@@ -203,10 +265,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    logsetup.configure(__name__)
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except ingest.IngestError, splice.SpliceError, FileNotFoundError:
+    except (ingest.IngestError, splice.SpliceError, FileNotFoundError) as exc:
+        logger.error("%s", exc)  # noqa: TRY400 - an expected failure, not an unhandled one
         return 1
 
 

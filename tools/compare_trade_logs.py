@@ -15,20 +15,27 @@ Exits non-zero on any difference, so it can gate a script.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 import pandas as pd
+
+from nqbt import logsetup
+
+logger = logging.getLogger(__name__)
 
 
 def compare(before: Path, after: Path, added: set[str]) -> int:
     failures = 0
     names = sorted(p.name for p in before.iterdir() if p.is_file())
     if not names:
+        logger.info("no files in %s", before)
         return 1
 
     missing = [n for n in names if not (after / n).exists()]
     for name in missing:
+        logger.info("FAIL %s: absent from %s", name, after)
         failures += 1
 
     for name in (n for n in names if n not in missing):
@@ -37,29 +44,37 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
 
         unexpected = [c for c in new.columns if c not in old.columns and c not in added]
         if unexpected:
+            logger.info("FAIL %s: unexpected new column(s) %s", name, unexpected)
             failures += 1
         dropped = [c for c in old.columns if c not in new.columns]
         if dropped:
+            logger.info("FAIL %s: column(s) disappeared %s", name, dropped)
             failures += 1
             continue
 
         try:
             pd.testing.assert_frame_equal(old, new[old.columns], check_exact=True)
-        except AssertionError:
+        except AssertionError as exc:
+            logger.info("FAIL %s: %s", name, str(exc).splitlines()[0])
             failures += 1
             continue
 
         gained = [c for c in new.columns if c not in old.columns]
-        f"  (+{','.join(gained)})" if gained else ""
+        note = f"  (+{','.join(gained)})" if gained else ""
+        logger.info("  ok  %s  %s rows x %d cols%s", name, f"{len(old):,}", len(old.columns), note)
 
-    if failures or added:
-        pass
+    logger.info("")
+    if failures:
+        logger.info("%d FAILURE(S)", failures)
+    elif added:
+        logger.info("ALL PRE-EXISTING COLUMNS IDENTICAL")
     else:
-        pass
+        logger.info("BYTE-FOR-BYTE IDENTICAL")
     return failures
 
 
 def main(argv: list[str]) -> int:
+    logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before", type=Path)
     parser.add_argument("after", type=Path)

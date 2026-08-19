@@ -86,7 +86,7 @@ def test_every_bar_matches_the_minutes_it_was_built_from(minutes) -> None:
     out = resample.resample(src, minutes)
     assert len(out) < len(src)
 
-    for row, members in zip(out.itertuples(), groups_from_output(src, out), strict=False):
+    for row, members in zip(out.itertuples(), groups_from_output(src, out), strict=True):
         assert len(members), f"output bar {row.Index} has no source bars"
         assert row.open == members["open"].iloc[0]
         assert row.high == members["high"].max()
@@ -163,7 +163,7 @@ def test_no_bar_spans_the_maintenance_break_or_the_weekend(minutes) -> None:
     src = minute_bars(sessions_wanted=5)  # spans a Friday -> Monday handover
     out = resample.resample(src, minutes)
 
-    for row, members in zip(out.itertuples(), groups_from_output(src, out), strict=False):
+    for row, members in zip(out.itertuples(), groups_from_output(src, out), strict=True):
         assert members["trading_day"].nunique() == 1, (
             f"bar {row.Index} mixes trading days {sorted(set(members['trading_day']))}"
         )

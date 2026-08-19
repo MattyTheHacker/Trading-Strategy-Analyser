@@ -125,7 +125,9 @@ def test_session_close_share_reads_the_label_the_simulator_actually_writes() -> 
     ``stats.SESSION_CLOSE`` is derived from ``trades.EXIT_REASONS`` rather than spelled
     twice, and this asserts the derivation lands on the string the mapping produces.
     """
-    assert trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE] == stats.SESSION_CLOSE
+    # Left-to-right follows the docstring's derivation; SIM300 misfires here because
+    # neither side is a literal.
+    assert stats.SESSION_CLOSE == trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE]  # noqa: SIM300
     assert stats.SESSION_CLOSE == "session_close"
 
 
@@ -504,7 +506,7 @@ def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
         sweep.Grid(axes={}, base=DeadCatParams(bars_required_to_trade=200), archetype=tier1),
     ]
     frame, _ = sweep.sweep_axes(axis_bars, grids, NQ)
-    by_strategy = dict(zip(frame["strategy"], frame["tier2"], strict=False))
+    by_strategy = dict(zip(frame["strategy"], frame["tier2"], strict=True))
     assert by_strategy == {"DeadCatBounce": "reconciled", "UnreconciledProbe": "tier-1-only"}
 
 
@@ -547,7 +549,7 @@ def test_the_axes_multiply_and_every_block_is_distinguishable(axis_bars) -> None
     frames = contract_frames(axis_bars)
     frame, _ = sweep.sweep_axes(frames, grids, NQ, resolutions=[1, 5])
     assert len(frame) == 2 * 2 * 2  # contracts x resolutions x strategies, one combo each
-    keys = set(zip(frame["strategy"], frame["resolution"], frame["contract"], strict=False))
+    keys = set(zip(frame["strategy"], frame["resolution"], frame["contract"], strict=True))
     assert len(keys) == 8, "two blocks share an axis point and would aggregate as one"
 
 

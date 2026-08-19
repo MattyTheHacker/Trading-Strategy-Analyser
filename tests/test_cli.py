@@ -1,4 +1,11 @@
+"""The CLI's job is to report, so every test here asserts on what it wrote.
+
+Exit codes alone would pass against a command that computed the answer and discarded it,
+which is exactly the regression these tests exist to catch.
+"""
+
 import argparse
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -8,114 +15,181 @@ import pytest
 from nqbt import cli, ingest, splice
 
 
+@pytest.fixture(autouse=True)
+def console(caplog):
+    """Capture what the CLI logs, at the level its own entry point sets.
+
+    Deliberately does not call ``nqbt.logsetup.configure``: it uses ``basicConfig(force=True)``,
+    which would tear ``caplog``'s own handler off the root logger. Tests that need the real
+    handlers -- the stdout/stderr split -- go through ``main`` and read ``capsys`` instead.
+    """
+    caplog.set_level(logging.INFO, logger="nqbt")
+    return caplog
+
+
 @pytest.fixture
 def base_args():
-    """Provides a baseline Namespace with common arguments."""
-    return argparse.Namespace(
-        data_dir=Path("/mock/data"),
-        cache_dir=Path("/mock/cache"),
-    )
+    return argparse.Namespace(data_dir=Path("/mock/data"), cache_dir=Path("/mock/cache"))
 
 
-# --- Error Handling Tests ---
+def output(caplog) -> str:
+    return "\n".join(r.getMessage() for r in caplog.records)
 
 
-def test_main_catches_expected_errors_and_returns_1(monkeypatch) -> None:
-    """The CLI entry point must catch specific known exceptions and exit gracefully[cite: 6]."""
-    mock_parser = MagicMock()
-    mock_args = argparse.Namespace(func=MagicMock(side_effect=FileNotFoundError))
-    mock_parser.parse_args.return_value = mock_args
+# --- error handling ----------------------------------------------------------
 
-    monkeypatch.setattr(cli, "build_parser", MagicMock(return_value=mock_parser))
+
+def failing_main(monkeypatch, error: Exception) -> None:
+    parser = MagicMock()
+    parser.parse_args.return_value = argparse.Namespace(func=MagicMock(side_effect=error))
+    monkeypatch.setattr(cli, "build_parser", MagicMock(return_value=parser))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [FileNotFoundError("no cached bars"), splice.SpliceError("no crossover"), ingest.IngestError("no bars")],
+)
+def test_main_explains_an_expected_failure_on_stderr(monkeypatch, capsys, error) -> None:
+    """An expected failure is explained, not swallowed into a bare exit code.
+
+    Reading ``capsys`` rather than ``caplog`` is the point: it exercises the real handler
+    split, so a diagnostic that leaked onto stdout and corrupted a pipe would fail here.
+    """
+    failing_main(monkeypatch, error)
 
     assert cli.main(["dummy_arg"]) == 1
-
-    # Also test SpliceError
-    mock_args.func.side_effect = splice.SpliceError
-    assert cli.main(["dummy_arg"]) == 1
-
-    # Also test IngestError
-    mock_args.func.side_effect = ingest.IngestError
-    assert cli.main(["dummy_arg"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err == f"error: {error}\n"
+    assert captured.out == ""
 
 
-# --- Ingest Command Tests ---
+def test_main_writes_results_to_stdout_so_they_can_be_piped(monkeypatch, capsys) -> None:
+    parser = MagicMock()
+    parser.parse_args.return_value = argparse.Namespace(func=lambda _: _log_and_succeed())
+    monkeypatch.setattr(cli, "build_parser", MagicMock(return_value=parser))
+
+    assert cli.main(["dummy_arg"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "a result\n"
+    assert captured.err == ""
 
 
-def test_cmd_ingest_successful_run(monkeypatch, base_args) -> None:
-    """Verifies that _cmd_ingest processes merges and results correctly and returns 0[cite: 6]."""
+def _log_and_succeed() -> int:
+    cli.logger.info("a result")
+    return 0
+
+
+# --- ingest ------------------------------------------------------------------
+
+
+def test_cmd_ingest_reports_the_merge_and_the_bar_count(monkeypatch, base_args, console) -> None:
     base_args.root = "MNQ"
     base_args.force = False
 
-    mock_merge = MagicMock(added=True, revised=False)
-    mock_result = MagicMock(warnings=["Warning 1"], rows_total=100)
-    mock_ingest_all = MagicMock(return_value=([mock_merge], [mock_result]))
+    merge = MagicMock(added=True, revised=False, bars=500)
+    merge.__str__ = lambda self: "MNQ 03-24: +12 bars"
+    result = MagicMock(warnings=["a stray print"], rows_total=100)
+    result.__str__ = lambda self: "MNQ 03-24 appended"
+    ingest_all = MagicMock(return_value=([merge], [result]))
+    monkeypatch.setattr(cli.ingest, "ingest_all", ingest_all)
 
-    monkeypatch.setattr(cli.ingest, "ingest_all", mock_ingest_all)
-
-    exit_code = cli._cmd_ingest(base_args)
-
-    assert exit_code == 0
-    mock_ingest_all.assert_called_once_with(
+    assert cli._cmd_ingest(base_args) == 0
+    ingest_all.assert_called_once_with(
         data_dir=base_args.data_dir,
         cache_dir=base_args.cache_dir,
         root="MNQ",
         force=False,
     )
 
+    text = output(console)
+    assert "archive: 1 contracts, 500 bars (1 changed by this merge)" in text
+    assert "MNQ 03-24: +12 bars" in text
+    assert "MNQ 03-24 appended" in text
+    assert "[!] a stray print" in text
+    assert "1 contracts, 100 bars cached in" in text
 
-# --- Contracts Command Tests ---
+
+# --- contracts ---------------------------------------------------------------
 
 
-def test_cmd_contracts_returns_1_if_no_manifest(monkeypatch, base_args) -> None:
-    """If the manifest is missing, the contracts command should exit with 1[cite: 6]."""
+def test_cmd_contracts_says_so_when_nothing_is_ingested(monkeypatch, base_args, console) -> None:
     monkeypatch.setattr(cli.ingest, "load_manifest", MagicMock(return_value=None))
     assert cli._cmd_contracts(base_args) == 1
+    assert "nothing ingested yet" in output(console)
 
 
-def test_cmd_contracts_returns_0_if_manifest_exists(monkeypatch, base_args) -> None:
-    """If the manifest exists, it iterates over it and exits with 0[cite: 6]."""
-    monkeypatch.setattr(cli.ingest, "load_manifest", MagicMock(return_value={"MNQ 03-24": "data"}))
+def test_cmd_contracts_tabulates_every_cached_contract(monkeypatch, base_args, console) -> None:
+    entry = MagicMock(rows=132454, last_timestamp="2024-03-17T14:55:00+00:00")
+    monkeypatch.setattr(cli.ingest, "load_manifest", MagicMock(return_value={"MNQ 03-24": entry}))
+
     assert cli._cmd_contracts(base_args) == 0
+    text = output(console)
+    assert "contract" in text
+    # Thousands separators are the point of the column; a bare 132454 is unreadable.
+    assert "132,454" in text
+    assert "2024-03-17T14:55:00+00:00" in text
 
 
-# --- Splice Command Tests ---
+# --- splice ------------------------------------------------------------------
 
 
-def test_cmd_splice_returns_0_on_healthy_rolls(monkeypatch, base_args) -> None:
-    """A normal splice without early rolls exits with 0[cite: 6]."""
+def splice_args(base_args, *, diagnostics: bool):
     base_args.root = "MNQ"
     base_args.back_adjust = False
     base_args.confirm_sessions = 1
     base_args.strict = False
-    base_args.diagnostics = False
-
-    mock_report = MagicMock(early_rolls=[])
-    monkeypatch.setattr(cli.splice, "splice_root", MagicMock(return_value=(MagicMock(), mock_report)))
-
-    assert cli._cmd_splice(base_args) == 0
+    base_args.diagnostics = diagnostics
+    return base_args
 
 
-def test_cmd_splice_returns_2_on_early_rolls(monkeypatch, base_args) -> None:
-    """If the splicer identifies early rolls, it should flag this with exit code 2[cite: 6]."""
-    base_args.root = "MNQ"
-    base_args.back_adjust = False
-    base_args.confirm_sessions = 1
-    base_args.strict = False
-    base_args.diagnostics = True
-
-    mock_roll = MagicMock(notes=["Note 1"])
-    mock_report = MagicMock(early_rolls=[mock_roll], rolls=[mock_roll])
-    monkeypatch.setattr(cli.splice, "splice_root", MagicMock(return_value=(MagicMock(), mock_report)))
-
-    assert cli._cmd_splice(base_args) == 2
+def spliced(monkeypatch, *, early_rolls, rolls=()):
+    series = pd.DataFrame(
+        {"close": [1.0, 2.0]},
+        index=pd.to_datetime(["2024-03-01", "2024-03-02"], utc=True),
+    )
+    report = MagicMock(early_rolls=list(early_rolls), rolls=list(rolls))
+    report.summary.return_value = "MNQ continuous series (raw prices)"
+    monkeypatch.setattr(cli.splice, "splice_root", MagicMock(return_value=(series, report)))
+    return series
 
 
-# --- Run Command Tests ---
+def test_cmd_splice_reports_the_series_it_wrote(monkeypatch, base_args, console) -> None:
+    spliced(monkeypatch, early_rolls=[])
+    assert cli._cmd_splice(splice_args(base_args, diagnostics=False)) == 0
+
+    text = output(console)
+    assert "MNQ continuous series (raw prices)" in text
+    assert "2 bars" in text
+    assert "written to" in text
 
 
-def test_cmd_run_empty_trades_exits_early(monkeypatch, base_args) -> None:
-    """If the simulation produces no trades, it exits 0 without calculating equity[cite: 6]."""
+def test_cmd_splice_prints_the_volume_tables_under_diagnostics(monkeypatch, base_args, console) -> None:
+    roll = MagicMock(notes=["rolled at the coverage boundary"])
+    roll.front.nt8_name = "MNQ 03-24"
+    roll.back.nt8_name = "MNQ 06-24"
+    roll.diagnostics.to_string.return_value = "  day  front_volume  back_volume"
+    spliced(monkeypatch, early_rolls=[roll], rolls=[roll])
+
+    assert cli._cmd_splice(splice_args(base_args, diagnostics=True)) == 2
+
+    text = output(console)
+    assert "--- MNQ 03-24 -> MNQ 06-24 ---" in text
+    assert "front_volume" in text
+    assert "note: rolled at the coverage boundary" in text
+
+
+def test_cmd_splice_stays_quiet_about_rolls_without_diagnostics(monkeypatch, base_args, console) -> None:
+    roll = MagicMock(notes=["rolled at the coverage boundary"])
+    spliced(monkeypatch, early_rolls=[], rolls=[roll])
+
+    cli._cmd_splice(splice_args(base_args, diagnostics=False))
+    assert "note:" not in output(console)
+
+
+# --- run ---------------------------------------------------------------------
+
+
+def run_args(base_args, **overrides):
     base_args.root = "MNQ"
     base_args.ema = 21
     base_args.slow_sma = 175
@@ -126,63 +200,115 @@ def test_cmd_run_empty_trades_exits_early(monkeypatch, base_args) -> None:
     base_args.back_adjust = False
     base_args.start = None
     base_args.end = None
-    base_args.explain = False
     base_args.trades = None
-
-    # Patch the underlying modules directly since _cmd_run imports them locally during execution[cite: 6].
-    monkeypatch.setattr(cli.splice, "load_continuous", MagicMock())
-    monkeypatch.setattr("nqbt.instruments.get_instrument", MagicMock())
-    monkeypatch.setattr("nqbt.context.prepare", MagicMock())
-
-    mock_run = MagicMock(return_value=pd.DataFrame())
-    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", mock_run)
-
-    mock_explain = MagicMock()
-    monkeypatch.setattr("nqbt.sim.explain.explain_trades", mock_explain)
-
-    assert cli._cmd_run(base_args) == 0
-    # Calculations and explanations shouldn't be reached
-    mock_explain.assert_not_called()
-
-
-def test_cmd_run_writes_files_when_args_provided(monkeypatch, base_args) -> None:
-    """Ensures CSV output files are written when --trades and --explain are passed[cite: 6]."""
-    base_args.root = "MNQ"
-    base_args.ema = 21
-    base_args.slow_sma = 175
-    base_args.fast_sma = 60
-    base_args.quantity = 4
-    base_args.commission = 0.0
-    base_args.slippage = 0.0
-    base_args.back_adjust = False
-    base_args.start = None
-    base_args.end = None
-    base_args.trades = "trades_out.csv"
-    base_args.explain = 20
+    base_args.explain = None
     base_args.explain_out = "explain_out.csv"
     base_args.ratchet_out = "ratchet_out.csv"
+    for name, value in overrides.items():
+        setattr(base_args, name, value)
+    return base_args
 
-    monkeypatch.setattr(cli.splice, "load_continuous", MagicMock())
+
+@pytest.fixture
+def stub_run(monkeypatch):
+    """Stub everything ``_cmd_run`` calls; these tests are about what it reports."""
+    bars = pd.DataFrame(
+        {"close": [1.0, 2.0]},
+        index=pd.to_datetime(["2024-01-02", "2024-03-01"], utc=True),
+    )
+    monkeypatch.setattr(cli.splice, "load_continuous", MagicMock(return_value=bars))
     monkeypatch.setattr("nqbt.instruments.get_instrument", MagicMock())
     monkeypatch.setattr("nqbt.context.prepare", MagicMock())
+    return bars
 
-    # Provide a minimal populated dataframe so pandas equity logic executes
-    dummy_trades = pd.DataFrame({"trade_id": [1, 2], "net_pnl": [10.0, -5.0]})
-    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=dummy_trades))
 
-    mock_detail_df = MagicMock()
-    monkeypatch.setattr("nqbt.sim.explain.explain_trades", MagicMock(return_value=mock_detail_df))
+def trade_log() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "trade_id": [1, 1, 2],
+            "net_pnl": [30.0, 10.0, -20.0],
+            "r_multiple": [1.5, 0.5, -1.0],
+            "ambiguous_bar": [False, False, True],
+            "exit_reason": ["target", "target", "stop"],
+        }
+    )
 
-    mock_ratchet_df = MagicMock()
-    monkeypatch.setattr("nqbt.sim.explain.ratchet_history", MagicMock(return_value=mock_ratchet_df))
 
-    # Intercept the trades dataframe to_csv call via mocking pandas itself
-    mock_to_csv = MagicMock()
-    monkeypatch.setattr(pd.DataFrame, "to_csv", mock_to_csv)
+def test_cmd_run_says_so_when_there_are_no_trades(monkeypatch, base_args, stub_run, console) -> None:
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=pd.DataFrame()))
+    explain = MagicMock()
+    monkeypatch.setattr("nqbt.sim.explain.explain_trades", explain)
 
-    assert cli._cmd_run(base_args) == 0
+    assert cli._cmd_run(run_args(base_args)) == 0
+    assert "no trades" in output(console)
+    explain.assert_not_called()
 
-    # Assert all file writing methods were triggered[cite: 6]
-    mock_to_csv.assert_any_call("trades_out.csv", index=False)
-    mock_detail_df.to_csv.assert_called_once_with("explain_out.csv", index=False)
-    mock_ratchet_df.to_csv.assert_called_once_with("ratchet_out.csv", index=False)
+
+def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub_run, console) -> None:
+    """The profit factor and drawdown were computed and dropped on the floor once."""
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
+
+    assert cli._cmd_run(run_args(base_args)) == 0
+
+    text = output(console)
+    assert "MNQ 2024-01-02 -> 2024-03-01  2 bars" in text
+    assert "params        EMA 21, SMA 60/175" in text
+    assert "trades        2  (3 leg exits)" in text  # a two-leg winner and a one-leg loser
+    assert "profit factor 2.000" in text  # +40 against -20
+    assert "max drawdown  $20.00" in text
+    assert "win rate      50.00%" in text
+    assert "mean R        +0.333" in text
+    assert "ambiguous     33.33% of leg exits" in text
+    assert "exit reasons  target 2, stop 1" in text
+
+
+def test_cmd_run_reports_an_infinite_profit_factor_rather_than_dividing_by_zero(
+    monkeypatch, base_args, stub_run, console
+) -> None:
+    winners = trade_log().assign(net_pnl=[30.0, 10.0, 20.0])
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=winners))
+
+    assert cli._cmd_run(run_args(base_args)) == 0
+    assert "profit factor inf" in output(console)
+
+
+def test_cmd_run_names_every_file_it_wrote(monkeypatch, base_args, stub_run, console, tmp_path) -> None:
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
+    detail = pd.DataFrame({"trade_id": [1, 2]})
+    monkeypatch.setattr("nqbt.sim.explain.explain_trades", MagicMock(return_value=detail))
+    monkeypatch.setattr(
+        "nqbt.sim.explain.ratchet_history", MagicMock(return_value=pd.DataFrame({"bar": [1]}))
+    )
+
+    args = run_args(
+        base_args,
+        trades=str(tmp_path / "trades.csv"),
+        explain=20,
+        explain_out=str(tmp_path / "explain.csv"),
+        ratchet_out=str(tmp_path / "ratchet.csv"),
+    )
+    assert cli._cmd_run(args) == 0
+
+    # Written for real, not asserted through a patched to_csv.
+    assert (tmp_path / "trades.csv").exists()
+    assert (tmp_path / "explain.csv").exists()
+    assert (tmp_path / "ratchet.csv").exists()
+
+    text = output(console)
+    assert "trade log -> " in text
+    assert "hand-check detail for 2 trades -> " in text
+    assert "ratchet history for trade 1 -> " in text
+
+
+# --- parser ------------------------------------------------------------------
+
+
+def test_the_parser_builds_paths_rather_than_strings() -> None:
+    args = cli.build_parser().parse_args(["--cache-dir", "somewhere", "contracts"])
+    assert isinstance(args.cache_dir, Path)
+
+
+def test_every_subcommand_is_wired_to_a_handler() -> None:
+    parser = cli.build_parser()
+    for command in ("ingest", "contracts", "splice", "run"):
+        assert callable(parser.parse_args([command]).func)

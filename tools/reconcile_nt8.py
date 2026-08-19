@@ -7,21 +7,28 @@ Reasoning, results and the traps are in docs/nt8-fidelity.md; this is the mechan
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from nqbt import archetypes, context, ingest
+from nqbt import archetypes, context, ingest, logsetup
 from nqbt.instruments import MNQ, NQ, ContractId
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+
+logger = logging.getLogger(__name__)
 
 EXIT_NAMES = {
     "Profit target": "target",
     "Stop loss": "stop",
     "Exit on session close": "session_close",
 }
+
+EXPECTED_ARGV = 4
+FIRST_DISAGREEMENTS = 5
+"""Disagreeing legs shown inline; the point is to characterise them, not to list them all."""
 
 EXPORT_TZ = "Europe/London"
 """The export is stamped in NinjaTrader's display zone -- the machine's -- not UTC.
@@ -105,6 +112,14 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
     )
     both = joined[joined["_merge"] == "both"]
 
+    logger.info(
+        "  window            %s -> %s (ends excluded)", f"{lo:%Y-%m-%d %H:%M}", f"{hi:%Y-%m-%d %H:%M}"
+    )
+    logger.info("  NT8 legs          %s", f"{len(nt8_inner):,}")
+    logger.info("  nqbt legs         %s", f"{len(inner):,}")
+    logger.info("  joined            %s", f"{len(both):,}")
+    logger.info("  NT8 only          %s", f"{int((joined['_merge'] == 'left_only').sum()):,}")
+    logger.info("  nqbt only         %s", f"{int((joined['_merge'] == 'right_only').sum()):,}")
     if not len(both):
         return
 
@@ -116,18 +131,40 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
         "identical P&L": np.isclose(both["net_pnl_nt8"], both["net_pnl_nqbt"], atol=1e-6),
     }
     every = np.ones(len(both), dtype=bool)
-    for ok in checks.values():
+    for name, ok in checks.items():
         every &= np.asarray(ok)
+        logger.info("  %-22s%s (%s)", name, f"{int(np.sum(ok)):,}", f"{np.mean(ok):.2%}")
+    logger.info("  %-22s%s (%s)", "identical everywhere", f"{int(every.sum()):,}", f"{every.mean():.2%}")
+    logger.info(
+        "  net P&L           NT8 %s   nqbt %s",
+        f"{both['net_pnl_nt8'].sum():,.2f}",
+        f"{both['net_pnl_nqbt'].sum():,.2f}",
+    )
 
     bad = both[~every]
     if len(bad):
-        pass
+        cols = [
+            "entry_time",
+            "leg",
+            "exit_time_nt8",
+            "exit_time_nqbt",
+            "exit_price_nt8",
+            "exit_price_nqbt",
+            "exit_reason_nt8",
+            "exit_reason_nqbt",
+        ]
+        logger.info("")
+        logger.info("  first %d disagreeing legs:", min(FIRST_DISAGREEMENTS, len(bad)))
+        logger.info("%s", bad[cols].head(FIRST_DISAGREEMENTS).to_string(index=False))
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 4:
+    logsetup.configure(__name__)
+    if len(argv) != EXPECTED_ARGV:
+        logger.info("%s", __doc__)
         return 2
     export, archetype_name, contract = argv[1], argv[2], argv[3]
+    logger.info("== %s on %s ==", archetype_name, contract)
     nt8 = parse_nt8(Path(export))
     mine = run_nqbt(archetype_name, contract)
     reconcile(nt8, mine)

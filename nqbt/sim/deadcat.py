@@ -575,11 +575,11 @@ def entry_bracket(
     Public because ``explain.py`` calls it too, and that is the whole point. This used to
     be written out twice, and the two copies disagreed: the audit trail took the trigger to
     be simply ``Low[0]``, dropping the ``Close[0] - 2 ticks`` cap that the simulation
-    applies. Since the cap binds on about half of all signals, ``nqbt run --explain`` --
-    the tool a human uses to tick a trade off against a chart before trusting anything
-    downstream -- reported the wrong ``trigger``, ``risk_points``, ``risk_ticks`` and
-    ``fill_type`` on half its rows, while agreeing on the stop, which is what made it look
-    right on inspection.
+    applies. The cap binds on roughly a third of signals over a whole window, so
+    ``nqbt run --explain`` -- the tool a human uses to tick a trade off against a chart
+    before trusting anything downstream -- reported the wrong ``trigger``, ``risk_points``,
+    ``risk_ticks`` and ``fill_type`` on that share of its rows, while agreeing on the stop,
+    which is what made it look right on inspection.
 
     So: one implementation, called from both places, and the audit trail is by
     construction the arithmetic under audit. Do not inline either copy back.

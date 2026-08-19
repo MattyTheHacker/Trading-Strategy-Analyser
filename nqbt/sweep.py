@@ -34,6 +34,7 @@ grow three incompatible ways of tagging the same results table.
 from __future__ import annotations
 
 import itertools
+import logging
 import math
 import time
 from dataclasses import dataclass, field, replace
@@ -50,6 +51,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
 
     from nqbt.archetypes import Archetype, Params
+
+logger = logging.getLogger(__name__)
 
 
 class SweepError(RuntimeError):
@@ -153,7 +156,7 @@ class Grid:
             return
         names = list(self.axes)
         for values in itertools.product(*(self.axes[n] for n in names)):
-            yield replace(self.base, **dict(zip(names, values, strict=False)))
+            yield replace(self.base, **dict(zip(names, values, strict=True)))
 
     def axis_values(self) -> dict[str, list]:
         """Every value each parameter will take across the sweep, swept or not.
@@ -259,7 +262,8 @@ def _sweep_serial(
         if keep_trades:
             logs[i] = trades
         if progress_every and (i + 1) % progress_every == 0:
-            (i + 1) / (time.perf_counter() - started)
+            rate = (i + 1) / (time.perf_counter() - started)
+            logger.info("  %s/%s combos  %s/s", f"{i + 1:,}", f"{len(grid):,}", f"{rate:,.0f}")
     return rows, logs
 
 
@@ -321,8 +325,9 @@ def sweep(
     every core. It defaults to serial because process startup costs a few seconds --
     each worker imports Numba -- which is not worth paying for a few hundred
     combinations. The results are identical either way; only the wall clock changes.
-    ``progress_every`` prints a running rate when serial, and switches joblib's own
-    per-task reporting on when parallel.
+    ``progress_every`` logs a running rate when serial, and switches joblib's own
+    per-task reporting on when parallel. The serial rate goes through ``logging``, so a
+    caller that has not configured a handler sees nothing -- see :mod:`nqbt.logsetup`.
     """
     data = data if data is not None else prepare_for(bars, grid)
 

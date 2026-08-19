@@ -54,8 +54,8 @@ def test_volume_crossover_is_detected_when_the_export_covers_it() -> None:
 def test_confirmation_skips_a_one_day_blip_and_finds_the_real_roll() -> None:
     # Back leads on 03-05, falls behind again on 03-06, then leads for good from 03-07.
     week = ["2024-03-04", "2024-03-05", "2024-03-06", "2024-03-07", "2024-03-08"]
-    front = make_frame(week, 100.0, dict(zip(week, [900, 100, 900, 100, 100], strict=False)))
-    back = make_frame(week, 110.0, dict(zip(week, [100, 900, 100, 900, 900], strict=False)))
+    front = make_frame(week, 100.0, dict(zip(week, [900, 100, 900, 100, 100], strict=True)))
+    back = make_frame(week, 110.0, dict(zip(week, [100, 900, 100, 900, 900], strict=True)))
 
     lenient = splice.detect_roll(FRONT, BACK, front, back, confirm_sessions=1)
     assert lenient.roll_day == pd.Timestamp("2024-03-05")
@@ -83,8 +83,8 @@ def test_a_stub_session_cannot_decide_the_roll() -> None:
     # sides are short; the ratio is an hour of overnight trade standing in for a session.
     # MNQ 03-23 -> 06-23 read 1.46 on such a stub and rolled a day early.
     week = ["2024-03-05", "2024-03-06", "2024-03-07"]
-    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300], strict=False)), bars={"2024-03-06": 1})
-    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900], strict=False)), bars={"2024-03-06": 1})
+    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300], strict=True)), bars={"2024-03-06": 1})
+    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900], strict=True)), bars={"2024-03-06": 1})
 
     table = splice.overlap_volume(front, back)
     assert table.loc[pd.Timestamp("2024-03-06"), "back_wins"]
@@ -99,8 +99,8 @@ def test_a_full_session_still_decides_the_roll_on_its_first_win() -> None:
     # The guard must not cost a legitimate same-day crossover: identical to the case
     # above except that the deciding session is a full one.
     week = ["2024-03-05", "2024-03-06", "2024-03-07"]
-    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300], strict=False)))
-    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900], strict=False)))
+    front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300], strict=True)))
+    back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900], strict=True)))
 
     roll = splice.detect_roll(FRONT, BACK, front, back)
     assert roll.roll_day == pd.Timestamp("2024-03-06")
@@ -311,15 +311,21 @@ def test_check_roll_monotonicity_raises_on_out_of_order_rolls() -> None:
 
 
 def test_back_adjustment_warns_if_prices_drop_below_zero() -> None:
-    """Ensure a warning is surfaced if large roll gaps push historical prices negative."""
+    """A back-adjusted series can go non-positive, and then only the raw one is usable.
+
+    Real data reaches this by accumulating roll gaps over many years -- back-adjustment
+    subtracts a cumulative offset, so a long enough history of downward rolls eventually
+    crosses zero. The fixture manufactures the offset in one roll instead: a back contract
+    priced below the front's gap makes the shift larger than the price it is applied to,
+    which is the same arithmetic without simulating a decade of contracts.
+    """
     days = ["2024-03-06", "2024-03-07", "2024-03-08"]
 
-    # We must create a valid volume crossover so detect_roll succeeds naturally.
+    # A genuine volume crossover, so detect_roll picks the roll rather than falling back.
     front_vols = {"2024-03-06": 900, "2024-03-07": 800, "2024-03-08": 100}
     back_vols = {"2024-03-06": 100, "2024-03-07": 200, "2024-03-08": 900}
 
-    # Front trades around 100. Back trades around -5.
-    # Offset = 100 - (-5) = 105. Back-adjusting will shift the Front prices by -105.
+    # Offset = 100 - (-5) = 105, so the front's 100 shifts to -5.
     front = make_frame(days, 100.0, front_vols)
     back = make_frame(days, -5.0, back_vols)
 
@@ -328,18 +334,22 @@ def test_back_adjustment_warns_if_prices_drop_below_zero() -> None:
     assert any("drove prices to or below zero" in w for w in report.warnings)
 
 
-def test_segment_fully_consumed_by_surrounding_rolls_emits_warning(monkeypatch) -> None:
-    """Tests the edge case where a contract's valid window is squeezed to 0 bars."""
+def test_a_contract_squeezed_to_no_bars_is_reported_not_silently_dropped(monkeypatch) -> None:
+    """A contract consumed by its neighbouring rolls must warn, not vanish.
+
+    ``detect_roll`` cannot currently produce this state -- it needs shared in-session bars
+    to pick a roll at all -- so the rolls are supplied directly. That is the point rather
+    than a limitation: the warning guards against a future roll rule that *can* produce it,
+    and a contract disappearing from a spliced series without a word is the failure it
+    exists to prevent. Delete the guard and this test is what notices.
+    """
     days = ["2024-03-06", "2024-03-07", "2024-03-08"]
     front = make_frame(days, 100.0, 900)
 
-    # The BACK contract only has data on 03-08.
+    # The BACK contract only has data on 03-08, which both rolls then claim.
     back = make_frame(["2024-03-08"], 110.0, 900)
     later = make_frame(days, 120.0, 900)
 
-    # The defensive warning in build_continuous is mathematically unreachable
-    # with real data because detect_roll requires shared in-session bars to pick a roll.
-    # We use monkeypatch to safely simulate the edge case and bypass the monotonicity guard.
     roll1 = splice.RollDecision(
         FRONT,
         BACK,
@@ -370,4 +380,4 @@ def test_segment_fully_consumed_by_surrounding_rolls_emits_warning(monkeypatch) 
     series, report = splice.build_continuous([FRONT, BACK, LATER], frames)
 
     assert any("contributes no bars" in w for w in report.warnings)
-    assert "MNQ 06-24" not in series["contract"].values
+    assert "MNQ 06-24" not in series["contract"].to_numpy()

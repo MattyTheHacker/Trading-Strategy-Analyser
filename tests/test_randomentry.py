@@ -120,7 +120,7 @@ def test_the_pool_is_never_smaller_than_the_draw_it_must_serve(prepared) -> None
     data, _, signal = prepared
     pool = randomentry.SessionMinutePool.build(data.index)
     minutes, counts = np.unique(pool.minutes[signal], return_counts=True)
-    for minute, count in zip(minutes, counts, strict=False):
+    for minute, count in zip(minutes, counts, strict=True):
         assert pool.pool_for(minute).size >= count, f"minute {minute}"
 
 

@@ -88,8 +88,9 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
         # never overwrite something already recorded.
         newest = max(rows)
         for key, line in rows.items():
-            if key not in merged or key != newest:
-                merged[key] = line
+            if key == newest and key in merged:
+                continue
+            merged[key] = line
 
     # Counted against the archive as it was, not as each source touched it. Sources
     # routinely disagree -- a manual export and the AddOn hold different volumes for the

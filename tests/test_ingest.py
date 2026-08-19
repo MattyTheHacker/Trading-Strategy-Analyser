@@ -284,7 +284,7 @@ def test_tick_export_is_rejected_early(cache, tmp_path) -> None:
     """Verify tick-level exports are rejected rather than parsed incorrectly.
 
     NinjaTrader tick files have 5 fields instead of 6, and a 3-part timestamp
-    separated by spaces (Date Time Subsecond)[cite: 7].
+    separated by spaces (Date Time Subsecond).
     """
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -316,7 +316,7 @@ def test_load_contract_raises_file_not_found_when_missing(tmp_path) -> None:
 
 
 def test_ingest_all_builds_archive_when_data_dir_is_none(monkeypatch, export, cache) -> None:
-    """Verifies that ingest_all defaults to refreshing the archive if no data_dir is provided[cite: 7]."""
+    """Verifies that ingest_all defaults to refreshing the archive if no data_dir is provided."""
     from unittest.mock import MagicMock
 
     mock_build = MagicMock(return_value=[])

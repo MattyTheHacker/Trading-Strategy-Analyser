@@ -4,12 +4,16 @@ The audit trail is the instrument a human uses to tick a trade off against a cha
 trusting anything downstream, so the property that matters is not that it produces
 plausible numbers -- it is that it produces *the simulation's* numbers. It did not: it
 recomputed the entry arithmetic independently and dropped the ``Close[0] - 2 ticks``
-trigger cap, which binds on roughly half of all signals. It agreed on the stop, which is
-what made it survive inspection.
+trigger cap, which binds on roughly a third of all signals measured over a whole window.
+It agreed on the stop, which is what made it survive inspection.
 
 These tests compare every trade rather than a sample, because the defect was a
-disagreement on half the rows and any single row had even odds of looking fine.
+disagreement on a large minority of rows and any single row could easily look fine.
+Capped signals are not evenly distributed -- the rate reads far higher over the first
+twenty trades and decays -- so a prefix of a trade log is not a sample of it.
 """
+
+import itertools
 
 import numpy as np
 import pandas as pd
@@ -156,7 +160,8 @@ def test_explain_trades_respects_limit_parameter() -> None:
     )
 
     log = run_deadcat(data, params, MNQ)
-    assert len(log) > 2, "Need at least 3 trades in the fixture for this test."
+    # Trades, not legs: the log is one row per leg exit, so len(log) would over-count.
+    assert log["trade_id"].nunique() > 2, "need at least 3 trades in the fixture"
 
     limit_val = 2
     detail = explain.explain_trades(data, params, log, MNQ, limit=limit_val)
@@ -185,8 +190,9 @@ def test_ratchet_history_raises_keyerror_on_unknown_trade() -> None:
         explain.ratchet_history(data, params, log, invalid_trade_id, MNQ)
 
 
-def test_ratchet_history_calculates_trailing_stops_correctly() -> None:
-    """Validates the bar-by-bar tightening of the stop loss."""
+@pytest.fixture
+def ratchet():
+    """One trade's bar-by-bar stop history, with the dataset it was built from."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(n=1500),
@@ -197,22 +203,34 @@ def test_ratchet_history_calculates_trailing_stops_correctly() -> None:
         ),
         keep_ma_values=True,
     )
-
     log = run_deadcat(data, params, MNQ)
-    first_trade_id = log["trade_id"].iloc[0]
-
-    history = explain.ratchet_history(data, params, log, first_trade_id, MNQ)
-
-    # 1. Ensure we have bar-by-bar history
+    history = explain.ratchet_history(data, params, log, log["trade_id"].iloc[0], MNQ)
     assert not history.empty
+    return data, params, history
 
-    # 2. Check the core ratcheting rule: the stop should only ever move down (for shorts), never up.
-    # Because this is a short strategy, a "tighter" stop means a lower price.
-    stops = history["stop_live_this_bar"].values
-    for i in range(1, len(stops)):
-        assert stops[i] <= stops[i - 1], "Stop loss moved in the wrong direction (widened)."
 
-    # 3. Check that `tightened` flag is accurate
-    tightened_rows = history[history["tightened"]]
-    for _, row in tightened_rows.iterrows():
-        assert row["candidate_from_prev_high"] < row["stop_live_this_bar"]
+def test_the_ratchet_only_ever_tightens(ratchet) -> None:
+    """A short's stop may move down, never up -- the whole point of a ratchet."""
+    _, _, history = ratchet
+    stops = history["stop_live_this_bar"].to_numpy()
+    assert (stops[1:] <= stops[:-1]).all(), "stop widened"
+
+
+def test_the_stop_set_at_one_close_is_the_one_live_on_the_next_bar(ratchet) -> None:
+    """The one-bar lag is the rule from ``DeadCatBounce.cs``, and it is what can go wrong.
+
+    Asserting ``candidate < stop`` on the tightened rows instead would restate the line
+    that computes ``tightened`` and could not fail.
+    """
+    _, _, history = ratchet
+    for prev, live in itertools.pairwise(history.itertuples()):
+        expected = prev.candidate_from_prev_high if prev.tightened else prev.stop_live_this_bar
+        assert live.stop_live_this_bar == pytest.approx(expected)
+
+
+def test_the_ratchet_candidate_reapplies_the_entry_offset_to_the_previous_high(ratchet) -> None:
+    """``High[bar-1] + stop_offset_ticks``, not a bare ``High[bar-1]`` -- see CLAUDE.md."""
+    data, params, history = ratchet
+    offset = params.stop_offset_ticks * MNQ.tick_size
+    for row in history.itertuples():
+        assert row.candidate_from_prev_high == pytest.approx(data.high[row.bar - 1] + offset)
