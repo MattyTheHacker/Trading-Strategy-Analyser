@@ -16,7 +16,7 @@ import pytest
 
 from nqbt import context, sessions
 from nqbt.instruments import MNQ
-from nqbt.sim import deadcat
+from nqbt.sim import bracket, deadcat
 from nqbt.sim.pullback import pullback_signal, run_pullbackandgo
 from nqbt.sim.types import PullBackAndGoParams
 from nqbt.trades import LONG
@@ -52,7 +52,7 @@ def run(
     for i in force_flat_at:
         force_flat[i] = True
 
-    out = deadcat.allocate_output(max(int(signal.sum()), 1), len(quantities))
+    out = bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
     count = deadcat.simulate_deadcat(
         o,
         h,

@@ -241,3 +241,59 @@ def test_bar_geometry_bundles_the_long_side_mirror_conditions() -> None:
     assert list(geom.hammer) == [True, True]
     assert list(geom.made_new_low) == [False, True]
     assert list(geom.previous_bar_red) == [False, True]
+
+
+# -- NT8 cross semantics (M18.1) ----------------------------------------------
+
+
+def test_a_cross_is_the_bar_the_series_moved_past_each_other() -> None:
+    fast = np.array([1.0, 3.0, 4.0, 2.0, 1.0])
+    slow = np.array([2.0, 2.0, 2.0, 2.0, 2.0])
+    assert list(conditions.cross_above(fast, slow)) == [False, True, False, False, False]
+    assert list(conditions.cross_below(fast, slow)) == [False, False, False, False, True]
+
+
+def test_the_lookback_keeps_the_cross_true_for_n_bars() -> None:
+    """``CrossAbove(a, b, n)`` asks whether the cross happened within the last n bars.
+
+    The naive one-bar form is the ``n = 1`` case, not the definition. A NinjaScript written
+    later against ``CrossAbove(fast, slow, 3)`` would disagree with the naive form on two
+    bars out of every three.
+    """
+    fast = np.array([1.0, 3.0, 3.0, 3.0, 3.0])
+    slow = np.full(5, 2.0)
+    assert list(conditions.cross_above(fast, slow, 1)) == [False, True, False, False, False]
+    assert list(conditions.cross_above(fast, slow, 3)) == [False, True, True, True, False]
+
+
+def test_equality_on_the_prior_bar_still_counts_as_a_cross() -> None:
+    """Vanishingly unlikely for EMAs, entirely reachable for SMAs of tick-grid prices."""
+    fast = np.array([1.0, 2.0, 3.0])
+    slow = np.full(3, 2.0)
+    assert list(conditions.cross_above(fast, slow)) == [False, False, True]
+    assert list(conditions.cross_below(np.array([3.0, 2.0, 1.0]), slow)) == [False, False, True]
+
+
+def test_the_two_directions_are_not_complements() -> None:
+    """On a bar where neither series moved past the other, both are false."""
+    fast = np.array([1.0, 1.5, 1.75])
+    slow = np.full(3, 2.0)
+    assert not conditions.cross_above(fast, slow).any()
+    assert not conditions.cross_below(fast, slow).any()
+
+
+def test_a_cross_reads_only_bars_up_to_and_including_its_own() -> None:
+    rng = np.random.default_rng(5)
+    fast = np.cumsum(rng.normal(0, 1.0, 400))
+    slow = np.cumsum(rng.normal(0, 1.0, 400))
+    for n in (1, 2, 5):
+        full = conditions.cross_above(fast, slow, n)
+        for cut in (50, 173, 399):
+            assert np.array_equal(conditions.cross_above(fast[:cut], slow[:cut], n), full[:cut])
+
+
+def test_a_lookback_below_one_is_refused() -> None:
+    fast, slow = np.arange(3.0), np.zeros(3)
+    for fn in (conditions.cross_above, conditions.cross_below):
+        with pytest.raises(ValueError, match="lookback must be >= 1"):
+            fn(fast, slow, 0)

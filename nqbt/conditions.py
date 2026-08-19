@@ -40,6 +40,8 @@ __all__ = [
     "bar_geometry",
     "below_series",
     "count_true",
+    "cross_above",
+    "cross_below",
     "hammer",
     "inverted_hammer",
     "made_new_high",
@@ -196,6 +198,71 @@ def above_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
     own boundary that way.
     """
     return ~(close < series)
+
+
+@njit(cache=True)
+def _crossed(fast: np.ndarray, slow: np.ndarray, lookback: int, above: bool) -> np.ndarray:
+    """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?
+
+    One implementation for both directions, because the only difference is which way the
+    two comparisons point.
+    """
+    n = fast.size
+    out = np.zeros(n, dtype=np.bool_)
+    last = -1
+    for i in range(1, n):
+        if above:
+            crossed = fast[i] > slow[i] and fast[i - 1] <= slow[i - 1]
+        else:
+            crossed = fast[i] < slow[i] and fast[i - 1] >= slow[i - 1]
+        if crossed:
+            last = i
+        if last >= 0 and i - last < lookback:
+            out[i] = True
+    return out
+
+
+def cross_above(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.ndarray:
+    """``CrossAbove(fast, slow, lookback)`` as NinjaScript evaluates it.
+
+    True on every bar within ``lookback`` bars *of* a cross, not only on the bar the cross
+    happened -- ``lookback=1`` is the bar itself. The naive one-bar form is therefore the
+    ``lookback=1`` special case and not the definition, which is what a later NinjaScript
+    would disagree with. See ``docs/nt8-fidelity.md`` § M18.
+
+    Equality is resolved on the *prior* bar: ``fast[i] > slow[i] and fast[i-1] <= slow[i-1]``,
+    so two series that touch and then separate upward have crossed. Vanishingly unlikely
+    for EMAs, entirely reachable for SMAs of tick-grid prices.
+
+    Reads only bars ``<= i``, which is the property ``docs/roadmap.md`` calls the easiest
+    place in this archetype to manufacture a fictional edge.
+    """
+    if lookback < 1:
+        msg = f"lookback must be >= 1, got {lookback}"
+        raise ValueError(msg)
+    return _crossed(
+        np.ascontiguousarray(fast, dtype=np.float64),
+        np.ascontiguousarray(slow, dtype=np.float64),
+        int(lookback),
+        True,  # noqa: FBT003
+    )
+
+
+def cross_below(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.ndarray:
+    """``CrossBelow(fast, slow, lookback)`` -- :func:`cross_above` with both tests mirrored.
+
+    Not the complement of :func:`cross_above`: on a bar where neither series moved past the
+    other, both are false.
+    """
+    if lookback < 1:
+        msg = f"lookback must be >= 1, got {lookback}"
+        raise ValueError(msg)
+    return _crossed(
+        np.ascontiguousarray(fast, dtype=np.float64),
+        np.ascontiguousarray(slow, dtype=np.float64),
+        int(lookback),
+        False,  # noqa: FBT003
+    )
 
 
 @dataclass(slots=True)

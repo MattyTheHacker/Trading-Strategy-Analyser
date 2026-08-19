@@ -6,8 +6,8 @@ M15's direction generalisation -- the exact mirror of DeadCatBounce's entry mech
 specifically because it has C# to reconcile against (M15.5) rather than being an original
 archetype nothing can be checked against.
 
-Reuses :func:`nqbt.sim.deadcat.simulate_deadcat` -- the shared bracket engine, not a fork of
-it -- with ``direction=LONG`` and the handful of parameters where the two strategies
+Reuses :func:`nqbt.sim.deadcat.simulate_deadcat` -- the stop-market bracket loop itself,
+not a fork of it -- with ``direction=LONG`` and the handful of parameters where the two strategies
 genuinely differ rather than merely mirror. See :class:`nqbt.sim.types.PullBackAndGoParams`
 for what those are and why each one is not swept as a DeadCatBounce-shaped field.
 """
@@ -20,7 +20,7 @@ import numpy as np
 
 from nqbt import trades
 from nqbt.instruments import MNQ, Instrument
-from nqbt.sim import deadcat
+from nqbt.sim import bracket, deadcat
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -68,7 +68,7 @@ def pullbackandgo_legs(
     signal = pullback_signal(data, params) if signal is None else signal
     quantities = np.asarray(params.leg_quantities, dtype=np.int64)
     targets = np.asarray(params.target_r_multiples, dtype=np.float64)
-    out = deadcat.allocate_output(int(signal.sum()), quantities.size)
+    out = bracket.allocate_output(int(signal.sum()), quantities.size)
 
     count = deadcat.simulate_deadcat(
         data.open,

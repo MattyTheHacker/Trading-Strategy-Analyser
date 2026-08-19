@@ -54,13 +54,22 @@ class ContextSpec:
 
     ema_periods: tuple[int, ...] = ()
     sma_periods: tuple[int, ...] = ()
+    atr_periods: tuple[int, ...] = ()
     needs_vwap: bool = False
+    needs_ma_values: bool = False
+    """Keep the raw moving-average values, not just the boolean gates.
+
+    Eight bytes per element against one, so this is off unless something reads the numbers
+    themselves: the MA trailing stop, the audit trail, and any archetype whose rule compares
+    two averages to each other rather than the close to one of them."""
 
     def __or__(self, other: ContextSpec) -> ContextSpec:
         return ContextSpec(
             ema_periods=tuple(sorted({*self.ema_periods, *other.ema_periods})),
             sma_periods=tuple(sorted({*self.sma_periods, *other.sma_periods})),
+            atr_periods=tuple(sorted({*self.atr_periods, *other.atr_periods})),
             needs_vwap=self.needs_vwap or other.needs_vwap,
+            needs_ma_values=self.needs_ma_values or other.needs_ma_values,
         )
 
     def periods_by_kind(self) -> dict[str, tuple[int, ...]]:
@@ -97,6 +106,7 @@ class Dataset:
     geometry: conditions.BarGeometry
     spec: ContextSpec
     mas: dict[str, MovingAverageGrid] = field(default_factory=dict)
+    atrs: dict[int, np.ndarray] = field(default_factory=dict)
     vwap: np.ndarray | None = None
     below_vwap: np.ndarray | None = None
     above_vwap: np.ndarray | None = None
@@ -142,6 +152,22 @@ class Dataset:
         """Raw moving-average values, for the audit trail and the MA trailing stop."""
         return self.grid(kind).values_for(period)
 
+    def atr_values(self, period: int) -> np.ndarray:
+        """NT8-seeded ATR for one period, or a pointed error.
+
+        Keyed by period alone rather than by ``(kind, period)`` as the moving averages are:
+        there is one ATR, and its NT8 seeding is the whole of M16's finding for it.
+        """
+        if period not in self.atrs:
+            msg = (
+                f"no ATR({period}) in this dataset; prepare() was asked for "
+                f"{sorted(self.atrs)}. Add it to the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.atrs[period]
+
     def vwap_gate(self, *, above: bool) -> np.ndarray:
         if self.below_vwap is None or self.above_vwap is None:
             msg = (
@@ -174,6 +200,7 @@ class Dataset:
         total = sum(a.nbytes for a in (self.open, self.high, self.low, self.close))
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
+        total += sum(a.nbytes for a in self.atrs.values())
         for a in (self.vwap, self.below_vwap, self.above_vwap, self.day_codes):
             if a is not None:
                 total += a.nbytes
@@ -231,15 +258,13 @@ def prepare(
     way to be sure it does.
     """
     close = bars["close"].to_numpy(np.float64)
+    high = bars["high"].to_numpy(np.float64)
+    low = bars["low"].to_numpy(np.float64)
     info = sessions.classify(bars.index)
 
     vwap = below_vwap = above_vwap = None
     if spec.needs_vwap:
-        typical = indicators.typical_price(
-            bars["high"].to_numpy(np.float64),
-            bars["low"].to_numpy(np.float64),
-            close,
-        )
+        typical = indicators.typical_price(high, low, close)
         vwap = indicators.session_vwap(
             typical,
             bars["volume"].to_numpy(np.float64),
@@ -251,16 +276,22 @@ def prepare(
     return Dataset(
         bars=bars,
         open=bars["open"].to_numpy(np.float64),
-        high=bars["high"].to_numpy(np.float64),
-        low=bars["low"].to_numpy(np.float64),
+        high=high,
+        low=low,
         close=close,
         force_flat=sessions.force_flat_mask(info, exit_on_close_seconds),
         geometry=conditions.bar_geometry(bars),
         spec=spec,
         mas={
-            kind: conditions.moving_average_grid(close, periods, kind, keep_values=keep_ma_values)
+            kind: conditions.moving_average_grid(
+                close,
+                periods,
+                kind,
+                keep_values=keep_ma_values or spec.needs_ma_values,
+            )
             for kind, periods in spec.periods_by_kind().items()
         },
+        atrs={p: indicators.nt8_atr(high, low, close, p) for p in spec.atr_periods},
         vwap=vwap,
         below_vwap=below_vwap,
         above_vwap=above_vwap,

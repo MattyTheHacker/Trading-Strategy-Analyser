@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from nqbt.sim.deadcat import entry_bracket
+from nqbt.sim.bracket import entry_bracket
 from nqbt.sim.runner import deadcat_signal
 from nqbt.trades import SHORT
 
@@ -74,7 +74,7 @@ def explain_trades(
             c,
             params.entry_offset_ticks * tick,
             params.stop_offset_ticks * tick,
-            SHORT,  # DeadCatBounce is short-only; see nqbt.sim.deadcat.entry_bracket.
+            SHORT,  # DeadCatBounce is short-only; see nqbt.sim.bracket.entry_bracket.
         )
 
         entry_price = float(legs["entry_price"].iloc[0])
