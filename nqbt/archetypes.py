@@ -24,6 +24,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
+from nqbt import timeofday
 from nqbt.context import ContextSpec
 from nqbt.sim import crossover, pullback, runner
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
@@ -79,6 +80,16 @@ class Tier2Status(StrEnum):
     """No reconciliation attempted and none planned yet."""
 
 
+def _needs_time_of_day(values: Mapping[str, Sequence]) -> bool:
+    """Whether any combination actually restricts its entries to some session phases.
+
+    The same treatment VWAP gets, and for the same reason: the default admits every phase,
+    so a grid that never narrows it reads nothing and should not pay for three arrays over
+    the whole series.
+    """
+    return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
+
+
 def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
@@ -100,6 +111,7 @@ def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
         ema_periods=tuple(sorted(ema)),
         sma_periods=tuple(sorted(sma)),
         needs_vwap=any(values.get("use_vwap", ())),
+        needs_time_of_day=_needs_time_of_day(values),
     )
 
 
@@ -119,6 +131,7 @@ def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
     return ContextSpec(
         ema_periods=tuple(sorted(fast | slow)),
         atr_periods=tuple(sorted(atr)),
+        needs_time_of_day=_needs_time_of_day(values),
         needs_ma_values=True,
     )
 

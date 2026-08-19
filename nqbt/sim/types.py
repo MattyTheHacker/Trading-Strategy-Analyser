@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
+from nqbt import timeofday
+
 
 @dataclass(slots=True)
 class DeadCatParams:
@@ -29,6 +31,18 @@ class DeadCatParams:
     use_vwap: bool = False
     require_previous_green: bool = True
     require_new_high: bool = True
+
+    phase_filter: int = timeofday.ALL_PHASES
+    """Which session phases an entry may be taken in, as a :mod:`nqbt.timeofday` bitmask.
+
+    Absent from the NinjaScript, and off by default -- :data:`nqbt.timeofday.ALL_PHASES`
+    admits every phase and the signal skips the conjunction entirely at that value, so an
+    unfiltered run is the run that predates this field.
+
+    A bitmask integer rather than a tuple of phases so it is a **legal sweep axis**: each
+    value is one scalar and therefore one combination, which is how "does this rule only
+    work at the cash open?" becomes a sweep rather than a set of hand-run backtests. A rule
+    that works for one hour reads as unprofitable when averaged over 23."""
 
     tp_multiplier: float = 1.0
     """Scales every leg's target. ``TPMultiplier`` in the NinjaScript."""
@@ -110,6 +124,7 @@ class DeadCatParams:
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
+        timeofday.validate_mask(self.phase_filter)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -177,6 +192,10 @@ class PullBackAndGoParams:
     require_previous_red: bool = True
     require_new_low: bool = True
 
+    phase_filter: int = timeofday.ALL_PHASES
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`.
+    Absent from the NinjaScript and off by default."""
+
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
     """Ticks below the signal bar's low for the stop. Hardcoded as ``TickSize * 2`` in the
@@ -237,6 +256,7 @@ class PullBackAndGoParams:
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
+        timeofday.validate_mask(self.phase_filter)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -300,6 +320,12 @@ class EmaCrossoverParams:
     trade_short: bool = True
     """Which sides to take. Both on is the point of the archetype; switching one off is how
     the two halves get measured separately."""
+
+    phase_filter: int = timeofday.ALL_PHASES
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`.
+
+    The archetype most likely to want it: a crossover fires every ~22 bars, so restricting
+    it to one phase still leaves thousands of trades to measure."""
 
     exit_on_opposite_cross: bool = True
     """Close the position when the regime flips, at the next bar's open.
@@ -366,6 +392,7 @@ class EmaCrossoverParams:
         if self.cross_lookback < 1:
             msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
             raise ValueError(msg)
+        timeofday.validate_mask(self.phase_filter)
         if self.fast_period == self.slow_period:
             msg = (
                 f"fast_period and slow_period are both {self.fast_period}; identical "

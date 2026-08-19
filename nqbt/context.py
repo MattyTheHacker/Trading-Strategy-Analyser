@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from nqbt import conditions, indicators, sessions
+from nqbt import conditions, indicators, sessions, timeofday
 
 if TYPE_CHECKING:
     from nqbt.conditions import MovingAverageGrid
@@ -56,6 +56,13 @@ class ContextSpec:
     sma_periods: tuple[int, ...] = ()
     atr_periods: tuple[int, ...] = ()
     needs_vwap: bool = False
+    needs_time_of_day: bool = False
+    """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`).
+
+    Requested rather than always built for the same reason VWAP is: only a combination that
+    actually restricts its entries to some phases reads it, and three arrays over 1.65M bars
+    is memory the parallel path memmaps to every worker."""
+
     needs_ma_values: bool = False
     """Keep the raw moving-average values, not just the boolean gates.
 
@@ -69,6 +76,7 @@ class ContextSpec:
             sma_periods=tuple(sorted({*self.sma_periods, *other.sma_periods})),
             atr_periods=tuple(sorted({*self.atr_periods, *other.atr_periods})),
             needs_vwap=self.needs_vwap or other.needs_vwap,
+            needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
         )
 
@@ -110,6 +118,12 @@ class Dataset:
     vwap: np.ndarray | None = None
     below_vwap: np.ndarray | None = None
     above_vwap: np.ndarray | None = None
+    time_of_day: timeofday.TimeOfDay | None = None
+    """Session phase and bar of session, or ``None`` when nothing asked for them.
+
+    One object rather than three fields because the three arrays come out of a single pass
+    over the index and are never wanted apart -- see :class:`nqbt.timeofday.TimeOfDay`."""
+
     day_codes: np.ndarray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
 
@@ -190,6 +204,34 @@ class Dataset:
             )
         return self.vwap
 
+    def _time_of_day(self) -> timeofday.TimeOfDay:
+        if self.time_of_day is None:
+            msg = (
+                "no time-of-day labels in this dataset; prepare() was not asked for them. "
+                "Set needs_time_of_day on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.time_of_day
+
+    def phase_gate(self, mask: int) -> np.ndarray:
+        """Per-bar boolean: does this bar's session phase pass ``mask``?
+
+        Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` rather than ANDing
+        the all-but-strays array it would return -- see :meth:`nqbt.timeofday.TimeOfDay.gate`
+        for why the no-op has to be *no call*.
+        """
+        return self._time_of_day().gate(mask)
+
+    def phase_values(self) -> np.ndarray:
+        """Per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
+        return self._time_of_day().phase
+
+    def bar_of_session(self) -> np.ndarray:
+        """Per-bar index from the session open, the fine form of the same clock."""
+        return self._time_of_day().bar_of_session
+
     @property
     def nbytes(self) -> int:
         """Bytes held by the derived arrays -- what a parallel worker is handed.
@@ -204,6 +246,8 @@ class Dataset:
         for a in (self.vwap, self.below_vwap, self.above_vwap, self.day_codes):
             if a is not None:
                 total += a.nbytes
+        if self.time_of_day is not None:
+            total += self.time_of_day.nbytes
         return total
 
     def slim(self) -> Dataset:
@@ -249,6 +293,7 @@ def prepare(
     *,
     exit_on_close_seconds: int = 30,
     keep_ma_values: bool = False,
+    bar_minutes: int | None = None,
 ) -> Dataset:
     """Precompute exactly the conditions ``spec`` declares.
 
@@ -256,11 +301,19 @@ def prepare(
     a wrong row, so ``spec`` must cover every value the sweep will ask for.
     :meth:`nqbt.sweep.Grid.required_context` derives it from the grid, which is the only
     way to be sure it does.
+
+    ``bar_minutes`` sizes the bar-of-session index and is inferred from the index when not
+    given. Pass it wherever the resolution is already known -- a resolution sweep always
+    knows it, and inference on a frame with a long hole in it is a guess.
     """
     close = bars["close"].to_numpy(np.float64)
     high = bars["high"].to_numpy(np.float64)
     low = bars["low"].to_numpy(np.float64)
     info = sessions.classify(bars.index)
+
+    tod = (
+        timeofday.classify(bars.index, bar_minutes=bar_minutes, info=info) if spec.needs_time_of_day else None
+    )
 
     vwap = below_vwap = above_vwap = None
     if spec.needs_vwap:
@@ -295,5 +348,6 @@ def prepare(
         vwap=vwap,
         below_vwap=below_vwap,
         above_vwap=above_vwap,
+        time_of_day=tod,
         day_codes=day_codes(bars.index),
     )

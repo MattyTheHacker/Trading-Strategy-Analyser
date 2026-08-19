@@ -345,6 +345,17 @@ def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -
     assert "nqbt.sim" in imports_of("archetypes.py")
 
 
+def test_the_time_of_day_labels_sit_below_the_market_context() -> None:
+    """``timeofday.py`` is a clock, not a strategy.
+
+    ``context.py`` imports it, so it may not import back; and the review layer has to be
+    able to label a real trade's entry bar without a simulator anywhere in the graph.
+    """
+    forbidden = ("nqbt.sim", "nqbt.trades", "nqbt.context", "nqbt.archetypes")
+    offenders = {m for m in imports_of("timeofday.py") if m.startswith(forbidden)}
+    assert not offenders, f"nqbt/timeofday.py must stay below the context layer; found {offenders}"
+
+
 def test_market_context_knows_nothing_about_trades() -> None:
     """``context.py`` is the half of a backtest with no strategy in it.
 

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nqbt import trades
+from nqbt import timeofday, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, deadcat
 
@@ -49,6 +49,8 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
         signal &= data.ma_gate("sma", params.slow_sma_period, above=True)
     if params.use_vwap:
         signal &= data.vwap_gate(above=True)
+    if params.phase_filter != timeofday.ALL_PHASES:
+        signal &= data.phase_gate(params.phase_filter)
     return signal
 
 
