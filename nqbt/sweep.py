@@ -454,7 +454,10 @@ def sweep_axes(
     for contract, source in sources.items():
         for minutes in resolutions:
             frame = resample.resample(source, minutes)
-            data = context.prepare(frame, spec)
+            # ``bar_minutes`` is stated rather than inferred: this loop is the one place
+            # that already knows the resolution, and the bar-of-session index would
+            # otherwise be a guess off the index's own gaps.
+            data = context.prepare(frame, spec, bar_minutes=minutes)
             for grid in grid_list:
                 point = AxisPoint(
                     strategy=grid.archetype.name,

@@ -472,6 +472,22 @@ explicitly rather than inferred because a wrong zone shifts every trade by a who
 still parses cleanly. Bar timestamps in `data/archive/` are unaffected — those are converted
 to UTC at export by the AddOn, which already handled both DST traps.
 
+### Session phases are ours, not NT8's (#43)
+
+`nqbt/timeofday.py`'s seven phases have **no NinjaScript counterpart and need none** — they
+label bars for stratification, they are not a fill rule, and nothing about them can move a
+trade. The one place they touch a reconciled archetype is `phase_filter`, an entry filter
+absent from both `DeadCatBounce.cs` and `PullBackAndGo.cs`, listed here so it is on the
+record beside the other options the C# does not implement.
+
+It defaults to `ALL_PHASES` and each archetype's signal **skips it entirely** at that value,
+so the reconciled configurations are untouched: all 12 captured trade logs are byte-identical
+across the change, `sha256` included. Switch it on and the run is no longer the run the trade
+list was diffed against — which is fine for research and is not a Tier-2 claim.
+
+The boundaries themselves (03:00 London, 09:30 cash open, 16:00 close) are market facts in
+Eastern time, not readings out of NT8, and are recorded in `docs/roadmap.md` § M10.4.
+
 ## Contract data
 
 **A manual Tools → Historical Data export returns ~95 days per contract**, regardless of

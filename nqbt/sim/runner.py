@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nqbt import trades
+from nqbt import timeofday, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, deadcat
 
@@ -43,6 +43,8 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
         signal &= data.ma_gate("sma", params.fast_sma_period, above=False)
     if params.use_vwap:
         signal &= data.vwap_gate(above=False)
+    if params.phase_filter != timeofday.ALL_PHASES:
+        signal &= data.phase_gate(params.phase_filter)
     return signal
 
 
