@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from nqbt.instruments import MNQ, NQ
-from nqbt.sim import deadcat
+from nqbt.sim import bracket, deadcat
 from nqbt.sim.types import DeadCatParams
 from nqbt.trades import LONG, SHORT
 
@@ -51,7 +51,7 @@ def run(
     for i in force_flat_at:
         force_flat[i] = True
 
-    out = deadcat.allocate_output(max(int(signal.sum()), 1), len(quantities))
+    out = bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
     count = deadcat.simulate_deadcat(
         o,
         h,
@@ -660,6 +660,6 @@ def test_targets_reached_first_is_direction_free() -> None:
     # _targets_reached_first takes no direction argument -- it works from the bar's open
     # alone, via abs() distance, which is already mirror-invariant. This pins that down so
     # a future "fix" that adds a sign to it cannot silently break just the long side.
-    short_case = deadcat._targets_reached_first(100.0, 104.0, 95.0, 1)
-    long_case = deadcat._targets_reached_first(100.0, 96.0, 105.0, 1)  # mirrored around 100
+    short_case = bracket.targets_reached_first(100.0, 104.0, 95.0, 1)
+    long_case = bracket.targets_reached_first(100.0, 96.0, 105.0, 1)  # mirrored around 100
     assert short_case == long_case

@@ -60,7 +60,7 @@ class DeadCatParams:
 
     Worth sweeping as an axis: the spread between the two is a direct measure of how much
     of a candidate's edge rests on an assumption the bar data cannot settle. See
-    :func:`nqbt.sim.deadcat._targets_reached_first`."""
+    :func:`nqbt.sim.bracket.targets_reached_first`."""
 
     fill_limit_on_touch: bool = False
     """Whether a profit target fills when price merely reaches it.

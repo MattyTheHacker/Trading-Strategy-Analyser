@@ -15,7 +15,7 @@ import numpy as np
 
 from nqbt import trades
 from nqbt.instruments import MNQ, Instrument
-from nqbt.sim import deadcat
+from nqbt.sim import bracket, deadcat
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -70,7 +70,7 @@ def deadcat_legs(
     signal = deadcat_signal(data, params) if signal is None else signal
     quantities = np.asarray(params.leg_quantities, dtype=np.int64)
     targets = np.asarray(params.target_r_multiples, dtype=np.float64)
-    out = deadcat.allocate_output(int(signal.sum()), quantities.size)
+    out = bracket.allocate_output(int(signal.sum()), quantities.size)
 
     count = deadcat.simulate_deadcat(
         data.open,
