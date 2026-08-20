@@ -35,53 +35,35 @@ class DeadCatParams:
     phase_filter: int = timeofday.ALL_PHASES
     """Which session phases an entry may be taken in, as a :mod:`nqbt.timeofday` bitmask.
 
-    Absent from the NinjaScript, and off by default -- :data:`nqbt.timeofday.ALL_PHASES`
-    admits every phase and the signal skips the conjunction entirely at that value, so an
-    unfiltered run is the run that predates this field.
-
-    A bitmask integer rather than a tuple of phases so it is a **legal sweep axis**: each
-    value is one scalar and therefore one combination, which is how "does this rule only
-    work at the cash open?" becomes a sweep rather than a set of hand-run backtests. A rule
-    that works for one hour reads as unprofitable when averaged over 23."""
+    Absent from the NinjaScript, and off by default. A bitmask integer rather than a tuple so
+    that it is a legal sweep axis -- ``docs/roadmap.md`` §M10.4."""
 
     tp_multiplier: float = 1.0
     """Scales every leg's target. ``TPMultiplier`` in the NinjaScript."""
 
     max_risk_ticks: int = 250
-    """Reject the signal when ``stop - trigger`` exceeds this many **ticks**.
-
-    ``MaxRiskPerTrade`` is compared against ``risk > maxRiskPerTrade * TickSize``, so it is
-    a tick count rather than a dollar amount -- 250 ticks is 62.5 MNQ points, not $250."""
+    """Reject the signal when ``stop - trigger`` exceeds this many **ticks**, not dollars."""
 
     bars_required_to_trade: int = 200
     stop_offset_ticks: int = 2
     """Ticks beyond the signal bar's high for the stop. Hardcoded as 2 in the NinjaScript."""
 
     entry_offset_ticks: int = 2
-    """Ticks below the close used to cap the entry trigger.
+    """Ticks below the close used to cap the entry trigger at ``min(Low[0], Close[0] - 2t)``.
 
-    The trigger is ``min(Low[0], Close[0] - 2 ticks)``. An inverted hammer closes near its
-    low by construction, so the close-based term usually wins and drags the trigger below
-    the bar's low, which makes the fill meaningfully harder to get."""
+    See ``docs/nt8-fidelity.md``, "Trigger is capped below the close"."""
 
     ambiguity_policy: int = 1
     """How a bar holding both the stop and a target is resolved.
 
-    ``1`` fills whichever level sits nearer the bar's open, which is what NT8 does and is
-    therefore the default -- it is the only setting that keeps Tier 1 and Tier 2 aligned.
-    ``0`` assumes the worst case, the stop taking the whole position, which is *more*
-    pessimistic than NT8 rather than equal to it.
-
-    Worth sweeping as an axis: the spread between the two is a direct measure of how much
-    of a candidate's edge rests on an assumption the bar data cannot settle. See
-    :func:`nqbt.sim.bracket.targets_reached_first`."""
+    ``1`` fills the level nearer the bar's open, reproducing NT8; ``0`` assumes a blanket
+    worst case, which is *more* pessimistic than NT8 rather than equal to it. Evidence:
+    ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer the open"."""
 
     fill_limit_on_touch: bool = False
     """Whether a profit target fills when price merely reaches it.
 
-    ``IsFillLimitOnTouch = false`` in the NinjaScript, so the default is that a limit must
-    be traded *through* to fill. Leaving this on inflates results: it hands you every
-    target the market touched to the tick and then reversed away from."""
+    ``IsFillLimitOnTouch = false`` in the NinjaScript, so a limit must be traded *through*."""
 
     block_entry_at_session_close: bool = True
     """Whether a signal on the session's final bar is skipped."""
@@ -89,10 +71,8 @@ class DeadCatParams:
     ratchet_lag: int = 0
     """Which bar's high the trailing stop references at each bar close.
 
-    ``0`` reads the just-closed bar's high -- ``High[0]``, what the NinjaScript does.
-    ``1`` reads the bar before it, which an earlier revision of the strategy used and which
-    holds trades roughly a third longer. Left exposed because the two behave like genuinely
-    different strategies and the comparison is worth sweeping."""
+    ``0`` is ``High[0]``, what the NinjaScript does; ``1`` is the bar before it. See
+    ``docs/nt8-fidelity.md``, "Ratchet reads the just-closed bar"."""
 
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """Per-leg profit targets in R. ``nan`` marks a runner with no target -- S4 in the
@@ -102,11 +82,9 @@ class DeadCatParams:
     commission_per_contract: float = 0.0
     """Round-turn commission per contract, charged once per leg on exit."""
     slippage_ticks: float = 0.0
-    """Adverse slippage on market and stop orders. Never applied to limit targets,
-    matching NT8, where the ``Slippage`` property does not affect limit fills."""
+    """Adverse slippage on market and stop orders. Never applied to limit targets."""
 
-    # -- options the spec asks for that the NinjaScript does not implement --
-    # Kept off by default so the port stays faithful until validated against NT8.
+    # Off by default: the spec asks for this, the NinjaScript does not implement it.
     min_reward_risk: float = 0.0
     """Pre-trade gate: skip the signal unless the furthest target clears this ratio."""
 
@@ -128,11 +106,7 @@ class DeadCatParams:
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
-        """Contracts per leg, with the remainder on the last leg.
-
-        ``baseQuantity = orderQuantity / 4`` with integer division, then
-        ``baseQuantity + remainder`` on S4 -- so 10 contracts split 2/2/2/4, not 3/3/2/2.
-        """
+        """Contracts per leg, with the remainder on the last: 10 splits 2/2/2/4, not 3/3/2/2."""
         n = len(self.target_r_multiples)
         base = self.order_quantity // n
         remainder = self.order_quantity % n
@@ -150,30 +124,9 @@ class DeadCatParams:
 class PullBackAndGoParams:
     """Rule set for the PullBackAndGo archetype -- DeadCatBounce's long-side mirror.
 
-    Ported for M15.4 as the validation case for a bidirectional simulator: the same stop
-    order, ratcheting stop and R-multiple bracket as DeadCatBounce, reflected to the long
-    side, with C# to check the Python against once M15.5 reconciles it.
-
-    Still leaner than :class:`DeadCatParams`, because ``PullBackAndGo.cs`` genuinely has
-    fewer properties -- matching the C# text means not inventing configurability it does
-    not have:
-
-    - No ``TPMultiplier`` or ``MaxRiskPerTrade``. Neither property exists on the strategy,
-      so there is no target scaling and no risk cap to reject a signal with.
-    - No ``EntryOffsetTicks``. The trigger is simply ``High[0]`` -- ``entry_bracket`` reaches
-      that exactly when ``entry_offset_ticks=0``, so ``run_pullbackandgo`` passes ``0``
-      directly rather than exposing a field that would always be zero. This is also what
-      exposes the archetype to NT8's stop-entry submittability rule, which DeadCatBounce's
-      2-tick cap makes unreachable -- see ``docs/nt8-fidelity.md``.
-
-    **These defaults are not the NinjaScript's, because it does not have any.**
-    ``PullBackAndGo.cs`` sets only ``EmaPeriod``, ``SlowSMAPeriod`` and ``FastSMAPeriod`` in
-    ``SetDefaults``; ``OrderQuantity`` and all six toggles are left uninitialised, so in
-    Strategy Analyzer they present as ``0`` and ``false`` until set by hand -- and an
-    ``OrderQuantity`` of 0 places four orders for nothing and trades nothing at all. What
-    the values below reproduce is instead **the configuration the M15.5 reconciliation was
-    run under**, which is the only combination with a trade list behind it. See
-    ``docs/nt8-fidelity.md``.
+    Leaner than :class:`DeadCatParams` because ``PullBackAndGo.cs`` has fewer properties, and
+    **these defaults are the reconciled configuration rather than the NinjaScript's**, which
+    has none. Both points: ``docs/nt8-fidelity.md``, "Reconciliation result -- PullBackAndGo".
     """
 
     ema_period: int = 21
@@ -185,36 +138,27 @@ class PullBackAndGoParams:
     use_slow_sma: bool = True
     use_fast_sma: bool = True
     use_vwap: bool = False
-    """VWAP is off in the reconciled configuration, and deliberately so: nothing has ever
-    checked nqbt's VWAP against NT8's ``OrderFlowVWAP``, so switching it on mixes an
-    unvalidated indicator into an otherwise validated archetype."""
+    """Off in the reconciled configuration, and deliberately so -- ``docs/nt8-fidelity.md``."""
 
     require_previous_red: bool = True
     require_new_low: bool = True
 
     phase_filter: int = timeofday.ALL_PHASES
-    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`.
-    Absent from the NinjaScript and off by default."""
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
 
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
-    """Ticks below the signal bar's low for the stop. Hardcoded as ``TickSize * 2`` in the
-    NinjaScript, the same as DeadCatBounce's, just on the other side of price."""
+    """Ticks below the signal bar's low for the stop. ``TickSize * 2`` in the NinjaScript."""
 
     ratchet_lag: int = 1
-    """Which bar the trailing stop references at each bar close.
+    """``PullBackAndGo.cs`` ratchets to ``Low[1]``, unlike DeadCatBounce's lag-0 ``High[0]``.
 
-    ``PullBackAndGo.cs`` ratchets to ``Low[1]`` -- the bar *before* the just-closed one,
-    lag 1 -- unlike DeadCatBounce's default lag-0 ``High[0]``. Confirmed against the trade
-    list: lag 1 leaves 120 disagreeing legs of 1,664 where lags 0, 2 and 3 leave ~1,100."""
+    Evidence: ``docs/nt8-fidelity.md``, "Ratchet reads the just-closed bar"."""
 
     ratchet_offset_ticks: int = 2
     """Ticks beyond the ratchet's reference low, as ``Low[1] - (TickSize * 2)``.
 
-    Was ``0`` when the C# ratcheted to a bare ``Low[1]``. Because ``ratchet_lag=1`` puts the
-    first evaluation on the signal bar itself, the offset makes the entry-bar ratchet reduce
-    to exactly the initial stop and therefore a no-op, where the bare form tightened by two
-    ticks before any bar had closed with the position open."""
+    Separate from :attr:`stop_offset_ticks` -- ``docs/nt8-fidelity.md``."""
 
     ambiguity_policy: int = 1
     """See :attr:`DeadCatParams.ambiguity_policy` -- the same Tier-1 concept, same default."""
@@ -226,12 +170,8 @@ class PullBackAndGoParams:
     """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as DeadCatBounce."""
 
     round_targets: bool = True
-    """``PullBackAndGo.cs`` never calls ``RoundToTickSize`` and **NT8 snaps the targets
-    anyway.** Ported un-rounded on the reasoning that matching the C# text beats assuming
-    symmetry with DeadCatBounce; the M15.5 trade list settled it the other way, taking the
-    reconciliation from 176 disagreeing legs to 120. The discriminating case is a half-tick
-    target nqbt placed at 16504.375 and NT8 filled at 16504.50. The snap is the platform's
-    rather than the script's -- no NinjaScript can opt out of the exchange's tick grid."""
+    """On, although ``PullBackAndGo.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
+    anyway. See ``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
 
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """L1/L2/L3 at 1R/1.5R/2R; L4 is the runner with no target, matching the NinjaScript."""
@@ -260,12 +200,7 @@ class PullBackAndGoParams:
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
-        """Contracts per leg, with the remainder on the last leg.
-
-        ``baseQuantity = orderQuantity / 4`` with integer division, then
-        ``baseQuantity + remainder`` on L4 -- identical to DeadCatBounce's split, so 10
-        contracts go 2/2/2/4 rather than 3/3/2/2.
-        """
+        """Contracts per leg, with the remainder on the last -- DeadCatBounce's split exactly."""
         n = len(self.target_r_multiples)
         base = self.order_quantity // n
         remainder = self.order_quantity % n
@@ -282,10 +217,8 @@ class PullBackAndGoParams:
 STOP_MIN_TICKS = 1.0
 """Fewest ticks a protective stop may sit from the fill, below which the entry is skipped.
 
-A stop at or through the price it protects is not a stop order, which is the same rule NT8
-applies to a stop-market *entry* -- see ``docs/nt8-fidelity.md``. It is reachable here and
-not in the two ported archetypes, because a market-on-next-open entry has no trigger price
-to anchor the stop to and the swing mode's reference can be gapped straight through.
+The stop-entry submittability rule applied to the protective stop, and reachable only for a
+market-on-next-open entry -- ``docs/nt8-fidelity.md`` §M18.
 """
 
 
@@ -293,16 +226,10 @@ to anchor the stop to and the swing mode's reference can be gapped straight thro
 class EmaCrossoverParams:
     """Rule set for the EmaCrossover archetype -- the first original, with no NinjaScript.
 
-    **A known-negative control, not an edge candidate.** MA crossover on 1-minute index
-    futures is the most-tested idea in retail futures and is reliably unprofitable at
-    realistic costs; if it reads meaningfully better than the random-entry arm the first
-    hypothesis is lookahead. See ``docs/roadmap.md`` § M18.
-
-    Three defaults that would otherwise be wrong are fixed explicitly, and each is a field
-    here rather than a constant so the alternative stays reachable: the cross uses NT8's
-    ``CrossAbove(a, b, n)`` semantics (:attr:`cross_lookback`), the entry is
-    market-on-next-open rather than a resting stop, and the stop is an ATR multiple
-    (:attr:`use_atr_stop`) because a crossover has no signal wick to anchor to.
+    **A known-negative control, not an edge candidate**: if it reads meaningfully better than
+    the random-entry arm, the first hypothesis is lookahead. Every rule it implements, and the
+    NinjaScript each would be written as: ``docs/nt8-fidelity.md`` §M18. The result it produced:
+    ``docs/roadmap.md`` §M18.
     """
 
     fast_period: int = 9
@@ -311,43 +238,32 @@ class EmaCrossoverParams:
     cross and are rejected."""
 
     cross_lookback: int = 1
-    """``n`` in ``CrossAbove(fast, slow, n)`` -- a cross within the last ``n`` bars counts.
-
-    ``1`` is the bar of the cross itself, which is the naive form. Larger values let an
-    entry missed at the session's flatten point be taken on a later bar."""
+    """``n`` in ``CrossAbove(fast, slow, n)`` -- a cross within the last ``n`` bars counts."""
 
     trade_long: bool = True
     trade_short: bool = True
-    """Which sides to take. Both on is the point of the archetype; switching one off is how
-    the two halves get measured separately."""
+    """Which sides to take. Switching one off is how the two halves get measured separately."""
 
     phase_filter: int = timeofday.ALL_PHASES
-    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`.
-
-    The archetype most likely to want it: a crossover fires every ~22 bars, so restricting
-    it to one phase still leaves thousands of trades to measure."""
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
 
     exit_on_opposite_cross: bool = True
-    """Close the position when the regime flips, at the next bar's open.
+    """Close the position at the next bar's open when the regime flips.
 
-    This is the ``EXIT_SIGNAL`` exit -- a rule-driven exit with no bracket level of its own,
-    which nothing else in the project produces. Off leaves only the stop, the targets and
-    the session close."""
+    The only producer of ``EXIT_SIGNAL``. Off leaves the stop, the targets and the session
+    close."""
 
     order_quantity: int = 4
 
     use_atr_stop: bool = True
     """ATR-multiple stop when on, structural swing stop when off.
 
-    Sweeping this is what #37 means by keeping the swing mode as an alternative axis. Note
-    ``dead_axes`` can only guard the ATR fields against it: it gates an axis on a toggle
-    being *true* somewhere, so :attr:`swing_lookback` cannot be guarded the same way and a
-    grid that never turns this off will sweep it for nothing."""
+    ``dead_axes`` can guard the ATR fields against this but not :attr:`swing_lookback` --
+    ``docs/roadmap.md`` §M17."""
 
     atr_period: int = 14
     atr_stop_multiple: float = 2.0
-    """Stop distance as a multiple of ATR at the signal bar -- the last *completed* bar, so
-    the stop cannot read the bar it is placed on."""
+    """Stop distance as a multiple of ATR at the signal bar -- the last *completed* bar."""
 
     swing_lookback: int = 3
     """Completed bars the swing stop takes its extreme from, the signal bar included."""
@@ -360,10 +276,8 @@ class EmaCrossoverParams:
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """Per-leg targets in R, ``nan`` marking a runner.
 
-    **R means something different here.** It is ``stop - entry``, which with an ATR stop is
-    volatility-scaled rather than structure-scaled, so these numbers are not comparable to
-    DeadCatBounce's at the same values. Same trap as comparing profit factor across bar
-    resolutions."""
+    **R is volatility-scaled here, not structure-scaled**, so these numbers are not comparable
+    to DeadCatBounce's at the same values -- ``docs/nt8-fidelity.md`` §M18."""
 
     bars_required_to_trade: int = 200
 
@@ -373,13 +287,11 @@ class EmaCrossoverParams:
     fill_limit_on_touch: bool = False
     block_entry_at_session_close: bool = True
     round_targets: bool = True
-    """Snap targets onto the tick grid. On because NT8 snaps them at submission whatever the
-    script does -- the M15.5 trade list settled that for PullBackAndGo."""
+    """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
     commission_per_contract: float = 0.0
     slippage_ticks: float = 0.0
-    """Adverse slippage on the entry and on both market exits -- the stop and the signal
-    exit. Never applied to a limit target."""
+    """Adverse slippage on the entry and both market exits. Never applied to a limit target."""
 
     def __post_init__(self) -> None:
         if self.order_quantity < len(self.target_r_multiples):
@@ -402,8 +314,7 @@ class EmaCrossoverParams:
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
-        """Contracts per leg, with the remainder on the last -- the same split as the two
-        ported archetypes, so a scale-out is comparable across all three."""
+        """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
         n = len(self.target_r_multiples)
         base = self.order_quantity // n
         remainder = self.order_quantity % n

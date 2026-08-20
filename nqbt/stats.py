@@ -1,20 +1,14 @@
 """Summary statistics for a trade log.
 
-Everything here is computed **per trade**, not per leg. A four-leg entry that scales out
-is one decision and one risk event; counting it as four trades would quadruple the sample
-size and make a win rate meaningless. :func:`summarise` aggregates legs by ``trade_id``
-first, so the numbers line up with how a person would count.
-
-NT8's own summary counts each named entry separately, so its "total trades" is the leg
-count. :func:`leg_summary` reproduces that view when reconciling against Strategy Analyzer.
+Everything here is computed **per trade**, not per leg: a four-leg entry that scales out is one
+decision and one risk event. NT8's own summary counts each named entry separately, so
+:func:`leg_summary` reproduces that view when reconciling against Strategy Analyzer.
 
 Two functions arrive at the same :class:`Summary`. :func:`summarise` reads a trade-log
-DataFrame and is the reference; :func:`summarise_legs` reads the simulation's raw
-:class:`~nqbt.trades.LegMatrix` and never builds one, which is what makes a sweep
-affordable -- pandas construction plus aggregation was 71% of a combination. They share
-every statistic through :func:`_summarise_arrays` and differ only in how the per-trade
-vectors are obtained, so the one thing that can drift is the grouping. That is what
-``tests/test_numpy_summary.py`` pins, exactly rather than approximately.
+DataFrame and is the reference; :func:`summarise_legs` reads the raw
+:class:`~nqbt.trades.LegMatrix` and never builds one. They share every statistic through
+:func:`_summarise_arrays` and differ only in how the per-trade vectors are obtained, so the one
+thing that can drift is the grouping -- ``docs/roadmap.md`` §"The numpy-native summary path".
 """
 
 from __future__ import annotations
@@ -47,10 +41,7 @@ TRADING_DAYS_PER_YEAR = 252
 SESSION_CLOSE = EXIT_REASONS[EXIT_SESSION_CLOSE]
 """The ``exit_reason`` string for a position closed by the clock.
 
-Read out of :data:`nqbt.trades.EXIT_REASONS` rather than spelled again here, so the label
-and the code it maps from cannot drift apart. Importing :mod:`nqbt.trades` is within the
-layering rule -- ``stats.py`` may not reach into :mod:`nqbt.sim`, but the trade schema is
-what it is defined over.
+Read out of :data:`nqbt.trades.EXIT_REASONS` so the label and its code cannot drift apart.
 """
 
 
@@ -87,24 +78,12 @@ class Summary:
     ambiguous_share: float
     """Fraction of leg exits on a bar that held both the stop and a target.
 
-    The one statistic that says how much of the result rests on an assumption the bar data
-    cannot settle. A candidate with a high share deserves a second look before Tier 2."""
+    How much of the result rests on an assumption the bar data cannot settle."""
     session_close_share: float
     """Fraction of leg exits taken by the clock rather than by the strategy's own rules.
 
-    Reported rather than buried in the trade log because a strategy taking 40% of its exits
-    at the session close **is not the strategy its rules describe**, and no aggregate here
-    says so -- the profit factor of such a run is largely a measurement of the flatten time.
-
-    Flat-before-the-close is a prop-account rule, so this is never a bug to be fixed; it is
-    a property of the archetype at that bar size. Expect it to rise sharply with resolution
-    (#30): a position opened near the close has fewer and fewer bars in which to reach a
-    target, so more of its outcomes are decided by the clock. Read it beside
-    :attr:`ambiguous_share` whenever a coarse resolution looks profitable.
-
-    Over **legs**, matching :attr:`ambiguous_share`'s denominator -- a leg exit is an exit.
-    An imported real-fill log has an ``exit_reason`` NT8 wrote (``Stop1..4``, ``Exit``),
-    none of which is this label, so it reports 0.0 rather than a wrong number."""
+    Over legs, matching :attr:`ambiguous_share`. Expect it to rise sharply with bar size, and
+    read both before believing a coarse resolution -- ``docs/roadmap.md`` §M17."""
     commission_paid: float
 
     def as_dict(self) -> dict:
@@ -118,11 +97,9 @@ class Summary:
     def empty(cls) -> Summary:
         """The zero summary, for a combination that produced no trades.
 
-        Keyed by field name and typed from the annotations rather than splatted
-        positionally: the version this replaces passed 26 arguments into a 28-field
-        dataclass and raised on every call, which went unnoticed because the only caller
-        had grown a second, divergent empty-log policy of its own. A constructor that
-        cannot be miscounted is the point, so do not "simplify" it back to a splat.
+        Keyed by field name and typed from the annotations rather than splatted positionally.
+        **Do not "simplify" it back to a splat** -- the version this replaces passed 26
+        arguments into a 28-field dataclass and raised on every call.
         """
         hints = get_type_hints(cls)
         return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})
@@ -152,8 +129,7 @@ def _ratio(numerator: float, denominator: float) -> float:
 def _risk_adjusted(daily: np.ndarray) -> tuple[float, float]:
     """Annualised Sharpe and Sortino from daily P&L.
 
-    Computed on daily totals rather than per trade: a per-trade Sharpe rewards taking many
-    tiny trades and is not comparable across combinations with different trade counts.
+    Daily totals rather than per trade: a per-trade Sharpe rewards taking many tiny trades.
     """
     if daily.size < 2:  # noqa: PLR2004
         return 0.0, 0.0
@@ -225,10 +201,8 @@ def summarise(trades: pd.DataFrame) -> Summary:
         legs=len(trades),
         commission_paid=float(trades["commission"].sum()),
         ambiguous_share=float(trades["ambiguous_bar"].mean()),
-        # Indexed, not ``.get``-ed. ``validate`` requires ``exit_reason`` of every producer,
-        # so a log without it is a wiring bug and should say so here rather than quietly
-        # report 0.0 -- which would read as "this strategy never runs into the close".
-        # That silent-branch shape is what #81 records against the Sharpe path below.
+        # Indexed, not ``.get``-ed: a log without ``exit_reason`` is a wiring bug, and
+        # reporting 0.0 would read as "this strategy never runs into the close" (#81).
         session_close_share=float((trades["exit_reason"] == SESSION_CLOSE).mean()),
     )
 
@@ -258,13 +232,9 @@ def _summarise_arrays(  # noqa: PLR0913 - one argument per input vector; a bag w
 ) -> Summary:
     """Every statistic, from per-trade vectors and the leg-level quantities.
 
-    The single definition both summary paths reach. Splitting it out is what reduces the
-    question "do the two agree?" to "do they group the legs the same way?" -- everything
-    after the grouping is literally the same arithmetic on the same arrays.
-
-    ``pnl``, ``bars_held``, ``mae`` and ``mfe`` are one element per **trade**; ``daily`` is
-    one per calendar day; ``r`` is one per **leg**, with the non-finite values already
-    dropped.
+    The single definition both summary paths reach -- **do not re-inline it into either
+    caller**. ``pnl``, ``bars_held``, ``mae`` and ``mfe`` are one element per **trade**;
+    ``daily`` is one per calendar day; ``r`` is one per **leg**, non-finite values dropped.
     """
     wins, losses = pnl > 0, pnl < 0
     gross_profit = float(pnl[wins].sum())
@@ -326,10 +296,8 @@ def _run_starts(keys: np.ndarray) -> np.ndarray:
 def _grouped_sum(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
     """Kahan-compensated sum per group -- which is what pandas' ``groupby`` does.
 
-    The compensation is not decoration. Measured over 50,000 four-element groups of random
-    doubles, a plain running sum disagrees with pandas in the last bit on 21% of them and
-    ``np.add.reduceat`` on 35% -- and #33 requires the two summary paths to agree
-    *exactly*. Nulls are skipped for the same reason: ``groupby.sum`` defaults to
+    The compensation is load-bearing, not decoration -- ``docs/roadmap.md`` §"The numpy-native
+    summary path". Nulls are skipped for the same reason: ``groupby.sum`` defaults to
     ``skipna=True``.
     """
     out = np.empty(starts.size - 1, np.float64)
@@ -364,11 +332,8 @@ def _grouped_max(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
 def _ordered_starts(keys: np.ndarray, what: str) -> np.ndarray:
     """Group boundaries, refusing keys that are not already in ascending order.
 
-    ``groupby`` returns groups sorted by key whatever order the rows arrived in, so the
-    boundary scan only reproduces it for keys that are already sorted. The simulation
-    writes every leg of a trade before the next trade can open -- it cannot be in two
-    positions at once -- so this holds by construction and the check is a guard against a
-    future producer, not a branch anyone takes.
+    Holds by construction for the simulation's output; the check guards a future producer --
+    ``docs/roadmap.md`` §"The numpy-native summary path".
     """
     if keys.size > 1 and not bool(np.all(keys[1:] >= keys[:-1])):
         msg = (
@@ -382,14 +347,9 @@ def _ordered_starts(keys: np.ndarray, what: str) -> np.ndarray:
 def summarise_legs(legs: LegMatrix, day_codes: np.ndarray | None = None) -> Summary:
     """Summarise the raw leg matrix, giving exactly what :func:`summarise` gives.
 
-    Skips the DataFrame entirely, which is the point: building and aggregating one was 71%
-    of a sweep combination against the jitted simulation's 23%. Feed it
-    :attr:`nqbt.context.Dataset.day_codes` so the Sharpe and Sortino denominators are days
-    rather than trades; without it they are computed per trade, matching what
-    :func:`summarise` does for a log with no times.
-
-    :func:`summarise` remains the reference. This must agree with it exactly on every
-    field, and ``tests/test_numpy_summary.py`` is what says so.
+    Feed it :attr:`nqbt.context.Dataset.day_codes` so the Sharpe and Sortino denominators are
+    days rather than trades. :func:`summarise` remains the reference, and
+    ``tests/test_numpy_summary.py`` is what says the two agree.
     """
     matrix, count = legs
     if count == 0:
@@ -425,22 +385,17 @@ def summarise_legs(legs: LegMatrix, day_codes: np.ndarray | None = None) -> Summ
 TRADE_PNL_STATISTICS = ("profit_factor", "net_pnl", "expectancy", "win_rate")
 """Statistics that depend on nothing but the per-trade P&L vector.
 
-Which makes them the only ones a resampling test may permute: shuffling trades between
-groups destroys entry and exit times, so anything time-dependent -- Sharpe, Sortino, max
-drawdown, consecutive losses -- would be computed over an ordering that never happened.
+Which makes them the only ones a resampling test may permute -- ``docs/roadmap.md`` §M14.
 """
 
 
 def trade_statistic(pnl: np.ndarray, name: str) -> float:
     """One :data:`TRADE_PNL_STATISTICS` value straight from a per-trade P&L vector.
 
-    Exists so a resampling test can evaluate thousands of regroupings without paying for
-    :func:`summarise` each time -- it is roughly two orders of magnitude cheaper.
-
-    **It is not a second definition.** The division goes through the same ``_ratio``, and
-    ``tests/test_dispersion.py`` asserts this returns exactly what :func:`summarise` does on
-    real logs, for every name. :func:`summarise` remains the reference; if the two ever
-    disagree, this one is wrong. Feed it :func:`per_trade` output, never raw legs.
+    Roughly two orders of magnitude cheaper than :func:`summarise`, which is what lets a
+    resampling test evaluate thousands of regroupings. **Not a second definition**: the
+    division goes through the same ``_ratio``, and ``tests/test_dispersion.py`` asserts exact
+    agreement on real logs. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
         msg = (
@@ -462,8 +417,7 @@ def trade_statistic(pnl: np.ndarray, name: str) -> float:
 def leg_summary(trades: pd.DataFrame) -> dict:
     """NT8's view: every named entry counted as its own trade.
 
-    Only for reconciling against Strategy Analyzer, whose "Total # of trades" is the leg
-    count rather than the number of decisions.
+    Only for reconciling against Strategy Analyzer, whose "Total # of trades" is the leg count.
     """
     pnl = trades["net_pnl"]
     wins, losses = pnl > 0, pnl < 0

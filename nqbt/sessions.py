@@ -1,23 +1,16 @@
 """CME session calendar and UTC -> US/Eastern conversion.
 
-NT8's exported timestamps are **end-of-bar and in UTC**. Everything downstream reasons in
-US/Eastern, because that is what the session template is defined in and what a trader
-reads off a chart.
+NT8's exported timestamps are **end-of-bar and in UTC**; everything downstream reasons in
+US/Eastern, which is what the session template is defined in. The CME US Index Futures ETH
+session runs 18:00 ET to 17:00 ET the following day with a 17:00-18:00 maintenance break, and
+is labelled by the date it *ends* on -- NT8's trading-day convention.
 
-The CME US Index Futures ETH session runs 18:00 ET to 17:00 ET the following day, with a
-17:00-18:00 maintenance break, Sunday evening through Friday afternoon. A session is
-labelled by the date it *ends* on -- NT8's trading-day convention -- so the session opening
-Sunday 18:00 is Monday's session.
+**No session ever spans a DST transition**, because US transitions fall at 02:00 ET on a
+Sunday and the market is shut from Friday 17:00 to Sunday 18:00. So once converted to Eastern,
+naive wall-clock arithmetic within a session is exact.
 
-One consequence worth stating because it makes the code simpler than it looks: **no session
-ever spans a DST transition.** US transitions happen at 02:00 ET on a Sunday, and the market
-is closed from Friday 17:00 to Sunday 18:00. So once timestamps are converted to Eastern,
-naive wall-clock arithmetic within a session is exact and needs no offset bookkeeping.
-
-Exported files also contain stray prints outside session hours -- isolated bars with volume
-1 on a Saturday, for instance. NT8 building bars against an ETH template would never form
-these at all, so :func:`classify` marks them out of session and the continuous-series
-builder drops them.
+Exported files contain stray prints outside session hours, which NT8 building bars against an
+ETH template would never form; :func:`classify` marks them out of session.
 """
 
 from __future__ import annotations
@@ -156,14 +149,13 @@ def force_flat_mask(
 ) -> np.ndarray:
     """Bars at or past the exit-on-session-close cutoff.
 
-    Mirrors NT8's ``IsExitOnSessionCloseStrategy`` with ``ExitOnSessionCloseSeconds``:
-    a bar triggers the flatten when its end timestamp reaches ``session_end - seconds``.
-    With 1-minute bars and the default 30s that is the bar stamped 17:00:00 -- the last
-    bar of the session -- because the preceding bar ends at 16:59:00, still short of the
-    16:59:30 cutoff.
+    Mirrors NT8's ``IsExitOnSessionCloseStrategy`` with ``ExitOnSessionCloseSeconds``: a bar
+    triggers the flatten when its end timestamp reaches ``session_end - seconds``. A mask
+    rather than one index per session, so the simulation asks only "must I be flat here?".
 
-    Returns a mask rather than a single index per session so the simulation can simply
-    check "must I be flat on this bar?" without any grouping logic.
+    The cutoff comes from the template's fixed close, not the session's observed last bar, so
+    a holiday early close is probably not covered -- ``docs/roadmap.md``, "Flat before the
+    session close".
     """
     naive = info.eastern.tz_localize(None).to_numpy()
     session_end = info.trading_day.astype("datetime64[s]") + np.timedelta64(template.close_seconds, "s")

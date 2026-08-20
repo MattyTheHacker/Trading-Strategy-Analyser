@@ -1,20 +1,15 @@
 """Market context: bars plus every derived condition, computed once and shared.
 
-This is the half of a backtest that has nothing to do with a strategy. The same
-:class:`Dataset` serves every parameter combination of a sweep, every archetype, and --
-once the review layer exists -- the annotation of real trades against the market they
-happened in. Nothing here knows what a trade is; :mod:`nqbt.trades` owns that, and the
-two never import each other.
+The half of a backtest that has nothing to do with a strategy. One :class:`Dataset` serves
+every parameter combination of a sweep and every archetype, so everything expensive lives here
+and a combination costs only a boolean AND plus one pass of the simulation.
 
-Everything expensive lives here -- candlestick geometry, session VWAP, the moving-average
-grids -- so a combination costs only a boolean AND plus one pass of the simulation.
+**What gets computed is declared, not assumed**: a :class:`ContextSpec` says which series an
+archetype's signal will read and :func:`prepare` builds exactly that -- ``docs/roadmap.md``
+§M17.
 
-**What gets computed is declared, not assumed.** A :class:`ContextSpec` says which moving
-averages and which series an archetype's signal will read, and :func:`prepare` builds
-exactly that. Computing everything unconditionally was fine for one archetype and stops
-being fine at four: with M16's Bollinger and Keltner grids and M10's regime, volume and
-time-of-day labels, every sweep would pay for every archetype's needs, and the parallel
-path memmaps the result to each worker.
+Nothing here knows what a trade is; :mod:`nqbt.trades` owns that, and the two never import
+each other.
 """
 
 from __future__ import annotations
@@ -39,17 +34,12 @@ class ContextError(KeyError):
 class ContextSpec:
     """Everything a strategy's signal will read out of a :class:`Dataset`.
 
-    Declared up front rather than discovered mid-loop, because the moving-average grids
-    refuse a period they were not built for rather than returning a wrong row -- so the
-    whole sweep's needs have to be known before the first combination runs.
+    Declared up front rather than discovered mid-loop, because the grids refuse a period they
+    were not built for rather than returning a wrong row. ``__or__`` is what lets several
+    archetypes at one axis point share a single dataset.
 
     Lives here rather than beside the archetype registry because it describes a
     :class:`Dataset`, and ``context.py`` must not import from :mod:`nqbt.sim`.
-
-    The union operator is what lets several archetypes share **one** dataset: build the
-    union of their specs, prepare once, and each finds what it asked for. Without it every
-    archetype needs its own ``Dataset`` and the parallel path's memmap sharing stops
-    paying for itself.
     """
 
     ema_periods: tuple[int, ...] = ()
@@ -57,18 +47,11 @@ class ContextSpec:
     atr_periods: tuple[int, ...] = ()
     needs_vwap: bool = False
     needs_time_of_day: bool = False
-    """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`).
-
-    Requested rather than always built for the same reason VWAP is: only a combination that
-    actually restricts its entries to some phases reads it, and three arrays over 1.65M bars
-    is memory the parallel path memmaps to every worker."""
+    """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
 
     needs_ma_values: bool = False
-    """Keep the raw moving-average values, not just the boolean gates.
-
-    Eight bytes per element against one, so this is off unless something reads the numbers
-    themselves: the MA trailing stop, the audit trail, and any archetype whose rule compares
-    two averages to each other rather than the close to one of them."""
+    """Keep the raw moving-average values, not just the boolean gates -- eight bytes per
+    element against one, so off unless something reads the numbers themselves."""
 
     def __or__(self, other: ContextSpec) -> ContextSpec:
         return ContextSpec(
@@ -81,12 +64,7 @@ class ContextSpec:
         )
 
     def periods_by_kind(self) -> dict[str, tuple[int, ...]]:
-        """The grids to build, keyed by kind.
-
-        Keying by ``(kind, period)`` rather than period alone is what makes "what if the
-        fast filter were an EMA rather than an SMA?" expressible at all -- today the kind
-        is fixed by the field's *name*, which is the whole of #72.
-        """
+        """The grids to build, keyed by kind. Keying by ``(kind, period)`` is what #72 needs."""
         return {
             kind: periods
             for kind, periods in (("ema", self.ema_periods), ("sma", self.sma_periods))
@@ -98,11 +76,9 @@ class ContextSpec:
 class Dataset:
     """Bars plus every condition a sweep might read, computed once.
 
-    The moving-average grids and VWAP are present only if some archetype asked for them,
-    so they are reached through :meth:`ma_gate` and :meth:`vwap_gate` rather than as bare
-    attributes. Both raise :class:`ContextError` naming what was asked for and what was
-    built -- a strategy reading a series nobody requested is a wiring bug, and it should
-    say so rather than fail somewhere downstream on a ``None``.
+    Conditional series are reached through :meth:`ma_gate` and :meth:`vwap_gate` rather than as
+    bare attributes, so reading one nobody declared raises :class:`ContextError` naming the
+    spec field to set rather than returning ``None`` into a boolean AND.
     """
 
     bars: pd.DataFrame
@@ -119,18 +95,13 @@ class Dataset:
     below_vwap: np.ndarray | None = None
     above_vwap: np.ndarray | None = None
     time_of_day: timeofday.TimeOfDay | None = None
-    """Session phase and bar of session, or ``None`` when nothing asked for them.
-
-    One object rather than three fields because the three arrays come out of a single pass
-    over the index and are never wanted apart -- see :class:`nqbt.timeofday.TimeOfDay`."""
+    """Session phase and bar of session, or ``None`` when nothing asked for them."""
 
     day_codes: np.ndarray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
 
-    Days since the epoch in the index's own timezone, which is what makes daily P&L
-    groupable without touching pandas. Precomputed like everything else here because the
-    conversion costs about as much as a whole combination of the simulation, and the numpy
-    summary path would otherwise pay it once per combination.
+    In the index's own timezone, not UTC -- ``docs/roadmap.md`` §"The numpy-native summary
+    path".
     """
 
     def __len__(self) -> int:
@@ -155,9 +126,7 @@ class Dataset:
     def ma_gate(self, kind: str, period: int, *, above: bool) -> np.ndarray:
         """Per-bar boolean: is the close above (or below) ``kind(period)``?
 
-        Not ``~below``: each NinjaScript treats its own equality boundary as a pass
-        independently, so the two overlap exactly at ``close == ma`` rather than
-        partitioning it. See ``docs/nt8-fidelity.md``.
+        Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
         """
         g = self.grid(kind)
         return g.above_for(period) if above else g.below_for(period)
@@ -167,11 +136,7 @@ class Dataset:
         return self.grid(kind).values_for(period)
 
     def atr_values(self, period: int) -> np.ndarray:
-        """NT8-seeded ATR for one period, or a pointed error.
-
-        Keyed by period alone rather than by ``(kind, period)`` as the moving averages are:
-        there is one ATR, and its NT8 seeding is the whole of M16's finding for it.
-        """
+        """NT8-seeded ATR for one period, or a pointed error."""
         if period not in self.atrs:
             msg = (
                 f"no ATR({period}) in this dataset; prepare() was asked for "
@@ -218,9 +183,8 @@ class Dataset:
     def phase_gate(self, mask: int) -> np.ndarray:
         """Per-bar boolean: does this bar's session phase pass ``mask``?
 
-        Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` rather than ANDing
-        the all-but-strays array it would return -- see :meth:`nqbt.timeofday.TimeOfDay.gate`
-        for why the no-op has to be *no call*.
+        Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` -- see
+        :meth:`nqbt.timeofday.TimeOfDay.gate`.
         """
         return self._time_of_day().gate(mask)
 
@@ -237,7 +201,7 @@ class Dataset:
         """Bytes held by the derived arrays -- what a parallel worker is handed.
 
         Excludes ``bars``, which :meth:`slim` drops before the dataset crosses a process
-        boundary. This is the number ``ContextSpec`` exists to keep down.
+        boundary.
         """
         total = sum(a.nbytes for a in (self.open, self.high, self.low, self.close))
         total += self.force_flat.nbytes
@@ -253,12 +217,8 @@ class Dataset:
     def slim(self) -> Dataset:
         """A copy carrying only what the simulation reads, for crossing a process boundary.
 
-        ``bars`` is the expensive part -- seven columns over 1.65M rows -- and everything
-        the sweep needs from it was already lifted into the plain arrays beside it. The
-        one remaining use is the index, to stamp trade times, so an index-only frame is
-        enough. Dropping the columns is what makes a parallel worker cheap to start.
-
-        The arrays are shared, not copied: this is a view for shipping, not a deep copy.
+        Everything the sweep needs from ``bars`` was already lifted into the arrays beside it
+        except the index, so an index-only frame is enough. The arrays are shared, not copied.
         """
         return replace(self, bars=self.bars.iloc[:, :0])
 
@@ -266,11 +226,8 @@ class Dataset:
 def day_codes(index: pd.Index) -> np.ndarray | None:
     """Each bar's calendar day as an ``int32``, in the index's own timezone.
 
-    ``None`` when the index is not datetime-like, which only a synthetic frame is.
-
-    In the index's timezone rather than UTC because that is what ``DatetimeIndex.date``
-    gives, and the pandas summary path groups daily P&L by exactly that. On a
-    ``Europe/London`` index the two differ for half the year.
+    ``None`` when the index is not datetime-like. Local rather than UTC because that is what
+    ``DatetimeIndex.date`` gives, which the pandas summary path groups by.
     """
     if not isinstance(index, pd.DatetimeIndex):
         return None
@@ -279,12 +236,7 @@ def day_codes(index: pd.Index) -> np.ndarray | None:
 
 
 DEFAULT_SPEC = ContextSpec(ema_periods=(21,), sma_periods=(60, 175), needs_vwap=True)
-"""What :func:`prepare` builds when nothing says otherwise.
-
-Reproduces the pre-#27 behaviour, when every series was computed unconditionally, so a
-caller that has not been taught to declare its needs gets what it always got rather than a
-dataset with holes in it.
-"""
+"""What :func:`prepare` builds when nothing says otherwise: the pre-#27 unconditional set."""
 
 
 def prepare(
@@ -297,14 +249,10 @@ def prepare(
 ) -> Dataset:
     """Precompute exactly the conditions ``spec`` declares.
 
-    The moving-average grids refuse a period they were not built for rather than returning
-    a wrong row, so ``spec`` must cover every value the sweep will ask for.
-    :meth:`nqbt.sweep.Grid.required_context` derives it from the grid, which is the only
-    way to be sure it does.
-
-    ``bar_minutes`` sizes the bar-of-session index and is inferred from the index when not
-    given. Pass it wherever the resolution is already known -- a resolution sweep always
-    knows it, and inference on a frame with a long hole in it is a guess.
+    ``spec`` must cover every value the sweep will ask for;
+    :meth:`nqbt.sweep.Grid.required_context` derives it from the grid, which is the only way to
+    be sure it does. ``bar_minutes`` sizes the bar-of-session index and is inferred from the
+    index when not given -- pass it wherever the resolution is already known.
     """
     close = bars["close"].to_numpy(np.float64)
     high = bars["high"].to_numpy(np.float64)

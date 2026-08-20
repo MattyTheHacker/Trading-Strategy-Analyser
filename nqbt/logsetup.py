@@ -18,11 +18,8 @@ def _below_warning(record: logging.LogRecord) -> bool:
 def configure(*names: str, level: int = logging.INFO) -> None:
     """Route the ``nqbt`` package and ``names`` to stdout, and errors to stderr.
 
-    Pass ``__name__``: a module run as a script logs to ``__main__``, not to its import
-    path, so an entry point that only enabled ``nqbt`` would go silent under
-    ``python -m``. The root logger stays at WARNING so an INFO-chatty dependency cannot
-    bleed into the output. Calling this again replaces the handlers rather than doubling
-    them.
+    Pass ``__name__``: a module run as a script logs to ``__main__``, not to its import path.
+    Calling this again replaces the handlers rather than doubling them.
     """
     out = logging.StreamHandler(sys.stdout)
     out.addFilter(_below_warning)

@@ -1,22 +1,13 @@
-"""The durable union of every export source.
+"""The durable union of every export source, and the only thing ingestion reads.
 
-NinjaTrader's exports are **moving windows, not snapshots**. It serves each contract for a
-limited period and drops the tail once the contract expires, so a folder of exports loses
-history over time rather than accumulating it. Two sources make this concrete: the manual
-Tools -> Historical Data export holds each contract's final weeks, which the AddOn cannot
-reach, while the AddOn holds three to six months of earlier history the manual export never
-had, plus sessions the manual export dropped outright.
+Exports are **moving windows, not snapshots**, and neither source is a superset of the other,
+so the archive only ever grows and each source is merged into it -- ``docs/nt8-fidelity.md``,
+"Contract data".
 
-Neither is a superset. So ingestion reads an archive that only ever grows, and each source
-is merged into it. Without this, running the AddOn a few months from now would faithfully
-overwrite every expired contract with the truncated window the server still offers --
-:mod:`nqbt.ingest` mirrors its input exactly, which is correct for a snapshot and quietly
-destructive for a window.
-
-The merge is textual: lines are keyed by their timestamp field and otherwise passed
-through byte for byte. Parsing prices into floats and formatting them back is a needless
-opportunity to change a value, and ``yyyyMMdd HHmmss`` sorts chronologically as ASCII, so
-nothing here needs to understand a date.
+The merge is **textual**: lines are keyed by their timestamp field and otherwise passed through
+byte for byte. Parsing prices into floats and formatting them back is a needless opportunity to
+change a value, and ``yyyyMMdd HHmmss`` sorts chronologically as ASCII, so nothing here needs
+to understand a date.
 """
 
 from __future__ import annotations
@@ -57,9 +48,8 @@ class MergeResult:
 def _read(path: Path) -> dict[bytes, bytes]:
     """Map each bar's timestamp field to its whole line.
 
-    Malformed lines are dropped rather than raising: an export read while it is being
-    written ends mid-line, and that half-line is not worth failing a merge over. Bar
-    validation is :func:`nqbt.ingest.parse_export`'s job, downstream of here.
+    Malformed lines are dropped rather than raising: an export read while it is being written
+    ends mid-line. Bar validation is :func:`nqbt.ingest.parse_export`'s job, downstream.
     """
     rows: dict[bytes, bytes] = {}
     for raw in path.read_bytes().split(b"\n"):
@@ -82,20 +72,16 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
         rows = _read(path)
         if not rows:
             continue
-        # The newest bar in a file may have been caught mid-formation. One real example:
-        # a manual export's last bar showed 294 contracts of an eventual 890, with a high
-        # and close that had not happened yet. Such a bar may fill a gap, but it must
-        # never overwrite something already recorded.
+        # The newest bar in a file may have been caught mid-formation, so it may fill a
+        # gap but must never overwrite something already recorded.
         newest = max(rows)
         for key, line in rows.items():
             if key == newest and key in merged:
                 continue
             merged[key] = line
 
-    # Counted against the archive as it was, not as each source touched it. Sources
-    # routinely disagree -- a manual export and the AddOn hold different volumes for the
-    # same bar -- so an earlier source overwrites and a later one overwrites back. Tallying
-    # those intermediate writes reports churn on a merge that changed nothing.
+    # Counted against the archive as it was, not as each source touched it: sources
+    # routinely disagree, so tallying intermediate writes reports churn on a no-op merge.
     added = sum(1 for key in merged if key not in original)
     revised = sum(1 for key, line in merged.items() if key in original and original[key] != line)
 
@@ -119,9 +105,8 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
 def _write(path: Path, rows: dict[bytes, bytes]) -> None:
     """Write sorted, atomically.
 
-    Sorting the keys is what makes an unchanged merge produce byte-identical output, so
-    ingestion's content hash reports "up-to-date" instead of reparsing three million bars
-    every run. Timestamps sort chronologically as ASCII, so no dates are parsed.
+    Sorting is what makes an unchanged merge produce byte-identical output, so ingestion's
+    content hash reports "up-to-date" instead of reparsing millions of bars every run.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     body = b"\n".join(rows[key] for key in sorted(rows))
@@ -154,9 +139,8 @@ def build_archive(
 ) -> list[MergeResult]:
     """Merge every source folder into the archive and report what changed.
 
-    A contract already in the archive but absent from every source is left alone -- that
-    is the case this whole module exists for, since it is exactly what an expired contract
-    looks like once the provider stops serving it.
+    A contract in the archive but absent from every source is left alone -- which is what an
+    expired contract looks like once the provider stops serving it.
     """
     results = []
     for name, source_paths in sorted(_contracts(source_dirs, root).items()):
