@@ -58,6 +58,22 @@ both candle filters on, VWAP off, `OrderQuantity` 4, zero commission, zero slipp
 The residual 5 legs are all ambiguous bars resolving the other way — the same class as
 DeadCatBounce's single leg, at a comparable rate. Nothing new is inferred from them.
 
+**`PullBackAndGoParams`' defaults reproduce that configuration, not the NinjaScript's,
+because the NinjaScript does not have any.** `PullBackAndGo.cs` sets only `EmaPeriod`,
+`SlowSMAPeriod` and `FastSMAPeriod` in `SetDefaults`; `OrderQuantity` and all six toggles are
+left uninitialised, so in Strategy Analyzer they present as `0` and `false` until set by hand —
+and an `OrderQuantity` of 0 places four orders for nothing and trades nothing at all. The
+reconciled configuration is the only combination with a trade list behind it, so it is what the
+defaults reproduce. `use_vwap` stays off within it deliberately: nothing has checked nqbt's
+VWAP against NT8's `OrderFlowVWAP`, so switching it on would mix an unvalidated indicator into
+an otherwise validated archetype.
+
+`PullBackAndGo.cs` also has no `TPMultiplier` and no `MaxRiskPerTrade`, so there is no target
+scaling and no risk cap to reject a signal with, and its trigger is a bare `High[0]` with no
+entry offset — which is what exposes it to the stop-entry submittability rule that
+DeadCatBounce's 2-tick cap makes unreachable. Matching the C# text means not inventing
+configurability it does not have.
+
 **nqbt takes no trade NT8 did not.** The 2 NT8-only trades are at-market buy stops NT8
 accepted and filled at the expected prices, against 86 otherwise identical signals it
 declined — see "A stop entry must sit beyond the market". They sit inside the declined
@@ -274,6 +290,18 @@ The stop set at the close of bar `i` is live during bar `i+1`. `ratchet_lag` exp
 older `High[1]` variant, which holds trades roughly a third longer (2.12 vs 1.65 average
 bars) and behaves like a genuinely different strategy.
 
+**`PullBackAndGo.cs` ratchets to `Low[1]`, not `Low[0]`** — lag 1, the bar *before* the
+just-closed one. The trade list settles it: lag 1 leaves 120 disagreeing legs of 1,664, where
+lags 0, 2 and 3 each leave around 1,100.
+
+**The ratchet's offset is separate from the entry stop's**, which is why
+`ratchet_offset_ticks` exists beside `stop_offset_ticks`. DeadCatBounce ratchets to
+`High[0] + TickSize * 2`, reapplying its entry offset; PullBackAndGo ratchets to
+`Low[1] - TickSize * 2`. Because `ratchet_lag = 1` puts the first evaluation on the *signal*
+bar itself, the offset makes that first ratchet reduce to exactly the initial stop and
+therefore a no-op — a bare `Low[1]` instead tightened the stop by two ticks before any bar had
+closed with the position open.
+
 ### Targets snap to the tick grid — even when the C# does not ask for it
 
 `RoundToTickSize` in `DeadCatBounce.cs`. A 1.5× multiple of an odd tick count otherwise
@@ -288,6 +316,35 @@ target that nqbt placed at 16504.375 and NT8 filled at 16504.50.
 So the snap is the platform's, not the script's, and `round_targets` should be true for any
 archetype — it is a property of what an exchange will accept, which no NinjaScript can opt
 out of.
+
+### The entry filters' equality boundaries, which do not mirror each other
+
+Every filter is ported as the **negation of the C#'s rejection**, not as the positive form
+someone would write from the description. The two differ exactly at equality, and the
+boundaries are not symmetric between the two archetypes.
+
+| filter | the C# rejects on | so equality | in `conditions.py` |
+|---|---|---|---|
+| downtrend gate | `Close[0] > ma[0]` | **passes** | `below_series` = `~(close > ma)` |
+| uptrend gate | `Close[0] < ma[0]` | **passes** | `above_series` = `~(close < ma)` |
+| previous bar green | `Close[1] < Open[1]` | **passes** (doji is green) | `_previous_bar_green` = `>=` |
+| previous bar red | `Close[1] >= Open[1]` | **fails** (doji is not red) | `_previous_bar_red` = `<` |
+
+**`above_series` is not `~below_series`.** Each strategy's own C# chose to treat its own
+boundary as a pass, independently, so the two *overlap* at `close == ma` rather than
+partitioning it. Writing either as the positive comparison would silently drop those bars.
+
+**The doji boundary is the one place the two archetypes genuinely do not mirror.**
+`previous_bar_green` admits a doji-closed prior bar and `previous_bar_red` rejects one, which
+makes the pair exact complements rather than a pair overlapping at equality. `PullBackAndGo.cs`
+used to read `Close[1] > Open[1]` there, which *did* make them symmetric, and the port followed
+it; the strictening cost **103 of 760 signals on MNQ 03-24 — 13.6%**. Check the operator rather
+than assuming the mirror holds.
+
+**Both candlestick patterns require `body > 0`, so a doji never qualifies** however long its
+wick — with a zero body the "wick at least twice the body" test is trivially satisfied.
+`_inverted_hammer` (`DeadCatBounce.cs`) wants the upper wick ≥ 2× body and the lower wick ≤
+body; `_hammer` (`PullBackAndGo.cs`) is the same with the wick roles swapped.
 
 ### Max risk is in ticks, not dollars
 
@@ -489,6 +546,14 @@ The boundaries themselves (03:00 London, 09:30 cash open, 16:00 close) are marke
 Eastern time, not readings out of NT8, and are recorded in `docs/roadmap.md` § M10.4.
 
 ## Contract data
+
+**Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a limited
+period and drops the tail once it expires, so a folder of exports silently loses history over
+time. `data/archive/` accumulates instead and is the only thing ingestion reads, which is what
+makes "keep the current history and use the AddOn from here" a workable plan rather than a slow
+erasure. `SOURCE_DIRS` merges the manual export first and the AddOn second, because the AddOn
+reads the provider's settled archive while a manual export is live tick aggregation plus
+whatever NinjaTrader happened to hold locally.
 
 **A manual Tools → Historical Data export returns ~95 days per contract**, regardless of
 the range requested, ending ~4 days before expiry. On that data alone the volume crossover

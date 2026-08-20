@@ -40,21 +40,14 @@ ADDON_DIR = DATA_DIR / "addon"
 ARCHIVE_DIR = DATA_DIR / "archive"
 """The durable union of every source, and the only thing ingestion reads.
 
-Exports are **moving windows, not snapshots**: NinjaTrader serves each contract for a
-limited period and drops the tail once it expires, so a folder of exports silently loses
-history over time. The archive accumulates instead, which is what makes "keep the current
-history and use the AddOn from here" a workable plan rather than a slow erasure."""
+Exports are moving windows rather than snapshots -- ``docs/nt8-fidelity.md``, "Contract data"."""
 
 SOURCE_DIRS = (MINUTE_DIR, ADDON_DIR)
-"""Folders merged into the archive, in precedence order -- later wins a disagreement.
-
-The AddOn comes last because it reads the provider's settled archive, while a manual
-export is live tick aggregation plus whatever NinjaTrader happened to hold locally."""
+"""Folders merged into the archive, in precedence order -- later wins a disagreement."""
 
 TICK_DIR = DATA_DIR / "tick"
-"""Tick exports. A different format (``timestamp;last;bid;ask;volume``) and orders of
-magnitude larger, but sharing the same ``.Last.txt`` naming, so bar ingestion must never
-glob across both."""
+"""Tick exports: a different format, sharing the same ``.Last.txt`` naming, so bar ingestion
+must never glob across both."""
 
 CACHE_DIR = REPO_ROOT / "cache"
 """Parsed bars in Parquet, plus the ingestion manifest."""

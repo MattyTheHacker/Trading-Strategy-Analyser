@@ -1,43 +1,14 @@
 """EmaCrossover archetype: the first original, and a deliberate known-negative control.
 
-**There is no NinjaScript.** MA crossover on 1-minute index futures is the most-tested idea
-in retail futures and is reliably unprofitable at realistic costs, so writing the C# before
-a candidate looks worth trading would spend the scarce resource on a result already known.
-That makes this ``Tier2Status.TIER1_ONLY``, and it is what the results column is for: a
-ranking that puts this beside DeadCatBounce is comparing an assumption against a
-measurement unless the column says so.
+**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
+written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M18 names the NinjaScript each
+would become. **If it reads meaningfully better than the random-entry arm, the first
+hypothesis is lookahead**: every series read here is stamped from completed bars.
 
-**If it reads meaningfully better than the random-entry arm, the first hypothesis is a bug**
--- specifically lookahead, since a crossover is unusually easy to compute one bar early.
-Every series this reads is stamped from completed bars: the cross from bars ``<= i``, the
-ATR from the signal bar, the fill from the *next* bar's open.
-
-What it exercises that nothing else does:
-
-**The third entry mechanism.** DeadCatBounce rests a stop-market order for one bar and
-PullBackAndGo mirrors it; this enters market-on-next-open. There is no trigger price and no
-"no touch, no fill" -- the fill is ``open[i+1] + d * slippage`` and it is unconditional. The
-only thing that stops it is the flatten point, which cancels the order exactly as it cancels
-a resting one.
-
-**A signal exit.** ``EXIT_SIGNAL`` -- a rule-driven exit with no bracket level of its own.
-The regime flip is detected at the close of bar ``i`` and the market exit fills at the open
-of bar ``i+1``, which is the same next-open convention the entry uses. It takes precedence
-over the stop and the targets on that bar, because it is filled at the bar's first price and
-NT8's managed approach cancels the brackets when a position is flattened.
-
-**Both sides.** ``direction`` is per bar rather than per run, which is what M15 generalised
-the bracket engine for.
-
-**Flat between trades, not stop-and-reverse.** The classic form reverses in one order. Here
-the flip closes the position and opens the new one as two separate fills at the same open
-price, each paying its own slippage and commission and each appearing as its own trade. The
-economics are a reversal; the accounting is two trades, and any comparison against published
-crossover results has to say so.
-
-**R means something different here.** ``r_multiple`` is measured against ``stop - entry``,
-which with an ATR stop is volatility-scaled rather than structure-scaled, so a 2R target is
-not DeadCatBounce's 2R. Same trap as comparing profit factor across bar resolutions.
+It is the third entry mechanism (market-on-next-open, no trigger price), the only producer of
+``EXIT_SIGNAL``, and the first archetype to take both sides within one run. It is **flat
+between trades, not stop-and-reverse**, and its ``r_multiple`` is volatility-scaled rather than
+structure-scaled. The result it produced: ``docs/roadmap.md`` §M18.
 """
 
 from __future__ import annotations
@@ -61,8 +32,7 @@ if TYPE_CHECKING:
 NO_ATR = np.zeros(0, dtype=np.float64)
 """Stand-in for the ATR array in swing-stop mode, where the loop never indexes it.
 
-Numba needs an array of the right dtype whether or not the branch that reads it runs, and an
-empty one costs nothing -- the alternative is building an ATR the combination will not use.
+Numba needs an array of the right dtype whether or not the branch reading it runs.
 """
 
 
@@ -133,10 +103,8 @@ def simulate_crossover(
     for i in range(n):
         # ---- exits ------------------------------------------------------------------
         if in_position and pending_exit:
-            # The regime flipped at the close of bar i-1, so a market exit was submitted
-            # then and fills here at the bar's first price. run_high/run_low are left where
-            # they were: the position closed at the open, so the rest of this bar's range
-            # never applied to it.
+            # The exit was submitted at the close of bar i-1 and fills at this bar's first
+            # price, so run_high/run_low stay where they were.
             fill = open_[i] - d * slippage
             for leg in range(n_legs):
                 if leg_open[leg]:
@@ -202,8 +170,7 @@ def simulate_crossover(
 
         # ---- the entry order fills at this bar's open, unconditionally ---------------
         if not in_position and pending_bar >= 0 and pending_bar == i - 1:
-            # A bar at or past the flatten cutoff cancels the order rather than filling it,
-            # exactly as it cancels a resting stop-market entry.
+            # A bar at or past the flatten cutoff cancels the order rather than filling it.
             if not force_flat[i]:
                 d = pending_direction
                 fill = open_[i] + d * slippage
@@ -220,9 +187,8 @@ def simulate_crossover(
                     stop_offset,
                 )
                 candidate_risk = d * (fill - candidate_stop)
-                # A stop at or through the price it protects is not a stop order. Reachable
-                # here and not in the ported archetypes: this entry has no trigger to anchor
-                # the stop to, and the swing reference can be gapped straight through.
+                # A stop at or through the price it protects is not a stop order --
+                # ``docs/nt8-fidelity.md`` §M18.
                 if candidate_risk >= min_risk:
                     trade_id += 1
                     entry_price = fill
@@ -237,8 +203,7 @@ def simulate_crossover(
                         if np.isnan(target_r[leg]):
                             leg_target[leg] = np.nan
                         else:
-                            # Measured from the fill, not from a trigger: there is no
-                            # trigger price, so the fill is the only reference there is.
+                            # Measured from the fill: there is no trigger price.
                             raw = fill + d * risk * target_r[leg] * tp_multiplier
                             leg_target[leg] = bracket.round_to_tick(raw, tick_size) if round_targets else raw
                     written, in_position = bracket.resolve_brackets(
@@ -282,15 +247,12 @@ def simulate_crossover(
             and not (block_entry_at_session_close and force_flat[i])
             and (not in_position or pending_exit)
         ):
-            # `pending_exit` is what makes the archetype bidirectional. Without it the flip
-            # that closes a long would have to be followed by a second cross the same way
-            # before anything went short, and with the default one-bar lookback there never
-            # is one -- crosses alternate, so the strategy would only ever go long.
+            # `pending_exit` is what makes the archetype bidirectional: without it the flip
+            # closing a long could never itself open a short, and crosses alternate.
             pending_bar = i
             pending_direction = direction_at[i]
 
-    # Anything still open when the series runs out is liquidated at the last bar rather
-    # than dropped, exactly as the stop-market loop does.
+    # Anything still open when the series runs out is liquidated at the last bar.
     if in_position:
         last = n - 1
         exit_fill = close[last] - d * slippage
@@ -338,13 +300,10 @@ def _protective_stop(
 ) -> float:
     """Where the protective stop goes, in whichever of the two modes is selected.
 
-    Both read the **signal** bar and the bars before it, never the bar the fill happens on.
-
-    The ATR mode hangs the stop off the fill, so planned risk is exactly ``atr * multiple``.
-    The swing mode anchors it to the adverse extreme of the last ``swing_lookback``
-    completed bars plus the usual two-tick offset, which is the closest thing a crossover
-    has to DeadCatBounce's structural stop -- a crossover has no signal wick, which is the
-    whole reason #37 exists.
+    Both read the **signal** bar and the bars before it, never the bar the fill happens on. The
+    ATR mode hangs the stop off the fill, so planned risk is exactly ``atr * multiple``; the
+    swing mode uses the adverse extreme of the last ``swing_lookback`` completed bars plus the
+    usual offset.
     """
     if use_atr_stop:
         return fill - direction * atr[signal_bar] * atr_stop_multiple
@@ -362,13 +321,9 @@ def _protective_stop(
 def regime_direction(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
     """Which side the prevailing regime is on: ``LONG`` where ``fast > slow``, else ``SHORT``.
 
-    The boundary matches :func:`nqbt.conditions.cross_above`'s -- strictly greater is long,
-    so a bar where the two are equal reads short and a cross above it still counts.
-
-    Defined on **every** bar rather than only on cross bars, which is what lets the
-    random-entry control arm drop a signal on an arbitrary bar and still know which side it
-    would have been taken on. It lives here rather than in :mod:`nqbt.conditions` because
-    ``LONG``/``SHORT`` are trade concepts and the market-context layer does not import them.
+    The boundary matches :func:`nqbt.conditions.cross_above`'s. Defined on **every** bar rather
+    than only on cross bars, so the random-entry arm can drop a signal anywhere and still know
+    which side it would have been taken on.
     """
     return np.where(fast > slow, trades.LONG, trades.SHORT).astype(np.float64)
 
@@ -376,9 +331,7 @@ def regime_direction(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
 def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[np.ndarray, np.ndarray]:
     """The fast and slow EMA values this combination compares.
 
-    Read out of the shared grid rather than recomputed. The grid is built with
-    ``needs_ma_values`` because this archetype compares two averages to each other rather
-    than the close to one of them, which no boolean gate can answer.
+    Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
     """
     return (
         data.ma_values("ema", params.fast_period),
@@ -389,10 +342,9 @@ def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[np.nd
 def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> np.ndarray:
     """Bars whose close schedules an entry for the next bar's open.
 
-    Each side's cross is ANDed with the prevailing regime, which matters only when
-    ``cross_lookback > 1``: the window stays true for ``n`` bars after the cross, and the
-    averages can cross back inside it. Without the AND a stale cross-above would enter long
-    on a bar the fast average had already fallen back below the slow one.
+    Each side's cross is ANDed with the prevailing regime, which matters once
+    ``cross_lookback > 1``: the window stays true for ``n`` bars and the averages can cross
+    back inside it.
     """
     fast, slow = crossover_averages(data, params)
     direction = regime_direction(fast, slow)
@@ -415,10 +367,8 @@ def crossover_legs(
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 
-    ``signal`` overrides the computed entry signal for the random-entry control arm; the
-    regime series is *not* overridden, so a drawn bar is taken on whichever side the
-    averages were on at that bar. That is what lets the null match this archetype on entry
-    count and time of session without inventing a direction rule of its own.
+    ``signal`` overrides the computed entry signal for the random-entry control arm; the regime
+    series is *not* overridden, so a drawn bar is taken on whichever side the averages were on.
     """
     fast, slow = crossover_averages(data, params)
     direction_at = regime_direction(fast, slow)

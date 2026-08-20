@@ -466,6 +466,54 @@ how much trouble each has actually caused in this codebase, not by general princ
 
 One paragraph of reasoning each. Scope and acceptance criteria are in the linked issue.
 
+### ~~M9~~ — the trade-log schema: done
+
+`nqbt/trades.py` is the contract between every producer of a trade log — the jitted
+simulation today, an importer for real NT8 executions under M11 — so that a statistic computed
+over one means the same thing computed over the other. It knows nothing about strategies, bars
+or indicators, and a test enforces that by import analysis rather than by habit.
+
+**One row per leg exit, not per trade.** A four-leg entry that scales out at three targets and
+trails the runner produces four rows sharing a `trade_id`, which lets `stats` aggregate either
+way. NT8's "total trades" is the leg count, so `stats.leg_summary` is what a reconciliation
+compares against.
+
+**`NULLABLE` states which columns a producer may legitimately leave empty, and why each one**,
+so the nullability is a documented property rather than something discovered by a `NaN`
+reaching a chart:
+
+- `entry_bar` / `exit_bar` / `bars_held` — positional indices into a specific bar series. A
+  real fill has a timestamp but no bar number until one is matched to it.
+- `initial_stop` / `target_price` / `risk_points` / `r_multiple` — need the *planned* levels,
+  and are deliberately absent on imported trades. The only stop levels the Control Center log
+  records are ATM-template defaults dragged to intent seconds later, so a risk computed from
+  them is wrong by an order of magnitude (§11.1).
+- `mae_points` / `mfe_points` — need the bars the trade was open across.
+- `ambiguous_bar` — a simulator-only concept. A real fill is not ambiguous; it happened.
+
+Everything else is required on every row from every producer.
+
+**`EXIT_REASONS` is what the *simulator* may write, and an imported trade is not restricted to
+it.** NT8's executions grid names its exits `Stop1..4` and `Exit`, which do not map onto the
+enum without inventing information, so `validate` requires `exit_reason` to be a string rather
+than a member of the set. `validate_legs` *does* check the codes, because only the simulator
+can have written a matrix.
+
+**`direction` is carried per row, not per run**, because a bidirectional archetype takes both
+sides within one run and a real trading history certainly does. Every P&L and MAE/MFE sign
+convention downstream reads it rather than assuming the short side the first archetype happened
+to have. `source` is carried for the same reason: real and simulated trades share one DuckDB
+table, so without a tag one careless `GROUP BY` averages a backtest into a trading record.
+
+**`validate` is written to short-circuit, and that is a measurement.** It runs once per
+combination inside a sweep. Every check is a whole-column test that stops at the first failure,
+and the per-row accounting that makes a good error message is only paid for once there is an
+error to describe. End to end on a 12-combination sweep it costs **1.3%**; the obvious form —
+`frame[REQUIRED].isna().sum()` plus `isin` — costs **9.4%**. Integer columns are skipped
+entirely, since one cannot hold a null, which is a third of the loop's cost. Beware of
+microbenchmarking it by validating one frame repeatedly: `Series.hasnans` is a cached property,
+so the second call onwards is free and the result is meaningless.
+
 ### ~~M15~~ — direction in the simulator: done ([#13])
 
 Kept because the reasoning generalises, and because one part of it turned out to be wrong in
@@ -559,6 +607,15 @@ which is why `strategy` is part of the log key.
 All 48 dispersion tests passed unchanged through that refactor, and the whole capture set is
 byte-for-byte identical.
 
+Three smaller `sweep_axes` decisions, recorded here rather than in the module ([#105]).
+**Every axis defaults to a single value**, so cost is opt-in one axis at a time — but they
+compose and the product is a product: three grids over four resolutions over nineteen contracts
+is 228 datasets, each paying the full `prepare` cost. **`AxisPoint.tier2` is carried, not
+swept** — a property of the strategy rather than an axis of its own, riding along because it
+has to reach the results row. And **the axis columns lead the table rather than trailing it**,
+because they are what the row *is*; a table whose leading column is `combo_id` invites reading
+two resolutions as one population.
+
 Three things the landed part settled, worth not relitigating:
 
 - **`Grid.dead_axes()` was preserved, not reinvented**, and its gate map now comes from the
@@ -579,10 +636,91 @@ same change — measured at **0.0001 on DeadCatBounce over 1-minute continuous M
 in 9,824), which is the baseline the resolution sweep is expected to move sharply. The
 reasoning for the row granularity is in "Decisions taken".
 
+**How `results.py` stores it**, recorded here rather than in the module ([#105]):
+
+- **The axis columns are migrated explicitly; a new statistic is not.** `_append_or_create`
+  drops a column the table does not have, and for a statistic that is the right trade — a gap
+  in one column, obvious on inspection. The four axis columns are *identity*, not measurement,
+  so dropping one does not leave a gap: it silently relabels the row as some other run, and a
+  15-minute result then sits in the same column as a 1-minute one with nothing to say so.
+  `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so
+  `ADD COLUMN IF NOT EXISTS` is what covers the database that already has years of rows.
+- **An existing table is written by name, not by position.** Otherwise adding a statistic
+  would make `INSERT ... SELECT *` shift every column one place right and store numbers under
+  the wrong headings — which reads as a result rather than as an error. It is also why the
+  stale-database re-run ([#71]) is scheduled after the axis columns land rather than before.
+- **`_tag_axes` pins dtypes, and that is the point rather than decoration.** DuckDB infers a
+  new table's column types from the frame it is created from, and an all-null `object` column
+  infers as **INTEGER** — so a first sweep over the spliced series, where `contract` is null by
+  definition, would create `combos.contract` as an integer column no contract name could ever
+  be inserted into. A caller may also supply the tags per row (`sweep_axes` does), and then the
+  frame's own values win; overwriting them with a scalar `None` is how a multi-axis run would
+  lose exactly the tags it exists to produce.
+- **A null does not mean the same thing in every column** — `results.NULL_MEANS` states it per
+  column. `contract` is the odd one out and deliberately so: null is a real, expected value
+  there, naming the spliced series. Everywhere else it means the row predates the column.
+- **The axis arguments to `save_sweep` default to `None` rather than being inferred from
+  `bars`.** Resolution in particular is guessable from the index spacing and that guess would
+  be right nearly always — which is the problem: a tag that is usually right is worse than one
+  that is absent, because nothing downstream can tell the two apart.
+- **`next_batch_id` locks nothing.** Fine for a single-user research tool and not for a shared
+  one: two runs started in the same second would share a batch. Recorded rather than defended.
+
+**`Summary.session_close_share` is reported rather than buried in the trade log**, because a
+strategy taking 40% of its exits at the session close **is not the strategy its rules
+describe** — the profit factor of such a run is largely a measurement of the flatten time, and
+no other aggregate says so. Flat-before-the-close is a prop-account rule, so this is never a
+bug to be fixed; it is a property of the archetype at that bar size. It is computed over
+**legs**, matching `ambiguous_share`'s denominator, since a leg exit is an exit. An imported
+real-fill log carries an `exit_reason` NT8 wrote (`Stop1..4`, `Exit`), none of which is this
+label, so it reports 0.0 rather than a wrong number. `ambiguous_share` is its counterpart: the
+one statistic saying how much of a result rests on an assumption the bar data cannot settle.
+
 The `tier2` registry field ([#25]) is not bookkeeping: per the standing constraint,
 "validated against NT8" stops being a project-wide fact once originals exist, and M18 is what
-made it one — `EmaCrossover` is `TIER1_ONLY` beside two `RECONCILED` ports. The shared bracket
-engine was extracted **during** M18 ([#38]); see below for what the second shape moved.
+made it one — `EmaCrossover` is `TIER1_ONLY` beside two `RECONCILED` ports. A results table
+ranking a reconciled archetype against an unreconciled one compares a measurement against an
+assumption, and carrying the status as a column is what stops the ranking hiding that. The
+shared bracket engine was extracted **during** M18 ([#38]); see below for what the second shape
+moved.
+
+**What each `Archetype` field is for**, recorded here rather than in the module ([#105]):
+
+- **`legs` is registered beside `run`, not derived from it.** It is the *earlier* of the two —
+  `run` is this plus a DataFrame — and a sweep summarises the matrix directly, which is where
+  [#33]'s speedup comes from. It is required, because an archetype registered with only `run`
+  would silently be the slow one in a sweep and the reason to notice would be a wall clock.
+- **`signal` is registered because M7a needs the *real* signal** to match its draws against
+  before handing a substitute back to `run`. Without it the null would carry a second
+  definition of the entry rule, which is exactly what the registry exists to prevent.
+- **`not_sweepable` is listed, not inferred.** The rule today happens to be "the tuple-valued
+  fields", but deriving it from the value's type would silently start sweeping a new tuple
+  field, or stop sweeping a scalar that gained a `None` default — and a disappearing axis is
+  [#60]'s failure mode, because it multiplies nothing rather than raising.
+- **`run` is typed `Callable[..., pd.DataFrame]`, deliberately.** Each archetype's `run`
+  accepts only *its own* parameter class, which needs a generic `Archetype[P]` rather than a
+  plain callable type; that belongs with the typing work ([#55]). The runtime check that
+  matters — base against `params_cls` — is enforced in `Grid.__post_init__`.
+- **`Archetype` is a frozen dataclass, not a base class.** There is no behaviour to inherit,
+  only facts and function references, and the standing rubric's warning against a class
+  hierarchy for one archetype applies just as well to three.
+- **`register` refuses a duplicate name** because `name` is written into the results table, so
+  two archetypes sharing one would merge into a single DuckDB row group and read as one
+  strategy measured twice. `for_params` raises on ambiguity for the same reason: guessing would
+  attribute a whole sweep to the wrong strategy.
+- **`DEFAULT` is DeadCatBounce** because it is the archetype every stored result, captured
+  trade log and reconciliation was produced with. Changing it would silently reinterpret them.
+
+**A `ContextSpec` is built from what the grid will actually try.** VWAP, the time-of-day
+labels and the ATR grids are each requested only when some combination switches them on — they
+are the series no combination reads by accident, so leaving them out when unused is free. The
+MA periods cannot be treated that way, because `dead_axes` already refuses the case where a
+swept period's toggle is off everywhere, so every surviving case is live. `crossover_context`
+additionally sets `needs_ma_values`, since comparing two averages to *each other* is something
+no close-versus-average boolean gate can answer; that is the 8× memory the grids otherwise
+avoid, requested by the one archetype that needs it rather than switched on globally.
+`CROSSOVER_GATES` guards the ATR fields but cannot guard `swing_lookback`: `dead_axes` asks
+whether a toggle is true *somewhere*, which cannot express "dead when this one is never false".
 
 ### ~~M18~~ — EMA crossover: done ([#34])
 
@@ -712,6 +850,12 @@ above it pins that those two summations genuinely differ — verifying the gate 
 of using it. The costed DeadCatBounce case in `test_the_two_summary_paths_agree_exactly` also
 catches a naive sum on real trades, so this is live rather than adversarial-only.
 
+**`_ordered_starts` refuses keys that are not already ascending.** `groupby` returns groups
+sorted by key whatever order the rows arrived in, so a boundary scan only reproduces it for
+sorted keys. The simulation writes every leg of a trade before the next trade can open — it
+cannot be in two positions at once — so this holds by construction, and the check guards
+against a future producer rather than being a branch anyone takes.
+
 **Everything else agrees for free, and that was checked rather than assumed.** Whole-array
 `Series.sum`, `.mean`, `.std(ddof=1)`, `.max`, `.min`, `.cumsum`, `.cummax`, `.median` and
 `.quantile` are all bit-identical to their numpy equivalents here (no `bottleneck` installed),
@@ -759,8 +903,17 @@ grids multiply it. Not worth doing before there is a workload that needs it.
 
 ### ~~M7a~~ — the random-entry control arm: done ([#32])
 
-`nqbt/randomentry.py`. The methodology is in the module docstring; what belongs here is the
-reasoning that outlives it and the first result, which is not what anyone expected.
+`nqbt/randomentry.py`. This section is the methodology, the reasoning behind it and the first
+result; the module carries a pointer here rather than a copy ([#105]).
+
+**A backtest reports numbers, not evidence.** "Profit factor 0.746" is only interpretable
+against what the *same bracket, the same costs and the same exits* would have produced with
+entries chosen at random, and until that arm exists three very different diagnoses look
+identical: *worse than random* (the rule carries real information and points the wrong way),
+*indistinguishable from random* (the rule contributes nothing, and further tuning is a search
+over noise), and *better than random but still unprofitable* (there is signal; the loss is in
+costs, hold time or bracket geometry). Permuting an existing trade sequence separates none of
+them, because it takes the entries as given.
 
 **The design principle is hold everything fixed, randomize only what is under test.** The
 quantity under test is *when the strategy chooses to enter*, so the null holds the bars, the
@@ -795,6 +948,47 @@ is not evidence. The output is a Monte Carlo randomization test in the same shap
 **may** report time-dependent statistics, because every draw is a genuine simulation over
 real bars rather than a relabelling; and its p-value carries the add-one correction, so a
 statistic no draw beat reports 1/(n+1) rather than claiming zero.
+
+**The p-value is two-sided on purpose.** An entry rule reading *worse* than random is a
+finding — real information pointing the wrong way — and a one-sided test would report it as an
+unremarkable failure to beat the null.
+
+**`DEFAULT_ITERATIONS` is 200, not `spread_vs_resampling`'s 1,000.** Each draw here is a full
+simulation over every bar rather than a regrouping of an existing trade list, so an iteration
+costs two orders of magnitude more. 200 gives a p-value resolution of 0.005, finer than the
+decision being made with it; raise it when a result lands near the threshold. The numpy-native
+summary path ([#33]) is what makes a larger default affordable at all.
+
+**Drawing is without replacement within a minute, and the guarantee is structural.** The pool
+for a minute is *every* bar sharing it, and the real signals at that minute are a subset of
+that pool, so it can never be smaller than the number of draws. That is why there is no
+resample-on-collision loop to get subtly wrong.
+
+**The pool is deliberately not narrowed to in-session bars.** The null must face the same bar
+universe the strategy faced. A per-contract frame keeps a handful of out-of-session stray
+prints and the strategy's own signal is computed over them too; narrowing one side and not the
+other would compare two different bar universes, and would break the subset guarantee above.
+On the spliced series the question does not arise — `build_continuous` has already filtered
+them out.
+
+**`SessionMinutePool` is hoisted out of the Monte Carlo loop because of a measurement.**
+Grouping means an argsort over the whole series, and rebuilding it per draw was **89% of an
+iteration** on 914,700 bars — 106 ms against the 13 ms simulation it exists to feed. Same
+reasoning that hoists `context.prepare` out of a sweep.
+
+**A non-finite observed statistic raises rather than being compared.** "Infinite profit factor
+beats the null" is an artefact of a run with no losing trade, not a result.
+
+#### What the test still does not do
+
+- **It does not correct for multiple comparisons.** Running it across a sweep and keeping the
+  combinations that beat the null is the trap [#48] exists to guard, with an extra step. Test
+  a combination chosen for a reason, not the best of two hundred.
+- **A small p-value is not a tradeable edge.** It says the entry timing is unlikely to be
+  noise; profitability after costs is a separate question the module reports but does not
+  answer.
+- **It assumes the signal count is worth matching.** A rule that fires four times is not
+  rescued by a null that also fires four times; the trade floor still applies.
 
 #### The first result, which reframes DeadCatBounce
 
@@ -936,6 +1130,31 @@ actually narrows the phases — and adds three arrays (`int8`, `uint8`, `int32`)
 The eight-combination sweep above took 0.6 s over 914,700 bars, so the gate itself is not
 measurable against the simulation.
 
+**Smaller choices in `timeofday.py`, recorded here rather than in the module ([#105]):**
+
+- **Seven buckets, chosen for what happens in them rather than for equal length.** The
+  overnight hours are one bucket because little distinguishes 20:00 from 01:00; the hour after
+  the cash open gets one to itself because it is the most distinctive hour of the day. Fewer
+  buckets is the point — time of day multiplies every other stratification, and seven phases
+  against five regimes is already 35 cells, which a minimum-stratum guard on a few hundred real
+  trades has to survive.
+- **`SessionPhase.CLOSE` is structurally anomalous**, because it contains the forced flat
+  ([#16]). Its exits are decided by the clock rather than the rules, so a stratification will
+  show it as different whatever the market did. `FORCED_EXIT_PHASE` names it so a caller can
+  exclude it without working out which one it is.
+- **`OUT_OF_SESSION` is −1, not an eighth phase**, so it cannot be swept into a filter by
+  accident and a `groupby` over the labels reads as obviously wrong rather than quietly
+  counting stray prints as an eighth hour of the day.
+- **`PHASE_STARTS` is written as ET wall-clock times**, because that is what the boundaries
+  mean: `time(9, 30)` is the cash open, where an offset of 930 minutes is a number nobody can
+  check. `phase_start_minutes` converts them and validates on **every** call rather than once
+  at import — the boundaries are relative to the template's own open, so a template opening
+  elsewhere reorders them, and a set that no longer ascends would mislabel whole phases through
+  `searchsorted` without raising.
+- **`infer_bar_minutes` takes the mode of the gaps**, not the minimum or the mean: every
+  session has a one-hour break and the archive has holes, so both of those measure the gaps
+  rather than the bars.
+
 ### M11 — manual trade review ([#44])
 
 The stated goal. Import real trades, annotate each against the market context at its entry bar,
@@ -985,6 +1204,28 @@ resolutions at the same period number is meaningless. Expect the ambiguous-bar r
 well above 1-minute's 3.4%; **if a coarse resolution looks profitable, check that first.** Cost
 is self-limiting: 1, 2, 5 and 15 minutes is ≈1.8× a 1-minute sweep, not 4×.
 
+Three further conventions `nqbt/resample.py` implements, recorded here rather than in the module
+([#105]):
+
+- **Timestamps are end-of-bar**, so a bar stamped 18:01 is the session's *first* minute and a
+  bucket covering 18:00–18:05 is stamped 18:05. A bar at minute *m* therefore *occupies* index
+  *m − 1*; off by one there is invisible at 1 minute and wrong everywhere else.
+- **The final bucket of a session is stamped at the observed last bar, not the theoretical
+  end.** Two cases need it: a period that does not divide the session (7 would put the last
+  bucket's end past the 17:00 close) and a holiday early close. Deriving it from the data is the
+  same choice `is_session_close` makes, and it avoids the trap [#68] records against
+  `force_flat_mask`.
+- **`minutes=1` returns the frame unchanged, and `minutes >= 2` drops out-of-session bars.**
+  The identity is not merely an optimisation — the 1-minute path is what every reconciliation
+  and every captured trade log was produced against, so resampling must not perturb it even by
+  dropping a row. A stray out-of-session print has no session to be anchored to and so no bucket
+  it could honestly join; dropping it matches `splice.build_continuous` and differs from a
+  per-contract 1-minute frame, which keeps them.
+
+Because the grouping key includes the trading day, no bucket can span the 17:00–18:00
+maintenance break or the weekend. That falls out of the anchoring rather than needing its own
+rule.
+
 ### M14 — per-contract sweeps ([#31])
 
 **`nqbt/dispersion.py` has landed, and [#28] has since absorbed its loop.**
@@ -1008,6 +1249,37 @@ the numpy-native summary path, worked out here first because this is where it be
 on MNQ is indistinguishable from relabelling the same trades, on both measures, even though
 the best contract reads roughly double the worst.
 
+**How the permutation test is built, and what it does not say** ([#105]):
+
+- **A permutation, not a bootstrap.** Contract labels are shuffled over the *same* set of
+  trades, keeping every group's count exactly as observed — cut points rather than resampling,
+  so the null cannot mix a spread effect with a sample-size effect. That answers the only
+  question the raw spread poses: if which contract a trade happened in were arbitrary, would
+  the contracts still look this different?
+- **Trades are permuted whole.** Each contract's legs are collapsed by `stats.per_trade` first,
+  so a trade's legs cannot be split across two groups and invent trades that never happened.
+- **`by` is restricted to `stats.TRADE_PNL_STATISTICS`.** Permuting destroys entry and exit
+  times, so Sharpe, max drawdown or consecutive losses would be computed over an ordering that
+  never happened. Refusing is better than returning it.
+- **A small p-value means "not obviously noise", never "a real per-contract effect".**
+  Permutation destroys serial correlation and within-contract regime persistence, so the null
+  has *less* spread than reality and the test **over-rejects**. It is a floor on scepticism,
+  not a verdict. The stronger version — block resampling that keeps runs intact — shares
+  machinery with [#50] and belongs there.
+- **`dispersion()` returns rows in `combo_id` order and a test fails if that changes.** Sorting
+  by the median would hand back the leaderboard the milestone exists to refuse; reaching for
+  the best row has to be deliberate, and then the caller owns the multiple-comparisons problem.
+  `contracts_dropped` is as informative as the spread — a combination clearing `min_trades` on
+  three of nineteen contracts has not been measured across contracts at all.
+- **`MIN_TRADES` is 30 because noise has the widest spread.** A profit factor from a handful of
+  trades does not merely add uncertainty to the dispersion, it dominates the quantity being
+  measured. Small contracts are still reported, just excluded from the spread.
+
+**What this is not: a contract is a ~3-month bucket, so it surfaces regime shifts, not
+events.** An election or a CPI print is a day or an hour, and averaging it across a quarter
+dilutes it to nothing. For events the tools are the regime and time-of-day labels ([#40],
+[#43]) plus a date filter.
+
 The original reasoning follows, and still holds.
 
 `sweep.sweep()` already accepts a single contract's frame, so what was missing is the
@@ -1024,6 +1296,60 @@ reproducible — the cheapest route to the outstanding NQ reconciliation ([#66])
 **front-month window**; full contract life overlaps its neighbours and double-counts calendar
 days. Report `bars`, `sessions` and `trades` per contract, or a PF from 30 trades sits in the
 same column as one from 400.
+
+### ~~M20a~~ — the three findings that blocked M15: done ([#9])
+
+**`bracket.resolve_brackets` is the single bracket implementation.** Until M20a it existed
+twice: once for a bar while in a position and once, textually independently, for the bar an
+entry filled on. The two were behaviourally equivalent — the entry-bar copy dropped the
+`leg_open` guards because every leg had just been opened, which makes them no-ops rather than a
+difference — but every rule the 1143/1144 NT8 reconciliation validated appeared in both, so
+there were two places for Tier 1 and Tier 2 to drift and the reconciliation only ever covered
+one of them. Unifying it is what let M15 multiply *one* copy by its direction sign: the
+short-only byte-identity gate cannot catch a sign applied inconsistently across two copies,
+because at `d = −1` both reduce to today's code whether or not they agree at `d = +1`.
+
+**`bracket.entry_bracket` is the single trigger/stop/risk computation**, called by the `@njit`
+loop and by `explain.py`. It too used to be written out twice, and the two copies disagreed:
+the audit trail took the trigger to be simply `Low[0]`, dropping the `Close[0] − 2 ticks` cap
+the simulation applies. So `nqbt run --explain` — the tool a human uses to tick a trade off
+against a chart before trusting anything downstream — reported the wrong `trigger`,
+`risk_points`, `risk_ticks` and `fill_type`, while agreeing on the stop, which is what made it
+look right on inspection. The audit trail is now by construction the arithmetic under audit.
+
+**The 50% figure that justified that fix was a prefix, not a rate.** Measured over the whole
+window the cap binds on roughly a **third** of signals; it reads far higher over the first
+twenty trades and decays from there, because capped signals are not evenly distributed.
+**Quote whole-window rates** — a prefix of a trade log is not a sample of it. The defect was
+real either way.
+
+**`Summary.empty()`** replaces a splat that put 26 arguments into a 28-field dataclass and
+raised on every call, which went unnoticed because the only caller had grown a second,
+divergent empty-log policy of its own. `sweep.run_combination` no longer keeps one.
+
+Two things M20a deliberately did **not** change, because M20 may not move a number:
+`stats.py`'s silent branch computing Sharpe and Sortino per trade rather than per day for a log
+with no times ([#81]) — unreachable today, same shape as the empty-log defect — and
+`verification/explain_2024Q1.csv`, annotated rather than regenerated, because it is the record
+of what the audit trail said while it was being trusted.
+
+### M8 — bar-major restructuring: measured, and not scheduled
+
+`sweep.py` is **combo-major**: build the dataset once, then loop combinations and run the
+whole jitted simulation over the whole series for each. That is the straightforward shape, and
+it was chosen for correctness first — a bar-major restructuring would reuse cache better across
+combinations at a real complexity cost, which had to be justified by profiling rather than
+assumed.
+
+It was, and the premise came back mostly false. Profiling one combination over 1.65M bars put
+`stats.summarise` at 51%, `trades_to_frame` at 20%, the `@njit` loop at 23% and the signal ANDs
+at 2%. Bar-major restructures the 23%, so making the simulation *entirely free* was worth about
+1.3× — Amdahl caps it there. [#33] took the 71% instead, and a combination is now 9.0 ms
+against 28.3 ms, of which 9.3 ms is the loop.
+
+The ceiling is unchanged and the loop's share of a combination is now most of it, so **M8 is
+still not scheduled**: re-profile before believing any figure here, and do it only if the loop
+is genuinely what a real sweep is waiting on.
 
 ### M20b — typing and tooling ([#53])
 

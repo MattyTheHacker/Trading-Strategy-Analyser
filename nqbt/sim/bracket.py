@@ -1,23 +1,14 @@
 """The bracket engine every archetype's exits go through.
 
-One stop, up to four R-multiple targets, an ambiguity policy for the bar that holds both,
-and a forced exit at the session close -- resolved identically whichever archetype opened
-the position and whichever side it is on. **This is the fidelity-critical code**: every
-rule the NT8 reconciliations validated lives here, so a second copy is a second place for
-Tier 1 and Tier 2 to drift.
+One stop, up to four R-multiple targets, an ambiguity policy for the bar that holds both, and a
+forced exit at the session close -- resolved identically whichever archetype opened the
+position and whichever side it is on. **This is the fidelity-critical code**: every rule the
+NT8 reconciliations validated lives here, so a second copy is a second place for Tier 1 and
+Tier 2 to drift. **Do not fork it.** Each rule and its evidence: ``docs/nt8-fidelity.md``.
 
-Extracted during M18 rather than before or after it, deliberately. Before, the only shapes
-available were DeadCatBounce and its mirror, which is one example wearing a second as a
-disguise; after, duplicated fill semantics would have shipped. EMA crossover is the second
-real shape -- a market-on-next-open entry with no trigger price, an ATR stop with no
-structural swing to anchor to, and a signal exit -- and the split falls where those differ
-from DeadCatBounce: the **entry** half is per-archetype and the **bracket** half is not.
-
+The split is the entry half against the bracket half -- a new archetype writes only the first.
 Everything here is an ``@njit(cache=True)`` device function, which Numba inlines into the
-calling loop at no cost, so the extraction is free at runtime as well as in the trade log.
-``entry_bracket`` is the exception in kind rather than in mechanism: it is a stop-market
-entry's arithmetic, shared by ``simulate_deadcat`` and by ``explain.py`` so that the audit
-trail is by construction the arithmetic under audit.
+calling loop at no cost.
 """
 
 from __future__ import annotations
@@ -84,41 +75,19 @@ def resolve_brackets(
 ) -> tuple[int, bool]:
     """Resolve one bar against the live stop and targets, closing whatever leaves.
 
-    Returns the new write count and whether the position is still open. A write count of
-    ``-1`` means ``out`` overflowed and the caller must abandon the run.
+    Returns the new write count and whether the position is still open. A write count of ``-1``
+    means ``out`` overflowed and the caller must abandon the run.
 
-    **This is the fidelity-critical code**, and until M20a it existed twice: once for a bar
-    while in a position and once, textually independently, for the bar an entry filled on.
-    The two were behaviourally equivalent -- the entry-bar copy dropped the ``leg_open``
-    guards because every leg had just been opened, which makes them no-ops rather than a
-    difference -- but every rule the 1143/1144 NT8 reconciliation validated appeared in
-    both, so there were two places for Tier 1 and Tier 2 to drift and the reconciliation
-    only ever covered one of them.
+    Order of resolution: the stop takes the whole position unless the ambiguity policy says the
+    targets were reached first; targets fill at their own price with no slippage, being limit
+    orders; anything still open after a targets-first bar leaves at the stop on that same bar;
+    and force-flat is last, so a position that reached a target and then ran out of session
+    records both.
 
-    Unified here specifically so that M15 could multiply one copy by its direction sign
-    instead of two. The short-only byte-identity gate cannot catch a sign applied
-    inconsistently across two copies, because at ``d = -1`` both reduce to today's code
-    whether or not they agree at ``d = +1``.
+    ``held_from_bar_open`` is false on the entry bar, which is what keeps the gapped-stop rule
+    off it -- ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
 
-    Order of resolution, which is the part that carries the evidence: the stop takes the
-    whole position unless the ambiguity policy says the targets were reached first; targets
-    fill at their own price with no slippage, being limit orders; anything still open after
-    a targets-first bar leaves at the stop on that same bar; and force-flat is last, so a
-    position that reached a target and then ran out of session records both.
-
-    **A bar that opens already past the stop fills at its open, not at the stop price.** A
-    stop order is a market order once triggered, so when the bar gaps through it there is no
-    trade available at the stop level and the fill is the first price there is. The entry
-    path has always modelled this for the *entry* order (see ``open_[i]`` gapping through
-    ``pending_trigger`` in :func:`simulate_deadcat`); it simply never reached the exit side,
-    which made every gapped stop exit optimistic -- worth $222.50 of a $292.50 result over
-    the 1,664 legs of the MNQ 03-24 PullBackAndGo reconciliation, where NT8's exit price
-    equals the exit bar's open on 115 of the 116 disagreeing stop fills.
-
-    ``held_from_bar_open`` is what keeps that rule off the entry bar. The position did not
-    exist at that bar's open, so a bar whose open sits past the initial stop says nothing:
-    price still had to travel up through the trigger to open the position at all, and only
-    then could it come back to the stop -- which it reaches at the stop price, not the open.
+    Called by both the in-position path and the entry-bar path; **do not fork it again**.
     """
     n_legs = leg_open.size
     adverse_px, favourable_px = sided(low_px, high_px, direction)
@@ -281,25 +250,12 @@ def entry_bracket(
 ) -> tuple[float, float, float]:
     """One signal bar's order arithmetic: trigger, initial stop, planned risk.
 
-    Public because ``explain.py`` calls it too, and that is the whole point. This used to
-    be written out twice, and the two copies disagreed: the audit trail took the trigger to
-    be simply ``Low[0]``, dropping the ``Close[0] - 2 ticks`` cap that the simulation
-    applies. The cap binds on roughly a third of signals over a whole window, so
-    ``nqbt run --explain`` -- the tool a human uses to tick a trade off against a chart
-    before trusting anything downstream -- reported the wrong ``trigger``, ``risk_points``,
-    ``risk_ticks`` and ``fill_type`` on that share of its rows, while agreeing on the stop,
-    which is what made it look right on inspection.
+    The trigger is the *favourable* side of the signal bar, capped by whichever of it and
+    ``close +/- entry_offset`` is further favourable still; the stop sits ``stop_offset``
+    beyond the *adverse* side. ``direction`` is ``+1.0`` long / ``-1.0`` short.
 
-    So: one implementation, called from both places, and the audit trail is by
-    construction the arithmetic under audit. Do not inline either copy back.
-
-    ``direction`` is ``+1.0`` long / ``-1.0`` short (see ``nqbt.trades.LONG``/``SHORT``).
-    A short entry's trigger is the *favourable* side of the signal bar -- the low -- capped
-    by whichever of it and ``close - 2 ticks`` is further favourable still; the stop sits
-    ``stop_offset`` beyond the *adverse* side, the high. A long entry mirrors this exactly:
-    favourable is the high, adverse the low, and the close-based cap adds rather than
-    subtracts. At ``direction = -1.0`` every line below reduces to the short-only formula
-    this function used to be.
+    Shared by the jitted loop and by ``explain.py``, so the audit trail is by construction the
+    arithmetic under audit. **Do not inline either copy back** -- ``docs/roadmap.md`` §M20a.
     """
     adverse, favourable = sided(low, high, direction)
     close_based = close + direction * entry_offset
@@ -315,10 +271,8 @@ def entry_bracket(
 def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     """Which raw price is adverse and which is favourable for this direction.
 
-    Short (``direction < 0``): adverse is the high -- price rising against the position --
-    and favourable is the low. Long is the mirror image. Centralised here because it is
-    the one piece of the generalisation that is a data selection rather than an arithmetic
-    substitution: no multiplication by ``direction`` picks between two different arrays.
+    The one piece of the direction generalisation that is a data selection rather than an
+    arithmetic substitution, which is why it is a function rather than a multiplication.
     """
     if direction > 0.0:
         return low, high
@@ -333,19 +287,10 @@ AMBIGUITY_NEAREST_TO_OPEN = 1
 def targets_reached_first(open_px: float, stop_px: float, target_px: float, policy: int) -> bool:
     """On a bar holding both the stop and a target, did price reach the target first?
 
-    Bar-close OHLC cannot say, so this is an assumption and it is worth being explicit
-    about which one.
-
-    ``AMBIGUITY_WORST_CASE`` always answers no: the stop takes the whole position and
-    Tier 1 stays pessimistic regardless of what really happened.
-
-    ``AMBIGUITY_NEAREST_TO_OPEN`` reproduces NT8. Price starts the bar at the open and
-    reaches the nearer level first. Checked against a real NT8 trade list, this called all
-    seven ambiguous bars correctly, including two up bars where the stop was nearer and
-    NT8 stopped the whole position out -- which a bar-direction rule gets wrong.
-
-    When the targets go first the stop still takes the remaining legs later in the same
-    bar, which is exactly what NT8's trade list shows.
+    Bar-close OHLC cannot say, so this is an assumption. ``AMBIGUITY_NEAREST_TO_OPEN``
+    reproduces NT8; ``AMBIGUITY_WORST_CASE`` always answers no, which is *more* pessimistic
+    than NT8 rather than equal to it. Evidence: ``docs/nt8-fidelity.md``, "Ambiguous bars
+    resolve to whichever level is nearer the open".
     """
     if policy == AMBIGUITY_NEAREST_TO_OPEN:
         return abs(open_px - target_px) < abs(stop_px - open_px)
@@ -356,16 +301,9 @@ def targets_reached_first(open_px: float, stop_px: float, target_px: float, poli
 def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: float) -> bool:
     """Whether a limit order at ``limit`` fills, given the bar's favourable-side extreme.
 
-    NT8 runs with ``IsFillLimitOnTouch = false`` -- set in the strategy's ``SetDefaults``
-    and left unchecked in the Strategy Analyzer -- so price merely *reaching* the limit
-    is not a fill. It has to trade through. Measured against a real NT8 trade list, every
-    single disagreement about a target fill was a bar whose low equalled the target
-    exactly, so this distinction is worth a tick of pedantry.
-
-    A short's target sits below entry, so ``favourable_px`` is the bar's low and the target
-    fills once price falls to or through it. A long's target sits above entry, so
-    ``favourable_px`` is the high and the comparison flips -- exactly what multiplying by
-    ``direction`` does. At ``direction = -1.0`` this reduces to the short-only form.
+    NT8 runs with ``IsFillLimitOnTouch = false``, so price merely *reaching* the limit is not a
+    fill -- it has to trade through. See ``docs/nt8-fidelity.md``, "Limit orders must trade
+    *through*, not touch".
     """
     if on_touch:
         return direction * favourable_px >= direction * limit
@@ -380,10 +318,10 @@ def round_to_tick(price: float, tick_size: float) -> float:
 
 @njit(cache=True)
 def passes_reward_risk(target_r: np.ndarray, minimum: float) -> bool:
-    """Optional pre-trade gate on the furthest target's R multiple.
+    """Optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
 
-    Off by default (``minimum`` of 0). Because every target is expressed in R, the check
-    is independent of price -- it either passes for the rule set or never does.
+    Every target is expressed in R, so the check is independent of price: it either passes for
+    the rule set or never does.
     """
     if minimum <= 0.0:
         return True
@@ -420,8 +358,7 @@ def write_leg(
     if written >= out.shape[0]:
         return -1
 
-    # Positive when the trade made money: (exit - entry) for a long, (entry - exit) for a
-    # short, which is exactly what multiplying by direction gives.
+    # Positive when the trade made money, whichever side it was on.
     pnl_per_unit = (exit_price - entry_price) * direction
     gross = pnl_per_unit * quantity * point_value
     commission = commission_per_contract * quantity
@@ -443,9 +380,8 @@ def write_leg(
     out[written, C_NET_PNL] = net
     out[written, C_R_MULTIPLE] = pnl_per_unit / risk if risk > 0.0 else np.nan
     out[written, C_RISK_POINTS] = risk
-    # run_high/run_low are tracked unconditionally regardless of direction, so whichever
-    # one is adverse (worse for this side) is picked out by taking whichever term is
-    # larger -- the other term is negative or smaller by construction.
+    # run_high/run_low are tracked regardless of direction, so the adverse one is whichever
+    # term is larger; the other is negative or smaller by construction.
     out[written, C_MAE] = max(direction * (entry_price - run_high), direction * (entry_price - run_low))
     out[written, C_MFE] = max(direction * (run_high - entry_price), direction * (run_low - entry_price))
     out[written, C_BARS_HELD] = exit_bar - entry_bar
