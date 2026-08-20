@@ -414,6 +414,31 @@ def trade_statistic(pnl: np.ndarray, name: str) -> float:
     return float(wins.mean())
 
 
+PATH_STATISTICS = ("max_drawdown", "max_consecutive_losses")
+"""Statistics that depend on the order trades arrived in, not only on their values.
+
+Which makes them the only ones a *sequence* permutation can move, and the exact complement of
+:data:`TRADE_PNL_STATISTICS` -- ``docs/roadmap.md`` §M7b.
+"""
+
+
+def path_statistic(pnl: np.ndarray, name: str) -> float:
+    """One :data:`PATH_STATISTICS` value from a per-trade P&L vector, in sequence order.
+
+    **Not a second definition**: both branches call the same helpers :func:`summarise` does,
+    and ``tests/test_montecarlo.py`` asserts exact agreement on real logs. Feed it
+    :func:`per_trade` output, never raw legs.
+    """
+    if name not in PATH_STATISTICS:
+        msg = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
+        raise ValueError(msg)
+    if pnl.size == 0:
+        return 0.0
+    if name == "max_drawdown":
+        return _max_drawdown(pnl.cumsum())
+    return float(_max_consecutive(pnl < 0))
+
+
 def leg_summary(trades: pd.DataFrame) -> dict:
     """NT8's view: every named entry counted as its own trade.
 
