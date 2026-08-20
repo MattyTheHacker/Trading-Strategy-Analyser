@@ -133,6 +133,8 @@ Points that have each cost time:
 - **Repeat the closing keyword for every issue.** `Closes #1, #2` links only `#1`. Write `Closes #1. Closes #2.` and check `closingIssuesReferences` on the pull request before merging. Alternatively, link the issues manually via the GUI.
 - **Do not quote figures that go stale.** Consider if the number is even needed in documentation or if it's better being generated or retrieved at the time it's needed. If it's definitely needed, point at the document that holds the live number.
 - **Branch off `main` and never commit to it directly.**
+- **Use labels to accurately describe what areas the PR covers.**
+- **PRs should ideally be as minimal as possible to make the review easier.**
 
 ## Data and generated files
 
