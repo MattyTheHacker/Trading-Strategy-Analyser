@@ -43,6 +43,10 @@ include = ["nqbt*"]
 testpaths = ["tests"]
 
 
+[tool.pymarkdown.extensions.front-matter]
+enabled = true
+
+
 [tool.pymarkdown.plugins.MD013]
 enabled = false
 

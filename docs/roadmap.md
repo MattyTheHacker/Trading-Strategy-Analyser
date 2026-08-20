@@ -381,8 +381,9 @@ how much trouble each has actually caused in this codebase, not by general princ
    from it.
 2. **Does the type say what the array actually holds?** `np.ndarray` does not distinguish the
    bool grid from the float grid, and that distinction is load-bearing. See [#54].
-3. **Is the expensive work outside the loop?** Already a convention (`CLAUDE.md`), and the
-   measurement discipline behind it is the strongest habit in the project — keep requiring the
+3. **Is the expensive work outside the loop?** Already a convention
+   (`.claude/rules/sweep-and-context.md`), and the measurement discipline behind it is the
+   strongest habit in the project — keep requiring the
    number, not the argument. M9 found a 9.4% regression this way that reasoning alone would have
    shipped.
 4. **Would this pass if the code were wrong?** Applies hardest to tests asserting an absence.
@@ -453,8 +454,8 @@ One paragraph of reasoning each. Scope and acceptance criteria are in the linked
 
 ### The trade-log gate, and the two times it was wrong ([#113])
 
-`CONTRIBUTING.md` § "The trade-log regression gate" is the procedure and `CLAUDE.md` carries
-the rules. This section is the evidence behind both — it lived in `CLAUDE.md` until plans and
+`CONTRIBUTING.md` § "The trade-log regression gate" is the procedure and
+`.claude/rules/regression-gate.md` carries the rules. This section is the evidence behind both — it lived in `CLAUDE.md` until plans and
 findings were separated, and it is here because a finding outlives the milestone that produced
 it.
 
@@ -1652,7 +1653,7 @@ default is now known to be right for this machine.
   session, so a stale figure there is a wrong fact asserted with authority, and these numbers
   move on almost every fill-rule change.
 - **`verification/` is gitignored in its entirety** ([#91]), including its `README.md` — which
-  `CLAUDE.md` cites as the authority on what the stored captures mean. The CSVs are
+  `.claude/rules/data-pipeline.md` cites as the authority on what the stored captures mean. The CSVs are
   regenerable; the prose is not, and it exists on one machine.
 
 [#9]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/9
