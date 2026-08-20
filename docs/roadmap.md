@@ -1,15 +1,28 @@
 # Roadmap
 
-**How this file relates to the issue tracker.** The issues carry the **what** — scope,
-acceptance criteria, checklists, the definition of done. This file carries the **why** — the
-reasoning behind the ordering, the constraints that span milestones, the traps that cost real
-time to find, and the decisions taken so they are not silently re-litigated. When the two
-disagree about scope, the issue wins; when they disagree about reasoning, this file wins.
+**How this file relates to the issue tracker.** The issues carry **everything that
+changes** — scope, acceptance criteria, checklists, ordering, dependencies and status. This
+file carries **what stays true after the work lands** — the findings, the constraints that
+span milestones, the traps that cost real time, and the decisions taken so they are not
+silently re-litigated. When the two disagree about scope or order, the issue wins; when they
+disagree about reasoning, this file wins.
+
+**Plans do not live here.** Ordering is GitHub's `blocked-by`/`blocking` dependency graph,
+status is the issue's own state, and grouping is its epic and milestone. This file used to
+carry a hand-maintained order-of-work table; it duplicated all three, went stale on every
+landing, and was removed for that reason. To see what is next, ask the tracker:
+
+```bash
+gh issue list --state open --label next-up
+gh issue list --state open --milestone "Phase 3 — Review system"
+gh issue view <n>                       # blocked-by / blocking / sub-issues
+```
 
 Four things live here and nowhere else, because an issue is the wrong home for them: the
 **standing constraint** and its expressibility checklist, the **order-lifetime research**, the
-**standing rubric**, and the **decision record**. Everything else is a paragraph of context
-with a link.
+**standing rubric**, and the **decision record**. A closed issue is not read; a finding that
+outlives its milestone therefore belongs in this file rather than in the issue that produced
+it. Everything else is a paragraph of context with a link.
 
 Precedence when sources disagree: [backtest_tool_spec.md](backtest_tool_spec.md) and the
 project's own docs first, [trading_concepts.md](trading_concepts.md) Part II second. The
@@ -18,31 +31,10 @@ source of priorities.
 
 ---
 
-## Order of work
+## Why the order is what it is
 
-Dependency order, not priority order — each item's prerequisites sit above it.
-
-| # | Work | Issue | Why here |
-|---|---|---|---|
-| ~~1~~ | ~~Re-export NQ manually~~ | — | **Done 2026-08-11.** 19 contracts, all 18 rolls on genuine crossovers, archive 4.09M → 4.60M bars. Also exposed a stub-session bug in roll detection, now fixed. |
-| ~~2~~ | ~~Run the simulation against NQ~~ | — | **Done 2026-08-11.** Runs end to end including parallel sweeps. Instrument scaling proven exact. |
-| ~~3~~ | ~~**M9** — split context from simulation~~ | — | **Done 2026-08-12.** `nqbt/context.py` and `nqbt/trades.py` exist, layering enforced by import-analysis tests, every producer path byte-identical across all 14 files. |
-| ~~3a~~ | ~~**M20a** — the three findings that block M15~~ | [#9] | **Done 2026-08-14.** `_resolve_brackets` is the single bracket implementation, `entry_bracket` the single trigger computation, `Summary.empty()` replaces the splat that raised. |
-| ~~3b~~ | ~~**M15** — direction in the simulator~~ | [#13] | **Done 2026-08-15**, reconciled included. `d = ±1` through the whole loop, `PullBackAndGo` ported and diffed leg-for-leg against a real NT8 trade list. That reconciliation found two fill-semantics defects — see below. |
-| ~~—~~ | ~~**M16** — NT8-parity ATR, StdDev, Bollinger, Keltner~~ | [#19] | **Done 2026-08-16.** One probe run answered [#20], [#21], [#22] and [#23]'s measurement half over 89,330 bars. Keltner matched neither half of the usual definition. **M18 is unblocked.** |
-| ~~3c~~ | ~~**M17 + M13 + M14** — strategy, resolution and contract as axes~~ | [#24], [#30], [#31] | **Done 2026-08-16.** The registry landed 2026-08-15; `resample.py` ([#30]) and `dispersion.py` ([#31]) followed, then the results schema ([#29]) and `sweep_axes` ([#28]) — **one mechanism, not three**, so the schema settled once before the stale DuckDB re-run ([#71]). |
-| ~~4~~ | ~~**M7a** — `randomentry.py`~~ | [#32] | **Done 2026-08-16.** Matched on count, time-of-session and direction; Monte Carlo rather than a single draw. First result reframes DeadCatBounce — better than random, still unprofitable. See below. |
-| ~~5~~ | ~~**M18** — EMA crossover~~ | [#34] | **Done 2026-08-19.** Third entry mechanism, first `EXIT_SIGNAL`, first original. It reads as a known negative against M7a's arm, which is the result it was built to produce. |
-| ~~6~~ | ~~Numpy-native summary path~~ | [#33] | **Done 2026-08-19**, and taken *before* M18 rather than after — 3.1× on a combination, with the summary now inside the noise of the simulation. M18's ~30× legs land on a sweep that no longer pays for a DataFrame per combination. |
-| 7 | **M10** — regime, volume, trend, time of day | [#39] | Dual-use: the review needs them, and they let existing sweep results be stratified rather than averaged. **M10.4 (time of day, [#43]) is done 2026-08-19**; [#40], [#41] and [#42] remain. |
-| 8 | **M11** — the trade review | [#44] | The stated goal. Needs 3 and 7. Deliberately *not* displaced by the archetype work. |
-| 9 | **M7b** — walk-forward and Monte Carlo | [#50] | Shares machinery with M14 and with §11.4's permutation test. |
-| 10 | **M19** — squeeze breakout | [#51] | Queued, not scheduled. Needs an OCO entry model the loop lacks, so it is the expensive archetype. |
-| 11 | **M12** — web GUI | [#52] | Gated on the review's outputs being stable. |
-
-**Standing work, no gate:** M20b typing and tooling ([#53]), M20c structural cleanups ([#58]),
-the Tier-2 verification epic ([#65]) which needs NinjaTrader time rather than code time, and
-tracking `verification/` in git ([#91]).
+The order itself is in the tracker (see above). What follows is the reasoning behind it,
+which the tracker has no field for.
 
 **Why the order looks like this.** The request was "add EMA crossover and squeeze breakout",
 but neither was reachable and neither was where the cost is: the simulator was
@@ -52,28 +44,24 @@ work; the archetypes themselves are then small. It also pays for the NinjaScript
 never ported — `PullBackAndGo.cs` is now done, leaving `InsideBar.cs` and
 `InsideBarTrailing.cs`, both long-capable and both using `ATR()`.
 
-**Why M16 left the code queue, which is a change from the order above.** M16 was scheduled
-ahead of M17, but its three substantive sub-issues are each *"read the value out of NT8 and
-pin it"* — the milestone's own instruction is **do not answer from memory**, so hand-rolling
+**Why M16 left the code queue.** M16 was scheduled ahead of M17, but its three substantive
+sub-issues are each *"read the value out of NT8 and pin it"* — the milestone's own instruction
+is **do not answer from memory**, so hand-rolling
 the recursions before the readings exist is precisely the failure it was written to prevent.
 That makes M16 NinjaTrader time, and it now shares that constraint with [#66] and [#67].
 M17 has no NT8 dependency, is an equally hard prerequisite for M18, and is therefore the
-better use of code time. **Split the queue by resource, not by milestone number:**
+better use of code time. **Split the queue by resource, not by milestone number.**
 
-| resource | work |
-|---|---|
-| code time | ~~M13 ([#30]) → M14 ([#31]) → M17.4/M17.5 ([#28], [#29]) → M7a ([#32]) → the numpy summary path ([#33]) → M18 ([#34])~~ — **all done**. Next: M10 ([#39]) |
-| NinjaTrader time | ~~[#20], [#21], [#22], [#23], [#66], [#92]~~ — **all done 2026-08-16**. Only [#67] (order lifetime) remains, and M19 is not scheduled |
+Work needing NinjaTrader time and work needing code time form two queues, and neither
+blocks the other in the general case — though a single milestone can need both, as M18 did.
+The `needs-ninjatrader` label is the live split; do not restate its contents here.
 
-Nothing in the NinjaTrader column blocks anything in the code column. The reverse is not
-true — M18 needed both, and it has them.
-
-**The NinjaTrader queue is now empty except [#67], and M18 has since landed without it.** That session
-paid for itself several times over: it closed M16 and both outstanding reconciliations, and
-it found two things that reasoning would not have — Keltner matching neither half of the
-common definition, and the trade-list export being in the machine's display timezone rather
-than UTC. [#67] is the only item left and it gates M19, which is queued rather than
-scheduled, so nothing is waiting on it.
+**A booked NinjaTrader session pays for itself several times over, and the reason is not the
+tickets it closes.** The 2026-08-16 session closed M16 and both outstanding reconciliations,
+and it found two things reasoning would not have: Keltner matching neither half of the common
+definition, and the trade-list export being in the machine's display timezone rather than UTC.
+Both were invisible from the Python side. Book the session for the questions, not the queue —
+`gh issue list --label needs-ninjatrader` is what is actually outstanding.
 
 **[#23]'s roll-boundary half is still a decision, not a measurement.** The session-boundary
 half is settled: True Range does not reset. On a back-adjusted series ATR will step at each
@@ -103,17 +91,14 @@ a new part of the fill model with no evidence behind it yet, and `bracket.py` in
 whatever is wrong. This is the argument for reconciling each archetype rather than trusting
 the shared engine because the first one passed.
 
-**Unscheduled, and cheap once M16 lands — M15 is no longer the blocker:** porting `InsideBar.cs` and
-`InsideBarTrailing.cs`. Both have C# ground truth, which makes them the cheapest *trustworthy*
+**Cheap, and unblocked:** porting `InsideBar.cs` and `InsideBarTrailing.cs`. Both have C# ground truth, which makes them the cheapest *trustworthy*
 archetypes available, unlike M18 and M19. `InsideBar` is the structural form of the squeeze
 idea and is worth porting before M19 is built from scratch. `InsideBarTrailing` is the second
 consumer of `EXIT_SIGNAL`, which M18 has now made a working exit rather than a reservation —
 and it is the first chance to check the signal exit against a trade list.
 
-**Not scheduled:** M8 (premise measured and mostly false, and [#33] has since removed the
-overhead that capped it — see `CLAUDE.md`), the three unbuilt
-spec features ([#74]), `NG 02-26`'s silent skip ([#69]), and the MAE/MFE definition mismatch
-([#70]).
+Deliberately unscheduled work carries no label of its own — the reasoning for each is in its
+milestone note below, and the issue is the record of whether it is queued.
 
 ---
 
@@ -465,6 +450,78 @@ how much trouble each has actually caused in this codebase, not by general princ
 ## Milestone notes
 
 One paragraph of reasoning each. Scope and acceptance criteria are in the linked issue.
+
+### The trade-log gate, and the two times it was wrong ([#113])
+
+`CONTRIBUTING.md` § "The trade-log regression gate" is the procedure and `CLAUDE.md` carries
+the rules. This section is the evidence behind both — it lived in `CLAUDE.md` until plans and
+findings were separated, and it is here because a finding outlives the milestone that produced
+it.
+
+**The float64 precision problem was on the read side
+all along, and was blamed on the write side until #113.** Measured on the 1,664-leg
+`live_mnq.csv` capture, 18,304 float values across 11 columns:
+
+| | read default | read `round_trip` |
+|---|---|---|
+| write default | 342 moved | **exact** |
+| write `%.17g`  | 576 moved | **exact** |
+
+Read the diagonal, not the margins. `float_precision="round_trip"` is what makes the gate
+correct — with it *either* writer is exact. `%.17g` on its own fixes nothing, and paired
+with the default parser it makes matters **worse**, because 17-digit text is precisely what
+a lax parser mis-rounds. `float_precision="high"` is not enough either; it fails the same
+way. The `%.17g` is kept because it is explicit and costs nothing, **not** because it is
+load-bearing — the earlier note claiming it was, and citing "4 of 1,664 `r_multiple`
+values", was measuring the reader and attributing it to the writer.
+
+Until #113 the gate read with a bare `pd.read_csv`, so **a one-ULP difference was invisible
+to it** — a two-byte textual change in a captured log reported `BYTE-FOR-BYTE IDENTICAL`.
+`tests/test_trade_log_gate.py` now pins that it cannot regress.
+
+**Every historical claim was re-run through the fixed gate (#113) and all of them hold.**
+One capture script was run at each commit rather than each commit's own copy, so the
+harness is a constant and any difference is library code; `prepare`'s signature is
+unchanged across M9, M15 and M20a, and only its module moved, so one shim covers them all.
+
+| claim | commits | gate | `sha256` |
+|---|---|---|---|
+| M9 move | `6975a56`→`f71baa3` | identical | identical |
+| M9 schema | `f71baa3`→`8b2c5ab` | pre-existing columns identical | differ (3 columns added) |
+| M15.1 sign | `4be9980`→`96be12a` | identical | **differ — see below** |
+| M15.4 PullBackAndGo | `cc1be25`→`cb2e2c7` | identical | identical |
+| M20a | `f992c05`→`9caf653` | identical | identical |
+| M15.2/3 cancel | `96be12a`→`cc1be25` | 10 files differ | differ |
+| M15.5 fills | `cb2e2c7`→`0871831` | 14 files differ | differ |
+| #113 ruff auto-fix | `2243779`→`752155c` | identical | identical |
+
+**#113 was gated retroactively (2026-08-19), because it should not have been ungated.** A
+"Ruff auto-fix" PR reached into the `@njit` loop: `simulate_deadcat`'s MAE/MFE tracking went
+from `if run_high < high[i]` to `run_high = max(run_high, high[i])`, and `archive.py`'s
+merge inverted the branch that implements "the newest bar may insert but never overwrite".
+Both are equivalent on inspection — and inspection is not the gate. All 14 files come back
+identical on both the gate and `sha256`. **The lesson is where the change was, not what it
+was:** a lint PR is the last place anyone looks for a simulator change, so read what an
+auto-fixer touched under `nqbt/sim/` before merging, not after.
+
+The last two *should* differ — force-flat cancellation removes real legs (113,164 → 113,116)
+and M15.5 changed fill semantics. Both are the fix working, not a regression.
+
+**M15.1 is numerically identical but not textually identical, and that is new information.**
+`d = ±1` turns `0.0` into `-0.0`, so 6,908 values across `gross_pnl`, `net_pnl`,
+`r_multiple`, `mae_points` and `mfe_points` flip their sign bit. **Every one of them is
+zero** — verified, none non-zero — and `-0.0 == 0.0`, so sums, the `pnl == 0` scratch test
+and every statistic are unaffected. The right phrase for M15.1 is therefore *numerically*
+identical; only the CSV text moved.
+
+That is also why **`sha256sum` is a cross-check, not the gate**. It is strictly stronger
+than `assert_frame_equal(check_exact=True)` and will flag a benign signed zero as a
+difference. Use it to catch the gate itself being broken — it is code, and it has been
+wrong — but when the two disagree, find out which kind of difference it is before believing
+either. Verifying the gate can still *fail* is part of using it, and a pandas round-trip is
+the wrong way to do that: perturbing a value via `read_csv`/`to_csv` trips a *collateral*
+difference and reports a column you did not touch, which reads like success. **Perturb the
+CSV text directly**, one field, and check the reported column is the one you edited.
 
 ### ~~M9~~ — the trade-log schema: done
 
@@ -1051,8 +1108,9 @@ divided out. Treating all three as independent findings confirms one signal thre
 Absolute earns its place regardless because it alone answers **execution feasibility** — a rule
 that only works in thin overnight bars looks fine on relative volume and is untradeable — but
 that same secular trend means a raw absolute threshold must not be a sweepable filter, since
-expressing it as a trailing percentile just makes it relative volume again. **Time of day
-([#43]) has landed** — see below; the other three remain.
+expressing it as a trailing percentile just makes it relative volume again. The compact trend
+label ([#42]) comes off the existing MA grids and is the cheapest of the four. **Time of day
+([#43]) has landed** — see below.
 
 ### ~~M10.4~~ — time of day: done ([#43])
 
@@ -1606,9 +1664,6 @@ default is now known to be right for this machine.
 [#17]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/17
 [#18]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/18
 [#19]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/19
-[#20]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/20
-[#21]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/21
-[#22]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/22
 [#23]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/23
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
@@ -1628,6 +1683,7 @@ default is now known to be right for this machine.
 [#39]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/39
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
+[#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#43]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/43
 [#44]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/44
 [#45]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/45
@@ -1639,6 +1695,7 @@ default is now known to be right for this machine.
 [#52]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/52
 [#53]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/53
 [#54]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/54
+[#55]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/55
 [#56]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/56
 [#57]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/57
 [#58]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/58
@@ -1652,15 +1709,13 @@ default is now known to be right for this machine.
 [#66]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/66
 [#67]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/67
 [#68]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/68
-[#69]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/69
-[#70]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/70
 [#71]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/71
 [#72]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/72
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73
-[#74]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/74
 [#75]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/75
 [#76]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/76
 [#81]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/81
 [#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91
 [#92]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/92
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
+[#113]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/113

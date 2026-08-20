@@ -12,27 +12,26 @@ semantics and the reconciliation record.
 
 ## Status
 
-| Milestone | State |
+**Status lives in the issue tracker**, which is the only copy that cannot go stale. This
+section used to hold a milestone table, a test count and a reconciliation figure; all three
+were wrong by the time anyone read them.
+
+```bash
+gh issue list --state open                   # everything outstanding
+gh issue list --state open --label next-up   # what is at the front
+gh issue view <n>                            # blocked-by, blocking, sub-issues
+```
+
+Where the live numbers are produced:
+
+| number | source |
 |---|---|
-| M1 Data foundation — instruments, sessions, ingest, archive, Parquet cache | done |
-| M2 Contract splicing — roll detection, back-adjustment | done |
-| M3 Indicators & conditions — NT8-compatible EMA/SMA, session VWAP | done |
-| M4 DeadCatBounce simulation + NT8 reconciliation | done, **gate passed** |
-| M5 Sweep harness, DuckDB results, statistics | done |
-| M6 Parallelise the sweep across cores | done |
-| M7 Walk-forward and Monte Carlo | not started |
-| M8 Bar-major restructuring | premise measured — see below |
-| M9 Split market context from simulation | planned |
-| M10 Regime, relative volume, trend labels | planned |
-| M11 Manual trade review | planned |
-| M12 Web GUI | long term |
+| agreement rates against NT8 | [docs/nt8-fidelity.md](docs/nt8-fidelity.md) |
+| test count and coverage | `./.venv/Scripts/python.exe -m pytest` |
+| bar, contract and roll counts | `nqbt contracts`, `nqbt splice --diagnostics` |
 
-Planned work is specified in [docs/roadmap.md](docs/roadmap.md), in dependency order.
-
-**174 tests passing.**
-
-**Reconciliation against NT8: 1143 of 1144 leg exits identical (99.91%).** The single
-remaining leg is worth $19.50 and is an NT8 order-handling artefact.
+[docs/roadmap.md](docs/roadmap.md) carries the reasoning behind the order, the findings each
+milestone produced, and the decision record — not the plan itself.
 
 ## Contributing
 
@@ -220,9 +219,6 @@ scale. That is the check that would catch a dollar figure hardcoded to one instr
   set in MNQ. The gaps are real and were previously hidden behind the wrong contract, not
   absent — filling them from the neighbour would splice two different prices into one
   session.
-- **NQ has never been reconciled against NT8.** The pipeline runs on it end to end and
-  instrument scaling is exact (see below), but no NQ Strategy Analyzer export has been
-  compared trade-for-trade. The MNQ reconciliation is the only fill-semantics evidence.
 - **`r_multiple` uses planned risk** (`stop − trigger`), which is how the NinjaScript
   places its targets. Consequence: target exits land just under their nominal multiples,
   and stop exits can print below −1R when slippage or a gap made the risk actually taken
