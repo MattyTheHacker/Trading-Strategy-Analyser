@@ -1,36 +1,17 @@
 """Parameter sweep over a strategy archetype.
 
-Which archetype is a property of the :class:`Grid`, resolved through
-:mod:`nqbt.archetypes`. Nothing here names a parameter class or a run function: the
-registry supplies the legal axes, the toggle map ``dead_axes`` guards with, the series
-``prepare`` has to build, and the simulation to call. That indirection is the whole of
-M17 -- before it, adding a second archetype meant forking this module.
+Which archetype is a property of the :class:`Grid`, resolved through :mod:`nqbt.archetypes`;
+nothing here names a parameter class or a run function.
 
-Combo-major: build the dataset once, then loop combinations and run the full jitted
-simulation over the whole series for each. Deliberately the straightforward shape --
-correctness first. A bar-major restructuring would reuse cache better across combinations,
-but it is a real complexity cost and should be justified by profiling a real sweep size
-rather than assumed.
-
-The expensive work is hoisted out of the loop entirely: candlestick geometry, session
-VWAP, and the moving-average grids for every period in the grid are computed once in
-:func:`nqbt.context.prepare`. What remains per combination is a boolean AND over the
-precomputed gates, one pass of the simulation, and a summary taken straight off the raw
-leg matrix -- about 9 ms over 1.65M bars, nearly all of it the jitted loop. The trade log
-is a DataFrame only when a caller asks to keep one; building and aggregating one per
-combination used to be 71% of this. See ``docs/roadmap.md`` under the numpy summary path.
-
-``n_jobs`` spreads combinations over processes. The combinations are independent, so this
-is embarrassingly parallel; the only thing that needs care is that the dataset must be
-*shared* rather than copied into every worker. See :func:`_sweep_parallel`.
-
-## Axes above the Dataset
+Combo-major: build the dataset once in :func:`nqbt.context.prepare`, then loop combinations.
+What remains per combination is a boolean AND over the precomputed gates, one pass of the
+jitted simulation, and a summary taken straight off the raw leg matrix. ``n_jobs`` spreads
+those over processes; the dataset is shared rather than copied -- see :func:`_sweep_parallel`.
 
 :func:`sweep` varies parameters *inside* one :class:`~nqbt.context.Dataset`. Strategy, bar
-resolution and contract are different in kind: each selects **which dataset gets built**, so
-each needs its own. :func:`sweep_axes` is the one mechanism for all three -- deliberately
-one rather than three wrappers, because they differ only in what varies and would otherwise
-grow three incompatible ways of tagging the same results table.
+resolution and contract each select **which dataset gets built**, and :func:`sweep_axes` is the
+one mechanism for all three. Why one rather than three wrappers, and why bar-major is not
+scheduled: ``docs/roadmap.md`` §M17 and §M8.
 """
 
 from __future__ import annotations
@@ -68,9 +49,8 @@ class Grid:
     ``Grid.of(ema_period=[9, 21], use_vwap=[True, False])`` is 4 combinations; every other
     field of the archetype's parameter class stays at its default for all of them.
 
-    The archetype is a property of the grid rather than an argument to :func:`sweep`,
-    because it decides what ``base`` and ``axes`` even mean -- which fields are legal, and
-    which toggle gates which period. Passing them separately would let the two disagree.
+    The archetype belongs to the grid rather than to :func:`sweep`, because it decides what
+    ``base`` and ``axes`` mean.
     """
 
     axes: dict[str, list] = field(default_factory=dict)
@@ -118,12 +98,8 @@ class Grid:
     def dead_axes(self) -> dict[str, str]:
         """Swept periods whose filter is off for every combination.
 
-        Easy to do by accident: the NinjaScript's current defaults leave the slow SMA and
-        VWAP filters disabled, so sweeping ``slow_sma_period`` across four values yields
-        four identical rows and a 4x runtime bill.
-
-        The gate map comes from the archetype, so every new one gets this guard rather
-        than getting its own version of the same mistake.
+        Easy to do by accident: sweeping ``slow_sma_period`` while ``use_slow_sma`` is false
+        everywhere yields identical rows and a proportional runtime bill.
         """
         dead = {}
         for axis, toggle in self.archetype.gated_by.items():
@@ -163,10 +139,8 @@ class Grid:
     def axis_values(self) -> dict[str, list]:
         """Every value each parameter will take across the sweep, swept or not.
 
-        The archetype reads this to declare its context needs. It is deliberately the
-        whole parameter set rather than just ``axes``: a period that is *never* swept
-        still has to have its grid built, and reading only the axes is how a default
-        period gets silently left out.
+        The whole parameter set rather than just ``axes``, because a period that is never
+        swept still has to have its grid built.
         """
         return {
             name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable
@@ -192,19 +166,14 @@ def run_combination(
 ) -> tuple[dict, pd.DataFrame | None]:
     """Simulate one combination, returning its summary row and its trade log.
 
-    The summary always comes off the raw leg matrix, whether or not the log is kept, so
-    ``keep_trades`` changes what is returned and never what is measured. The frame is the
-    expensive half -- building and aggregating one was 71% of a combination -- and a sweep
-    that discards it should not pay for it.
+    The summary always comes off the raw leg matrix, so ``keep_trades`` changes what is
+    returned and never what is measured.
     """
     legs = archetype.legs(data, params, instrument)
     row = params.as_dict()
     for name in archetype.not_sweepable:
         row.pop(name, None)
-    # No empty-log branch here on purpose. There used to be one, building an all-int zero
-    # dict, and it disagreed with ``summarise``'s own empty case on the dtype of 22 of the
-    # 28 columns -- which reaches DuckDB, where a barren combination could then define a
-    # column's type for the whole table. One policy, and it lives in ``stats``.
+    # No empty-log branch here: one policy for an empty summary, and it lives in ``stats``.
     summary = stats.summarise_legs(legs, data.day_codes).as_dict()
     log = None
     if keep_trades:
@@ -221,13 +190,7 @@ def run_combination(
 
 
 CHUNKS_PER_WORKER = 4
-"""Chunks handed to each worker rather than one big slice.
-
-Combinations are not equal in cost -- a permissive filter set produces several times the
-trades of a strict one -- so a single slice per worker leaves cores idle at the end.
-Four is enough to even that out while staying far above the per-task overhead, which is
-tens of microseconds against a combination's tens of milliseconds.
-"""
+"""Chunks handed to each worker rather than one big slice, since combinations differ in cost."""
 
 
 def chunk_bounds(total: int, n_workers: int, chunk_size: int | None = None) -> list[tuple[int, int]]:
@@ -249,10 +212,8 @@ def _run_chunk(
 ) -> tuple[list[dict], dict[int, pd.DataFrame]]:
     """Run combinations ``[start, stop)``. Module level so loky can pickle it.
 
-    The worker regenerates its own combinations from the grid rather than being handed a
-    materialised list: a grid is a handful of small lists whatever its size, and
-    ``combinations()`` is deterministic, so ``start + offset`` is the same ``combo_id``
-    the serial path would assign.
+    The worker regenerates its combinations from the grid rather than being handed a list;
+    ``combinations()`` is deterministic, so ``start + offset`` is the serial path's ``combo_id``.
     """
     rows: list[dict] = []
     logs: dict[int, pd.DataFrame] = {}
@@ -299,14 +260,9 @@ def _sweep_parallel(
 ) -> tuple[list[dict], dict[int, pd.DataFrame]]:
     """Spread chunks over processes, sharing one copy of the dataset.
 
-    Two things make this cheap rather than ruinous. The payload is
-    :meth:`Dataset.slim`, which drops the bar DataFrame and keeps the arrays. And it is
-    hoisted out of the generator below so that every task references the *same* array
-    objects -- joblib keys its memmap cache on array identity, so one dump on disk is
-    then shared by every worker instead of one copy per task.
-
-    Workers reuse the on-disk Numba cache rather than re-JITing, which is what
-    ``@njit(cache=True)`` throughout ``nqbt.sim`` is for.
+    The payload is :meth:`Dataset.slim`, hoisted out of the generator below so every task
+    references the *same* array objects -- joblib keys its memmap cache on array identity, so
+    one dump on disk is shared by every worker instead of one copy per task.
     """
     bounds = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
     payload = data.slim()
@@ -319,8 +275,8 @@ def _sweep_parallel(
     for chunk_rows, chunk_logs in batches:
         rows.extend(chunk_rows)
         logs.update(chunk_logs)
-    # Chunks come back in submission order, but sorting states the guarantee rather than
-    # relying on it: combo_id must mean the same thing however the sweep was run.
+    # Chunks come back in submission order; sorting states the guarantee rather than
+    # relying on it.
     rows.sort(key=lambda r: r["combo_id"])
     return rows, logs
 
@@ -338,17 +294,13 @@ def sweep(
 ) -> tuple[pd.DataFrame, dict[int, pd.DataFrame]]:
     """Run every combination in ``grid`` and return a summary table.
 
-    Trade logs are discarded unless ``keep_trades`` is set -- a wide sweep produces far
-    more trade rows than fit comfortably in memory, and the summary is what ranks
-    candidates. Re-run a shortlisted combination on its own to get its trades.
+    Trade logs are discarded unless ``keep_trades`` is set; re-run a shortlisted combination on
+    its own to get its trades.
 
-    ``n_jobs`` follows the joblib convention: ``1`` runs in this process, ``-1`` uses
-    every core. It defaults to serial because process startup costs a few seconds --
-    each worker imports Numba -- which is not worth paying for a few hundred
-    combinations. The results are identical either way; only the wall clock changes.
-    ``progress_every`` logs a running rate when serial, and switches joblib's own
-    per-task reporting on when parallel. The serial rate goes through ``logging``, so a
-    caller that has not configured a handler sees nothing -- see :mod:`nqbt.logsetup`.
+    ``n_jobs`` follows the joblib convention and defaults to serial, because process startup
+    costs a few seconds per worker. Results are identical either way. ``progress_every`` logs a
+    running rate when serial and switches joblib's own reporting on when parallel; the serial
+    rate goes through ``logging``, so a caller with no handler sees nothing.
     """
     data = data if data is not None else prepare_for(bars, grid)
 
@@ -368,13 +320,8 @@ class AxisPoint(NamedTuple):
     """Which dataset, and which strategy on it, one block of results came from.
 
     A :class:`NamedTuple` so it can key the returned trade logs and expand straight into the
-    results row's tag columns -- :attr:`_fields` is deliberately the same four names
-    :data:`nqbt.results.AXIS_COLUMNS` declares, and a test pins that rather than letting the
-    two drift.
-
-    ``tier2`` is **carried, not swept**: it is a property of the strategy rather than an axis
-    of its own. It rides here because it has to reach the results row, where its whole job is
-    to stop a ranking comparing a reconciled archetype against an unreconciled one.
+    results row's tag columns; :attr:`_fields` is the same four names
+    :data:`nqbt.results.AXIS_COLUMNS` declares, and a test pins that.
     """
 
     strategy: str
@@ -397,35 +344,18 @@ def sweep_axes(
 ) -> tuple[pd.DataFrame, dict[tuple[AxisPoint, int], pd.DataFrame]]:
     """Run one or more grids across strategy, resolution and contract.
 
-    ``bars`` carries the contract axis, because a contract axis *is* which bars: pass one
-    frame for the spliced continuous series, or a ``{contract: frame}`` mapping -- exactly
-    what :func:`nqbt.dispersion.contract_frames` returns -- to run each contract separately.
-    A single frame tags every row with ``contract=None``, which is what that null means.
+    ``bars`` carries the contract axis: one frame for the spliced continuous series, or a
+    ``{contract: frame}`` mapping to run each contract separately. A single frame tags every
+    row with ``contract=None``, which is what that null means. The strategy axis is a **list of
+    grids**, not a list of archetype names.
 
-    The strategy axis is a **list of grids**, not a list of archetype names. Each archetype
-    has its own parameter class, so ``ema_period=[9, 21]`` is not even a legal axis of the
-    next one; a single grid re-based onto another archetype would raise or, worse, silently
-    sweep a different field. One grid per strategy is the only shape that can express two
-    archetypes being swept over their own parameters.
+    Returns ``(results, logs)``. Every results row leads with the four columns of
+    :class:`AxisPoint`, and ``logs`` is keyed by ``(AxisPoint, combo_id)``. **``combo_id`` is
+    the grid's own index, so it means the same thing at every axis point** -- but not across
+    grids, which is why ``strategy`` is part of the key.
 
-    Returns ``(results, logs)``. Every results row carries the four columns of
-    :class:`AxisPoint` as its leading columns, and ``logs`` is keyed by
-    ``(AxisPoint, combo_id)``.
-
-    **``combo_id`` is the grid's own index, so it means the same thing at every axis point** --
-    that is what makes "combination 7 at 1 minute against combination 7 at 15 minutes" a
-    comparison rather than a coincidence. It does *not* carry across grids: combination 7 of
-    two different archetypes is two unrelated parameter sets, which is why ``strategy`` is
-    part of the key and not a column you may drop.
-
-    Every axis defaults to a single value, so the cost is opt-in one axis at a time. They do
-    compose, and the product is a product: three grids over four resolutions over nineteen
-    contracts is 228 datasets, each paying the full :func:`nqbt.context.prepare` cost.
-
-    Comparing a profit factor across resolutions **at the same period number is meaningless**
-    unless the periods are scaled with the bar size. Order lifetime, the ratchet and
-    ``bars_required_to_trade`` are all counted in bars, so a resolution sweep is a family of
-    related strategies rather than one strategy sampled differently.
+    Comparing a profit factor across resolutions at the same period number is meaningless
+    unless the periods are scaled with the bar size. Reasoning: ``docs/roadmap.md`` §M17.
     """
     grid_list = [grids] if isinstance(grids, Grid) else list(grids)
     if not grid_list:
@@ -442,9 +372,7 @@ def sweep_axes(
         msg = "no bars to sweep: the contract mapping is empty"
         raise SweepError(msg)
 
-    # One spec covering every grid, so the axis point builds *one* dataset that all of them
-    # read. This is what ``ContextSpec.__or__`` exists for -- a dataset each would multiply
-    # the memory the parallel path memmaps to every worker by the number of strategies.
+    # One spec covering every grid, so the axis point builds *one* dataset all of them read.
     spec = ContextSpec()
     for grid in grid_list:
         spec = spec | grid.required_context()
@@ -454,9 +382,7 @@ def sweep_axes(
     for contract, source in sources.items():
         for minutes in resolutions:
             frame = resample.resample(source, minutes)
-            # ``bar_minutes`` is stated rather than inferred: this loop is the one place
-            # that already knows the resolution, and the bar-of-session index would
-            # otherwise be a guess off the index's own gaps.
+            # ``bar_minutes`` is stated rather than inferred: this loop already knows it.
             data = context.prepare(frame, spec, bar_minutes=minutes)
             for grid in grid_list:
                 point = AxisPoint(
@@ -483,11 +409,7 @@ def sweep_axes(
 
 
 def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
-    """Put the axis point's four columns in front of one sweep's results.
-
-    In front rather than appended: these are what the row *is*, and a table whose leading
-    column is ``combo_id`` invites reading two resolutions as one population.
-    """
+    """Put the axis point's four columns in front of one sweep's results."""
     tagged = table.copy()
     for position, name in enumerate(AxisPoint._fields):
         tagged.insert(position, name, getattr(point, name))
@@ -500,10 +422,10 @@ def rank(
     top: int = 20,
     min_trades: int = 30,
 ) -> pd.DataFrame:
-    """Shortlist candidates, ignoring combinations with too few trades to mean anything.
+    """Shortlist candidates, ignoring combinations with fewer than ``min_trades`` trades.
 
-    A profit factor computed from four trades is noise, and without a floor it will
-    dominate any ranking -- the smallest samples produce the most extreme statistics.
+    The floor is not optional: the smallest samples produce the most extreme statistics, so
+    without it they dominate the ranking.
     """
     if results.empty:
         return results

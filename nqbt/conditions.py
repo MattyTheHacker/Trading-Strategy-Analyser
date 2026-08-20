@@ -1,21 +1,12 @@
 """Precomputed entry conditions, built once per dataset and reused across a sweep.
 
-The simulation must never recompute an indicator. Everything a strategy tests is reduced
-here to boolean arrays it can index into.
+The simulation must never recompute an indicator, so everything a strategy tests is reduced
+here to boolean arrays it can index into. Parameter-free conditions are one array each;
+parameter-dependent ones become a ``[n_periods, n_bars]`` matrix the simulation takes a row of.
 
-Conditions split into two shapes:
-
-**Parameter-free (1D).** Candlestick geometry, "made a new high", "previous bar was
-green". These depend only on the bars, so one array each covers the whole sweep.
-
-**Parameter-dependent (2D).** ``Close > EMA(p)`` depends on the swept period ``p``, so it
-cannot collapse to a single array. Instead the union of periods in the grid is computed
-once into a ``[n_periods, n_bars]`` matrix and the simulation takes a row index. For
-~1.65M bars and 30 periods that is ~50 MB per gate as bools -- cheap next to recomputing
-an EMA for every combination.
-
-The confluence-count pattern is supported directly: rather than requiring all N filters,
-:func:`count_true` sums how many passed so the required minimum can itself be swept.
+**Every filter is the negation of its C#'s rejection, not the positive form**, and the
+equality boundaries do not mirror between archetypes -- ``docs/nt8-fidelity.md``, "The entry
+filters' equality boundaries".
 """
 
 from __future__ import annotations
@@ -55,9 +46,7 @@ __all__ = [
 def _inverted_hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
     """Upper wick at least twice the body, lower wick no larger than the body.
 
-    Ported from ``DeadCatBounce.cs``. The ``body > 0`` requirement means a doji never
-    qualifies, however long its upper wick -- with a zero body the 2x test would be
-    trivially satisfied.
+    ``DeadCatBounce.cs``. ``body > 0`` means a doji never qualifies.
     """
     n = open_.size
     out = np.zeros(n, dtype=np.bool_)
@@ -75,9 +64,7 @@ def _inverted_hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close
 def _hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
     """Lower wick at least twice the body, upper wick no larger than the body.
 
-    Ported from ``PullBackAndGo.cs`` -- the mirror of :func:`_inverted_hammer` with the
-    wick roles swapped, as a bullish pullback-into-an-uptrend hammer rather than a bearish
-    inverted one. ``body > 0`` rules out a doji the same way.
+    ``PullBackAndGo.cs`` -- :func:`_inverted_hammer` with the wick roles swapped.
     """
     n = open_.size
     out = np.zeros(n, dtype=np.bool_)
@@ -113,11 +100,7 @@ def _made_new_low(low: np.ndarray) -> np.ndarray:
 
 @njit(cache=True)
 def _previous_bar_green(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
-    """``Close[1] >= Open[1]``.
-
-    Note the boundary: ``DeadCatBounce.cs`` rejects on ``Close[1] < Open[1]``, so a
-    doji-closed previous bar (``Close[1] == Open[1]``) counts as green and passes.
-    """
+    """``Close[1] >= Open[1]``, so a doji-closed previous bar counts as green and passes."""
     n = open_.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
@@ -127,16 +110,10 @@ def _previous_bar_green(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
 
 @njit(cache=True)
 def _previous_bar_red(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
-    """``Close[1] < Open[1]``.
+    """``Close[1] < Open[1]``, so a doji-closed previous bar is **not** red and does not pass.
 
-    ``PullBackAndGo.cs`` rejects on ``Close[1] >= Open[1]``, so a doji-closed previous bar
-    is **not** red and does not pass. This is the one boundary where the two strategies do
-    not mirror each other: :func:`_previous_bar_green` admits a doji and this rejects one,
-    which makes the pair exact complements rather than a pair that overlaps at equality.
-
-    The C# used to read ``Close[1] > Open[1]`` here, which did make them symmetric, and the
-    port followed it. The strictening cost 103 of 760 signals on MNQ 03-24 -- 13.6% -- so it
-    is worth checking the operator rather than assuming the mirror holds.
+    The one boundary where the two archetypes do not mirror each other --
+    ``docs/nt8-fidelity.md``, "The entry filters' equality boundaries".
     """
     n = open_.size
     out = np.zeros(n, dtype=np.bool_)
@@ -180,33 +157,25 @@ def previous_bar_red(bars: pd.DataFrame) -> np.ndarray:
 
 
 def below_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
-    """``Close < series`` -- the downtrend gate, expressed as NT8 evaluates it.
+    """The downtrend gate: the negation of ``DeadCatBounce.cs``'s rejection, so equality passes.
 
-    ``DeadCatBounce.cs`` rejects when ``Close[0] > ma[0]``, so equality *passes*. Writing
-    the positive form as ``close < series`` would silently drop those bars; the negation
-    of the rejection is what belongs here.
+    Writing the positive ``close < series`` would silently drop those bars.
     """
     return ~(close > series)
 
 
 def above_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
-    """``Close > series`` -- the uptrend gate, as ``PullBackAndGo.cs`` evaluates it.
+    """The uptrend gate: the negation of ``PullBackAndGo.cs``'s rejection, so equality passes.
 
-    It rejects when ``Close[0] < ma[0]``, so equality *passes* here too -- not the negation
-    of :func:`below_series`, which also passes on equality. The two overlap exactly at
-    ``close == series``, independently, because each strategy's own C# chose to treat its
-    own boundary that way.
+    **Not** ``~below_series`` -- the two overlap at ``close == series`` rather than
+    partitioning it. See ``docs/nt8-fidelity.md``.
     """
     return ~(close < series)
 
 
 @njit(cache=True)
 def _crossed(fast: np.ndarray, slow: np.ndarray, lookback: int, above: bool) -> np.ndarray:
-    """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?
-
-    One implementation for both directions, because the only difference is which way the
-    two comparisons point.
-    """
+    """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?"""
     n = fast.size
     out = np.zeros(n, dtype=np.bool_)
     last = -1
@@ -226,16 +195,8 @@ def cross_above(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.nda
     """``CrossAbove(fast, slow, lookback)`` as NinjaScript evaluates it.
 
     True on every bar within ``lookback`` bars *of* a cross, not only on the bar the cross
-    happened -- ``lookback=1`` is the bar itself. The naive one-bar form is therefore the
-    ``lookback=1`` special case and not the definition, which is what a later NinjaScript
-    would disagree with. See ``docs/nt8-fidelity.md`` § M18.
-
-    Equality is resolved on the *prior* bar: ``fast[i] > slow[i] and fast[i-1] <= slow[i-1]``,
-    so two series that touch and then separate upward have crossed. Vanishingly unlikely
-    for EMAs, entirely reachable for SMAs of tick-grid prices.
-
-    Reads only bars ``<= i``, which is the property ``docs/roadmap.md`` calls the easiest
-    place in this archetype to manufacture a fictional edge.
+    happened; ``lookback=1`` is the bar itself. Equality is resolved on the *prior* bar. Reads
+    only bars ``<= i``. See ``docs/nt8-fidelity.md`` §M18.
     """
     if lookback < 1:
         msg = f"lookback must be >= 1, got {lookback}"
@@ -251,8 +212,7 @@ def cross_above(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.nda
 def cross_below(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.ndarray:
     """``CrossBelow(fast, slow, lookback)`` -- :func:`cross_above` with both tests mirrored.
 
-    Not the complement of :func:`cross_above`: on a bar where neither series moved past the
-    other, both are false.
+    Not its complement: where neither series moved past the other, both are false.
     """
     if lookback < 1:
         msg = f"lookback must be >= 1, got {lookback}"
@@ -295,28 +255,21 @@ def bar_geometry(bars: pd.DataFrame) -> BarGeometry:
 class MovingAverageGrid:
     """``Close < MA(p)`` for every period in a sweep, as ``[n_periods, n_bars]``.
 
-    ``periods`` is sorted and deduplicated, so :meth:`row` is the only supported way to
-    get from a period back to its row -- indexing the matrix directly with a period would
-    silently return the wrong series.
+    ``periods`` is sorted and deduplicated, so :meth:`row` is the only supported way from a
+    period back to its row.
     """
 
     kind: str
     periods: np.ndarray
     below: np.ndarray
-    """``Close < MA``, ``[n_periods, n_bars]`` bool. Read as NT8's downtrend gate does --
-    see :func:`below_series`."""
+    """``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`."""
     above: np.ndarray
-    """``Close > MA``, ``[n_periods, n_bars]`` bool, for a long-capable archetype's uptrend
-    gate -- see :func:`above_series`. Computed alongside :attr:`below` from the same MA
-    pass rather than lazily, since ``prepare`` already builds this grid for every archetype
-    unconditionally (M17 is what makes that conditional)."""
+    """``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`."""
     values: np.ndarray | None = None
     """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept.
 
-    Eight bytes per element against one makes this the difference between 580 MB and
-    64 MB for 39 periods over 1.65M bars, which matters once a parallel sweep starts
-    handing the grid to every worker. Entry gates only ever need :attr:`below` or
-    :attr:`above`; the values are needed solely by the moving-average trailing stop.
+    Eight bytes per element against one: 580 MB rather than 64 MB for 39 periods over 1.65M
+    bars, which a parallel sweep hands to every worker.
     """
 
     def row(self, period: int) -> int:
@@ -393,8 +346,7 @@ def moving_average_grid(
 def count_true(stack: np.ndarray) -> np.ndarray:
     """Per-bar count of satisfied conditions, given a ``[n_conditions, n_bars]`` stack.
 
-    Backs the confluence pattern: instead of hardcoding that all N filters must hold, the
-    strategy compares this count against a swept minimum ("at least 3 of 5").
+    Backs the confluence pattern: "at least 3 of 5", with the minimum itself sweepable.
     """
     n_cond, n_bars = stack.shape
     out = np.zeros(n_bars, dtype=np.int64)

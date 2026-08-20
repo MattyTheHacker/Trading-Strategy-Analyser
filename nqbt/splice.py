@@ -1,51 +1,23 @@
 """Combine per-contract exports into one continuous series.
 
-NQ/MNQ are quarterly, so any window longer than a few months spans several contracts.
-Splicing is an explicit, inspectable step: it decides a roll date per adjacent pair,
-concatenates the resulting segments, and optionally back-adjusts historical prices so
-they line up with the current contract (NT8's ``MergeBackAdjusted`` behaviour).
+NQ/MNQ are quarterly, so any window longer than a few months spans several contracts. This is
+an explicit, inspectable step: decide a roll date per adjacent pair, concatenate the segments,
+and optionally back-adjust historical prices to line up with the current contract (NT8's
+``MergeBackAdjusted`` behaviour).
 
-**Volume comparison is bar-aligned, not calendar-aligned.** Comparing whole-day volume
-between two contracts silently compares a truncated session against a full one whenever
-an export stops mid-roll, which makes the back contract look dominant days before it
-really is. Restricting the comparison to timestamps both contracts actually have removes
-that bias -- at the cost of revealing that some exports simply do not contain the roll.
-
-**How much history a contract has decides which roll rule is even possible.** A plain
-manual export returns roughly 95 days per contract, ending ~4 days before expiry, and the
-volume crossover happens at or just after that boundary -- so on that data it is not
-observable and every roll falls back to the coverage handover.
-
-Running the AddOn first changes that. Its ``BarsRequest`` calls warm NinjaTrader's local
-database, after which a manual re-export returns the full contract life, and the crossover
-becomes visible: all 18 MNQ and all 18 NQ rolls now find one, against none before.
-
-**A session with too few shared bars does not get to decide.** Both roots have a ~60-bar
-stub two or three days before most rolls -- NT8 serves the Sunday-evening hour for that
-trading day and nothing else -- and it lands exactly where the crossover is judged. On such
-a stub the ratio is two hours of overnight trade standing in for a session, and it read 1.46
-in MNQ against 0.68 in NQ for the same roll. Sessions below
-:data:`FULL_SESSION_FRACTION` of the median shared-bar count are marked inconclusive and
-skipped; they can still be confirmed *by*, they just cannot start the run.
-
-**Open question worth knowing about.** The coverage handover had one virtue beyond
-necessity: it is the point where NT8 itself runs out of one contract and starts the next,
-so Tier 1 and Tier 2 agreed by construction. A data-derived crossover date has no such
-guarantee -- NT8 merges on the rollover dates configured in its Database window, which may
-not be these. The existing reconciliation does not settle it either way, having been run on
-a single contract rather than a spliced series.
+**Volume comparison is bar-aligned, not calendar-aligned**, and a session with too few shared
+bars is marked inconclusive rather than allowed to decide. Both rules and their evidence:
+``docs/nt8-fidelity.md``, "Contract data". Why a data-derived roll date is deliberately not
+reconciled against NT8: ``docs/roadmap.md``, "Decisions taken".
 
 Two roll methods:
 
 ``volume_crossover``
-    The textbook rule: roll on the first *conclusive* session where the back contract's
-    volume overtakes the front's, measured over shared bars. The normal path now that the
-    archive carries full contract lives; every roll in both roots uses it.
+    Roll on the first *conclusive* session where the back contract's volume overtakes the
+    front's, measured over shared bars. The normal path; every roll in both roots uses it.
 ``coverage_boundary``
-    The fallback for a contract exported without the crossover in range. Rolls on the first
-    session where the front contract's data is partial and the back contract's is complete.
-    The handover volume ratio is recorded so a roll that fires suspiciously early can still
-    be spotted.
+    The fallback for a contract exported without the crossover in range: the first session
+    where the front contract's data is partial and the back contract's is complete.
 """
 
 from __future__ import annotations
@@ -269,12 +241,9 @@ def detect_roll(
 def _first_confirmed_crossover(table: pd.DataFrame, confirm_sessions: int) -> pd.Timestamp | None:
     """First session where the back contract leads and keeps leading.
 
-    Inconclusive sessions are skipped rather than allowed to decide. Both roots have a
-    ~60-bar stub two or three days before most rolls, and on such a stub the comparison is
-    an hour of overnight trade standing in for a session: MNQ 03-23 -> 06-23 read 1.46
-    there and rolled a day early, where NQ's equivalent stub read 0.68 and did not. The
-    skipped day is still eligible to be *confirmed* by -- the run only has to start
-    somewhere trustworthy.
+    Inconclusive sessions are skipped rather than allowed to decide, but are still eligible to
+    be *confirmed* by -- the run only has to start somewhere trustworthy. See
+    ``docs/nt8-fidelity.md``, "Contract data".
     """
     wins = table["back_wins"].to_numpy()
     conclusive = table["conclusive"].to_numpy()

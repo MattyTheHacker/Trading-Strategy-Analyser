@@ -34,6 +34,11 @@ Planned work is specified in [docs/roadmap.md](docs/roadmap.md), in dependency o
 **Reconciliation against NT8: 1143 of 1144 leg exits identical (99.91%).** The single
 remaining leg is worth $19.50 and is an NT8 order-handling artefact.
 
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) is the working agreement — code style, tests, linting,
+commits, pull requests, and the trade-log gate that anything touching `nqbt/sim/` has to pass.
+
 ## Setup
 
 Python 3.14 with cp314 wheels for every dependency — no downgrade needed.

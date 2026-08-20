@@ -1,10 +1,8 @@
 """Wiring between a prepared :class:`~nqbt.context.Dataset` and the jitted simulation.
 
-Everything strategy-specific about DeadCatBounce that is not inside the ``@njit`` loop
-lives here: which precomputed gates the signal ANDs together, and how a
-:class:`~nqbt.sim.types.DeadCatParams` becomes the loop's scalar arguments. The market
-context itself is built once by :func:`nqbt.context.prepare` and reused by every
-combination in a sweep.
+Everything strategy-specific about DeadCatBounce that is not inside the ``@njit`` loop: which
+precomputed gates the signal ANDs together, and how a
+:class:`~nqbt.sim.types.DeadCatParams` becomes the loop's scalar arguments.
 """
 
 from __future__ import annotations
@@ -27,8 +25,7 @@ if TYPE_CHECKING:
 def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
     """Conjunction of every active entry filter.
 
-    The inverted hammer is not optional -- ``DeadCatBounce.cs`` has no toggle for it, so
-    it anchors the signal and the switchable filters narrow it from there.
+    The inverted hammer is not optional -- ``DeadCatBounce.cs`` has no toggle for it.
     """
     signal = data.geometry.inverted_hammer.copy()
     if params.require_new_high:
@@ -57,17 +54,11 @@ def deadcat_legs(
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 
-    The producer boundary for a caller that only wants statistics: a sweep summarises this
-    directly rather than paying for a DataFrame it throws away. :func:`run_deadcat` is the
+    The producer boundary for a caller that only wants statistics; :func:`run_deadcat` is the
     same simulation with the frame built on top.
 
-    ``signal`` overrides the computed entry signal, which is what the random-entry control
-    arm (:mod:`nqbt.randomentry`) substitutes. It exists so the null runs **this** function
-    rather than its own copy of the ``simulate_deadcat`` call: a null assembled from a
-    forked bracket would be measuring a different simulator from the strategy it is the
-    control for, which is the one thing it must not do. Everything downstream of the signal
-    -- brackets, ratchet, costs, force-flat, direction -- is therefore identical by
-    construction rather than by review.
+    ``signal`` overrides the computed entry signal, which is what the random-entry control arm
+    substitutes so that it runs **this** function rather than its own copy of the simulation.
     """
     signal = deadcat_signal(data, params) if signal is None else signal
     quantities = np.asarray(params.leg_quantities, dtype=np.int64)

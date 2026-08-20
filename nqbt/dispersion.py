@@ -1,42 +1,12 @@
 """Per-contract sweeps, framed as dispersion rather than selection.
 
-`sweep.sweep` already takes a bars frame, so running one contract has always been possible.
-What was missing is the cross-contract table and -- the part that actually matters -- **the
-framing that stops it being misread**.
+Reports how much a statistic varies across contracts and whether that variation exceeds what
+relabelling the same trades produces. **Report the spread, not the winner**: a contract is
+roughly a quarter of history, so a maximum over contracts x combinations is the
+multiple-comparisons trap. Bars are raw rather than back-adjusted, which is what makes a
+single-contract run directly reproducible in Strategy Analyzer.
 
-## Why the maximum is the wrong output
-
-Each contract is front-month for roughly three months, so *"which contract is this strategy
-best on"* is very nearly *"which quarter of history was it best in"*. Taking the best of 19
-contracts x N combinations is the multiple-comparisons trap: a good-looking maximum is the
-*expected* output of noise, not evidence against it.
-
-So :func:`dispersion` reports the spread and is deliberately **not** sorted by performance,
-and :func:`spread_vs_resampling` exists to give that spread a scale. A spread with no null
-to compare against is a number, not a finding.
-
-## Three things this does that slicing the continuous series by date does not
-
-1. **It is a data-integrity instrument.** An outlier contract is far more often a bad roll
-   date, a hole or a bad splice than a market insight. Given how much of the archive work
-   came from exactly such defects, this is a cheap standing check.
-2. **It uses raw prices, never back-adjusted ones.** Back-adjustment shifts historical
-   levels by hundreds of points, so any rule sensitive to the absolute level -- round-number
-   stop avoidance -- can only be tested per contract.
-3. **It is directly Tier-2 reproducible.** A single-contract run contains no roll, so
-   Strategy Analyzer can reproduce it bar for bar. That makes it the cheapest route to the
-   outstanding NQ reconciliation (#66).
-
-## What this is not
-
-A contract is a ~3-month bucket, so this surfaces **regime shifts, not events**. An election
-or a CPI print is a day or an hour, and averaging it across a quarter dilutes it to nothing.
-For events the tools are the regime and time-of-day labels (#40, #43) plus a date filter.
-
-The per-contract loop here is intentionally thin -- it builds frames and calls
-:func:`nqbt.sweep.sweep`. #28 folds contract into one `sweep_axes` mechanism alongside
-strategy and resolution, and should absorb that loop while keeping the statistics below,
-which are what this module is really for.
+Framing, the permutation test's limits and the first result: ``docs/roadmap.md`` §M14.
 """
 
 from __future__ import annotations
@@ -55,9 +25,7 @@ if TYPE_CHECKING:
 MIN_TRADES = 30
 """Below this a per-contract statistic is reported but excluded from dispersion.
 
-A profit factor from a handful of trades is noise, and noise has the widest spread -- so
-including small contracts does not merely add uncertainty, it dominates the very quantity
-this module exists to measure.
+Noise has the widest spread -- ``docs/roadmap.md`` §M14.
 """
 
 
@@ -71,16 +39,14 @@ def front_month_windows(
     back_adjust: bool = True,
     cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:
-    """Each contract's front-month window, read off the continuous series.
+    """Each contract's front-month window, read off the continuous series' ``contract`` column.
 
-    The continuous series already carries a ``contract`` column recording which contract
-    supplied every bar, so the windows are whatever the splicer decided rather than a second
-    opinion about where the rolls are. Two things follow: the windows are non-overlapping and
-    sum to the continuous series, and a change to roll detection moves them automatically.
+    The windows are therefore the splicer's decisions rather than a second opinion about where
+    the rolls are: non-overlapping, summing to the continuous series, and moving automatically
+    when roll detection does.
 
-    ``back_adjust`` only selects which cached series to read the *labels* from -- prices here
-    are never used, and the bars are reloaded raw. Its default matches the series most likely
-    to be on disk.
+    ``back_adjust`` selects which cached series to read the *labels* from; prices are never
+    used here and the bars are reloaded raw.
     """
     series = splice.load_continuous(root, back_adjust=back_adjust, cache_dir=cache_dir)
     grouped = series.groupby("contract", observed=True)
@@ -104,14 +70,9 @@ def contract_frames(
 ) -> dict[str, pd.DataFrame]:
     """Raw bars per contract, sliced to the front-month window by default.
 
-    **Raw, never back-adjusted** -- see the module docstring. The frames come from the
-    per-contract cache, which is what NT8 exported, so a run over one of them is directly
-    reproducible in Strategy Analyzer.
-
-    ``full_life=True`` returns each contract's entire cached history instead. That is
-    occasionally what you want, but adjacent contracts then overlap by months, so the same
-    calendar days appear in two rows and anything aggregated across contracts double-counts
-    them. The default is the non-overlapping window for that reason.
+    ``full_life=True`` returns each contract's entire cached history instead, in which case
+    adjacent contracts overlap by months and anything aggregated across them double-counts
+    calendar days.
     """
     windows = front_month_windows(root, back_adjust=back_adjust, cache_dir=cache_dir)
     frames: dict[str, pd.DataFrame] = {}
@@ -128,11 +89,11 @@ def contract_frames(
 
 
 def coverage(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Bars and sessions per contract.
+    """Bars and sessions per contract, joined onto every performance figure.
 
-    Reported alongside every performance figure, and not optionally: the first contract of a
-    root carries its whole pre-roll listing history and the newest is always partial, so a
-    profit factor from 30 trades would otherwise sit unlabelled beside one from 400.
+    Not optional: the first contract of a root carries its whole pre-roll listing history and
+    the newest is always partial, so a profit factor from 30 trades would otherwise sit
+    unlabelled beside one from 400.
     """
     rows = []
     for name, bars in frames.items():
@@ -161,30 +122,20 @@ def sweep_contracts(
     keep_trades: bool = False,
     n_jobs: int = 1,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[tuple[str, int], pd.DataFrame]]:
-    """Run ``grid`` over every contract of ``root`` separately.
+    """Run ``grid`` over every contract of ``root`` separately, via :func:`sweep.sweep_axes`.
 
     Returns ``(results, coverage_table, logs)``. ``results`` is one row per
     ``(contract, combo_id)`` with the contract's bar and session counts joined on, so no row
     can be read without its sample size. ``logs`` is empty unless ``keep_trades``, which
     :func:`spread_vs_resampling` needs.
 
-    This deliberately returns a table rather than a ranking. Use :func:`dispersion`.
-
-    The per-contract loop is :func:`nqbt.sweep.sweep_axes`, which is the one mechanism for
-    strategy, resolution and contract alike (#28). What stays here is what this module is
-    actually for: the front-month windows, the coverage table joined onto every row, and the
-    statistics below. ``contract`` is moved back to the leading column because that is this
-    function's own promise -- ``sweep_axes`` leads with the full axis point.
+    A table, not a ranking -- use :func:`dispersion`.
     """
     frames = contract_frames(root, full_life=full_life, back_adjust=back_adjust, cache_dir=cache_dir)
     cover = coverage(frames)
 
-    # No empty-table guard here, deliberately. ``Grid`` rejects an axis with no values and
-    # ``combinations()`` always yields at least ``base``, so a sweep returns one row per
-    # combination even when nothing trades -- and ``contract_frames`` has already refused an
-    # empty set of contracts. A branch for "no results" would be unreachable, and the
-    # roadmap's standing trap is that unreachable code behind an uncovered branch is exactly
-    # where a defect sits unnoticed.
+    # No empty-table guard: a sweep always returns one row per combination, and
+    # ``contract_frames`` has already refused an empty set of contracts.
     results, axis_logs = sweep.sweep_axes(frames, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs)
     contract_column = results.pop("contract")
     results.insert(0, "contract", contract_column)
@@ -201,14 +152,8 @@ def dispersion(
 ) -> pd.DataFrame:
     """How much ``by`` varies across contracts, per combination.
 
-    **Not sorted by performance, on purpose.** Rows come back in ``combo_id`` order, because
-    sorting by the median would hand back the leaderboard this module exists to refuse. If
-    you want the best row you have to reach for it deliberately, and then you own the
-    multiple-comparisons problem that comes with it.
-
-    ``contracts_dropped`` is as informative as the spread. A combination that clears
-    ``min_trades`` on three of nineteen contracts has not been measured across contracts at
-    all, whatever its median says.
+    **Rows come back in ``combo_id`` order, never sorted by performance** -- ``docs/roadmap.md``
+    §M14. Read ``contracts_dropped`` beside the spread.
     """
     if by not in results.columns:
         msg = f"no column {by!r} in results; have {sorted(results.columns)}"
@@ -247,15 +192,10 @@ def _range(values: np.ndarray) -> float:
 
 
 SPREAD_MEASURES = {"iqr": _iqr, "range": _range}
-"""Both are reported, because this module has two jobs and they disagree.
+"""Both are reported, because they answer different questions.
 
-``iqr`` answers *"how much does the bulk of contracts differ?"* and is robust -- on 19
-contracts a max-minus-min is decided by the two smallest samples.
-
-``range`` answers *"is any single contract extreme?"*, which is the **data-integrity**
-question: an outlier contract is far more often a bad roll date or a hole than a market
-insight. The IQR is blind to exactly that by construction, so reporting only the robust
-measure would discard the signal this module is most useful for.
+``iqr`` is robust and asks whether the bulk of contracts differ; ``range`` asks whether any one
+contract is extreme, which is the data-integrity question the IQR is blind to by construction.
 """
 
 
@@ -269,30 +209,13 @@ def spread_vs_resampling(
 ) -> dict:
     """Does the between-contract spread exceed what relabelling the same trades produces?
 
-    A permutation test, not a bootstrap: contract labels are shuffled over the **same** set
-    of trades, keeping every group's trade count exactly as observed. That answers the only
-    question the raw spread poses -- *"if which contract a trade happened in were arbitrary,
-    would the contracts still look this different?"* -- and it is the difference between the
-    spread being a number and being a finding.
-
-    Trades are permuted **whole**: each contract's legs are collapsed by
-    :func:`nqbt.stats.per_trade` first, so a trade's legs cannot be split across two groups
-    and invent trades that never happened.
-
-    Both spread measures in :data:`SPREAD_MEASURES` are reported, and they answer different
-    questions -- read the one matching what you are asking. A rogue contract moves ``range``
-    and leaves ``iqr`` almost untouched, which is the robustness working, not a bug.
-
-    ``by`` is restricted to :data:`nqbt.stats.TRADE_PNL_STATISTICS`. Permuting destroys entry
-    and exit times, so a time-dependent statistic -- Sharpe, max drawdown, consecutive losses
-    -- would be computed over an ordering that never happened. Refusing is better than
-    returning it.
+    A permutation test over whole trades, restricted to
+    :data:`nqbt.stats.TRADE_PNL_STATISTICS`. Both measures in :data:`SPREAD_MEASURES` are
+    reported.
 
     **Read a small ``p_value`` as "not obviously noise", never as evidence of a real
-    per-contract effect.** Permutation destroys serial correlation and within-contract regime
-    persistence, so the null it builds has *less* spread than reality and the test therefore
-    **over-rejects**. It is a floor on scepticism, not a verdict. The stronger version --
-    block resampling that keeps runs intact -- shares machinery with #50 and belongs there.
+    per-contract effect** -- the test over-rejects by construction. That and the rest of its
+    limits: ``docs/roadmap.md`` §M14.
     """
     from nqbt import stats
 
@@ -323,8 +246,7 @@ def spread_vs_resampling(
         )
 
     pooled = np.concatenate(list(usable.values()))
-    # Cut points, so every permutation reproduces the observed group sizes exactly. Without
-    # that the null would mix a spread effect with a sample-size effect.
+    # Cut points, so every permutation reproduces the observed group sizes exactly.
     bounds = np.cumsum([pnl.size for pnl in usable.values()])[:-1]
 
     rng = np.random.default_rng(seed)

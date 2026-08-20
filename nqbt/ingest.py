@@ -6,20 +6,19 @@ UTC::
     yyyyMMdd HHmmss;open;high;low;close;volume
     20231207 000100;16019.25;16019.25;16016.75;16017.25;19
 
-Ingestion reads :mod:`nqbt.archive`, not the export folders themselves. Exports are moving
-windows -- NinjaTrader drops each contract's tail once it expires -- and this module mirrors
-its input exactly, so pointing it at a source folder would propagate that loss into the
-cache. ``ingest_all`` refreshes the archive first so the step cannot be skipped.
+**Ingestion reads :mod:`nqbt.archive`, never an export folder.** This module mirrors its
+input exactly, which is correct for a snapshot and quietly destructive for a moving window --
+``docs/nt8-fidelity.md``, "Contract data". ``ingest_all`` refreshes the archive first so the
+step cannot be skipped.
 
-Reading is **incremental** where it safely can be: the manifest records how far into the
-file we parsed and a hash of exactly those bytes, so a genuine append reads only the tail
-while anything else -- a bar revised, a bar withdrawn, a mid-formation bar completing --
-falls back to a full reparse. Hashing only the head cannot see a rewritten tail, and reading
-a rewrite as an append froze stale bars in the cache and dropped real ones at the seam.
+Reading is **incremental** where it safely can be: the manifest records how far into the file
+was parsed and a hash of exactly those bytes, so a genuine append reads only the tail while
+anything else falls back to a full reparse. Hashing only the head cannot see a rewritten tail,
+which froze stale bars in the cache and dropped real ones at the seam.
 
-The cache is deliberately lossless -- out-of-session prints are tagged, not dropped, so
-the raw export can always be reconstructed from Parquet. Filtering happens downstream in
-:mod:`nqbt.splice` when the continuous series is built.
+The cache is deliberately lossless -- out-of-session prints are tagged, not dropped, so the raw
+export can always be reconstructed from Parquet. Filtering happens downstream in
+:mod:`nqbt.splice`.
 """
 
 from __future__ import annotations
@@ -382,14 +381,9 @@ def ingest_all(
 ) -> tuple[list[archive.MergeResult], list[IngestResult]]:
     """Refresh the archive from every source, then ingest it.
 
-    The archive step is not optional by default, and that is deliberate. Exports are moving
-    windows: run the AddOn after a contract expires and it returns only the truncated range
-    the server still offers. Ingestion mirrors its input exactly -- correct for a snapshot,
-    quietly destructive for a window -- so something has to accumulate, and doing it here
-    means it cannot be skipped by forgetting a step.
-
-    ``data_dir`` bypasses the archive and ingests one folder directly. For inspecting a
-    single export in isolation; not the normal path.
+    The archive step is not optional by default, so it cannot be skipped by forgetting it.
+    ``data_dir`` bypasses it and ingests one folder directly, for inspecting a single export in
+    isolation; **not the normal path**.
     """
     manifest_path = cache_dir / "manifest.json"
     manifest = load_manifest(manifest_path)

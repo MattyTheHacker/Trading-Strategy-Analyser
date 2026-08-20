@@ -1,15 +1,9 @@
 """PullBackAndGo archetype: buy a hammer pulling back into an established uptrend.
 
-Ported from ``ninjatrader-scripts/Strategies/PullBackAndGo.cs`` as the long-side proof for
-M15's direction generalisation -- the exact mirror of DeadCatBounce's entry mechanism
-(``EnterLongStopMarket`` where DeadCatBounce uses ``EnterShortStopMarket``), chosen
-specifically because it has C# to reconcile against (M15.5) rather than being an original
-archetype nothing can be checked against.
-
-Reuses :func:`nqbt.sim.deadcat.simulate_deadcat` -- the stop-market bracket loop itself,
-not a fork of it -- with ``direction=LONG`` and the handful of parameters where the two strategies
-genuinely differ rather than merely mirror. See :class:`nqbt.sim.types.PullBackAndGoParams`
-for what those are and why each one is not swept as a DeadCatBounce-shaped field.
+Ported from ``ninjatrader-scripts/Strategies/PullBackAndGo.cs``, the exact mirror of
+DeadCatBounce's entry mechanism. Reuses :func:`nqbt.sim.deadcat.simulate_deadcat` itself, not a
+fork of it, with ``direction=LONG`` and the handful of parameters where the two strategies
+genuinely differ -- see :class:`nqbt.sim.types.PullBackAndGoParams`.
 """
 
 from __future__ import annotations
@@ -30,12 +24,7 @@ if TYPE_CHECKING:
 
 
 def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
-    """Conjunction of every active entry condition.
-
-    The hammer is the only unconditional one; every other filter has a ``Use*`` or
-    ``Require*`` property behind it, each its own early-return ``if`` in the C# rather than
-    one combined condition, so switching one off leaves the rest exactly as they were.
-    """
+    """Conjunction of every active entry condition. The hammer is the only unconditional one."""
     signal = data.geometry.hammer.copy()
     if params.require_new_low:
         signal &= data.geometry.made_new_low

@@ -1,44 +1,12 @@
 """DeadCatBounce archetype: short an inverted hammer into an established downtrend.
 
-Ported from ``ninjatrader-scripts/Strategies/DeadCatBounce.cs``, which is the source of
-truth. Where the C# is ambiguous the resolution is recorded below rather than guessed at
-silently, because these choices move trade counts far more than any parameter does.
+Ported from ``ninjatrader-scripts/Strategies/DeadCatBounce.cs``, which is the source of truth.
+The loop here is the stop-market **entry** half; every exit goes through
+:mod:`nqbt.sim.bracket`.
 
-**Order lifetime.** ``EnterShortStopMarket`` under NT8's managed approach is *not* GTC
-despite ``TimeInForce.Gtc`` on the strategy: an unfilled entry is cancelled at the close of
-the following bar. A signal at the close of bar ``t`` therefore places an order live for
-bar ``t+1`` only.
-
-**Trigger.** ``min(Low[0], Close[0] - 2 ticks)``, not simply the bar's low. An inverted
-hammer closes near its low by construction, so the close-based term binds on about a third
-of signals and drags the trigger 1-2 ticks under the low, which is enough to turn a
-marginal fill into no fill at all.
-
-**Fill.** On bar ``t+1``, a gap through the trigger fills at the open; otherwise a trade
-down to the trigger fills at the trigger. No touch, no fill, order gone.
-
-**Exit precedence.** Bar-close OHLC cannot say whether a bar hit the stop or a target
-first, so ``ambiguity_policy`` decides. NT8 fills whichever level sits nearer the bar's
-open, verified against a real trade list where that rule called all seven ambiguous bars
-correctly. The alternative is a blanket worst case, which is more pessimistic than NT8 and
-therefore breaks Tier 1 / Tier 2 parity in the safe direction. Either way the bar is
-flagged ``ambiguous_bar`` so the cost of the assumption stays measurable.
-
-**Limit fills.** ``IsFillLimitOnTouch = false`` in the NinjaScript, so a profit target
-needs price to trade *through* it, not merely reach it. Every disagreement with NT8 about
-a target fill came from a bar whose low equalled the target to the tick.
-
-**Ratchet.** At the close of each bar in a position the stop becomes
-``High[0] + 2 ticks`` -- the just-closed bar's high -- if that is tighter, never looser,
-shared across all four legs. The stop set at the close of bar ``i`` is live during bar
-``i+1``. ``ratchet_lag`` exposes the older ``High[1]`` variant, which holds trades about a
-third longer.
-
-**Targets.** Each leg's target is rounded onto the tick grid, as ``RoundToTickSize`` does
-in the NinjaScript: a 1.5x multiple of an odd tick count otherwise lands on a half tick.
-
-**Same-bar stop-out.** A stop can fire on the bar the entry filled: the entry is at the
-bar's low and the stop above it, so a wide enough bar reaches both.
+Each rule it implements -- the one-bar order lifetime, the ``min(Low[0], Close[0] - 2 ticks)``
+trigger, the fill and submittability tests, the ratchet -- and the evidence behind it:
+``docs/nt8-fidelity.md``.
 """
 
 from __future__ import annotations
@@ -88,26 +56,15 @@ def simulate_deadcat(
 ) -> int:
     """Run one bracket archetype over one dataset, writing one row per leg exit.
 
-    Shared by DeadCatBounce and PullBackAndGo.cs -- both are a stop order in the trade
-    direction, a ratcheting stop, and up to four R-multiple targets with the last leg a
-    runner. ``signal`` is the precomputed conjunction of every active entry filter, and
-    ``force_flat`` marks bars at or past the exit-on-session-close cutoff. ``direction`` is
-    ``+1.0`` long / ``-1.0`` short (see ``nqbt.trades.LONG``/``SHORT``); DeadCatBounce
-    always calls this with ``SHORT``, since the NinjaScript has no long variant.
+    Shared by DeadCatBounce and PullBackAndGo: both are a stop order in the trade direction, a
+    ratcheting stop, and up to four R-multiple targets with the last leg a runner. ``signal``
+    is the precomputed conjunction of every active entry filter, ``force_flat`` marks bars at
+    or past the exit-on-session-close cutoff, and ``direction`` is ``+1.0`` long / ``-1.0``
+    short.
 
     ``ratchet_offset_ticks`` is separate from ``stop_offset_ticks`` because the two C#
-    strategies genuinely differ here, not just in direction: ``DeadCatBounce.cs`` ratchets
-    to ``High[0] + 2 ticks`` every bar, reapplying the same offset used for the initial
-    stop, while ``PullBackAndGo.cs`` ratchets to a bare ``Low[1]`` with no offset at all.
-    ``run_deadcat`` passes ``stop_offset_ticks`` here to reproduce its behaviour exactly;
-    ``run_pullbackandgo`` passes ``0``.
-
-    ``round_targets`` exists for the same reason: ``DeadCatBounce.cs`` rounds every target
-    onto the tick grid via ``RoundToTickSize``, but ``PullBackAndGo.cs`` does not call it at
-    all, so its targets are ported un-rounded even though that can land on a half tick --
-    matching the C# text rather than assuming symmetry. Whether NT8 silently snaps such a
-    price at submission is a live-platform question M15.5's reconciliation has to settle,
-    not something to guess at here.
+    strategies genuinely differ there, and ``round_targets`` is a parameter for the same
+    reason -- ``docs/nt8-fidelity.md``.
 
     Returns the number of rows written to ``out``; a negative return means ``out`` was too
     small.
@@ -176,20 +133,13 @@ def simulate_deadcat(
                 return -1
 
         # ---- a resting entry order lives for exactly this one bar -------------------
-        # pending_bar >= 0 matters at i == 0: the sentinel -1 would otherwise equal
-        # i - 1 there too. The short-only loop never noticed, because a zero-initialised
-        # pending_trigger makes `open_[i] <= pending_trigger` false for any real price and
-        # the touch test below is never reached; direction generalises the comparison to
-        # `direction * open_[i] >= direction * pending_trigger`, which a long's positive
-        # price satisfies against that same zero trigger immediately.
+        # pending_bar >= 0 matters at i == 0, where the -1 sentinel also equals i - 1;
+        # a long would then fill against the zero-initialised trigger.
         elif pending_bar >= 0 and pending_bar == i - 1:
             filled = False
             fill = 0.0
-            # A bar at or past the flatten cutoff cancels a resting order rather than
-            # letting it fill: no new position may open once the account rules require
-            # being flat. force_flat[i] here, not block_entry_at_session_close -- that
-            # flag only stops a *new* signal being accepted on a force-flat bar, and does
-            # not reach an order that rested from the bar before.
+            # force_flat[i], not block_entry_at_session_close: that flag only stops a
+            # *new* signal on a force-flat bar, never an order resting from the bar before.
             if not force_flat[i]:
                 if direction * open_[i] >= direction * pending_trigger:
                     fill = open_[i] + direction * slippage  # gapped through the trigger
@@ -214,17 +164,10 @@ def simulate_deadcat(
                     if np.isnan(target_r[leg]):
                         leg_target[leg] = np.nan
                     else:
-                        # RoundToTickSize in DeadCatBounce.cs: a 1.5x multiple of an odd
-                        # tick count lands on a half tick, which no exchange accepts.
-                        # PullBackAndGo.cs never calls it -- see round_targets in the
-                        # docstring -- so this must stay conditional, not assumed.
                         raw = pending_trigger + direction * risk * target_r[leg] * tp_multiplier
                         leg_target[leg] = round_to_tick(raw, tick_size) if round_targets else raw
 
-                # The entry bar can reach the stop as well: entry sits at the signal
-                # bar's low, the stop above the signal bar's high. Same resolution as any
-                # other bar -- the `leg_open` guards inside are simply no-ops here, since
-                # every leg was opened a few lines above.
+                # The entry bar can reach the stop as well, and resolves like any other.
                 written, in_position = resolve_brackets(
                     out,
                     written,
@@ -277,10 +220,8 @@ def simulate_deadcat(
             )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
             too_risky = candidate_risk > max_risk_ticks * tick_size
-            # A stop-market entry must sit strictly beyond the market it is submitted
-            # into -- a buy stop above it, a sell stop below it -- or it is not a stop
-            # order at all and the platform will not accept it. The market at submission
-            # is the signal bar's close, this being Calculate.OnBarClose.
+            # A stop-market entry must sit strictly beyond the market it is submitted into,
+            # which under Calculate.OnBarClose is the signal bar's close.
             submittable = direction * trigger > direction * close[i]
             if (
                 candidate_risk > 0.0
@@ -292,8 +233,8 @@ def simulate_deadcat(
                 pending_trigger = trigger
                 pending_stop = candidate_stop
 
-    # The series can stop mid-session, so anything still open is liquidated at the last
-    # bar rather than dropped -- an untracked open position would silently lose its P&L.
+    # The series can stop mid-session, so anything still open is liquidated at the last bar
+    # rather than dropped.
     if in_position:
         last = n - 1
         exit_fill = close[last] - direction * slippage
