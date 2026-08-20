@@ -112,7 +112,7 @@ def test_a_signed_zero_is_not_a_difference(gate, capture) -> None:
     """M15.1 sent 6,908 zeros to ``-0.0`` via ``d = -1`` without moving a result.
 
     A file hash calls that a difference; the gate must not, or every direction-symmetric
-    change would read as a regression. See CLAUDE.md under M15.
+    change would read as a regression. See docs/roadmap.md M15.
     """
     before, after = capture
     changed = edit_field(after / "live_mnq.csv", "net_pnl", 2, "-0")
