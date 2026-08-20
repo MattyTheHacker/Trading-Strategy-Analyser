@@ -229,7 +229,7 @@ def test_the_stop_set_at_one_close_is_the_one_live_on_the_next_bar(ratchet) -> N
 
 
 def test_the_ratchet_candidate_reapplies_the_entry_offset_to_the_previous_high(ratchet) -> None:
-    """``High[bar-1] + stop_offset_ticks``, not a bare ``High[bar-1]`` -- see CLAUDE.md."""
+    """``High[bar-1] + stop_offset_ticks``, not a bare ``High[bar-1]`` -- see docs/nt8-fidelity.md."""
     data, params, history = ratchet
     offset = params.stop_offset_ticks * MNQ.tick_size
     for row in history.itertuples():

@@ -178,7 +178,7 @@ def test_a_bars_own_close_stamp_classifies_to_the_session_it_aggregated() -> Non
 
 
 def test_out_of_session_prints_are_dropped_rather_than_given_a_bucket() -> None:
-    """A Saturday print has no session to be anchored to. See CLAUDE.md on stray prints."""
+    """A Saturday print has no session to be anchored to. See .claude/rules/data-pipeline.md."""
     src = minute_bars(1)
     stray = src.iloc[[0]].copy()
     stray.index = pd.DatetimeIndex(

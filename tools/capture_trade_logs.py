@@ -19,7 +19,7 @@ a throwaway. See ``docs/roadmap.md`` under M9 and M15.
 nothing but is *not* what makes the gate exact -- ``compare_trade_logs.py`` reading with
 ``float_precision="round_trip"`` is. Either writer is exact against that reader, and 17-digit
 text against pandas' *default* parser is worse than the default writer. Measured in #113;
-the table is in ``CLAUDE.md``. The claim this paragraph used to make -- "4 of 1,664
+the rules are in ``.claude/rules/regression-gate.md``. The claim this paragraph used to make -- "4 of 1,664
 ``r_multiple`` values" -- was measuring the reader and attributing it to the writer.
 
 The four paths are chosen to cover what a single run does not:
