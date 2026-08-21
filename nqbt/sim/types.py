@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
-from nqbt import timeofday
+from nqbt import regime, timeofday
 
 
 @dataclass(slots=True)
@@ -37,6 +37,21 @@ class DeadCatParams:
 
     Absent from the NinjaScript, and off by default. A bitmask integer rather than a tuple so
     that it is a legal sweep axis -- ``docs/roadmap.md`` §M10.4."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Which market regimes an entry may be taken in, as a :mod:`nqbt.regime` bitmask.
+
+    Absent from the NinjaScript, off by default, and a bitmask for the same reason
+    :attr:`phase_filter` is -- ``docs/roadmap.md`` §M10.1."""
+
+    regime_lookback: int = 20
+    """Bars the efficiency ratio measures over."""
+
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """Where the ratio is cut into the three regimes, both boundaries falling in the
+    unclassifiable band. Conventional starting points rather than measured ones, and inert
+    while :attr:`regime_filter` admits everything -- ``docs/roadmap.md`` §M10.1."""
 
     tp_multiplier: float = 1.0
     """Scales every leg's target. ``TPMultiplier`` in the NinjaScript."""
@@ -103,6 +118,9 @@ class DeadCatParams:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
         timeofday.validate_mask(self.phase_filter)
+        regime.validate_mask(self.regime_filter)
+        regime.validate_lookback(self.regime_lookback)
+        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -145,6 +163,15 @@ class PullBackAndGoParams:
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
+
+    regime_lookback: int = 20
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """The efficiency-ratio lookback and its two cuts -- see
+    :attr:`DeadCatParams.regime_directional_above`."""
 
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
@@ -197,6 +224,9 @@ class PullBackAndGoParams:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
         timeofday.validate_mask(self.phase_filter)
+        regime.validate_mask(self.regime_filter)
+        regime.validate_lookback(self.regime_lookback)
+        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -246,6 +276,15 @@ class EmaCrossoverParams:
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
+
+    regime_lookback: int = 20
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """The efficiency-ratio lookback and its two cuts -- see
+    :attr:`DeadCatParams.regime_directional_above`."""
 
     exit_on_opposite_cross: bool = True
     """Close the position at the next bar's open when the regime flips.
@@ -305,6 +344,9 @@ class EmaCrossoverParams:
             msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
             raise ValueError(msg)
         timeofday.validate_mask(self.phase_filter)
+        regime.validate_mask(self.regime_filter)
+        regime.validate_lookback(self.regime_lookback)
+        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
         if self.fast_period == self.slow_period:
             msg = (
                 f"fast_period and slow_period are both {self.fast_period}; identical "

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numba import njit
 
-from nqbt import conditions, timeofday, trades
+from nqbt import conditions, regime, timeofday, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket
 from nqbt.sim.types import STOP_MIN_TICKS
@@ -355,6 +355,13 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> np.ndarray:
         signal |= conditions.cross_below(fast, slow, params.cross_lookback) & (direction == trades.SHORT)
     if params.phase_filter != timeofday.ALL_PHASES:
         signal &= data.phase_gate(params.phase_filter)
+    if params.regime_filter != regime.ALL_REGIMES:
+        signal &= data.regime_gate(
+            params.regime_lookback,
+            params.regime_filter,
+            params.regime_consolidating_below,
+            params.regime_directional_above,
+        )
     return signal
 
 
