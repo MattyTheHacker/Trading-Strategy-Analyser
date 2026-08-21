@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nqbt import timeofday, trades
+from nqbt import regime, timeofday, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, deadcat
 
@@ -40,6 +40,13 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
         signal &= data.vwap_gate(above=True)
     if params.phase_filter != timeofday.ALL_PHASES:
         signal &= data.phase_gate(params.phase_filter)
+    if params.regime_filter != regime.ALL_REGIMES:
+        signal &= data.regime_gate(
+            params.regime_lookback,
+            params.regime_filter,
+            params.regime_consolidating_below,
+            params.regime_directional_above,
+        )
     return signal
 
 

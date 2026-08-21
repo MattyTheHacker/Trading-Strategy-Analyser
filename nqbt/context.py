@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from nqbt import conditions, indicators, sessions, timeofday
+from nqbt import conditions, indicators, regime, sessions, timeofday
 
 if TYPE_CHECKING:
     from nqbt.conditions import MovingAverageGrid
@@ -49,6 +49,9 @@ class ContextSpec:
     needs_time_of_day: bool = False
     """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
 
+    regime_lookbacks: tuple[int, ...] = ()
+    """Efficiency-ratio lookbacks to build (:mod:`nqbt.regime`). Empty builds nothing."""
+
     needs_ma_values: bool = False
     """Keep the raw moving-average values, not just the boolean gates -- eight bytes per
     element against one, so off unless something reads the numbers themselves."""
@@ -60,6 +63,7 @@ class ContextSpec:
             atr_periods=tuple(sorted({*self.atr_periods, *other.atr_periods})),
             needs_vwap=self.needs_vwap or other.needs_vwap,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
+            regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
         )
 
@@ -96,6 +100,9 @@ class Dataset:
     above_vwap: np.ndarray | None = None
     time_of_day: timeofday.TimeOfDay | None = None
     """Session phase and bar of session, or ``None`` when nothing asked for them."""
+
+    regimes: regime.EfficiencyRatioGrid | None = None
+    """Efficiency ratios per declared lookback, or ``None`` when nothing asked for them."""
 
     day_codes: np.ndarray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
@@ -196,6 +203,44 @@ class Dataset:
         """Per-bar index from the session open, the fine form of the same clock."""
         return self._time_of_day().bar_of_session
 
+    def _regimes(self) -> regime.EfficiencyRatioGrid:
+        if self.regimes is None:
+            msg = (
+                "no efficiency ratios in this dataset; prepare() was not asked for them. "
+                "Add the lookback to regime_lookbacks on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.regimes
+
+    def regime_gate(
+        self,
+        lookback: int,
+        mask: int,
+        consolidating_below: float,
+        directional_above: float,
+    ) -> np.ndarray:
+        """Per-bar boolean: does this bar's regime pass ``mask``?
+
+        Callers skip this entirely at :data:`nqbt.regime.ALL_REGIMES` -- see
+        :func:`nqbt.regime.gate`.
+        """
+        return self._regimes().gate_for(lookback, mask, consolidating_below, directional_above)
+
+    def regime_values(self, lookback: int) -> np.ndarray:
+        """Per-bar efficiency ratio, the raw quantity behind the labels."""
+        return self._regimes().values_for(lookback)
+
+    def regime_labels(
+        self,
+        lookback: int,
+        consolidating_below: float,
+        directional_above: float,
+    ) -> np.ndarray:
+        """Per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
+        return self._regimes().labels_for(lookback, consolidating_below, directional_above)
+
     @property
     def nbytes(self) -> int:
         """Bytes held by the derived arrays -- what a parallel worker is handed.
@@ -212,6 +257,8 @@ class Dataset:
                 total += a.nbytes
         if self.time_of_day is not None:
             total += self.time_of_day.nbytes
+        if self.regimes is not None:
+            total += self.regimes.nbytes
         return total
 
     def slim(self) -> Dataset:
@@ -262,6 +309,7 @@ def prepare(
     tod = (
         timeofday.classify(bars.index, bar_minutes=bar_minutes, info=info) if spec.needs_time_of_day else None
     )
+    regimes = regime.efficiency_ratio_grid(close, spec.regime_lookbacks) if spec.regime_lookbacks else None
 
     vwap = below_vwap = above_vwap = None
     if spec.needs_vwap:
@@ -297,5 +345,6 @@ def prepare(
         below_vwap=below_vwap,
         above_vwap=above_vwap,
         time_of_day=tod,
+        regimes=regimes,
         day_codes=day_codes(bars.index),
     )

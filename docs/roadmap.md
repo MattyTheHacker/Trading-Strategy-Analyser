@@ -1169,10 +1169,8 @@ unprofitability is settled. Re-run it rather than quoting these numbers.
 ### M10 — the conditions the review needs and we lack ([#39])
 
 The review is meant to score trades against "overall trend, MAs, volume, directional vs
-consolidation, time of day", and three of those five have no implementation. Kaufman's
-efficiency ratio ([#40]) is the first classifier — bounded 0–1, ~3 lines of numpy, no TA-Lib
-dependency and therefore no NT8-mismatch problem, and the band between its thresholds gives the
-unclassifiable no-trade state for free rather than as a special case. **Volume is one quantity
+consolidation, time of day", and three of those five had no implementation. **Time of day
+([#43]) and the regime classifier ([#40]) have both landed** — see below. **Volume is one quantity
 and its decomposition, not three conditions** ([#41]): absolute volume is the raw count, time of
 day is its dominant systematic component, and relative volume is absolute with that component
 divided out. Treating all three as independent findings confirms one signal three times.
@@ -1180,8 +1178,7 @@ Absolute earns its place regardless because it alone answers **execution feasibi
 that only works in thin overnight bars looks fine on relative volume and is untradeable — but
 that same secular trend means a raw absolute threshold must not be a sweepable filter, since
 expressing it as a trailing percentile just makes it relative volume again. The compact trend
-label ([#42]) comes off the existing MA grids and is the cheapest of the four. **Time of day
-([#43]) has landed** — see below.
+label ([#42]) comes off the existing MA grids and is the cheapest of the four.
 
 ### ~~M10.4~~ — time of day: done ([#43])
 
@@ -1283,6 +1280,115 @@ measurable against the simulation.
 - **`infer_bar_minutes` takes the mode of the gaps**, not the minimum or the mean: every
   session has a one-hour break and the archive has holes, so both of those measure the gaps
   rather than the bars.
+
+### ~~M10.1~~ — market regime: done ([#40])
+
+`nqbt/regime.py`. Kaufman's efficiency ratio — `|close[t] − close[t−n]| / Σ|diff(close)|` over
+the lookback — cut by two thresholds into `CONSOLIDATING`, `UNCLASSIFIABLE` and `DIRECTIONAL`.
+Bounded 0–1, three lines of arithmetic, no TA-Lib dependency and therefore none of the
+NT8-parity work the moving averages needed. The lookback and both thresholds are sweepable and
+`regime_filter` is a bitmask integer, for exactly the reason `phase_filter` is one.
+
+**The band between the thresholds is a label, not a gap.** Strictly below the lower is
+consolidating, strictly above the upper is directional, and everything in between —
+**including both boundaries** — is unclassifiable. That makes the third category free rather
+than a special case, and it makes the equality question one decision instead of two: no bar can
+satisfy two regimes, and `validate_thresholds` refuses a pair that cross rather than silently
+ordering them.
+
+**The warm-up is `UNDEFINED`, which is not a fourth regime and not consolidating.** The house
+convention for an NT8 indicator is an expanding warm-up, and it is wrong here: over two bars
+the numerator and the denominator are the same quantity, so an expanding ratio reads exactly
+1.0 and would label the start of every dataset `DIRECTIONAL`. Not measured and measured
+inconclusive are different states, and folding the first into the second would put unmeasured
+bars into a stratification cell while leaving the counts adding up — the failure that looks
+like a result. `UNDEFINED` is −1 for the same reason `OUT_OF_SESSION` is, and an undefined bar
+passes **no** mask, `ALL_REGIMES` included, so each archetype's signal skips the conjunction
+entirely at the default rather than ANDing a gate that would drop 20 bars from a reconciled run.
+
+**The window sum is recomputed per bar rather than maintained incrementally.** A rolling
+add/subtract over a million bars drifts, and this is a denominator that legitimately reaches
+zero: a flat window would turn a −1e−13 of accumulated error into a large negative ratio. The
+exact version costs 15 ms per lookback over 914,700 bars, paid once in `prepare`, which is not
+worth trading for that. A window that genuinely never moved scores 0.0 — the extreme of
+consolidation — rather than dividing by zero.
+
+**The grid holds ratios, not labels.** Both thresholds are swept as well as the lookback, so a
+grid keyed by all three would multiply out; `EfficiencyRatioGrid` is `[n_lookbacks, n_bars]`
+float64 and the thresholds are applied at gate time. That is the opposite of
+`MovingAverageGrid`'s default and the reason `_regime_lookbacks` returns nothing unless some
+combination actually narrows the filter — eight bytes per element is the most expensive thing
+a `ContextSpec` can ask for by accident. It is also the shape [#51]'s bandwidth squeeze wants,
+so the two share a scalar-plus-thresholds classifier instead of each inventing one.
+
+**One function owns the rule.** `_regime_of` is the `@njit` device function both `label` and
+`gate` call, so the stratification key and the entry filter cannot drift apart. The filter still
+never builds a label array: `gate` tests `1 << regime` against the mask inside the same pass,
+which reads 0.23 ms over 914,700 bars against the ~30 ms a combination of the run below
+costs.
+
+**`dead_axes` had to learn that a mask is off at its everything value.** `ALL_REGIMES` is 7,
+so the existing truthiness test read the filter as switched on and would have let
+`regime_lookback=[5, 20]` run every combination twice for identical rows.
+`archetypes.INERT_AT` states the off value where it is not `False`; nothing else changes.
+
+**Gated.** All 12 captured trade logs are byte-identical, `sha256` included; the two sweep
+summary tables differ by the four added parameter columns and are identical on every
+pre-existing column — `compare_trade_logs.py --added regime_filter regime_lookback
+regime_consolidating_below regime_directional_above` reports `ALL PRE-EXISTING COLUMNS
+IDENTICAL`.
+
+**First stratification, and it is a stratification rather than a finding.** Costed MNQ
+continuous from 2024-01-01 (914,700 bars), stock `DeadCatParams`, **$1.50 per contract** and 1
+tick, lookback 20 and thresholds 0.3/0.5, one combination run once per regime:
+
+| regime | bar share | trades | profit factor | win rate | expectancy |
+|---|---|---|---|---|---|
+| CONSOLIDATING | 71.3% | 2,396 | 0.611 | 0.312 | −12.04 |
+| UNCLASSIFIABLE | 21.9% | 975 | **0.721** | 0.331 | −8.40 |
+| DIRECTIONAL | 6.8% | 270 | 0.616 | 0.296 | −14.97 |
+| all | | 3,639 | 0.640 | 0.316 | −11.28 |
+
+**Do not read the UNCLASSIFIABLE row as an edge**, and do not diff this table against M10.4's:
+that one was run at the roadmap's older $1.24. It is the best of three cells chosen after
+looking, on the archetype [#48] exists to guard against exactly this on, and no cell reaches a
+profit factor of 1. And 270 trades in `DIRECTIONAL` is where a minimum-stratum guard starts to
+bind — against seven session phases it is 35 cells, and this is the coarsest of the two labels.
+
+**The signals partition exactly and the trade counts do not, which is the point worth keeping.**
+All three single-regime filters admit 4,889 signals between them, exactly the unfiltered count,
+and their union is the unfiltered signal bar-for-bar. The trade lists sum to **3,641 against
+3,639**. Nothing is double-counted: the simulation holds one position at a time, so removing an
+entry can free a later signal the unfiltered run was still in a position for. A regime label
+flips bar to bar where a session phase is a contiguous block, which is why M10.4's seven phases
+did sum exactly and these three do not. **Stratify the signal, or accept that the trade-level
+decomposition is approximate** — and never conclude a filter "found" trades from a count that
+went up.
+
+**71% of 1-minute bars are `CONSOLIDATING` at 0.3/0.5.** The thresholds are resolution-dependent
+— a minute of noise has a low efficiency ratio almost by construction — so the defaults are
+conventional starting points to be swept, not a calibration, and they will want different
+values at 15 and 30 minutes. Read `ambiguous_share` before believing any of the rows: it runs
+0.029 / 0.041 / 0.044 against 0.033 overall, highest in `DIRECTIONAL`, which is what a regime
+of larger bars should do.
+
+**Cost.** Requested the way VWAP is, and adds one float64 series per lookback — 7.32 MB over
+914,700 bars, about a sixth of the 47 MB dataset the run above was handed. `prepare` pays 15 ms
+per lookback and the per-combination gate 0.23 ms, so neither is measurable against the
+simulation.
+
+**Smaller choices, recorded here rather than in the module ([#105]):**
+
+- **Efficiency ratio rather than ADX**, which is laggier, less interpretable, and would need
+  the same NT8-parity check the moving averages needed. ADX only if this proves inadequate.
+- **A lookback of 1 is refused**, because numerator and denominator are then the same quantity
+  and every bar reads 1.0 — a whole axis of `DIRECTIONAL` that looks like a measurement.
+- **Three regimes, and deliberately no more.** Time of day already multiplies every other
+  stratification; three against seven phases is 21 cells before an MA gate, and [#48]'s guard
+  has to survive it on a few hundred real trades.
+- **The ratio is invariant to direction, level and scale**, which is what makes one pair of
+  thresholds meaningful across both roots and across years of back-adjusted history. A test
+  pins all three.
 
 ### M11 — manual trade review ([#44])
 

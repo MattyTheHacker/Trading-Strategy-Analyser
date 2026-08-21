@@ -545,6 +545,20 @@ list was diffed against — which is fine for research and is not a Tier-2 claim
 The boundaries themselves (03:00 London, 09:30 cash open, 16:00 close) are market facts in
 Eastern time, not readings out of NT8, and are recorded in `docs/roadmap.md` § M10.4.
 
+### So are the regime labels (#40)
+
+`nqbt/regime.py` is the same shape of thing and carries the same status. Kaufman's efficiency
+ratio has no NinjaScript counterpart, is not a fill rule, and cannot move a trade; `regime_filter`
+is the one place it touches a reconciled archetype, and like `phase_filter` it is absent from
+both `DeadCatBounce.cs` and `PullBackAndGo.cs`. Listed here so it is on the record beside the
+other options the C# does not implement.
+
+It defaults to `ALL_REGIMES` and each signal **skips it entirely** at that value, so all 12
+captured trade logs are byte-identical across the change, `sha256` included. There is a second
+reason the skip has to be no call rather than a no-op mask: the ratio's warm-up bars are
+`UNDEFINED` and pass nothing, `ALL_REGIMES` included. The thresholds and the warm-up decision
+are in `docs/roadmap.md` § M10.1.
+
 ## Contract data
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a limited
