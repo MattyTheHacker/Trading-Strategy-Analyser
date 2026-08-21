@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nqbt import regime, timeofday, trades, volume
+from nqbt import trades
 from nqbt.instruments import MNQ, Instrument
-from nqbt.sim import bracket, deadcat
+from nqbt.sim import bracket, deadcat, filters
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -38,23 +38,7 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
         signal &= data.ma_gate("sma", params.slow_sma_period, above=True)
     if params.use_vwap:
         signal &= data.vwap_gate(above=True)
-    if params.phase_filter != timeofday.ALL_PHASES:
-        signal &= data.phase_gate(params.phase_filter)
-    if params.regime_filter != regime.ALL_REGIMES:
-        signal &= data.regime_gate(
-            params.regime_lookback,
-            params.regime_filter,
-            params.regime_consolidating_below,
-            params.regime_directional_above,
-        )
-    if params.volume_filter != volume.ALL_STATES:
-        signal &= data.volume_gate(
-            params.volume_key,
-            params.volume_filter,
-            params.volume_thin_below,
-            params.volume_heavy_above,
-        )
-    return signal
+    return filters.apply_context_filters(signal, data, params)
 
 
 def pullbackandgo_legs(

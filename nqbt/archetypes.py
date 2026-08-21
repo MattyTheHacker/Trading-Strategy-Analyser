@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
-from nqbt import regime, timeofday, volume
+from nqbt import regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import crossover, pullback, runner
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
@@ -97,6 +97,26 @@ def _volume_keys(values: Mapping[str, Sequence]) -> tuple[volume.VolumeKey, ...]
     )
 
 
+def _trend_keys(values: Mapping[str, Sequence]) -> tuple[trend.TrendKey, ...]:
+    """List the trend labels to build: none unless some combination filters on them.
+
+    Eleven bytes per bar per label, and the averages behind them never reach the dataset --
+    ``docs/roadmap.md`` §M10.3.
+    """
+    if not any(int(v) != trend.ALL_TRENDS for v in values.get("trend_filter", ())):
+        return ()
+    return tuple(
+        sorted(
+            {
+                trend.key(fast, slow, lookback)
+                for fast in values.get("trend_fast_period", ())
+                for slow in values.get("trend_slow_period", ())
+                for lookback in values.get("trend_slope_lookback", ())
+            },
+        ),
+    )
+
+
 def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
@@ -114,6 +134,7 @@ def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
+        trend_keys=_trend_keys(values),
     )
 
 
@@ -132,6 +153,7 @@ def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
+        trend_keys=_trend_keys(values),
         needs_ma_values=True,
     )
 
@@ -139,6 +161,7 @@ def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
 INERT_AT: Mapping[str, object] = {
     "regime_filter": regime.ALL_REGIMES,
     "volume_filter": volume.ALL_STATES,
+    "trend_filter": trend.ALL_TRENDS,
 }
 """What a toggle's off value is, where it is not simply ``False``.
 
@@ -166,6 +189,16 @@ VOLUME_GATES: Mapping[str, str] = {
 three states. What this cannot catch: ``docs/roadmap.md`` §M10.2.
 """
 
+TREND_GATES: Mapping[str, str] = {
+    "trend_fast_period": "trend_filter",
+    "trend_slow_period": "trend_filter",
+    "trend_slope_lookback": "trend_filter",
+    "trend_min_agreement": "trend_filter",
+}
+"""Shared by every archetype: the four trend axes do nothing while the filter admits all three
+trends.
+"""
+
 # A period only matters when its filter is switched on.
 MA_GATES: Mapping[str, str] = {
     "ema_period": "use_ema",
@@ -173,6 +206,7 @@ MA_GATES: Mapping[str, str] = {
     "slow_sma_period": "use_slow_sma",
     **REGIME_GATES,
     **VOLUME_GATES,
+    **TREND_GATES,
 }
 
 CROSSOVER_GATES: Mapping[str, str] = {
@@ -180,6 +214,7 @@ CROSSOVER_GATES: Mapping[str, str] = {
     "atr_stop_multiple": "use_atr_stop",
     **REGIME_GATES,
     **VOLUME_GATES,
+    **TREND_GATES,
 }
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
