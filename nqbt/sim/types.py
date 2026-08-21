@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
-from nqbt import regime, timeofday
+from nqbt import regime, timeofday, volume
 
 
 @dataclass(slots=True)
@@ -52,6 +52,29 @@ class DeadCatParams:
     """Where the ratio is cut into the three regimes, both boundaries falling in the
     unclassifiable band. Conventional starting points rather than measured ones, and inert
     while :attr:`regime_filter` admits everything -- ``docs/roadmap.md`` §M10.1."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Which volume states an entry may be taken in, as a :mod:`nqbt.volume` bitmask.
+
+    Absent from the NinjaScript, off by default, and a bitmask for the same reason
+    :attr:`phase_filter` is. The states are cut from **relative** volume, never an absolute
+    count -- ``docs/roadmap.md`` §M10.2."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    """Which absolute quantity the ratio is taken of -- see :class:`nqbt.volume.VolumeForm`."""
+
+    volume_rolling_bars: int = 30
+    """Bars the :attr:`~nqbt.volume.VolumeForm.ROLLING` form sums over. Inert at every other
+    form, which ``dead_axes`` cannot see -- ``docs/roadmap.md`` §M10.2."""
+
+    volume_baseline_sessions: int = 20
+    """Prior sessions the bar-of-session baseline is the median of."""
+
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """Where relative volume is cut into the three states, both boundaries falling in the
+    normal band. Conventional starting points rather than measured ones, and inert while
+    :attr:`volume_filter` admits everything -- ``docs/roadmap.md`` §M10.2."""
 
     tp_multiplier: float = 1.0
     """Scales every leg's target. ``TPMultiplier`` in the NinjaScript."""
@@ -121,6 +144,18 @@ class DeadCatParams:
         regime.validate_mask(self.regime_filter)
         regime.validate_lookback(self.regime_lookback)
         regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
+        volume.validate_mask(self.volume_filter)
+        volume.validate_form(self.volume_form)
+        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
+        # form is swept onto it.
+        volume.validate_rolling_bars(self.volume_rolling_bars)
+        volume.validate_baseline_sessions(self.volume_baseline_sessions)
+        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -172,6 +207,17 @@ class PullBackAndGoParams:
     regime_directional_above: float = 0.5
     """The efficiency-ratio lookback and its two cuts -- see
     :attr:`DeadCatParams.regime_directional_above`."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    volume_rolling_bars: int = 30
+    volume_baseline_sessions: int = 20
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """The form the ratio is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.volume_heavy_above`."""
 
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
@@ -227,6 +273,18 @@ class PullBackAndGoParams:
         regime.validate_mask(self.regime_filter)
         regime.validate_lookback(self.regime_lookback)
         regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
+        volume.validate_mask(self.volume_filter)
+        volume.validate_form(self.volume_form)
+        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
+        # form is swept onto it.
+        volume.validate_rolling_bars(self.volume_rolling_bars)
+        volume.validate_baseline_sessions(self.volume_baseline_sessions)
+        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -285,6 +343,17 @@ class EmaCrossoverParams:
     regime_directional_above: float = 0.5
     """The efficiency-ratio lookback and its two cuts -- see
     :attr:`DeadCatParams.regime_directional_above`."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    volume_rolling_bars: int = 30
+    volume_baseline_sessions: int = 20
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """The form the ratio is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.volume_heavy_above`."""
 
     exit_on_opposite_cross: bool = True
     """Close the position at the next bar's open when the regime flips.
@@ -347,12 +416,24 @@ class EmaCrossoverParams:
         regime.validate_mask(self.regime_filter)
         regime.validate_lookback(self.regime_lookback)
         regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
+        volume.validate_mask(self.volume_filter)
+        volume.validate_form(self.volume_form)
+        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
+        # form is swept onto it.
+        volume.validate_rolling_bars(self.volume_rolling_bars)
+        volume.validate_baseline_sessions(self.volume_baseline_sessions)
+        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
         if self.fast_period == self.slow_period:
             msg = (
                 f"fast_period and slow_period are both {self.fast_period}; identical "
                 "averages never cross, so every combination along that axis trades nothing"
             )
             raise ValueError(msg)
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:

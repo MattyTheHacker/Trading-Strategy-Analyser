@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numba import njit
 
-from nqbt import conditions, regime, timeofday, trades
+from nqbt import conditions, regime, timeofday, trades, volume
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket
 from nqbt.sim.types import STOP_MIN_TICKS
@@ -361,6 +361,13 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> np.ndarray:
             params.regime_filter,
             params.regime_consolidating_below,
             params.regime_directional_above,
+        )
+    if params.volume_filter != volume.ALL_STATES:
+        signal &= data.volume_gate(
+            params.volume_key,
+            params.volume_filter,
+            params.volume_thin_below,
+            params.volume_heavy_above,
         )
     return signal
 

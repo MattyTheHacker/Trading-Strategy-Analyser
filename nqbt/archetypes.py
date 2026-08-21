@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
-from nqbt import regime, timeofday
+from nqbt import regime, timeofday, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import crossover, pullback, runner
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
@@ -78,6 +78,25 @@ def _regime_lookbacks(values: Mapping[str, Sequence]) -> tuple[int, ...]:
     return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
 
 
+def _volume_keys(values: Mapping[str, Sequence]) -> tuple[volume.VolumeKey, ...]:
+    """List the relative-volume series to build: none unless some combination filters on them.
+
+    Sixteen bytes per bar per series, plus the baseline pass -- ``docs/roadmap.md`` §M10.2.
+    """
+    if not any(int(v) != volume.ALL_STATES for v in values.get("volume_filter", ())):
+        return ()
+    return tuple(
+        sorted(
+            {
+                volume.key(form, rolling, baseline)
+                for form in values.get("volume_form", ())
+                for rolling in values.get("volume_rolling_bars", ())
+                for baseline in values.get("volume_baseline_sessions", ())
+            },
+        ),
+    )
+
+
 def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
@@ -94,6 +113,7 @@ def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
         needs_vwap=any(values.get("use_vwap", ())),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
     )
 
 
@@ -111,11 +131,15 @@ def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
         needs_ma_values=True,
     )
 
 
-INERT_AT: Mapping[str, object] = {"regime_filter": regime.ALL_REGIMES}
+INERT_AT: Mapping[str, object] = {
+    "regime_filter": regime.ALL_REGIMES,
+    "volume_filter": volume.ALL_STATES,
+}
 """What a toggle's off value is, where it is not simply ``False``.
 
 A filter mask is off at the value that admits everything, so ``dead_axes`` has to compare
@@ -131,18 +155,31 @@ REGIME_GATES: Mapping[str, str] = {
 three regimes.
 """
 
+VOLUME_GATES: Mapping[str, str] = {
+    "volume_form": "volume_filter",
+    "volume_rolling_bars": "volume_filter",
+    "volume_baseline_sessions": "volume_filter",
+    "volume_thin_below": "volume_filter",
+    "volume_heavy_above": "volume_filter",
+}
+"""Shared by every archetype: the five volume axes do nothing while the filter admits all
+three states. What this cannot catch: ``docs/roadmap.md`` §M10.2.
+"""
+
 # A period only matters when its filter is switched on.
 MA_GATES: Mapping[str, str] = {
     "ema_period": "use_ema",
     "fast_sma_period": "use_fast_sma",
     "slow_sma_period": "use_slow_sma",
     **REGIME_GATES,
+    **VOLUME_GATES,
 }
 
 CROSSOVER_GATES: Mapping[str, str] = {
     "atr_period": "use_atr_stop",
     "atr_stop_multiple": "use_atr_stop",
     **REGIME_GATES,
+    **VOLUME_GATES,
 }
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
