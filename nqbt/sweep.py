@@ -85,7 +85,10 @@ class Grid:
                 raise SweepError(msg)
         dead = self.dead_axes()
         if dead:
-            detail = "; ".join(f"{a} (needs {t}=True)" for a, t in dead.items())
+            detail = "; ".join(
+                f"{axis} (inert while {toggle} is {archetypes.INERT_AT.get(toggle, False)})"
+                for axis, toggle in dead.items()
+            )
             msg = (
                 f"these axes cannot affect any result: {detail}. Every combination would "
                 "be identical along them, multiplying runtime for nothing. Either enable "

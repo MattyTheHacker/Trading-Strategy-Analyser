@@ -559,6 +559,25 @@ reason the skip has to be no call rather than a no-op mask: the ratio's warm-up 
 `UNDEFINED` and pass nothing, `ALL_REGIMES` included. The thresholds and the warm-up decision
 are in `docs/roadmap.md` § M10.1.
 
+### So are the volume labels (#41)
+
+`nqbt/volume.py` is the third of the same shape and carries the same status. Relative volume has
+no NinjaScript counterpart, is not a fill rule, and cannot move a trade; `volume_filter` is the
+one place it touches a reconciled archetype, and like `phase_filter` and `regime_filter` it is
+absent from both `DeadCatBounce.cs` and `PullBackAndGo.cs`.
+
+It defaults to `ALL_STATES` and each signal **skips it entirely** at that value, so all 12
+captured trade logs are byte-identical across the change, `sha256` included. The skip has to be
+no call rather than a no-op mask for the same reason it does under `regime_filter`: the first
+sessions have no baseline, so their bars are `UNDEFINED` and pass nothing, `ALL_STATES`
+included.
+
+**The one NT8-shaped question here is what counts as volume**, and the answer is the same
+`sessions.classify` uses everywhere: an out-of-session print is not a bar NT8 would have formed
+against an ETH template, so it reads zero in all three forms rather than being counted. Everything
+else about the labels — the bar-of-session baseline, the three forms, the thresholds — is a
+research choice with no NT8 counterpart, and is recorded in `docs/roadmap.md` § M10.2.
+
 ## Contract data
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a limited

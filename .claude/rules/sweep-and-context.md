@@ -8,8 +8,10 @@ paths:
   - "nqbt/dispersion.py"
   - "nqbt/timeofday.py"
   - "nqbt/regime.py"
+  - "nqbt/volume.py"
   - "tests/test_context.py"
   - "tests/test_regime.py"
+  - "tests/test_volume.py"
   - "tests/test_sweep_stats.py"
   - "tests/test_archetypes.py"
 ---
@@ -36,11 +38,15 @@ paths:
 - **Everything expensive is precomputed once in `prepare`; the sweep loop must stay cheap.**
   Never recompute an indicator inside a combination. Moving-average grids keep only the boolean
   gate unless `keep_values=True` — an order-of-magnitude difference in memory.
-- **`phase_filter` and `regime_filter` are bitmask ints so they are sweepable**, and each signal
-  skips the conjunction entirely at `ALL_PHASES`/`ALL_REGIMES`. That is not an optimisation: an
-  out-of-session stray and an efficiency-ratio warm-up bar each pass *no* mask, so ANDing at the
-  default would quietly drop them. A mask is therefore off at its everything value, not at zero,
-  which is what `archetypes.INERT_AT` tells `dead_axes`.
+- **`phase_filter`, `regime_filter` and `volume_filter` are bitmask ints so they are
+  sweepable**, and each signal skips the conjunction entirely at
+  `ALL_PHASES`/`ALL_REGIMES`/`ALL_STATES`. That is not an optimisation: an out-of-session stray,
+  an efficiency-ratio warm-up bar and a session with no volume baseline yet each pass *no* mask,
+  so ANDing at the default would quietly drop them. A mask is therefore off at its everything
+  value, not at zero, which is what `archetypes.INERT_AT` tells `dead_axes`.
+- **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
+  `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
+  caught. Sweeping the window under a per-bar form runs identical combinations.
 - **Parallel sweeps top out around 5×, not 16×, and that is the hardware.** Per-core throughput
   drops when all physical cores are busy (mobile Ryzen, high single-core boost against a much
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —
