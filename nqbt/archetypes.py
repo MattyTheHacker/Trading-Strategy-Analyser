@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
-from nqbt import timeofday
+from nqbt import regime, timeofday
 from nqbt.context import ContextSpec
 from nqbt.sim import crossover, pullback, runner
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
@@ -67,6 +67,17 @@ def _needs_time_of_day(values: Mapping[str, Sequence]) -> bool:
     return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
 
 
+def _regime_lookbacks(values: Mapping[str, Sequence]) -> tuple[int, ...]:
+    """The efficiency-ratio lookbacks to build: none unless some combination filters on them.
+
+    The grid holds float64 rather than a boolean gate, so an unasked-for lookback is the most
+    expensive thing this function can add -- ``docs/roadmap.md`` §M10.1.
+    """
+    if not any(int(v) != regime.ALL_REGIMES for v in values.get("regime_filter", ())):
+        return ()
+    return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
+
+
 def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
@@ -82,6 +93,7 @@ def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
         sma_periods=tuple(sorted(sma)),
         needs_vwap=any(values.get("use_vwap", ())),
         needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
     )
 
 
@@ -98,20 +110,39 @@ def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
         ema_periods=tuple(sorted(fast | slow)),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
         needs_ma_values=True,
     )
 
+
+INERT_AT: Mapping[str, object] = {"regime_filter": regime.ALL_REGIMES}
+"""What a toggle's off value is, where it is not simply ``False``.
+
+A filter mask is off at the value that admits everything, so ``dead_axes`` has to compare
+against that rather than test truthiness -- ``ALL_REGIMES`` is 7 and would read as on.
+"""
+
+REGIME_GATES: Mapping[str, str] = {
+    "regime_lookback": "regime_filter",
+    "regime_consolidating_below": "regime_filter",
+    "regime_directional_above": "regime_filter",
+}
+"""Shared by every archetype: the three regime axes do nothing while the filter admits all
+three regimes.
+"""
 
 # A period only matters when its filter is switched on.
 MA_GATES: Mapping[str, str] = {
     "ema_period": "use_ema",
     "fast_sma_period": "use_fast_sma",
     "slow_sma_period": "use_slow_sma",
+    **REGIME_GATES,
 }
 
 CROSSOVER_GATES: Mapping[str, str] = {
     "atr_period": "use_atr_stop",
     "atr_stop_multiple": "use_atr_stop",
+    **REGIME_GATES,
 }
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 

@@ -99,14 +99,16 @@ class Grid:
         """Swept periods whose filter is off for every combination.
 
         Easy to do by accident: sweeping ``slow_sma_period`` while ``use_slow_sma`` is false
-        everywhere yields identical rows and a proportional runtime bill.
+        everywhere yields identical rows and a proportional runtime bill. A toggle that is a
+        mask rather than a boolean is off at its everything value -- :data:`nqbt.archetypes.INERT_AT`.
         """
         dead = {}
         for axis, toggle in self.archetype.gated_by.items():
             if axis not in self.axes:
                 continue
+            inert = archetypes.INERT_AT.get(toggle, False)
             values = self.axes.get(toggle, [getattr(self.base, toggle)])
-            if not any(values):
+            if all(value == inert for value in values):
                 dead[axis] = toggle
         return dead
 
