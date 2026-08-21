@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from nqbt import conditions, indicators, regime, sessions, timeofday
+from nqbt import conditions, indicators, regime, sessions, timeofday, volume
 
 if TYPE_CHECKING:
     from nqbt.conditions import MovingAverageGrid
@@ -52,6 +52,10 @@ class ContextSpec:
     regime_lookbacks: tuple[int, ...] = ()
     """Efficiency-ratio lookbacks to build (:mod:`nqbt.regime`). Empty builds nothing."""
 
+    volume_keys: tuple[volume.VolumeKey, ...] = ()
+    """Relative-volume series to build (:mod:`nqbt.volume`). Empty builds nothing, and any
+    entry implies the time-of-day labels the baseline is taken over."""
+
     needs_ma_values: bool = False
     """Keep the raw moving-average values, not just the boolean gates -- eight bytes per
     element against one, so off unless something reads the numbers themselves."""
@@ -64,6 +68,7 @@ class ContextSpec:
             needs_vwap=self.needs_vwap or other.needs_vwap,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
+            volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
         )
 
@@ -103,6 +108,9 @@ class Dataset:
 
     regimes: regime.EfficiencyRatioGrid | None = None
     """Efficiency ratios per declared lookback, or ``None`` when nothing asked for them."""
+
+    volumes: volume.VolumeGrid | None = None
+    """Absolute and relative volume per declared series, or ``None`` when nothing asked."""
 
     day_codes: np.ndarray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
@@ -241,6 +249,48 @@ class Dataset:
         """Per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
         return self._regimes().labels_for(lookback, consolidating_below, directional_above)
 
+    def _volumes(self) -> volume.VolumeGrid:
+        if self.volumes is None:
+            msg = (
+                "no volume series in this dataset; prepare() was not asked for them. "
+                "Add the series to volume_keys on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.volumes
+
+    def volume_gate(
+        self,
+        key: volume.VolumeKey,
+        mask: int,
+        thin_below: float,
+        heavy_above: float,
+    ) -> np.ndarray:
+        """Per-bar boolean: whether this bar's volume state passes ``mask``.
+
+        Callers skip this entirely at :data:`nqbt.volume.ALL_STATES` -- see
+        :func:`nqbt.volume.gate`.
+        """
+        return self._volumes().gate_for(key, mask, thin_below, heavy_above)
+
+    def volume_values(self, key: volume.VolumeKey) -> np.ndarray:
+        """Per-bar **absolute** volume, the form that answers execution feasibility."""
+        return self._volumes().absolute_for(key)
+
+    def relative_volume(self, key: volume.VolumeKey) -> np.ndarray:
+        """Per-bar volume over its bar-of-session baseline -- the quantity behind the labels."""
+        return self._volumes().relative_for(key)
+
+    def volume_labels(
+        self,
+        key: volume.VolumeKey,
+        thin_below: float,
+        heavy_above: float,
+    ) -> np.ndarray:
+        """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
+        return self._volumes().labels_for(key, thin_below, heavy_above)
+
     @property
     def nbytes(self) -> int:
         """Bytes held by the derived arrays -- what a parallel worker is handed.
@@ -259,6 +309,8 @@ class Dataset:
             total += self.time_of_day.nbytes
         if self.regimes is not None:
             total += self.regimes.nbytes
+        if self.volumes is not None:
+            total += self.volumes.nbytes
         return total
 
     def slim(self) -> Dataset:
@@ -306,10 +358,24 @@ def prepare(
     low = bars["low"].to_numpy(np.float64)
     info = sessions.classify(bars.index)
 
+    # Relative volume is defined per bar of session, so asking for it builds the clock too.
     tod = (
-        timeofday.classify(bars.index, bar_minutes=bar_minutes, info=info) if spec.needs_time_of_day else None
+        timeofday.classify(bars.index, bar_minutes=bar_minutes, info=info)
+        if spec.needs_time_of_day or spec.volume_keys
+        else None
     )
     regimes = regime.efficiency_ratio_grid(close, spec.regime_lookbacks) if spec.regime_lookbacks else None
+    volumes = (
+        volume.volume_grid(
+            bars["volume"].to_numpy(np.float64),
+            info.trading_day,
+            info.in_session,
+            tod.bar_of_session,  # type: ignore[union-attr]  # built above whenever keys exist
+            spec.volume_keys,
+        )
+        if spec.volume_keys
+        else None
+    )
 
     vwap = below_vwap = above_vwap = None
     if spec.needs_vwap:
@@ -346,5 +412,6 @@ def prepare(
         above_vwap=above_vwap,
         time_of_day=tod,
         regimes=regimes,
+        volumes=volumes,
         day_codes=day_codes(bars.index),
     )

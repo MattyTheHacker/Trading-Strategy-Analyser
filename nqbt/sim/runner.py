@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nqbt import regime, timeofday, trades
+from nqbt import regime, timeofday, trades, volume
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, deadcat
 
@@ -48,6 +48,13 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
             params.regime_filter,
             params.regime_consolidating_below,
             params.regime_directional_above,
+        )
+    if params.volume_filter != volume.ALL_STATES:
+        signal &= data.volume_gate(
+            params.volume_key,
+            params.volume_filter,
+            params.volume_thin_below,
+            params.volume_heavy_above,
         )
     return signal
 
