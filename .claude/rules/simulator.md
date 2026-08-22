@@ -46,6 +46,10 @@ below and is what you quote; this file is the index, not the record.
   `explain.py`, so the audit trail is by construction the arithmetic under audit.
   `docs/roadmap.md` §M20a.
 - **A new archetype writes the entry half only.** `CONTRIBUTING.md` § "Adding an archetype".
+- **The four market-context filters live in `sim/filters.py`, not in each signal.** Session
+  phase, regime, volume and trend are properties of the bars rather than of a strategy, so every
+  archetype's signal ends with the one shared conjunction and a new one gets them by declaring
+  the fields. **Do not inline the chain back into a signal.**
 - **One archetype cannot exercise the fill model, and two are not enough either.** Each new
   entry mechanism reaches rules the others made unreachable *by construction*, and `bracket.py`
   inherits whatever is wrong — which is why each archetype earns its own reconciliation.
