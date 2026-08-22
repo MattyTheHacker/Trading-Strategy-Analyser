@@ -13,6 +13,46 @@ permissions:
   contents: read
 
 jobs:
+  ruff:
+    name: Lint code with Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run Ruff
+        run: ruff check --output-format=github .
+
+  mypy:
+    name: Type-check code with mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run mypy
+        run: mypy .
+
   pytest:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
