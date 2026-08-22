@@ -1657,6 +1657,66 @@ because it produces confident, specific, wrong conclusions that feel earned. Fre
 stored but structurally excluded from evaluation ([#49]) — written knowing the outcome, they
 would yield perfectly circular findings.
 
+#### M11.1 — Import: the NT8 executions-grid adapter ([#45])
+
+`nqbt/trade_import.py` is the only format-aware code in the project, and adding a second source
+is meant to be one more function rather than a second pipeline. The grid is exported from
+Control Center → Executions; `tests/test_trade_import.py` carries a real export verbatim as its
+first fixture, so every claim below is pinned rather than remembered.
+
+**Ties are ordered by the position chain, never by file order.** The export is newest-first, so
+reversing it gives chronological order — but that is not sufficient, and the counter-example is
+two real exports of *one* history taken a day apart, which carry the same two fills at
+`2:30:42 PM` in **opposite** order. File order is therefore not a dependable tiebreak, and
+sorting on the timestamp is worse. `Position` is dependable: it is the running position *after*
+each fill, so within a tied group each fill's value is the previous one plus its own signed
+size, and the chain has exactly one arrangement. The adapter reconstructs it, which also makes
+the walk a whole-file consistency check — a missing fill cannot be bridged, and is refused
+rather than silently absorbed.
+
+**The date order is never inferred from the values.** Row timestamps are `DD/MM/YYYY`; the
+`Time=` field inside Control Center *log* messages is `M/D/YYYY`, and the first twelve days of
+any month parse to a real but wrong date under the other reading. Two formats are accepted and
+each is tried over the whole column, but both are day-first: NT8's 12- versus 24-hour clock is
+a display setting, whereas the date order is not something a value can be asked about.
+
+**The timezone is required configuration, with no default.** The file carries none, and a wrong
+zone shifts every trade by hours without erroring. `Europe/London` is right for this machine —
+converting the sample's fills to UTC puts every one inside its bar's high/low range — but that
+is a fact about the machine, not a property of the format.
+
+**Legs are FIFO matches, not fills.** NT8 matches a partial exit FIFO, and the schema is per
+leg, so each pairing of an entry lot with an exit fill is one row. The distinction is invisible
+in the total and decides every row: the sample's first trade has two entry lots at different
+prices, and averaging them reproduces the trade's P&L exactly while getting all three legs
+wrong. A fill that crosses zero falls out of the same matcher as two trades, which is what
+`stats` already assumes a flip to be.
+
+**Costs come from the project and never from the file.** `Commission` reads `$0.00` on an
+account that is charged, so `commission_per_contract` defaults to `costs.LIVE`'s figure here —
+deliberately the opposite of the simulator's zero, which is correct only for reconciling
+against a Strategy Analyzer run. Slippage is not applied at all: a real fill price already
+contains it.
+
+**What the source cannot supply is null, named, and refuses to be summarised.** `UNPOPULATED`
+is exactly `trades.NULLABLE` and carries a reason per column, because the review has to *state*
+why it omitted a statistic ([#48]). The absent integer columns keep a nullable dtype rather
+than a NaN-filled float one, so `stats.summarise` raises on an imported log instead of
+returning a bar count nobody measured. Refusing is only half of the fix; omitting with the
+reason is [#48]'s job, and [#81] is the same hazard reached through times.
+
+**Coverage is measured per trade and whole trades are excluded together.** Whether a trade's
+contract and dates are cached is a report the importer emits, not an assumption, and a trade
+straddling the edge of the cache is set aside entire — half its P&L reviewed and half excluded
+would misstate the trade itself. Nothing is dropped: `covered` is a column, and `reviewable` is
+the subset a review may be computed over. The export lags live by roughly two hours, so the
+newest session is routinely uncovered and that is a normal reading rather than a fault.
+
+**Both ends of an export can hold a trade that is not a trade.** Fills before the first flat
+position belong to a trade that began before the window, and fills after the last flat belong
+to a position still open. Both are dropped and both are counted, so "some trades are missing"
+is always visible as a number.
+
 ### M12 — web GUI ([#52])
 
 Long term, and gated on the review's outputs being stable or the interface churns with them.
