@@ -18,9 +18,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numba import njit
 
-from nqbt import conditions, regime, timeofday, trades, volume
+from nqbt import conditions, trades
 from nqbt.instruments import MNQ, Instrument
-from nqbt.sim import bracket
+from nqbt.sim import bracket, filters
 from nqbt.sim.types import STOP_MIN_TICKS
 
 if TYPE_CHECKING:
@@ -353,23 +353,7 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> np.ndarray:
         signal |= conditions.cross_above(fast, slow, params.cross_lookback) & (direction == trades.LONG)
     if params.trade_short:
         signal |= conditions.cross_below(fast, slow, params.cross_lookback) & (direction == trades.SHORT)
-    if params.phase_filter != timeofday.ALL_PHASES:
-        signal &= data.phase_gate(params.phase_filter)
-    if params.regime_filter != regime.ALL_REGIMES:
-        signal &= data.regime_gate(
-            params.regime_lookback,
-            params.regime_filter,
-            params.regime_consolidating_below,
-            params.regime_directional_above,
-        )
-    if params.volume_filter != volume.ALL_STATES:
-        signal &= data.volume_gate(
-            params.volume_key,
-            params.volume_filter,
-            params.volume_thin_below,
-            params.volume_heavy_above,
-        )
-    return signal
+    return filters.apply_context_filters(signal, data, params)
 
 
 def crossover_legs(

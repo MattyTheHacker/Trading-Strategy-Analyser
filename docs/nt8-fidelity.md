@@ -578,6 +578,26 @@ against an ETH template, so it reads zero in all three forms rather than being c
 else about the labels — the bar-of-session baseline, the three forms, the thresholds — is a
 research choice with no NT8 counterpart, and is recorded in `docs/roadmap.md` § M10.2.
 
+### So is the trend label (#42)
+
+`nqbt/trend.py` is the fourth of the same shape and carries the same status. The compact trend
+label has no NinjaScript counterpart, is not a fill rule, and cannot move a trade;
+`trend_filter` is the one place it touches a reconciled archetype, and like the three filters
+above it is absent from both `DeadCatBounce.cs` and `PullBackAndGo.cs`.
+
+It defaults to `ALL_TRENDS` and each signal **skips it entirely** at that value, so 12 of the
+14 captured files are byte-identical across the change, `sha256` included, the two that move
+being the sweep summary tables gaining the five parameter columns. The skip has to be no call
+rather than a no-op mask for the same reason it does under `regime_filter` and `volume_filter`:
+a bar whose slope cannot yet be measured is `UNDEFINED` and passes nothing, `ALL_TRENDS`
+included.
+
+**The one thing here that is an NT8 question is the averages**, and it is answered by reuse:
+the label reads `nqbt.conditions.moving_average_grid`, so its EMAs are `indicators.nt8_ema` and
+carry whatever parity the gates carry rather than a second definition. Everything else — the
+three components, the agreement score, the thresholds — is a research choice with no NT8
+counterpart, and is recorded in `docs/roadmap.md` § M10.3.
+
 ## Contract data
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a limited

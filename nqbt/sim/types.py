@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
-from nqbt import regime, timeofday, volume
+from nqbt import regime, timeofday, trend, volume
 
 
 @dataclass(slots=True)
@@ -75,6 +75,25 @@ class DeadCatParams:
     """Where relative volume is cut into the three states, both boundaries falling in the
     normal band. Conventional starting points rather than measured ones, and inert while
     :attr:`volume_filter` admits everything -- ``docs/roadmap.md`` §M10.2."""
+
+    trend_filter: int = trend.ALL_TRENDS
+    """Which trends an entry may be taken in, as a :mod:`nqbt.trend` bitmask.
+
+    Absent from the NinjaScript, off by default, and a bitmask for the same reason
+    :attr:`phase_filter` is. Its averages are its own rather than the gates' above, so the
+    label means the same thing across archetypes -- ``docs/roadmap.md`` §M10.3."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    """The pair the label reads. Both EMAs, and the fast one must be the shorter."""
+
+    trend_slope_lookback: int = 5
+    """Bars back the slow average's slope is measured over."""
+
+    trend_min_agreement: int = 3
+    """How many of the three components must agree before a bar is UP or DOWN rather than
+    MIXED. ``3`` is unanimity, and inert while :attr:`trend_filter` admits everything --
+    ``docs/roadmap.md`` §M10.3."""
 
     tp_multiplier: float = 1.0
     """Scales every leg's target. ``TPMultiplier`` in the NinjaScript."""
@@ -151,11 +170,20 @@ class DeadCatParams:
         volume.validate_rolling_bars(self.volume_rolling_bars)
         volume.validate_baseline_sessions(self.volume_baseline_sessions)
         volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
+        trend.validate_mask(self.trend_filter)
+        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
+        trend.validate_slope_lookback(self.trend_slope_lookback)
+        trend.validate_min_agreement(self.trend_min_agreement)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -219,6 +247,16 @@ class PullBackAndGoParams:
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
+    trend_filter: int = trend.ALL_TRENDS
+    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    trend_slope_lookback: int = 5
+    trend_min_agreement: int = 3
+    """The pair the label reads, its slope lookback and how many components must agree --
+    see :attr:`DeadCatParams.trend_min_agreement`."""
+
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
     """Ticks below the signal bar's low for the stop. ``TickSize * 2`` in the NinjaScript."""
@@ -280,11 +318,20 @@ class PullBackAndGoParams:
         volume.validate_rolling_bars(self.volume_rolling_bars)
         volume.validate_baseline_sessions(self.volume_baseline_sessions)
         volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
+        trend.validate_mask(self.trend_filter)
+        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
+        trend.validate_slope_lookback(self.trend_slope_lookback)
+        trend.validate_min_agreement(self.trend_min_agreement)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -355,6 +402,16 @@ class EmaCrossoverParams:
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
+    trend_filter: int = trend.ALL_TRENDS
+    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    trend_slope_lookback: int = 5
+    trend_min_agreement: int = 3
+    """The pair the label reads, its slope lookback and how many components must agree --
+    see :attr:`DeadCatParams.trend_min_agreement`."""
+
     exit_on_opposite_cross: bool = True
     """Close the position at the next bar's open when the regime flips.
 
@@ -423,6 +480,10 @@ class EmaCrossoverParams:
         volume.validate_rolling_bars(self.volume_rolling_bars)
         volume.validate_baseline_sessions(self.volume_baseline_sessions)
         volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
+        trend.validate_mask(self.trend_filter)
+        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
+        trend.validate_slope_lookback(self.trend_slope_lookback)
+        trend.validate_min_agreement(self.trend_min_agreement)
         if self.fast_period == self.slow_period:
             msg = (
                 f"fast_period and slow_period are both {self.fast_period}; identical "
@@ -434,6 +495,11 @@ class EmaCrossoverParams:
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:

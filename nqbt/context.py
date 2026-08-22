@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from nqbt import conditions, indicators, regime, sessions, timeofday, volume
+from nqbt import conditions, indicators, regime, sessions, timeofday, trend, volume
 
 if TYPE_CHECKING:
     from nqbt.conditions import MovingAverageGrid
@@ -56,6 +56,11 @@ class ContextSpec:
     """Relative-volume series to build (:mod:`nqbt.volume`). Empty builds nothing, and any
     entry implies the time-of-day labels the baseline is taken over."""
 
+    trend_keys: tuple[trend.TrendKey, ...] = ()
+    """Compact trend labels to build (:mod:`nqbt.trend`). Empty builds nothing, and an entry
+    does **not** imply :attr:`needs_ma_values` -- the averages behind a label are built and
+    dropped inside :func:`nqbt.trend.trend_grid`."""
+
     needs_ma_values: bool = False
     """Keep the raw moving-average values, not just the boolean gates -- eight bytes per
     element against one, so off unless something reads the numbers themselves."""
@@ -69,6 +74,7 @@ class ContextSpec:
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
+            trend_keys=tuple(sorted({*self.trend_keys, *other.trend_keys})),
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
         )
 
@@ -111,6 +117,9 @@ class Dataset:
 
     volumes: volume.VolumeGrid | None = None
     """Absolute and relative volume per declared series, or ``None`` when nothing asked."""
+
+    trends: trend.TrendGrid | None = None
+    """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
 
     day_codes: np.ndarray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
@@ -291,6 +300,37 @@ class Dataset:
         """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
         return self._volumes().labels_for(key, thin_below, heavy_above)
 
+    def _trends(self) -> trend.TrendGrid:
+        if self.trends is None:
+            msg = (
+                "no trend labels in this dataset; prepare() was not asked for them. "
+                "Add the label to trend_keys on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.trends
+
+    def trend_gate(self, key: trend.TrendKey, mask: int, min_agreement: int) -> np.ndarray:
+        """Per-bar boolean: whether this bar's trend passes ``mask``.
+
+        Callers skip this entirely at :data:`nqbt.trend.ALL_TRENDS` -- see
+        :func:`nqbt.trend.gate`.
+        """
+        return self._trends().gate_for(key, mask, min_agreement)
+
+    def trend_values(self, key: trend.TrendKey) -> np.ndarray:
+        """Per-bar agreement score, the raw quantity behind the labels."""
+        return self._trends().agreement_for(key)
+
+    def trend_labels(self, key: trend.TrendKey, min_agreement: int) -> np.ndarray:
+        """Per-bar :class:`nqbt.trend.Trend`, for stratifying results."""
+        return self._trends().labels_for(key, min_agreement)
+
+    def trend_components(self, key: trend.TrendKey) -> np.ndarray:
+        """Per-bar ``[3, n_bars]`` votes, so a review can say which component dissented."""
+        return self._trends().votes_for(key)
+
     @property
     def nbytes(self) -> int:
         """Bytes held by the derived arrays -- what a parallel worker is handed.
@@ -311,6 +351,8 @@ class Dataset:
             total += self.regimes.nbytes
         if self.volumes is not None:
             total += self.volumes.nbytes
+        if self.trends is not None:
+            total += self.trends.nbytes
         return total
 
     def slim(self) -> Dataset:
@@ -365,6 +407,7 @@ def prepare(
         else None
     )
     regimes = regime.efficiency_ratio_grid(close, spec.regime_lookbacks) if spec.regime_lookbacks else None
+    trends = trend.trend_grid(close, spec.trend_keys) if spec.trend_keys else None
     volumes = (
         volume.volume_grid(
             bars["volume"].to_numpy(np.float64),
@@ -413,5 +456,6 @@ def prepare(
         time_of_day=tod,
         regimes=regimes,
         volumes=volumes,
+        trends=trends,
         day_codes=day_codes(bars.index),
     )
