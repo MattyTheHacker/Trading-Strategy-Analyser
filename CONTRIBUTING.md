@@ -62,8 +62,8 @@ def annotate(trade, bars):             def annotate(trade, bars):
 ```
 
 - **`return`, `continue`, `break` and `raise` are all guards.** Inside a loop, `if not leg_open[leg]: continue` beats wrapping the body in `if leg_open[leg]:`.
-- **No `else` after a branch that leaves.** ruff's `RET505`–`RET508` report zero on `nqbt/` today; keep it that way.
-- **Validate first, then work.** Every `raise` for a bad argument belongs above the first line of real work — `nqbt/context.py` is the model.
+- **No `else` after a branch that leaves.** ruff's `RET505`–`RET508` catch this one form and report zero on `nqbt/` today; keep it that way. **They catch nothing else in this section** — a body wrapped in a positive `if` is invisible to every lint rule, so review is the only check on it.
+- **Validate first, then work.** Every `raise` for a bad argument belongs above the first line of real work — `validate_thresholds` in `nqbt/regime.py` is the shape.
 - **Depth is a signal, not only a fault.** Three levels usually means the function is doing two things, and extracting the inner one beats flipping conditions around it.
 
 Two exceptions, both deliberate:
