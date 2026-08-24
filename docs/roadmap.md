@@ -1717,6 +1717,59 @@ position belong to a trade that began before the window, and fills after the las
 to a position still open. Both are dropped and both are counted, so "some trades are missing"
 is always visible as a number.
 
+#### M11.2 — Annotate: the market context at a trade's bars ([#46])
+
+`nqbt/annotate.py` joins a trade log to a `Dataset` and returns one row per trade carrying every
+condition that dataset holds. It knows nothing about where the trades came from, which is the
+point rather than a nicety: [#44]'s payoff needs the identical breakdown over a sweep's log and
+over a real history, so a hypothesis raised on a few hundred real trades can be tested against
+thousands of simulated ones.
+
+**Annotate against the per-contract bars, never the back-adjusted series.** Back-adjustment
+shifts every historical price by the cumulative roll offset, so a real fill at 18076.75 appears
+nowhere in the continuous series — and **the lookup still succeeds**, because a timestamp is a
+timestamp. What comes back is plausible at every stage and wrong at every comparison. The
+defence is not documentation: every fill price is checked against the bar it matched, and an
+excursion is refused rather than ranked. That is the cheapest guard in the project.
+`contract_bars` exists so that reaching for the right series is easier than reaching for the
+wrong one, and it excludes the *raw* continuous series too, which splices two contracts' prices
+across a roll. The live roll offsets are `nqbt splice --diagnostics`; they are hundreds of points
+over the window this review covers, which is why a tick of tolerance cannot admit one.
+
+**`price_tolerance` is in points and defaults to zero.** A real fill is inside its bar by
+construction. A *simulated* one need not be: a stop that gapped fills at the bar's open, moved
+by the run's slippage, which is a tick or two outside. That is the only legitimate excursion, so it is a number
+the caller states rather than slack the check carries.
+
+**A fill belongs to the bar stamped strictly after it**, so the bar stamped `s` covers
+`[s - bar_minutes, s)` and a fill at 14:23:47 is in the bar stamped 14:24. The boundary decides
+more than it looks: the executions grid prints whole seconds, so a fill printed at 14:24:00
+happened somewhere inside the second beginning there and belongs to the bar stamped 14:25.
+Confirmed end-to-end on the sample — converting the eight fills to UTC and mapping each this way
+puts every one inside its bar's high/low range, with the 17:00:29 stop landing exactly on the
+17:01 high.
+
+**A bar's own stamp is not a fill time, so a log that carries bar indices keeps them.** The
+simulator writes `entry_bar` and an `entry_time` that *is* `index[entry_bar]`; resolving that
+timestamp under the fill rule would move every simulated trade one bar forward, and nothing
+downstream would look wrong. Where a log carries both, the two are cross-checked, which is the
+one test that catches a log being annotated against a different series of the same shape —
+another contract, or the same bars at another resolution.
+
+**A trade matches whole or not at all**, across every leg and at both ends, whether or not the
+exit side is being annotated. Half a trade's context recorded and half discarded would misstate
+the trade itself, and it is the rule [#45] already applies to coverage. Nothing is dropped:
+`matched` is a column and `reviewable` is the subset a review may be computed over. One level
+down, a fill inside a hole in the bars is unmatched rather than joined to the next bar, because
+the next bar is not the bar it happened in.
+
+**Raw series always, labels only where the thresholds were chosen.** An efficiency ratio is a
+fact about a bar and a regime is a cut through it, so `LabelThresholds` has no defaults and takes
+each pair or neither. [#48]'s guard has to be able to state which cut it tested, and a default
+would let a review report a threshold nobody picked. Every column is held as a nullable dtype
+chosen from what it holds rather than from whether anything is missing, so an unmatched trade's
+condition cannot read as `False`.
+
 ### M12 — web GUI ([#52])
 
 Long term, and gated on the review's outputs being stable or the interface churns with them.
