@@ -5,11 +5,13 @@ paths:
   - "nqbt/annotate.py"
   - "nqbt/review.py"
   - "nqbt/guard.py"
+  - "nqbt/notes.py"
   - "tests/test_numpy_summary.py"
   - "tests/test_trades_schema.py"
   - "tests/test_annotate.py"
   - "tests/test_review.py"
   - "tests/test_guard.py"
+  - "tests/test_notes.py"
 ---
 
 # Statistics and the trade log
@@ -68,3 +70,9 @@ paths:
 - **A holdout re-reads the split, it never re-chooses it.** Best and worst are picked on the
   earlier trades and read on the most recent ones as they stand; re-picking there would hold
   nothing out. Its strata are small by construction, so `reported` gates `direction_held`.
+- **A free-text note is stored and never evaluated.** It lives in an `nqbt.notes` sidecar keyed
+  by `trade_id`, attaches only at `notes.alongside` for a viewer or an export, and
+  `notes.check_excluded` refuses it at each of `annotate_trades`, `review` and `guard`. A note is
+  written knowing the outcome, so stratifying by one would rediscover that outcome and lead the
+  ranking — and `stratifiable` would *accept* one, so the rule cannot rest on a note failing to
+  look like a condition. `docs/roadmap.md` §M11.5.

@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, override
 import numpy as np
 import pandas as pd
 
-from nqbt import review, stats
+from nqbt import notes, review, stats
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -708,6 +708,7 @@ def _trades(
     conditions: Sequence[str] | None,
 ) -> tuple[Floats, dict[str, Column]]:
     """Gather the per-trade P&L in entry order, and one label per trade for every chosen condition."""
+    notes.check_excluded(annotation.frame, what="an annotation being guarded")
     reviewable = annotation.reviewable
     if reviewable.empty:
         msg = (
