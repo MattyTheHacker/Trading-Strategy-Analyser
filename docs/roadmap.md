@@ -1770,6 +1770,65 @@ would let a review report a threshold nobody picked. Every column is held as a n
 chosen from what it holds rather than from whether anything is missing, so an unmatched trade's
 condition cannot read as `False`.
 
+#### M11.3 — Review: stratifying realised P&L by condition ([#47])
+
+`nqbt/review.py` groups one trade log by one condition at a time and reads a `stats.summarise`
+over each group. **Nothing in it defines a statistic**, which is the whole point of M9: a review
+computing its own win rate would eventually disagree with the sweep's, and the disagreement would
+be invisible because both numbers would look reasonable. A stratum's row is therefore literally
+the summary's fields, and `tests/test_review.py` asserts a row equals `summarise` over exactly
+that stratum's legs.
+
+**Time of day is reported first, and paired with both forms of volume.** It is the
+stratification most likely to show real structure in a discretionary record, because it captures
+attention, liquidity and the trader's own routine at once, and unlike a moving-average gate it is
+not something the trader was consciously optimising. Both forms of volume travel with it because
+neither answers the question alone: relative volume is normalised per bar of session by
+construction ([#41]) and says whether a bar was unusual *for the time*, while the absolute count
+says whether there was anything there to trade at all. "This hour is always busy" is a high
+absolute median beside a relative one near 1; "this hour was unusually busy" is the relative
+median moving. Phases print in session order rather than alphabetically, which is the one
+ordering error that would pass every other assertion.
+
+**The final phase is an artefact until it is separated from the clock.** It contains the
+session-close flatten ([#16]), so a time-of-day stratification will always show it as anomalous.
+The report carries `session_close_share` per phase for exactly that reason — and omits it, rather
+than printing zero, when the log's exit reasons are its source's own vocabulary instead of the
+simulator's, because an imported grid's `Name` field cannot name the clock and a zero would read
+as "none of these were closed by the clock".
+
+**Only a categorical condition is a stratification.** A raw series is excluded rather than
+bucketed: where to cut it is the review's most consequential decision and `LabelThresholds` is
+where a review states the cut it tested, so a default here would let a report claim a threshold
+nobody picked. The rule is dtype plus cardinality — a float column is a series, one value
+separates nothing, and past a dozen values the split is a list of trades rather than a
+comparison. The report says how many conditions it could not cut by, so an excluded condition is
+visible as a number rather than as silence.
+
+**A log that leaves a column empty omits the statistics that column feeds, in the producer's own
+words.** `summarise` refuses an imported log rather than reporting a bar count nobody measured
+([#45]), which is the correct half of the fix; the other half is this module's, and the wording
+comes from `trade_import.UNPOPULATED` rather than being reinvented here. Mechanically the absent
+columns are filled with a placeholder so that `summarise` runs at all, and every field a filled
+column feeds is dropped by name before a row is built — so **no placeholder can reach a reported
+number**, which is a property a test pins rather than a convention held in someone's head. The
+mapping from column to fields is data (`STATISTICS_FROM`), so an absent `r_multiple` costs the R
+statistics and nothing else.
+
+**The separation is a range across strata, and it is a candidate rather than a finding.**
+Conditions are ranked by how far the chosen statistic sits between their best and worst reported
+stratum, over strata meeting a minimum sample — the floor `sweep.rank` already enforces, for the
+same reason: the smallest samples produce the most extreme statistics and would otherwise lead
+every ranking. A stratum under the floor is still reported, and marked. An infinite profit factor,
+which a stratum with no losing trade reports, is dropped from the range rather than allowed to top
+it.
+
+**What [#48] still owns.** The minimum stratum is one of its three mitigations; the permutation
+test against shuffled condition labels and the recent-trades holdout are not built, so a
+separation out of this module has no null behind it. `STATUS` states that in the report itself,
+because the failure mode here is not a wrong number but a right number read without its context —
+and that number would feel earned.
+
 ### M12 — web GUI ([#52])
 
 Long term, and gated on the review's outputs being stable or the interface churns with them.
@@ -2225,6 +2284,7 @@ default is now known to be right for this machine.
 [#44]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/44
 [#45]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/45
 [#46]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/46
+[#47]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/47
 [#48]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/48
 [#49]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/49
 [#50]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/50
