@@ -1653,7 +1653,8 @@ trade against the continuous series succeeds at the lookup and is silently wrong
 comparison — use the raw or per-contract series. The statistical guard ([#48]) is not optional:
 a few hundred trades against a few dozen conditions is a multiple-comparisons machine, and a
 review without a minimum stratum size, a permutation test and a holdout is worse than no review,
-because it produces confident, specific, wrong conclusions that feel earned. Free-text notes are
+because it produces confident, specific, wrong conclusions that feel earned. All three are
+`nqbt/guard.py`, and the correction that matters is family-wise rather than per condition. Free-text notes are
 stored but structurally excluded from evaluation ([#49]) — written knowing the outcome, they
 would yield perfectly circular findings.
 
@@ -1823,11 +1824,73 @@ every ranking. A stratum under the floor is still reported, and marked. An infin
 which a stratum with no losing trade reports, is dropped from the range rather than allowed to top
 it.
 
-**What [#48] still owns.** The minimum stratum is one of its three mitigations; the permutation
-test against shuffled condition labels and the recent-trades holdout are not built, so a
-separation out of this module has no null behind it. `STATUS` states that in the report itself,
-because the failure mode here is not a wrong number but a right number read without its context —
-and that number would feel earned.
+**What [#48] owns.** The minimum stratum is one of its three mitigations. The permutation test
+against shuffled condition labels and the recent-trades holdout are `nqbt/guard.py`'s, and
+`review.STATUS` names it, because the failure mode here is not a wrong number but a right number
+read without its context — and that number would feel earned.
+
+#### M11.4 — The statistical guard ([#48])
+
+`nqbt/guard.py` is what stands between a stratification and a confident wrong conclusion, and
+the reason it is not optional is arithmetic rather than caution. A few hundred trades against a
+few dozen conditions is a multiple-comparisons machine: **some condition will split that sample
+impressively, and most of the time it will be noise.** A review without this is worse than no
+review, because what it produces is specific, confident and wrong, and feels earned.
+
+**The minimum stratum was already there, and is one third of the guard.** [#47] enforces the
+floor `sweep.rank` enforces, for the same reason, so this module imports it rather than
+restating it.
+
+**The permutation test shuffles the P&L and leaves the strata alone.** Every stratum keeps the
+size it had and only the association is destroyed, which is the null the question actually
+needs: *would labels that carried nothing have split these trades this far?* Mechanically the
+trades are sorted into contiguous strata once and each draw is a `np.split` of a permuted
+vector, because `summarise` per stratum per draw is two orders of magnitude too slow — the same
+move, for the same reason, that `stats.trade_statistic` was added for in [#31].
+
+**The correction is a maximum over one shared shuffle, not a Bonferroni.** A per-condition
+p-value answers the right question only for a condition chosen for a reason; taking the widest
+separation on offer and reading its p-value is the same machine one level up. So each draw
+permutes the P&L once, every condition is re-separated under *that* permutation, and the
+maximum across them is the family's null — a max-statistic correction, which is far less harsh
+than Bonferroni precisely because conditions measured over the same trades move together, and
+these do. `tests/test_guard.py` demonstrates it on a dozen conditions drawn from nothing: the
+best of them is unremarkable against the family and would have looked publishable alone.
+
+**A screen narrows to the trades every condition labels.** A maximum is only meaningful over
+comparable numbers, and conditions measured on different subsets are not comparable. The count
+set aside is reported rather than absorbed, which is the rule [#46] already applies to a trade
+that matches only in part.
+
+**A separation may only be measured in a rate.** `STATISTICS` is `review.REPORTED` intersected
+with `stats.TRADE_PNL_STATISTICS`: outside the first a statistic is not one the review printed,
+outside the second it cannot be had from a P&L vector and thousands of draws would be
+unaffordable. That drops `net_pnl` for a third reason that would have applied anyway — a sum
+separates strata by how many trades they hold.
+
+**The holdout re-reads the split; it never re-chooses it.** The best and worst strata are
+picked on the earlier trades and then evaluated on the most recent ones as they stand. Picking
+again on the recent trades would hold nothing out and would return the in-sample answer wearing
+a different name. The share defaults to a quarter rather than a fixed count because both halves
+have to clear the floor and the sample size is not known in advance.
+
+**What the guard still cannot say**, and the report says so itself:
+
+- **A null is not a cause.** A small p-value says the split is unlikely if the labels carried
+  nothing. It cannot say the cause is this condition rather than something travelling with it —
+  and time of day travels with almost everything ([#43]).
+- **The family is the conditions in *this* screen.** Not the ones tried in an earlier one, and
+  not the threshold a raw series was cut at: a `LabelThresholds` pair chosen after looking is a
+  comparison the screen cannot see. That is why [#46] refuses to default one.
+- **The holdout's two halves are not independent samples.** What is held out is the *choice* of
+  strata, not the trades — they are inside the screened sample. And its strata are small by
+  construction, so `reported` is usually false on a few hundred trades and the row is a
+  direction check rather than a measurement.
+- **It guards a review, and the same argument binds [#31] and [#24].** The best of nineteen
+  contracts, and a ranking over archetypes × combinations × resolutions × contracts, are the
+  same machine with more cells. The array-level functions take a P&L vector and one label per
+  trade for that reason; `dispersion.spread_vs_resampling` is the contract-shaped instance
+  built first.
 
 ### M12 — web GUI ([#52])
 
