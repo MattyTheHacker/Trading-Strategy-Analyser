@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, override
 import numpy as np
 import pandas as pd
 
-from nqbt import annotate, stats, timeofday, trades
+from nqbt import annotate, notes, stats, timeofday, trades
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -338,6 +338,7 @@ def _prepare(
     """Gather the legs to summarise, the rows to group them by, and what this log cannot report."""
     _check_columns(log)
     _check_same_log(log, annotation)
+    notes.check_excluded(annotation.frame, what="an annotation being reviewed")
     reviewable = annotation.reviewable
     if reviewable.empty:
         msg = (

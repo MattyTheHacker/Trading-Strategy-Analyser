@@ -1892,6 +1892,41 @@ have to clear the floor and the sample size is not known in advance.
   trade for that reason; `dispersion.spread_vs_resampling` is the contract-shaped instance
   built first.
 
+#### M11.5 — Discretionary context ([#49])
+
+`nqbt/notes.py` stores what a trade log cannot: why a trade was taken, what was going on at the
+time, a screenshot to look at later. It is kept, it is shown, and it is never an input to
+annotation, stratification or the guard.
+
+**The exclusion is enforced rather than intended, because the finding it would produce is
+guaranteed rather than merely likely.** A note is written after the fact, knowing the outcome,
+so a loser attracts "I was impatient" and a winner attracts "clean setup". Stratifying by one
+would rediscover the outcome and report it as structure — and it would be the widest separation
+in the report and the most impressive-looking result in it. Nothing downstream could tell that
+from a real one, because every number in it would be correctly computed.
+
+**A note column would pass every filter the review already has.** `review.stratifiable` excludes
+a raw series by dtype and a split by cardinality, and free text is neither a float nor
+high-cardinality on a small sample — three recurring phrases across thirty trades is exactly a
+stratification's shape. The rule therefore cannot rest on a note failing to look like a
+condition, and `tests/test_notes.py` pins that it does look like one.
+
+**Structurally that means a sidecar and three doors.** Notes live in a frame keyed by `trade_id`
+and never as columns on a trade log or an annotation, so there is nothing to group by; an
+annotation's conditions are read off the bars, which leaves a log column no route into one in
+the first place. `notes.check_excluded` is called by `annotate.annotate_trades`, `review.review`
+and `guard.guard` and refuses free text at each. `notes.alongside` is the only join that
+attaches a note to anything — for the trade-log viewer ([#52]) and for a per-trade export — and
+it refuses a frame already carrying one, so a joined frame cannot travel onwards.
+
+**A duplicate key is an error rather than a last-one-wins.** Two notes on one trade fan a join
+out into extra rows, and extra rows that look like more of the same data move every number
+computed over them.
+
+**Worth revisiting only for deliberate qualitative coding** — a fixed set of categories chosen
+*before* any outcome is examined. That is a different activity from what M11 does, and it would
+be a different column with a different provenance rather than this one relabelled.
+
 ### M12 — web GUI ([#52])
 
 Long term, and gated on the review's outputs being stable or the interface churns with them.
