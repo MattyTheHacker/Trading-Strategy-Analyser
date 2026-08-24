@@ -2,8 +2,10 @@
 paths:
   - "nqbt/stats.py"
   - "nqbt/trades.py"
+  - "nqbt/annotate.py"
   - "tests/test_numpy_summary.py"
   - "tests/test_trades_schema.py"
+  - "tests/test_annotate.py"
 ---
 
 # Statistics and the trade log
@@ -28,3 +30,9 @@ paths:
   the simulator can have written it.
 - **A flip is two trades in the log**, each paying its own costs — economically a reversal, and
   it must be described that way against published crossover results.
+- **Annotation joins a fill to the bar stamped *strictly after* it**, so a bar's own stamp is a
+  fill time one bar late and a log carrying bar indices keeps them. Getting this wrong shifts
+  every condition by one bar and biases the whole review silently. `docs/roadmap.md` §M11.2.
+- **Every annotated fill price is checked against its bar's range**, because that is the only
+  thing that catches a back-adjusted series — the lookup succeeds and every comparison is out by
+  the roll offset. `price_tolerance` admits a simulated run's slippage and nothing wider.
