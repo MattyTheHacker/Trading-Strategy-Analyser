@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from nqbt import ingest, paths, regime, timeofday, trend, volume
+from nqbt import ingest, notes, paths, regime, timeofday, trend, volume
 from nqbt.instruments import ContractId
 
 if TYPE_CHECKING:
@@ -265,6 +265,7 @@ def annotate_trades(
         raise AnnotationError(msg)
     _check_one_contract(log)
     _check_columns(log)
+    notes.check_excluded(log, what="a trade log being annotated")
 
     legs = {side: _resolve_bars(log, data, side) for side in _SIDES}
     for side, bars in legs.items():
