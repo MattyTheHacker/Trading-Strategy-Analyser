@@ -47,6 +47,30 @@ Two exceptions, both deliberate:
 
 Match the surrounding code's idiom. A module written one way should not acquire a second style because a new function arrived.
 
+## Control flow
+
+**Guard clauses, not nesting.** Invert the condition and leave early, so the work a function exists to do sits at one indent level instead of inside an `if`.
+
+```python
+# not this                             # this
+def annotate(trade, bars):             def annotate(trade, bars):
+    if trade is not None:                  if trade is None:
+        if trade.entry_bar in bars:            return None
+            return context_at(trade)       if trade.entry_bar not in bars:
+    return None                                return None
+                                           return context_at(trade)
+```
+
+- **`return`, `continue`, `break` and `raise` are all guards.** Inside a loop, `if not leg_open[leg]: continue` beats wrapping the body in `if leg_open[leg]:`.
+- **No `else` after a branch that leaves.** ruff's `RET505`–`RET508` catch this one form and report zero on `nqbt/` today; keep it that way. **They catch nothing else in this section** — a body wrapped in a positive `if` is invisible to every lint rule, so review is the only check on it.
+- **Validate first, then work.** Every `raise` for a bad argument belongs above the first line of real work — `validate_thresholds` in `nqbt/regime.py` is the shape.
+- **Depth is a signal, not only a fault.** Three levels usually means the function is doing two things, and extracting the inner one beats flipping conditions around it.
+
+Two exceptions, both deliberate:
+
+- **Where inverting costs clarity, do not.** A single `if a and b:` reads better than two negated guards when neither half means anything on its own, and `if not disabled:` is worse than the nesting it removed.
+- **Inside `@njit` code, reshaping control flow is a gated refactor.** numba also requires every return path to agree on type, so an added early `return` is not free. See ["The trade-log regression gate"](#the-trade-log-regression-gate).
+
 ## Tests
 
 **Everything is tested unless there is a good reason not to**, and the reason goes in the test file or the pull request, not left implicit.
