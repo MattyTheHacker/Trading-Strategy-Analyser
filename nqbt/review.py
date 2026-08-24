@@ -11,9 +11,10 @@ final phase holds the forced flat, which makes a poor result there an artefact r
 finding until the two are told apart -- ``docs/roadmap.md`` §M11.3.
 
 **Every output is hypothesis-generating, not confirmatory.** A few hundred trades against a few
-dozen conditions is a multiple-comparisons machine; the minimum stratum here is as far as the
-guard goes, and the permutation test and the holdout that finish it are #48. :data:`STATUS` says
-so in the report itself, because a separation read without that sentence is the failure mode.
+dozen conditions is a multiple-comparisons machine; the minimum stratum here is one third of the
+guard, and :mod:`nqbt.guard` is the shuffled-label null and the holdout that finish it.
+:data:`STATUS` says so in the report itself, because a separation read without that sentence is
+the failure mode.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ __all__ = [
     "MIN_STRATA",
     "MIN_TRADES",
     "PHASE_COLUMN",
+    "RANKING_COLUMNS",
     "REPORTED",
     "STATISTICS_FROM",
     "STATUS",
@@ -86,8 +88,9 @@ PHASE_COLUMN = "entry_phase"
 
 STATUS = (
     "HYPOTHESIS-GENERATING, NOT CONFIRMATORY -- a few hundred trades against a few dozen "
-    "conditions is a multiple-comparisons machine, and the minimum stratum below is as far as "
-    "the guard goes. Take a separation from here to a sweep, never to a decision (#48)."
+    "conditions is a multiple-comparisons machine, and the minimum stratum below is one third of "
+    "the guard. Run nqbt.guard over these trades for the other two, and take a separation from "
+    "here to a sweep, never to a decision (#48)."
 )
 """The status every report states about itself, rather than leaving it to be remembered."""
 
@@ -132,7 +135,8 @@ _PHASE_ORDER = (
 )
 """Session order, which is the order phases are reported in -- never alphabetical."""
 
-_RANKING_COLUMNS = ("condition", "strata", "strata_ranked", "trades_ranked", "separation", "best", "worst")
+RANKING_COLUMNS = ("condition", "strata", "strata_ranked", "trades_ranked", "separation", "best", "worst")
+"""One ranked condition's columns. :mod:`nqbt.guard` builds on them, so they are not private."""
 
 
 class ReviewError(ValueError):
@@ -293,11 +297,12 @@ def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataF
     """Order the conditions by how far ``by`` separates the strata that met the minimum.
 
     The separation is the range across ranked strata: the widest gap the condition produced, and
-    therefore the quantity a hypothesis would be drawn from and the one #48's permutation test
-    has to be run against. **A wide separation is a candidate, not a finding** -- :data:`STATUS`.
+    therefore the quantity a hypothesis would be drawn from and the one :func:`nqbt.guard.screen`
+    shuffles the labels against. **A wide separation is a candidate, not a finding** --
+    :data:`STATUS`.
     """
     if strata.empty:
-        return pd.DataFrame(columns=list(_RANKING_COLUMNS))
+        return pd.DataFrame(columns=list(RANKING_COLUMNS))
     if by not in strata.columns:
         msg = f"no {by!r} column in these strata; it was omitted when they were built"
         raise ReviewError(msg)

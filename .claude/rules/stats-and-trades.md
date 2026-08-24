@@ -4,10 +4,12 @@ paths:
   - "nqbt/trades.py"
   - "nqbt/annotate.py"
   - "nqbt/review.py"
+  - "nqbt/guard.py"
   - "tests/test_numpy_summary.py"
   - "tests/test_trades_schema.py"
   - "tests/test_annotate.py"
   - "tests/test_review.py"
+  - "tests/test_guard.py"
 ---
 
 # Statistics and the trade log
@@ -51,5 +53,18 @@ paths:
 - **The final session phase contains the forced flat**, so a poor result there is the clock
   until `session_close_share` says otherwise — and that share is omitted, never zeroed, when a
   log's exit reasons are its source's own vocabulary.
-- **A separation is a candidate, not a finding.** The minimum stratum is the whole guard so
-  far; the permutation test and the holdout are #48, and the report says so itself.
+- **A separation is a candidate, not a finding**, and it stays one after the guard. The minimum
+  stratum is one third of it; `nqbt/guard.py` is the shuffled-label null and the holdout, and
+  both reports say so themselves. `docs/roadmap.md` §M11.4.
+- **Read the family p-value, not the per-condition one**, unless the condition was chosen for a
+  reason. `screen` permutes the P&L once per draw and re-separates every condition under that
+  same permutation, so the maximum across them is the null for "the best of these" — which is
+  what a ranking actually picked. Per-condition p-values are the multiple-comparisons machine
+  one level up, and the noise-only test in `tests/test_guard.py` is what that looks like.
+- **A shuffle moves the P&L and never the strata.** Sizes stay fixed, so the floor selects the
+  same strata in every draw and only the association is destroyed. `guard.separate` is
+  `review.rank_conditions`' number by a faster route — pinned equal, never re-derived — because
+  `summarise` per stratum per draw is unaffordable.
+- **A holdout re-reads the split, it never re-chooses it.** Best and worst are picked on the
+  earlier trades and read on the most recent ones as they stand; re-picking there would hold
+  nothing out. Its strata are small by construction, so `reported` gates `direction_held`.
