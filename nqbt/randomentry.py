@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.context import Dataset
 
+MIN_FINITE_DRAWS = 2
+"""Fewest finite null draws that make a distribution to place an observation in."""
+
 DEFAULT_ITERATIONS = 200
 """Null realisations drawn by default. Sized in ``docs/roadmap.md`` §M7a."""
 
@@ -87,6 +90,7 @@ class NullResult:
     """True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`."""
 
     def as_dict(self) -> dict:
+        """Flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
@@ -119,6 +123,7 @@ class SessionMinutePool:
         index: pd.DatetimeIndex,
         template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
     ) -> SessionMinutePool:
+        """Group every bar of ``index`` by its minute-of-session, once."""
         minutes = minute_of_session(index, template)
         order = np.argsort(minutes, kind="stable")
         starts = np.searchsorted(minutes[order], np.arange(minutes.max() + 2), side="left")
@@ -272,7 +277,7 @@ def compare(
             raise RandomEntryError(
                 msg,
             )
-        if draws.size < 2:
+        if draws.size < MIN_FINITE_DRAWS:
             msg = (
                 f"only {draws.size} of {iterations} null draws produced a finite {name}; "
                 "there is no distribution to place the observation in"

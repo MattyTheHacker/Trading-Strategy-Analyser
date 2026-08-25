@@ -50,6 +50,7 @@ NULL_MEANS: dict[str, str] = {
 
 
 def connect(db_path: Path = paths.SWEEPS_DB) -> duckdb.DuckDBPyConnection:
+    """Open the sweep database, creating its directory and tables if they are missing."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path))
     con.execute(
@@ -123,7 +124,7 @@ def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
         con.close()
 
 
-def save_sweep(
+def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has to state
     results: pd.DataFrame,
     *,
     root: str,
@@ -175,7 +176,10 @@ def save_sweep(
         }
         columns = ", ".join(row)
         placeholders = ", ".join("?" * len(row))
-        con.execute(f"INSERT INTO sweeps ({columns}) VALUES ({placeholders})", list(row.values()))
+        con.execute(
+            f"INSERT INTO sweeps ({columns}) VALUES ({placeholders})",  # noqa: S608 - keys of a dict built here
+            list(row.values()),
+        )
 
         tagged = _tag_axes(
             results,
@@ -231,7 +235,7 @@ def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.Data
     ).fetchone()[0]
     if not exists:
         con.register("incoming", frame)
-        con.execute(f"CREATE TABLE {table} AS SELECT * FROM incoming")
+        con.execute(f"CREATE TABLE {table} AS SELECT * FROM incoming")  # noqa: S608 - a literal at both callers
         return
 
     stored = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
@@ -240,10 +244,10 @@ def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.Data
         if name not in aligned.columns:
             aligned[name] = None
     con.register("incoming", aligned[stored])
-    con.execute(f"INSERT INTO {table} SELECT * FROM incoming")
+    con.execute(f"INSERT INTO {table} SELECT * FROM incoming")  # noqa: S608 - a literal at both callers
 
 
-def _jsonable(value: Any) -> Any:  # type: ignore[explicit-any]
+def _jsonable(value: Any) -> Any:  # type: ignore[explicit-any]  # noqa: ANN401 - see the docstring
     """Unwrap a numpy scalar so an axis value survives ``json.dumps``.
 
     Genuinely ``Any``: an axis holds whatever its parameter field holds.
@@ -304,4 +308,7 @@ def best(
     where = f"WHERE trades >= {int(min_trades)}"
     if sweep_id is not None:
         where += f" AND sweep_id = {int(sweep_id)}"
-    return query(f"SELECT * FROM combos {where} ORDER BY {by} DESC LIMIT {int(top)}", db_path)
+    return query(
+        f"SELECT * FROM combos {where} ORDER BY {by} DESC LIMIT {int(top)}",  # noqa: S608 - the ORDER BY; #61
+        db_path,
+    )

@@ -63,7 +63,8 @@ def _cmd_splice(args: argparse.Namespace) -> int:
     logger.info("%s", report.summary())
     logger.info("")
     logger.info("%s bars  %s -> %s", f"{len(series):,}", series.index[0], series.index[-1])
-    logger.info("written to %s", splice.continuous_path(args.root, args.back_adjust, args.cache_dir))
+    path = splice.continuous_path(args.root, back_adjust=args.back_adjust, cache_dir=args.cache_dir)
+    logger.info("written to %s", path)
 
     if args.diagnostics:
         for roll in report.rolls:
@@ -182,6 +183,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The parser for every ``nqbt`` subcommand."""
     parser = argparse.ArgumentParser(prog="nqbt", description=__doc__)
     parser.add_argument(
         "--data-dir",
@@ -265,6 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one ``nqbt`` command line and return its process exit code."""
     logsetup.configure(__name__)
     args = build_parser().parse_args(argv)
     try:

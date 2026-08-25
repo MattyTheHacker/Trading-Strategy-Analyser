@@ -75,10 +75,43 @@ line-ending = "auto"
 
 [tool.ruff.lint]
 extend-select = ["ALL"]
+ignore = [
+    # The formatter owns trailing commas, and ruff warns that the two disagree.
+    "COM812",
+    # The licence is stated once in LICENSE rather than at the top of every file.
+    "CPY001",
+    # D211 is the convention here: no blank line before a class docstring. Stated rather
+    # than left to ruff, which picks one and warns.
+    "D203",
+    # A summary that asks a question ends in "?". D415 still requires terminal punctuation.
+    "D400",
+    # A dunder's contract is the language's; the ones that surprise carry a docstring anyway.
+    "D105",
+    # D212 is the convention here: a multi-line summary starts on the first line.
+    "D213",
+    # A docstring here says *what* a thing is -- CONTRIBUTING.md, "Where reasoning goes" --
+    # which is a noun phrase, where D401 wants an imperative verb.
+    "D401",
+]
+
+
+[tool.ruff.lint.pylint]
+# An entry point taking one keyword per choice its caller must state is the shape of this
+# codebase, not a defect. What is left above eleven is the parameter blobs #59 fixes.
+max-args = 10
 
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
+# The jitted loops: numba compiles from the call and has no keyword-only arguments, so a
+# toggle is a positional boolean and its callers pass it as one.
+"nqbt/sim/bracket.py" = ["FBT001", "FBT003"]
+"nqbt/sim/crossover.py" = ["FBT001", "FBT003"]
+"nqbt/sim/deadcat.py" = ["FBT001", "FBT003"]
+"nqbt/sim/runner.py" = ["FBT003"]
+# Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
+# numba, pandas and TA-Lib.
+"nqbt/cli.py" = ["PLC0415"]
 
 
 [tool.mypy]

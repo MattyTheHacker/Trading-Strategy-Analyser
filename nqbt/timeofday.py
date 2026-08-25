@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 SECONDS_PER_DAY = 86_400
 
+MIN_STAMPS_FOR_A_GAP = 2
+"""Stamps needed before :func:`infer_bar_minutes` has a gap to measure."""
+
 OUT_OF_SESSION = -1
 """Label for a bar outside any session. Negative, not an eighth phase -- ``docs/roadmap.md``
 §M10.4.
@@ -196,7 +199,7 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
     index too short to have a gap.
     """
     stamps = pd.DatetimeIndex(index)
-    if stamps.size < 2:
+    if stamps.size < MIN_STAMPS_FOR_A_GAP:
         return 1
     naive = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
     deltas = np.diff(naive.to_numpy().astype("datetime64[m]").astype(np.int64))
@@ -225,6 +228,7 @@ class TimeOfDay:
 
     @property
     def nbytes(self) -> int:
+        """Bytes the labels occupy -- what a parallel worker is handed."""
         return self.phase.nbytes + self.phase_bits.nbytes + self.bar_of_session.nbytes
 
     def gate(self, mask: int) -> BoolArray:

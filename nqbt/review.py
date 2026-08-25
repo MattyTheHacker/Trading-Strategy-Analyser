@@ -196,7 +196,7 @@ class Review:
         return lines
 
 
-def review(  # noqa: PLR0913 - each keyword is a separate choice the report has to state
+def review(
     log: pd.DataFrame,
     annotation: Annotation,
     *,

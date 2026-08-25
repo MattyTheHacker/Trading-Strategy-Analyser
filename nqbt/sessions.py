@@ -27,6 +27,9 @@ if TYPE_CHECKING:
 
 EASTERN = "America/New_York"
 
+FRIDAY = 4
+"""``DatetimeIndex.dayofweek`` for the last weekday a session may end on."""
+
 
 @dataclass(frozen=True, slots=True)
 class SessionTemplate:
@@ -39,10 +42,12 @@ class SessionTemplate:
 
     @property
     def open_seconds(self) -> int:
+        """The session open as seconds past midnight, exchange local."""
         return self.open_time.hour * 3600 + self.open_time.minute * 60 + self.open_time.second
 
     @property
     def close_seconds(self) -> int:
+        """The session close as seconds past midnight, exchange local."""
         return self.close_time.hour * 3600 + self.close_time.minute * 60 + self.close_time.second
 
 
@@ -100,7 +105,7 @@ def classify(
     trading_ts = day + pd.to_timedelta(after_close.astype("int8"), unit="D")
 
     in_break = after_close & (seconds <= template.open_seconds)
-    is_weekday = trading_ts.dayofweek <= 4
+    is_weekday = trading_ts.dayofweek <= FRIDAY
     in_session = np.asarray(~in_break & is_weekday)
 
     trading_day = trading_ts.to_numpy().astype("datetime64[D]")

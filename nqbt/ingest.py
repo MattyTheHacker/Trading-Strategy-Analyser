@@ -48,6 +48,12 @@ BAR_DTYPES = {
 }
 
 TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
+
+TICK_EXPORT_FIELDS = 5
+"""Semicolon-separated fields in a tick export: timestamp;last;bid;ask;volume."""
+
+TICK_STAMP_PARTS = 3
+"""Whitespace-separated parts of a tick export's timestamp, the third sub-second."""
 HASH_CHUNK_BYTES = 1 << 20
 """Read size when hashing. Hashing is I/O bound and cheap next to parsing."""
 
@@ -77,6 +83,7 @@ class ContractManifest:
 
     @classmethod
     def from_dict(cls, d: dict) -> ContractManifest:
+        """Rebuild an entry from the JSON the manifest file holds."""
         return cls(**{k: d[k] for k in cls.__slots__})
 
 
@@ -106,6 +113,7 @@ class IngestError(RuntimeError):
 
 
 def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifest]:
+    """Every manifest entry on disk, dropping any an older version wrote differently."""
     if not path.exists():
         return {}
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -121,6 +129,7 @@ def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifes
 
 
 def save_manifest(manifest: dict[str, ContractManifest], path: Path = paths.MANIFEST_PATH) -> None:
+    """Write the manifest out sorted, creating its directory if it is missing."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {k: asdict(v) for k, v in sorted(manifest.items())}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -158,7 +167,7 @@ def _reject_tick_export(data: bytes, source_name: str) -> None:
         return
     fields = head.split(b";")
     stamp = fields[0].split()
-    if len(fields) == 5 and len(stamp) == 3:
+    if len(fields) == TICK_EXPORT_FIELDS and len(stamp) == TICK_STAMP_PARTS:
         msg = (
             f"{source_name} looks like a tick export "
             f"(timestamp;last;bid;ask;volume with sub-second stamps), not minute bars. "
@@ -194,7 +203,7 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
     frame.index = pd.DatetimeIndex(ts.loc[~bad], name="ts_utc")
     frame = frame.drop(columns=["timestamp"])
 
-    return _finalise(frame, source_name=source_name, dropped_timestamps=int(bad.sum()))
+    return _finalise(frame, source_name=source_name)
 
 
 def _empty_frame() -> pd.DataFrame:
@@ -205,7 +214,7 @@ def _empty_frame() -> pd.DataFrame:
     return frame
 
 
-def _finalise(frame: pd.DataFrame, *, source_name: str, dropped_timestamps: int = 0) -> pd.DataFrame:
+def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
     """Sort, deduplicate, validate OHLC sanity and attach session classification."""
     frame = frame.sort_index(kind="stable")
     frame = frame[~frame.index.duplicated(keep="last")]
@@ -248,6 +257,7 @@ def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None)
 
 
 def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> Path:
+    """Where one contract's cached bars live."""
     return cache_dir / "bars" / contract.root / f"{contract.cache_key}.parquet"
 
 

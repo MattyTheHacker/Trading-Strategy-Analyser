@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 
 @njit(cache=True)
-def resolve_brackets(
+def resolve_brackets(  # noqa: C901, PLR0912, PLR0913, PLR0917 - one argument per NT8 property; #59
     out: FloatArray,
     written: int,
     trade_id: int,
@@ -106,7 +106,7 @@ def resolve_brackets(
     any_target_hit = False
     nearest_target = 0.0
     for leg in range(n_legs):
-        if leg_open[leg] and not np.isnan(leg_target[leg]):
+        if leg_open[leg] and not np.isnan(leg_target[leg]):  # noqa: SIM102 - needs a continue guard; #146
             if limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
                 if not any_target_hit or abs(leg_target[leg] - open_px) < abs(nearest_target - open_px):
                     nearest_target = leg_target[leg]
@@ -146,7 +146,7 @@ def resolve_brackets(
         return written, False
 
     for leg in range(n_legs):
-        if leg_open[leg] and not np.isnan(leg_target[leg]):
+        if leg_open[leg] and not np.isnan(leg_target[leg]):  # noqa: SIM102 - needs a continue guard; #146
             if limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
                 # Limit order: fills at its price, never worse, no slippage.
                 written = write_leg(
@@ -338,7 +338,7 @@ def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
 
 
 @njit(cache=True)
-def write_leg(
+def write_leg(  # noqa: PLR0913, PLR0917 - one argument per leg-log column; #59
     out: FloatArray,
     written: int,
     trade_id: int,

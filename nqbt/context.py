@@ -134,6 +134,7 @@ class Dataset:
 
     @property
     def index(self) -> pd.DatetimeIndex:
+        """The bars' timestamp index."""
         return self.bars.index
 
     def grid(self, kind: str) -> MovingAverageGrid:
@@ -173,6 +174,7 @@ class Dataset:
         return self.atrs[period]
 
     def vwap_gate(self, *, above: bool) -> BoolArray:
+        """Per-bar boolean: is the close above (or below) the session VWAP?"""
         if self.below_vwap is None or self.above_vwap is None:
             msg = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
@@ -184,6 +186,7 @@ class Dataset:
         return self.above_vwap if above else self.below_vwap
 
     def vwap_values(self) -> FloatArray:
+        """Session VWAP per bar, or a pointed error."""
         if self.vwap is None:
             msg = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "

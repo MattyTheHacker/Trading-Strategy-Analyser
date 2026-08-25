@@ -125,6 +125,7 @@ def _previous_bar_red(open_: FloatArray, close: FloatArray) -> BoolArray:
 
 
 def inverted_hammer(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_inverted_hammer` over a bar frame's OHLC columns."""
     return _inverted_hammer(
         bars["open"].to_numpy(np.float64),
         bars["high"].to_numpy(np.float64),
@@ -134,6 +135,7 @@ def inverted_hammer(bars: pd.DataFrame) -> BoolArray:
 
 
 def hammer(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_hammer` over a bar frame's OHLC columns."""
     return _hammer(
         bars["open"].to_numpy(np.float64),
         bars["high"].to_numpy(np.float64),
@@ -143,18 +145,22 @@ def hammer(bars: pd.DataFrame) -> BoolArray:
 
 
 def made_new_high(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_made_new_high` over a bar frame's highs."""
     return _made_new_high(bars["high"].to_numpy(np.float64))
 
 
 def made_new_low(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_made_new_low` over a bar frame's lows."""
     return _made_new_low(bars["low"].to_numpy(np.float64))
 
 
 def previous_bar_green(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_previous_bar_green` over a bar frame's opens and closes."""
     return _previous_bar_green(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
 
 
 def previous_bar_red(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_previous_bar_red` over a bar frame's opens and closes."""
     return _previous_bar_red(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
 
 
@@ -176,7 +182,7 @@ def above_series(close: FloatArray, series: FloatArray) -> BoolArray:
 
 
 @njit(cache=True)
-def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> BoolArray:
+def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> BoolArray:  # noqa: FBT001
     """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?"""
     n = fast.size
     out = np.zeros(n, dtype=np.bool_)
@@ -243,6 +249,7 @@ class BarGeometry:
 
 
 def bar_geometry(bars: pd.DataFrame) -> BarGeometry:
+    """Every parameter-free condition, computed once over the whole frame."""
     return BarGeometry(
         inverted_hammer=inverted_hammer(bars),
         hammer=hammer(bars),
@@ -275,6 +282,7 @@ class MovingAverageGrid:
     """
 
     def row(self, period: int) -> int:
+        """The row holding ``period``, or an error naming what the grid was built for."""
         idx = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
             msg = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
@@ -282,12 +290,15 @@ class MovingAverageGrid:
         return idx
 
     def below_for(self, period: int) -> BoolArray:
+        """One period's ``Close < MA`` gate."""
         return self.below[self.row(period)]
 
     def above_for(self, period: int) -> BoolArray:
+        """One period's ``Close > MA`` gate."""
         return self.above[self.row(period)]
 
     def values_for(self, period: int) -> FloatArray:
+        """One period's raw moving-average values, when the grid kept them."""
         if self.values is None:
             msg = (
                 "this grid kept only the boolean gate; rebuild it with keep_values=True "
@@ -300,6 +311,7 @@ class MovingAverageGrid:
 
     @property
     def nbytes(self) -> int:
+        """Bytes the grid occupies -- what a parallel worker is handed."""
         return self.below.nbytes + self.above.nbytes + (0 if self.values is None else self.values.nbytes)
 
 

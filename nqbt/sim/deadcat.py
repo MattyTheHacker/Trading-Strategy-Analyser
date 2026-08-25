@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 @njit(cache=True)
-def simulate_deadcat(
+def simulate_deadcat(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one argument per NT8 property; #59
     open_: FloatArray,
     high: FloatArray,
     low: FloatArray,

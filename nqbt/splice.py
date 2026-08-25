@@ -74,10 +74,12 @@ class RollDecision:
 
     @property
     def crossover_observed(self) -> bool:
+        """Whether the roll day came from an observed volume crossover."""
         return self.method == METHOD_VOLUME
 
     @property
     def looks_early(self) -> bool:
+        """Whether the roll fired while the front contract was still dominant."""
         return not self.crossover_observed and self.handover_ratio < EARLY_ROLL_RATIO
 
     def __str__(self) -> str:
@@ -101,13 +103,16 @@ class SpliceReport:
 
     @property
     def all_crossovers_observed(self) -> bool:
+        """Whether every roll in the series came from an observed crossover."""
         return all(r.crossover_observed for r in self.rolls)
 
     @property
     def early_rolls(self) -> list[RollDecision]:
+        """The rolls that fired while the front contract was still dominant."""
         return [r for r in self.rolls if r.looks_early]
 
     def summary(self) -> str:
+        """The whole report as text, for eyeballing before trusting a sweep."""
         lines = [
             f"{self.root} continuous series{' (back-adjusted)' if self.back_adjusted else ' (raw prices)'}",
             "",
@@ -306,7 +311,7 @@ def _boundary_offset(
 # -- continuous series --------------------------------------------------------
 
 
-def build_continuous(
+def build_continuous(  # noqa: C901 - the roll rules it applies are each a branch
     contracts: list[ContractId],
     frames: dict[ContractId, pd.DataFrame],
     *,
@@ -405,13 +410,13 @@ def build_continuous(
     # A coverage-boundary roll is the expected path for NT8 data and is not itself worth
     # warning about. Only flag one that fired while the front contract was still
     # dominant, which is the case that could actually distort a backtest.
-    for roll in rolls:
-        if roll.looks_early:
-            warnings.append(
-                f"{roll.front.nt8_name} -> {roll.back.nt8_name}: rolled at "
-                f"{roll.roll_day.date()} with the back contract at only "
-                f"{roll.handover_ratio:.0%} of front volume; verify this handover",
-            )
+    warnings.extend(
+        f"{roll.front.nt8_name} -> {roll.back.nt8_name}: rolled at "
+        f"{roll.roll_day.date()} with the back contract at only "
+        f"{roll.handover_ratio:.0%} of front volume; verify this handover"
+        for roll in rolls
+        if roll.looks_early
+    )
 
     report = SpliceReport(
         root=root,
@@ -437,7 +442,8 @@ def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
             )
 
 
-def continuous_path(root: str, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
+def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
+    """Where one root's spliced continuous series is cached."""
     suffix = "backadj" if back_adjust else "raw"
     return cache_dir / "continuous" / f"{root}_{suffix}.parquet"
 
@@ -468,7 +474,7 @@ def splice_root(
     )
 
     if write:
-        out = continuous_path(root, back_adjust, cache_dir)
+        out = continuous_path(root, back_adjust=back_adjust, cache_dir=cache_dir)
         out.parent.mkdir(parents=True, exist_ok=True)
         series.to_parquet(out, engine="pyarrow", compression="zstd", index=True)
 
@@ -481,7 +487,8 @@ def load_continuous(
     back_adjust: bool = False,
     cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:
-    path = continuous_path(root, back_adjust, cache_dir)
+    """Read a spliced continuous series back from the cache."""
+    path = continuous_path(root, back_adjust=back_adjust, cache_dir=cache_dir)
     if not path.exists():
         msg = (
             f"no continuous series for {root}; run `nqbt splice --root {root}"

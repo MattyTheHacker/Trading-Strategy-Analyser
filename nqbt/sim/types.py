@@ -194,6 +194,7 @@ class DeadCatParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict:
+        """Flat mapping of every parameter, keyed by field name."""
         out = {}
         for f in fields(self):
             value = getattr(self, f.name)
@@ -342,6 +343,7 @@ class PullBackAndGoParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict:
+        """Flat mapping of every parameter, keyed by field name."""
         out = {}
         for f in fields(self):
             value = getattr(self, f.name)
@@ -510,6 +512,7 @@ class EmaCrossoverParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict:
+        """Flat mapping of every parameter, keyed by field name."""
         out = {}
         for f in fields(self):
             value = getattr(self, f.name)

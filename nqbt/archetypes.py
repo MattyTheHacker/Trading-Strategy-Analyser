@@ -38,7 +38,9 @@ class Params(Protocol):
 
     __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]
 
-    def as_dict(self) -> dict: ...
+    def as_dict(self) -> dict:
+        """Flat mapping of every parameter, keyed by field name."""
+        ...
 
 
 class ArchetypeError(KeyError):
@@ -311,6 +313,7 @@ def register(archetype: Archetype) -> Archetype:
 
 
 def get(name: str) -> Archetype:
+    """The archetype registered under ``name``, or an error naming the ones that are."""
     if name not in _REGISTRY:
         msg = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
         raise ArchetypeError(msg)
@@ -318,10 +321,12 @@ def get(name: str) -> Archetype:
 
 
 def names() -> list[str]:
+    """Every registered archetype name, sorted."""
     return sorted(_REGISTRY)
 
 
 def all_archetypes() -> list[Archetype]:
+    """Every registered archetype, in name order."""
     return [_REGISTRY[n] for n in names()]
 
 

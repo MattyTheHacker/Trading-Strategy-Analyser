@@ -395,7 +395,7 @@ class _Null:
     dropped: int
 
 
-def _null(  # noqa: PLR0913 - each keyword is a separate choice the result has to state
+def _null(
     pnl: Floats,
     labels: Mapping[str, Labels],
     *,
@@ -445,7 +445,7 @@ def _p_value(null: Floats, observed: float) -> tuple[float, int]:
     return float((finite >= observed).mean()), int(finite.size)
 
 
-def screen(  # noqa: PLR0913 - each keyword is a separate choice the report has to state
+def screen(
     pnl: Floats,
     labels: Mapping[str, Labels],
     *,
@@ -512,7 +512,7 @@ def _screen_frame(drawn: _Null) -> pd.DataFrame:
     return ordered.reset_index(drop=True)
 
 
-def permutation_test(  # noqa: PLR0913 - each keyword is a separate choice the result has to state
+def permutation_test(
     pnl: Floats,
     labels: Labels,
     *,
@@ -557,7 +557,7 @@ def permutation_test(  # noqa: PLR0913 - each keyword is a separate choice the r
 # -- the holdout --------------------------------------------------------------
 
 
-def holdout_test(  # noqa: PLR0913 - each keyword is a separate choice the result has to state
+def holdout_test(
     pnl: Floats,
     labels: Labels,
     *,
@@ -657,7 +657,7 @@ def _nothing_to_hold_out(
 # -- one review's conditions, guarded -----------------------------------------
 
 
-def guard(  # noqa: PLR0913 - each keyword is a separate choice the report has to state
+def guard(
     log: pd.DataFrame,
     annotation: Annotation,
     *,

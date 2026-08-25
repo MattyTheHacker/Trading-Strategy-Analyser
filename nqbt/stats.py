@@ -90,10 +90,12 @@ class Summary:
     commission_paid: float
 
     def as_dict(self) -> dict:
+        """Flat mapping of every statistic, for a results row or a CSV."""
         return asdict(self)
 
     @classmethod
     def columns(cls) -> list[str]:
+        """Every statistic's name, in field order."""
         return [f.name for f in fields(cls)]
 
     @classmethod
@@ -189,7 +191,7 @@ def summarise(trades: pd.DataFrame) -> Summary:
     t = per_trade(trades)
     pnl = t["net_pnl"].to_numpy(np.float64)
 
-    if "exit_time" in t.columns:
+    if "exit_time" in t.columns:  # noqa: SIM108 - the else branch carries a coverage pragma
         daily = _daily_totals(pnl, pd.DatetimeIndex(t["exit_time"]))
     else:  # pragma: no cover - only when times were not attached
         daily = pnl
@@ -220,7 +222,7 @@ def _finite(values: FloatArray) -> FloatArray:
     return values[np.isfinite(values)]
 
 
-def _summarise_arrays(  # noqa: PLR0913 - one argument per input vector; a bag would hide a swap
+def _summarise_arrays(
     *,
     pnl: FloatArray,
     bars_held: FloatArray,

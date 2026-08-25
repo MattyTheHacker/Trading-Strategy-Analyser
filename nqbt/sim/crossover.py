@@ -38,7 +38,7 @@ Numba needs an array of the right dtype whether or not the branch reading it run
 
 
 @njit(cache=True)
-def simulate_crossover(
+def simulate_crossover(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one argument per NT8 property; #59
     open_: FloatArray,
     high: FloatArray,
     low: FloatArray,

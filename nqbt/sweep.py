@@ -219,6 +219,7 @@ def _run_chunk(
     instrument: Instrument,
     start: int,
     stop: int,
+    *,
     keep_trades: bool,
 ) -> tuple[list[dict], dict[int, pd.DataFrame]]:
     """Run combinations ``[start, stop)``. Module level so loky can pickle it.
@@ -242,6 +243,7 @@ def _sweep_serial(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
+    *,
     keep_trades: bool,
     progress_every: int,
 ) -> tuple[list[dict], dict[int, pd.DataFrame]]:
@@ -264,6 +266,7 @@ def _sweep_parallel(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
+    *,
     keep_trades: bool,
     n_jobs: int,
     chunk_size: int | None,
@@ -278,7 +281,8 @@ def _sweep_parallel(
     bounds = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
     payload = data.slim()
     batches = Parallel(n_jobs=n_jobs, verbose=10 if progress_every else 0)(
-        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades) for start, stop in bounds
+        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades=keep_trades)
+        for start, stop in bounds
     )
 
     rows: list[dict] = []
@@ -316,9 +320,23 @@ def sweep(
     data = data if data is not None else prepare_for(bars, grid)
 
     if effective_n_jobs(n_jobs) == 1:
-        rows, logs = _sweep_serial(data, grid, instrument, keep_trades, progress_every)
+        rows, logs = _sweep_serial(
+            data,
+            grid,
+            instrument,
+            keep_trades=keep_trades,
+            progress_every=progress_every,
+        )
     else:
-        rows, logs = _sweep_parallel(data, grid, instrument, keep_trades, n_jobs, chunk_size, progress_every)
+        rows, logs = _sweep_parallel(
+            data,
+            grid,
+            instrument,
+            keep_trades=keep_trades,
+            n_jobs=n_jobs,
+            chunk_size=chunk_size,
+            progress_every=progress_every,
+        )
 
     frame = pd.DataFrame(rows)
     if not frame.empty:

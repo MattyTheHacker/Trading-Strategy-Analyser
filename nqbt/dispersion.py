@@ -16,13 +16,16 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from nqbt import ingest, paths, sessions, splice, sweep
+from nqbt import ingest, paths, sessions, splice, stats, sweep
 from nqbt.instruments import MNQ, ContractId, Instrument
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from nqbt.arrays import FloatArray
+
+MIN_CONTRACTS = 2
+"""Fewest contracts a spread can be measured across."""
 
 MIN_TRADES = 30
 """Below this a per-contract statistic is reported but excluded from dispersion.
@@ -219,8 +222,6 @@ def spread_vs_resampling(
     per-contract effect** -- the test over-rejects by construction. That and the rest of its
     limits: ``docs/roadmap.md`` §M14.
     """
-    from nqbt import stats
-
     if by not in stats.TRADE_PNL_STATISTICS:
         msg = (
             f"{by!r} is not permutable: shuffling trades between contracts destroys the "
@@ -232,8 +233,8 @@ def spread_vs_resampling(
 
     grouped = {c: stats.per_trade(log)["net_pnl"].to_numpy(float) for c, log in logs.items()}
     usable = {c: pnl for c, pnl in grouped.items() if pnl.size >= min_trades}
-    if len(usable) < 2:
-        msg = f"need at least 2 contracts with >= {min_trades} trades; got {len(usable)}"
+    if len(usable) < MIN_CONTRACTS:
+        msg = f"need at least {MIN_CONTRACTS} contracts with >= {min_trades} trades; got {len(usable)}"
         raise DispersionError(msg)
 
     observed_stats = {c: stats.trade_statistic(pnl, by) for c, pnl in usable.items()}

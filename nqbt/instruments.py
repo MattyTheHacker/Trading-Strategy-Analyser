@@ -20,6 +20,9 @@ CODE_MONTHS: dict[str, int] = {v: k for k, v in MONTH_CODES.items()}
 
 RoundMode = Literal["nearest", "up", "down"]
 
+ON_TICK_TOLERANCE = 1e-9
+"""How far off the tick grid a price may sit and still count as on it."""
+
 
 @dataclass(frozen=True, slots=True)
 class Instrument:
@@ -53,18 +56,23 @@ class Instrument:
     # -- conversions -----------------------------------------------------------
 
     def ticks_to_dollars(self, ticks: float, quantity: int = 1) -> float:
+        """Value of ``ticks`` on this instrument, for ``quantity`` contracts."""
         return ticks * self.tick_value * quantity
 
     def points_to_dollars(self, points: float, quantity: int = 1) -> float:
+        """Value of ``points`` on this instrument, for ``quantity`` contracts."""
         return points * self.point_value * quantity
 
     def dollars_to_points(self, dollars: float, quantity: int = 1) -> float:
+        """Price distance ``dollars`` buys, for ``quantity`` contracts."""
         return dollars / (self.point_value * quantity)
 
     def points_to_ticks(self, points: float) -> float:
+        """``points`` expressed in ticks."""
         return points / self.tick_size
 
     def ticks_to_points(self, ticks: float) -> float:
+        """``ticks`` expressed in points."""
         return ticks * self.tick_size
 
     # -- price alignment -------------------------------------------------------
@@ -91,7 +99,8 @@ class Instrument:
         return round(n * self.tick_size, self.price_decimals)
 
     def is_on_tick(self, price: float) -> bool:
-        return abs(price - self.round_to_tick(price)) < 1e-9
+        """Whether ``price`` sits exactly on this instrument's tick grid."""
+        return abs(price - self.round_to_tick(price)) < ON_TICK_TOLERANCE
 
     # -- risk ------------------------------------------------------------------
 
@@ -180,6 +189,7 @@ class ContractId:
 
     @property
     def month_code(self) -> str:
+        """The futures month letter, ``H`` for March and so on."""
         return MONTH_CODES[self.month]
 
     @property
@@ -194,6 +204,7 @@ class ContractId:
 
     @property
     def instrument(self) -> Instrument:
+        """The :class:`Instrument` this contract's root names."""
         return get_instrument(self.root)
 
     def __str__(self) -> str:

@@ -36,7 +36,7 @@ def explain_trades(
     The dataset must have been prepared with ``keep_ma_values=True``; the moving-average
     values themselves are needed to show *why* each trend gate passed, not just that it did.
     """
-    if any(g.values is None for g in data.mas.values()):
+    if any(g.values is None for g in data.mas.values()):  # noqa: PD011 - a grid attribute, not a Series
         msg = "explain_trades needs raw indicator values; call context.prepare(..., keep_ma_values=True)"
         raise ValueError(
             msg,
@@ -61,17 +61,20 @@ def explain_trades(
         s = entry_bar - 1  # the signal bar: the order rests for exactly one bar
         p = s - 1  # the bar the "previous green" and "new high" gates look back at
 
-        o, h, l, c = data.open[s], data.high[s], data.low[s], data.close[s]
-        body = abs(c - o)
-        upper = h - max(c, o)
-        lower = min(c, o) - l
+        sig_open = data.open[s]
+        sig_high = data.high[s]
+        sig_low = data.low[s]
+        sig_close = data.close[s]
+        body = abs(sig_close - sig_open)
+        upper = sig_high - max(sig_close, sig_open)
+        lower = min(sig_close, sig_open) - sig_low
 
         # Shared with the loop, not restated. See ``entry_bracket``: the copy that used to
         # sit here dropped the Close[0] - 2 ticks cap and was wrong on half of all trades.
         trigger, stop, risk = entry_bracket(
-            h,
-            l,
-            c,
+            sig_high,
+            sig_low,
+            sig_close,
             params.entry_offset_ticks * tick,
             params.stop_offset_ticks * tick,
             SHORT,  # DeadCatBounce is short-only; see nqbt.sim.bracket.entry_bracket.
@@ -84,10 +87,10 @@ def explain_trades(
             "trade_id": trade_id,
             "signal_time": index[s],
             "signal_bar": s,
-            "sig_open": o,
-            "sig_high": h,
-            "sig_low": l,
-            "sig_close": c,
+            "sig_open": sig_open,
+            "sig_high": sig_high,
+            "sig_low": sig_low,
+            "sig_close": sig_close,
             # -- inverted hammer -------------------------------------------------
             "body": body,
             "upper_wick": upper,
@@ -100,16 +103,16 @@ def explain_trades(
             "prev_close": data.close[p] if p >= 0 else np.nan,
             "prev_green_ok": (data.close[p] >= data.open[p]) if p >= 0 else False,
             "prev_high": data.high[p] if p >= 0 else np.nan,
-            "new_high_ok": (h > data.high[p]) if p >= 0 else False,
+            "new_high_ok": (sig_high > data.high[p]) if p >= 0 else False,
             # -- trend gates: operands, so the verdict is checkable ---------------
             "ema": ema[s],
-            "below_ema": not (c > ema[s]),
+            "below_ema": not (sig_close > ema[s]),
             "fast_sma": fast[s],
-            "below_fast_sma": not (c > fast[s]),
+            "below_fast_sma": not (sig_close > fast[s]),
             "slow_sma": slow[s],
-            "below_slow_sma": not (c > slow[s]),
+            "below_slow_sma": not (sig_close > slow[s]),
             "vwap": vwap[s],
-            "below_vwap": not (c > vwap[s]),
+            "below_vwap": not (sig_close > vwap[s]),
             "signal_fired": bool(signal[s]),
             # -- order arithmetic -------------------------------------------------
             "trigger": trigger,
