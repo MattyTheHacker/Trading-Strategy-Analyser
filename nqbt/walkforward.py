@@ -23,8 +23,12 @@ from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import MNQ
 
 if TYPE_CHECKING:
+    from nqbt.archetypes import Params
+    from nqbt.arrays import AnyArray, BoolArray, FloatArray
+    from nqbt.context import Dataset
     from nqbt.costs import TradingCosts
     from nqbt.instruments import Instrument
+    from nqbt.sweep import Grid
 
 __all__ = [
     "Split",
@@ -77,7 +81,7 @@ def splits(
     sliding it.
     """
     if train_bars < 1 or test_bars < 1:
-        msg = f"train_bars and test_bars must both be >= 1; got {train_bars} and {test_bars}"
+        msg: str = f"train_bars and test_bars must both be >= 1; got {train_bars} and {test_bars}"
         raise WalkForwardError(msg)
     step = test_bars if step is None else step
     if step < 1:
@@ -91,7 +95,7 @@ def splits(
         raise WalkForwardError(msg)
 
     out: list[Split] = []
-    train_end = train_bars
+    train_end: int = train_bars
     while train_end + test_bars <= n_bars:
         out.append(
             Split(
@@ -142,7 +146,7 @@ class WalkForwardResult:
     statistic: str
     costs: TradingCosts
 
-    def pooled_pnl(self) -> np.ndarray:
+    def pooled_pnl(self) -> FloatArray:
         """Per-trade P&L across every out-of-sample window, in split order.
 
         Grouped per split before the leg collapse, because ``trade_id`` restarts at 1 in each
@@ -150,7 +154,7 @@ class WalkForwardResult:
         """
         if self.trades.empty:
             return np.empty(0, dtype=float)
-        parts = [
+        parts: list[AnyArray] = [
             stats.per_trade(window)["net_pnl"].to_numpy(dtype=float)
             for _, window in self.trades.groupby("split", sort=True)
         ]
@@ -158,8 +162,8 @@ class WalkForwardResult:
 
     def summary(self) -> WalkForwardSummary:
         """Aggregate in-sample against out-of-sample, over splits that selected anything."""
-        chosen = self.table[self.table["combo_id"].notna()]
-        pooled = self.pooled_pnl()
+        chosen: pd.DataFrame = self.table[self.table["combo_id"].notna()]
+        pooled: FloatArray = self.pooled_pnl()
         return WalkForwardSummary(
             statistic=self.statistic,
             splits=len(self.table),
@@ -184,9 +188,9 @@ def _window_log(
 ) -> pd.DataFrame:
     """Run a one-combination grid over ``window``, dropping trades entered in the warm-up."""
     start, end = window
-    lead = max(0, start - warmup)
-    slice_ = bars.iloc[lead:end]
-    data = sweep.prepare_for(slice_, combination)
+    lead: int = max(0, start - warmup)
+    slice_: pd.DataFrame = bars.iloc[lead:end]
+    data: Dataset = sweep.prepare_for(slice_, combination)
     _, log = sweep.run_combination(
         data,
         combination.base,
@@ -197,7 +201,7 @@ def _window_log(
     if log is None or log.empty:
         return pd.DataFrame() if log is None else log
     # ``entry_bar`` is a position into ``slice_``, which is what the prefix is measured in.
-    keep = log["entry_bar"].to_numpy() >= (start - lead)
+    keep: BoolArray = log["entry_bar"].to_numpy() >= (start - lead)
     return log[keep].reset_index(drop=True)
 
 
@@ -205,7 +209,7 @@ def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
     """``name`` and the trade count behind it, from a leg-level log."""
     if log.empty:
         return np.nan, 0
-    pnl = stats.per_trade(log)["net_pnl"].to_numpy(float)
+    pnl: FloatArray = stats.per_trade(log)["net_pnl"].to_numpy(float)
     return stats.trade_statistic(pnl, name), int(pnl.size)
 
 
@@ -234,7 +238,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
     trades entered in the prefix are discarded. A grid reading an SMA(200) needs at least 200.
     """
     if select_by not in stats.TRADE_PNL_STATISTICS:
-        msg = (
+        msg: str = (
             f"{select_by!r} cannot be selected on: walk-forward compares in-sample against "
             f"out-of-sample using one definition, and lower-is-better statistics would need "
             f"the opposite comparison. Choose from {list(stats.TRADE_PNL_STATISTICS)}."
@@ -250,13 +254,13 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
         msg = f"warmup_bars must be >= 0; got {warmup_bars}"
         raise WalkForwardError(msg)
 
-    costed = sweep.Grid(
+    costed: Grid = sweep.Grid(
         axes=dict(grid.axes),
         base=costs.apply(grid.base),
         archetype=grid.archetype,
     )
-    combos = list(costed.combinations())
-    windows = splits(
+    combos: list[Params] = list(costed.combinations())
+    windows: list[Split] = splits(
         len(bars),
         train_bars=train_bars,
         test_bars=test_bars,
@@ -266,10 +270,10 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
 
     rows, logs = [], []
     for split in windows:
-        train = bars.iloc[max(0, split.train_start - warmup_bars) : split.train_end]
+        train: pd.DataFrame = bars.iloc[max(0, split.train_start - warmup_bars) : split.train_end]
         table, _ = sweep.sweep(train, costed, instrument, n_jobs=n_jobs)
-        viable = table[table["trades"] >= min_trades]
-        finite = viable[np.isfinite(viable[select_by].to_numpy(dtype=float))]
+        viable: pd.DataFrame = table[table["trades"] >= min_trades]
+        finite: pd.DataFrame = viable[np.isfinite(viable[select_by].to_numpy(dtype=float))]
 
         row = {
             "split": split.index,
@@ -292,9 +296,9 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             )
             continue
 
-        best = finite.loc[finite[select_by].idxmax()]
-        combo_id = int(best["combo_id"])
-        test_log = _window_log(
+        best = finite.loc[finite[select_by].idxmax()].to_dict()
+        combo_id: int = int(best["combo_id"])
+        test_log: pd.DataFrame = _window_log(
             bars,
             (split.test_start, split.test_end),
             sweep.Grid(base=combos[combo_id], archetype=costed.archetype),

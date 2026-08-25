@@ -8,26 +8,31 @@ name = "nqbt"
 version = "0.1.0"
 description = "Tier 1 strategy research and backtesting tool for NQ/MNQ futures"
 requires-python = ">=3.14"
+# Pinned exactly, not floored. CI resolves a fresh environment on every run, so a range
+# means a release nobody chose can turn `main` red -- which it did, when numpy 2.5 changed a
+# default that `>=` had let in. Dependabot raises the bumps; see CONTRIBUTING.md.
 dependencies = [
-    "numpy>=2.3",
-    "pandas>=3.0",
-    "pyarrow>=25.0",
-    "numba>=0.66",
-    "TA-Lib>=0.7.1",
-    "duckdb>=1.4",
-    "joblib>=1.5",
-    "tzdata>=2025.2",
+    "numpy==2.4.6",
+    "pandas==3.0.5",
+    "pyarrow==25.0.0",
+    "numba==0.66.0",
+    "TA-Lib==0.7.1",
+    "duckdb==1.5.5",
+    "joblib==1.5.3",
+    "tzdata==2026.3",
 ]
 
 
 [project.optional-dependencies]
+# Pinned for the same reason, and ruff most of all: `extend-select = ["ALL"]` means a
+# release that adds a rule fails a build nobody touched.
 dev = [
-    "pytest>=9.0",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.16.2",
-    "mypy>=2.3.0",
-    "pandas-stubs>=3.0.5.260730",
-    "pymarkdownlnt>=0.9.39",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.2",
+    "mypy==2.3.0",
+    "pandas-stubs==3.0.5.260730",
+    "pymarkdownlnt==0.9.39",
 ]
 
 
@@ -37,6 +42,10 @@ nqbt = "nqbt.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["nqbt*"]
+
+
+[tool.setuptools.package-data]
+nqbt = ["py.typed"]
 
 
 [tool.pytest.ini_options]
@@ -52,6 +61,7 @@ enabled = false
 
 
 [tool.coverage.report]
+# An import-time-only block: never executed, so never coverable.
 exclude_also = ["if TYPE_CHECKING:"]
 skip_covered = true
 sort = "cover"
@@ -71,10 +81,46 @@ line-ending = "auto"
 
 [tool.ruff.lint]
 extend-select = ["ALL"]
+ignore = [
+    # The formatter owns trailing commas, and ruff warns that the two disagree.
+    "COM812",
+    # The licence is stated once in LICENSE rather than at the top of every file.
+    "CPY001",
+    # D211 is the convention here: no blank line before a class docstring. Stated rather
+    # than left to ruff, which picks one and warns.
+    "D203",
+    # A summary that asks a question ends in "?". D415 still requires terminal punctuation.
+    "D400",
+    # A dunder's contract is the language's; the ones that surprise carry a docstring anyway.
+    "D105",
+    # D212 is the convention here: a multi-line summary starts on the first line.
+    "D213",
+    # A docstring here says *what* a thing is -- CONTRIBUTING.md, "Where reasoning goes" --
+    # which is a noun phrase, where D401 wants an imperative verb.
+    "D401",
+]
+
+
+[tool.ruff.lint.pylint]
+# An entry point taking one keyword per choice its caller must state is the shape of this
+# codebase, not a defect. What is left above ten is the parameter blobs #59 fixes, and each
+# of those carries a noqa naming the issue.
+max-args = 10
 
 
 [tool.ruff.lint.per-file-ignores]
+# `assert` is how a test states its expectation; S101 is aimed at production code.
 "tests/**" = ["S101"]
+# The jitted loops: numba compiles from the call and has no keyword-only arguments, so a
+# toggle is a positional boolean and its callers pass it as one.
+"nqbt/conditions.py" = ["FBT001", "FBT003"]
+"nqbt/sim/bracket.py" = ["FBT001", "FBT003"]
+"nqbt/sim/crossover.py" = ["FBT001", "FBT003"]
+"nqbt/sim/deadcat.py" = ["FBT001", "FBT003"]
+"nqbt/sim/runner.py" = ["FBT003"]
+# Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
+# numba, pandas and TA-Lib.
+"nqbt/cli.py" = ["PLC0415"]
 
 
 [tool.mypy]
@@ -102,7 +148,6 @@ enable_error_code = [
     "unused-awaitable"
 ]
 extra_checks = true
-mypy_path = "stubs"
 no_implicit_reexport = true
 strict_bytes = true
 strict_equality = true
@@ -113,3 +158,11 @@ warn_unreachable = true
 warn_unused_configs = true
 warn_unused_ignores = true
 warn_incomplete_stub = true
+
+
+[[tool.mypy.overrides]]
+# joblib ships neither stubs nor a py.typed marker. Only Parallel, delayed and
+# effective_n_jobs are used, all inside _sweep_parallel, so a stub under mypy_path would
+# restate three signatures and gain nothing over letting the import be untyped.
+module = ["joblib"]
+ignore_missing_imports = true

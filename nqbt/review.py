@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from nqbt.annotate import Annotation
+    from nqbt.stats import Summary
 
 __all__ = [
     "FORCED_EXIT_NOTE",
@@ -169,7 +170,7 @@ class Review:
     @override
     def __str__(self) -> str:
         """Render the report: what it is worth, then time of day, then the ranking."""
-        parts = [
+        parts: list[str] = [
             (
                 f"{self.reviewed}/{self.trades} trades reviewed, {len(self.conditions)} of "
                 f"{len(self.conditions) + len(self.skipped)} conditions stratified, "
@@ -190,13 +191,13 @@ class Review:
         """Render the headline section, or say why there is none."""
         if self.time_of_day.empty:
             return [f"No {PHASE_COLUMN}: this annotation was built over a dataset with no clock."]
-        lines = [f"Time of day ({PHASE_COLUMN})", self.time_of_day.to_string()]
+        lines: list[str] = [f"Time of day ({PHASE_COLUMN})", self.time_of_day.to_string()]
         if _FORCED_EXIT_VALUE in self.time_of_day.index:
             lines.append(f"  {FORCED_EXIT_NOTE}")
         return lines
 
 
-def review(  # noqa: PLR0913 - each keyword is a separate choice the report has to state
+def review(
     log: pd.DataFrame,
     annotation: Annotation,
     *,
@@ -212,7 +213,7 @@ def review(  # noqa: PLR0913 - each keyword is a separate choice the report has 
     wording of an omission, never which statistics are omitted.
     """
     if by not in REPORTED:
-        msg = f"cannot rank by {by!r}; a review reports {list(REPORTED)}"
+        msg: str = f"cannot rank by {by!r}; a review reports {list(REPORTED)}"
         raise ReviewError(msg)
 
     legs, reviewable, omitted = _prepare(log, annotation, unpopulated)
@@ -220,14 +221,14 @@ def review(  # noqa: PLR0913 - each keyword is a separate choice the report has 
         msg = f"cannot rank by {by!r}: {omitted[by]}"
         raise ReviewError(msg)
 
-    available = stratifiable(reviewable, annotation.conditions)
-    chosen = available if conditions is None else _requested(reviewable, conditions)
-    frames = [
+    available: tuple[str, ...] = stratifiable(reviewable, annotation.conditions)
+    chosen: tuple[str, ...] = available if conditions is None else _requested(reviewable, conditions)
+    frames: list[pd.DataFrame] = [
         _strata(legs, reviewable[name], name, min_trades=min_trades, omitted=omitted) for name in chosen
     ]
-    strata = pd.concat(frames, ignore_index=True) if frames else _empty_strata(omitted)
+    strata: pd.DataFrame = pd.concat(frames, ignore_index=True) if frames else _empty_strata(omitted)
 
-    headline = pd.DataFrame()
+    headline: pd.DataFrame = pd.DataFrame()
     if PHASE_COLUMN in reviewable.columns:
         headline = _time_of_day(legs, reviewable, min_trades=min_trades, omitted=omitted)
 
@@ -275,7 +276,7 @@ def time_of_day(
     """
     legs, reviewable, omitted = _prepare(log, annotation, unpopulated)
     if PHASE_COLUMN not in reviewable.columns:
-        msg = (
+        msg: str = (
             f"this annotation carries no {PHASE_COLUMN}, so there is no clock to stratify by; "
             f"prepare() the dataset with needs_time_of_day=True."
         )
@@ -304,13 +305,13 @@ def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataF
     if strata.empty:
         return pd.DataFrame(columns=list(RANKING_COLUMNS))
     if by not in strata.columns:
-        msg = f"no {by!r} column in these strata; it was omitted when they were built"
+        msg: str = f"no {by!r} column in these strata; it was omitted when they were built"
         raise ReviewError(msg)
 
-    rows = []
+    rows: list[dict[str, object]] = []
     for condition, group in strata.groupby("condition", sort=False):
-        ranked = group[group["reported"].astype(bool)]
-        usable = ranked[np.isfinite(ranked[by].to_numpy(np.float64))]
+        ranked: pd.DataFrame = group[group["reported"].astype(bool)]
+        usable: pd.DataFrame = ranked[np.isfinite(ranked[by].to_numpy(np.float64))]
         separation, best, worst = _separation(usable, by)
         rows.append(
             {
@@ -323,7 +324,7 @@ def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataF
                 "worst": worst,
             },
         )
-    ordered = pd.DataFrame(rows).sort_values("separation", ascending=False, na_position="last")
+    ordered: pd.DataFrame = pd.DataFrame(rows).sort_values("separation", ascending=False, na_position="last")
     return ordered.reset_index(drop=True)
 
 
@@ -339,33 +340,33 @@ def _prepare(
     _check_columns(log)
     _check_same_log(log, annotation)
     notes.check_excluded(annotation.frame, what="an annotation being reviewed")
-    reviewable = annotation.reviewable
+    reviewable: pd.DataFrame = annotation.reviewable
     if reviewable.empty:
-        msg = (
+        msg: str = (
             f"no trade of this annotation matched the dataset ({annotation}), so there is "
             f"nothing to stratify. Annotate against the bars these trades happened on."
         )
         raise ReviewError(msg)
 
-    legs = log[log["trade_id"].isin(reviewable.index)]
-    absent = _absent_columns(legs)
+    legs: pd.DataFrame = log[log["trade_id"].isin(reviewable.index)]
+    absent: tuple[str, ...] = _absent_columns(legs)
     return _summarisable(legs, absent), reviewable, _reasons(absent, legs, unpopulated or {})
 
 
 def _check_columns(log: pd.DataFrame) -> None:
     """Refuse a frame that is not a trade log before anything reads a column of it."""
-    missing = [name for name in _NEEDED if name not in log.columns]
+    missing: list[str] = [name for name in _NEEDED if name not in log.columns]
     if missing:
-        msg = f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
+        msg: str = f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
         raise ReviewError(msg)
 
 
 def _check_same_log(log: pd.DataFrame, annotation: Annotation) -> None:
     """Refuse an annotation built over other trades, which would carry another log's context."""
-    known = set(log["trade_id"].dropna().tolist())
-    unknown = [trade for trade in annotation.frame.index.tolist() if trade not in known]
+    known: set[int] = set(log["trade_id"].dropna().tolist())
+    unknown: list[int] = [trade for trade in annotation.frame.index.tolist() if trade not in known]
     if unknown:
-        msg = (
+        msg: str = (
             f"{len(unknown)} annotated trade(s) are not in this log, the first being "
             f"{unknown[0]}; the annotation was built over different trades."
         )
@@ -379,9 +380,9 @@ def _absent_columns(legs: pd.DataFrame) -> tuple[str, ...]:
 
 def _reasons(absent: Sequence[str], legs: pd.DataFrame, unpopulated: Mapping[str, str]) -> dict[str, str]:
     """Every statistic this log cannot support, and the reason for each in the producer's words."""
-    reasons = {}
+    reasons: dict[str, str] = {}
     for column in absent:
-        why = unpopulated.get(column, f"this log leaves {column} null on every row")
+        why: str = unpopulated.get(column, f"this log leaves {column} null on every row")
         for name in STATISTICS_FROM[column]:
             reasons[name] = why
     if not _simulator_exit_reasons(legs):
@@ -403,10 +404,10 @@ def _summarisable(legs: pd.DataFrame, absent: Sequence[str]) -> pd.DataFrame:
     Every statistic a filled column feeds is already omitted by name, so no value substituted
     here can reach a reported number -- :data:`_PLACEHOLDERS`.
     """
-    fills = [name for name in absent if name in _PLACEHOLDERS]
+    fills: list[str] = [name for name in absent if name in _PLACEHOLDERS]
     if not fills:
         return legs
-    filled = legs.copy()
+    filled: pd.DataFrame = legs.copy()
     for name in fills:
         filled[name] = _PLACEHOLDERS[name]
     return filled
@@ -415,7 +416,7 @@ def _summarisable(legs: pd.DataFrame, absent: Sequence[str]) -> pd.DataFrame:
 # -- the strata ---------------------------------------------------------------
 
 
-def _is_stratifiable(column: pd.Series) -> bool:
+def _is_stratifiable(column: pd.Series) -> bool:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Whether one condition takes few enough values, and is not a raw series."""
     if pd.api.types.is_float_dtype(column.dtype):
         return False
@@ -432,11 +433,11 @@ def _requested(reviewable: pd.DataFrame, conditions: Sequence[str]) -> tuple[str
 def _check_stratifiable(reviewable: pd.DataFrame, condition: str) -> None:
     """Refuse a condition that is absent, constant, or a raw series needing a cut."""
     if condition not in reviewable.columns:
-        msg = f"no condition {condition!r} in this annotation; it holds {sorted(reviewable.columns)}"
+        msg: str = f"no condition {condition!r} in this annotation; it holds {sorted(reviewable.columns)}"
         raise ReviewError(msg)
     if _is_stratifiable(reviewable[condition]):
         return
-    values = reviewable[condition].dropna().nunique()
+    values: int = reviewable[condition].dropna().nunique()
     msg = (
         f"{condition!r} takes {values} distinct value(s) over these trades, which is not a "
         f"stratification. A raw series has to be cut before it is a condition, and where to cut "
@@ -445,7 +446,7 @@ def _check_stratifiable(reviewable: pd.DataFrame, condition: str) -> None:
     raise ReviewError(msg)
 
 
-def _strata(
+def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
     legs: pd.DataFrame,
     values: pd.Series,
     condition: str,
@@ -454,9 +455,9 @@ def _strata(
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:
     """Summarise the legs of the trades carrying each value ``condition`` took, a row per value."""
-    rows = []
+    rows: list[dict[str, object]] = []
     for value, ids in _groups(values):
-        summary = stats.summarise(legs[legs["trade_id"].isin(ids)])
+        summary: Summary = stats.summarise(legs[legs["trade_id"].isin(ids)])
         rows.append(
             {
                 "condition": condition,
@@ -468,7 +469,7 @@ def _strata(
     return pd.DataFrame(rows, columns=["condition", "value", *_columns(omitted), "reported"])
 
 
-def _groups(values: pd.Series) -> list[tuple[object, pd.Index]]:
+def _groups(values: pd.Series) -> list[tuple[object, pd.Index]]:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Each distinct value of one condition and the trade ids carrying it, nulls excluded."""
     present = values.dropna()
     return list(present.groupby(present, sort=True, observed=True).groups.items())
@@ -495,7 +496,8 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
         return np.nan, pd.NA, pd.NA
     best = usable.loc[usable[by].idxmax()]
     worst = usable.loc[usable[by].idxmin()]
-    return float(best[by] - worst[by]), best["value"], worst["value"]
+    # A row of a numeric column; pandas types every cell as the frame's widest possible value.
+    return float(best[by] - worst[by]), best["value"], worst["value"]  # type: ignore[arg-type]
 
 
 # -- the headline -------------------------------------------------------------
@@ -509,27 +511,29 @@ def _time_of_day(
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:
     """Assemble the phase strata in session order, with the volume medians and the clock's share."""
-    frame = _strata(legs, reviewable[PHASE_COLUMN], PHASE_COLUMN, min_trades=min_trades, omitted=omitted)
-    ordered = frame.drop(columns="condition").set_index("value")
+    frame: pd.DataFrame = _strata(
+        legs, reviewable[PHASE_COLUMN], PHASE_COLUMN, min_trades=min_trades, omitted=omitted
+    )
+    ordered: pd.DataFrame = frame.drop(columns="condition").set_index("value")
     ordered = ordered.reindex([value for value in _PHASE_ORDER if value in ordered.index])
     ordered.index.name = PHASE_COLUMN
-    beside = _volume_medians(reviewable, ordered.index)
+    beside: pd.DataFrame = _volume_medians(reviewable, ordered.index)
     if "session_close_share" not in omitted:
         beside["session_close_share"] = _forced_exit_share(legs, reviewable, ordered.index)
     return ordered.join(beside)
 
 
-def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index) -> pd.DataFrame:
+def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.DataFrame:
     """Median absolute and relative volume per phase: what is normal here, and what was not.
 
     The absolute figure alone cannot say whether a busy hour was unusually busy, and the relative
     figure alone cannot say whether there was anything there to trade.
     """
-    columns = _volume_columns(reviewable)
+    columns: list[str] = _volume_columns(reviewable)
     if not columns:
         return pd.DataFrame(index=phases)
-    grouped = reviewable.groupby(reviewable[PHASE_COLUMN], observed=True)[columns].median()
-    named = grouped.rename(columns={name: f"median_{name}" for name in columns})
+    grouped: pd.DataFrame = reviewable.groupby(reviewable[PHASE_COLUMN], observed=True)[columns].median()
+    named: pd.DataFrame = grouped.rename(columns={name: f"median_{name}" for name in columns})
     return named.reindex(phases)
 
 
@@ -542,12 +546,16 @@ def _volume_columns(reviewable: pd.DataFrame) -> list[str]:
     ]
 
 
-def _forced_exit_share(legs: pd.DataFrame, reviewable: pd.DataFrame, phases: pd.Index) -> pd.Series:
+def _forced_exit_share(
+    legs: pd.DataFrame,
+    reviewable: pd.DataFrame,
+    phases: pd.Index[int],
+) -> pd.Series[float]:
     """Share of each phase's leg exits taken by the clock rather than by the strategy's own rules.
 
     What separates "this hour trades badly" from "this hour's trades were closed by the clock",
     which the final phase demands by construction -- :data:`FORCED_EXIT_NOTE`.
     """
-    per_leg = legs["trade_id"].map(reviewable[PHASE_COLUMN])
-    closed = legs["exit_reason"] == stats.SESSION_CLOSE
-    return closed.groupby(per_leg, observed=True).mean().reindex(phases)
+    per_leg: pd.Series[float] = legs["trade_id"].map(reviewable[PHASE_COLUMN])
+    closed: pd.Series[bool] = legs["exit_reason"] == stats.SESSION_CLOSE
+    return closed.groupby(per_leg, observed=True).mean().reindex(phases)  # type: ignore[return-value]  # a mean of booleans is a float

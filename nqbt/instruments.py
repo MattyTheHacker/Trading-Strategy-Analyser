@@ -12,13 +12,16 @@ import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, override
 
 # CME quarterly futures month codes.
 MONTH_CODES: dict[int, str] = {3: "H", 6: "M", 9: "U", 12: "Z"}
 CODE_MONTHS: dict[str, int] = {v: k for k, v in MONTH_CODES.items()}
 
 RoundMode = Literal["nearest", "up", "down"]
+
+ON_TICK_TOLERANCE = 1e-9
+"""How far off the tick grid a price may sit and still count as on it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,18 +56,23 @@ class Instrument:
     # -- conversions -----------------------------------------------------------
 
     def ticks_to_dollars(self, ticks: float, quantity: int = 1) -> float:
+        """Value of ``ticks`` on this instrument, for ``quantity`` contracts."""
         return ticks * self.tick_value * quantity
 
     def points_to_dollars(self, points: float, quantity: int = 1) -> float:
+        """Value of ``points`` on this instrument, for ``quantity`` contracts."""
         return points * self.point_value * quantity
 
     def dollars_to_points(self, dollars: float, quantity: int = 1) -> float:
+        """Price distance ``dollars`` buys, for ``quantity`` contracts."""
         return dollars / (self.point_value * quantity)
 
     def points_to_ticks(self, points: float) -> float:
+        """``points`` expressed in ticks."""
         return points / self.tick_size
 
     def ticks_to_points(self, ticks: float) -> float:
+        """``ticks`` expressed in points."""
         return ticks * self.tick_size
 
     # -- price alignment -------------------------------------------------------
@@ -77,8 +85,8 @@ class Instrument:
         not a thing NT8 would ever fill. A small epsilon absorbs float representation
         error so that a value already sitting on the grid is never nudged off it.
         """
-        n = price / self.tick_size
-        eps = 1e-9
+        n: float = price / self.tick_size
+        eps: float = 1e-9
         if mode == "nearest":
             n = math.floor(n + 0.5)
         elif mode == "up":
@@ -86,12 +94,13 @@ class Instrument:
         elif mode == "down":
             n = math.floor(n + eps)
         else:  # pragma: no cover - guarded by the Literal type
-            msg = f"unknown round mode: {mode!r}"
+            msg = f"unknown round mode: {mode!r}"  # type: ignore[unreachable]  # a caller may ignore it
             raise ValueError(msg)
         return round(n * self.tick_size, self.price_decimals)
 
     def is_on_tick(self, price: float) -> bool:
-        return abs(price - self.round_to_tick(price)) < 1e-9
+        """Whether ``price`` sits exactly on this instrument's tick grid."""
+        return abs(price - self.round_to_tick(price)) < ON_TICK_TOLERANCE
 
     # -- risk ------------------------------------------------------------------
 
@@ -103,9 +112,9 @@ class Instrument:
         rather than silently trading one lot.
         """
         if stop_distance_points <= 0:
-            msg = "stop_distance_points must be positive"
+            msg: str = "stop_distance_points must be positive"
             raise ValueError(msg)
-        per_contract = self.points_to_dollars(stop_distance_points)
+        per_contract: float = self.points_to_dollars(stop_distance_points)
         if per_contract <= 0:
             msg = "stop distance rounds to zero dollars of risk"
             raise ValueError(msg)
@@ -134,8 +143,8 @@ def get_instrument(symbol: str) -> Instrument:
     try:
         return INSTRUMENTS[symbol.strip().upper()]
     except KeyError:
-        known = ", ".join(sorted(INSTRUMENTS))
-        msg = f"unknown instrument {symbol!r}; known instruments: {known}"
+        known: str = ", ".join(sorted(INSTRUMENTS))
+        msg: str = f"unknown instrument {symbol!r}; known instruments: {known}"
         raise KeyError(msg) from None
 
 
@@ -157,7 +166,7 @@ class ContractId:
 
     def __post_init__(self) -> None:
         if self.month not in MONTH_CODES:
-            msg = (
+            msg: str = (
                 f"{self.root} {self.month:02d}-{self.year}: month must be one of "
                 f"{sorted(MONTH_CODES)} (NQ/MNQ are quarterly contracts)"
             )
@@ -168,9 +177,9 @@ class ContractId:
     @classmethod
     def parse(cls, text: str) -> ContractId:
         """Parse an NT8-style contract name such as ``"MNQ 03-24"``."""
-        m = _CONTRACT_RE.match(text)
+        m: re.Match[str] | None = _CONTRACT_RE.match(text)
         if not m:
-            msg = f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
+            msg: str = f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
             raise ValueError(msg)
         return cls(
             root=m["root"].upper(),
@@ -180,6 +189,7 @@ class ContractId:
 
     @property
     def month_code(self) -> str:
+        """The futures month letter, ``H`` for March and so on."""
         return MONTH_CODES[self.month]
 
     @property
@@ -194,7 +204,9 @@ class ContractId:
 
     @property
     def instrument(self) -> Instrument:
+        """The :class:`Instrument` this contract's root names."""
         return get_instrument(self.root)
 
+    @override
     def __str__(self) -> str:
         return self.nt8_name

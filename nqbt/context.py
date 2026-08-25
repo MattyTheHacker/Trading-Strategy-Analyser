@@ -15,7 +15,7 @@ each other.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
 import pandas as pd
@@ -23,7 +23,13 @@ import pandas as pd
 from nqbt import conditions, indicators, regime, sessions, timeofday, trend, volume
 
 if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, LabelArray
     from nqbt.conditions import MovingAverageGrid
+    from nqbt.regime import EfficiencyRatioGrid
+    from nqbt.sessions import SessionInfo
+    from nqbt.timeofday import TimeOfDay
+    from nqbt.trend import TrendGrid
+    from nqbt.volume import VolumeGrid
 
 
 class ContextError(KeyError):
@@ -97,18 +103,18 @@ class Dataset:
     """
 
     bars: pd.DataFrame
-    open: np.ndarray
-    high: np.ndarray
-    low: np.ndarray
-    close: np.ndarray
-    force_flat: np.ndarray
+    open: FloatArray
+    high: FloatArray
+    low: FloatArray
+    close: FloatArray
+    force_flat: BoolArray
     geometry: conditions.BarGeometry
     spec: ContextSpec
     mas: dict[str, MovingAverageGrid] = field(default_factory=dict)
-    atrs: dict[int, np.ndarray] = field(default_factory=dict)
-    vwap: np.ndarray | None = None
-    below_vwap: np.ndarray | None = None
-    above_vwap: np.ndarray | None = None
+    atrs: dict[int, FloatArray] = field(default_factory=dict)
+    vwap: FloatArray | None = None
+    below_vwap: BoolArray | None = None
+    above_vwap: BoolArray | None = None
     time_of_day: timeofday.TimeOfDay | None = None
     """Session phase and bar of session, or ``None`` when nothing asked for them."""
 
@@ -121,7 +127,7 @@ class Dataset:
     trends: trend.TrendGrid | None = None
     """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
 
-    day_codes: np.ndarray | None = None
+    day_codes: IndexArray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
 
     In the index's own timezone, not UTC -- ``docs/roadmap.md`` §"The numpy-native summary
@@ -133,12 +139,13 @@ class Dataset:
 
     @property
     def index(self) -> pd.DatetimeIndex:
-        return self.bars.index
+        """The bars' timestamp index."""
+        return cast("pd.DatetimeIndex", self.bars.index)
 
     def grid(self, kind: str) -> MovingAverageGrid:
         """The grid for one moving-average kind, or a pointed error."""
         if kind not in self.mas:
-            msg = (
+            msg: str = (
                 f"no {kind} grid in this dataset; prepare() was asked for "
                 f"{sorted(self.mas)}. Add it to the archetype's ContextSpec."
             )
@@ -147,22 +154,22 @@ class Dataset:
             )
         return self.mas[kind]
 
-    def ma_gate(self, kind: str, period: int, *, above: bool) -> np.ndarray:
+    def ma_gate(self, kind: str, period: int, *, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) ``kind(period)``?
 
         Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
         """
-        g = self.grid(kind)
+        g: MovingAverageGrid = self.grid(kind)
         return g.above_for(period) if above else g.below_for(period)
 
-    def ma_values(self, kind: str, period: int) -> np.ndarray:
+    def ma_values(self, kind: str, period: int) -> FloatArray:
         """Raw moving-average values, for the audit trail and the MA trailing stop."""
         return self.grid(kind).values_for(period)
 
-    def atr_values(self, period: int) -> np.ndarray:
+    def atr_values(self, period: int) -> FloatArray:
         """NT8-seeded ATR for one period, or a pointed error."""
         if period not in self.atrs:
-            msg = (
+            msg: str = (
                 f"no ATR({period}) in this dataset; prepare() was asked for "
                 f"{sorted(self.atrs)}. Add it to the archetype's ContextSpec."
             )
@@ -171,9 +178,10 @@ class Dataset:
             )
         return self.atrs[period]
 
-    def vwap_gate(self, *, above: bool) -> np.ndarray:
+    def vwap_gate(self, *, above: bool) -> BoolArray:
+        """Per-bar boolean: is the close above (or below) the session VWAP?"""
         if self.below_vwap is None or self.above_vwap is None:
-            msg = (
+            msg: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
             )
@@ -182,9 +190,10 @@ class Dataset:
             )
         return self.above_vwap if above else self.below_vwap
 
-    def vwap_values(self) -> np.ndarray:
+    def vwap_values(self) -> FloatArray:
+        """Session VWAP per bar, or a pointed error."""
         if self.vwap is None:
-            msg = (
+            msg: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
             )
@@ -195,7 +204,7 @@ class Dataset:
 
     def _time_of_day(self) -> timeofday.TimeOfDay:
         if self.time_of_day is None:
-            msg = (
+            msg: str = (
                 "no time-of-day labels in this dataset; prepare() was not asked for them. "
                 "Set needs_time_of_day on the archetype's ContextSpec."
             )
@@ -204,7 +213,7 @@ class Dataset:
             )
         return self.time_of_day
 
-    def phase_gate(self, mask: int) -> np.ndarray:
+    def phase_gate(self, mask: int) -> BoolArray:
         """Per-bar boolean: does this bar's session phase pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` -- see
@@ -212,17 +221,17 @@ class Dataset:
         """
         return self._time_of_day().gate(mask)
 
-    def phase_values(self) -> np.ndarray:
+    def phase_values(self) -> LabelArray:
         """Per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
         return self._time_of_day().phase
 
-    def bar_of_session(self) -> np.ndarray:
+    def bar_of_session(self) -> IndexArray:
         """Per-bar index from the session open, the fine form of the same clock."""
         return self._time_of_day().bar_of_session
 
     def _regimes(self) -> regime.EfficiencyRatioGrid:
         if self.regimes is None:
-            msg = (
+            msg: str = (
                 "no efficiency ratios in this dataset; prepare() was not asked for them. "
                 "Add the lookback to regime_lookbacks on the archetype's ContextSpec."
             )
@@ -237,7 +246,7 @@ class Dataset:
         mask: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> BoolArray:
         """Per-bar boolean: does this bar's regime pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.regime.ALL_REGIMES` -- see
@@ -245,7 +254,7 @@ class Dataset:
         """
         return self._regimes().gate_for(lookback, mask, consolidating_below, directional_above)
 
-    def regime_values(self, lookback: int) -> np.ndarray:
+    def regime_values(self, lookback: int) -> FloatArray:
         """Per-bar efficiency ratio, the raw quantity behind the labels."""
         return self._regimes().values_for(lookback)
 
@@ -254,13 +263,13 @@ class Dataset:
         lookback: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> LabelArray:
         """Per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
         return self._regimes().labels_for(lookback, consolidating_below, directional_above)
 
     def _volumes(self) -> volume.VolumeGrid:
         if self.volumes is None:
-            msg = (
+            msg: str = (
                 "no volume series in this dataset; prepare() was not asked for them. "
                 "Add the series to volume_keys on the archetype's ContextSpec."
             )
@@ -275,7 +284,7 @@ class Dataset:
         mask: int,
         thin_below: float,
         heavy_above: float,
-    ) -> np.ndarray:
+    ) -> BoolArray:
         """Per-bar boolean: whether this bar's volume state passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.volume.ALL_STATES` -- see
@@ -283,11 +292,11 @@ class Dataset:
         """
         return self._volumes().gate_for(key, mask, thin_below, heavy_above)
 
-    def volume_values(self, key: volume.VolumeKey) -> np.ndarray:
+    def volume_values(self, key: volume.VolumeKey) -> FloatArray:
         """Per-bar **absolute** volume, the form that answers execution feasibility."""
         return self._volumes().absolute_for(key)
 
-    def relative_volume(self, key: volume.VolumeKey) -> np.ndarray:
+    def relative_volume(self, key: volume.VolumeKey) -> FloatArray:
         """Per-bar volume over its bar-of-session baseline -- the quantity behind the labels."""
         return self._volumes().relative_for(key)
 
@@ -296,13 +305,13 @@ class Dataset:
         key: volume.VolumeKey,
         thin_below: float,
         heavy_above: float,
-    ) -> np.ndarray:
+    ) -> LabelArray:
         """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
         return self._volumes().labels_for(key, thin_below, heavy_above)
 
     def _trends(self) -> trend.TrendGrid:
         if self.trends is None:
-            msg = (
+            msg: str = (
                 "no trend labels in this dataset; prepare() was not asked for them. "
                 "Add the label to trend_keys on the archetype's ContextSpec."
             )
@@ -311,7 +320,7 @@ class Dataset:
             )
         return self.trends
 
-    def trend_gate(self, key: trend.TrendKey, mask: int, min_agreement: int) -> np.ndarray:
+    def trend_gate(self, key: trend.TrendKey, mask: int, min_agreement: int) -> BoolArray:
         """Per-bar boolean: whether this bar's trend passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.trend.ALL_TRENDS` -- see
@@ -319,15 +328,15 @@ class Dataset:
         """
         return self._trends().gate_for(key, mask, min_agreement)
 
-    def trend_values(self, key: trend.TrendKey) -> np.ndarray:
+    def trend_values(self, key: trend.TrendKey) -> FloatArray:
         """Per-bar agreement score, the raw quantity behind the labels."""
         return self._trends().agreement_for(key)
 
-    def trend_labels(self, key: trend.TrendKey, min_agreement: int) -> np.ndarray:
+    def trend_labels(self, key: trend.TrendKey, min_agreement: int) -> LabelArray:
         """Per-bar :class:`nqbt.trend.Trend`, for stratifying results."""
         return self._trends().labels_for(key, min_agreement)
 
-    def trend_components(self, key: trend.TrendKey) -> np.ndarray:
+    def trend_components(self, key: trend.TrendKey) -> LabelArray:
         """Per-bar ``[3, n_bars]`` votes, so a review can say which component dissented."""
         return self._trends().votes_for(key)
 
@@ -338,7 +347,7 @@ class Dataset:
         Excludes ``bars``, which :meth:`slim` drops before the dataset crosses a process
         boundary.
         """
-        total = sum(a.nbytes for a in (self.open, self.high, self.low, self.close))
+        total: int = sum(a.nbytes for a in (self.open, self.high, self.low, self.close))
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
         total += sum(a.nbytes for a in self.atrs.values())
@@ -364,7 +373,7 @@ class Dataset:
         return replace(self, bars=self.bars.iloc[:, :0])
 
 
-def day_codes(index: pd.Index) -> np.ndarray | None:
+def day_codes(index: pd.Index) -> IndexArray | None:  # type: ignore[explicit-any]  # any index; the isinstance check below is the point
     """Each bar's calendar day as an ``int32``, in the index's own timezone.
 
     ``None`` when the index is not datetime-like. Local rather than UTC because that is what
@@ -372,12 +381,23 @@ def day_codes(index: pd.Index) -> np.ndarray | None:
     """
     if not isinstance(index, pd.DatetimeIndex):
         return None
-    local = index.tz_localize(None) if index.tz is not None else index
+    local: pd.DatetimeIndex = index.tz_localize(None) if index.tz is not None else index
     return local.to_numpy().astype("datetime64[D]").astype(np.int32)
 
 
 DEFAULT_SPEC = ContextSpec(ema_periods=(21,), sma_periods=(60, 175), needs_vwap=True)
 """What :func:`prepare` builds when nothing says otherwise: the pre-#27 unconditional set."""
+
+
+class PrepareOptions(TypedDict, total=False):
+    """Everything :func:`prepare` takes beyond the bars and the spec.
+
+    Named once so a wrapper can forward them without restating a default.
+    """
+
+    exit_on_close_seconds: int
+    keep_ma_values: bool
+    bar_minutes: int | None
 
 
 def prepare(
@@ -395,20 +415,22 @@ def prepare(
     be sure it does. ``bar_minutes`` sizes the bar-of-session index and is inferred from the
     index when not given -- pass it wherever the resolution is already known.
     """
-    close = bars["close"].to_numpy(np.float64)
-    high = bars["high"].to_numpy(np.float64)
-    low = bars["low"].to_numpy(np.float64)
-    info = sessions.classify(bars.index)
+    close: FloatArray = bars["close"].to_numpy(np.float64)
+    high: FloatArray = bars["high"].to_numpy(np.float64)
+    low: FloatArray = bars["low"].to_numpy(np.float64)
+    info: SessionInfo = sessions.classify(pd.DatetimeIndex(bars.index))
 
     # Relative volume is defined per bar of session, so asking for it builds the clock too.
-    tod = (
-        timeofday.classify(bars.index, bar_minutes=bar_minutes, info=info)
+    tod: TimeOfDay | None = (
+        timeofday.classify(pd.DatetimeIndex(bars.index), bar_minutes=bar_minutes, info=info)
         if spec.needs_time_of_day or spec.volume_keys
         else None
     )
-    regimes = regime.efficiency_ratio_grid(close, spec.regime_lookbacks) if spec.regime_lookbacks else None
-    trends = trend.trend_grid(close, spec.trend_keys) if spec.trend_keys else None
-    volumes = (
+    regimes: EfficiencyRatioGrid | None = (
+        regime.efficiency_ratio_grid(close, spec.regime_lookbacks) if spec.regime_lookbacks else None
+    )
+    trends: TrendGrid | None = trend.trend_grid(close, spec.trend_keys) if spec.trend_keys else None
+    volumes: VolumeGrid | None = (
         volume.volume_grid(
             bars["volume"].to_numpy(np.float64),
             info.trading_day,
@@ -422,7 +444,7 @@ def prepare(
 
     vwap = below_vwap = above_vwap = None
     if spec.needs_vwap:
-        typical = indicators.typical_price(high, low, close)
+        typical: FloatArray = indicators.typical_price(high, low, close)
         vwap = indicators.session_vwap(
             typical,
             bars["volume"].to_numpy(np.float64),

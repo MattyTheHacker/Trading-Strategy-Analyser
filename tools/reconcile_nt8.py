@@ -59,7 +59,8 @@ def parse_nt8(path: Path) -> pd.DataFrame:
     raw = pd.read_csv(path)
     raw.columns = [c.strip() for c in raw.columns]
 
-    money = lambda s: s.str.replace(r"[$,()]", "", regex=True).astype(float)  # noqa: E731
+    def money(column: pd.Series) -> pd.Series:
+        return column.str.replace(r"[$,()]", "", regex=True).astype(float)
 
     def when(column: str) -> pd.Series:
         naive = pd.to_datetime(raw[column], format="%d/%m/%Y %I:%M:%S %p")

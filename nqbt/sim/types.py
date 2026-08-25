@@ -147,7 +147,7 @@ class DeadCatParams:
 
     def __post_init__(self) -> None:
         if self.order_quantity < len(self.target_r_multiples):
-            msg = (
+            msg: str = (
                 f"order_quantity {self.order_quantity} cannot fill "
                 f"{len(self.target_r_multiples)} legs; NT8 caps this with a Range(4, ...) "
                 "attribute on OrderQuantity"
@@ -188,15 +188,16 @@ class DeadCatParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last: 10 splits 2/2/2/4, not 3/3/2/2."""
-        n = len(self.target_r_multiples)
-        base = self.order_quantity // n
-        remainder = self.order_quantity % n
+        n: int = len(self.target_r_multiples)
+        base: int = self.order_quantity // n
+        remainder: int = self.order_quantity % n
         return tuple([base] * (n - 1) + [base + remainder])
 
-    def as_dict(self) -> dict:
-        out = {}
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
         for f in fields(self):
-            value = getattr(self, f.name)
+            value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
         return out
 
@@ -295,7 +296,7 @@ class PullBackAndGoParams:
 
     def __post_init__(self) -> None:
         if self.order_quantity < len(self.target_r_multiples):
-            msg = (
+            msg: str = (
                 f"order_quantity {self.order_quantity} cannot fill "
                 f"{len(self.target_r_multiples)} legs; NT8 caps this with a Range(4, ...) "
                 "attribute on OrderQuantity"
@@ -336,15 +337,16 @@ class PullBackAndGoParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- DeadCatBounce's split exactly."""
-        n = len(self.target_r_multiples)
-        base = self.order_quantity // n
-        remainder = self.order_quantity % n
+        n: int = len(self.target_r_multiples)
+        base: int = self.order_quantity // n
+        remainder: int = self.order_quantity % n
         return tuple([base] * (n - 1) + [base + remainder])
 
-    def as_dict(self) -> dict:
-        out = {}
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
         for f in fields(self):
-            value = getattr(self, f.name)
+            value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
         return out
 
@@ -460,7 +462,7 @@ class EmaCrossoverParams:
 
     def __post_init__(self) -> None:
         if self.order_quantity < len(self.target_r_multiples):
-            msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_r_multiples)} legs"
+            msg: str = f"order_quantity {self.order_quantity} cannot fill {len(self.target_r_multiples)} legs"
             raise ValueError(msg)
         for name in ("fast_period", "slow_period", "atr_period", "swing_lookback"):
             if getattr(self, name) < 1:
@@ -504,14 +506,15 @@ class EmaCrossoverParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
-        n = len(self.target_r_multiples)
-        base = self.order_quantity // n
-        remainder = self.order_quantity % n
+        n: int = len(self.target_r_multiples)
+        base: int = self.order_quantity // n
+        remainder: int = self.order_quantity % n
         return tuple([base] * (n - 1) + [base + remainder])
 
-    def as_dict(self) -> dict:
-        out = {}
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
         for f in fields(self):
-            value = getattr(self, f.name)
+            value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
         return out

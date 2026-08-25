@@ -12,8 +12,13 @@ carry the same unpinned discrepancy.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numba import njit
+
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, DateArray, FloatArray
 
 __all__ = [
     "new_session_flags",
@@ -30,7 +35,7 @@ __all__ = [
 
 
 @njit(cache=True)
-def nt8_ema(values: np.ndarray, period: int) -> np.ndarray:
+def nt8_ema(values: FloatArray, period: int) -> FloatArray:
     """Exponential moving average using NT8's recursion and seeding.
 
     Emits a value from index 0, seeded with ``values[0]`` rather than a warm-up average.
@@ -49,7 +54,7 @@ def nt8_ema(values: np.ndarray, period: int) -> np.ndarray:
 
 
 @njit(cache=True)
-def nt8_sma(values: np.ndarray, period: int) -> np.ndarray:
+def nt8_sma(values: FloatArray, period: int) -> FloatArray:
     """Simple moving average using NT8's expanding warm-up and recursive update.
 
     Before ``period`` bars exist the result is the average of everything so far; from then on
@@ -72,7 +77,7 @@ def nt8_sma(values: np.ndarray, period: int) -> np.ndarray:
 
 
 @njit(cache=True)
-def nt8_true_range(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
+def nt8_true_range(high: FloatArray, low: FloatArray, close: FloatArray) -> FloatArray:
     """True Range: ``max(H-L, |H-prevC|, |L-prevC|)``, and the bare range at bar 0.
 
     The previous close is read across session and roll boundaries alike, because NT8 does not
@@ -94,7 +99,7 @@ def nt8_true_range(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.n
 
 
 @njit(cache=True)
-def nt8_atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> np.ndarray:
+def nt8_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -> FloatArray:
     """Average True Range, seeded NT8's way rather than Wilder's.
 
     Emits from bar 0: an expanding simple average of True Range until ``period`` bars exist,
@@ -118,7 +123,7 @@ def nt8_atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -
 
 
 @njit(cache=True)
-def nt8_stddev(values: np.ndarray, period: int) -> np.ndarray:
+def nt8_stddev(values: FloatArray, period: int) -> FloatArray:
     """Population standard deviation over an expanding window capped at ``period``.
 
     Divisor is the sample count, not ``n-1``. **Two passes, subtracting the window mean
@@ -146,41 +151,41 @@ def nt8_stddev(values: np.ndarray, period: int) -> np.ndarray:
 
 
 def nt8_bollinger(
-    values: np.ndarray,
+    values: FloatArray,
     period: int,
     num_std: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Bollinger Bands as ``(upper, middle, lower)``: ``SMA +/- k * StdDev``."""
-    middle = nt8_sma(values, period)
-    spread = num_std * nt8_stddev(values, period)
+    middle: FloatArray = nt8_sma(values, period)
+    spread: FloatArray = num_std * nt8_stddev(values, period)
     return middle + spread, middle, middle - spread
 
 
 def nt8_keltner(
-    high: np.ndarray,
-    low: np.ndarray,
-    close: np.ndarray,
+    high: FloatArray,
+    low: FloatArray,
+    close: FloatArray,
     period: int,
     offset: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Keltner Channels as ``(upper, midline, lower)``.
 
     **Neither half matches the common definition**: an SMA of *typical* price, widened by the
     mean **high-low range** rather than by ATR -- ``docs/nt8-fidelity.md`` §M16.
     """
-    midline = nt8_sma(typical_price(high, low, close), period)
-    width = offset * nt8_sma(high - low, period)
+    midline: FloatArray = nt8_sma(typical_price(high, low, close), period)
+    width: FloatArray = offset * nt8_sma(high - low, period)
     return midline + width, midline, midline - width
 
 
 @njit(cache=True)
-def typical_price(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
+def typical_price(high: FloatArray, low: FloatArray, close: FloatArray) -> FloatArray:
     """``(H + L + C) / 3`` -- the price VWAP weights by volume."""
     return (high + low + close) / 3.0
 
 
 @njit(cache=True)
-def session_vwap(price: np.ndarray, volume: np.ndarray, new_session: np.ndarray) -> np.ndarray:
+def session_vwap(price: FloatArray, volume: FloatArray, new_session: BoolArray) -> FloatArray:
     """Volume weighted average price, re-anchored at each session open.
 
     Mirrors ``OrderFlowVWAP(VWAPResolution.Standard, Bars.TradingHours, ...)``, whose Standard
@@ -206,10 +211,10 @@ def session_vwap(price: np.ndarray, volume: np.ndarray, new_session: np.ndarray)
     return out
 
 
-def new_session_flags(trading_day: np.ndarray) -> np.ndarray:
+def new_session_flags(trading_day: DateArray) -> BoolArray:
     """Mark the first bar of each trading day in an ascending, in-session series."""
-    days = np.asarray(trading_day)
-    flags = np.zeros(days.size, dtype=np.bool_)
+    days: DateArray = np.asarray(trading_day)
+    flags: BoolArray = np.zeros(days.size, dtype=np.bool_)
     if days.size == 0:
         return flags
     flags[0] = True

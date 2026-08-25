@@ -22,10 +22,14 @@ from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParam
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    import numpy as np
     import pandas as pd
 
+    from nqbt.arrays import BoolArray
     from nqbt.trades import LegMatrix
+
+
+type AxisValue = float | str
+"""One value a swept parameter may take: any number, or a name."""
 
 
 @runtime_checkable
@@ -36,9 +40,11 @@ class Params(Protocol):
     is that :mod:`nqbt.sweep` does not name them.
     """
 
-    __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]
+    __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]  # dataclasses' own type
 
-    def as_dict(self) -> dict: ...
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        ...
 
 
 class ArchetypeError(KeyError):
@@ -62,12 +68,12 @@ class Tier2Status(StrEnum):
     """No reconciliation attempted and none planned yet."""
 
 
-def _needs_time_of_day(values: Mapping[str, Sequence]) -> bool:
+def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
     """Whether any combination actually restricts its entries to some session phases."""
     return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
 
 
-def _regime_lookbacks(values: Mapping[str, Sequence]) -> tuple[int, ...]:
+def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
     """The efficiency-ratio lookbacks to build: none unless some combination filters on them.
 
     The grid holds float64 rather than a boolean gate, so an unasked-for lookback is the most
@@ -78,7 +84,7 @@ def _regime_lookbacks(values: Mapping[str, Sequence]) -> tuple[int, ...]:
     return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
 
 
-def _volume_keys(values: Mapping[str, Sequence]) -> tuple[volume.VolumeKey, ...]:
+def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.VolumeKey, ...]:
     """List the relative-volume series to build: none unless some combination filters on them.
 
     Sixteen bytes per bar per series, plus the baseline pass -- ``docs/roadmap.md`` §M10.2.
@@ -88,7 +94,7 @@ def _volume_keys(values: Mapping[str, Sequence]) -> tuple[volume.VolumeKey, ...]
     return tuple(
         sorted(
             {
-                volume.key(form, rolling, baseline)
+                volume.key(int(form), int(rolling), int(baseline))
                 for form in values.get("volume_form", ())
                 for rolling in values.get("volume_rolling_bars", ())
                 for baseline in values.get("volume_baseline_sessions", ())
@@ -97,7 +103,7 @@ def _volume_keys(values: Mapping[str, Sequence]) -> tuple[volume.VolumeKey, ...]
     )
 
 
-def _trend_keys(values: Mapping[str, Sequence]) -> tuple[trend.TrendKey, ...]:
+def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendKey, ...]:
     """List the trend labels to build: none unless some combination filters on them.
 
     Eleven bytes per bar per label, and the averages behind them never reach the dataset --
@@ -108,7 +114,7 @@ def _trend_keys(values: Mapping[str, Sequence]) -> tuple[trend.TrendKey, ...]:
     return tuple(
         sorted(
             {
-                trend.key(fast, slow, lookback)
+                trend.key(int(fast), int(slow), int(lookback))
                 for fast in values.get("trend_fast_period", ())
                 for slow in values.get("trend_slow_period", ())
                 for lookback in values.get("trend_slope_lookback", ())
@@ -117,15 +123,15 @@ def _trend_keys(values: Mapping[str, Sequence]) -> tuple[trend.TrendKey, ...]:
     )
 
 
-def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
+def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
     ``values`` maps each parameter name to every value the sweep will try for it, so a period
     that is only swept still gets its grid built. Which series are conditional and why:
     ``docs/roadmap.md`` §M17.
     """
-    ema = {int(v) for v in values.get("ema_period", ())}
-    sma = {int(v) for v in values.get("fast_sma_period", ())}
+    ema: set[int] = {int(v) for v in values.get("ema_period", ())}
+    sma: set[int] = {int(v) for v in values.get("fast_sma_period", ())}
     sma |= {int(v) for v in values.get("slow_sma_period", ())}
     return ContextSpec(
         ema_periods=tuple(sorted(ema)),
@@ -138,15 +144,17 @@ def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
     )
 
 
-def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
+def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What EmaCrossover reads: two EMA grids, their raw values, and an ATR.
 
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
     ``docs/roadmap.md`` §M17.
     """
-    fast = {int(v) for v in values.get("fast_period", ())}
-    slow = {int(v) for v in values.get("slow_period", ())}
-    atr = {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
+    fast: set[int] = {int(v) for v in values.get("fast_period", ())}
+    slow: set[int] = {int(v) for v in values.get("slow_period", ())}
+    atr: set[int] = (
+        {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
+    )
     return ContextSpec(
         ema_periods=tuple(sorted(fast | slow)),
         atr_periods=tuple(sorted(atr)),
@@ -223,31 +231,31 @@ Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17
 
 
 @dataclass(frozen=True, slots=True)
-class Archetype:
+class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callables below
     """How to sweep one strategy. Frozen, so a lookup cannot mutate the registry."""
 
     name: str
     """The registry key, and the value written to the results table's ``strategy``."""
 
-    params_cls: type
+    params_cls: type[Params]
     """The dataclass a combination is an instance of. Replaces ``Grid.base``'s hardcoding."""
 
-    run: Callable[..., pd.DataFrame]
+    run: Callable[..., pd.DataFrame]  # type: ignore[explicit-any]  # the signature differs per archetype
     """Simulate one combination and return its leg-level trade log."""
 
-    legs: Callable[..., LegMatrix]
+    legs: Callable[..., LegMatrix]  # type: ignore[explicit-any]  # the signature differs per archetype
     """The same simulation, stopping at the raw leg matrix. Required, not optional."""
 
     tier2: Tier2Status
     """See :class:`Tier2Status` -- this reaches the results table, deliberately."""
 
-    signal: Callable[..., np.ndarray]
+    signal: Callable[..., BoolArray]  # type: ignore[explicit-any]  # the signature differs per archetype
     """Compute this archetype's per-bar entry signal from a :class:`Dataset`."""
 
     gated_by: Mapping[str, str] = field(default_factory=lambda: MA_GATES)
     """Axis -> the toggle that has to be on for it to change anything. Feeds ``dead_axes``."""
 
-    context_for: Callable[[Mapping[str, Sequence]], ContextSpec] = moving_average_context
+    context_for: Callable[[Mapping[str, Sequence[AxisValue]]], ContextSpec] = moving_average_context
     """Which precomputed series this archetype's signal reads."""
 
     not_sweepable: frozenset[str] = frozenset({"target_r_multiples"})
@@ -304,24 +312,27 @@ result -- ``docs/roadmap.md`` §M17.
 def register(archetype: Archetype) -> Archetype:
     """Add an archetype, refusing to shadow one that already exists."""
     if archetype.name in _REGISTRY:
-        msg = f"archetype {archetype.name!r} is already registered"
+        msg: str = f"archetype {archetype.name!r} is already registered"
         raise ArchetypeError(msg)
     _REGISTRY[archetype.name] = archetype
     return archetype
 
 
 def get(name: str) -> Archetype:
+    """The archetype registered under ``name``, or an error naming the ones that are."""
     if name not in _REGISTRY:
-        msg = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
+        msg: str = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
         raise ArchetypeError(msg)
     return _REGISTRY[name]
 
 
 def names() -> list[str]:
+    """Every registered archetype name, sorted."""
     return sorted(_REGISTRY)
 
 
 def all_archetypes() -> list[Archetype]:
+    """Every registered archetype, in name order."""
     return [_REGISTRY[n] for n in names()]
 
 
@@ -330,9 +341,9 @@ def for_params(params: Params) -> Archetype:
 
     Ambiguity raises rather than picking one.
     """
-    matches = [a for a in all_archetypes() if a.params_cls is type(params)]
+    matches: list[Archetype] = [a for a in all_archetypes() if a.params_cls is type(params)]
     if not matches:
-        msg = (
+        msg: str = (
             f"no registered archetype takes {type(params).__name__}; "
             f"pass archetype= explicitly. Known: {names()}"
         )

@@ -14,7 +14,7 @@ thing that can drift is the grouping -- ``docs/roadmap.md`` §"The numpy-native 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
-from typing import get_type_hints
+from typing import TYPE_CHECKING, get_type_hints
 
 import numpy as np
 import pandas as pd
@@ -36,7 +36,13 @@ from nqbt.trades import (
     LegMatrix,
 )
 
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, OffsetArray
+
 TRADING_DAYS_PER_YEAR = 252
+
+MIN_DAYS_FOR_RISK_ADJUSTED = 2
+"""Days needed before a Sharpe or Sortino means anything: ``std(ddof=1)`` needs two."""
 
 SESSION_CLOSE = EXIT_REASONS[EXIT_SESSION_CLOSE]
 """The ``exit_reason`` string for a position closed by the clock.
@@ -86,11 +92,13 @@ class Summary:
     read both before believing a coarse resolution -- ``docs/roadmap.md`` §M17."""
     commission_paid: float
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, float]:
+        """Flat mapping of every statistic, for a results row or a CSV."""
         return asdict(self)
 
     @classmethod
     def columns(cls) -> list[str]:
+        """Every statistic's name, in field order."""
         return [f.name for f in fields(cls)]
 
     @classmethod
@@ -102,20 +110,20 @@ class Summary:
         arguments into a 28-field dataclass and raised on every call.
         """
         hints = get_type_hints(cls)
-        return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})
+        return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})  # type: ignore[arg-type]  # keyed by field name
 
 
-def _max_drawdown(equity: np.ndarray) -> float:
+def _max_drawdown(equity: FloatArray) -> float:
     if equity.size == 0:
         return 0.0
     return float((np.maximum.accumulate(equity) - equity).max())
 
 
-def _max_consecutive(mask: np.ndarray) -> int:
+def _max_consecutive(mask: BoolArray) -> int:
     """Longest run of True values."""
     if mask.size == 0 or not mask.any():
         return 0
-    edges = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False]))))
+    edges: OffsetArray = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False]))))
     return int((edges[1::2] - edges[::2]).max())
 
 
@@ -126,20 +134,20 @@ def _ratio(numerator: float, denominator: float) -> float:
     return numerator / denominator
 
 
-def _risk_adjusted(daily: np.ndarray) -> tuple[float, float]:
+def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
     """Annualised Sharpe and Sortino from daily P&L.
 
     Daily totals rather than per trade: a per-trade Sharpe rewards taking many tiny trades.
     """
-    if daily.size < 2:  # noqa: PLR2004
+    if daily.size < MIN_DAYS_FOR_RISK_ADJUSTED:
         return 0.0, 0.0
-    mean = daily.mean()
-    sd = daily.std(ddof=1)
-    downside = daily[daily < 0]
-    dsd = downside.std(ddof=1) if downside.size > 1 else 0.0
-    scale = np.sqrt(TRADING_DAYS_PER_YEAR)
-    sharpe = float(mean / sd * scale) if sd > 0 else 0.0
-    sortino = float(mean / dsd * scale) if dsd and dsd > 0 else 0.0
+    mean: float = daily.mean()
+    sd: float = daily.std(ddof=1)
+    downside: FloatArray = daily[daily < 0]
+    dsd: float = downside.std(ddof=1) if downside.size > 1 else 0.0
+    scale: float = np.sqrt(TRADING_DAYS_PER_YEAR)
+    sharpe: float = float(mean / sd * scale) if sd > 0 else 0.0
+    sortino: float = float(mean / dsd * scale) if dsd and dsd > 0 else 0.0
     return sharpe, sortino
 
 
@@ -159,7 +167,7 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
                 "exit_time",
             ],
         )
-    agg = {
+    agg: dict[str, tuple[str, str]] = {
         "net_pnl": ("net_pnl", "sum"),
         "commission": ("commission", "sum"),
         "bars_held": ("bars_held", "max"),
@@ -183,10 +191,11 @@ def summarise(trades: pd.DataFrame) -> Summary:
     if trades.empty:
         return Summary.empty()
 
-    t = per_trade(trades)
-    pnl = t["net_pnl"].to_numpy(np.float64)
+    t: pd.DataFrame = per_trade(trades)
+    pnl: FloatArray = t["net_pnl"].to_numpy(np.float64)
 
-    if "exit_time" in t.columns:
+    daily: FloatArray
+    if "exit_time" in t.columns:  # noqa: SIM108 - the else branch carries a coverage pragma
         daily = _daily_totals(pnl, pd.DatetimeIndex(t["exit_time"]))
     else:  # pragma: no cover - only when times were not attached
         daily = pnl
@@ -207,24 +216,24 @@ def summarise(trades: pd.DataFrame) -> Summary:
     )
 
 
-def _daily_totals(pnl: np.ndarray, exit_times: pd.DatetimeIndex) -> np.ndarray:
+def _daily_totals(pnl: FloatArray, exit_times: pd.DatetimeIndex) -> FloatArray:
     """Per-trade P&L totalled by the calendar day each trade closed on."""
-    return pd.Series(pnl).groupby(exit_times.date).sum().to_numpy(np.float64)
+    return np.asarray(pd.Series(pnl).groupby(exit_times.date).sum(), dtype=np.float64)
 
 
-def _finite(values: np.ndarray) -> np.ndarray:
+def _finite(values: FloatArray) -> FloatArray:
     """Drop the infinities and nulls an ``r_multiple`` of zero planned risk leaves behind."""
     return values[np.isfinite(values)]
 
 
-def _summarise_arrays(  # noqa: PLR0913 - one argument per input vector; a bag would hide a swap
+def _summarise_arrays(
     *,
-    pnl: np.ndarray,
-    bars_held: np.ndarray,
-    mae: np.ndarray,
-    mfe: np.ndarray,
-    daily: np.ndarray,
-    r: np.ndarray,
+    pnl: FloatArray,
+    bars_held: FloatArray,
+    mae: FloatArray,
+    mfe: FloatArray,
+    daily: FloatArray,
+    r: FloatArray,
     legs: int,
     commission_paid: float,
     ambiguous_share: float,
@@ -237,8 +246,8 @@ def _summarise_arrays(  # noqa: PLR0913 - one argument per input vector; a bag w
     ``daily`` is one per calendar day; ``r`` is one per **leg**, non-finite values dropped.
     """
     wins, losses = pnl > 0, pnl < 0
-    gross_profit = float(pnl[wins].sum())
-    gross_loss = float(pnl[losses].sum())
+    gross_profit: float = float(pnl[wins].sum())
+    gross_loss: float = float(pnl[losses].sum())
     sharpe, sortino = _risk_adjusted(daily)
 
     return Summary(
@@ -279,7 +288,7 @@ class GroupingError(ValueError):
 
 
 @njit(cache=True)
-def _run_starts(keys: np.ndarray) -> np.ndarray:
+def _run_starts(keys: FloatArray | IndexArray) -> IntArray:
     """Half-open boundaries of each run of equal ``keys``, plus a closing sentinel."""
     n = keys.size
     starts = np.empty(n + 1, np.int64)
@@ -293,7 +302,7 @@ def _run_starts(keys: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _grouped_sum(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+def _grouped_sum(values: FloatArray, starts: IntArray) -> FloatArray:
     """Kahan-compensated sum per group -- which is what pandas' ``groupby`` does.
 
     The compensation is load-bearing, not decoration -- ``docs/roadmap.md`` §"The numpy-native
@@ -316,27 +325,27 @@ def _grouped_sum(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _grouped_max(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+def _grouped_max(values: FloatArray, starts: IntArray) -> FloatArray:
     """Largest value per group, skipping nulls as ``groupby.max`` does."""
     out = np.empty(starts.size - 1, np.float64)
     for g in range(starts.size - 1):
         best = np.nan
         for i in range(starts[g], starts[g + 1]):
             value = values[i]
-            if value == value and (best != best or value > best):  # noqa: PLR0124
+            if value == value and (best != best or value > best):  # noqa: PLR0124 - the same NaN test as above
                 best = value
         out[g] = best
     return out
 
 
-def _ordered_starts(keys: np.ndarray, what: str) -> np.ndarray:
+def _ordered_starts(keys: FloatArray | IndexArray, what: str) -> IntArray:
     """Group boundaries, refusing keys that are not already in ascending order.
 
     Holds by construction for the simulation's output; the check guards a future producer --
     ``docs/roadmap.md`` §"The numpy-native summary path".
     """
     if keys.size > 1 and not bool(np.all(keys[1:] >= keys[:-1])):
-        msg = (
+        msg: str = (
             f"{what} must be non-decreasing for the numpy summary path; summarise() the "
             "frame instead, or fix the producer to emit legs in trade order."
         )
@@ -344,7 +353,7 @@ def _ordered_starts(keys: np.ndarray, what: str) -> np.ndarray:
     return _run_starts(keys)
 
 
-def summarise_legs(legs: LegMatrix, day_codes: np.ndarray | None = None) -> Summary:
+def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None = None) -> Summary:
     """Summarise the raw leg matrix, giving exactly what :func:`summarise` gives.
 
     Feed it :attr:`nqbt.context.Dataset.day_codes` so the Sharpe and Sortino denominators are
@@ -355,17 +364,18 @@ def summarise_legs(legs: LegMatrix, day_codes: np.ndarray | None = None) -> Summ
     if count == 0:
         return Summary.empty()
 
-    rows = matrix[:count]
-    starts = _ordered_starts(rows[:, C_TRADE_ID], "trade_id")
-    pnl = _grouped_sum(rows[:, C_NET_PNL], starts)
+    rows: FloatArray = matrix[:count]
+    starts: IntArray = _ordered_starts(rows[:, C_TRADE_ID], "trade_id")
+    pnl: FloatArray = _grouped_sum(rows[:, C_NET_PNL], starts)
 
+    daily: FloatArray
     if day_codes is None:
         daily = pnl
     else:
-        exit_bar = _grouped_max(rows[:, C_EXIT_BAR], starts).astype(np.int64)
+        exit_bar: IntArray = _grouped_max(rows[:, C_EXIT_BAR], starts).astype(np.int64)
         daily = _grouped_sum(pnl, _ordered_starts(day_codes[exit_bar], "exit day"))
 
-    ambiguous = rows[:, C_AMBIGUOUS]
+    ambiguous: FloatArray = rows[:, C_AMBIGUOUS]
     return _summarise_arrays(
         pnl=pnl,
         bars_held=_grouped_max(rows[:, C_BARS_HELD], starts),
@@ -389,7 +399,7 @@ Which makes them the only ones a resampling test may permute -- ``docs/roadmap.m
 """
 
 
-def trade_statistic(pnl: np.ndarray, name: str) -> float:
+def trade_statistic(pnl: FloatArray, name: str) -> float:
     """One :data:`TRADE_PNL_STATISTICS` value straight from a per-trade P&L vector.
 
     Roughly two orders of magnitude cheaper than :func:`summarise`, which is what lets a
@@ -398,13 +408,13 @@ def trade_statistic(pnl: np.ndarray, name: str) -> float:
     agreement on real logs. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
-        msg = (
+        msg: str = (
             f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         )
         raise ValueError(msg)
     if pnl.size == 0:
         return 0.0
-    wins = pnl > 0
+    wins: BoolArray = pnl > 0
     if name == "profit_factor":
         return _ratio(float(pnl[wins].sum()), float(-pnl[pnl < 0].sum()))
     if name == "net_pnl":
@@ -422,7 +432,7 @@ Which makes them the only ones a *sequence* permutation can move, and the exact 
 """
 
 
-def path_statistic(pnl: np.ndarray, name: str) -> float:
+def path_statistic(pnl: FloatArray, name: str) -> float:
     """One :data:`PATH_STATISTICS` value from a per-trade P&L vector, in sequence order.
 
     **Not a second definition**: both branches call the same helpers :func:`summarise` does,
@@ -430,7 +440,7 @@ def path_statistic(pnl: np.ndarray, name: str) -> float:
     :func:`per_trade` output, never raw legs.
     """
     if name not in PATH_STATISTICS:
-        msg = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
+        msg: str = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
         raise ValueError(msg)
     if pnl.size == 0:
         return 0.0
@@ -439,7 +449,7 @@ def path_statistic(pnl: np.ndarray, name: str) -> float:
     return float(_max_consecutive(pnl < 0))
 
 
-def leg_summary(trades: pd.DataFrame) -> dict:
+def leg_summary(trades: pd.DataFrame) -> dict[str, float]:
     """NT8's view: every named entry counted as its own trade.
 
     Only for reconciling against Strategy Analyzer, whose "Total # of trades" is the leg count.
@@ -454,6 +464,6 @@ def leg_summary(trades: pd.DataFrame) -> dict:
         "scratches": int((pnl == 0).sum()),
         "net_pnl": float(pnl.sum()),
         "profit_factor": _ratio(float(pnl[wins].sum()), float(-pnl[losses].sum())),
-        "max_drawdown": _max_drawdown(equity),
+        "max_drawdown": _max_drawdown(equity.to_numpy(np.float64)),
         "avg_trade": float(pnl.mean()),
     }

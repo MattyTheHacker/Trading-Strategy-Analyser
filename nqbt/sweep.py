@@ -21,19 +21,20 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, Unpack, cast
 
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
 from nqbt import archetypes, context, resample, stats, trades
-from nqbt.context import ContextSpec, Dataset
+from nqbt.context import ContextSpec, Dataset, PrepareOptions
 from nqbt.instruments import MNQ, Instrument
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
-    from nqbt.archetypes import Archetype, Params
+    from nqbt.archetypes import Archetype, AxisValue, Params
+    from nqbt.trades import LegMatrix
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +54,15 @@ class Grid:
     ``base`` and ``axes`` mean.
     """
 
-    axes: dict[str, list] = field(default_factory=dict)
+    axes: dict[str, list[AxisValue]] = field(default_factory=dict)
     base: Params = None  # type: ignore[assignment]  # __post_init__ fills it
     archetype: Archetype = archetypes.DEFAULT
 
     def __post_init__(self) -> None:
-        if self.base is None:  # type: ignore[comparison-overlap]
-            self.base = self.archetype.params_cls()
+        if self.base is None:  # type: ignore[comparison-overlap]  # the None default above
+            self.base = self.archetype.params_cls()  # type: ignore[unreachable]  # __post_init__ fills it
         if not isinstance(self.base, self.archetype.params_cls):
-            msg = (
+            msg: str = (
                 f"archetype {self.archetype.name!r} takes "
                 f"{self.archetype.params_cls.__name__}, but base is a "
                 f"{type(self.base).__name__}"
@@ -69,8 +70,8 @@ class Grid:
             raise SweepError(
                 msg,
             )
-        sweepable = self.archetype.sweepable
-        unknown = set(self.axes) - sweepable
+        sweepable: frozenset[str] = self.archetype.sweepable
+        unknown: set[str] = set(self.axes) - sweepable
         if unknown:
             msg = (
                 f"unknown sweep parameter(s) for {self.archetype.name}: {sorted(unknown)}. "
@@ -83,9 +84,9 @@ class Grid:
             if not values:
                 msg = f"axis {name!r} has no values"
                 raise SweepError(msg)
-        dead = self.dead_axes()
+        dead: dict[str, str] = self.dead_axes()
         if dead:
-            detail = "; ".join(
+            detail: str = "; ".join(
                 f"{axis} (inert while {toggle} is {archetypes.INERT_AT.get(toggle, False)})"
                 for axis, toggle in dead.items()
             )
@@ -105,18 +106,24 @@ class Grid:
         everywhere yields identical rows and a proportional runtime bill. A toggle that is a
         mask rather than a boolean is off at its everything value -- :data:`nqbt.archetypes.INERT_AT`.
         """
-        dead = {}
+        dead: dict[str, str] = {}
         for axis, toggle in self.archetype.gated_by.items():
             if axis not in self.axes:
                 continue
-            inert = archetypes.INERT_AT.get(toggle, False)
-            values = self.axes.get(toggle, [getattr(self.base, toggle)])
+            inert: object = archetypes.INERT_AT.get(toggle, False)
+            values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
             if all(value == inert for value in values):
                 dead[axis] = toggle
         return dead
 
     @classmethod
-    def of(cls, base: Params | None = None, *, archetype: Archetype | None = None, **axes) -> Grid:
+    def of(
+        cls,
+        base: Params | None = None,
+        *,
+        archetype: Archetype | None = None,
+        **axes: Iterable[AxisValue],
+    ) -> Grid:
         """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
         if archetype is None:
             archetype = archetypes.for_params(base) if base is not None else archetypes.DEFAULT
@@ -127,7 +134,7 @@ class Grid:
         )
 
     def __len__(self) -> int:
-        n = 1
+        n: int = 1
         for values in self.axes.values():
             n *= len(values)
         return n
@@ -137,11 +144,11 @@ class Grid:
         if not self.axes:
             yield self.base
             return
-        names = list(self.axes)
+        names: list[str] = list(self.axes)
         for values in itertools.product(*(self.axes[n] for n in names)):
             yield replace(self.base, **dict(zip(names, values, strict=True)))
 
-    def axis_values(self) -> dict[str, list]:
+    def axis_values(self) -> dict[str, list[AxisValue]]:
         """Every value each parameter will take across the sweep, swept or not.
 
         The whole parameter set rather than just ``axes``, because a period that is never
@@ -156,7 +163,7 @@ class Grid:
         return self.archetype.context_for(self.axis_values())
 
 
-def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs) -> Dataset:
+def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs: Unpack[PrepareOptions]) -> Dataset:
     """Build the shared dataset covering every series the grid needs."""
     return context.prepare(bars, grid.required_context(), **kwargs)
 
@@ -168,19 +175,19 @@ def run_combination(
     archetype: Archetype = archetypes.DEFAULT,
     *,
     keep_trades: bool = True,
-) -> tuple[dict, pd.DataFrame | None]:
+) -> tuple[dict[str, object], pd.DataFrame | None]:
     """Simulate one combination, returning its summary row and its trade log.
 
     The summary always comes off the raw leg matrix, so ``keep_trades`` changes what is
     returned and never what is measured.
     """
-    legs = archetype.legs(data, params, instrument)
-    row = params.as_dict()
+    legs: LegMatrix = archetype.legs(data, params, instrument)
+    row: dict[str, object] = params.as_dict()
     for name in archetype.not_sweepable:
         row.pop(name, None)
     # No empty-log branch here: one policy for an empty summary, and it lives in ``stats``.
-    summary = stats.summarise_legs(legs, data.day_codes).as_dict()
-    log = None
+    summary: dict[str, float] = stats.summarise_legs(legs, data.day_codes).as_dict()
+    log: pd.DataFrame | None = None
     if keep_trades:
         log = trades.validate(
             trades.trades_to_frame(
@@ -213,17 +220,18 @@ def _run_chunk(
     instrument: Instrument,
     start: int,
     stop: int,
+    *,
     keep_trades: bool,
-) -> tuple[list[dict], dict[int, pd.DataFrame]]:
+) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
     """Run combinations ``[start, stop)``. Module level so loky can pickle it.
 
     The worker regenerates its combinations from the grid rather than being handed a list;
     ``combinations()`` is deterministic, so ``start + offset`` is the serial path's ``combo_id``.
     """
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     logs: dict[int, pd.DataFrame] = {}
     for offset, params in enumerate(itertools.islice(grid.combinations(), start, stop)):
-        combo_id = start + offset
+        combo_id: int = start + offset
         row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = combo_id
         rows.append(row)
@@ -236,12 +244,13 @@ def _sweep_serial(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
+    *,
     keep_trades: bool,
     progress_every: int,
-) -> tuple[list[dict], dict[int, pd.DataFrame]]:
-    rows: list[dict] = []
+) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
+    rows: list[dict[str, object]] = []
     logs: dict[int, pd.DataFrame] = {}
-    started = time.perf_counter()
+    started: float = time.perf_counter()
     for i, params in enumerate(grid.combinations()):
         row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = i
@@ -249,7 +258,7 @@ def _sweep_serial(
         if log is not None:
             logs[i] = log
         if progress_every and (i + 1) % progress_every == 0:
-            rate = (i + 1) / (time.perf_counter() - started)
+            rate: float = (i + 1) / (time.perf_counter() - started)
             logger.info("  %s/%s combos  %s/s", f"{i + 1:,}", f"{len(grid):,}", f"{rate:,.0f}")
     return rows, logs
 
@@ -258,31 +267,33 @@ def _sweep_parallel(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
+    *,
     keep_trades: bool,
     n_jobs: int,
     chunk_size: int | None,
     progress_every: int,
-) -> tuple[list[dict], dict[int, pd.DataFrame]]:
+) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
     """Spread chunks over processes, sharing one copy of the dataset.
 
     The payload is :meth:`Dataset.slim`, hoisted out of the generator below so every task
     references the *same* array objects -- joblib keys its memmap cache on array identity, so
     one dump on disk is shared by every worker instead of one copy per task.
     """
-    bounds = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
-    payload = data.slim()
+    bounds: list[tuple[int, int]] = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
+    payload: Dataset = data.slim()
     batches = Parallel(n_jobs=n_jobs, verbose=10 if progress_every else 0)(
-        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades) for start, stop in bounds
+        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades=keep_trades)
+        for start, stop in bounds
     )
 
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     logs: dict[int, pd.DataFrame] = {}
     for chunk_rows, chunk_logs in batches:
         rows.extend(chunk_rows)
         logs.update(chunk_logs)
     # Chunks come back in submission order; sorting states the guarantee rather than
     # relying on it.
-    rows.sort(key=lambda r: r["combo_id"])
+    rows.sort(key=lambda r: cast("int", r["combo_id"]))
     return rows, logs
 
 
@@ -310,13 +321,27 @@ def sweep(
     data = data if data is not None else prepare_for(bars, grid)
 
     if effective_n_jobs(n_jobs) == 1:
-        rows, logs = _sweep_serial(data, grid, instrument, keep_trades, progress_every)
+        rows, logs = _sweep_serial(
+            data,
+            grid,
+            instrument,
+            keep_trades=keep_trades,
+            progress_every=progress_every,
+        )
     else:
-        rows, logs = _sweep_parallel(data, grid, instrument, keep_trades, n_jobs, chunk_size, progress_every)
+        rows, logs = _sweep_parallel(
+            data,
+            grid,
+            instrument,
+            keep_trades=keep_trades,
+            n_jobs=n_jobs,
+            chunk_size=chunk_size,
+            progress_every=progress_every,
+        )
 
-    frame = pd.DataFrame(rows)
+    frame: pd.DataFrame = pd.DataFrame(rows)
     if not frame.empty:
-        cols = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
+        cols: list[str] = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
         frame = frame[cols]
     return frame, logs
 
@@ -362,23 +387,25 @@ def sweep_axes(
     Comparing a profit factor across resolutions at the same period number is meaningless
     unless the periods are scaled with the bar size. Reasoning: ``docs/roadmap.md`` §M17.
     """
-    grid_list = [grids] if isinstance(grids, Grid) else list(grids)
+    grid_list: list[Grid] = [grids] if isinstance(grids, Grid) else list(grids)
     if not grid_list:
-        msg = "sweep_axes needs at least one grid"
+        msg: str = "sweep_axes needs at least one grid"
         raise SweepError(msg)
     if not resolutions:
         msg = "resolutions is empty; pass (1,) for plain 1-minute bars"
         raise SweepError(msg)
 
-    sources: Mapping[str | None, pd.DataFrame] = (
-        {None: bars} if isinstance(bars, pd.DataFrame) else dict(bars)
-    )
+    sources: dict[str | None, pd.DataFrame] = {}
+    if isinstance(bars, pd.DataFrame):
+        sources[None] = bars
+    else:
+        sources.update(bars)
     if not sources:
         msg = "no bars to sweep: the contract mapping is empty"
         raise SweepError(msg)
 
     # One spec covering every grid, so the axis point builds *one* dataset all of them read.
-    spec = ContextSpec()
+    spec: ContextSpec = ContextSpec()
     for grid in grid_list:
         spec = spec | grid.required_context()
 
@@ -386,11 +413,11 @@ def sweep_axes(
     logs: dict[tuple[AxisPoint, int], pd.DataFrame] = {}
     for contract, source in sources.items():
         for minutes in resolutions:
-            frame = resample.resample(source, minutes)
+            frame: pd.DataFrame = resample.resample(source, minutes)
             # ``bar_minutes`` is stated rather than inferred: this loop already knows it.
-            data = context.prepare(frame, spec, bar_minutes=minutes)
+            data: Dataset = context.prepare(frame, spec, bar_minutes=minutes)
             for grid in grid_list:
-                point = AxisPoint(
+                point: AxisPoint = AxisPoint(
                     strategy=grid.archetype.name,
                     resolution=minutes,
                     contract=contract,
@@ -415,7 +442,7 @@ def sweep_axes(
 
 def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
     """Put the axis point's four columns in front of one sweep's results."""
-    tagged = table.copy()
+    tagged: pd.DataFrame = table.copy()
     for position, name in enumerate(AxisPoint._fields):
         tagged.insert(position, name, getattr(point, name))
     return tagged
@@ -434,7 +461,7 @@ def rank(
     """
     if results.empty:
         return results
-    viable = results[results["trades"] >= min_trades]
+    viable: pd.DataFrame = results[results["trades"] >= min_trades]
     if viable.empty:
         return viable
     return viable.sort_values(by, ascending=False).head(top)

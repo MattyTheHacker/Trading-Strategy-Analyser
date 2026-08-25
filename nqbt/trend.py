@@ -32,6 +32,9 @@ from nqbt import conditions
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nqbt.arrays import BoolArray, FloatArray, LabelArray
+    from nqbt.conditions import MovingAverageGrid
+
 __all__ = [
     "ALL_TRENDS",
     "KIND",
@@ -128,7 +131,7 @@ class TrendKey(NamedTuple):
 
 def trends_mask(trends: Iterable[Trend]) -> int:
     """Combine trends into the bitmask an archetype's ``trend_filter`` takes."""
-    mask = 0
+    mask: int = 0
     for state in trends:
         mask |= Trend(state).bit
     return mask
@@ -143,7 +146,7 @@ def trends_in(mask: int) -> tuple[Trend, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no trend owns."""
     if mask < 0 or mask & ~ALL_TRENDS:
-        msg = f"trend mask {mask} sets bits outside 0..{ALL_TRENDS}; use Trend.bit or trends_mask()"
+        msg: str = f"trend mask {mask} sets bits outside 0..{ALL_TRENDS}; use Trend.bit or trends_mask()"
         raise TrendError(msg)
     if mask == 0:
         msg = "trend mask 0 admits no trend, so every combination along it would trade nothing"
@@ -163,7 +166,7 @@ def validate_periods(fast_period: int, slow_period: int) -> None:
     reverses what the label means without changing a single name.
     """
     if fast_period < 1:
-        msg = f"trend_fast_period must be >= 1, got {fast_period}"
+        msg: str = f"trend_fast_period must be >= 1, got {fast_period}"
         raise TrendError(msg)
     if fast_period >= slow_period:
         msg = (
@@ -176,7 +179,7 @@ def validate_periods(fast_period: int, slow_period: int) -> None:
 def validate_slope_lookback(slope_lookback: int) -> int:
     """Reject a slope the label is degenerate at -- see :data:`MIN_SLOPE_LOOKBACK`."""
     if slope_lookback < MIN_SLOPE_LOOKBACK:
-        msg = f"trend slope lookback must be >= {MIN_SLOPE_LOOKBACK}, got {slope_lookback}"
+        msg: str = f"trend slope lookback must be >= {MIN_SLOPE_LOOKBACK}, got {slope_lookback}"
         raise TrendError(msg)
     return slope_lookback
 
@@ -188,7 +191,7 @@ def validate_min_agreement(min_agreement: int) -> int:
     :data:`N_COMPONENTS` is unreachable and would label the whole series MIXED.
     """
     if not 1 <= min_agreement <= N_COMPONENTS:
-        msg = f"trend_min_agreement must lie in 1..{N_COMPONENTS}, got {min_agreement}"
+        msg: str = f"trend_min_agreement must lie in 1..{N_COMPONENTS}, got {min_agreement}"
         raise TrendError(msg)
     return min_agreement
 
@@ -211,11 +214,11 @@ def _vote(value: float, reference: float) -> int:
 
 @njit(cache=True)
 def _components(
-    close: np.ndarray,
-    fast: np.ndarray,
-    slow: np.ndarray,
+    close: FloatArray,
+    fast: FloatArray,
+    slow: FloatArray,
     slope_lookback: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[LabelArray, FloatArray]:
     """Cast the three votes per bar and sum them, ``nan`` until the slope can reach back.
 
     Price and stack are computed through the warm-up because they are knowable there; the slope
@@ -250,7 +253,7 @@ def _trend_of(score: float, min_agreement: int) -> int:
 
 
 @njit(cache=True)
-def _label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
+def _label(agreement: FloatArray, min_agreement: int) -> LabelArray:
     n = agreement.size
     out = np.empty(n, dtype=np.int8)
     for i in range(n):
@@ -259,7 +262,7 @@ def _label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
 
 
 @njit(cache=True)
-def _gate(agreement: np.ndarray, min_agreement: int, mask: int) -> np.ndarray:
+def _gate(agreement: FloatArray, min_agreement: int, mask: int) -> BoolArray:
     """One pass from score to boolean, so a sweep combination never builds a label array."""
     n = agreement.size
     out = np.zeros(n, dtype=np.bool_)
@@ -271,11 +274,11 @@ def _gate(agreement: np.ndarray, min_agreement: int, mask: int) -> np.ndarray:
 
 
 def components(
-    close: np.ndarray,
-    fast: np.ndarray,
-    slow: np.ndarray,
+    close: FloatArray,
+    fast: FloatArray,
+    slow: FloatArray,
     slope_lookback: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[LabelArray, FloatArray]:
     """Compute the ``[3, n_bars]`` vote block and the agreement score behind one label.
 
     Rows are indexed by :class:`TrendComponent`. The score is ``nan`` for the first
@@ -291,7 +294,7 @@ def components(
     )
 
 
-def label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
+def label(agreement: FloatArray, min_agreement: int) -> LabelArray:
     """Cut agreement scores into ``int8`` :class:`Trend` values, :data:`UNDEFINED` for ``nan``.
 
     **Both boundaries fall in the outer bands**, the opposite of :mod:`nqbt.regime` and
@@ -302,7 +305,7 @@ def label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
     return _label(np.ascontiguousarray(agreement, dtype=np.float64), int(min_agreement))
 
 
-def gate(agreement: np.ndarray, mask: int, min_agreement: int) -> np.ndarray:
+def gate(agreement: FloatArray, mask: int, min_agreement: int) -> BoolArray:
     """Test every bar's trend against ``mask``, one boolean per bar.
 
     An :data:`UNDEFINED` bar passes nothing, :data:`ALL_TRENDS` included, which is why an
@@ -323,9 +326,9 @@ class TrendGrid:
     """
 
     keys: tuple[TrendKey, ...]
-    agreement: np.ndarray
+    agreement: FloatArray
     """Summed votes, ``[n_keys, n_bars]`` float64, ``nan`` through each slope warm-up."""
-    votes: np.ndarray
+    votes: LabelArray
     """The three components, ``[n_keys, 3, n_bars]`` int8 -- see :class:`TrendComponent`."""
 
     def __len__(self) -> int:
@@ -337,26 +340,26 @@ class TrendGrid:
         try:
             return self.keys.index(wanted)
         except ValueError:
-            msg = f"trend label {wanted} is not in this grid; built for {list(self.keys)}"
+            msg: str = f"trend label {wanted} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg) from None
 
-    def agreement_for(self, wanted: TrendKey) -> np.ndarray:
+    def agreement_for(self, wanted: TrendKey) -> FloatArray:
         """Read one label's agreement score, the raw quantity behind it."""
-        return self.agreement[self.row(wanted)]
+        return np.asarray(self.agreement[self.row(wanted)])
 
-    def votes_for(self, wanted: TrendKey) -> np.ndarray:
+    def votes_for(self, wanted: TrendKey) -> LabelArray:
         """Read one label's ``[3, n_bars]`` vote block -- rows are :class:`TrendComponent`."""
-        return self.votes[self.row(wanted)]
+        return np.asarray(self.votes[self.row(wanted)])
 
-    def component_for(self, wanted: TrendKey, component: TrendComponent) -> np.ndarray:
+    def component_for(self, wanted: TrendKey, component: TrendComponent) -> LabelArray:
         """Read one component of one label, the form a review reports."""
-        return self.votes[self.row(wanted), int(TrendComponent(component))]
+        return np.asarray(self.votes[self.row(wanted), int(TrendComponent(component))])
 
-    def labels_for(self, wanted: TrendKey, min_agreement: int) -> np.ndarray:
+    def labels_for(self, wanted: TrendKey, min_agreement: int) -> LabelArray:
         """Label every bar of one series, the stratification key -- see :func:`label`."""
         return label(self.agreement_for(wanted), min_agreement)
 
-    def gate_for(self, wanted: TrendKey, mask: int, min_agreement: int) -> np.ndarray:
+    def gate_for(self, wanted: TrendKey, mask: int, min_agreement: int) -> BoolArray:
         """Test every bar of one series against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.agreement_for(wanted), mask, min_agreement)
 
@@ -366,7 +369,7 @@ class TrendGrid:
         return self.agreement.nbytes + self.votes.nbytes
 
 
-def trend_grid(close: np.ndarray, keys: Iterable[TrendKey]) -> TrendGrid:
+def trend_grid(close: FloatArray, keys: Iterable[TrendKey]) -> TrendGrid:
     """Compute every distinct trend label a sweep needs, once.
 
     The averages are built here and dropped here: a values-carrying
@@ -374,17 +377,19 @@ def trend_grid(close: np.ndarray, keys: Iterable[TrendKey]) -> TrendGrid:
     costs a fraction of the shared grid's, and nothing outside this function ever sees it --
     ``docs/roadmap.md`` §M10.3.
     """
-    ordered = tuple(sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys}))
+    ordered: tuple[TrendKey, ...] = tuple(
+        sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys})
+    )
     if not ordered:
-        msg = "no trend labels supplied"
+        msg: str = "no trend labels supplied"
         raise TrendError(msg)
 
     close = np.ascontiguousarray(close, dtype=np.float64)
-    periods = sorted({p for k in ordered for p in (k.fast_period, k.slow_period)})
-    averages = conditions.moving_average_grid(close, periods, KIND, keep_values=True)
+    periods: list[int] = sorted({p for k in ordered for p in (k.fast_period, k.slow_period)})
+    averages: MovingAverageGrid = conditions.moving_average_grid(close, periods, KIND, keep_values=True)
 
-    agreement = np.empty((len(ordered), close.size), dtype=np.float64)
-    votes = np.empty((len(ordered), N_COMPONENTS, close.size), dtype=np.int8)
+    agreement: FloatArray = np.empty((len(ordered), close.size), dtype=np.float64)
+    votes: LabelArray = np.empty((len(ordered), N_COMPONENTS, close.size), dtype=np.int8)
     for i, wanted in enumerate(ordered):
         votes[i], agreement[i] = _components(
             close,

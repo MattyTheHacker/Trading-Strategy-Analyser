@@ -17,11 +17,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, DateArray, OffsetArray
+
 EASTERN = "America/New_York"
+
+FRIDAY = 4
+"""``DatetimeIndex.dayofweek`` for the last weekday a session may end on."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,10 +42,12 @@ class SessionTemplate:
 
     @property
     def open_seconds(self) -> int:
+        """The session open as seconds past midnight, exchange local."""
         return self.open_time.hour * 3600 + self.open_time.minute * 60 + self.open_time.second
 
     @property
     def close_seconds(self) -> int:
+        """The session close as seconds past midnight, exchange local."""
         return self.close_time.hour * 3600 + self.close_time.minute * 60 + self.close_time.second
 
 
@@ -55,13 +64,13 @@ class SessionInfo:
 
     eastern: pd.DatetimeIndex
     """Bar end timestamps converted to exchange local time (tz-aware)."""
-    trading_day: np.ndarray
+    trading_day: DateArray
     """``datetime64[D]``: the date each bar's session ends on."""
-    in_session: np.ndarray
+    in_session: BoolArray
     """Bool: bar falls inside a real session (not the break, not a weekend print)."""
-    is_session_open: np.ndarray
+    is_session_open: BoolArray
     """Bool: first in-session bar of its trading day."""
-    is_session_close: np.ndarray
+    is_session_close: BoolArray
     """Bool: last in-session bar of its trading day."""
 
     def __len__(self) -> int:
@@ -85,21 +94,21 @@ def classify(
     (17:00:00) is the session's final bar, since it covers 16:59-17:00. A bar stamped in
     (17:00, 18:00] falls in the maintenance break and cannot be real.
     """
-    eastern = to_eastern(pd.DatetimeIndex(index))
-    naive = eastern.tz_localize(None)
+    eastern: pd.DatetimeIndex = to_eastern(pd.DatetimeIndex(index))
+    naive: pd.DatetimeIndex = eastern.tz_localize(None)
 
-    seconds = naive.hour * 3600 + naive.minute * 60 + naive.second
-    after_close = seconds > template.close_seconds
+    seconds: pd.Index[int] = naive.hour * 3600 + naive.minute * 60 + naive.second
+    after_close: BoolArray = seconds > template.close_seconds
 
     # Bars after the close belong to the session ending on the following calendar day.
-    day = naive.normalize()
-    trading_ts = day + pd.to_timedelta(after_close.astype("int8"), unit="D")
+    day: pd.DatetimeIndex = naive.normalize()
+    trading_ts: pd.DatetimeIndex = day + pd.to_timedelta(after_close.astype("int8"), unit="D")
 
-    in_break = after_close & (seconds <= template.open_seconds)
-    is_weekday = trading_ts.dayofweek <= 4
-    in_session = np.asarray(~in_break & is_weekday)
+    in_break: BoolArray = after_close & (seconds <= template.open_seconds)
+    is_weekday: BoolArray = trading_ts.dayofweek <= FRIDAY
+    in_session: BoolArray = np.asarray(~in_break & is_weekday)
 
-    trading_day = trading_ts.to_numpy().astype("datetime64[D]")
+    trading_day: DateArray = trading_ts.to_numpy().astype("datetime64[D]")
 
     is_open, is_close = _session_edges(trading_day, in_session)
 
@@ -112,29 +121,29 @@ def classify(
     )
 
 
-def _session_edges(trading_day: np.ndarray, in_session: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _session_edges(trading_day: DateArray, in_session: BoolArray) -> tuple[BoolArray, BoolArray]:
     """Flag the first and last in-session bar of each trading day.
 
     Assumes the arrays are in ascending timestamp order, which ingestion guarantees.
     """
-    n = trading_day.size
-    is_open = np.zeros(n, dtype=bool)
-    is_close = np.zeros(n, dtype=bool)
+    n: int = trading_day.size
+    is_open: BoolArray = np.zeros(n, dtype=bool)
+    is_close: BoolArray = np.zeros(n, dtype=bool)
     if n == 0:
         return is_open, is_close
 
-    idx = np.flatnonzero(in_session)
+    idx: OffsetArray = np.flatnonzero(in_session)
     if idx.size == 0:
         return is_open, is_close
 
-    days = trading_day[idx]
-    boundary = np.empty(idx.size, dtype=bool)
+    days: DateArray = trading_day[idx]
+    boundary: BoolArray = np.empty(idx.size, dtype=bool)
     boundary[0] = True
     boundary[1:] = days[1:] != days[:-1]
 
     is_open[idx[boundary]] = True
     # The bar before each new session's first bar is the previous session's last.
-    last_positions = np.empty(idx.size, dtype=bool)
+    last_positions: BoolArray = np.empty(idx.size, dtype=bool)
     last_positions[-1] = True
     last_positions[:-1] = boundary[1:]
     is_close[idx[last_positions]] = True
@@ -146,7 +155,7 @@ def force_flat_mask(
     info: SessionInfo,
     exit_on_close_seconds: int = 30,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> np.ndarray:
+) -> BoolArray:
     """Bars at or past the exit-on-session-close cutoff.
 
     Mirrors NT8's ``IsExitOnSessionCloseStrategy`` with ``ExitOnSessionCloseSeconds``: a bar
@@ -157,7 +166,7 @@ def force_flat_mask(
     a holiday early close is probably not covered -- ``docs/roadmap.md``, "Flat before the
     session close".
     """
-    naive = info.eastern.tz_localize(None).to_numpy()
+    naive: DateArray = info.eastern.tz_localize(None).to_numpy()
     session_end = info.trading_day.astype("datetime64[s]") + np.timedelta64(template.close_seconds, "s")
     cutoff = session_end - np.timedelta64(int(exit_on_close_seconds), "s")
     return info.in_session & (naive.astype("datetime64[s]") >= cutoff)

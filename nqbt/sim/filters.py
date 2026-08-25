@@ -17,8 +17,7 @@ from typing import TYPE_CHECKING, Protocol
 from nqbt import regime, timeofday, trend, volume
 
 if TYPE_CHECKING:
-    import numpy as np
-
+    from nqbt.arrays import BoolArray
     from nqbt.context import Dataset
 
 __all__ = ["ContextFiltered", "apply_context_filters"]
@@ -53,7 +52,7 @@ class ContextFiltered(Protocol):
         ...
 
 
-def apply_context_filters(signal: np.ndarray, data: Dataset, params: ContextFiltered) -> np.ndarray:
+def apply_context_filters(signal: BoolArray, data: Dataset, params: ContextFiltered) -> BoolArray:
     """Narrow an archetype's own signal to the market context its parameters admit."""
     if params.phase_filter != timeofday.ALL_PHASES:
         signal &= data.phase_gate(params.phase_filter)
