@@ -2147,10 +2147,14 @@ existed, in a separate commit each.
 was `NDArray[np.datetime64]` and type-checked against the numpy in the venv; CI installs the
 newest, and numpy 2.5 changed that parameter's default from `dt.date | int | None` to `Any`, so
 the alias smuggled in an explicit `Any` and the new gate failed on a machine nobody had run.
-Every alias that could carry a defaulted parameter now states it. The dependencies are `>=` and
-CI resolves them fresh, so **one minor version behind locally is enough to hide a failure** —
-and `extend-select = ["ALL"]` means a ruff release can add a rule the same way. Type-check
-against the versions CI would install before believing a local zero.
+Every alias that could carry a defaulted parameter now states it.
+
+**The fix was to stop letting the resolver choose.** Every dependency and dev dependency is now
+pinned `==` rather than `>=`, so a local zero and a CI zero are the same measurement; dependabot
+raises the bumps and each is tested like any other change. The failure mode that forced it is
+worth keeping in mind whenever a pin is loosened: CI resolves fresh, one minor version behind
+locally is enough to hide a failure, and `extend-select = ["ALL"]` gives ruff the same reach —
+a release that adds a rule fails a build nobody touched.
 
 ### M20c — structural cleanups ([#58])
 

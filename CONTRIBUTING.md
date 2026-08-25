@@ -120,6 +120,10 @@ Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-li
 
 In almost all cases errors reported by either `ruff` or `mypy` should be fixed rather than hidden with ignore comments. Errors should only be ignored if they are a genuine misfire or there's an extremely good reason the issue shouldn't be fixed.
 
+### Dependencies are pinned exactly
+
+Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes — which is exactly how numpy 2.5 broke the mypy gate on the run after it landed, and `extend-select = ["ALL"]` gives ruff the same reach. Dependabot raises the bumps daily, grouped into one pull request, and each one runs the full suite plus both gates before it merges. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
+
 ### Lint changes are not exempt from review
 
 A "ruff auto-fix" pull request once reached into an `@njit` loop and rewrote `simulate_deadcat`'s MAE/MFE tracking, and inverted the branch in `archive.py` implementing "the newest bar may insert but never overwrite". Both were equivalent on inspection — and inspection is not the gate.
