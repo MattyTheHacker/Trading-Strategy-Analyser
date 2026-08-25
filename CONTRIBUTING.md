@@ -114,11 +114,9 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 
 CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead.
 
-**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt` and `ruff format --check .`, so a lint error fails the build. `tests/` and `tools/` are **not** at zero and are not gated; `ruff check .` is still worth running, but only the package's count has to stay at zero.
+**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt`, `ruff format --check .` and `mypy nqbt`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated; running them over the whole tree is still worth doing, but only the package's count has to stay at zero.
 
-`mypy` is not at zero on `nqbt/` yet and does not gate CI — [#56] is the issue that gets there and adds the job. **Until it lands, the rule is that a change must not add errors**: check the count before and after and expect it to be the same or lower.
-
-Every entry in `[tool.ruff.lint] ignore` carries a one-line reason, and so does every `# noqa`. Add neither without one.
+Every entry in `[tool.ruff.lint] ignore` carries a one-line reason, and so does every `# noqa` and every `# type: ignore`. Add none of them without one. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
 
 In almost all cases errors reported by either `ruff` or `mypy` should be fixed rather than hidden with ignore comments. Errors should only be ignored if they are a genuine misfire or there's an extremely good reason the issue shouldn't be fixed.
 
@@ -186,6 +184,5 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 - **Say what a statistic was computed over.** Per trade or per leg, whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
 - **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse resolution.
 
-[#56]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/56
 [#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
