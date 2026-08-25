@@ -92,13 +92,14 @@ def resample(
     if bars.empty:
         return bars
 
-    info = sessions.classify(bars.index, template)
+    info = sessions.classify(pd.DatetimeIndex(bars.index), template)
     frame = bars[info.in_session]
     if frame.empty:
         return frame
 
     day = info.trading_day[info.in_session]
-    bucket, to_close = bucket_index(frame.index, minutes, template)
+    stamps = pd.DatetimeIndex(frame.index)
+    bucket, to_close = bucket_index(stamps, minutes, template)
 
     # Group id per (trading day, bucket). The day is what stops a bucket spanning the
     # maintenance break or the weekend.
@@ -114,7 +115,7 @@ def resample(
     # nanoseconds throughout, because a tz-aware DatetimeIndex hands back object dtype;
     # ``dtype=`` is not optional, since pandas otherwise returns datetime64[us] and reading
     # that as nanoseconds puts every bar in 1970.
-    ns = frame.index.tz_convert("UTC").tz_localize(None).to_numpy(dtype="datetime64[ns]").astype("int64")
+    ns = stamps.tz_convert("UTC").tz_localize(None).to_numpy(dtype="datetime64[ns]").astype("int64")
     closes = ns + to_close * 60 * 1_000_000_000
     session_last = pd.Series(ns).groupby(day).transform("max").to_numpy()
     stamped = np.minimum(closes, session_last)

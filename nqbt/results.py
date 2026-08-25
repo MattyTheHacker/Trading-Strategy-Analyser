@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import platform
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
 
@@ -97,18 +97,21 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
             con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {sql_type}")
 
 
+def _count(con: duckdb.DuckDBPyConnection, sql: str, parameters: Sequence[object] = ()) -> int:
+    """The single number an aggregate query returns."""
+    row = con.execute(sql, list(parameters)).fetchone()
+    if row is None:  # pragma: no cover - an aggregate always returns exactly one row
+        msg = f"no row from {sql!r}"
+        raise RuntimeError(msg)
+    return int(row[0])
+
+
 def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
-    return bool(
-        con.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
-            [table],
-        ).fetchone()[0],
-    )
+    return bool(_count(con, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table]))
 
 
 def _next_id(con: duckdb.DuckDBPyConnection) -> int:
-    got = con.execute("SELECT COALESCE(MAX(sweep_id), 0) + 1 FROM sweeps").fetchone()
-    return int(got[0])
+    return _count(con, "SELECT COALESCE(MAX(sweep_id), 0) + 1 FROM sweeps")
 
 
 def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
@@ -119,8 +122,7 @@ def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
     """
     con = connect(db_path)
     try:
-        got = con.execute("SELECT COALESCE(MAX(batch_id), 0) + 1 FROM sweeps").fetchone()
-        return int(got[0])
+        return _count(con, "SELECT COALESCE(MAX(batch_id), 0) + 1 FROM sweeps")
     finally:
         con.close()
 
@@ -210,7 +212,7 @@ def _tag_axes(
     -- ``docs/roadmap.md`` §M17.
     """
     tagged = results.copy()
-    supplied = {
+    supplied: dict[str, tuple[str | int | None, Literal["string", "Int64"]]] = {
         "strategy": (strategy, "string"),
         "resolution": (resolution, "Int64"),
         "contract": (contract, "string"),
@@ -230,10 +232,7 @@ def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.Data
     but the table does not is dropped -- ``docs/roadmap.md`` §M17. :data:`AXIS_COLUMNS` are
     exempt from that and migrated up front by :func:`_migrate_axis_columns`.
     """
-    exists = con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
-        [table],
-    ).fetchone()[0]
+    exists = _count(con, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table])
     if not exists:
         con.register("incoming", frame)
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM incoming")  # noqa: S608 - a literal at both callers

@@ -94,7 +94,7 @@ class Instrument:
         elif mode == "down":
             n = math.floor(n + eps)
         else:  # pragma: no cover - guarded by the Literal type
-            msg = f"unknown round mode: {mode!r}"
+            msg = f"unknown round mode: {mode!r}"  # type: ignore[unreachable]  # a caller may ignore it
             raise ValueError(msg)
         return round(n * self.tick_size, self.price_decimals)
 

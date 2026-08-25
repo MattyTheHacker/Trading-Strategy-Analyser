@@ -107,7 +107,7 @@ class Summary:
         arguments into a 28-field dataclass and raised on every call.
         """
         hints = get_type_hints(cls)
-        return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})
+        return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})  # type: ignore[arg-type]  # keyed by field name
 
 
 def _max_drawdown(equity: FloatArray) -> float:
@@ -214,7 +214,7 @@ def summarise(trades: pd.DataFrame) -> Summary:
 
 def _daily_totals(pnl: FloatArray, exit_times: pd.DatetimeIndex) -> FloatArray:
     """Per-trade P&L totalled by the calendar day each trade closed on."""
-    return pd.Series(pnl).groupby(exit_times.date).sum().to_numpy(np.float64)
+    return np.asarray(pd.Series(pnl).groupby(exit_times.date).sum(), dtype=np.float64)
 
 
 def _finite(values: FloatArray) -> FloatArray:
@@ -459,6 +459,6 @@ def leg_summary(trades: pd.DataFrame) -> dict[str, float]:
         "scratches": int((pnl == 0).sum()),
         "net_pnl": float(pnl.sum()),
         "profit_factor": _ratio(float(pnl[wins].sum()), float(-pnl[losses].sum())),
-        "max_drawdown": _max_drawdown(equity),
+        "max_drawdown": _max_drawdown(equity.to_numpy(np.float64)),
         "avg_trade": float(pnl.mean()),
     }

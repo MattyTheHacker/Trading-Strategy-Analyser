@@ -15,7 +15,7 @@ each other.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
 import pandas as pd
@@ -135,7 +135,7 @@ class Dataset:
     @property
     def index(self) -> pd.DatetimeIndex:
         """The bars' timestamp index."""
-        return self.bars.index
+        return cast("pd.DatetimeIndex", self.bars.index)
 
     def grid(self, kind: str) -> MovingAverageGrid:
         """The grid for one moving-average kind, or a pointed error."""
@@ -413,11 +413,11 @@ def prepare(
     close = bars["close"].to_numpy(np.float64)
     high = bars["high"].to_numpy(np.float64)
     low = bars["low"].to_numpy(np.float64)
-    info = sessions.classify(bars.index)
+    info = sessions.classify(pd.DatetimeIndex(bars.index))
 
     # Relative volume is defined per bar of session, so asking for it builds the clock too.
     tod = (
-        timeofday.classify(bars.index, bar_minutes=bar_minutes, info=info)
+        timeofday.classify(pd.DatetimeIndex(bars.index), bar_minutes=bar_minutes, info=info)
         if spec.needs_time_of_day or spec.volume_keys
         else None
     )

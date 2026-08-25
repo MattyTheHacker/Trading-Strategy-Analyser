@@ -146,7 +146,7 @@ class LegMatrix(NamedTuple):
     """
 
     matrix: FloatArray
-    count: int
+    count: int  # type: ignore[assignment]  # the field shadows tuple.count
 
 
 def validate_legs(legs: LegMatrix) -> LegMatrix:
@@ -233,8 +233,8 @@ def trades_to_frame(
         frame.insert(2, "entry_time", index[frame["entry_bar"].to_numpy()])
         frame.insert(3, "exit_time", index[frame["exit_bar"].to_numpy()])
 
-    frame.insert(0, "instrument", pd.array([instrument] * count, dtype="string"))
-    frame.insert(0, "source", pd.array([source] * count, dtype="string"))
+    frame.insert(0, "instrument", pd.array([instrument] * count, dtype="string"))  # type: ignore[arg-type]  # pandas-stubs omits BaseStringArray
+    frame.insert(0, "source", pd.array([source] * count, dtype="string"))  # type: ignore[arg-type]  # pandas-stubs omits BaseStringArray
     return frame
 
 

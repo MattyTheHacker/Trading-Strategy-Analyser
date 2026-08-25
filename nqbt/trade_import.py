@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, NoReturn, override
 
 import numpy as np
 import pandas as pd
@@ -339,7 +339,7 @@ def _localise(times: pd.Series[pd.Timestamp], *, timezone: str) -> pd.Series[pd.
 
 def _quantities(column: pd.Series[str]) -> IntArray:
     """Fill sizes, which are unsigned; the side is carried by ``Action``."""
-    quantities = column.astype("int64").to_numpy(np.int64)
+    quantities = np.asarray(column.astype("int64"), dtype=np.int64)
     if (quantities <= 0).any():
         msg = "every fill must have a positive Quantity; the side is carried by Action"
         raise TradeImportError(msg)
@@ -370,7 +370,7 @@ def _positions(column: pd.Series[str]) -> IntArray:
             raise TradeImportError(msg)
         quantity = 0 if match["flat"] else int(match["quantity"])
         parsed[value] = quantity if match["side"] == "L" else -quantity
-    return text.map(parsed).to_numpy(np.int64)
+    return np.asarray(text.map(parsed), dtype=np.int64)
 
 
 def _check_ascending(times: pd.Series[pd.Timestamp], *, source: str) -> None:
@@ -419,7 +419,7 @@ def _opening_position(positions: IntArray, signed: IntArray) -> int:
     return int(positions[0] - signed[0])
 
 
-def _raise_broken_chain(fills: pd.DataFrame, running: int, pending: Sequence[int]) -> None:
+def _raise_broken_chain(fills: pd.DataFrame, running: int, pending: Sequence[int]) -> NoReturn:
     """Name the fill the position walk could not reach, now that we know there is one."""
     row = fills.iloc[pending[0]]
     msg = (
@@ -489,8 +489,8 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
     trade_id = 0
     leg = 0
     for fill in fills.itertuples(index=False):
-        remaining = int(fill.quantity)
-        opening = trades.LONG if fill.signed > 0 else trades.SHORT
+        remaining = int(fill.quantity)  # type: ignore[arg-type]  # itertuples widens every column
+        opening = trades.LONG if fill.signed > 0 else trades.SHORT  # type: ignore[operator]  # the same widening
         while lots and opening != direction and remaining:
             lot = lots[0]
             matched = min(lot.remaining, remaining)
@@ -518,7 +518,7 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
                 trade_id += 1
                 leg = 0
                 direction = opening
-            lots.append(_Lot(price=fill.price, time=fill.time, remaining=remaining))
+            lots.append(_Lot(price=fill.price, time=fill.time, remaining=remaining))  # type: ignore[arg-type]  # the same widening
     return rows
 
 

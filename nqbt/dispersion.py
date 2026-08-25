@@ -82,11 +82,11 @@ def contract_frames(
     windows = front_month_windows(root, back_adjust=back_adjust, cache_dir=cache_dir)
     frames: dict[str, pd.DataFrame] = {}
     for name, window in windows.iterrows():
-        bars = ingest.load_contract(ContractId.parse(name), cache_dir)
+        bars = ingest.load_contract(ContractId.parse(str(name)), cache_dir)
         if not full_life:
             bars = bars[(bars.index >= window.start) & (bars.index <= window.end)]
         if len(bars):
-            frames[name] = bars
+            frames[str(name)] = bars
     if not frames:
         msg = f"no cached per-contract bars for {root}"
         raise DispersionError(msg)
@@ -102,7 +102,7 @@ def coverage(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
     rows = []
     for name, bars in frames.items():
-        info = sessions.classify(bars.index)
+        info = sessions.classify(pd.DatetimeIndex(bars.index))
         rows.append(
             {
                 "contract": name,
@@ -126,7 +126,7 @@ def sweep_contracts(
     cache_dir: Path = paths.CACHE_DIR,
     keep_trades: bool = False,
     n_jobs: int = 1,
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[tuple[str, int], pd.DataFrame]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[tuple[str | None, int], pd.DataFrame]]:
     """Run ``grid`` over every contract of ``root`` separately, via :func:`sweep.sweep_axes`.
 
     Returns ``(results, coverage_table, logs)``. ``results`` is one row per

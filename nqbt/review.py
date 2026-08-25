@@ -495,7 +495,8 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
         return np.nan, pd.NA, pd.NA
     best = usable.loc[usable[by].idxmax()]
     worst = usable.loc[usable[by].idxmin()]
-    return float(best[by] - worst[by]), best["value"], worst["value"]
+    # A row of a numeric column; pandas types every cell as the frame's widest possible value.
+    return float(best[by] - worst[by]), best["value"], worst["value"]  # type: ignore[arg-type]
 
 
 # -- the headline -------------------------------------------------------------
@@ -554,4 +555,4 @@ def _forced_exit_share(
     """
     per_leg = legs["trade_id"].map(reviewable[PHASE_COLUMN])
     closed = legs["exit_reason"] == stats.SESSION_CLOSE
-    return closed.groupby(per_leg, observed=True).mean().reindex(phases)
+    return closed.groupby(per_leg, observed=True).mean().reindex(phases)  # type: ignore[return-value]  # a mean of booleans is a float

@@ -150,3 +150,11 @@ warn_unreachable = true
 warn_unused_configs = true
 warn_unused_ignores = true
 warn_incomplete_stub = true
+
+
+[[tool.mypy.overrides]]
+# joblib ships neither stubs nor a py.typed marker. Only Parallel, delayed and
+# effective_n_jobs are used, all inside _sweep_parallel, so a stub under mypy_path would
+# restate three signatures and gain nothing over letting the import be untyped.
+module = ["joblib"]
+ignore_missing_imports = true

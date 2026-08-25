@@ -21,7 +21,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, NamedTuple, Unpack
+from typing import TYPE_CHECKING, NamedTuple, Unpack, cast
 
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
@@ -59,7 +59,7 @@ class Grid:
 
     def __post_init__(self) -> None:
         if self.base is None:  # type: ignore[comparison-overlap]
-            self.base = self.archetype.params_cls()
+            self.base = self.archetype.params_cls()  # type: ignore[unreachable]  # __post_init__ fills it
         if not isinstance(self.base, self.archetype.params_cls):
             msg = (
                 f"archetype {self.archetype.name!r} takes "
@@ -292,7 +292,7 @@ def _sweep_parallel(
         logs.update(chunk_logs)
     # Chunks come back in submission order; sorting states the guarantee rather than
     # relying on it.
-    rows.sort(key=lambda r: r["combo_id"])
+    rows.sort(key=lambda r: cast("int", r["combo_id"]))
     return rows, logs
 
 
@@ -394,9 +394,11 @@ def sweep_axes(
         msg = "resolutions is empty; pass (1,) for plain 1-minute bars"
         raise SweepError(msg)
 
-    sources: Mapping[str | None, pd.DataFrame] = (
-        {None: bars} if isinstance(bars, pd.DataFrame) else dict(bars)
-    )
+    sources: dict[str | None, pd.DataFrame] = {}
+    if isinstance(bars, pd.DataFrame):
+        sources[None] = bars
+    else:
+        sources.update(bars)
     if not sources:
         msg = "no bars to sweep: the contract mapping is empty"
         raise SweepError(msg)

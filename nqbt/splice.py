@@ -122,7 +122,7 @@ class SpliceReport:
             "",
             "Segments:",
             *(
-                f"  {r.contract:<12} {r.start.date()} -> {r.end.date()}  {r.bars:>7,} bars"
+                f"  {r.contract:<12} {r.start:%Y-%m-%d} -> {r.end:%Y-%m-%d}  {r.bars:>7,} bars"
                 f"  shift {r.shift:+.2f}"
                 for r in self.segments.itertuples()
             ),

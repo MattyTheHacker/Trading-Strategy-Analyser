@@ -130,7 +130,7 @@ def explain_trades(
         for leg in legs.sort_values("leg").itertuples():
             n = leg.leg
             row[f"leg{n}_target"] = leg.target_price
-            row[f"leg{n}_exit_time"] = index[int(leg.exit_bar)]
+            row[f"leg{n}_exit_time"] = index[int(leg.exit_bar)]  # type: ignore[arg-type]  # itertuples widens every column
             row[f"leg{n}_exit"] = leg.exit_price
             row[f"leg{n}_reason"] = leg.exit_reason
             row[f"leg{n}_r"] = leg.r_multiple

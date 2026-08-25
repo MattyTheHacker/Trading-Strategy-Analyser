@@ -231,13 +231,13 @@ def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
     if invalid.any():
         msg = (
             f"{source_name}: {int(invalid.sum())} bars violate OHLC ordering, "
-            f"first at {frame.index[invalid.argmax()]}"
+            f"first at {frame.index[int(invalid.argmax())]}"
         )
         raise IngestError(
             msg,
         )
 
-    info = sessions.classify(frame.index)
+    info = sessions.classify(pd.DatetimeIndex(frame.index))
     frame["trading_day"] = info.trading_day
     frame["in_session"] = info.in_session
     return frame
@@ -301,27 +301,27 @@ def ingest_contract(
         and size >= entry.byte_offset
         and _hash_range(source, entry.byte_offset) == entry.consumed_hash
     )
-    reuse = not force and appended_only
+    reusable = entry if appended_only and not force else None
 
-    if reuse and entry.source_size == size:
+    if reusable is not None and reusable.source_size == size:
         return (
-            IngestResult(contract, 0, entry.rows, "up-to-date"),
-            entry,
+            IngestResult(contract, 0, reusable.rows, "up-to-date"),
+            reusable,
         )
 
-    if entry is not None and not reuse and not force and cache_path.exists():
+    if entry is not None and reusable is None and not force and cache_path.exists():
         reason = "shrank" if size < entry.byte_offset else "was regenerated, not appended to"
         warnings.append(
             f"{source.name} {reason}; reparsing in full so revised or withdrawn bars "
             "are picked up rather than left stale",
         )
 
-    if reuse:
+    if reusable is not None:
         with source.open("rb") as fh:
-            fh.seek(entry.byte_offset)
+            fh.seek(reusable.byte_offset)
             tail = fh.read()
         consumed, tail = _trim_partial_line(tail)
-        new_offset = entry.byte_offset + consumed
+        new_offset = reusable.byte_offset + consumed
         added = parse_export(tail, source_name=source.name)
         existing = pd.read_parquet(cache_path)
         # Concatenate new last: _finalise sorts stably and keeps the last of any repeated
