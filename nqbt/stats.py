@@ -41,6 +41,9 @@ if TYPE_CHECKING:
 
 TRADING_DAYS_PER_YEAR = 252
 
+MIN_DAYS_FOR_RISK_ADJUSTED = 2
+"""Days needed before a Sharpe or Sortino means anything: ``std(ddof=1)`` needs two."""
+
 SESSION_CLOSE = EXIT_REASONS[EXIT_SESSION_CLOSE]
 """The ``exit_reason`` string for a position closed by the clock.
 
@@ -136,7 +139,7 @@ def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
 
     Daily totals rather than per trade: a per-trade Sharpe rewards taking many tiny trades.
     """
-    if daily.size < 2:  # noqa: PLR2004
+    if daily.size < MIN_DAYS_FOR_RISK_ADJUSTED:
         return 0.0, 0.0
     mean = daily.mean()
     sd = daily.std(ddof=1)
@@ -328,7 +331,7 @@ def _grouped_max(values: FloatArray, starts: IntArray) -> FloatArray:
         best = np.nan
         for i in range(starts[g], starts[g + 1]):
             value = values[i]
-            if value == value and (best != best or value > best):  # noqa: PLR0124
+            if value == value and (best != best or value > best):  # noqa: PLR0124 - the same NaN test as above
                 best = value
         out[g] = best
     return out

@@ -2130,7 +2130,9 @@ Three decisions the configuration now carries, each with its reason beside it in
   fixes, and each of those carries its own `noqa` naming the issue — so the rule still points at
   the real problem instead of being blanket-disabled.
 - **numba has no keyword-only arguments**, so a jitted loop's toggles are positional booleans
-  and `FBT001`/`FBT003` are ignored for exactly the four modules that contain one.
+  and `FBT001`/`FBT003` are ignored for exactly the five modules that contain one — per file
+  rather than per line, because a jitted module's every toggle is one and an inline `noqa` at
+  each of the 27 sites would say the same thing 27 times.
 
 `Any` survives where it is the honest type — a condition's labels are whatever pandas holds them
 as, an archetype's `run`/`legs`/`signal` differ in signature per archetype — and every such site

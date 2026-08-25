@@ -40,7 +40,7 @@ class Params(Protocol):
     is that :mod:`nqbt.sweep` does not name them.
     """
 
-    __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]
+    __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]  # dataclasses' own type
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""

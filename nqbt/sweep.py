@@ -58,7 +58,7 @@ class Grid:
     archetype: Archetype = archetypes.DEFAULT
 
     def __post_init__(self) -> None:
-        if self.base is None:  # type: ignore[comparison-overlap]
+        if self.base is None:  # type: ignore[comparison-overlap]  # the None default above
             self.base = self.archetype.params_cls()  # type: ignore[unreachable]  # __post_init__ fills it
         if not isinstance(self.base, self.archetype.params_cls):
             msg = (

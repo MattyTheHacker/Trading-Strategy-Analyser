@@ -182,7 +182,7 @@ def above_series(close: FloatArray, series: FloatArray) -> BoolArray:
 
 
 @njit(cache=True)
-def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> BoolArray:  # noqa: FBT001
+def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> BoolArray:
     """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?"""
     n = fast.size
     out = np.zeros(n, dtype=np.bool_)
@@ -213,7 +213,7 @@ def cross_above(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolAr
         np.ascontiguousarray(fast, dtype=np.float64),
         np.ascontiguousarray(slow, dtype=np.float64),
         int(lookback),
-        True,  # noqa: FBT003
+        True,
     )
 
 
@@ -229,7 +229,7 @@ def cross_below(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolAr
         np.ascontiguousarray(fast, dtype=np.float64),
         np.ascontiguousarray(slow, dtype=np.float64),
         int(lookback),
-        False,  # noqa: FBT003
+        False,
     )
 
 

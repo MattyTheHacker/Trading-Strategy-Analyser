@@ -116,7 +116,7 @@ CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usu
 
 **`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt`, `ruff format --check .` and `mypy nqbt`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated; running them over the whole tree is still worth doing, but only the package's count has to stay at zero.
 
-Every entry in `[tool.ruff.lint] ignore` carries a one-line reason, and so does every `# noqa` and every `# type: ignore`. Add none of them without one. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
+Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-line reason, and so does every `# noqa`, every `# type: ignore` and the one `[tool.coverage]` exclusion. Add none of them without one. Put the reason **after the pragma on the same line** so that grepping for a bare `# noqa: X$` finds anything undocumented; only where 110 columns leave no room does it go on the line above. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
 
 In almost all cases errors reported by either `ruff` or `mypy` should be fixed rather than hidden with ignore comments. Errors should only be ignored if they are a genuine misfire or there's an extremely good reason the issue shouldn't be fixed.
 

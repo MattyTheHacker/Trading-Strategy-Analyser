@@ -78,6 +78,9 @@ COLUMNS = [
 
 N_COLUMNS = len(COLUMNS)
 
+LEG_MATRIX_NDIM = 2
+"""A leg matrix is ``(rows, N_COLUMNS)`` -- rectangular, never ragged or stacked."""
+
 # Column indices, used inside the jitted loop where names are not available.
 (
     C_TRADE_ID,
@@ -157,7 +160,7 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     matrix can be held to.
     """
     matrix, count = legs
-    if matrix.ndim != 2 or matrix.shape[1] != N_COLUMNS:  # noqa: PLR2004
+    if matrix.ndim != LEG_MATRIX_NDIM or matrix.shape[1] != N_COLUMNS:
         msg = f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
         raise TradeSchemaError(msg)
     if count > matrix.shape[0]:
