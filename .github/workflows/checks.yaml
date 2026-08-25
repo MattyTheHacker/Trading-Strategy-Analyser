@@ -88,12 +88,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      # The package only. tests/ and tools/ are not at zero yet.
       - name: Run ruff check
-        run: ruff check nqbt
+        run: ruff check --output-format=github nqbt
 
       - name: Run ruff format
-        run: ruff format --check .
+        run: ruff format --output-format=github --check .
 
   mypy:
     name: Type-check Python using mypy
