@@ -271,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     logsetup.configure(__name__)
     args = build_parser().parse_args(argv)
     try:
-        return args.func(args)
+        return int(args.func(args))
     except (ingest.IngestError, splice.SpliceError, FileNotFoundError) as exc:
         logger.error("%s", exc)  # noqa: TRY400 - an expected failure, not an unhandled one
         return 1

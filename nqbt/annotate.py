@@ -373,7 +373,7 @@ def _check_bar_range(bars: IntArray, data: Dataset, side: str) -> None:
         raise AnnotationError(msg)
 
 
-def _check_bar_times(times: pd.Series, bars: IntArray, data: Dataset, side: str) -> None:
+def _check_bar_times(times: pd.Series[pd.Timestamp], bars: IntArray, data: Dataset, side: str) -> None:
     """Cross-check the log's own bar indices against its timestamps.
 
     The one test that catches a log being annotated against a different series of the same

@@ -237,7 +237,7 @@ class TimeOfDay:
         An out-of-session bar passes nothing, :data:`ALL_PHASES` included, which is why an
         archetype's signal skips this call entirely at the default -- ``docs/roadmap.md`` §M10.4.
         """
-        return (self.phase_bits & np.uint8(validate_mask(mask))) != 0
+        return np.asarray((self.phase_bits & np.uint8(validate_mask(mask))) != 0)
 
 
 def classify(

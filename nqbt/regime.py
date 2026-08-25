@@ -273,7 +273,7 @@ class EfficiencyRatioGrid:
 
     def values_for(self, lookback: int) -> FloatArray:
         """Read one lookback's efficiency ratios."""
-        return self.values[self.row(lookback)]
+        return np.asarray(self.values[self.row(lookback)])
 
     def labels_for(
         self,

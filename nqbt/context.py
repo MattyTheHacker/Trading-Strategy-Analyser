@@ -368,7 +368,7 @@ class Dataset:
         return replace(self, bars=self.bars.iloc[:, :0])
 
 
-def day_codes(index: pd.Index) -> IndexArray | None:
+def day_codes(index: pd.Index) -> IndexArray | None:  # type: ignore[explicit-any]  # any index; the isinstance check below is the point
     """Each bar's calendar day as an ``int32``, in the index's own timezone.
 
     ``None`` when the index is not datetime-like. Local rather than UTC because that is what

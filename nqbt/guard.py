@@ -71,7 +71,7 @@ type Draws = np.ndarray[tuple[int, int], np.dtype[np.float64]]
 type Column = pd.Series
 """One condition's labels as pandas holds them; a condition's dtype is its own."""
 
-type Labels = Sequence[object] | Column | AnyArray
+type Labels = Sequence[object] | Column | AnyArray  # type: ignore[explicit-any]  # a condition's dtype is its own
 """One label per trade, however the caller holds them."""
 
 DEFAULT_ITERATIONS = 2000
@@ -287,12 +287,12 @@ class _Grouping:
     """Distinct values before the floor, which is what a report calls the condition's strata."""
 
 
-def _positional(labels: Labels) -> Column:
+def _positional(labels: Labels) -> Column:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """One label per trade, indexed by position, whatever the caller held them in."""
     return pd.Series(labels).reset_index(drop=True)
 
 
-def _group(labels: Column, *, min_trades: int) -> _Grouping:
+def _group(labels: Column, *, min_trades: int) -> _Grouping:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Sort the trades into the strata a separation is measured across, floor applied.
 
     Null labels are dropped, which is what :func:`nqbt.review.stratify` does with them.
@@ -339,7 +339,7 @@ def _spread(values: Floats) -> float:
     return float(finite.max() - finite.min())
 
 
-def separate(
+def separate(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
     *,
@@ -395,7 +395,7 @@ class _Null:
     dropped: int
 
 
-def _null(
+def _null(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Mapping[str, Labels],
     *,
@@ -445,7 +445,7 @@ def _p_value(null: Floats, observed: float) -> tuple[float, int]:
     return float((finite >= observed).mean()), int(finite.size)
 
 
-def screen(
+def screen(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Mapping[str, Labels],
     *,
@@ -512,7 +512,7 @@ def _screen_frame(drawn: _Null) -> pd.DataFrame:
     return ordered.reset_index(drop=True)
 
 
-def permutation_test(
+def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
     *,
@@ -557,7 +557,7 @@ def permutation_test(
 # -- the holdout --------------------------------------------------------------
 
 
-def holdout_test(
+def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
     *,
@@ -603,7 +603,7 @@ def holdout_test(
     )
 
 
-def _is(labels: Column, value: object) -> Flags:
+def _is(labels: Column, value: object) -> Flags:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Mask of the trades carrying one label, with a null reading as "not this one"."""
     return np.asarray((labels == value).fillna(value=False), dtype=np.bool_)
 
@@ -703,7 +703,7 @@ def guard(
     )
 
 
-def _trades(
+def _trades(  # type: ignore[explicit-any]  # a condition's dtype is its own
     log: pd.DataFrame,
     annotation: Annotation,
     conditions: Sequence[str] | None,
@@ -771,7 +771,7 @@ def _check_length(pnl: Floats, given: int, what: str) -> None:
     raise GuardError(msg)
 
 
-def _complete(pnl: Floats, labels: Mapping[str, Labels]) -> tuple[Counts, pd.DataFrame, int]:
+def _complete(pnl: Floats, labels: Mapping[str, Labels]) -> tuple[Counts, pd.DataFrame, int]:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Find the trades every condition labels: where they are, what they carry, how many are not.
 
     A maximum over conditions measured on different trades would not be comparing like with

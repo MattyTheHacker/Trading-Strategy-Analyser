@@ -415,7 +415,7 @@ def _summarisable(legs: pd.DataFrame, absent: Sequence[str]) -> pd.DataFrame:
 # -- the strata ---------------------------------------------------------------
 
 
-def _is_stratifiable(column: pd.Series) -> bool:
+def _is_stratifiable(column: pd.Series) -> bool:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Whether one condition takes few enough values, and is not a raw series."""
     if pd.api.types.is_float_dtype(column.dtype):
         return False
@@ -445,7 +445,7 @@ def _check_stratifiable(reviewable: pd.DataFrame, condition: str) -> None:
     raise ReviewError(msg)
 
 
-def _strata(
+def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
     legs: pd.DataFrame,
     values: pd.Series,
     condition: str,
@@ -468,7 +468,7 @@ def _strata(
     return pd.DataFrame(rows, columns=["condition", "value", *_columns(omitted), "reported"])
 
 
-def _groups(values: pd.Series) -> list[tuple[object, pd.Index]]:
+def _groups(values: pd.Series) -> list[tuple[object, pd.Index]]:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Each distinct value of one condition and the trade ids carrying it, nulls excluded."""
     present = values.dropna()
     return list(present.groupby(present, sort=True, observed=True).groups.items())
@@ -519,7 +519,7 @@ def _time_of_day(
     return ordered.join(beside)
 
 
-def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index) -> pd.DataFrame:
+def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.DataFrame:
     """Median absolute and relative volume per phase: what is normal here, and what was not.
 
     The absolute figure alone cannot say whether a busy hour was unusually busy, and the relative
@@ -542,7 +542,11 @@ def _volume_columns(reviewable: pd.DataFrame) -> list[str]:
     ]
 
 
-def _forced_exit_share(legs: pd.DataFrame, reviewable: pd.DataFrame, phases: pd.Index) -> pd.Series:
+def _forced_exit_share(
+    legs: pd.DataFrame,
+    reviewable: pd.DataFrame,
+    phases: pd.Index[int],
+) -> pd.Series[float]:
     """Share of each phase's leg exits taken by the clock rather than by the strategy's own rules.
 
     What separates "this hour trades badly" from "this hour's trades were closed by the clock",

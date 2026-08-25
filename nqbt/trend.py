@@ -344,15 +344,15 @@ class TrendGrid:
 
     def agreement_for(self, wanted: TrendKey) -> FloatArray:
         """Read one label's agreement score, the raw quantity behind it."""
-        return self.agreement[self.row(wanted)]
+        return np.asarray(self.agreement[self.row(wanted)])
 
     def votes_for(self, wanted: TrendKey) -> LabelArray:
         """Read one label's ``[3, n_bars]`` vote block -- rows are :class:`TrendComponent`."""
-        return self.votes[self.row(wanted)]
+        return np.asarray(self.votes[self.row(wanted)])
 
     def component_for(self, wanted: TrendKey, component: TrendComponent) -> LabelArray:
         """Read one component of one label, the form a review reports."""
-        return self.votes[self.row(wanted), int(TrendComponent(component))]
+        return np.asarray(self.votes[self.row(wanted), int(TrendComponent(component))])
 
     def labels_for(self, wanted: TrendKey, min_agreement: int) -> LabelArray:
         """Label every bar of one series, the stratification key -- see :func:`label`."""

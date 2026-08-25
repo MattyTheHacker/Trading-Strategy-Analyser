@@ -94,7 +94,7 @@ def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.Volu
     return tuple(
         sorted(
             {
-                volume.key(form, rolling, baseline)
+                volume.key(int(form), int(rolling), int(baseline))
                 for form in values.get("volume_form", ())
                 for rolling in values.get("volume_rolling_bars", ())
                 for baseline in values.get("volume_baseline_sessions", ())
@@ -114,7 +114,7 @@ def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendK
     return tuple(
         sorted(
             {
-                trend.key(fast, slow, lookback)
+                trend.key(int(fast), int(slow), int(lookback))
                 for fast in values.get("trend_fast_period", ())
                 for slow in values.get("trend_slow_period", ())
                 for lookback in values.get("trend_slope_lookback", ())
@@ -229,25 +229,25 @@ Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17
 
 
 @dataclass(frozen=True, slots=True)
-class Archetype:
+class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callables below
     """How to sweep one strategy. Frozen, so a lookup cannot mutate the registry."""
 
     name: str
     """The registry key, and the value written to the results table's ``strategy``."""
 
-    params_cls: type
+    params_cls: type[Params]
     """The dataclass a combination is an instance of. Replaces ``Grid.base``'s hardcoding."""
 
-    run: Callable[..., pd.DataFrame]
+    run: Callable[..., pd.DataFrame]  # type: ignore[explicit-any]  # the signature differs per archetype
     """Simulate one combination and return its leg-level trade log."""
 
-    legs: Callable[..., LegMatrix]
+    legs: Callable[..., LegMatrix]  # type: ignore[explicit-any]  # the signature differs per archetype
     """The same simulation, stopping at the raw leg matrix. Required, not optional."""
 
     tier2: Tier2Status
     """See :class:`Tier2Status` -- this reaches the results table, deliberately."""
 
-    signal: Callable[..., BoolArray]
+    signal: Callable[..., BoolArray]  # type: ignore[explicit-any]  # the signature differs per archetype
     """Compute this archetype's per-bar entry signal from a :class:`Dataset`."""
 
     gated_by: Mapping[str, str] = field(default_factory=lambda: MA_GATES)

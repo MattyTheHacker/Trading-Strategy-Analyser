@@ -318,7 +318,7 @@ def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: 
 @njit(cache=True)
 def round_to_tick(price: float, tick_size: float) -> float:
     """Snap a price onto the tick grid, as ``RoundToTickSize`` does in NinjaScript."""
-    return np.floor(price / tick_size + 0.5) * tick_size
+    return float(np.floor(price / tick_size + 0.5) * tick_size)
 
 
 @njit(cache=True)

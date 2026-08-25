@@ -139,7 +139,7 @@ def _in_session(frame: pd.DataFrame) -> pd.DataFrame:
     return frame[frame["in_session"]]
 
 
-def _session_bar_counts(frame: pd.DataFrame) -> pd.Series:
+def _session_bar_counts(frame: pd.DataFrame) -> pd.Series[int]:
     return frame.groupby("trading_day").size()
 
 

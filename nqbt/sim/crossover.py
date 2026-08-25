@@ -307,7 +307,7 @@ def _protective_stop(
     usual offset.
     """
     if use_atr_stop:
-        return fill - direction * atr[signal_bar] * atr_stop_multiple
+        return fill - direction * float(atr[signal_bar]) * atr_stop_multiple
 
     start = signal_bar - swing_lookback + 1
     start = max(start, 0)

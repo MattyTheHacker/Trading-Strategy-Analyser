@@ -318,8 +318,8 @@ def _median_of(buffer: FloatArray, held: int) -> float:
     """Take the median of the first ``held`` entries of a sorted buffer."""
     middle = held // 2
     if held % 2 == 1:
-        return buffer[middle]
-    return 0.5 * (buffer[middle - 1] + buffer[middle])
+        return float(buffer[middle])
+    return float(0.5 * (buffer[middle - 1] + buffer[middle]))
 
 
 @njit(cache=True)
@@ -530,11 +530,11 @@ class VolumeGrid:
 
     def absolute_for(self, wanted: VolumeKey) -> FloatArray:
         """Read one series' absolute volume -- the execution-feasibility question."""
-        return self.absolute[self.row(wanted)]
+        return np.asarray(self.absolute[self.row(wanted)])
 
     def relative_for(self, wanted: VolumeKey) -> FloatArray:
         """Read one series' relative volume."""
-        return self.relative[self.row(wanted)]
+        return np.asarray(self.relative[self.row(wanted)])
 
     def labels_for(self, wanted: VolumeKey, thin_below: float, heavy_above: float) -> LabelArray:
         """Label every bar of one series, the stratification key -- see :func:`label`."""

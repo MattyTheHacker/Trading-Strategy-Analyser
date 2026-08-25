@@ -291,11 +291,11 @@ class MovingAverageGrid:
 
     def below_for(self, period: int) -> BoolArray:
         """One period's ``Close < MA`` gate."""
-        return self.below[self.row(period)]
+        return np.asarray(self.below[self.row(period)])
 
     def above_for(self, period: int) -> BoolArray:
         """One period's ``Close > MA`` gate."""
-        return self.above[self.row(period)]
+        return np.asarray(self.above[self.row(period)])
 
     def values_for(self, period: int) -> FloatArray:
         """One period's raw moving-average values, when the grid kept them."""
@@ -307,7 +307,7 @@ class MovingAverageGrid:
             raise ValueError(
                 msg,
             )
-        return self.values[self.row(period)]
+        return np.asarray(self.values[self.row(period)])
 
     @property
     def nbytes(self) -> int:
