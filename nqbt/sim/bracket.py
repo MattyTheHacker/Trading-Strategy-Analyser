@@ -13,6 +13,8 @@ calling loop at no cost.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numba import njit
 
@@ -43,10 +45,13 @@ from nqbt.trades import (
     N_COLUMNS,
 )
 
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
+
 
 @njit(cache=True)
 def resolve_brackets(
-    out: np.ndarray,
+    out: FloatArray,
     written: int,
     trade_id: int,
     entry_bar: int,
@@ -55,9 +60,9 @@ def resolve_brackets(
     initial_stop: float,
     stop: float,
     risk: float,
-    leg_open: np.ndarray,
-    leg_target: np.ndarray,
-    leg_quantities: np.ndarray,
+    leg_open: BoolArray,
+    leg_target: FloatArray,
+    leg_quantities: IntArray,
     run_high: float,
     run_low: float,
     open_px: float,
@@ -317,7 +322,7 @@ def round_to_tick(price: float, tick_size: float) -> float:
 
 
 @njit(cache=True)
-def passes_reward_risk(target_r: np.ndarray, minimum: float) -> bool:
+def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
     """Optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
 
     Every target is expressed in R, so the check is independent of price: it either passes for
@@ -334,7 +339,7 @@ def passes_reward_risk(target_r: np.ndarray, minimum: float) -> bool:
 
 @njit(cache=True)
 def write_leg(
-    out: np.ndarray,
+    out: FloatArray,
     written: int,
     trade_id: int,
     leg: int,
@@ -389,7 +394,7 @@ def write_leg(
     return written + 1
 
 
-def allocate_output(n_signals: int, n_legs: int = 4) -> np.ndarray:
+def allocate_output(n_signals: int, n_legs: int = 4) -> FloatArray:
     """Preallocate the result matrix.
 
     Every filled signal writes at most one row per leg, and fills can only be fewer than

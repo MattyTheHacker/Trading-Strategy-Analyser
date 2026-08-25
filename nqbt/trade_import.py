@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
+    from nqbt.arrays import IntArray
+
 __all__ = [
     "ACCOUNT_FIELDS",
     "DIRECTION_FIELD",
@@ -331,7 +333,7 @@ def _localise(times: pd.Series[pd.Timestamp], *, timezone: str) -> pd.Series[pd.
     return localised.dt.tz_convert("UTC")
 
 
-def _quantities(column: pd.Series[str]) -> np.ndarray:
+def _quantities(column: pd.Series[str]) -> IntArray:
     """Fill sizes, which are unsigned; the side is carried by ``Action``."""
     quantities = column.astype("int64").to_numpy(np.int64)
     if (quantities <= 0).any():
@@ -340,7 +342,7 @@ def _quantities(column: pd.Series[str]) -> np.ndarray:
     return quantities
 
 
-def _signed(column: pd.Series[str], quantities: np.ndarray) -> np.ndarray:
+def _signed(column: pd.Series[str], quantities: IntArray) -> IntArray:
     """Signed size of each fill: positive bought, negative sold."""
     action = column.str.strip()
     unknown = sorted(set(action.dropna().unique()) - {BUY, SELL})
@@ -350,7 +352,7 @@ def _signed(column: pd.Series[str], quantities: np.ndarray) -> np.ndarray:
     return np.where(action.eq(BUY).to_numpy(), quantities, -quantities)
 
 
-def _positions(column: pd.Series[str]) -> np.ndarray:
+def _positions(column: pd.Series[str]) -> IntArray:
     """Parse the running-position field: ``-`` is flat, ``4 S`` short four, ``2 L`` long two."""
     text = column.str.strip()
     if text.hasnans:
@@ -406,7 +408,7 @@ def _order_ties_by_position(fills: pd.DataFrame) -> pd.DataFrame:
     return fills.iloc[order].reset_index(drop=True)
 
 
-def _opening_position(positions: np.ndarray, signed: np.ndarray) -> int:
+def _opening_position(positions: IntArray, signed: IntArray) -> int:
     """Infer the position held before the first fill: flat, unless the export begins mid-trade."""
     if len(positions) == 0 or positions[0] == signed[0]:
         return 0

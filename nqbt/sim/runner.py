@@ -18,11 +18,12 @@ from nqbt.sim import bracket, deadcat, filters
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.arrays import BoolArray
     from nqbt.context import Dataset
     from nqbt.sim.types import DeadCatParams
 
 
-def deadcat_signal(data: Dataset, params: DeadCatParams) -> np.ndarray:
+def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
     """Conjunction of every active entry filter.
 
     The inverted hammer is not optional -- ``DeadCatBounce.cs`` has no toggle for it.
@@ -48,7 +49,7 @@ def deadcat_legs(
     params: DeadCatParams,
     instrument: Instrument = MNQ,
     *,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 
@@ -104,7 +105,7 @@ def run_deadcat(
     instrument: Instrument = MNQ,
     *,
     with_times: bool = True,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs = deadcat_legs(data, params, instrument, signal=signal)

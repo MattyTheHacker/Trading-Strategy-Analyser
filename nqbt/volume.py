@@ -32,6 +32,8 @@ from numba import njit
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nqbt.arrays import BoolArray, DateArray, FloatArray, IndexArray, IntArray, LabelArray
+
 __all__ = [
     "ALL_STATES",
     "MIN_BASELINE_SESSIONS",
@@ -222,7 +224,7 @@ def key(form: int, rolling_bars: int, baseline_sessions: int) -> VolumeKey:
     return VolumeKey(resolved, window, validate_baseline_sessions(baseline_sessions))
 
 
-def session_ids(trading_day: np.ndarray, in_session: np.ndarray) -> np.ndarray:
+def session_ids(trading_day: DateArray, in_session: BoolArray) -> IntArray:
     """Give each in-session bar the index of the session it falls in, :data:`UNDEFINED` outside.
 
     Ascending timestamp order is assumed, which ingestion guarantees.
@@ -241,7 +243,7 @@ def session_ids(trading_day: np.ndarray, in_session: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _rolling_sum(values: np.ndarray, window: int) -> np.ndarray:
+def _rolling_sum(values: FloatArray, window: int) -> FloatArray:
     """Trailing ``window``-bar sum, ``nan`` until the window is full.
 
     Maintained by add and subtract rather than re-summed. Unlike an efficiency ratio's path
@@ -261,7 +263,7 @@ def _rolling_sum(values: np.ndarray, window: int) -> np.ndarray:
 
 
 @njit(cache=True)
-def _session_cumulative(values: np.ndarray, session_id: np.ndarray) -> np.ndarray:
+def _session_cumulative(values: FloatArray, session_id: IntArray) -> FloatArray:
     """Volume since this bar's session opened, ``nan`` for a bar in no session."""
     n = values.size
     out = np.full(n, np.nan, dtype=np.float64)
@@ -280,7 +282,7 @@ def _session_cumulative(values: np.ndarray, session_id: np.ndarray) -> np.ndarra
 
 
 @njit(cache=True)
-def _insert_sorted(buffer: np.ndarray, held: int, value: float) -> int:
+def _insert_sorted(buffer: FloatArray, held: int, value: float) -> int:
     """Insert one value into a sorted buffer, returning how many it now holds."""
     slot = held - 1
     while slot >= 0 and buffer[slot] > value:
@@ -291,7 +293,7 @@ def _insert_sorted(buffer: np.ndarray, held: int, value: float) -> int:
 
 
 @njit(cache=True)
-def _remove_sorted(buffer: np.ndarray, held: int, value: float) -> int:
+def _remove_sorted(buffer: FloatArray, held: int, value: float) -> int:
     """Drop one occurrence of a value from a sorted buffer, returning how many are left.
 
     The value is always present: it was inserted ``window`` sessions ago and each session's
@@ -312,7 +314,7 @@ def _remove_sorted(buffer: np.ndarray, held: int, value: float) -> int:
 
 
 @njit(cache=True)
-def _median_of(buffer: np.ndarray, held: int) -> float:
+def _median_of(buffer: FloatArray, held: int) -> float:
     """Take the median of the first ``held`` entries of a sorted buffer."""
     middle = held // 2
     if held % 2 == 1:
@@ -322,12 +324,12 @@ def _median_of(buffer: np.ndarray, held: int) -> float:
 
 @njit(cache=True)
 def _session_grid(
-    values: np.ndarray,
-    session_id: np.ndarray,
-    bar_of_session: np.ndarray,
+    values: FloatArray,
+    session_id: IntArray,
+    bar_of_session: IntArray,
     n_sessions: int,
     n_indices: int,
-) -> np.ndarray:
+) -> FloatArray:
     """Lay the series out as ``[session, bar of session]``, ``nan`` where the archive has a hole."""
     grid = np.full((n_sessions, n_indices), np.nan, dtype=np.float64)
     for i in range(values.size):
@@ -339,7 +341,7 @@ def _session_grid(
 
 
 @njit(cache=True)
-def _trailing_medians(grid: np.ndarray, window: int, min_observations: int) -> np.ndarray:
+def _trailing_medians(grid: FloatArray, window: int, min_observations: int) -> FloatArray:
     """Per cell, the median of its column over the ``window`` sessions *before* its row.
 
     Strictly prior: no session contributes to its own baseline. The window is a sorted buffer
@@ -365,7 +367,7 @@ def _trailing_medians(grid: np.ndarray, window: int, min_observations: int) -> n
 
 
 @njit(cache=True)
-def _gather(medians: np.ndarray, session_id: np.ndarray, bar_of_session: np.ndarray) -> np.ndarray:
+def _gather(medians: FloatArray, session_id: IntArray, bar_of_session: IntArray) -> FloatArray:
     """Read one value per bar back out of a ``[session, bar of session]`` layout."""
     n_indices = medians.shape[1]
     out = np.full(session_id.size, np.nan, dtype=np.float64)
@@ -378,7 +380,7 @@ def _gather(medians: np.ndarray, session_id: np.ndarray, bar_of_session: np.ndar
 
 
 @njit(cache=True)
-def _ratio(values: np.ndarray, baseline: np.ndarray) -> np.ndarray:
+def _ratio(values: FloatArray, baseline: FloatArray) -> FloatArray:
     """``values / baseline``, ``nan`` wherever there is no baseline to divide by.
 
     A bar of session whose prior sessions traded nothing has no scale to be relative to, so a
@@ -406,7 +408,7 @@ def _state_of(relative: float, thin_below: float, heavy_above: float) -> int:
 
 
 @njit(cache=True)
-def _label(relative: np.ndarray, thin_below: float, heavy_above: float) -> np.ndarray:
+def _label(relative: FloatArray, thin_below: float, heavy_above: float) -> LabelArray:
     n = relative.size
     out = np.empty(n, dtype=np.int8)
     for i in range(n):
@@ -415,7 +417,7 @@ def _label(relative: np.ndarray, thin_below: float, heavy_above: float) -> np.nd
 
 
 @njit(cache=True)
-def _gate(relative: np.ndarray, thin_below: float, heavy_above: float, mask: int) -> np.ndarray:
+def _gate(relative: FloatArray, thin_below: float, heavy_above: float, mask: int) -> BoolArray:
     """One pass from ratio to boolean, so a sweep combination never builds a label array."""
     n = relative.size
     out = np.zeros(n, dtype=np.bool_)
@@ -427,11 +429,11 @@ def _gate(relative: np.ndarray, thin_below: float, heavy_above: float, mask: int
 
 
 def absolute_form(
-    volume: np.ndarray,
+    volume: FloatArray,
     form: VolumeForm,
     rolling_bars: int,
-    session_id: np.ndarray,
-) -> np.ndarray:
+    session_id: IntArray,
+) -> FloatArray:
     """One of the three absolute forms, over volume already zeroed outside the session.
 
     ``PER_BAR`` is the count itself; ``ROLLING`` is the trailing sum, ``nan`` through its
@@ -446,13 +448,13 @@ def absolute_form(
 
 
 def relative_to_bar_of_session(
-    values: np.ndarray,
-    session_id: np.ndarray,
-    bar_of_session: np.ndarray,
+    values: FloatArray,
+    session_id: IntArray,
+    bar_of_session: IntArray,
     baseline_sessions: int,
     *,
     min_observations: int = MIN_BASELINE_SESSIONS,
-) -> np.ndarray:
+) -> FloatArray:
     """Divide out what is normal for this bar of session over the preceding sessions.
 
     ``nan`` wherever the window holds fewer than ``min_observations`` observations, which is
@@ -472,7 +474,7 @@ def relative_to_bar_of_session(
     return _ratio(values, _gather(medians, sessions, indices))
 
 
-def label(relative: np.ndarray, thin_below: float, heavy_above: float) -> np.ndarray:
+def label(relative: FloatArray, thin_below: float, heavy_above: float) -> LabelArray:
     """Cut relative volume into ``int8`` :class:`VolumeState`, :data:`UNDEFINED` for ``nan``.
 
     **Both boundaries fall in the normal band**: strictly below the lower threshold is thin,
@@ -482,7 +484,7 @@ def label(relative: np.ndarray, thin_below: float, heavy_above: float) -> np.nda
     return _label(np.ascontiguousarray(relative, dtype=np.float64), float(thin_below), float(heavy_above))
 
 
-def gate(relative: np.ndarray, mask: int, thin_below: float, heavy_above: float) -> np.ndarray:
+def gate(relative: FloatArray, mask: int, thin_below: float, heavy_above: float) -> BoolArray:
     """Test every bar's volume state against ``mask``, one boolean per bar.
 
     An :data:`UNDEFINED` bar passes nothing, :data:`ALL_STATES` included, which is why an
@@ -508,10 +510,10 @@ class VolumeGrid:
     """
 
     keys: tuple[VolumeKey, ...]
-    absolute: np.ndarray
+    absolute: FloatArray
     """Contracts traded, ``[n_keys, n_bars]`` float64. Read, never filtered on -- an absolute
     threshold is comparable neither across time nor across roots."""
-    relative: np.ndarray
+    relative: FloatArray
     """The same, divided by its bar-of-session baseline, ``nan`` where there is none."""
 
     def __len__(self) -> int:
@@ -526,15 +528,15 @@ class VolumeGrid:
             msg = f"volume series {wanted} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg) from None
 
-    def absolute_for(self, wanted: VolumeKey) -> np.ndarray:
+    def absolute_for(self, wanted: VolumeKey) -> FloatArray:
         """Read one series' absolute volume -- the execution-feasibility question."""
         return self.absolute[self.row(wanted)]
 
-    def relative_for(self, wanted: VolumeKey) -> np.ndarray:
+    def relative_for(self, wanted: VolumeKey) -> FloatArray:
         """Read one series' relative volume."""
         return self.relative[self.row(wanted)]
 
-    def labels_for(self, wanted: VolumeKey, thin_below: float, heavy_above: float) -> np.ndarray:
+    def labels_for(self, wanted: VolumeKey, thin_below: float, heavy_above: float) -> LabelArray:
         """Label every bar of one series, the stratification key -- see :func:`label`."""
         return label(self.relative_for(wanted), thin_below, heavy_above)
 
@@ -544,7 +546,7 @@ class VolumeGrid:
         mask: int,
         thin_below: float,
         heavy_above: float,
-    ) -> np.ndarray:
+    ) -> BoolArray:
         """Test every bar of one series against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.relative_for(wanted), mask, thin_below, heavy_above)
 
@@ -555,10 +557,10 @@ class VolumeGrid:
 
 
 def volume_grid(
-    volume: np.ndarray,
-    trading_day: np.ndarray,
-    in_session: np.ndarray,
-    bar_of_session: np.ndarray,
+    volume: FloatArray,
+    trading_day: DateArray,
+    in_session: BoolArray,
+    bar_of_session: IndexArray,
     keys: Iterable[VolumeKey],
 ) -> VolumeGrid:
     """Compute every distinct volume series a sweep needs, once.

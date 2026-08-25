@@ -22,6 +22,8 @@ from nqbt.instruments import MNQ, ContractId, Instrument
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from nqbt.arrays import FloatArray
+
 MIN_TRADES = 30
 """Below this a per-contract statistic is reported but excluded from dispersion.
 
@@ -183,11 +185,11 @@ def dispersion(
     return pd.DataFrame(rows)
 
 
-def _iqr(values: np.ndarray) -> float:
+def _iqr(values: FloatArray) -> float:
     return float(np.subtract(*np.percentile(values, [75, 25])))
 
 
-def _range(values: np.ndarray) -> float:
+def _range(values: FloatArray) -> float:
     return float(values.max() - values.min())
 
 

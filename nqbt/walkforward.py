@@ -23,6 +23,7 @@ from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import MNQ
 
 if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray
     from nqbt.costs import TradingCosts
     from nqbt.instruments import Instrument
 
@@ -142,7 +143,7 @@ class WalkForwardResult:
     statistic: str
     costs: TradingCosts
 
-    def pooled_pnl(self) -> np.ndarray:
+    def pooled_pnl(self) -> FloatArray:
         """Per-trade P&L across every out-of-sample window, in split order.
 
         Grouped per split before the leg collapse, because ``trade_id`` restarts at 1 in each

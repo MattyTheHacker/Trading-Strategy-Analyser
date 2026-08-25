@@ -10,11 +10,16 @@ Belongs to context, not simulation: it produces bars and knows nothing about tra
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 
 from nqbt import sessions
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
+
+if TYPE_CHECKING:
+    from nqbt.arrays import IntArray
 
 SECONDS_PER_DAY = 86_400
 
@@ -39,7 +44,7 @@ class ResampleError(ValueError):
 def minutes_since_open(
     index: pd.DatetimeIndex,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> np.ndarray:
+) -> IntArray:
     """How far each end-of-bar timestamp sits past its session's open, in minutes.
 
     Runs 1 to 1,380 over a full 18:00 -> 17:00 ET session. No DST bookkeeping is needed: US
@@ -56,7 +61,7 @@ def bucket_index(
     index: pd.DatetimeIndex,
     minutes: int,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[IntArray, IntArray]:
     """Per bar: which bucket it falls in, and how many minutes to its bucket's close.
 
     A bar stamped at minute ``m`` occupies index ``m - 1``, because the stamp is its close.

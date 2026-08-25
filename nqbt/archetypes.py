@@ -22,9 +22,9 @@ from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParam
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    import numpy as np
     import pandas as pd
 
+    from nqbt.arrays import BoolArray
     from nqbt.trades import LegMatrix
 
 
@@ -241,7 +241,7 @@ class Archetype:
     tier2: Tier2Status
     """See :class:`Tier2Status` -- this reaches the results table, deliberately."""
 
-    signal: Callable[..., np.ndarray]
+    signal: Callable[..., BoolArray]
     """Compute this archetype's per-bar entry signal from a :class:`Dataset`."""
 
     gated_by: Mapping[str, str] = field(default_factory=lambda: MA_GATES)

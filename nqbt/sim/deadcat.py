@@ -11,6 +11,8 @@ trigger, the fill and submittability tests, the ratchet -- and the evidence behi
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numba import njit
 
@@ -24,17 +26,20 @@ from nqbt.sim.bracket import (
 )
 from nqbt.trades import EXIT_END_OF_DATA
 
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
+
 
 @njit(cache=True)
 def simulate_deadcat(
-    open_: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    close: np.ndarray,
-    signal: np.ndarray,
-    force_flat: np.ndarray,
-    leg_quantities: np.ndarray,
-    target_r: np.ndarray,
+    open_: FloatArray,
+    high: FloatArray,
+    low: FloatArray,
+    close: FloatArray,
+    signal: BoolArray,
+    force_flat: BoolArray,
+    leg_quantities: IntArray,
+    target_r: FloatArray,
     tick_size: float,
     point_value: float,
     stop_offset_ticks: float,
@@ -52,7 +57,7 @@ def simulate_deadcat(
     ambiguity_policy: int,
     direction: float,
     round_targets: bool,
-    out: np.ndarray,
+    out: FloatArray,
 ) -> int:
     """Run one bracket archetype over one dataset, writing one row per leg exit.
 

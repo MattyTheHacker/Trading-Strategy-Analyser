@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from nqbt import notes, review, stats
+from nqbt.arrays import AnyArray
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -70,7 +71,7 @@ type Draws = np.ndarray[tuple[int, int], np.dtype[np.float64]]
 type Column = pd.Series
 """One condition's labels as pandas holds them; a condition's dtype is its own."""
 
-type Labels = Sequence[object] | Column | np.ndarray
+type Labels = Sequence[object] | Column | AnyArray
 """One label per trade, however the caller holds them."""
 
 DEFAULT_ITERATIONS = 2000

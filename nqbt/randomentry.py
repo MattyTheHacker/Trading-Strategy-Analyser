@@ -20,6 +20,7 @@ from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
 
 if TYPE_CHECKING:
     from nqbt.archetypes import Archetype, Params
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.context import Dataset
 
 DEFAULT_ITERATIONS = 200
@@ -92,7 +93,7 @@ class NullResult:
 def minute_of_session(
     index: pd.DatetimeIndex,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> np.ndarray:
+) -> IntArray:
     """How far each bar sits past its session open, in minutes."""
     return resample.minutes_since_open(index, template)
 
@@ -105,11 +106,11 @@ class SessionMinutePool:
     ``docs/roadmap.md`` §M7a.
     """
 
-    minutes: np.ndarray
+    minutes: IntArray
     """Minute-of-session per bar, aligned to the index."""
-    bars_by_minute: np.ndarray
+    bars_by_minute: IntArray
     """Bar indices, sorted by minute-of-session, so one minute's pool is a contiguous slice."""
-    starts: np.ndarray
+    starts: IntArray
     """Where each minute's slice begins in :attr:`bars_by_minute`; ``starts[m + 1]`` ends it."""
 
     @classmethod
@@ -123,19 +124,19 @@ class SessionMinutePool:
         starts = np.searchsorted(minutes[order], np.arange(minutes.max() + 2), side="left")
         return cls(minutes=minutes, bars_by_minute=order, starts=starts)
 
-    def pool_for(self, minute: int) -> np.ndarray:
+    def pool_for(self, minute: int) -> IntArray:
         """Every bar sharing one minute-of-session."""
         return self.bars_by_minute[self.starts[minute] : self.starts[minute + 1]]
 
 
 def matched_random_signal(
     data: Dataset,
-    signal: np.ndarray,
+    signal: BoolArray,
     rng: np.random.Generator,
     *,
     pool: SessionMinutePool | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> np.ndarray:
+) -> BoolArray:
     """A random entry signal with ``signal``'s count and time-of-session distribution.
 
     For every minute-of-session at which the real rule fired, the same number of entries is
@@ -169,7 +170,7 @@ def _null_summary(
     params: Params,
     archetype: Archetype,
     instrument: Instrument,
-    signal: np.ndarray,
+    signal: BoolArray,
     seed: int,
     pool: SessionMinutePool,
 ) -> dict:
@@ -294,7 +295,7 @@ def compare(
 def _place(
     name: str,
     observed: float,
-    draws: np.ndarray,
+    draws: FloatArray,
     alpha: float,
     iterations: int,
     *,

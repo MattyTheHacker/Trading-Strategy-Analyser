@@ -39,6 +39,10 @@ nqbt = "nqbt.cli:main"
 include = ["nqbt*"]
 
 
+[tool.setuptools.package-data]
+nqbt = ["py.typed"]
+
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

@@ -23,6 +23,7 @@ import pandas as pd
 from nqbt import conditions, indicators, regime, sessions, timeofday, trend, volume
 
 if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, LabelArray
     from nqbt.conditions import MovingAverageGrid
 
 
@@ -97,18 +98,18 @@ class Dataset:
     """
 
     bars: pd.DataFrame
-    open: np.ndarray
-    high: np.ndarray
-    low: np.ndarray
-    close: np.ndarray
-    force_flat: np.ndarray
+    open: FloatArray
+    high: FloatArray
+    low: FloatArray
+    close: FloatArray
+    force_flat: BoolArray
     geometry: conditions.BarGeometry
     spec: ContextSpec
     mas: dict[str, MovingAverageGrid] = field(default_factory=dict)
-    atrs: dict[int, np.ndarray] = field(default_factory=dict)
-    vwap: np.ndarray | None = None
-    below_vwap: np.ndarray | None = None
-    above_vwap: np.ndarray | None = None
+    atrs: dict[int, FloatArray] = field(default_factory=dict)
+    vwap: FloatArray | None = None
+    below_vwap: BoolArray | None = None
+    above_vwap: BoolArray | None = None
     time_of_day: timeofday.TimeOfDay | None = None
     """Session phase and bar of session, or ``None`` when nothing asked for them."""
 
@@ -121,7 +122,7 @@ class Dataset:
     trends: trend.TrendGrid | None = None
     """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
 
-    day_codes: np.ndarray | None = None
+    day_codes: IndexArray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
 
     In the index's own timezone, not UTC -- ``docs/roadmap.md`` §"The numpy-native summary
@@ -147,7 +148,7 @@ class Dataset:
             )
         return self.mas[kind]
 
-    def ma_gate(self, kind: str, period: int, *, above: bool) -> np.ndarray:
+    def ma_gate(self, kind: str, period: int, *, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) ``kind(period)``?
 
         Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
@@ -155,11 +156,11 @@ class Dataset:
         g = self.grid(kind)
         return g.above_for(period) if above else g.below_for(period)
 
-    def ma_values(self, kind: str, period: int) -> np.ndarray:
+    def ma_values(self, kind: str, period: int) -> FloatArray:
         """Raw moving-average values, for the audit trail and the MA trailing stop."""
         return self.grid(kind).values_for(period)
 
-    def atr_values(self, period: int) -> np.ndarray:
+    def atr_values(self, period: int) -> FloatArray:
         """NT8-seeded ATR for one period, or a pointed error."""
         if period not in self.atrs:
             msg = (
@@ -171,7 +172,7 @@ class Dataset:
             )
         return self.atrs[period]
 
-    def vwap_gate(self, *, above: bool) -> np.ndarray:
+    def vwap_gate(self, *, above: bool) -> BoolArray:
         if self.below_vwap is None or self.above_vwap is None:
             msg = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
@@ -182,7 +183,7 @@ class Dataset:
             )
         return self.above_vwap if above else self.below_vwap
 
-    def vwap_values(self) -> np.ndarray:
+    def vwap_values(self) -> FloatArray:
         if self.vwap is None:
             msg = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
@@ -204,7 +205,7 @@ class Dataset:
             )
         return self.time_of_day
 
-    def phase_gate(self, mask: int) -> np.ndarray:
+    def phase_gate(self, mask: int) -> BoolArray:
         """Per-bar boolean: does this bar's session phase pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` -- see
@@ -212,11 +213,11 @@ class Dataset:
         """
         return self._time_of_day().gate(mask)
 
-    def phase_values(self) -> np.ndarray:
+    def phase_values(self) -> LabelArray:
         """Per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
         return self._time_of_day().phase
 
-    def bar_of_session(self) -> np.ndarray:
+    def bar_of_session(self) -> IndexArray:
         """Per-bar index from the session open, the fine form of the same clock."""
         return self._time_of_day().bar_of_session
 
@@ -237,7 +238,7 @@ class Dataset:
         mask: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> BoolArray:
         """Per-bar boolean: does this bar's regime pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.regime.ALL_REGIMES` -- see
@@ -245,7 +246,7 @@ class Dataset:
         """
         return self._regimes().gate_for(lookback, mask, consolidating_below, directional_above)
 
-    def regime_values(self, lookback: int) -> np.ndarray:
+    def regime_values(self, lookback: int) -> FloatArray:
         """Per-bar efficiency ratio, the raw quantity behind the labels."""
         return self._regimes().values_for(lookback)
 
@@ -254,7 +255,7 @@ class Dataset:
         lookback: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> LabelArray:
         """Per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
         return self._regimes().labels_for(lookback, consolidating_below, directional_above)
 
@@ -275,7 +276,7 @@ class Dataset:
         mask: int,
         thin_below: float,
         heavy_above: float,
-    ) -> np.ndarray:
+    ) -> BoolArray:
         """Per-bar boolean: whether this bar's volume state passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.volume.ALL_STATES` -- see
@@ -283,11 +284,11 @@ class Dataset:
         """
         return self._volumes().gate_for(key, mask, thin_below, heavy_above)
 
-    def volume_values(self, key: volume.VolumeKey) -> np.ndarray:
+    def volume_values(self, key: volume.VolumeKey) -> FloatArray:
         """Per-bar **absolute** volume, the form that answers execution feasibility."""
         return self._volumes().absolute_for(key)
 
-    def relative_volume(self, key: volume.VolumeKey) -> np.ndarray:
+    def relative_volume(self, key: volume.VolumeKey) -> FloatArray:
         """Per-bar volume over its bar-of-session baseline -- the quantity behind the labels."""
         return self._volumes().relative_for(key)
 
@@ -296,7 +297,7 @@ class Dataset:
         key: volume.VolumeKey,
         thin_below: float,
         heavy_above: float,
-    ) -> np.ndarray:
+    ) -> LabelArray:
         """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
         return self._volumes().labels_for(key, thin_below, heavy_above)
 
@@ -311,7 +312,7 @@ class Dataset:
             )
         return self.trends
 
-    def trend_gate(self, key: trend.TrendKey, mask: int, min_agreement: int) -> np.ndarray:
+    def trend_gate(self, key: trend.TrendKey, mask: int, min_agreement: int) -> BoolArray:
         """Per-bar boolean: whether this bar's trend passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.trend.ALL_TRENDS` -- see
@@ -319,15 +320,15 @@ class Dataset:
         """
         return self._trends().gate_for(key, mask, min_agreement)
 
-    def trend_values(self, key: trend.TrendKey) -> np.ndarray:
+    def trend_values(self, key: trend.TrendKey) -> FloatArray:
         """Per-bar agreement score, the raw quantity behind the labels."""
         return self._trends().agreement_for(key)
 
-    def trend_labels(self, key: trend.TrendKey, min_agreement: int) -> np.ndarray:
+    def trend_labels(self, key: trend.TrendKey, min_agreement: int) -> LabelArray:
         """Per-bar :class:`nqbt.trend.Trend`, for stratifying results."""
         return self._trends().labels_for(key, min_agreement)
 
-    def trend_components(self, key: trend.TrendKey) -> np.ndarray:
+    def trend_components(self, key: trend.TrendKey) -> LabelArray:
         """Per-bar ``[3, n_bars]`` votes, so a review can say which component dissented."""
         return self._trends().votes_for(key)
 
@@ -364,7 +365,7 @@ class Dataset:
         return replace(self, bars=self.bars.iloc[:, :0])
 
 
-def day_codes(index: pd.Index) -> np.ndarray | None:
+def day_codes(index: pd.Index) -> IndexArray | None:
     """Each bar's calendar day as an ``int32``, in the index's own timezone.
 
     ``None`` when the index is not datetime-like. Local rather than UTC because that is what

@@ -26,6 +26,8 @@ from numba import njit
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
+
 __all__ = [
     "ALL_REGIMES",
     "UNDEFINED",
@@ -140,7 +142,7 @@ def validate_thresholds(consolidating_below: float, directional_above: float) ->
 
 
 @njit(cache=True)
-def _efficiency_ratio(close: np.ndarray, lookback: int) -> np.ndarray:
+def _efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
     """Net move over path length, ``nan`` until ``lookback`` bars of history exist.
 
     The window sum is recomputed rather than maintained incrementally, and a window that
@@ -172,7 +174,7 @@ def _regime_of(ratio: float, consolidating_below: float, directional_above: floa
 
 
 @njit(cache=True)
-def _label(values: np.ndarray, consolidating_below: float, directional_above: float) -> np.ndarray:
+def _label(values: FloatArray, consolidating_below: float, directional_above: float) -> LabelArray:
     n = values.size
     out = np.empty(n, dtype=np.int8)
     for i in range(n):
@@ -182,11 +184,11 @@ def _label(values: np.ndarray, consolidating_below: float, directional_above: fl
 
 @njit(cache=True)
 def _gate(
-    values: np.ndarray,
+    values: FloatArray,
     consolidating_below: float,
     directional_above: float,
     mask: int,
-) -> np.ndarray:
+) -> BoolArray:
     """One pass from ratio to boolean, so a sweep combination never builds a label array."""
     n = values.size
     out = np.zeros(n, dtype=np.bool_)
@@ -197,7 +199,7 @@ def _gate(
     return out
 
 
-def efficiency_ratio(close: np.ndarray, lookback: int) -> np.ndarray:
+def efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
     """Kaufman's efficiency ratio over ``lookback`` bars, aligned to ``close``.
 
     ``nan`` for the first ``lookback`` bars, which have no window to measure.
@@ -206,7 +208,7 @@ def efficiency_ratio(close: np.ndarray, lookback: int) -> np.ndarray:
     return _efficiency_ratio(np.ascontiguousarray(close, dtype=np.float64), int(lookback))
 
 
-def label(values: np.ndarray, consolidating_below: float, directional_above: float) -> np.ndarray:
+def label(values: FloatArray, consolidating_below: float, directional_above: float) -> LabelArray:
     """Cut efficiency ratios into ``int8`` :class:`Regime` values, :data:`UNDEFINED` for ``nan``.
 
     **Both boundaries fall in the band**: strictly below the lower threshold is consolidating,
@@ -221,11 +223,11 @@ def label(values: np.ndarray, consolidating_below: float, directional_above: flo
 
 
 def gate(
-    values: np.ndarray,
+    values: FloatArray,
     mask: int,
     consolidating_below: float,
     directional_above: float,
-) -> np.ndarray:
+) -> BoolArray:
     """Test every bar's regime against ``mask``, one boolean per bar.
 
     An :data:`UNDEFINED` bar passes nothing, :data:`ALL_REGIMES` included, which is why an
@@ -250,8 +252,8 @@ class EfficiencyRatioGrid:
     :meth:`row` is the only supported way from a lookback back to its row.
     """
 
-    lookbacks: np.ndarray
-    values: np.ndarray
+    lookbacks: IntArray
+    values: FloatArray
     """Efficiency ratios as ``[n_lookbacks, n_bars]`` float64, ``nan`` through each warm-up."""
 
     def __len__(self) -> int:
@@ -269,7 +271,7 @@ class EfficiencyRatioGrid:
             raise KeyError(msg)
         return idx
 
-    def values_for(self, lookback: int) -> np.ndarray:
+    def values_for(self, lookback: int) -> FloatArray:
         """Read one lookback's efficiency ratios."""
         return self.values[self.row(lookback)]
 
@@ -278,7 +280,7 @@ class EfficiencyRatioGrid:
         lookback: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> LabelArray:
         """Label every bar at one lookback, the stratification key -- see :func:`label`."""
         return label(self.values_for(lookback), consolidating_below, directional_above)
 
@@ -288,7 +290,7 @@ class EfficiencyRatioGrid:
         mask: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> BoolArray:
         """Test every bar at one lookback against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.values_for(lookback), mask, consolidating_below, directional_above)
 
@@ -298,7 +300,7 @@ class EfficiencyRatioGrid:
         return self.values.nbytes
 
 
-def efficiency_ratio_grid(close: np.ndarray, lookbacks: Iterable[int]) -> EfficiencyRatioGrid:
+def efficiency_ratio_grid(close: FloatArray, lookbacks: Iterable[int]) -> EfficiencyRatioGrid:
     """Compute every distinct lookback a sweep needs, once.
 
     Eight bytes per element, so this is the one series a long lookback axis makes expensive

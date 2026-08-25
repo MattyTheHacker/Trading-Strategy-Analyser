@@ -17,9 +17,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, DateArray
 
 EASTERN = "America/New_York"
 
@@ -55,13 +59,13 @@ class SessionInfo:
 
     eastern: pd.DatetimeIndex
     """Bar end timestamps converted to exchange local time (tz-aware)."""
-    trading_day: np.ndarray
+    trading_day: DateArray
     """``datetime64[D]``: the date each bar's session ends on."""
-    in_session: np.ndarray
+    in_session: BoolArray
     """Bool: bar falls inside a real session (not the break, not a weekend print)."""
-    is_session_open: np.ndarray
+    is_session_open: BoolArray
     """Bool: first in-session bar of its trading day."""
-    is_session_close: np.ndarray
+    is_session_close: BoolArray
     """Bool: last in-session bar of its trading day."""
 
     def __len__(self) -> int:
@@ -112,7 +116,7 @@ def classify(
     )
 
 
-def _session_edges(trading_day: np.ndarray, in_session: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _session_edges(trading_day: DateArray, in_session: BoolArray) -> tuple[BoolArray, BoolArray]:
     """Flag the first and last in-session bar of each trading day.
 
     Assumes the arrays are in ascending timestamp order, which ingestion guarantees.
@@ -146,7 +150,7 @@ def force_flat_mask(
     info: SessionInfo,
     exit_on_close_seconds: int = 30,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> np.ndarray:
+) -> BoolArray:
     """Bars at or past the exit-on-session-close cutoff.
 
     Mirrors NT8's ``IsExitOnSessionCloseStrategy`` with ``ExitOnSessionCloseSeconds``: a bar

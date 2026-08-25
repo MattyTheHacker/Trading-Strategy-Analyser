@@ -14,7 +14,7 @@ thing that can drift is the grouping -- ``docs/roadmap.md`` §"The numpy-native 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
-from typing import get_type_hints
+from typing import TYPE_CHECKING, get_type_hints
 
 import numpy as np
 import pandas as pd
@@ -35,6 +35,9 @@ from nqbt.trades import (
     EXIT_SESSION_CLOSE,
     LegMatrix,
 )
+
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -105,13 +108,13 @@ class Summary:
         return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})
 
 
-def _max_drawdown(equity: np.ndarray) -> float:
+def _max_drawdown(equity: FloatArray) -> float:
     if equity.size == 0:
         return 0.0
     return float((np.maximum.accumulate(equity) - equity).max())
 
 
-def _max_consecutive(mask: np.ndarray) -> int:
+def _max_consecutive(mask: BoolArray) -> int:
     """Longest run of True values."""
     if mask.size == 0 or not mask.any():
         return 0
@@ -126,7 +129,7 @@ def _ratio(numerator: float, denominator: float) -> float:
     return numerator / denominator
 
 
-def _risk_adjusted(daily: np.ndarray) -> tuple[float, float]:
+def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
     """Annualised Sharpe and Sortino from daily P&L.
 
     Daily totals rather than per trade: a per-trade Sharpe rewards taking many tiny trades.
@@ -207,24 +210,24 @@ def summarise(trades: pd.DataFrame) -> Summary:
     )
 
 
-def _daily_totals(pnl: np.ndarray, exit_times: pd.DatetimeIndex) -> np.ndarray:
+def _daily_totals(pnl: FloatArray, exit_times: pd.DatetimeIndex) -> FloatArray:
     """Per-trade P&L totalled by the calendar day each trade closed on."""
     return pd.Series(pnl).groupby(exit_times.date).sum().to_numpy(np.float64)
 
 
-def _finite(values: np.ndarray) -> np.ndarray:
+def _finite(values: FloatArray) -> FloatArray:
     """Drop the infinities and nulls an ``r_multiple`` of zero planned risk leaves behind."""
     return values[np.isfinite(values)]
 
 
 def _summarise_arrays(  # noqa: PLR0913 - one argument per input vector; a bag would hide a swap
     *,
-    pnl: np.ndarray,
-    bars_held: np.ndarray,
-    mae: np.ndarray,
-    mfe: np.ndarray,
-    daily: np.ndarray,
-    r: np.ndarray,
+    pnl: FloatArray,
+    bars_held: FloatArray,
+    mae: FloatArray,
+    mfe: FloatArray,
+    daily: FloatArray,
+    r: FloatArray,
     legs: int,
     commission_paid: float,
     ambiguous_share: float,
@@ -279,7 +282,7 @@ class GroupingError(ValueError):
 
 
 @njit(cache=True)
-def _run_starts(keys: np.ndarray) -> np.ndarray:
+def _run_starts(keys: FloatArray | IndexArray) -> IntArray:
     """Half-open boundaries of each run of equal ``keys``, plus a closing sentinel."""
     n = keys.size
     starts = np.empty(n + 1, np.int64)
@@ -293,7 +296,7 @@ def _run_starts(keys: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _grouped_sum(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+def _grouped_sum(values: FloatArray, starts: IntArray) -> FloatArray:
     """Kahan-compensated sum per group -- which is what pandas' ``groupby`` does.
 
     The compensation is load-bearing, not decoration -- ``docs/roadmap.md`` §"The numpy-native
@@ -316,7 +319,7 @@ def _grouped_sum(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _grouped_max(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+def _grouped_max(values: FloatArray, starts: IntArray) -> FloatArray:
     """Largest value per group, skipping nulls as ``groupby.max`` does."""
     out = np.empty(starts.size - 1, np.float64)
     for g in range(starts.size - 1):
@@ -329,7 +332,7 @@ def _grouped_max(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
     return out
 
 
-def _ordered_starts(keys: np.ndarray, what: str) -> np.ndarray:
+def _ordered_starts(keys: FloatArray | IndexArray, what: str) -> IntArray:
     """Group boundaries, refusing keys that are not already in ascending order.
 
     Holds by construction for the simulation's output; the check guards a future producer --
@@ -344,7 +347,7 @@ def _ordered_starts(keys: np.ndarray, what: str) -> np.ndarray:
     return _run_starts(keys)
 
 
-def summarise_legs(legs: LegMatrix, day_codes: np.ndarray | None = None) -> Summary:
+def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None = None) -> Summary:
     """Summarise the raw leg matrix, giving exactly what :func:`summarise` gives.
 
     Feed it :attr:`nqbt.context.Dataset.day_codes` so the Sharpe and Sortino denominators are
@@ -389,7 +392,7 @@ Which makes them the only ones a resampling test may permute -- ``docs/roadmap.m
 """
 
 
-def trade_statistic(pnl: np.ndarray, name: str) -> float:
+def trade_statistic(pnl: FloatArray, name: str) -> float:
     """One :data:`TRADE_PNL_STATISTICS` value straight from a per-trade P&L vector.
 
     Roughly two orders of magnitude cheaper than :func:`summarise`, which is what lets a
@@ -422,7 +425,7 @@ Which makes them the only ones a *sequence* permutation can move, and the exact 
 """
 
 
-def path_statistic(pnl: np.ndarray, name: str) -> float:
+def path_statistic(pnl: FloatArray, name: str) -> float:
     """One :data:`PATH_STATISTICS` value from a per-trade P&L vector, in sequence order.
 
     **Not a second definition**: both branches call the same helpers :func:`summarise` does,

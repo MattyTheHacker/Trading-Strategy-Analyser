@@ -19,11 +19,12 @@ from nqbt.sim import bracket, deadcat, filters
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.arrays import BoolArray
     from nqbt.context import Dataset
     from nqbt.sim.types import PullBackAndGoParams
 
 
-def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> np.ndarray:
+def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> BoolArray:
     """Conjunction of every active entry condition. The hammer is the only unconditional one."""
     signal = data.geometry.hammer.copy()
     if params.require_new_low:
@@ -46,7 +47,7 @@ def pullbackandgo_legs(
     params: PullBackAndGoParams,
     instrument: Instrument = MNQ,
     *,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 
@@ -100,7 +101,7 @@ def run_pullbackandgo(
     instrument: Instrument = MNQ,
     *,
     with_times: bool = True,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs = pullbackandgo_legs(data, params, instrument, signal=signal)

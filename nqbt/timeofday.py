@@ -27,6 +27,8 @@ from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nqbt.arrays import BitsArray, BoolArray, IndexArray, IntArray, LabelArray
+
 SECONDS_PER_DAY = 86_400
 
 OUT_OF_SESSION = -1
@@ -123,7 +125,7 @@ def session_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> int
     return ((template.close_seconds - template.open_seconds) % SECONDS_PER_DAY) // 60
 
 
-def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> np.ndarray:
+def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> IntArray:
     """:data:`PHASE_STARTS` as minutes past the session open, validated and ascending.
 
     Validated on every call, not once at import, because the boundaries are relative to the
@@ -150,9 +152,9 @@ def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) ->
 
 
 def phase_from_minutes(
-    minutes: np.ndarray,
+    minutes: IntArray,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> np.ndarray:
+) -> LabelArray:
     """Label each bar from its minute-of-session, as ``int8`` :class:`SessionPhase` values.
 
     ``minutes`` is :func:`nqbt.resample.minutes_since_open`, so the minute a bar *occupies* is
@@ -163,7 +165,7 @@ def phase_from_minutes(
     return (np.searchsorted(starts, occupied, side="right") - 1).astype(np.int8)
 
 
-def bits_from_phase(phase: np.ndarray) -> np.ndarray:
+def bits_from_phase(phase: LabelArray) -> BitsArray:
     """``1 << phase`` per bar, and ``0`` for :data:`OUT_OF_SESSION`.
 
     Precomputed so testing a filter is one ``&`` over the series.
@@ -175,7 +177,7 @@ def bits_from_phase(phase: np.ndarray) -> np.ndarray:
     return bits
 
 
-def bar_index_from_minutes(minutes: np.ndarray, bar_minutes: int) -> np.ndarray:
+def bar_index_from_minutes(minutes: IntArray, bar_minutes: int) -> IndexArray:
     """Zero-based bar of session, from minute-of-session and the bar size.
 
     **Derived from the clock, never counted off the data** -- ``docs/roadmap.md`` §M10.4. Same
@@ -209,11 +211,11 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
 class TimeOfDay:
     """Both forms of the clock for one series, aligned to its index."""
 
-    phase: np.ndarray
+    phase: LabelArray
     """``int8`` :class:`SessionPhase` per bar, :data:`OUT_OF_SESSION` outside a session."""
-    phase_bits: np.ndarray
+    phase_bits: BitsArray
     """``uint8`` ``1 << phase``, ``0`` out of session -- see :func:`bits_from_phase`."""
-    bar_of_session: np.ndarray
+    bar_of_session: IndexArray
     """``int32`` zero-based bar index from the session open, :data:`OUT_OF_SESSION` outside."""
     bar_minutes: int
     """The bar size :attr:`bar_of_session` was computed at."""
@@ -225,7 +227,7 @@ class TimeOfDay:
     def nbytes(self) -> int:
         return self.phase.nbytes + self.phase_bits.nbytes + self.bar_of_session.nbytes
 
-    def gate(self, mask: int) -> np.ndarray:
+    def gate(self, mask: int) -> BoolArray:
         """Per-bar boolean: does this bar's phase pass ``mask``?
 
         An out-of-session bar passes nothing, :data:`ALL_PHASES` included, which is why an

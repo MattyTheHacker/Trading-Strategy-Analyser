@@ -32,6 +32,8 @@ from nqbt import conditions
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nqbt.arrays import BoolArray, FloatArray, LabelArray
+
 __all__ = [
     "ALL_TRENDS",
     "KIND",
@@ -211,11 +213,11 @@ def _vote(value: float, reference: float) -> int:
 
 @njit(cache=True)
 def _components(
-    close: np.ndarray,
-    fast: np.ndarray,
-    slow: np.ndarray,
+    close: FloatArray,
+    fast: FloatArray,
+    slow: FloatArray,
     slope_lookback: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[LabelArray, FloatArray]:
     """Cast the three votes per bar and sum them, ``nan`` until the slope can reach back.
 
     Price and stack are computed through the warm-up because they are knowable there; the slope
@@ -250,7 +252,7 @@ def _trend_of(score: float, min_agreement: int) -> int:
 
 
 @njit(cache=True)
-def _label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
+def _label(agreement: FloatArray, min_agreement: int) -> LabelArray:
     n = agreement.size
     out = np.empty(n, dtype=np.int8)
     for i in range(n):
@@ -259,7 +261,7 @@ def _label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
 
 
 @njit(cache=True)
-def _gate(agreement: np.ndarray, min_agreement: int, mask: int) -> np.ndarray:
+def _gate(agreement: FloatArray, min_agreement: int, mask: int) -> BoolArray:
     """One pass from score to boolean, so a sweep combination never builds a label array."""
     n = agreement.size
     out = np.zeros(n, dtype=np.bool_)
@@ -271,11 +273,11 @@ def _gate(agreement: np.ndarray, min_agreement: int, mask: int) -> np.ndarray:
 
 
 def components(
-    close: np.ndarray,
-    fast: np.ndarray,
-    slow: np.ndarray,
+    close: FloatArray,
+    fast: FloatArray,
+    slow: FloatArray,
     slope_lookback: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[LabelArray, FloatArray]:
     """Compute the ``[3, n_bars]`` vote block and the agreement score behind one label.
 
     Rows are indexed by :class:`TrendComponent`. The score is ``nan`` for the first
@@ -291,7 +293,7 @@ def components(
     )
 
 
-def label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
+def label(agreement: FloatArray, min_agreement: int) -> LabelArray:
     """Cut agreement scores into ``int8`` :class:`Trend` values, :data:`UNDEFINED` for ``nan``.
 
     **Both boundaries fall in the outer bands**, the opposite of :mod:`nqbt.regime` and
@@ -302,7 +304,7 @@ def label(agreement: np.ndarray, min_agreement: int) -> np.ndarray:
     return _label(np.ascontiguousarray(agreement, dtype=np.float64), int(min_agreement))
 
 
-def gate(agreement: np.ndarray, mask: int, min_agreement: int) -> np.ndarray:
+def gate(agreement: FloatArray, mask: int, min_agreement: int) -> BoolArray:
     """Test every bar's trend against ``mask``, one boolean per bar.
 
     An :data:`UNDEFINED` bar passes nothing, :data:`ALL_TRENDS` included, which is why an
@@ -323,9 +325,9 @@ class TrendGrid:
     """
 
     keys: tuple[TrendKey, ...]
-    agreement: np.ndarray
+    agreement: FloatArray
     """Summed votes, ``[n_keys, n_bars]`` float64, ``nan`` through each slope warm-up."""
-    votes: np.ndarray
+    votes: LabelArray
     """The three components, ``[n_keys, 3, n_bars]`` int8 -- see :class:`TrendComponent`."""
 
     def __len__(self) -> int:
@@ -340,23 +342,23 @@ class TrendGrid:
             msg = f"trend label {wanted} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg) from None
 
-    def agreement_for(self, wanted: TrendKey) -> np.ndarray:
+    def agreement_for(self, wanted: TrendKey) -> FloatArray:
         """Read one label's agreement score, the raw quantity behind it."""
         return self.agreement[self.row(wanted)]
 
-    def votes_for(self, wanted: TrendKey) -> np.ndarray:
+    def votes_for(self, wanted: TrendKey) -> LabelArray:
         """Read one label's ``[3, n_bars]`` vote block -- rows are :class:`TrendComponent`."""
         return self.votes[self.row(wanted)]
 
-    def component_for(self, wanted: TrendKey, component: TrendComponent) -> np.ndarray:
+    def component_for(self, wanted: TrendKey, component: TrendComponent) -> LabelArray:
         """Read one component of one label, the form a review reports."""
         return self.votes[self.row(wanted), int(TrendComponent(component))]
 
-    def labels_for(self, wanted: TrendKey, min_agreement: int) -> np.ndarray:
+    def labels_for(self, wanted: TrendKey, min_agreement: int) -> LabelArray:
         """Label every bar of one series, the stratification key -- see :func:`label`."""
         return label(self.agreement_for(wanted), min_agreement)
 
-    def gate_for(self, wanted: TrendKey, mask: int, min_agreement: int) -> np.ndarray:
+    def gate_for(self, wanted: TrendKey, mask: int, min_agreement: int) -> BoolArray:
         """Test every bar of one series against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.agreement_for(wanted), mask, min_agreement)
 
@@ -366,7 +368,7 @@ class TrendGrid:
         return self.agreement.nbytes + self.votes.nbytes
 
 
-def trend_grid(close: np.ndarray, keys: Iterable[TrendKey]) -> TrendGrid:
+def trend_grid(close: FloatArray, keys: Iterable[TrendKey]) -> TrendGrid:
     """Compute every distinct trend label a sweep needs, once.
 
     The averages are built here and dropped here: a values-carrying

@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from nqbt import ingest, notes, paths, regime, timeofday, trend, volume
+from nqbt.arrays import AnyArray, BoolArray, DateArray, IntArray, LabelArray, TextArray
 from nqbt.instruments import ContractId
 
 if TYPE_CHECKING:
@@ -61,7 +62,7 @@ kinds, each of which spells it :data:`nqbt.regime.UNDEFINED` in its own module.
 OUT_OF_SESSION_LABEL = "out_of_session"
 """What a bar in no session is called, a different statement from :data:`UNDEFINED_LABEL`."""
 
-type Column = np.ndarray | pd.DatetimeIndex
+type Column = AnyArray | pd.DatetimeIndex
 
 _PHASE_NAMES = tuple(phase.name.lower() for phase in timeofday.SessionPhase)
 _REGIME_NAMES = tuple(state.name.lower() for state in regime.Regime)
@@ -195,7 +196,7 @@ def bars_for_fills(
     times: pd.DatetimeIndex,
     *,
     bar_minutes: int | None = None,
-) -> np.ndarray:
+) -> IntArray:
     """Index of the bar each fill happened in, :data:`UNMATCHED` where no bar covers it.
 
     Timestamps are end-of-bar and a fill matches the first bar stamped **strictly after** it, so
@@ -292,7 +293,7 @@ def annotate_trades(
 # -- resolving bars -----------------------------------------------------------
 
 
-def _utc_naive(stamps: pd.DatetimeIndex) -> np.ndarray:
+def _utc_naive(stamps: pd.DatetimeIndex) -> DateArray:
     """Timestamps as naive UTC ``datetime64``, the one form two indices compare in."""
     naive = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
     return naive.to_numpy().astype("datetime64[ns]")
@@ -322,7 +323,7 @@ def _check_columns(log: pd.DataFrame) -> None:
         raise AnnotationError(msg)
 
 
-def _resolve_bars(log: pd.DataFrame, data: Dataset, side: str) -> np.ndarray:
+def _resolve_bars(log: pd.DataFrame, data: Dataset, side: str) -> IntArray:
     """Find the bar behind each leg's ``side`` fill: the log's own index, or one from its time.
 
     A log that carries bar indices keeps them. Resolving them from the timestamps instead would
@@ -360,7 +361,7 @@ def _bar_minutes(data: Dataset) -> int | None:
     return None if data.time_of_day is None else data.time_of_day.bar_minutes
 
 
-def _check_bar_range(bars: np.ndarray, data: Dataset, side: str) -> None:
+def _check_bar_range(bars: IntArray, data: Dataset, side: str) -> None:
     """Refuse a bar index the dataset does not hold, rather than wrapping on a negative one."""
     outside = (bars < 0) | (bars >= len(data))
     if outside.any():
@@ -371,7 +372,7 @@ def _check_bar_range(bars: np.ndarray, data: Dataset, side: str) -> None:
         raise AnnotationError(msg)
 
 
-def _check_bar_times(times: pd.Series, bars: np.ndarray, data: Dataset, side: str) -> None:
+def _check_bar_times(times: pd.Series, bars: IntArray, data: Dataset, side: str) -> None:
     """Cross-check the log's own bar indices against its timestamps.
 
     The one test that catches a log being annotated against a different series of the same
@@ -398,7 +399,7 @@ def _check_bar_times(times: pd.Series, bars: np.ndarray, data: Dataset, side: st
 def _check_prices(
     log: pd.DataFrame,
     data: Dataset,
-    bars: np.ndarray,
+    bars: IntArray,
     *,
     side: str,
     tolerance: float,
@@ -430,8 +431,8 @@ def _check_prices(
 
 def _per_trade_bars(
     log: pd.DataFrame,
-    legs: dict[str, np.ndarray],
-) -> tuple[np.ndarray, dict[str, np.ndarray], np.ndarray]:
+    legs: dict[str, IntArray],
+) -> tuple[IntArray, dict[str, IntArray], BoolArray]:
     """Collapse leg bars into one entry and one exit bar per trade, and say which trades matched.
 
     A trade enters on its earliest leg and leaves on its latest. It matches only when every leg
@@ -459,7 +460,7 @@ def _per_trade_bars(
 # -- the conditions -----------------------------------------------------------
 
 
-def _bar_columns(data: Dataset, bars: np.ndarray, at: np.ndarray, side: str) -> dict[str, Column]:
+def _bar_columns(data: Dataset, bars: IntArray, at: IntArray, side: str) -> dict[str, Column]:
     """Which bar was matched and what it did: the bookkeeping half of a row."""
     return {
         f"{side}_bar": bars,
@@ -471,7 +472,7 @@ def _bar_columns(data: Dataset, bars: np.ndarray, at: np.ndarray, side: str) -> 
     }
 
 
-def _conditions_at(data: Dataset, at: np.ndarray, thresholds: LabelThresholds) -> dict[str, Column]:
+def _conditions_at(data: Dataset, at: IntArray, thresholds: LabelThresholds) -> dict[str, Column]:
     """Every condition the dataset holds, read at the given bars.
 
     Driven by what was built rather than by what the spec declared, so a dataset prepared with
@@ -510,7 +511,7 @@ def _conditions_at(data: Dataset, at: np.ndarray, thresholds: LabelThresholds) -
 
 def _regime_conditions(
     grid: regime.EfficiencyRatioGrid,
-    at: np.ndarray,
+    at: IntArray,
     thresholds: LabelThresholds,
 ) -> dict[str, Column]:
     """Gather the efficiency ratio at every lookback built, and its label where one is asked for."""
@@ -530,7 +531,7 @@ def _regime_conditions(
 
 def _volume_conditions(
     grid: volume.VolumeGrid,
-    at: np.ndarray,
+    at: IntArray,
     thresholds: LabelThresholds,
 ) -> dict[str, Column]:
     """Gather absolute and relative volume for every series built, and the state where asked."""
@@ -552,7 +553,7 @@ def _volume_conditions(
 
 def _trend_conditions(
     grid: trend.TrendGrid,
-    at: np.ndarray,
+    at: IntArray,
     thresholds: LabelThresholds,
 ) -> dict[str, Column]:
     """Gather the agreement score and its three votes for every label built, and the label."""
@@ -582,7 +583,7 @@ def _trend_suffix(key: trend.TrendKey) -> str:
     return f"{key.fast_period}_{key.slow_period}_{key.slope_lookback}"
 
 
-def _named(codes: np.ndarray, names: Sequence[str], undefined: str) -> np.ndarray:
+def _named(codes: LabelArray, names: Sequence[str], undefined: str) -> TextArray:
     """Turn label codes into their names, ``-1`` becoming ``undefined``."""
     lookup = np.array([undefined, *names], dtype=object)
     return lookup[np.asarray(codes, dtype=np.int64) + 1]
@@ -591,7 +592,7 @@ def _named(codes: np.ndarray, names: Sequence[str], undefined: str) -> np.ndarra
 # -- the frame ----------------------------------------------------------------
 
 
-def _to_frame(columns: dict[str, Column], trade_ids: np.ndarray, matched: np.ndarray) -> pd.DataFrame:
+def _to_frame(columns: dict[str, Column], trade_ids: IntArray, matched: BoolArray) -> pd.DataFrame:
     """Assemble the annotation, nulling every condition of a trade that did not match.
 
     Every column is held as the nullable dtype :func:`pandas.array` infers for it, so a null

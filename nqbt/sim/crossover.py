@@ -26,6 +26,7 @@ from nqbt.sim.types import STOP_MIN_TICKS
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.context import Dataset
     from nqbt.sim.types import EmaCrossoverParams
 
@@ -38,16 +39,16 @@ Numba needs an array of the right dtype whether or not the branch reading it run
 
 @njit(cache=True)
 def simulate_crossover(
-    open_: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    close: np.ndarray,
-    signal: np.ndarray,
-    direction_at: np.ndarray,
-    force_flat: np.ndarray,
-    atr: np.ndarray,
-    leg_quantities: np.ndarray,
-    target_r: np.ndarray,
+    open_: FloatArray,
+    high: FloatArray,
+    low: FloatArray,
+    close: FloatArray,
+    signal: BoolArray,
+    direction_at: FloatArray,
+    force_flat: BoolArray,
+    atr: FloatArray,
+    leg_quantities: IntArray,
+    target_r: FloatArray,
     tick_size: float,
     point_value: float,
     use_atr_stop: bool,
@@ -63,7 +64,7 @@ def simulate_crossover(
     fill_limit_on_touch: bool,
     ambiguity_policy: int,
     round_targets: bool,
-    out: np.ndarray,
+    out: FloatArray,
 ) -> int:
     """Run the crossover archetype over one dataset, writing one row per leg exit.
 
@@ -287,9 +288,9 @@ def simulate_crossover(
 
 @njit(cache=True)
 def _protective_stop(
-    high: np.ndarray,
-    low: np.ndarray,
-    atr: np.ndarray,
+    high: FloatArray,
+    low: FloatArray,
+    atr: FloatArray,
     signal_bar: int,
     fill: float,
     direction: float,
@@ -318,7 +319,7 @@ def _protective_stop(
     return extreme - direction * stop_offset
 
 
-def regime_direction(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
+def regime_direction(fast: FloatArray, slow: FloatArray) -> FloatArray:
     """Which side the prevailing regime is on: ``LONG`` where ``fast > slow``, else ``SHORT``.
 
     The boundary matches :func:`nqbt.conditions.cross_above`'s. Defined on **every** bar rather
@@ -328,7 +329,7 @@ def regime_direction(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
     return np.where(fast > slow, trades.LONG, trades.SHORT).astype(np.float64)
 
 
-def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[np.ndarray, np.ndarray]:
+def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[FloatArray, FloatArray]:
     """The fast and slow EMA values this combination compares.
 
     Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
@@ -339,7 +340,7 @@ def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[np.nd
     )
 
 
-def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> np.ndarray:
+def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     """Bars whose close schedules an entry for the next bar's open.
 
     Each side's cross is ANDed with the prevailing regime, which matters once
@@ -361,7 +362,7 @@ def crossover_legs(
     params: EmaCrossoverParams,
     instrument: Instrument = MNQ,
     *,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 
@@ -417,7 +418,7 @@ def run_crossover(
     instrument: Instrument = MNQ,
     *,
     with_times: bool = True,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs = crossover_legs(data, params, instrument, signal=signal)

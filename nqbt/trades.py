@@ -12,10 +12,13 @@ friction; :data:`COLUMNS` is the only place the column order is defined. Schema 
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray
 
 EXIT_STOP = 0.0
 EXIT_TARGET = 1.0
@@ -142,7 +145,7 @@ class LegMatrix(NamedTuple):
     upper bound, so only the first ``count`` rows mean anything.
     """
 
-    matrix: np.ndarray
+    matrix: FloatArray
     count: int
 
 
@@ -194,7 +197,7 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     return legs
 
 
-def _raise_matrix_nulls(rows: np.ndarray) -> None:
+def _raise_matrix_nulls(rows: FloatArray) -> None:
     """Name the offending columns now that we know there is at least one."""
     names = [c for c in COLUMNS if c not in NULLABLE]
     counts = np.isnan(rows[:, REQUIRED_INDICES]).sum(axis=0)
@@ -207,7 +210,7 @@ def _raise_matrix_nulls(rows: np.ndarray) -> None:
 
 
 def trades_to_frame(
-    matrix: np.ndarray,
+    matrix: FloatArray,
     count: int,
     index: pd.DatetimeIndex | None = None,
     *,
