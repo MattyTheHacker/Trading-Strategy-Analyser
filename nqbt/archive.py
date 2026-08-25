@@ -40,7 +40,7 @@ class MergeResult:
 
     @override
     def __str__(self) -> str:
-        detail = f"+{self.added:,} new" if self.added else "no new bars"
+        detail: str = f"+{self.added:,} new" if self.added else "no new bars"
         if self.revised:
             detail += f", {self.revised:,} revised"
         return f"{self.contract:<12} {self.bars:>9,} bars  ({detail}, {self.sources} source(s))"
@@ -54,7 +54,7 @@ def _read(path: Path) -> dict[bytes, bytes]:
     """
     rows: dict[bytes, bytes] = {}
     for raw in path.read_bytes().split(b"\n"):
-        line = raw.rstrip(b"\r")
+        line: bytes = raw.rstrip(b"\r")
         if not line:
             continue
         key, separator, rest = line.partition(b";")
@@ -67,15 +67,15 @@ def _read(path: Path) -> dict[bytes, bytes]:
 def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeResult:
     """Fold every source into ``archive_path``, which may not exist yet."""
     original: dict[bytes, bytes] = _read(archive_path) if archive_path.exists() else {}
-    merged = dict(original)
+    merged: dict[bytes, bytes] = dict(original)
 
     for path in source_paths:
-        rows = _read(path)
+        rows: dict[bytes, bytes] = _read(path)
         if not rows:
             continue
         # The newest bar in a file may have been caught mid-formation, so it may fill a
         # gap but must never overwrite something already recorded.
-        newest = max(rows)
+        newest: bytes = max(rows)
         for key, line in rows.items():
             if key == newest and key in merged:
                 continue
@@ -83,15 +83,15 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
 
     # Counted against the archive as it was, not as each source touched it: sources
     # routinely disagree, so tallying intermediate writes reports churn on a no-op merge.
-    added = sum(1 for key in merged if key not in original)
-    revised = sum(1 for key, line in merged.items() if key in original and original[key] != line)
+    added: int = sum(1 for key in merged if key not in original)
+    revised: int = sum(1 for key, line in merged.items() if key in original and original[key] != line)
 
     if len(merged) < len(original):
-        msg = f"{archive_path.name}: archive shrank from {len(original):,} to {len(merged):,}"
+        msg: str = f"{archive_path.name}: archive shrank from {len(original):,} to {len(merged):,}"
         raise RuntimeError(  # pragma: no cover - the merge cannot delete keys
             msg,
         )
-    archive = merged
+    archive: dict[bytes, bytes] = merged
 
     _write(archive_path, archive)
     return MergeResult(
@@ -110,10 +110,10 @@ def _write(path: Path, rows: dict[bytes, bytes]) -> None:
     content hash reports "up-to-date" instead of reparsing millions of bars every run.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    body = b"\n".join(rows[key] for key in sorted(rows))
+    body: bytes = b"\n".join(rows[key] for key in sorted(rows))
     if body:
         body += b"\n"
-    temp = path.with_name(path.name + ".tmp")
+    temp: Path = path.with_name(path.name + ".tmp")
     temp.write_bytes(body)
     temp.replace(path)
 
@@ -125,7 +125,7 @@ def _contracts(source_dirs: Iterable[Path], root: str | None) -> dict[str, list[
         if not directory.exists():
             continue
         for path in sorted(directory.glob("*.Last.txt")):
-            name = path.name.removesuffix(".Last.txt")
+            name: str = path.name.removesuffix(".Last.txt")
             if root is not None and not name.upper().startswith(root.upper() + " "):
                 continue
             found.setdefault(name, []).append(path)
@@ -143,7 +143,7 @@ def build_archive(
     A contract in the archive but absent from every source is left alone -- which is what an
     expired contract looks like once the provider stops serving it.
     """
-    results = []
+    results: list[MergeResult] = []
     for name, source_paths in sorted(_contracts(source_dirs, root).items()):
         results.append(merge_contract(source_paths, archive_dir / f"{name}.Last.txt"))
     return results

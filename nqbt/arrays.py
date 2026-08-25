@@ -23,6 +23,7 @@ __all__ = [
     "IndexArray",
     "IntArray",
     "LabelArray",
+    "OffsetArray",
 ]
 
 type FloatArray = NDArray[np.float64]
@@ -39,6 +40,13 @@ type LabelArray = NDArray[np.int8]
 
 type IndexArray = NDArray[np.int32]
 """Bar of session and calendar day code: one small integer per bar, kept narrow for size."""
+
+type OffsetArray = NDArray[np.intp]
+"""Positions into another array: what ``flatnonzero``, ``argsort`` and ``searchsorted`` return.
+
+``np.intp`` rather than :data:`IntArray` because numpy picks that width itself and it is not
+``int64`` on every platform, so narrowing here would be a promise this package cannot keep.
+"""
 
 type BitsArray = NDArray[np.uint8]
 """``1 << label`` per bar, so testing a filter is one ``&`` over the series."""

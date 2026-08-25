@@ -20,8 +20,9 @@ from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
 
 if TYPE_CHECKING:
     from nqbt.archetypes import Archetype, Params
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray, IntArray, OffsetArray
     from nqbt.context import Dataset
+    from nqbt.trades import LegMatrix
 
 MIN_FINITE_DRAWS = 2
 """Fewest finite null draws that make a distribution to place an observation in."""
@@ -124,9 +125,9 @@ class SessionMinutePool:
         template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
     ) -> SessionMinutePool:
         """Group every bar of ``index`` by its minute-of-session, once."""
-        minutes = minute_of_session(index, template)
-        order = np.argsort(minutes, kind="stable")
-        starts = np.searchsorted(minutes[order], np.arange(minutes.max() + 2), side="left")
+        minutes: IntArray = minute_of_session(index, template)
+        order: OffsetArray = np.argsort(minutes, kind="stable")
+        starts: OffsetArray = np.searchsorted(minutes[order], np.arange(minutes.max() + 2), side="left")
         return cls(minutes=minutes, bars_by_minute=order, starts=starts)
 
     def pool_for(self, minute: int) -> IntArray:
@@ -149,9 +150,9 @@ def matched_random_signal(
     The pool is deliberately not narrowed to in-session bars -- ``docs/roadmap.md`` §M7a.
     """
     if signal.shape != (len(data),):
-        msg = f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
+        msg: str = f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
         raise RandomEntryError(msg)
-    live = int(signal.sum())
+    live: int = int(signal.sum())
     if not live:
         msg = (
             "the strategy produced no entry signals, so there is nothing to match a null "
@@ -161,9 +162,9 @@ def matched_random_signal(
             msg,
         )
 
-    grouped = pool if pool is not None else SessionMinutePool.build(data.index, template)
+    grouped: SessionMinutePool = pool if pool is not None else SessionMinutePool.build(data.index, template)
 
-    out = np.zeros(len(data), dtype=bool)
+    out: BoolArray = np.zeros(len(data), dtype=bool)
     wanted_minutes, wanted_counts = np.unique(grouped.minutes[signal], return_counts=True)
     for minute, count in zip(wanted_minutes, wanted_counts, strict=True):
         out[rng.choice(grouped.pool_for(minute), size=count, replace=False)] = True
@@ -184,9 +185,9 @@ def _null_summary(
     Module level and seeded per draw so the parallel path returns the serial path's values in
     the serial path's order, whatever order the workers finish in.
     """
-    rng = np.random.default_rng(seed)
-    drawn = matched_random_signal(data, signal, rng, pool=pool)
-    legs = archetype.legs(data, params, instrument, signal=drawn)
+    rng: np.random.Generator = np.random.default_rng(seed)
+    drawn: BoolArray = matched_random_signal(data, signal, rng, pool=pool)
+    legs: LegMatrix = archetype.legs(data, params, instrument, signal=drawn)
     return stats.summarise_legs(legs, data.day_codes).as_dict()
 
 
@@ -207,17 +208,18 @@ def null_summaries(
     and nothing else.
     """
     if iterations < 1:
-        msg = "iterations must be at least 1"
+        msg: str = "iterations must be at least 1"
         raise RandomEntryError(msg)
     archetype = archetype if archetype is not None else archetypes.for_params(params)
-    signal = archetype.signal(data, params)
-    pool = SessionMinutePool.build(data.index, template)
+    signal: BoolArray = archetype.signal(data, params)
+    pool: SessionMinutePool = SessionMinutePool.build(data.index, template)
     seeds = np.random.SeedSequence(seed).generate_state(iterations)
 
+    rows: list[dict[str, float]]
     if effective_n_jobs(n_jobs) == 1:
         rows = [_null_summary(data, params, archetype, instrument, signal, int(s), pool) for s in seeds]
     else:
-        lean = data.slim()
+        lean: Dataset = data.slim()
         rows = Parallel(n_jobs=n_jobs)(
             delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool) for s in seeds
         )
@@ -245,15 +247,17 @@ def compare(
     raises.
     """
     archetype = archetype if archetype is not None else archetypes.for_params(params)
-    unknown = set(statistics) - set(stats.Summary.columns())
+    unknown: set[str] = set(statistics) - set(stats.Summary.columns())
     if unknown:
-        msg = f"not statistics of a Summary: {sorted(unknown)}. Choose from {stats.Summary.columns()}"
+        msg: str = f"not statistics of a Summary: {sorted(unknown)}. Choose from {stats.Summary.columns()}"
         raise RandomEntryError(
             msg,
         )
 
-    observed = stats.summarise_legs(archetype.legs(data, params, instrument), data.day_codes).as_dict()
-    null = null_summaries(
+    observed: dict[str, float] = stats.summarise_legs(
+        archetype.legs(data, params, instrument), data.day_codes
+    ).as_dict()
+    null: pd.DataFrame = null_summaries(
         data,
         params,
         archetype,
@@ -264,10 +268,10 @@ def compare(
         template=template,
     )
 
-    results = {}
+    results: dict[str, NullResult] = {}
     for name in statistics:
-        value = float(observed[name])
-        draws = null[name].to_numpy(dtype=float)
+        value: float = float(observed[name])
+        draws: FloatArray = null[name].to_numpy(dtype=float)
         draws = draws[np.isfinite(draws)]
         if not np.isfinite(value):
             msg = (
@@ -312,10 +316,11 @@ def _place(
     The p-value counts draws at least as extreme in either direction and carries the add-one
     correction, so its floor is 1/(n + 1) rather than zero.
     """
-    below = float((draws < observed).mean())
-    at_least_as_extreme = int(min((draws >= observed).sum(), (draws <= observed).sum()))
-    p_value = min(1.0, 2.0 * (at_least_as_extreme + 1) / (draws.size + 1))
+    below: float = float((draws < observed).mean())
+    at_least_as_extreme: int = int(min((draws >= observed).sum(), (draws <= observed).sum()))
+    p_value: float = min(1.0, 2.0 * (at_least_as_extreme + 1) / (draws.size + 1))
 
+    verdict: str
     if p_value > alpha:
         verdict = INDISTINGUISHABLE
     else:

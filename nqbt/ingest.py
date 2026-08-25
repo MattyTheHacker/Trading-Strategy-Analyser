@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
+    from nqbt.sessions import SessionInfo
+
 RAW_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
 BAR_DTYPES = {
     "open": "float64",
@@ -136,7 +138,7 @@ def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifes
 def save_manifest(manifest: dict[str, ContractManifest], path: Path = paths.MANIFEST_PATH) -> None:
     """Write the manifest out sorted, creating its directory if it is missing."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {k: asdict(v) for k, v in sorted(manifest.items())}
+    payload: dict[str, dict[str, object]] = {k: asdict(v) for k, v in sorted(manifest.items())}
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
@@ -147,10 +149,10 @@ def _hash_range(source: Path, length: int) -> str:
     that will not match -- the same answer as an explicit error, without the branch.
     """
     digest = hashlib.sha256()
-    remaining = length
+    remaining: int = length
     with source.open("rb") as fh:
         while remaining > 0:
-            chunk = fh.read(min(HASH_CHUNK_BYTES, remaining))
+            chunk: bytes = fh.read(min(HASH_CHUNK_BYTES, remaining))
             if not chunk:
                 break
             remaining -= len(chunk)
@@ -167,13 +169,13 @@ def _reject_tick_export(data: bytes, source_name: str) -> None:
     Both use the same ``.Last.txt`` suffix, and tick files run to several GB, so a
     mistaken path must not turn into a very slow parse that ends in a confusing error.
     """
-    head = data[:512].split(b"\n", 1)[0]
+    head: bytes = data[:512].split(b"\n", 1)[0]
     if not head:
         return
-    fields = head.split(b";")
-    stamp = fields[0].split()
+    fields: list[bytes] = head.split(b";")
+    stamp: list[bytes] = fields[0].split()
     if len(fields) == TICK_EXPORT_FIELDS and len(stamp) == TICK_STAMP_PARTS:
-        msg = (
+        msg: str = (
             f"{source_name} looks like a tick export "
             f"(timestamp;last;bid;ask;volume with sub-second stamps), not minute bars. "
             f"Bar ingestion reads {paths.MINUTE_DIR}; tick files live in {paths.TICK_DIR}."
@@ -190,7 +192,7 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
 
     _reject_tick_export(data, source_name)
 
-    frame = pd.read_csv(
+    frame: pd.DataFrame = pd.read_csv(
         io.BytesIO(data),
         sep=";",
         header=None,
@@ -199,10 +201,12 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
         engine="c",
     )
 
-    ts = pd.to_datetime(frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce")
-    bad = ts.isna()
+    ts: pd.Series[pd.Timestamp] = pd.to_datetime(
+        frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce"
+    )
+    bad: pd.Series[bool] = ts.isna()
     if bad.all():
-        msg = f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'"
+        msg: str = f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'"
         raise IngestError(msg)
     frame = frame.loc[~bad].copy()
     frame.index = pd.DatetimeIndex(ts.loc[~bad], name="ts_utc")
@@ -212,7 +216,7 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
 
 
 def _empty_frame() -> pd.DataFrame:
-    frame = pd.DataFrame({c: pd.Series(dtype=t) for c, t in BAR_DTYPES.items()})
+    frame: pd.DataFrame = pd.DataFrame({c: pd.Series(dtype=t) for c, t in BAR_DTYPES.items()})
     frame.index = pd.DatetimeIndex([], tz="UTC", name="ts_utc")
     frame["trading_day"] = pd.Series(dtype="datetime64[s]")
     frame["in_session"] = pd.Series(dtype="bool")
@@ -225,11 +229,11 @@ def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
     frame = frame[~frame.index.duplicated(keep="last")]
 
     highs, lows = frame["high"], frame["low"]
-    body_max = frame[["open", "close"]].max(axis=1)
-    body_min = frame[["open", "close"]].min(axis=1)
-    invalid = (highs < lows) | (highs < body_max) | (lows > body_min)
+    body_max: pd.Series[float] = frame[["open", "close"]].max(axis=1)
+    body_min: pd.Series[float] = frame[["open", "close"]].min(axis=1)
+    invalid: pd.Series[bool] = (highs < lows) | (highs < body_max) | (lows > body_min)
     if invalid.any():
-        msg = (
+        msg: str = (
             f"{source_name}: {int(invalid.sum())} bars violate OHLC ordering, "
             f"first at {frame.index[int(invalid.argmax())]}"
         )
@@ -237,7 +241,7 @@ def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
             msg,
         )
 
-    info = sessions.classify(pd.DatetimeIndex(frame.index))
+    info: SessionInfo = sessions.classify(pd.DatetimeIndex(frame.index))
     frame["trading_day"] = info.trading_day
     frame["in_session"] = info.in_session
     return frame
@@ -250,9 +254,9 @@ def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None)
     """Find raw exports, keyed by contract, optionally filtered to one root symbol."""
     found: dict[ContractId, Path] = {}
     for path in sorted(data_dir.glob("*.Last.txt")):
-        name = path.name.removesuffix(".Last.txt")
+        name: str = path.name.removesuffix(".Last.txt")
         try:
-            contract = ContractId.parse(name)
+            contract: ContractId = ContractId.parse(name)
         except ValueError:
             continue
         if root is not None and contract.root != root.upper():
@@ -268,9 +272,9 @@ def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR)
 
 def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
     """Read one contract's cached bars."""
-    path = contract_cache_path(contract, cache_dir)
+    path: Path = contract_cache_path(contract, cache_dir)
     if not path.exists():
-        msg = f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first"
+        msg: str = f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first"
         raise FileNotFoundError(msg)
     return pd.read_parquet(path)
 
@@ -285,23 +289,23 @@ def ingest_contract(
 ) -> tuple[IngestResult, ContractManifest]:
     """Parse a single contract export into the cache, appending where possible."""
     manifest = manifest if manifest is not None else load_manifest(cache_dir / "manifest.json")
-    key = contract.nt8_name
-    entry = manifest.get(key)
-    cache_path = contract_cache_path(contract, cache_dir)
+    key: str = contract.nt8_name
+    entry: ContractManifest | None = manifest.get(key)
+    cache_path: Path = contract_cache_path(contract, cache_dir)
 
-    size = source.stat().st_size
+    size: int = source.stat().st_size
     warnings: list[str] = []
 
     # A genuine append leaves every byte already parsed byte-for-byte intact. Anything
     # else -- a mid-formation bar completing, a bar revised, a bar withdrawn -- rewrites
     # part of that range, and nothing short of a full reparse can be trusted after it.
-    appended_only = (
+    appended_only: bool = (
         entry is not None
         and cache_path.exists()
         and size >= entry.byte_offset
         and _hash_range(source, entry.byte_offset) == entry.consumed_hash
     )
-    reusable = entry if appended_only and not force else None
+    reusable: ContractManifest | None = entry if appended_only and not force else None
 
     if reusable is not None and reusable.source_size == size:
         return (
@@ -310,20 +314,24 @@ def ingest_contract(
         )
 
     if entry is not None and reusable is None and not force and cache_path.exists():
-        reason = "shrank" if size < entry.byte_offset else "was regenerated, not appended to"
+        reason: str = "shrank" if size < entry.byte_offset else "was regenerated, not appended to"
         warnings.append(
             f"{source.name} {reason}; reparsing in full so revised or withdrawn bars "
             "are picked up rather than left stale",
         )
 
+    new_offset: int
+    combined: pd.DataFrame
+    rows_added: int
+    action: str
     if reusable is not None:
         with source.open("rb") as fh:
             fh.seek(reusable.byte_offset)
-            tail = fh.read()
+            tail: bytes = fh.read()
         consumed, tail = _trim_partial_line(tail)
         new_offset = reusable.byte_offset + consumed
-        added = parse_export(tail, source_name=source.name)
-        existing = pd.read_parquet(cache_path)
+        added: pd.DataFrame = parse_export(tail, source_name=source.name)
+        existing: pd.DataFrame = pd.read_parquet(cache_path)
         # Concatenate new last: _finalise sorts stably and keeps the last of any repeated
         # timestamp, so a bar present in both wins from the file. Filtering to strictly
         # newer timestamps instead would make a corrected bar unrepresentable.
@@ -332,7 +340,7 @@ def ingest_contract(
         rows_added = len(combined) - len(existing)
         action = "appended" if rows_added else "up-to-date"
     else:
-        data = source.read_bytes()
+        data: bytes = source.read_bytes()
         consumed, data = _trim_partial_line(data)
         new_offset = consumed
         combined = parse_export(data, source_name=source.name)
@@ -340,20 +348,20 @@ def ingest_contract(
         action = "reparsed" if cache_path.exists() else "created"
 
     if combined.empty:
-        msg = f"{source.name}: produced no bars"
+        msg: str = f"{source.name}: produced no bars"
         raise IngestError(msg)
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     combined.to_parquet(cache_path, engine="pyarrow", compression="zstd", index=True)
 
-    out_of_session = int((~combined["in_session"]).sum())
+    out_of_session: int = int((~combined["in_session"]).sum())
     if out_of_session:
         warnings.append(
             f"{out_of_session:,} bars fall outside session hours (stray prints); "
             "tagged in_session=False and excluded from the continuous series",
         )
 
-    updated = ContractManifest(
+    updated: ContractManifest = ContractManifest(
         contract=key,
         source=str(source),
         byte_offset=new_offset,
@@ -379,7 +387,7 @@ def _trim_partial_line(data: bytes) -> tuple[int, bytes]:
     """
     if not data:
         return 0, data
-    cut = data.rfind(b"\n")
+    cut: int = data.rfind(b"\n")
     if cut == -1:
         return 0, b""
     return cut + 1, data[: cut + 1]
@@ -400,18 +408,18 @@ def ingest_all(
     ``data_dir`` bypasses it and ingests one folder directly, for inspecting a single export in
     isolation; **not the normal path**.
     """
-    manifest_path = cache_dir / "manifest.json"
-    manifest = load_manifest(manifest_path)
+    manifest_path: Path = cache_dir / "manifest.json"
+    manifest: dict[str, ContractManifest] = load_manifest(manifest_path)
 
     merges: list[archive.MergeResult] = []
     if data_dir is None:
         merges = archive.build_archive(sources, archive_dir, root=root)
         data_dir = archive_dir
 
-    exports = discover_exports(data_dir, root=root)
+    exports: dict[ContractId, Path] = discover_exports(data_dir, root=root)
     if not exports:
-        target = f" for {root}" if root else ""
-        msg = f"no NT8 exports{target} found in {data_dir}"
+        target: str = f" for {root}" if root else ""
+        msg: str = f"no NT8 exports{target} found in {data_dir}"
         raise IngestError(msg)
 
     results: list[IngestResult] = []

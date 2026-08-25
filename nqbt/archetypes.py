@@ -130,8 +130,8 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
     that is only swept still gets its grid built. Which series are conditional and why:
     ``docs/roadmap.md`` §M17.
     """
-    ema = {int(v) for v in values.get("ema_period", ())}
-    sma = {int(v) for v in values.get("fast_sma_period", ())}
+    ema: set[int] = {int(v) for v in values.get("ema_period", ())}
+    sma: set[int] = {int(v) for v in values.get("fast_sma_period", ())}
     sma |= {int(v) for v in values.get("slow_sma_period", ())}
     return ContextSpec(
         ema_periods=tuple(sorted(ema)),
@@ -150,9 +150,11 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
     ``docs/roadmap.md`` §M17.
     """
-    fast = {int(v) for v in values.get("fast_period", ())}
-    slow = {int(v) for v in values.get("slow_period", ())}
-    atr = {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
+    fast: set[int] = {int(v) for v in values.get("fast_period", ())}
+    slow: set[int] = {int(v) for v in values.get("slow_period", ())}
+    atr: set[int] = (
+        {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
+    )
     return ContextSpec(
         ema_periods=tuple(sorted(fast | slow)),
         atr_periods=tuple(sorted(atr)),
@@ -310,7 +312,7 @@ result -- ``docs/roadmap.md`` §M17.
 def register(archetype: Archetype) -> Archetype:
     """Add an archetype, refusing to shadow one that already exists."""
     if archetype.name in _REGISTRY:
-        msg = f"archetype {archetype.name!r} is already registered"
+        msg: str = f"archetype {archetype.name!r} is already registered"
         raise ArchetypeError(msg)
     _REGISTRY[archetype.name] = archetype
     return archetype
@@ -319,7 +321,7 @@ def register(archetype: Archetype) -> Archetype:
 def get(name: str) -> Archetype:
     """The archetype registered under ``name``, or an error naming the ones that are."""
     if name not in _REGISTRY:
-        msg = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
+        msg: str = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
         raise ArchetypeError(msg)
     return _REGISTRY[name]
 
@@ -339,9 +341,9 @@ def for_params(params: Params) -> Archetype:
 
     Ambiguity raises rather than picking one.
     """
-    matches = [a for a in all_archetypes() if a.params_cls is type(params)]
+    matches: list[Archetype] = [a for a in all_archetypes() if a.params_cls is type(params)]
     if not matches:
-        msg = (
+        msg: str = (
             f"no registered archetype takes {type(params).__name__}; "
             f"pass archetype= explicitly. Known: {names()}"
         )

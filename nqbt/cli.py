@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import argparse
 import logging
+from typing import TYPE_CHECKING
 
 from nqbt import ingest, logsetup, paths, splice
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pandas as pd
+
+    from nqbt.archive import MergeResult
+    from nqbt.context import Dataset
+    from nqbt.ingest import ContractManifest
+    from nqbt.instruments import Instrument
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +29,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         force=args.force,
     )
     if merges:
-        changed = [m for m in merges if m.added or m.revised]
+        changed: list[MergeResult] = [m for m in merges if m.added or m.revised]
         logger.info(
             "archive: %d contracts, %s bars (%d changed by this merge)",
             len(merges),
@@ -29,7 +40,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
             logger.info("  %s", merge)
         logger.info("")
 
-    total = 0
+    total: int = 0
     for result in results:
         logger.info("%s", result)
         for warning in result.warnings:
@@ -41,7 +52,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_contracts(args: argparse.Namespace) -> int:
-    manifest = ingest.load_manifest(args.cache_dir / "manifest.json")
+    manifest: dict[str, ContractManifest] = ingest.load_manifest(args.cache_dir / "manifest.json")
     if not manifest:
         logger.info("nothing ingested yet; run `nqbt ingest`")
         return 1
@@ -63,7 +74,7 @@ def _cmd_splice(args: argparse.Namespace) -> int:
     logger.info("%s", report.summary())
     logger.info("")
     logger.info("%s bars  %s -> %s", f"{len(series):,}", series.index[0], series.index[-1])
-    path = splice.continuous_path(args.root, back_adjust=args.back_adjust, cache_dir=args.cache_dir)
+    path: Path = splice.continuous_path(args.root, back_adjust=args.back_adjust, cache_dir=args.cache_dir)
     logger.info("written to %s", path)
 
     if args.diagnostics:
@@ -86,7 +97,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     from nqbt.sim import runner
     from nqbt.sim.types import DeadCatParams
 
-    params = DeadCatParams(
+    params: DeadCatParams = DeadCatParams(
         ema_period=args.ema,
         slow_sma_period=args.slow_sma,
         fast_sma_period=args.fast_sma,
@@ -94,8 +105,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         commission_per_contract=args.commission,
         slippage_ticks=args.slippage,
     )
-    instrument = get_instrument(args.root)
-    bars = splice.load_continuous(
+    instrument: Instrument = get_instrument(args.root)
+    bars: pd.DataFrame = splice.load_continuous(
         args.root,
         back_adjust=args.back_adjust,
         cache_dir=args.cache_dir,
@@ -107,7 +118,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     # VWAP unconditionally: --explain reports every gate whether or not this
     # combination reads it, and the audit trail is the point of the command.
-    data = context.prepare(
+    data: Dataset = context.prepare(
         bars,
         context.ContextSpec(
             ema_periods=(params.ema_period,),
@@ -116,18 +127,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
         ),
         keep_ma_values=bool(args.explain),
     )
-    trades = runner.run_deadcat(data, params, instrument)
+    trades: pd.DataFrame = runner.run_deadcat(data, params, instrument)
 
     if trades.empty:
         logger.info("no trades")
         return 0
 
-    per_trade = trades.groupby("trade_id")["net_pnl"].sum()
-    wins = per_trade > 0
-    losses = -per_trade[~wins].sum()
-    pf = per_trade[wins].sum() / losses if losses > 0 else float("inf")
-    equity = per_trade.cumsum()
-    max_dd = float((equity.cummax() - equity).max())
+    per_trade: pd.Series[float] = trades.groupby("trade_id")["net_pnl"].sum()
+    wins: pd.Series[bool] = per_trade > 0
+    losses: float = -per_trade[~wins].sum()
+    pf: float = per_trade[wins].sum() / losses if losses > 0 else float("inf")
+    equity: pd.Series[float] = per_trade.cumsum()
+    max_dd: float = float((equity.cummax() - equity).max())
 
     logger.info(
         "%s %s -> %s  %s bars",
@@ -171,11 +182,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         logger.info("trade log -> %s", args.trades)
 
     if args.explain:
-        detail = explain_mod.explain_trades(data, params, trades, instrument, args.explain)
+        detail: pd.DataFrame = explain_mod.explain_trades(data, params, trades, instrument, args.explain)
         detail.to_csv(args.explain_out, index=False)
         logger.info("hand-check detail for %d trades -> %s", len(detail), args.explain_out)
-        first = int(trades["trade_id"].iloc[0])
-        hist = explain_mod.ratchet_history(data, params, trades, first, instrument)
+        first: int = int(trades["trade_id"].iloc[0])
+        hist: pd.DataFrame = explain_mod.ratchet_history(data, params, trades, first, instrument)
         hist.to_csv(args.ratchet_out, index=False)
         logger.info("ratchet history for trade %d -> %s", first, args.ratchet_out)
 
@@ -184,7 +195,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """The parser for every ``nqbt`` subcommand."""
-    parser = argparse.ArgumentParser(prog="nqbt", description=__doc__)
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(prog="nqbt", description=__doc__)
     parser.add_argument(
         "--data-dir",
         type=paths.Path,
@@ -193,9 +204,13 @@ def build_parser() -> argparse.ArgumentParser:
         "for inspecting a single export, not the normal path",
     )
     parser.add_argument("--cache-dir", type=paths.Path, default=paths.CACHE_DIR)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub: argparse._SubParsersAction[argparse.ArgumentParser] = parser.add_subparsers(
+        dest="command", required=True
+    )
 
-    p_ingest = sub.add_parser("ingest", help="parse NT8 exports into the Parquet cache")
+    p_ingest: argparse.ArgumentParser = sub.add_parser(
+        "ingest", help="parse NT8 exports into the Parquet cache"
+    )
     p_ingest.add_argument("--root", help="limit to one instrument root, e.g. MNQ")
     p_ingest.add_argument(
         "--force",
@@ -204,10 +219,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ingest.set_defaults(func=_cmd_ingest)
 
-    p_list = sub.add_parser("contracts", help="show what is currently cached")
+    p_list: argparse.ArgumentParser = sub.add_parser("contracts", help="show what is currently cached")
     p_list.set_defaults(func=_cmd_contracts)
 
-    p_splice = sub.add_parser("splice", help="build the continuous series for a root")
+    p_splice: argparse.ArgumentParser = sub.add_parser(
+        "splice", help="build the continuous series for a root"
+    )
     p_splice.add_argument("--root", default="MNQ")
     p_splice.add_argument(
         "--back-adjust",
@@ -233,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_splice.set_defaults(func=_cmd_splice)
 
-    p_run = sub.add_parser(
+    p_run: argparse.ArgumentParser = sub.add_parser(
         "run",
         help="simulate one DeadCatBounce parameter set over the continuous series",
     )
@@ -269,7 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Run one ``nqbt`` command line and return its process exit code."""
     logsetup.configure(__name__)
-    args = build_parser().parse_args(argv)
+    args: argparse.Namespace = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
     except (ingest.IngestError, splice.SpliceError, FileNotFoundError) as exc:

@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from nqbt.arrays import FloatArray
+    from nqbt.arrays import FloatArray, IntArray
 
 EXIT_STOP = 0.0
 EXIT_TARGET = 1.0
@@ -161,7 +161,9 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     """
     matrix, count = legs
     if matrix.ndim != LEG_MATRIX_NDIM or matrix.shape[1] != N_COLUMNS:
-        msg = f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
+        msg: str = (
+            f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
+        )
         raise TradeSchemaError(msg)
     if count > matrix.shape[0]:
         msg = f"count {count} exceeds the {matrix.shape[0]} rows allocated"
@@ -169,14 +171,14 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     if count == 0:
         return legs
 
-    rows = matrix[:count]
+    rows: FloatArray = matrix[:count]
     # Column by column, stopping at the first failure: ``rows[:, REQUIRED_INDICES]`` would
     # copy ten columns on every combination of a sweep.
     for index in REQUIRED_INDICES:
         if np.isnan(rows[:, index]).any():
             _raise_matrix_nulls(rows)
 
-    direction = rows[:, C_DIRECTION]
+    direction: FloatArray = rows[:, C_DIRECTION]
     if not ((direction == LONG) | (direction == SHORT)).all():
         msg = (
             f"direction must be {LONG} (long) or {SHORT} (short); found "
@@ -192,9 +194,9 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     if (rows[:, C_LEG] < 1).any():
         msg = "leg numbering starts at 1"
         raise TradeSchemaError(msg)
-    reasons = rows[:, C_EXIT_REASON]
+    reasons: FloatArray = rows[:, C_EXIT_REASON]
     if not np.isin(reasons, EXIT_CODES).all():
-        unknown = sorted(set(np.unique(reasons)) - set(EXIT_REASONS))
+        unknown: list[float] = sorted(set(np.unique(reasons)) - set(EXIT_REASONS))
         msg = f"unknown exit_reason code(s) {unknown}; expected one of {sorted(EXIT_REASONS)}"
         raise TradeSchemaError(msg)
     return legs
@@ -202,9 +204,9 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
 
 def _raise_matrix_nulls(rows: FloatArray) -> None:
     """Name the offending columns now that we know there is at least one."""
-    names = [c for c in COLUMNS if c not in NULLABLE]
-    counts = np.isnan(rows[:, REQUIRED_INDICES]).sum(axis=0)
-    offenders = [(n, int(k)) for n, k in zip(names, counts, strict=True) if k]
+    names: list[str] = [c for c in COLUMNS if c not in NULLABLE]
+    counts: IntArray = np.isnan(rows[:, REQUIRED_INDICES]).sum(axis=0)
+    offenders: list[tuple[str, int]] = [(n, int(k)) for n, k in zip(names, counts, strict=True) if k]
     raise TradeSchemaError(
         "null values in non-nullable column(s): "
         + ", ".join(f"{c} ({n})" for c, n in offenders)
@@ -226,7 +228,7 @@ def trades_to_frame(
     bound and the tail is undefined. ``instrument`` is required rather than defaulted, since
     NQ and MNQ differ 10x in tick value.
     """
-    frame = pd.DataFrame(matrix[:count], columns=COLUMNS)
+    frame: pd.DataFrame = pd.DataFrame(matrix[:count], columns=COLUMNS)
     for name in ("trade_id", "leg", "entry_bar", "exit_bar", "quantity", "bars_held"):
         frame[name] = frame[name].astype("int64")
     frame["ambiguous_bar"] = frame["ambiguous_bar"].astype(bool)
@@ -248,9 +250,9 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
     return expression. Written to short-circuit because it runs once per combination inside a
     sweep -- ``docs/roadmap.md`` §M9 has the measurement and the microbenchmarking trap.
     """
-    missing = [c for c in SCHEMA if c not in frame.columns]
+    missing: list[str] = [c for c in SCHEMA if c not in frame.columns]
     if missing:
-        msg = f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
+        msg: str = f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
         raise TradeSchemaError(
             msg,
         )
@@ -263,7 +265,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         if column.dtype.kind not in "iu" and column.hasnans:
             _raise_nulls(frame)
 
-    direction = frame["direction"].to_numpy()
+    direction: IntArray = frame["direction"].to_numpy()
     if not ((direction == LONG) | (direction == SHORT)).all():
         msg = (
             f"direction must be {LONG} (long) or {SHORT} (short); found "
@@ -272,7 +274,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(
             msg,
         )
-    unknown = set(frame["source"].unique()) - set(SOURCES)
+    unknown: set[str] = set(frame["source"].unique()) - set(SOURCES)
     if unknown:
         msg = f"unknown source(s) {sorted(unknown)}; expected one of {SOURCES}"
         raise TradeSchemaError(msg)
@@ -292,8 +294,8 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _raise_nulls(frame: pd.DataFrame) -> None:
     """Count the nulls properly now that we know there is at least one."""
-    counts = frame[REQUIRED].isna().sum()
-    offenders = counts[counts > 0]
+    counts: pd.Series[int] = frame[REQUIRED].isna().sum()
+    offenders: pd.Series[int] = counts[counts > 0]
     raise TradeSchemaError(
         "null values in non-nullable column(s): "
         + ", ".join(f"{c} ({n})" for c, n in offenders.items())

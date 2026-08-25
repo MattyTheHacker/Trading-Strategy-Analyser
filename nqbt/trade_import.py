@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-    from nqbt.arrays import IntArray
+    from nqbt.arrays import BoolArray, IntArray, OffsetArray
 
 __all__ = [
     "ACCOUNT_FIELDS",
@@ -196,7 +196,7 @@ class CoverageReport:
     @override
     def __str__(self) -> str:
         """Render the reviewable share, then one line per contract."""
-        head = f"{self.covered}/{self.trades} trades reviewable ({self.share:.1%})"
+        head: str = f"{self.covered}/{self.trades} trades reviewable ({self.share:.1%})"
         return "\n".join([head, *(f"  {c}" for c in self.contracts)])
 
 
@@ -251,17 +251,17 @@ def read_executions(path: Path | str, *, timezone: str) -> pd.DataFrame:
     ``timezone`` is the exporting machine's NT8 display zone and is required rather than
     defaulted: the file carries none, and a wrong one shifts every trade by hours without erroring.
     """
-    raw = pd.read_csv(path, dtype="string")
-    missing = [name for name in REQUIRED_FIELDS if name not in raw.columns]
+    raw: pd.DataFrame = pd.read_csv(path, dtype="string")
+    missing: list[str] = [name for name in REQUIRED_FIELDS if name not in raw.columns]
     if missing:
-        msg = (
+        msg: str = (
             f"{path}: not an NT8 executions grid -- missing column(s) {missing}. "
             f"Export it from Control Center -> Executions."
         )
         raise TradeImportError(msg)
 
-    quantities = _quantities(raw["Quantity"])
-    fills = pd.DataFrame(
+    quantities: IntArray = _quantities(raw["Quantity"])
+    fills: pd.DataFrame = pd.DataFrame(
         {
             "time": _timestamps(raw["Time"], source=str(path)),
             "contract": raw["Instrument"].str.strip(),
@@ -298,12 +298,12 @@ def import_executions(
     -- ``docs/roadmap.md`` §M11.1. Slippage is not applied: a real fill price already contains it.
     """
     fills, incomplete = _complete_trades(read_executions(path, timezone=timezone))
-    frame = _to_schema(
+    frame: pd.DataFrame = _to_schema(
         _match_fifo(fills),
         commission_per_contract=commission_per_contract,
         timezone=timezone,
     )
-    coverage = _mark_coverage(frame, cache_dir=cache_dir)
+    coverage: CoverageReport = _mark_coverage(frame, cache_dir=cache_dir)
     return ImportedTrades(
         frame=trades.validate(frame),
         populated=POPULATED,
@@ -318,13 +318,13 @@ def import_executions(
 
 def _timestamps(column: pd.Series[str], *, source: str) -> pd.Series[pd.Timestamp]:
     """Parse the row timestamps under the first accepted format that fits the whole column."""
-    text = column.str.strip()
+    text: pd.Series[str] = column.str.strip()
     for fmt in TIME_FORMATS:
-        parsed = pd.to_datetime(text, format=fmt, errors="coerce")
+        parsed: pd.Series[pd.Timestamp] = pd.to_datetime(text, format=fmt, errors="coerce")
         if not parsed.isna().any():
             return parsed
-    bad = text[pd.to_datetime(text, format=TIME_FORMATS[0], errors="coerce").isna()]
-    msg = (
+    bad: pd.Series[str] = text[pd.to_datetime(text, format=TIME_FORMATS[0], errors="coerce").isna()]
+    msg: str = (
         f"{source}: cannot parse Time under any of {TIME_FORMATS}; first offender "
         f"{bad.iloc[0]!r} at row {bad.index[0]}. The date order is not inferred from the values."
     )
@@ -333,42 +333,44 @@ def _timestamps(column: pd.Series[str], *, source: str) -> pd.Series[pd.Timestam
 
 def _localise(times: pd.Series[pd.Timestamp], *, timezone: str) -> pd.Series[pd.Timestamp]:
     """Attach the export's display zone and convert to UTC, which the bar cache is in."""
-    localised = times.dt.tz_localize(timezone, ambiguous="infer", nonexistent="shift_forward")
+    localised: pd.Series[pd.Timestamp] = times.dt.tz_localize(
+        timezone, ambiguous="infer", nonexistent="shift_forward"
+    )
     return localised.dt.tz_convert("UTC")
 
 
 def _quantities(column: pd.Series[str]) -> IntArray:
     """Fill sizes, which are unsigned; the side is carried by ``Action``."""
-    quantities = np.asarray(column.astype("int64"), dtype=np.int64)
+    quantities: IntArray = np.asarray(column.astype("int64"), dtype=np.int64)
     if (quantities <= 0).any():
-        msg = "every fill must have a positive Quantity; the side is carried by Action"
+        msg: str = "every fill must have a positive Quantity; the side is carried by Action"
         raise TradeImportError(msg)
     return quantities
 
 
 def _signed(column: pd.Series[str], quantities: IntArray) -> IntArray:
     """Signed size of each fill: positive bought, negative sold."""
-    action = column.str.strip()
-    unknown = sorted(set(action.dropna().unique()) - {BUY, SELL})
+    action: pd.Series[str] = column.str.strip()
+    unknown: list[str] = sorted(set(action.dropna().unique()) - {BUY, SELL})
     if unknown:
-        msg = f"unknown Action value(s) {unknown}; expected {BUY!r} or {SELL!r}"
+        msg: str = f"unknown Action value(s) {unknown}; expected {BUY!r} or {SELL!r}"
         raise TradeImportError(msg)
     return np.where(action.eq(BUY).to_numpy(), quantities, -quantities)
 
 
 def _positions(column: pd.Series[str]) -> IntArray:
     """Parse the running-position field: ``-`` is flat, ``4 S`` short four, ``2 L`` long two."""
-    text = column.str.strip()
+    text: pd.Series[str] = column.str.strip()
     if text.hasnans:
-        msg = "every fill must carry a Position; it is the only trade boundary this source has"
+        msg: str = "every fill must carry a Position; it is the only trade boundary this source has"
         raise TradeImportError(msg)
     parsed: dict[str, int] = {}
     for value in text.unique():
-        match = _POSITION_RE.match(value)
+        match: re.Match[str] | None = _POSITION_RE.match(value)
         if match is None:
             msg = f"cannot parse Position {value!r}; expected {FLAT!r}, '<n> L' or '<n> S'"
             raise TradeImportError(msg)
-        quantity = 0 if match["flat"] else int(match["quantity"])
+        quantity: int = 0 if match["flat"] else int(match["quantity"])
         parsed[value] = quantity if match["side"] == "L" else -quantity
     return np.asarray(text.map(parsed), dtype=np.int64)
 
@@ -377,8 +379,8 @@ def _check_ascending(times: pd.Series[pd.Timestamp], *, source: str) -> None:
     """Reversed file order must be non-decreasing in time, or the export was not newest-first."""
     if times.is_monotonic_increasing:
         return
-    backwards = int(np.flatnonzero(times.diff().dt.total_seconds().to_numpy() < 0)[0])
-    msg = (
+    backwards: int = int(np.flatnonzero(times.diff().dt.total_seconds().to_numpy() < 0)[0])
+    msg: str = (
         f"{source}: reversing the file does not give chronological order -- row {backwards} "
         f"goes backwards. An executions grid exports newest first."
     )
@@ -392,17 +394,17 @@ def _order_ties_by_position(fills: pd.DataFrame) -> pd.DataFrame:
     the same two fills in opposite order. The running position is dependable, because each fill's
     is the previous one plus its own signed size, so the chain has exactly one arrangement.
     """
-    positions = fills["position"].to_numpy(np.int64)
-    signed = fills["signed"].to_numpy(np.int64)
+    positions: IntArray = fills["position"].to_numpy(np.int64)
+    signed: IntArray = fills["signed"].to_numpy(np.int64)
     times = fills["time"].to_numpy()
     order: list[int] = []
-    running = _opening_position(positions, signed)
-    start = 0
+    running: int = _opening_position(positions, signed)
+    start: int = 0
     while start < len(fills):
-        stop = start + int(np.searchsorted(times[start:], times[start], side="right"))
-        pending = list(range(start, stop))
+        stop: int = start + int(np.searchsorted(times[start:], times[start], side="right"))
+        pending: list[int] = list(range(start, stop))
         while pending:
-            nxt = next((i for i in pending if running + signed[i] == positions[i]), None)
+            nxt: int | None = next((i for i in pending if running + signed[i] == positions[i]), None)
             if nxt is None:
                 _raise_broken_chain(fills, running, pending)
             order.append(nxt)
@@ -422,7 +424,7 @@ def _opening_position(positions: IntArray, signed: IntArray) -> int:
 def _raise_broken_chain(fills: pd.DataFrame, running: int, pending: Sequence[int]) -> NoReturn:
     """Name the fill the position walk could not reach, now that we know there is one."""
     row = fills.iloc[pending[0]]
-    msg = (
+    msg: str = (
         f"the position walk breaks at {row['time']}: holding {running}, and none of the "
         f"{len(pending)} fill(s) at that timestamp lands on its stated Position. The export is "
         f"missing a fill, or Position was misread."
@@ -432,16 +434,18 @@ def _raise_broken_chain(fills: pd.DataFrame, running: int, pending: Sequence[int
 
 def _check_declared_directions(fills: pd.DataFrame, column: pd.Series[str], *, source: str) -> None:
     """Cross-check ``E/X`` against the position walk, the only independent test of the parse."""
-    declared = column.str.strip().eq(EXIT).to_numpy()[::-1]
-    positions = fills["position"].to_numpy(np.int64)
-    previous = np.concatenate(([_opening_position(positions, fills["signed"].to_numpy())], positions[:-1]))
+    declared: BoolArray = column.str.strip().eq(EXIT).to_numpy()[::-1]
+    positions: IntArray = fills["position"].to_numpy(np.int64)
+    previous: IntArray = np.concatenate(
+        ([_opening_position(positions, fills["signed"].to_numpy())], positions[:-1])
+    )
     # A fill that crosses zero both closes and opens, so only the unambiguous ones are checked.
-    crosses = np.sign(positions) * np.sign(previous) < 0
-    walked = np.abs(positions) < np.abs(previous)
-    disagree = np.flatnonzero((walked != declared[: len(positions)]) & ~crosses)
+    crosses: BoolArray = np.sign(positions) * np.sign(previous) < 0
+    walked: BoolArray = np.abs(positions) < np.abs(previous)
+    disagree: OffsetArray = np.flatnonzero((walked != declared[: len(positions)]) & ~crosses)
     if disagree.size:
         row = fills.iloc[int(disagree[0])]
-        msg = (
+        msg: str = (
             f"{source}: {DIRECTION_FIELD} disagrees with the position walk at {row['time']} -- "
             f"the walk makes it {'an exit' if walked[disagree[0]] else 'an entry'}. "
             f"The columns are probably not the ones this adapter thinks they are."
@@ -456,12 +460,12 @@ def _complete_trades(fills: pd.DataFrame) -> tuple[pd.DataFrame, IncompleteTrade
     """Drop the partial trades at either end, counting them rather than swallowing them."""
     if fills.empty:
         return fills, IncompleteTrades(leading_fills=0, trailing_fills=0)
-    positions = fills["position"].to_numpy(np.int64)
-    signed = fills["signed"].to_numpy(np.int64)
-    flat = np.flatnonzero(positions == 0)
+    positions: IntArray = fills["position"].to_numpy(np.int64)
+    signed: IntArray = fills["signed"].to_numpy(np.int64)
+    flat: OffsetArray = np.flatnonzero(positions == 0)
 
-    first = 0 if positions[0] == signed[0] else (int(flat[0]) + 1 if flat.size else len(fills))
-    last = int(flat[-1]) + 1 if flat.size and flat[-1] >= first else first
+    first: int = 0 if positions[0] == signed[0] else (int(flat[0]) + 1 if flat.size else len(fills))
+    last: int = int(flat[-1]) + 1 if flat.size and flat[-1] >= first else first
     return fills.iloc[first:last].reset_index(drop=True), IncompleteTrades(
         leading_fills=first,
         trailing_fills=len(fills) - last,
@@ -485,16 +489,16 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
     """
     rows: list[dict[str, object]] = []
     lots: deque[_Lot] = deque()
-    direction = 0.0
-    trade_id = 0
-    leg = 0
+    direction: float = 0.0
+    trade_id: int = 0
+    leg: int = 0
     for fill in fills.itertuples(index=False):
-        remaining = int(fill.quantity)  # type: ignore[arg-type]  # itertuples widens every column
-        signed = int(fill.signed)  # type: ignore[arg-type]  # the same widening
-        opening = trades.LONG if signed > 0 else trades.SHORT
+        remaining: int = int(fill.quantity)  # type: ignore[arg-type]  # itertuples widens every column
+        signed: int = int(fill.signed)  # type: ignore[arg-type]  # the same widening
+        opening: float = trades.LONG if signed > 0 else trades.SHORT
         while lots and opening != direction and remaining:
-            lot = lots[0]
-            matched = min(lot.remaining, remaining)
+            lot: _Lot = lots[0]
+            matched: int = min(lot.remaining, remaining)
             leg += 1
             rows.append(
                 {
@@ -530,7 +534,7 @@ def _to_schema(
     timezone: str,
 ) -> pd.DataFrame:
     """Turn matched legs into the shared trade-log schema, nulls and all."""
-    frame = pd.DataFrame(rows, columns=_LEG_FIELDS)
+    frame: pd.DataFrame = pd.DataFrame(rows, columns=_LEG_FIELDS)
     for name in ("trade_id", "leg", "quantity"):
         frame[name] = frame[name].astype("int64")
     for name in ("direction", "entry_price", "exit_price"):
@@ -540,19 +544,19 @@ def _to_schema(
     for name in ("entry_time", "exit_time"):
         frame[name] = pd.to_datetime(frame[name], utc=True)
 
-    roots = frame["contract"].map(lambda name: ContractId.parse(name).root).astype("string")
-    point_values = roots.map(lambda root: instruments.get_instrument(root).point_value)
+    roots: pd.Series[str] = frame["contract"].map(lambda name: ContractId.parse(name).root).astype("string")
+    point_values: pd.Series[float] = roots.map(lambda root: instruments.get_instrument(root).point_value)
     frame["instrument"] = roots
     frame["source"] = pd.Series(SOURCE, index=frame.index, dtype="string")
     frame["timezone"] = pd.Series(timezone, index=frame.index, dtype="string")
 
-    move = (frame["exit_price"] - frame["entry_price"]) * frame["direction"]
+    move: pd.Series[float] = (frame["exit_price"] - frame["entry_price"]) * frame["direction"]
     frame["gross_pnl"] = move * point_values.astype("float64") * frame["quantity"]
     frame["commission"] = commission_per_contract * frame["quantity"]
     frame["net_pnl"] = frame["gross_pnl"] - frame["commission"]
 
     for name in trades.NULLABLE:
-        dtype = _NULLABLE_DTYPES.get(name, "float64")
+        dtype: str = _NULLABLE_DTYPES.get(name, "float64")
         blank = np.nan if dtype == "float64" else pd.NA
         frame[name] = pd.Series(blank, index=frame.index, dtype=dtype)
     return frame[_FRAME_COLUMNS]
@@ -567,7 +571,7 @@ def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
     Whole trades, never individual legs: a trade split across the edge of the cache would have
     part of its P&L reviewed and the rest excluded.
     """
-    contracts = tuple(
+    contracts: tuple[ContractCoverage, ...] = tuple(
         _cached_range(ContractId.parse(name), cache_dir=cache_dir)
         for name in sorted(frame["contract"].dropna().unique())
     )
@@ -575,13 +579,13 @@ def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
     if frame.empty:
         return CoverageReport(contracts=contracts, trades=0, covered=0)
 
-    ranges = {c.contract.nt8_name: c for c in contracts}
-    spans = frame.groupby("trade_id").agg(
+    ranges: dict[str, ContractCoverage] = {c.contract.nt8_name: c for c in contracts}
+    spans: pd.DataFrame = frame.groupby("trade_id").agg(
         contract=("contract", "first"),
         first=("entry_time", "min"),
         last=("exit_time", "max"),
     )
-    covered = spans.apply(
+    covered: pd.Series[bool] = spans.apply(
         lambda span: ranges[span["contract"]].covers(span["first"], span["last"]),
         axis=1,
     ).astype(bool)
@@ -591,7 +595,7 @@ def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
 
 def _cached_range(contract: ContractId, *, cache_dir: Path) -> ContractCoverage:
     """Read one contract's first and last cached bar, or an empty range if it is not cached."""
-    path = ingest.contract_cache_path(contract, cache_dir)
+    path: Path = ingest.contract_cache_path(contract, cache_dir)
     if not path.exists():
         return ContractCoverage(contract=contract)
     index = pd.read_parquet(path, columns=[]).index

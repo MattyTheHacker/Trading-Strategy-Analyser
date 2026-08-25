@@ -85,8 +85,8 @@ class Instrument:
         not a thing NT8 would ever fill. A small epsilon absorbs float representation
         error so that a value already sitting on the grid is never nudged off it.
         """
-        n = price / self.tick_size
-        eps = 1e-9
+        n: float = price / self.tick_size
+        eps: float = 1e-9
         if mode == "nearest":
             n = math.floor(n + 0.5)
         elif mode == "up":
@@ -112,9 +112,9 @@ class Instrument:
         rather than silently trading one lot.
         """
         if stop_distance_points <= 0:
-            msg = "stop_distance_points must be positive"
+            msg: str = "stop_distance_points must be positive"
             raise ValueError(msg)
-        per_contract = self.points_to_dollars(stop_distance_points)
+        per_contract: float = self.points_to_dollars(stop_distance_points)
         if per_contract <= 0:
             msg = "stop distance rounds to zero dollars of risk"
             raise ValueError(msg)
@@ -143,8 +143,8 @@ def get_instrument(symbol: str) -> Instrument:
     try:
         return INSTRUMENTS[symbol.strip().upper()]
     except KeyError:
-        known = ", ".join(sorted(INSTRUMENTS))
-        msg = f"unknown instrument {symbol!r}; known instruments: {known}"
+        known: str = ", ".join(sorted(INSTRUMENTS))
+        msg: str = f"unknown instrument {symbol!r}; known instruments: {known}"
         raise KeyError(msg) from None
 
 
@@ -166,7 +166,7 @@ class ContractId:
 
     def __post_init__(self) -> None:
         if self.month not in MONTH_CODES:
-            msg = (
+            msg: str = (
                 f"{self.root} {self.month:02d}-{self.year}: month must be one of "
                 f"{sorted(MONTH_CODES)} (NQ/MNQ are quarterly contracts)"
             )
@@ -177,9 +177,9 @@ class ContractId:
     @classmethod
     def parse(cls, text: str) -> ContractId:
         """Parse an NT8-style contract name such as ``"MNQ 03-24"``."""
-        m = _CONTRACT_RE.match(text)
+        m: re.Match[str] | None = _CONTRACT_RE.match(text)
         if not m:
-            msg = f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
+            msg: str = f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
             raise ValueError(msg)
         return cls(
             root=m["root"].upper(),

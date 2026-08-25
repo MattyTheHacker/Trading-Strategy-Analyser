@@ -86,7 +86,7 @@ ALL_REGIMES = (1 << len(Regime)) - 1
 
 def regimes_mask(regimes: Iterable[Regime]) -> int:
     """Combine regimes into the bitmask an archetype's ``regime_filter`` takes."""
-    mask = 0
+    mask: int = 0
     for regime in regimes:
         mask |= Regime(regime).bit
     return mask
@@ -101,7 +101,7 @@ def regimes_in(mask: int) -> tuple[Regime, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no regime owns."""
     if mask < 0 or mask & ~ALL_REGIMES:
-        msg = f"regime mask {mask} sets bits outside 0..{ALL_REGIMES}; use Regime.bit or regimes_mask()"
+        msg: str = f"regime mask {mask} sets bits outside 0..{ALL_REGIMES}; use Regime.bit or regimes_mask()"
         raise RegimeError(msg)
     if mask == 0:
         msg = "regime mask 0 admits no regime, so every combination along it would trade nothing"
@@ -117,7 +117,7 @@ def describe_mask(mask: int) -> str:
 def validate_lookback(lookback: int) -> int:
     """Reject a lookback the ratio is degenerate at -- see :data:`MIN_LOOKBACK`."""
     if lookback < MIN_LOOKBACK:
-        msg = f"regime lookback must be >= {MIN_LOOKBACK}, got {lookback}"
+        msg: str = f"regime lookback must be >= {MIN_LOOKBACK}, got {lookback}"
         raise RegimeError(msg)
     return lookback
 
@@ -128,7 +128,7 @@ def validate_thresholds(consolidating_below: float, directional_above: float) ->
     Equal thresholds are legal and collapse the unclassifiable band onto the boundary itself.
     """
     if not 0.0 <= consolidating_below <= 1.0:
-        msg = f"consolidating_below must lie in 0..1, got {consolidating_below}"
+        msg: str = f"consolidating_below must lie in 0..1, got {consolidating_below}"
         raise RegimeError(msg)
     if not 0.0 <= directional_above <= 1.0:
         msg = f"directional_above must lie in 0..1, got {directional_above}"
@@ -262,9 +262,9 @@ class EfficiencyRatioGrid:
 
     def row(self, lookback: int) -> int:
         """Find the row holding ``lookback``, or say what the grid was built for."""
-        idx = int(np.searchsorted(self.lookbacks, lookback))
+        idx: int = int(np.searchsorted(self.lookbacks, lookback))
         if idx >= self.lookbacks.size or self.lookbacks[idx] != lookback:
-            msg = (
+            msg: str = (
                 f"efficiency ratio over {lookback} bars is not in this grid; "
                 f"built for {self.lookbacks.tolist()}"
             )
@@ -306,14 +306,14 @@ def efficiency_ratio_grid(close: FloatArray, lookbacks: Iterable[int]) -> Effici
     Eight bytes per element, so this is the one series a long lookback axis makes expensive
     for a parallel worker -- ``docs/roadmap.md`` §M10.1.
     """
-    unique = np.unique(np.asarray(list(lookbacks), dtype=np.int64))
+    unique: IntArray = np.unique(np.asarray(list(lookbacks), dtype=np.int64))
     if unique.size == 0:
-        msg = "no lookbacks supplied"
+        msg: str = "no lookbacks supplied"
         raise RegimeError(msg)
     validate_lookback(int(unique[0]))
 
     close = np.ascontiguousarray(close, dtype=np.float64)
-    values = np.empty((unique.size, close.size), dtype=np.float64)
+    values: FloatArray = np.empty((unique.size, close.size), dtype=np.float64)
     for i, lookback in enumerate(unique):
         values[i] = _efficiency_ratio(close, int(lookback))
     return EfficiencyRatioGrid(lookbacks=unique, values=values)

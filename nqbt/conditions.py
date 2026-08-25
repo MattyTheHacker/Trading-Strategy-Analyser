@@ -207,7 +207,7 @@ def cross_above(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolAr
     only bars ``<= i``. See ``docs/nt8-fidelity.md`` §M18.
     """
     if lookback < 1:
-        msg = f"lookback must be >= 1, got {lookback}"
+        msg: str = f"lookback must be >= 1, got {lookback}"
         raise ValueError(msg)
     return _crossed(
         np.ascontiguousarray(fast, dtype=np.float64),
@@ -223,7 +223,7 @@ def cross_below(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolAr
     Not its complement: where neither series moved past the other, both are false.
     """
     if lookback < 1:
-        msg = f"lookback must be >= 1, got {lookback}"
+        msg: str = f"lookback must be >= 1, got {lookback}"
         raise ValueError(msg)
     return _crossed(
         np.ascontiguousarray(fast, dtype=np.float64),
@@ -283,9 +283,9 @@ class MovingAverageGrid:
 
     def row(self, period: int) -> int:
         """The row holding ``period``, or an error naming what the grid was built for."""
-        idx = int(np.searchsorted(self.periods, period))
+        idx: int = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
-            msg = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
+            msg: str = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
             raise KeyError(msg)
         return idx
 
@@ -300,7 +300,7 @@ class MovingAverageGrid:
     def values_for(self, period: int) -> FloatArray:
         """One period's raw moving-average values, when the grid kept them."""
         if self.values is None:
-            msg = (
+            msg: str = (
                 "this grid kept only the boolean gate; rebuild it with keep_values=True "
                 "to read raw moving-average values (needed for the MA trailing stop)"
             )
@@ -327,9 +327,9 @@ def moving_average_grid(
     ``kind`` selects the NT8-compatible EMA or SMA from :mod:`nqbt.indicators`. Raw
     values are discarded unless ``keep_values`` is set -- see :attr:`MovingAverageGrid.values`.
     """
-    unique = np.unique(np.asarray(list(periods), dtype=np.int64))
+    unique: IntArray = np.unique(np.asarray(list(periods), dtype=np.int64))
     if unique.size == 0:
-        msg = "no periods supplied"
+        msg: str = "no periods supplied"
         raise ValueError(msg)
     if unique[0] < 1:
         msg = f"periods must be >= 1, got {unique[0]}"
@@ -342,12 +342,12 @@ def moving_average_grid(
         raise ValueError(msg) from None
 
     close = np.ascontiguousarray(close, dtype=np.float64)
-    below = np.empty((unique.size, close.size), dtype=np.bool_)
-    above = np.empty((unique.size, close.size), dtype=np.bool_)
-    values = np.empty((unique.size, close.size), dtype=np.float64) if keep_values else None
+    below: BoolArray = np.empty((unique.size, close.size), dtype=np.bool_)
+    above: BoolArray = np.empty((unique.size, close.size), dtype=np.bool_)
+    values: FloatArray | None = np.empty((unique.size, close.size), dtype=np.float64) if keep_values else None
 
     for i, period in enumerate(unique):
-        ma = fn(close, int(period))
+        ma: FloatArray = fn(close, int(period))
         below[i] = below_series(close, ma)
         above[i] = above_series(close, ma)
         if values is not None:

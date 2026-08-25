@@ -37,7 +37,7 @@ from nqbt.trades import (
 )
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, OffsetArray
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -123,7 +123,7 @@ def _max_consecutive(mask: BoolArray) -> int:
     """Longest run of True values."""
     if mask.size == 0 or not mask.any():
         return 0
-    edges = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False]))))
+    edges: OffsetArray = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False]))))
     return int((edges[1::2] - edges[::2]).max())
 
 
@@ -141,13 +141,13 @@ def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
     """
     if daily.size < MIN_DAYS_FOR_RISK_ADJUSTED:
         return 0.0, 0.0
-    mean = daily.mean()
-    sd = daily.std(ddof=1)
-    downside = daily[daily < 0]
-    dsd = downside.std(ddof=1) if downside.size > 1 else 0.0
-    scale = np.sqrt(TRADING_DAYS_PER_YEAR)
-    sharpe = float(mean / sd * scale) if sd > 0 else 0.0
-    sortino = float(mean / dsd * scale) if dsd and dsd > 0 else 0.0
+    mean: float = daily.mean()
+    sd: float = daily.std(ddof=1)
+    downside: FloatArray = daily[daily < 0]
+    dsd: float = downside.std(ddof=1) if downside.size > 1 else 0.0
+    scale: float = np.sqrt(TRADING_DAYS_PER_YEAR)
+    sharpe: float = float(mean / sd * scale) if sd > 0 else 0.0
+    sortino: float = float(mean / dsd * scale) if dsd and dsd > 0 else 0.0
     return sharpe, sortino
 
 
@@ -167,7 +167,7 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
                 "exit_time",
             ],
         )
-    agg = {
+    agg: dict[str, tuple[str, str]] = {
         "net_pnl": ("net_pnl", "sum"),
         "commission": ("commission", "sum"),
         "bars_held": ("bars_held", "max"),
@@ -191,9 +191,10 @@ def summarise(trades: pd.DataFrame) -> Summary:
     if trades.empty:
         return Summary.empty()
 
-    t = per_trade(trades)
-    pnl = t["net_pnl"].to_numpy(np.float64)
+    t: pd.DataFrame = per_trade(trades)
+    pnl: FloatArray = t["net_pnl"].to_numpy(np.float64)
 
+    daily: FloatArray
     if "exit_time" in t.columns:  # noqa: SIM108 - the else branch carries a coverage pragma
         daily = _daily_totals(pnl, pd.DatetimeIndex(t["exit_time"]))
     else:  # pragma: no cover - only when times were not attached
@@ -245,8 +246,8 @@ def _summarise_arrays(
     ``daily`` is one per calendar day; ``r`` is one per **leg**, non-finite values dropped.
     """
     wins, losses = pnl > 0, pnl < 0
-    gross_profit = float(pnl[wins].sum())
-    gross_loss = float(pnl[losses].sum())
+    gross_profit: float = float(pnl[wins].sum())
+    gross_loss: float = float(pnl[losses].sum())
     sharpe, sortino = _risk_adjusted(daily)
 
     return Summary(
@@ -344,7 +345,7 @@ def _ordered_starts(keys: FloatArray | IndexArray, what: str) -> IntArray:
     ``docs/roadmap.md`` §"The numpy-native summary path".
     """
     if keys.size > 1 and not bool(np.all(keys[1:] >= keys[:-1])):
-        msg = (
+        msg: str = (
             f"{what} must be non-decreasing for the numpy summary path; summarise() the "
             "frame instead, or fix the producer to emit legs in trade order."
         )
@@ -363,17 +364,18 @@ def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None = None) -> Summ
     if count == 0:
         return Summary.empty()
 
-    rows = matrix[:count]
-    starts = _ordered_starts(rows[:, C_TRADE_ID], "trade_id")
-    pnl = _grouped_sum(rows[:, C_NET_PNL], starts)
+    rows: FloatArray = matrix[:count]
+    starts: IntArray = _ordered_starts(rows[:, C_TRADE_ID], "trade_id")
+    pnl: FloatArray = _grouped_sum(rows[:, C_NET_PNL], starts)
 
+    daily: FloatArray
     if day_codes is None:
         daily = pnl
     else:
-        exit_bar = _grouped_max(rows[:, C_EXIT_BAR], starts).astype(np.int64)
+        exit_bar: IntArray = _grouped_max(rows[:, C_EXIT_BAR], starts).astype(np.int64)
         daily = _grouped_sum(pnl, _ordered_starts(day_codes[exit_bar], "exit day"))
 
-    ambiguous = rows[:, C_AMBIGUOUS]
+    ambiguous: FloatArray = rows[:, C_AMBIGUOUS]
     return _summarise_arrays(
         pnl=pnl,
         bars_held=_grouped_max(rows[:, C_BARS_HELD], starts),
@@ -406,13 +408,13 @@ def trade_statistic(pnl: FloatArray, name: str) -> float:
     agreement on real logs. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
-        msg = (
+        msg: str = (
             f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         )
         raise ValueError(msg)
     if pnl.size == 0:
         return 0.0
-    wins = pnl > 0
+    wins: BoolArray = pnl > 0
     if name == "profit_factor":
         return _ratio(float(pnl[wins].sum()), float(-pnl[pnl < 0].sum()))
     if name == "net_pnl":
@@ -438,7 +440,7 @@ def path_statistic(pnl: FloatArray, name: str) -> float:
     :func:`per_trade` output, never raw legs.
     """
     if name not in PATH_STATISTICS:
-        msg = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
+        msg: str = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
         raise ValueError(msg)
     if pnl.size == 0:
         return 0.0

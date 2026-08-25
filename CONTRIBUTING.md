@@ -118,6 +118,14 @@ CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usu
 
 Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-line reason, and so does every `# noqa`, every `# type: ignore` and the one `[tool.coverage]` exclusion. Add none of them without one. Put the reason **after the pragma on the same line** so that grepping for a bare `# noqa: X$` finds anything undocumented; only where 110 columns leave no room does it go on the line above. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
 
+### Local variables carry their type too
+
+**Annotate a local at its first binding**, with the same aliases the signatures use. A name can only be annotated once per scope, so that first binding is the declaration for the whole function; where a name is bound in two arms of a branch, declare it bare above the branch rather than typing one arm and not the other.
+
+Leave a local bare where the type cannot be stated honestly: a `pd.Series` whose dtype belongs to the caller, `json.loads`, duckdb rows, joblib. `disallow_any_explicit` rejects those anyway, and **a `# type: ignore` per local to say "unknown" is worse than no annotation** — it is a pragma with nothing to fix. Leave it bare, too, where mypy's inference and the runtime disagree, and say which in a comment; numpy types `datetime64 + timedelta64` as `timedelta64`, and `nqbt/sessions.py` has the site.
+
+`nqbt/arrays.py`'s `AnyArray` is **not** a wildcard. It is a concrete `dtype[generic[object]]`, so a local annotated with it type-checks at the assignment and then fails at every later use. Name the real dtype — the expression almost always states it — or leave the local bare.
+
 In almost all cases errors reported by either `ruff` or `mypy` should be fixed rather than hidden with ignore comments. Errors should only be ignored if they are a genuine misfire or there's an extremely good reason the issue shouldn't be fixed.
 
 ### Dependencies are pinned exactly

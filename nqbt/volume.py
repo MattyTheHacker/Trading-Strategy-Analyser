@@ -32,7 +32,15 @@ from numba import njit
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from nqbt.arrays import BoolArray, DateArray, FloatArray, IndexArray, IntArray, LabelArray
+    from nqbt.arrays import (
+        BoolArray,
+        DateArray,
+        FloatArray,
+        IndexArray,
+        IntArray,
+        LabelArray,
+        OffsetArray,
+    )
 
 __all__ = [
     "ALL_STATES",
@@ -135,7 +143,7 @@ class VolumeKey(NamedTuple):
 
 def states_mask(states: Iterable[VolumeState]) -> int:
     """Combine states into the bitmask an archetype's ``volume_filter`` takes."""
-    mask = 0
+    mask: int = 0
     for state in states:
         mask |= VolumeState(state).bit
     return mask
@@ -150,7 +158,9 @@ def states_in(mask: int) -> tuple[VolumeState, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no state owns."""
     if mask < 0 or mask & ~ALL_STATES:
-        msg = f"volume mask {mask} sets bits outside 0..{ALL_STATES}; use VolumeState.bit or states_mask()"
+        msg: str = (
+            f"volume mask {mask} sets bits outside 0..{ALL_STATES}; use VolumeState.bit or states_mask()"
+        )
         raise VolumeError(msg)
     if mask == 0:
         msg = "volume mask 0 admits no state, so every combination along it would trade nothing"
@@ -168,15 +178,15 @@ def validate_form(form: int) -> VolumeForm:
     try:
         return VolumeForm(int(form))
     except ValueError:
-        legal = ", ".join(f"{f.name}={int(f)}" for f in VolumeForm)
-        msg = f"unknown volume form {form}; use one of {legal}"
+        legal: str = ", ".join(f"{f.name}={int(f)}" for f in VolumeForm)
+        msg: str = f"unknown volume form {form}; use one of {legal}"
         raise VolumeError(msg) from None
 
 
 def validate_rolling_bars(rolling_bars: int) -> int:
     """Reject a rolling window the form is degenerate at -- see :data:`MIN_ROLLING_BARS`."""
     if rolling_bars < MIN_ROLLING_BARS:
-        msg = (
+        msg: str = (
             f"rolling volume must span >= {MIN_ROLLING_BARS} bars, got {rolling_bars}; "
             "a one-bar window is VolumeForm.PER_BAR"
         )
@@ -187,7 +197,7 @@ def validate_rolling_bars(rolling_bars: int) -> int:
 def validate_baseline_sessions(baseline_sessions: int) -> int:
     """Reject a baseline too short to normalise anything -- :data:`MIN_BASELINE_SESSIONS`."""
     if baseline_sessions < MIN_BASELINE_SESSIONS:
-        msg = f"baseline must span >= {MIN_BASELINE_SESSIONS} sessions, got {baseline_sessions}"
+        msg: str = f"baseline must span >= {MIN_BASELINE_SESSIONS} sessions, got {baseline_sessions}"
         raise VolumeError(msg)
     return baseline_sessions
 
@@ -199,7 +209,7 @@ def validate_thresholds(thin_below: float, heavy_above: float) -> None:
     no upper bound: relative volume is a ratio to a median and is unbounded above.
     """
     if thin_below < 0.0:
-        msg = f"thin_below must be >= 0, got {thin_below}"
+        msg: str = f"thin_below must be >= 0, got {thin_below}"
         raise VolumeError(msg)
     if heavy_above < 0.0:
         msg = f"heavy_above must be >= 0, got {heavy_above}"
@@ -219,8 +229,8 @@ def key(form: int, rolling_bars: int, baseline_sessions: int) -> VolumeKey:
     so sweeping the window alongside a per-bar form does not build one identical series per
     window.
     """
-    resolved = validate_form(form)
-    window = validate_rolling_bars(rolling_bars) if resolved is VolumeForm.ROLLING else NO_ROLLING
+    resolved: VolumeForm = validate_form(form)
+    window: int = validate_rolling_bars(rolling_bars) if resolved is VolumeForm.ROLLING else NO_ROLLING
     return VolumeKey(resolved, window, validate_baseline_sessions(baseline_sessions))
 
 
@@ -229,13 +239,13 @@ def session_ids(trading_day: DateArray, in_session: BoolArray) -> IntArray:
 
     Ascending timestamp order is assumed, which ingestion guarantees.
     """
-    days = np.asarray(trading_day)
-    ids = np.full(days.size, UNDEFINED, dtype=np.int64)
-    inside = np.flatnonzero(np.asarray(in_session))
+    days: DateArray = np.asarray(trading_day)
+    ids: IntArray = np.full(days.size, UNDEFINED, dtype=np.int64)
+    inside: OffsetArray = np.flatnonzero(np.asarray(in_session))
     if inside.size == 0:
         return ids
-    ordered = days[inside]
-    boundary = np.empty(inside.size, dtype=bool)
+    ordered: DateArray = days[inside]
+    boundary: BoolArray = np.empty(inside.size, dtype=bool)
     boundary[0] = True
     boundary[1:] = ordered[1:] != ordered[:-1]
     ids[inside] = np.cumsum(boundary) - 1
@@ -462,15 +472,15 @@ def relative_to_bar_of_session(
     """
     validate_baseline_sessions(baseline_sessions)
     values = np.ascontiguousarray(values, dtype=np.float64)
-    sessions = np.ascontiguousarray(session_id, dtype=np.int64)
-    indices = np.ascontiguousarray(bar_of_session, dtype=np.int64)
-    n_sessions = max(int(sessions.max()) + 1, 0) if sessions.size else 0
-    n_indices = max(int(indices.max()) + 1, 0) if indices.size else 0
+    sessions: IntArray = np.ascontiguousarray(session_id, dtype=np.int64)
+    indices: IntArray = np.ascontiguousarray(bar_of_session, dtype=np.int64)
+    n_sessions: int = max(int(sessions.max()) + 1, 0) if sessions.size else 0
+    n_indices: int = max(int(indices.max()) + 1, 0) if indices.size else 0
     if n_sessions == 0 or n_indices == 0:
         return np.full(values.size, np.nan, dtype=np.float64)
 
-    grid = _session_grid(values, sessions, indices, n_sessions, n_indices)
-    medians = _trailing_medians(grid, int(baseline_sessions), int(min_observations))
+    grid: FloatArray = _session_grid(values, sessions, indices, n_sessions, n_indices)
+    medians: FloatArray = _trailing_medians(grid, int(baseline_sessions), int(min_observations))
     return _ratio(values, _gather(medians, sessions, indices))
 
 
@@ -525,7 +535,7 @@ class VolumeGrid:
         try:
             return self.keys.index(wanted)
         except ValueError:
-            msg = f"volume series {wanted} is not in this grid; built for {list(self.keys)}"
+            msg: str = f"volume series {wanted} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg) from None
 
     def absolute_for(self, wanted: VolumeKey) -> FloatArray:
@@ -569,20 +579,22 @@ def volume_grid(
     would never form them, so they are not session volume. Sixteen bytes per bar per key, and
     the baseline is the expensive pass -- ``docs/roadmap.md`` §M10.2.
     """
-    ordered = tuple(sorted({key(k.form, k.rolling_bars, k.baseline_sessions) for k in keys}))
+    ordered: tuple[VolumeKey, ...] = tuple(
+        sorted({key(k.form, k.rolling_bars, k.baseline_sessions) for k in keys})
+    )
     if not ordered:
-        msg = "no volume series supplied"
+        msg: str = "no volume series supplied"
         raise VolumeError(msg)
 
-    raw = np.ascontiguousarray(volume, dtype=np.float64)
-    session_id = session_ids(trading_day, in_session)
-    traded = np.where(np.asarray(in_session), raw, 0.0)
-    indices = np.ascontiguousarray(bar_of_session, dtype=np.int64)
+    raw: FloatArray = np.ascontiguousarray(volume, dtype=np.float64)
+    session_id: IntArray = session_ids(trading_day, in_session)
+    traded: FloatArray = np.where(np.asarray(in_session), raw, 0.0)
+    indices: IntArray = np.ascontiguousarray(bar_of_session, dtype=np.int64)
 
-    absolute = np.empty((len(ordered), raw.size), dtype=np.float64)
-    relative = np.empty((len(ordered), raw.size), dtype=np.float64)
+    absolute: FloatArray = np.empty((len(ordered), raw.size), dtype=np.float64)
+    relative: FloatArray = np.empty((len(ordered), raw.size), dtype=np.float64)
     for i, wanted in enumerate(ordered):
-        series = absolute_form(traded, wanted.form, wanted.rolling_bars, session_id)
+        series: FloatArray = absolute_form(traded, wanted.form, wanted.rolling_bars, session_id)
         absolute[i] = series
         relative[i] = relative_to_bar_of_session(series, session_id, indices, wanted.baseline_sessions)
     return VolumeGrid(keys=ordered, absolute=absolute, relative=relative)

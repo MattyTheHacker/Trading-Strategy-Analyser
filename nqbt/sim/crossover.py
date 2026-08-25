@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.context import Dataset
     from nqbt.sim.types import EmaCrossoverParams
+    from nqbt.trades import LegMatrix
 
 NO_ATR = np.zeros(0, dtype=np.float64)
 """Stand-in for the ATR array in swing-stop mode, where the loop never indexes it.
@@ -348,8 +349,8 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     back inside it.
     """
     fast, slow = crossover_averages(data, params)
-    direction = regime_direction(fast, slow)
-    signal = np.zeros(len(data), dtype=np.bool_)
+    direction: FloatArray = regime_direction(fast, slow)
+    signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
         signal |= conditions.cross_above(fast, slow, params.cross_lookback) & (direction == trades.LONG)
     if params.trade_short:
@@ -370,14 +371,14 @@ def crossover_legs(
     series is *not* overridden, so a drawn bar is taken on whichever side the averages were on.
     """
     fast, slow = crossover_averages(data, params)
-    direction_at = regime_direction(fast, slow)
+    direction_at: FloatArray = regime_direction(fast, slow)
     signal = crossover_signal(data, params) if signal is None else signal
-    quantities = np.asarray(params.leg_quantities, dtype=np.int64)
-    targets = np.asarray(params.target_r_multiples, dtype=np.float64)
-    atr = data.atr_values(params.atr_period) if params.use_atr_stop else NO_ATR
-    out = bracket.allocate_output(int(signal.sum()), quantities.size)
+    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
+    atr: FloatArray = data.atr_values(params.atr_period) if params.use_atr_stop else NO_ATR
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
-    count = simulate_crossover(
+    count: int = simulate_crossover(
         data.open,
         data.high,
         data.low,
@@ -406,7 +407,7 @@ def crossover_legs(
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
-        msg = "trade buffer overflowed; allocate_output's signal-count bound was violated"
+        msg: str = "trade buffer overflowed; allocate_output's signal-count bound was violated"
         raise RuntimeError(msg)
 
     return trades.validate_legs(trades.LegMatrix(out, count))
@@ -421,7 +422,7 @@ def run_crossover(
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
-    legs = crossover_legs(data, params, instrument, signal=signal)
+    legs: LegMatrix = crossover_legs(data, params, instrument, signal=signal)
     return trades.validate(
         trades.trades_to_frame(
             legs.matrix,

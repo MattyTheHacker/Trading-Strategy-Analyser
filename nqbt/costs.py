@@ -40,7 +40,7 @@ class TradingCosts:
     def __post_init__(self) -> None:
         """Reject a negative cost, which would pay the account to trade."""
         if self.commission_per_contract < 0.0 or self.slippage_ticks < 0.0:
-            msg = (
+            msg: str = (
                 f"costs cannot be negative; got commission_per_contract="
                 f"{self.commission_per_contract}, slippage_ticks={self.slippage_ticks}"
             )
@@ -53,9 +53,9 @@ class TradingCosts:
 
     def apply(self, params: ParamsT) -> ParamsT:
         """Return ``params`` with these costs substituted, leaving every other field alone."""
-        missing = [f for f in COST_FIELDS if f not in params.__dataclass_fields__]
+        missing: list[str] = [f for f in COST_FIELDS if f not in params.__dataclass_fields__]
         if missing:
-            msg = f"{type(params).__name__} has no {', '.join(missing)}; it cannot carry costs"
+            msg: str = f"{type(params).__name__} has no {', '.join(missing)}; it cannot carry costs"
             raise CostError(msg)
         return dataclasses.replace(
             params,

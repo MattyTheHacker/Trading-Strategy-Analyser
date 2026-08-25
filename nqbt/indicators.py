@@ -156,8 +156,8 @@ def nt8_bollinger(
     num_std: float,
 ) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Bollinger Bands as ``(upper, middle, lower)``: ``SMA +/- k * StdDev``."""
-    middle = nt8_sma(values, period)
-    spread = num_std * nt8_stddev(values, period)
+    middle: FloatArray = nt8_sma(values, period)
+    spread: FloatArray = num_std * nt8_stddev(values, period)
     return middle + spread, middle, middle - spread
 
 
@@ -173,8 +173,8 @@ def nt8_keltner(
     **Neither half matches the common definition**: an SMA of *typical* price, widened by the
     mean **high-low range** rather than by ATR -- ``docs/nt8-fidelity.md`` §M16.
     """
-    midline = nt8_sma(typical_price(high, low, close), period)
-    width = offset * nt8_sma(high - low, period)
+    midline: FloatArray = nt8_sma(typical_price(high, low, close), period)
+    width: FloatArray = offset * nt8_sma(high - low, period)
     return midline + width, midline, midline - width
 
 
@@ -213,8 +213,8 @@ def session_vwap(price: FloatArray, volume: FloatArray, new_session: BoolArray) 
 
 def new_session_flags(trading_day: DateArray) -> BoolArray:
     """Mark the first bar of each trading day in an ascending, in-session series."""
-    days = np.asarray(trading_day)
-    flags = np.zeros(days.size, dtype=np.bool_)
+    days: DateArray = np.asarray(trading_day)
+    flags: BoolArray = np.zeros(days.size, dtype=np.bool_)
     if days.size == 0:
         return flags
     flags[0] = True

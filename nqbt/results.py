@@ -53,7 +53,7 @@ NULL_MEANS: dict[str, str] = {
 def connect(db_path: Path = paths.SWEEPS_DB) -> duckdb.DuckDBPyConnection:
     """Open the sweep database, creating its directory and tables if they are missing."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(db_path))
+    con: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS sweeps (
@@ -89,7 +89,10 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
     frame rather than declared. Here rather than in :func:`_append_or_create` so there is one
     migration in one place.
     """
-    columns = {"sweeps": {**AXIS_COLUMNS, "batch_id": "BIGINT"}, "combos": AXIS_COLUMNS}
+    columns: dict[str, dict[str, str]] = {
+        "sweeps": {**AXIS_COLUMNS, "batch_id": "BIGINT"},
+        "combos": AXIS_COLUMNS,
+    }
     for table, wanted in columns.items():
         if not _table_exists(con, table):
             continue
@@ -101,7 +104,7 @@ def _count(con: duckdb.DuckDBPyConnection, sql: str, parameters: Sequence[object
     """The single number an aggregate query returns."""
     row = con.execute(sql, list(parameters)).fetchone()
     if row is None:  # pragma: no cover - an aggregate always returns exactly one row
-        msg = f"no row from {sql!r}"
+        msg: str = f"no row from {sql!r}"
         raise RuntimeError(msg)
     return int(row[0])
 
@@ -120,7 +123,7 @@ def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
     Taken once by the caller and passed to every :func:`save_sweep` of the run. Nothing locks
     it -- ``docs/roadmap.md`` §M17.
     """
-    con = connect(db_path)
+    con: duckdb.DuckDBPyConnection = connect(db_path)
     try:
         return _count(con, "SELECT COALESCE(MAX(batch_id), 0) + 1 FROM sweeps")
     finally:
@@ -151,9 +154,9 @@ def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has t
     :func:`next_batch_id`. The axis arguments default to ``None`` rather than being inferred
     from ``bars``; see :data:`NULL_MEANS` for what each null means.
     """
-    con = connect(db_path)
+    con: duckdb.DuckDBPyConnection = connect(db_path)
     try:
-        sweep_id = _next_id(con)
+        sweep_id: int = _next_id(con)
         # Named columns, not ``VALUES (?,?,...)``: a migrated database has the axis columns
         # at the end and a fresh one has them in the middle, so a positional insert lands
         # 'MNQ' in ``back_adjust`` rather than failing.
@@ -177,14 +180,14 @@ def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has t
             "notes": notes,
             "host": platform.node(),
         }
-        columns = ", ".join(row)
-        placeholders = ", ".join("?" * len(row))
+        columns: str = ", ".join(row)
+        placeholders: str = ", ".join("?" * len(row))
         con.execute(
             f"INSERT INTO sweeps ({columns}) VALUES ({placeholders})",  # noqa: S608 - keys of a dict built here
             list(row.values()),
         )
 
-        tagged = _tag_axes(
+        tagged: pd.DataFrame = _tag_axes(
             results,
             strategy=strategy,
             resolution=resolution,
@@ -211,7 +214,7 @@ def _tag_axes(
     The dtypes are load-bearing, and a frame that already carries a column keeps its own values
     -- ``docs/roadmap.md`` §M17.
     """
-    tagged = results.copy()
+    tagged: pd.DataFrame = results.copy()
     supplied: dict[str, tuple[str | int | None, Literal["string", "Int64"]]] = {
         "strategy": (strategy, "string"),
         "resolution": (resolution, "Int64"),
@@ -232,14 +235,14 @@ def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.Data
     but the table does not is dropped -- ``docs/roadmap.md`` §M17. :data:`AXIS_COLUMNS` are
     exempt from that and migrated up front by :func:`_migrate_axis_columns`.
     """
-    exists = _count(con, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table])
+    exists: int = _count(con, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table])
     if not exists:
         con.register("incoming", frame)
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM incoming")  # noqa: S608 - a literal at both callers
         return
 
-    stored = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
-    aligned = frame.copy()
+    stored: list[str] = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
+    aligned: pd.DataFrame = frame.copy()
     for name in stored:
         if name not in aligned.columns:
             aligned[name] = None
@@ -268,9 +271,9 @@ def save_trades(
     The frame carries its own ``source`` and ``instrument`` tags, so simulated and imported
     trades share this table.
     """
-    con = connect(db_path)
+    con: duckdb.DuckDBPyConnection = connect(db_path)
     try:
-        tagged = trades.copy()
+        tagged: pd.DataFrame = trades.copy()
         tagged.insert(0, "combo_id", combo_id)
         tagged.insert(0, "sweep_id", sweep_id)
         _append_or_create(con, "trades", tagged)
@@ -280,7 +283,7 @@ def save_trades(
 
 def query(sql: str, db_path: Path = paths.SWEEPS_DB) -> pd.DataFrame:
     """Run SQL against the results database."""
-    con = connect(db_path)
+    con: duckdb.DuckDBPyConnection = connect(db_path)
     try:
         return con.execute(sql).fetch_df()
     finally:
@@ -305,7 +308,7 @@ def best(
     db_path: Path = paths.SWEEPS_DB,
 ) -> pd.DataFrame:
     """Top candidates, across every sweep unless one is named."""
-    where = f"WHERE trades >= {int(min_trades)}"
+    where: str = f"WHERE trades >= {int(min_trades)}"
     if sweep_id is not None:
         where += f" AND sweep_id = {int(sweep_id)}"
     return query(

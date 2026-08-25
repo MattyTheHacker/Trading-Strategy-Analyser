@@ -2120,6 +2120,22 @@ the one place a wrong dtype is silently lossy. `nqbt/arrays.py` names each dtype
 checks is worse than none. **Do not annotate inside an `@njit` function expecting numba to use
 it** — it infers from the call, ignores the annotation, and a wrong one reads as a guarantee.
 
+**Locals carry their type too, and mypy is what says they are right.** The signatures were
+already annotated; the bodies were not, so a reader had to re-derive from the expression what the
+signature stated once. Roughly 750 locals now name their type, derived from what mypy itself
+infers rather than from reading each expression, and the two constraints that shaped where they
+do not are worth keeping: a name can be annotated only **once per scope**, so the first binding is
+the declaration and one bound in two arms of a branch is declared above it; and `AnyArray` is a
+concrete `dtype[generic[object]]` rather than a wildcard, so annotating a local with it
+type-checks at the assignment and fails at every use after it.
+
+**The stubs are still not the runtime.** mypy proves an annotation is consistent with the stubs,
+which is what `DateArray` was before numpy 2.5. So the 178 array-alias locals were also checked
+the other way, by instrumenting a throwaway copy of the package with a dtype assertion after each
+one and running the suite over it — all 178 match. `OffsetArray` is the one alias this pass
+added: `np.intp` is what `flatnonzero`, `argsort` and `searchsorted` return, and it is not
+`int64` on every platform, so `IntArray` would have been a promise the package cannot keep.
+
 Three decisions the configuration now carries, each with its reason beside it in
 `pyproject.toml`:
 

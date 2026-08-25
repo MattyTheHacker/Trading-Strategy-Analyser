@@ -95,7 +95,7 @@ ALL_PHASES = (1 << len(SessionPhase)) - 1
 
 def phases_mask(phases: Iterable[SessionPhase]) -> int:
     """Combine phases into the bitmask an archetype's ``phase_filter`` takes."""
-    mask = 0
+    mask: int = 0
     for phase in phases:
         mask |= SessionPhase(phase).bit
     return mask
@@ -110,7 +110,9 @@ def phases_in(mask: int) -> tuple[SessionPhase, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no phase owns."""
     if mask < 0 or mask & ~ALL_PHASES:
-        msg = f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
+        msg: str = (
+            f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
+        )
         raise TimeOfDayError(msg)
     if mask == 0:
         msg = "phase mask 0 admits no phase, so every combination along it would trade nothing"
@@ -134,16 +136,16 @@ def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) ->
     Validated on every call, not once at import, because the boundaries are relative to the
     template's open -- ``docs/roadmap.md`` §M10.4.
     """
-    starts = np.array(
+    starts: IntArray = np.array(
         [
             ((t.hour * 3600 + t.minute * 60 + t.second - template.open_seconds) % SECONDS_PER_DAY) // 60
             for _, t in PHASE_STARTS
         ],
         dtype=np.int64,
     )
-    length = session_minutes(template)
+    length: int = session_minutes(template)
     if starts[0] != 0:
-        msg = f"the first phase must begin at the session open; got {starts[0]} minutes past it"
+        msg: str = f"the first phase must begin at the session open; got {starts[0]} minutes past it"
         raise TimeOfDayError(msg)
     if np.any(np.diff(starts) <= 0):
         msg = f"phase starts must ascend within the session; got {starts.tolist()} minutes past the open"
@@ -163,8 +165,8 @@ def phase_from_minutes(
     ``minutes`` is :func:`nqbt.resample.minutes_since_open`, so the minute a bar *occupies* is
     one less. Out-of-session bars are not identifiable here; :func:`classify` marks those.
     """
-    occupied = np.asarray(minutes, dtype=np.int64) - 1
-    starts = phase_start_minutes(template)
+    occupied: IntArray = np.asarray(minutes, dtype=np.int64) - 1
+    starts: IntArray = phase_start_minutes(template)
     return (np.searchsorted(starts, occupied, side="right") - 1).astype(np.int8)
 
 
@@ -174,8 +176,8 @@ def bits_from_phase(phase: LabelArray) -> BitsArray:
     Precomputed so testing a filter is one ``&`` over the series.
     """
     phase = np.asarray(phase)
-    bits = np.zeros(phase.size, dtype=np.uint8)
-    inside = phase >= 0
+    bits: BitsArray = np.zeros(phase.size, dtype=np.uint8)
+    inside: BoolArray = phase >= 0
     bits[inside] = (1 << phase[inside].astype(np.int64)).astype(np.uint8)
     return bits
 
@@ -187,7 +189,7 @@ def bar_index_from_minutes(minutes: IntArray, bar_minutes: int) -> IndexArray:
     quantity :func:`nqbt.resample.bucket_index` groups by.
     """
     if bar_minutes < 1:
-        msg = f"bar_minutes must be >= 1, got {bar_minutes}"
+        msg: str = f"bar_minutes must be >= 1, got {bar_minutes}"
         raise TimeOfDayError(msg)
     return ((np.asarray(minutes, dtype=np.int64) - 1) // bar_minutes).astype(np.int32)
 
@@ -198,10 +200,10 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
     The mode, not the minimum or the mean -- ``docs/roadmap.md`` §M10.4. Falls back to 1 for an
     index too short to have a gap.
     """
-    stamps = pd.DatetimeIndex(index)
+    stamps: pd.DatetimeIndex = pd.DatetimeIndex(index)
     if stamps.size < MIN_STAMPS_FOR_A_GAP:
         return 1
-    naive = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
+    naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
     deltas = np.diff(naive.to_numpy().astype("datetime64[m]").astype(np.int64))
     positive = deltas[deltas > 0]
     if positive.size == 0:
@@ -253,16 +255,16 @@ def classify(
     ``info`` lets a caller that has already run :func:`nqbt.sessions.classify` skip a second tz
     conversion over millions of rows.
     """
-    stamps = pd.DatetimeIndex(index)
+    stamps: pd.DatetimeIndex = pd.DatetimeIndex(index)
     if info is None:
         info = sessions.classify(stamps, template)
-    size = bar_minutes if bar_minutes is not None else infer_bar_minutes(stamps)
+    size: int = bar_minutes if bar_minutes is not None else infer_bar_minutes(stamps)
 
-    minutes = resample.minutes_since_open(stamps, template)
-    phase = phase_from_minutes(minutes, template)
-    bar = bar_index_from_minutes(minutes, size)
+    minutes: IntArray = resample.minutes_since_open(stamps, template)
+    phase: LabelArray = phase_from_minutes(minutes, template)
+    bar: IndexArray = bar_index_from_minutes(minutes, size)
 
-    outside = ~info.in_session
+    outside: BoolArray = ~info.in_session
     phase[outside] = OUT_OF_SESSION
     bar[outside] = OUT_OF_SESSION
 

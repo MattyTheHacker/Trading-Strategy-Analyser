@@ -18,9 +18,10 @@ from nqbt.sim import bracket, deadcat, filters
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.arrays import BoolArray
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.context import Dataset
     from nqbt.sim.types import DeadCatParams
+    from nqbt.trades import LegMatrix
 
 
 def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
@@ -28,7 +29,7 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
 
     The inverted hammer is not optional -- ``DeadCatBounce.cs`` has no toggle for it.
     """
-    signal = data.geometry.inverted_hammer.copy()
+    signal: BoolArray = data.geometry.inverted_hammer.copy()
     if params.require_new_high:
         signal &= data.geometry.made_new_high
     if params.require_previous_green:
@@ -60,11 +61,11 @@ def deadcat_legs(
     substitutes so that it runs **this** function rather than its own copy of the simulation.
     """
     signal = deadcat_signal(data, params) if signal is None else signal
-    quantities = np.asarray(params.leg_quantities, dtype=np.int64)
-    targets = np.asarray(params.target_r_multiples, dtype=np.float64)
-    out = bracket.allocate_output(int(signal.sum()), quantities.size)
+    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
-    count = deadcat.simulate_deadcat(
+    count: int = deadcat.simulate_deadcat(
         data.open,
         data.high,
         data.low,
@@ -93,7 +94,7 @@ def deadcat_legs(
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
-        msg = "trade buffer overflowed; allocate_output's signal-count bound was violated"
+        msg: str = "trade buffer overflowed; allocate_output's signal-count bound was violated"
         raise RuntimeError(msg)
 
     return trades.validate_legs(trades.LegMatrix(out, count))
@@ -108,7 +109,7 @@ def run_deadcat(
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
-    legs = deadcat_legs(data, params, instrument, signal=signal)
+    legs: LegMatrix = deadcat_legs(data, params, instrument, signal=signal)
     return trades.validate(
         trades.trades_to_frame(
             legs.matrix,

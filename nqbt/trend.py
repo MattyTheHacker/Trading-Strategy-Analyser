@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from nqbt.arrays import BoolArray, FloatArray, LabelArray
+    from nqbt.conditions import MovingAverageGrid
 
 __all__ = [
     "ALL_TRENDS",
@@ -130,7 +131,7 @@ class TrendKey(NamedTuple):
 
 def trends_mask(trends: Iterable[Trend]) -> int:
     """Combine trends into the bitmask an archetype's ``trend_filter`` takes."""
-    mask = 0
+    mask: int = 0
     for state in trends:
         mask |= Trend(state).bit
     return mask
@@ -145,7 +146,7 @@ def trends_in(mask: int) -> tuple[Trend, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no trend owns."""
     if mask < 0 or mask & ~ALL_TRENDS:
-        msg = f"trend mask {mask} sets bits outside 0..{ALL_TRENDS}; use Trend.bit or trends_mask()"
+        msg: str = f"trend mask {mask} sets bits outside 0..{ALL_TRENDS}; use Trend.bit or trends_mask()"
         raise TrendError(msg)
     if mask == 0:
         msg = "trend mask 0 admits no trend, so every combination along it would trade nothing"
@@ -165,7 +166,7 @@ def validate_periods(fast_period: int, slow_period: int) -> None:
     reverses what the label means without changing a single name.
     """
     if fast_period < 1:
-        msg = f"trend_fast_period must be >= 1, got {fast_period}"
+        msg: str = f"trend_fast_period must be >= 1, got {fast_period}"
         raise TrendError(msg)
     if fast_period >= slow_period:
         msg = (
@@ -178,7 +179,7 @@ def validate_periods(fast_period: int, slow_period: int) -> None:
 def validate_slope_lookback(slope_lookback: int) -> int:
     """Reject a slope the label is degenerate at -- see :data:`MIN_SLOPE_LOOKBACK`."""
     if slope_lookback < MIN_SLOPE_LOOKBACK:
-        msg = f"trend slope lookback must be >= {MIN_SLOPE_LOOKBACK}, got {slope_lookback}"
+        msg: str = f"trend slope lookback must be >= {MIN_SLOPE_LOOKBACK}, got {slope_lookback}"
         raise TrendError(msg)
     return slope_lookback
 
@@ -190,7 +191,7 @@ def validate_min_agreement(min_agreement: int) -> int:
     :data:`N_COMPONENTS` is unreachable and would label the whole series MIXED.
     """
     if not 1 <= min_agreement <= N_COMPONENTS:
-        msg = f"trend_min_agreement must lie in 1..{N_COMPONENTS}, got {min_agreement}"
+        msg: str = f"trend_min_agreement must lie in 1..{N_COMPONENTS}, got {min_agreement}"
         raise TrendError(msg)
     return min_agreement
 
@@ -339,7 +340,7 @@ class TrendGrid:
         try:
             return self.keys.index(wanted)
         except ValueError:
-            msg = f"trend label {wanted} is not in this grid; built for {list(self.keys)}"
+            msg: str = f"trend label {wanted} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg) from None
 
     def agreement_for(self, wanted: TrendKey) -> FloatArray:
@@ -376,17 +377,19 @@ def trend_grid(close: FloatArray, keys: Iterable[TrendKey]) -> TrendGrid:
     costs a fraction of the shared grid's, and nothing outside this function ever sees it --
     ``docs/roadmap.md`` §M10.3.
     """
-    ordered = tuple(sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys}))
+    ordered: tuple[TrendKey, ...] = tuple(
+        sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys})
+    )
     if not ordered:
-        msg = "no trend labels supplied"
+        msg: str = "no trend labels supplied"
         raise TrendError(msg)
 
     close = np.ascontiguousarray(close, dtype=np.float64)
-    periods = sorted({p for k in ordered for p in (k.fast_period, k.slow_period)})
-    averages = conditions.moving_average_grid(close, periods, KIND, keep_values=True)
+    periods: list[int] = sorted({p for k in ordered for p in (k.fast_period, k.slow_period)})
+    averages: MovingAverageGrid = conditions.moving_average_grid(close, periods, KIND, keep_values=True)
 
-    agreement = np.empty((len(ordered), close.size), dtype=np.float64)
-    votes = np.empty((len(ordered), N_COMPONENTS, close.size), dtype=np.int8)
+    agreement: FloatArray = np.empty((len(ordered), close.size), dtype=np.float64)
+    votes: LabelArray = np.empty((len(ordered), N_COMPONENTS, close.size), dtype=np.int8)
     for i, wanted in enumerate(ordered):
         votes[i], agreement[i] = _components(
             close,

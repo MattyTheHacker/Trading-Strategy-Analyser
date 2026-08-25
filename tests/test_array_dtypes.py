@@ -120,6 +120,14 @@ def test_every_raw_series_is_float64(data: context.Dataset) -> None:
     assert data.relative_volume(SPEC.volume_keys[0]).dtype == np.float64
 
 
+def test_positions_into_an_array_are_intp_however_they_are_produced() -> None:
+    """What ``OffsetArray`` claims: numpy picks this width, and it is not int64 everywhere."""
+    values = np.array([3.0, 1.0, 2.0, 1.0])
+    assert np.flatnonzero(values > 1.5).dtype == np.intp
+    assert np.argsort(values, kind="stable").dtype == np.intp
+    assert np.searchsorted(np.sort(values), values, side="left").dtype == np.intp
+
+
 def test_day_codes_stay_narrow(data: context.Dataset) -> None:
     assert data.day_codes is not None
     assert data.day_codes.dtype == np.int32

@@ -19,7 +19,8 @@ from nqbt import sessions
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
 
 if TYPE_CHECKING:
-    from nqbt.arrays import IntArray
+    from nqbt.arrays import BoolArray, DateArray, IntArray, OffsetArray
+    from nqbt.sessions import SessionInfo
 
 SECONDS_PER_DAY = 86_400
 
@@ -50,10 +51,10 @@ def minutes_since_open(
     Runs 1 to 1,380 over a full 18:00 -> 17:00 ET session. No DST bookkeeping is needed: US
     transitions fall at 02:00 ET on a Sunday, when the market is shut.
     """
-    naive = sessions.to_eastern(pd.DatetimeIndex(index)).tz_localize(None)
-    seconds = (naive.hour * 3600 + naive.minute * 60 + naive.second).to_numpy()
-    open_s = template.open_seconds
-    past_open = np.where(seconds > open_s, seconds - open_s, seconds + SECONDS_PER_DAY - open_s)
+    naive: pd.DatetimeIndex = sessions.to_eastern(pd.DatetimeIndex(index)).tz_localize(None)
+    seconds: IntArray = (naive.hour * 3600 + naive.minute * 60 + naive.second).to_numpy()
+    open_s: int = template.open_seconds
+    past_open: IntArray = np.where(seconds > open_s, seconds - open_s, seconds + SECONDS_PER_DAY - open_s)
     return (past_open // 60).astype(np.int64)
 
 
@@ -66,10 +67,10 @@ def bucket_index(
 
     A bar stamped at minute ``m`` occupies index ``m - 1``, because the stamp is its close.
     """
-    end_minute = minutes_since_open(index, template)
-    occupies = end_minute - 1
-    bucket = occupies // minutes
-    to_bucket_close = (bucket + 1) * minutes - end_minute
+    end_minute: IntArray = minutes_since_open(index, template)
+    occupies: IntArray = end_minute - 1
+    bucket: IntArray = occupies // minutes
+    to_bucket_close: IntArray = (bucket + 1) * minutes - end_minute
     return bucket, to_bucket_close
 
 
@@ -85,42 +86,42 @@ def resample(
     Both are load-bearing -- ``docs/roadmap.md`` §M13.
     """
     if minutes < 1:
-        msg = f"minutes must be >= 1, got {minutes}"
+        msg: str = f"minutes must be >= 1, got {minutes}"
         raise ResampleError(msg)
     if minutes == 1:
         return bars
     if bars.empty:
         return bars
 
-    info = sessions.classify(pd.DatetimeIndex(bars.index), template)
-    frame = bars[info.in_session]
+    info: SessionInfo = sessions.classify(pd.DatetimeIndex(bars.index), template)
+    frame: pd.DataFrame = bars[info.in_session]
     if frame.empty:
         return frame
 
-    day = info.trading_day[info.in_session]
-    stamps = pd.DatetimeIndex(frame.index)
+    day: DateArray = info.trading_day[info.in_session]
+    stamps: pd.DatetimeIndex = pd.DatetimeIndex(frame.index)
     bucket, to_close = bucket_index(stamps, minutes, template)
 
     # Group id per (trading day, bucket). The day is what stops a bucket spanning the
     # maintenance break or the weekend.
-    starts_group = np.empty(len(frame), dtype=bool)
+    starts_group: BoolArray = np.empty(len(frame), dtype=bool)
     starts_group[0] = True
     starts_group[1:] = (day[1:] != day[:-1]) | (bucket[1:] != bucket[:-1])
-    gid = np.cumsum(starts_group) - 1
+    gid: IntArray = np.cumsum(starts_group) - 1
 
-    how = {c: AGGREGATIONS.get(c, PASSTHROUGH) for c in frame.columns}
-    out = frame.groupby(gid, sort=False).agg(how)
+    how: dict[str, str] = {c: AGGREGATIONS.get(c, PASSTHROUGH) for c in frame.columns}
+    out: pd.DataFrame = frame.groupby(gid, sort=False).agg(how)
 
     # Stamp each bucket at its close, capped at the session's observed last bar. Integer
     # nanoseconds throughout, because a tz-aware DatetimeIndex hands back object dtype;
     # ``dtype=`` is not optional, since pandas otherwise returns datetime64[us] and reading
     # that as nanoseconds puts every bar in 1970.
-    ns = stamps.tz_convert("UTC").tz_localize(None).to_numpy(dtype="datetime64[ns]").astype("int64")
-    closes = ns + to_close * 60 * 1_000_000_000
-    session_last = pd.Series(ns).groupby(day).transform("max").to_numpy()
-    stamped = np.minimum(closes, session_last)
+    ns: IntArray = stamps.tz_convert("UTC").tz_localize(None).to_numpy(dtype="datetime64[ns]").astype("int64")
+    closes: IntArray = ns + to_close * 60 * 1_000_000_000
+    session_last: IntArray = pd.Series(ns).groupby(day).transform("max").to_numpy()
+    stamped: IntArray = np.minimum(closes, session_last)
 
-    first_of_group = np.flatnonzero(starts_group)
+    first_of_group: OffsetArray = np.flatnonzero(starts_group)
     out.index = pd.DatetimeIndex(
         stamped[first_of_group].astype("datetime64[ns]"),
         tz="UTC",

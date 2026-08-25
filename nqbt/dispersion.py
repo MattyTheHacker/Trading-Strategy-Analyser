@@ -22,7 +22,8 @@ from nqbt.instruments import MNQ, ContractId, Instrument
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from nqbt.arrays import FloatArray
+    from nqbt.arrays import FloatArray, IntArray
+    from nqbt.sessions import SessionInfo
 
 MIN_CONTRACTS = 2
 """Fewest contracts a spread can be measured across."""
@@ -53,9 +54,9 @@ def front_month_windows(
     ``back_adjust`` selects which cached series to read the *labels* from; prices are never
     used here and the bars are reloaded raw.
     """
-    series = splice.load_continuous(root, back_adjust=back_adjust, cache_dir=cache_dir)
+    series: pd.DataFrame = splice.load_continuous(root, back_adjust=back_adjust, cache_dir=cache_dir)
     grouped = series.groupby("contract", observed=True)
-    windows = pd.DataFrame(
+    windows: pd.DataFrame = pd.DataFrame(
         {
             "start": grouped.apply(lambda d: d.index.min()),
             "end": grouped.apply(lambda d: d.index.max()),
@@ -79,16 +80,16 @@ def contract_frames(
     adjacent contracts overlap by months and anything aggregated across them double-counts
     calendar days.
     """
-    windows = front_month_windows(root, back_adjust=back_adjust, cache_dir=cache_dir)
+    windows: pd.DataFrame = front_month_windows(root, back_adjust=back_adjust, cache_dir=cache_dir)
     frames: dict[str, pd.DataFrame] = {}
     for name, window in windows.iterrows():
-        bars = ingest.load_contract(ContractId.parse(str(name)), cache_dir)
+        bars: pd.DataFrame = ingest.load_contract(ContractId.parse(str(name)), cache_dir)
         if not full_life:
             bars = bars[(bars.index >= window.start) & (bars.index <= window.end)]
         if len(bars):
             frames[str(name)] = bars
     if not frames:
-        msg = f"no cached per-contract bars for {root}"
+        msg: str = f"no cached per-contract bars for {root}"
         raise DispersionError(msg)
     return frames
 
@@ -100,9 +101,9 @@ def coverage(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
     the newest is always partial, so a profit factor from 30 trades would otherwise sit
     unlabelled beside one from 400.
     """
-    rows = []
+    rows: list[dict[str, object]] = []
     for name, bars in frames.items():
-        info = sessions.classify(pd.DatetimeIndex(bars.index))
+        info: SessionInfo = sessions.classify(pd.DatetimeIndex(bars.index))
         rows.append(
             {
                 "contract": name,
@@ -136,13 +137,15 @@ def sweep_contracts(
 
     A table, not a ranking -- use :func:`dispersion`.
     """
-    frames = contract_frames(root, full_life=full_life, back_adjust=back_adjust, cache_dir=cache_dir)
-    cover = coverage(frames)
+    frames: dict[str, pd.DataFrame] = contract_frames(
+        root, full_life=full_life, back_adjust=back_adjust, cache_dir=cache_dir
+    )
+    cover: pd.DataFrame = coverage(frames)
 
     # No empty-table guard: a sweep always returns one row per combination, and
     # ``contract_frames`` has already refused an empty set of contracts.
     results, axis_logs = sweep.sweep_axes(frames, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs)
-    contract_column = results.pop("contract")
+    contract_column: pd.Series[str] = results.pop("contract")
     results.insert(0, "contract", contract_column)
     logs = {(point.contract, combo_id): log for (point, combo_id), log in axis_logs.items()}
 
@@ -161,14 +164,14 @@ def dispersion(
     §M14. Read ``contracts_dropped`` beside the spread.
     """
     if by not in results.columns:
-        msg = f"no column {by!r} in results; have {sorted(results.columns)}"
+        msg: str = f"no column {by!r} in results; have {sorted(results.columns)}"
         raise DispersionError(msg)
 
-    rows = []
+    rows: list[dict[str, object]] = []
     for combo_id, group in results.groupby("combo_id", sort=True):
-        viable = group[group["trades"] >= min_trades]
-        values = viable[by].to_numpy(dtype=float)
-        finite = values[np.isfinite(values)]
+        viable: pd.DataFrame = group[group["trades"] >= min_trades]
+        values: FloatArray = viable[by].to_numpy(dtype=float)
+        finite: FloatArray = values[np.isfinite(values)]
         rows.append(
             {
                 "combo_id": combo_id,
@@ -223,7 +226,7 @@ def spread_vs_resampling(
     limits: ``docs/roadmap.md`` §M14.
     """
     if by not in stats.TRADE_PNL_STATISTICS:
-        msg = (
+        msg: str = (
             f"{by!r} is not permutable: shuffling trades between contracts destroys the "
             f"ordering it depends on. Choose from {list(stats.TRADE_PNL_STATISTICS)}."
         )
@@ -231,14 +234,16 @@ def spread_vs_resampling(
             msg,
         )
 
-    grouped = {c: stats.per_trade(log)["net_pnl"].to_numpy(float) for c, log in logs.items()}
-    usable = {c: pnl for c, pnl in grouped.items() if pnl.size >= min_trades}
+    grouped: dict[str, FloatArray] = {
+        c: stats.per_trade(log)["net_pnl"].to_numpy(float) for c, log in logs.items()
+    }
+    usable: dict[str, FloatArray] = {c: pnl for c, pnl in grouped.items() if pnl.size >= min_trades}
     if len(usable) < MIN_CONTRACTS:
         msg = f"need at least {MIN_CONTRACTS} contracts with >= {min_trades} trades; got {len(usable)}"
         raise DispersionError(msg)
 
-    observed_stats = {c: stats.trade_statistic(pnl, by) for c, pnl in usable.items()}
-    observed_values = np.fromiter(observed_stats.values(), dtype=float, count=len(usable))
+    observed_stats: dict[str, float] = {c: stats.trade_statistic(pnl, by) for c, pnl in usable.items()}
+    observed_values: FloatArray = np.fromiter(observed_stats.values(), dtype=float, count=len(usable))
     if not np.isfinite(observed_values).all():
         msg = (
             f"{by} is not finite on every contract, so no spread can be measured. A "
@@ -248,25 +253,25 @@ def spread_vs_resampling(
             msg,
         )
 
-    pooled = np.concatenate(list(usable.values()))
+    pooled: FloatArray = np.concatenate(list(usable.values()))
     # Cut points, so every permutation reproduces the observed group sizes exactly.
-    bounds = np.cumsum([pnl.size for pnl in usable.values()])[:-1]
+    bounds: IntArray = np.cumsum([pnl.size for pnl in usable.values()])[:-1]
 
-    rng = np.random.default_rng(seed)
-    null = np.empty((iterations, len(SPREAD_MEASURES)), dtype=float)
+    rng: np.random.Generator = np.random.default_rng(seed)
+    null: FloatArray = np.empty((iterations, len(SPREAD_MEASURES)), dtype=float)
     for i in range(iterations):
-        shuffled = rng.permutation(pooled)
-        values = np.fromiter(
+        shuffled: FloatArray = rng.permutation(pooled)
+        values: FloatArray = np.fromiter(
             (stats.trade_statistic(part, by) for part in np.split(shuffled, bounds)),
             dtype=float,
             count=len(usable),
         )
         null[i] = [measure(values) for measure in SPREAD_MEASURES.values()]
 
-    spread = {}
+    spread: dict[str, dict[str, float]] = {}
     for column, (name, measure) in enumerate(SPREAD_MEASURES.items()):
-        observed = measure(observed_values)
-        draws = null[:, column]
+        observed: float = measure(observed_values)
+        draws: FloatArray = null[:, column]
         spread[name] = {
             "observed": observed,
             "null_median": float(np.median(draws)),
