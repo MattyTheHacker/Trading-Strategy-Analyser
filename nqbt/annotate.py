@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from nqbt import ingest, notes, paths, regime, timeofday, trend, volume
-from nqbt.arrays import AnyArray, BoolArray, DateArray, IntArray, LabelArray, TextArray
+from nqbt.arrays import AnyArray, BoolArray, DateArray, IntArray, LabelArray
 from nqbt.instruments import ContractId
 
 if TYPE_CHECKING:
@@ -584,7 +584,7 @@ def _trend_suffix(key: trend.TrendKey) -> str:
     return f"{key.fast_period}_{key.slow_period}_{key.slope_lookback}"
 
 
-def _named(codes: LabelArray, names: Sequence[str], undefined: str) -> TextArray:
+def _named(codes: LabelArray, names: Sequence[str], undefined: str) -> AnyArray:
     """Turn label codes into their names, ``-1`` becoming ``undefined``."""
     lookup = np.array([undefined, *names], dtype=object)
     return lookup[np.asarray(codes, dtype=np.int64) + 1]

@@ -490,7 +490,8 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
     leg = 0
     for fill in fills.itertuples(index=False):
         remaining = int(fill.quantity)  # type: ignore[arg-type]  # itertuples widens every column
-        opening = trades.LONG if fill.signed > 0 else trades.SHORT  # type: ignore[operator]  # the same widening
+        signed = int(fill.signed)  # type: ignore[arg-type]  # the same widening
+        opening = trades.LONG if signed > 0 else trades.SHORT
         while lots and opening != direction and remaining:
             lot = lots[0]
             matched = min(lot.remaining, remaining)

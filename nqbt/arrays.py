@@ -9,6 +9,8 @@ ignores the annotation entirely -- ``docs/roadmap.md`` §M20b.
 
 from __future__ import annotations
 
+import datetime as dt
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -21,7 +23,6 @@ __all__ = [
     "IndexArray",
     "IntArray",
     "LabelArray",
-    "TextArray",
 ]
 
 type FloatArray = NDArray[np.float64]
@@ -42,11 +43,16 @@ type IndexArray = NDArray[np.int32]
 type BitsArray = NDArray[np.uint8]
 """``1 << label`` per bar, so testing a filter is one ``&`` over the series."""
 
-type DateArray = NDArray[np.datetime64]
-"""Whole dates, as ``datetime64[D]``: the trading day each bar belongs to."""
+type DateArray = NDArray[np.datetime64[dt.date | int | None]]
+"""Whole dates, as ``datetime64[D]``: the trading day each bar belongs to.
 
-type TextArray = NDArray[np.object_]
-"""Label names, which numpy holds as objects rather than as a fixed-width string dtype."""
+Parameterised rather than bare because numpy 2.5 changed that parameter's default from
+this union to ``Any``, which a bare ``np.datetime64`` would then smuggle in.
+"""
 
 type AnyArray = np.ndarray[tuple[int, ...], np.dtype[np.generic[object]]]
-"""Any of the above, where a column's dtype is the caller's business rather than this one's."""
+"""Any of the above, where a column's dtype is the caller's business rather than this one's.
+
+Also what an array of label names is: numpy holds those as objects, and ``np.object_`` is
+itself generic, so naming that dtype would be an explicit ``Any``.
+"""

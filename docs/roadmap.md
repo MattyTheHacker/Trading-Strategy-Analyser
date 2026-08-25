@@ -2141,6 +2141,15 @@ under `mypy_path`.
 errors gets switched off, so both tools reached zero *before* the CI job that enforces it
 existed, in a separate commit each.
 
+**The stubs move under you, and a clean local run does not prove a clean CI run.** `DateArray`
+was `NDArray[np.datetime64]` and type-checked against the numpy in the venv; CI installs the
+newest, and numpy 2.5 changed that parameter's default from `dt.date | int | None` to `Any`, so
+the alias smuggled in an explicit `Any` and the new gate failed on a machine nobody had run.
+Every alias that could carry a defaulted parameter now states it. The dependencies are `>=` and
+CI resolves them fresh, so **one minor version behind locally is enough to hide a failure** —
+and `extend-select = ["ALL"]` means a ruff release can add a rule the same way. Type-check
+against the versions CI would install before believing a local zero.
+
 ### M20c — structural cleanups ([#58])
 
 Worth doing when adjacent rather than as a project. `simulate_deadcat` takes 23 parameters and
