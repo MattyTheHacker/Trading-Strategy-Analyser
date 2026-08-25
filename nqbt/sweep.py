@@ -21,17 +21,17 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, Unpack
 
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
 from nqbt import archetypes, context, resample, stats, trades
-from nqbt.context import ContextSpec, Dataset
+from nqbt.context import ContextSpec, Dataset, PrepareOptions
 from nqbt.instruments import MNQ, Instrument
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
     from nqbt.archetypes import Archetype, Params
 
@@ -116,7 +116,13 @@ class Grid:
         return dead
 
     @classmethod
-    def of(cls, base: Params | None = None, *, archetype: Archetype | None = None, **axes) -> Grid:
+    def of(
+        cls,
+        base: Params | None = None,
+        *,
+        archetype: Archetype | None = None,
+        **axes: Iterable[object],
+    ) -> Grid:
         """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
         if archetype is None:
             archetype = archetypes.for_params(base) if base is not None else archetypes.DEFAULT
@@ -156,7 +162,7 @@ class Grid:
         return self.archetype.context_for(self.axis_values())
 
 
-def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs) -> Dataset:
+def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs: Unpack[PrepareOptions]) -> Dataset:
     """Build the shared dataset covering every series the grid needs."""
     return context.prepare(bars, grid.required_context(), **kwargs)
 

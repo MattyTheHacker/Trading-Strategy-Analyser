@@ -15,7 +15,7 @@ each other.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -379,6 +379,17 @@ def day_codes(index: pd.Index) -> IndexArray | None:
 
 DEFAULT_SPEC = ContextSpec(ema_periods=(21,), sma_periods=(60, 175), needs_vwap=True)
 """What :func:`prepare` builds when nothing says otherwise: the pre-#27 unconditional set."""
+
+
+class PrepareOptions(TypedDict, total=False):
+    """Everything :func:`prepare` takes beyond the bars and the spec.
+
+    Named once so a wrapper can forward them without restating a default.
+    """
+
+    exit_on_close_seconds: int
+    keep_ma_values: bool
+    bar_minutes: int | None
 
 
 def prepare(
