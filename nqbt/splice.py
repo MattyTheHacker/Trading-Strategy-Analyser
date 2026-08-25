@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import pandas as pd
 
@@ -33,6 +33,7 @@ from nqbt import ingest, paths
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from nqbt.arrays import BoolArray
     from nqbt.instruments import ContractId
 
 FULL_SESSION_FRACTION = 0.5
@@ -74,14 +75,17 @@ class RollDecision:
 
     @property
     def crossover_observed(self) -> bool:
+        """Whether the roll day came from an observed volume crossover."""
         return self.method == METHOD_VOLUME
 
     @property
     def looks_early(self) -> bool:
+        """Whether the roll fired while the front contract was still dominant."""
         return not self.crossover_observed and self.handover_ratio < EARLY_ROLL_RATIO
 
+    @override
     def __str__(self) -> str:
-        flag = "  [!] " if self.looks_early else ""
+        flag: str = "  [!] " if self.looks_early else ""
         return (
             f"{flag}{self.front.nt8_name} -> {self.back.nt8_name}  "
             f"roll {self.roll_day.date()}  via {self.method}  "
@@ -101,14 +105,17 @@ class SpliceReport:
 
     @property
     def all_crossovers_observed(self) -> bool:
+        """Whether every roll in the series came from an observed crossover."""
         return all(r.crossover_observed for r in self.rolls)
 
     @property
     def early_rolls(self) -> list[RollDecision]:
+        """The rolls that fired while the front contract was still dominant."""
         return [r for r in self.rolls if r.looks_early]
 
     def summary(self) -> str:
-        lines = [
+        """The whole report as text, for eyeballing before trusting a sweep."""
+        lines: list[str] = [
             f"{self.root} continuous series{' (back-adjusted)' if self.back_adjusted else ' (raw prices)'}",
             "",
             "Rolls:",
@@ -116,7 +123,7 @@ class SpliceReport:
             "",
             "Segments:",
             *(
-                f"  {r.contract:<12} {r.start.date()} -> {r.end.date()}  {r.bars:>7,} bars"
+                f"  {r.contract:<12} {r.start:%Y-%m-%d} -> {r.end:%Y-%m-%d}  {r.bars:>7,} bars"
                 f"  shift {r.shift:+.2f}"
                 for r in self.segments.itertuples()
             ),
@@ -133,7 +140,7 @@ def _in_session(frame: pd.DataFrame) -> pd.DataFrame:
     return frame[frame["in_session"]]
 
 
-def _session_bar_counts(frame: pd.DataFrame) -> pd.Series:
+def _session_bar_counts(frame: pd.DataFrame) -> pd.Series[int]:
     return frame.groupby("trading_day").size()
 
 
@@ -150,8 +157,8 @@ def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["front_volume", "back_volume", "shared_bars", "ratio", "back_wins"])
 
     fc, bc = fa.loc[common], ba.loc[common]
-    days = fc["trading_day"]
-    table = pd.DataFrame(
+    days: pd.Series[int] = fc["trading_day"]
+    table: pd.DataFrame = pd.DataFrame(
         {
             "front_volume": fc.groupby(days)["volume"].sum(),
             "back_volume": bc.groupby(days)["volume"].sum(),
@@ -177,11 +184,11 @@ def detect_roll(
     allow_coverage_boundary: bool = True,
 ) -> RollDecision:
     """Choose the roll date for one adjacent contract pair."""
-    table = overlap_volume(front, back)
+    table: pd.DataFrame = overlap_volume(front, back)
     notes: list[str] = []
 
     if table.empty:
-        msg = (
+        msg: str = (
             f"{front_id.nt8_name} and {back_id.nt8_name} share no in-session bars; "
             "cannot determine a roll date"
         )
@@ -189,11 +196,11 @@ def detect_roll(
             msg,
         )
 
-    roll_day = _first_confirmed_crossover(table, confirm_sessions)
-    method = METHOD_VOLUME
+    roll_day: pd.Timestamp | None = _first_confirmed_crossover(table, confirm_sessions)
+    method: str = METHOD_VOLUME
 
     if roll_day is None:
-        peak = table["ratio"].max()
+        peak: float = table["ratio"].max()
         notes.append(
             f"no volume crossover across {len(table)} shared sessions (peak ratio "
             f"{peak:.2f}); expected with NT8 data, which stops ~4 days before expiry",
@@ -223,8 +230,8 @@ def detect_roll(
             "back contract's takes over -- the same handover NT8 itself makes",
         )
 
-    offset = _boundary_offset(front, back, roll_day, front_id, back_id)
-    ratio = float(table["ratio"].get(roll_day, table["ratio"].iloc[-1]))
+    offset: float = _boundary_offset(front, back, roll_day, front_id, back_id)
+    ratio: float = float(table["ratio"].get(roll_day, table["ratio"].iloc[-1]))
 
     return RollDecision(
         front=front_id,
@@ -245,13 +252,13 @@ def _first_confirmed_crossover(table: pd.DataFrame, confirm_sessions: int) -> pd
     be *confirmed* by -- the run only has to start somewhere trustworthy. See
     ``docs/nt8-fidelity.md``, "Contract data".
     """
-    wins = table["back_wins"].to_numpy()
-    conclusive = table["conclusive"].to_numpy()
-    n = wins.size
+    wins: BoolArray = table["back_wins"].to_numpy()
+    conclusive: BoolArray = table["conclusive"].to_numpy()
+    n: int = wins.size
     for i in range(n):
         if not (wins[i] and conclusive[i]):
             continue
-        window = wins[i : i + confirm_sessions]
+        window: BoolArray = wins[i : i + confirm_sessions]
         # Near the end of the overlap, accept a short window rather than miss the roll.
         if window.all():
             return pd.Timestamp(table.index[i])
@@ -265,8 +272,8 @@ def _coverage_boundary_roll(front: pd.DataFrame, back: pd.DataFrame) -> pd.Times
     if fcount.empty or bcount.empty:
         return None
 
-    f_full = fcount.median() * FULL_SESSION_FRACTION
-    b_full = bcount.median() * FULL_SESSION_FRACTION
+    f_full: float = fcount.median() * FULL_SESSION_FRACTION
+    b_full: float = bcount.median() * FULL_SESSION_FRACTION
 
     shared_days = fcount.index.intersection(bcount.index)
     for day in shared_days:
@@ -292,7 +299,7 @@ def _boundary_offset(
     ba = ba[ba["trading_day"] < roll_day]
     common = fa.index.intersection(ba.index)
     if len(common) == 0:
-        msg = (
+        msg: str = (
             f"{front_id.nt8_name} -> {back_id.nt8_name}: no shared bar before "
             f"{roll_day.date()} to measure the back-adjustment offset from"
         )
@@ -306,7 +313,7 @@ def _boundary_offset(
 # -- continuous series --------------------------------------------------------
 
 
-def build_continuous(
+def build_continuous(  # noqa: C901 - the roll rules it applies are each a branch
     contracts: list[ContractId],
     frames: dict[ContractId, pd.DataFrame],
     *,
@@ -319,12 +326,12 @@ def build_continuous(
     Returns the series and a :class:`SpliceReport` describing every decision made.
     """
     if len(contracts) < 1:
-        msg = "need at least one contract to build a series"
+        msg: str = "need at least one contract to build a series"
         raise SpliceError(msg)
     contracts = sorted(contracts)
-    root = contracts[0].root
+    root: str = contracts[0].root
 
-    rolls = [
+    rolls: list[RollDecision] = [
         detect_roll(
             f,
             b,
@@ -340,23 +347,23 @@ def build_continuous(
 
     # Shift each segment by the offsets of every roll that comes after it, so the most
     # recent contract keeps its true prices and history is dragged into line with it.
-    offsets = [r.offset for r in rolls]
-    shifts = [0.0] * len(contracts)
+    offsets: list[float] = [r.offset for r in rolls]
+    shifts: list[float] = [0.0] * len(contracts)
     if back_adjust:
-        running = 0.0
+        running: float = 0.0
         for i in range(len(contracts) - 2, -1, -1):
             running -= offsets[i]
             shifts[i] = running
 
     pieces: list[pd.DataFrame] = []
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     warnings: list[str] = []
 
     for i, contract in enumerate(contracts):
-        start = rolls[i - 1].roll_day if i > 0 else None
-        end = rolls[i].roll_day if i < len(rolls) else None
+        start: pd.Timestamp | None = rolls[i - 1].roll_day if i > 0 else None
+        end: pd.Timestamp | None = rolls[i].roll_day if i < len(rolls) else None
 
-        seg = _in_session(frames[contract])
+        seg: pd.DataFrame = _in_session(frames[contract])
         if start is not None:
             seg = seg[seg["trading_day"] >= start]
         if end is not None:
@@ -388,11 +395,11 @@ def build_continuous(
         msg = "splicing produced no bars"
         raise SpliceError(msg)
 
-    series = pd.concat(pieces).sort_index(kind="stable")
+    series: pd.DataFrame = pd.concat(pieces).sort_index(kind="stable")
     series = series.drop(columns=["in_session"])
 
     if not series.index.is_unique:
-        dupes = int(series.index.duplicated().sum())
+        dupes: int = int(series.index.duplicated().sum())
         msg = f"continuous series has {dupes} duplicate timestamps; segment boundaries overlap"
         raise SpliceError(msg)
 
@@ -405,15 +412,15 @@ def build_continuous(
     # A coverage-boundary roll is the expected path for NT8 data and is not itself worth
     # warning about. Only flag one that fired while the front contract was still
     # dominant, which is the case that could actually distort a backtest.
-    for roll in rolls:
-        if roll.looks_early:
-            warnings.append(
-                f"{roll.front.nt8_name} -> {roll.back.nt8_name}: rolled at "
-                f"{roll.roll_day.date()} with the back contract at only "
-                f"{roll.handover_ratio:.0%} of front volume; verify this handover",
-            )
+    warnings.extend(
+        f"{roll.front.nt8_name} -> {roll.back.nt8_name}: rolled at "
+        f"{roll.roll_day.date()} with the back contract at only "
+        f"{roll.handover_ratio:.0%} of front volume; verify this handover"
+        for roll in rolls
+        if roll.looks_early
+    )
 
-    report = SpliceReport(
+    report: SpliceReport = SpliceReport(
         root=root,
         rolls=rolls,
         segments=pd.DataFrame(rows),
@@ -426,7 +433,7 @@ def build_continuous(
 def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
     for earlier, later in itertools.pairwise(rolls):
         if later.roll_day <= earlier.roll_day:
-            msg = (
+            msg: str = (
                 f"roll dates are out of order: {earlier.front.nt8_name}->"
                 f"{earlier.back.nt8_name} rolls {earlier.roll_day.date()} but "
                 f"{later.front.nt8_name}->{later.back.nt8_name} rolls "
@@ -437,8 +444,9 @@ def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
             )
 
 
-def continuous_path(root: str, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
-    suffix = "backadj" if back_adjust else "raw"
+def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
+    """Where one root's spliced continuous series is cached."""
+    suffix: str = "backadj" if back_adjust else "raw"
     return cache_dir / "continuous" / f"{root}_{suffix}.parquet"
 
 
@@ -453,11 +461,11 @@ def splice_root(
     write: bool = True,
 ) -> tuple[pd.DataFrame, SpliceReport]:
     """Build (and optionally cache) the continuous series for one root symbol."""
-    contracts = sorted(ingest.discover_exports(data_dir, root=root))
+    contracts: list[ContractId] = sorted(ingest.discover_exports(data_dir, root=root))
     if not contracts:
-        msg = f"no contracts found for {root} in {data_dir}"
+        msg: str = f"no contracts found for {root} in {data_dir}"
         raise SpliceError(msg)
-    frames = {c: ingest.load_contract(c, cache_dir) for c in contracts}
+    frames: dict[ContractId, pd.DataFrame] = {c: ingest.load_contract(c, cache_dir) for c in contracts}
 
     series, report = build_continuous(
         contracts,
@@ -468,7 +476,7 @@ def splice_root(
     )
 
     if write:
-        out = continuous_path(root, back_adjust, cache_dir)
+        out: Path = continuous_path(root, back_adjust=back_adjust, cache_dir=cache_dir)
         out.parent.mkdir(parents=True, exist_ok=True)
         series.to_parquet(out, engine="pyarrow", compression="zstd", index=True)
 
@@ -481,9 +489,10 @@ def load_continuous(
     back_adjust: bool = False,
     cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:
-    path = continuous_path(root, back_adjust, cache_dir)
+    """Read a spliced continuous series back from the cache."""
+    path: Path = continuous_path(root, back_adjust=back_adjust, cache_dir=cache_dir)
     if not path.exists():
-        msg = (
+        msg: str = (
             f"no continuous series for {root}; run `nqbt splice --root {root}"
             f"{' --back-adjust' if back_adjust else ''}` first"
         )

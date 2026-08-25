@@ -15,11 +15,15 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
 from nqbt import stats
+
+if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray
 
 __all__ = [
     "MonteCarloError",
@@ -66,17 +70,17 @@ class PermutationResult:
         return dataclasses.asdict(self)
 
 
-def trade_pnl(trades: pd.DataFrame) -> np.ndarray:
+def trade_pnl(trades: pd.DataFrame) -> FloatArray:
     """Collapse legs into the per-trade P&L vector a resampling test operates on."""
     if trades.empty:
         return np.empty(0, dtype=float)
-    per_trade = stats.per_trade(trades)
+    per_trade: pd.DataFrame = stats.per_trade(trades)
     if "entry_time" in per_trade.columns:
         per_trade = per_trade.sort_values("entry_time", kind="stable")
     return per_trade["net_pnl"].to_numpy(dtype=float)
 
 
-def _value(pnl: np.ndarray, name: str) -> float:
+def _value(pnl: FloatArray, name: str) -> float:
     """Dispatch to whichever of the two ``stats`` entry points owns ``name``."""
     if name in stats.PATH_STATISTICS:
         return stats.path_statistic(pnl, name)
@@ -84,7 +88,7 @@ def _value(pnl: np.ndarray, name: str) -> float:
 
 
 def permutation_test(
-    pnl: np.ndarray,
+    pnl: FloatArray,
     statistic: str = "max_drawdown",
     *,
     iterations: int = DEFAULT_ITERATIONS,
@@ -100,7 +104,7 @@ def permutation_test(
     observed one, so a small value means the real sequence was unluckier than most.
     """
     if statistic not in stats.PATH_STATISTICS:
-        msg = (
+        msg: str = (
             f"{statistic!r} does not depend on trade order, so permuting the sequence cannot "
             f"move it and the test would always pass; choose from {list(stats.PATH_STATISTICS)}"
         )
@@ -109,9 +113,9 @@ def permutation_test(
         msg = f"need at least {MIN_RESAMPLE_TRADES} trades to permute an ordering; got {pnl.size}"
         raise MonteCarloError(msg)
 
-    observed = _value(pnl, statistic)
-    rng = np.random.default_rng(seed)
-    draws = np.fromiter(
+    observed: float = _value(pnl, statistic)
+    rng: np.random.Generator = np.random.default_rng(seed)
+    draws: FloatArray = np.fromiter(
         (_value(rng.permutation(pnl), statistic) for _ in range(iterations)),
         dtype=float,
         count=iterations,
@@ -130,7 +134,7 @@ def permutation_test(
 
 
 def bootstrap(
-    pnl: np.ndarray,
+    pnl: FloatArray,
     statistics: tuple[str, ...] = ("net_pnl", "profit_factor", "max_drawdown"),
     *,
     iterations: int = DEFAULT_ITERATIONS,
@@ -144,11 +148,11 @@ def bootstrap(
     interval as a lower bound on the true uncertainty rather than as the whole of it.
     """
     if pnl.size < MIN_RESAMPLE_TRADES:
-        msg = f"need at least {MIN_RESAMPLE_TRADES} trades to resample; got {pnl.size}"
+        msg: str = f"need at least {MIN_RESAMPLE_TRADES} trades to resample; got {pnl.size}"
         raise MonteCarloError(msg)
 
-    known = (*stats.TRADE_PNL_STATISTICS, *stats.PATH_STATISTICS)
-    unknown = [s for s in statistics if s not in known]
+    known: tuple[str, str, str, str, str, str] = (*stats.TRADE_PNL_STATISTICS, *stats.PATH_STATISTICS)
+    unknown: list[str] = [s for s in statistics if s not in known]
     if unknown:
         msg = f"unknown statistic(s) {unknown}; choose from {list(known)}"
         raise MonteCarloError(msg)
@@ -156,17 +160,17 @@ def bootstrap(
         msg = "no statistics requested"
         raise MonteCarloError(msg)
 
-    rng = np.random.default_rng(seed)
-    draws = np.empty((iterations, len(statistics)), dtype=float)
+    rng: np.random.Generator = np.random.default_rng(seed)
+    draws: FloatArray = np.empty((iterations, len(statistics)), dtype=float)
     for i in range(iterations):
-        sample = rng.choice(pnl, size=pnl.size, replace=True)
+        sample: FloatArray = rng.choice(pnl, size=pnl.size, replace=True)
         for column, name in enumerate(statistics):
             draws[i, column] = _value(sample, name)
 
-    rows = []
+    rows: list[dict[str, object]] = []
     for column, name in enumerate(statistics):
-        values = draws[:, column]
-        finite = values[np.isfinite(values)]
+        values: FloatArray = draws[:, column]
+        finite: FloatArray = values[np.isfinite(values)]
         rows.append(
             {
                 "statistic": name,
@@ -178,7 +182,7 @@ def bootstrap(
                 "draws_finite": int(finite.size),
             },
         )
-    frame = pd.DataFrame(rows)
+    frame: pd.DataFrame = pd.DataFrame(rows)
     frame.attrs["iterations"] = iterations
     frame.attrs["trades"] = int(pnl.size)
     frame.attrs["underpowered"] = bool(pnl.size < MIN_TRADES)

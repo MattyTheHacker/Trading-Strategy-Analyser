@@ -13,6 +13,8 @@ calling loop at no cost.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numba import njit
 
@@ -43,10 +45,13 @@ from nqbt.trades import (
     N_COLUMNS,
 )
 
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
+
 
 @njit(cache=True)
-def resolve_brackets(
-    out: np.ndarray,
+def resolve_brackets(  # noqa: C901, PLR0912, PLR0913, PLR0917 - one argument per NT8 property; #59
+    out: FloatArray,
     written: int,
     trade_id: int,
     entry_bar: int,
@@ -55,9 +60,9 @@ def resolve_brackets(
     initial_stop: float,
     stop: float,
     risk: float,
-    leg_open: np.ndarray,
-    leg_target: np.ndarray,
-    leg_quantities: np.ndarray,
+    leg_open: BoolArray,
+    leg_target: FloatArray,
+    leg_quantities: IntArray,
     run_high: float,
     run_low: float,
     open_px: float,
@@ -101,7 +106,7 @@ def resolve_brackets(
     any_target_hit = False
     nearest_target = 0.0
     for leg in range(n_legs):
-        if leg_open[leg] and not np.isnan(leg_target[leg]):
+        if leg_open[leg] and not np.isnan(leg_target[leg]):  # noqa: SIM102 - needs a continue guard; #146
             if limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
                 if not any_target_hit or abs(leg_target[leg] - open_px) < abs(nearest_target - open_px):
                     nearest_target = leg_target[leg]
@@ -141,7 +146,7 @@ def resolve_brackets(
         return written, False
 
     for leg in range(n_legs):
-        if leg_open[leg] and not np.isnan(leg_target[leg]):
+        if leg_open[leg] and not np.isnan(leg_target[leg]):  # noqa: SIM102 - needs a continue guard; #146
             if limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
                 # Limit order: fills at its price, never worse, no slippage.
                 written = write_leg(
@@ -313,11 +318,11 @@ def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: 
 @njit(cache=True)
 def round_to_tick(price: float, tick_size: float) -> float:
     """Snap a price onto the tick grid, as ``RoundToTickSize`` does in NinjaScript."""
-    return np.floor(price / tick_size + 0.5) * tick_size
+    return float(np.floor(price / tick_size + 0.5) * tick_size)
 
 
 @njit(cache=True)
-def passes_reward_risk(target_r: np.ndarray, minimum: float) -> bool:
+def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
     """Optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
 
     Every target is expressed in R, so the check is independent of price: it either passes for
@@ -333,8 +338,8 @@ def passes_reward_risk(target_r: np.ndarray, minimum: float) -> bool:
 
 
 @njit(cache=True)
-def write_leg(
-    out: np.ndarray,
+def write_leg(  # noqa: PLR0913, PLR0917 - one argument per leg-log column; #59
+    out: FloatArray,
     written: int,
     trade_id: int,
     leg: int,
@@ -389,7 +394,7 @@ def write_leg(
     return written + 1
 
 
-def allocate_output(n_signals: int, n_legs: int = 4) -> np.ndarray:
+def allocate_output(n_signals: int, n_legs: int = 4) -> FloatArray:
     """Preallocate the result matrix.
 
     Every filled signal writes at most one row per leg, and fills can only be fewer than

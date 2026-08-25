@@ -279,7 +279,7 @@ def cache(tmp_path):
         ],
     ).drop(columns=["in_session"])
 
-    out = splice.continuous_path("MNQ", True, tmp_path)
+    out = splice.continuous_path("MNQ", back_adjust=True, cache_dir=tmp_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     series.to_parquet(out, engine="pyarrow", index=True)
     return tmp_path, frames, series
@@ -344,8 +344,8 @@ def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path) -> None:
     from nqbt import splice
 
     empty = tmp_path / "empty"
-    src = splice.continuous_path("MNQ", True, cache[0])
-    dst = splice.continuous_path("MNQ", True, empty)
+    src = splice.continuous_path("MNQ", back_adjust=True, cache_dir=cache[0])
+    dst = splice.continuous_path("MNQ", back_adjust=True, cache_dir=empty)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_bytes(src.read_bytes())
 
@@ -366,7 +366,7 @@ def test_a_window_that_selects_no_bars_leaves_the_contract_out(cache) -> None:
     path = ingest.contract_cache_path(ContractId.parse("MNQ 09-24"), tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     stale.to_parquet(path, engine="pyarrow", index=True)
-    moved.to_parquet(splice.continuous_path("MNQ", True, tmp_path), engine="pyarrow")
+    moved.to_parquet(splice.continuous_path("MNQ", back_adjust=True, cache_dir=tmp_path), engine="pyarrow")
 
     frames = dispersion.contract_frames("MNQ", cache_dir=tmp_path)
     assert set(frames) == {"MNQ 03-24"}, "a contract with no bars in its window was kept"

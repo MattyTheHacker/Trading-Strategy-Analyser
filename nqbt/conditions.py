@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
     import pandas as pd
 
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
+
 __all__ = [
     "BarGeometry",
     "MovingAverageGrid",
@@ -43,7 +45,7 @@ __all__ = [
 
 
 @njit(cache=True)
-def _inverted_hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
+def _inverted_hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close: FloatArray) -> BoolArray:
     """Upper wick at least twice the body, lower wick no larger than the body.
 
     ``DeadCatBounce.cs``. ``body > 0`` means a doji never qualifies.
@@ -61,7 +63,7 @@ def _inverted_hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close
 
 
 @njit(cache=True)
-def _hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
+def _hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close: FloatArray) -> BoolArray:
     """Lower wick at least twice the body, upper wick no larger than the body.
 
     ``PullBackAndGo.cs`` -- :func:`_inverted_hammer` with the wick roles swapped.
@@ -79,7 +81,7 @@ def _hammer(open_: np.ndarray, high: np.ndarray, low: np.ndarray, close: np.ndar
 
 
 @njit(cache=True)
-def _made_new_high(high: np.ndarray) -> np.ndarray:
+def _made_new_high(high: FloatArray) -> BoolArray:
     """``High[0] > High[1]``. The first bar has no predecessor and cannot qualify."""
     n = high.size
     out = np.zeros(n, dtype=np.bool_)
@@ -89,7 +91,7 @@ def _made_new_high(high: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _made_new_low(low: np.ndarray) -> np.ndarray:
+def _made_new_low(low: FloatArray) -> BoolArray:
     """``Low[0] < Low[1]``, ``PullBackAndGo.cs``'s mirror of :func:`_made_new_high`."""
     n = low.size
     out = np.zeros(n, dtype=np.bool_)
@@ -99,7 +101,7 @@ def _made_new_low(low: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _previous_bar_green(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
+def _previous_bar_green(open_: FloatArray, close: FloatArray) -> BoolArray:
     """``Close[1] >= Open[1]``, so a doji-closed previous bar counts as green and passes."""
     n = open_.size
     out = np.zeros(n, dtype=np.bool_)
@@ -109,7 +111,7 @@ def _previous_bar_green(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _previous_bar_red(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
+def _previous_bar_red(open_: FloatArray, close: FloatArray) -> BoolArray:
     """``Close[1] < Open[1]``, so a doji-closed previous bar is **not** red and does not pass.
 
     The one boundary where the two archetypes do not mirror each other --
@@ -122,7 +124,8 @@ def _previous_bar_red(open_: np.ndarray, close: np.ndarray) -> np.ndarray:
     return out
 
 
-def inverted_hammer(bars: pd.DataFrame) -> np.ndarray:
+def inverted_hammer(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_inverted_hammer` over a bar frame's OHLC columns."""
     return _inverted_hammer(
         bars["open"].to_numpy(np.float64),
         bars["high"].to_numpy(np.float64),
@@ -131,7 +134,8 @@ def inverted_hammer(bars: pd.DataFrame) -> np.ndarray:
     )
 
 
-def hammer(bars: pd.DataFrame) -> np.ndarray:
+def hammer(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_hammer` over a bar frame's OHLC columns."""
     return _hammer(
         bars["open"].to_numpy(np.float64),
         bars["high"].to_numpy(np.float64),
@@ -140,23 +144,27 @@ def hammer(bars: pd.DataFrame) -> np.ndarray:
     )
 
 
-def made_new_high(bars: pd.DataFrame) -> np.ndarray:
+def made_new_high(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_made_new_high` over a bar frame's highs."""
     return _made_new_high(bars["high"].to_numpy(np.float64))
 
 
-def made_new_low(bars: pd.DataFrame) -> np.ndarray:
+def made_new_low(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_made_new_low` over a bar frame's lows."""
     return _made_new_low(bars["low"].to_numpy(np.float64))
 
 
-def previous_bar_green(bars: pd.DataFrame) -> np.ndarray:
+def previous_bar_green(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_previous_bar_green` over a bar frame's opens and closes."""
     return _previous_bar_green(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
 
 
-def previous_bar_red(bars: pd.DataFrame) -> np.ndarray:
+def previous_bar_red(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_previous_bar_red` over a bar frame's opens and closes."""
     return _previous_bar_red(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
 
 
-def below_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
+def below_series(close: FloatArray, series: FloatArray) -> BoolArray:
     """The downtrend gate: the negation of ``DeadCatBounce.cs``'s rejection, so equality passes.
 
     Writing the positive ``close < series`` would silently drop those bars.
@@ -164,7 +172,7 @@ def below_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
     return ~(close > series)
 
 
-def above_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
+def above_series(close: FloatArray, series: FloatArray) -> BoolArray:
     """The uptrend gate: the negation of ``PullBackAndGo.cs``'s rejection, so equality passes.
 
     **Not** ``~below_series`` -- the two overlap at ``close == series`` rather than
@@ -174,7 +182,7 @@ def above_series(close: np.ndarray, series: np.ndarray) -> np.ndarray:
 
 
 @njit(cache=True)
-def _crossed(fast: np.ndarray, slow: np.ndarray, lookback: int, above: bool) -> np.ndarray:
+def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> BoolArray:
     """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?"""
     n = fast.size
     out = np.zeros(n, dtype=np.bool_)
@@ -191,7 +199,7 @@ def _crossed(fast: np.ndarray, slow: np.ndarray, lookback: int, above: bool) -> 
     return out
 
 
-def cross_above(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.ndarray:
+def cross_above(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolArray:
     """``CrossAbove(fast, slow, lookback)`` as NinjaScript evaluates it.
 
     True on every bar within ``lookback`` bars *of* a cross, not only on the bar the cross
@@ -199,29 +207,29 @@ def cross_above(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.nda
     only bars ``<= i``. See ``docs/nt8-fidelity.md`` §M18.
     """
     if lookback < 1:
-        msg = f"lookback must be >= 1, got {lookback}"
+        msg: str = f"lookback must be >= 1, got {lookback}"
         raise ValueError(msg)
     return _crossed(
         np.ascontiguousarray(fast, dtype=np.float64),
         np.ascontiguousarray(slow, dtype=np.float64),
         int(lookback),
-        True,  # noqa: FBT003
+        True,
     )
 
 
-def cross_below(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.ndarray:
+def cross_below(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolArray:
     """``CrossBelow(fast, slow, lookback)`` -- :func:`cross_above` with both tests mirrored.
 
     Not its complement: where neither series moved past the other, both are false.
     """
     if lookback < 1:
-        msg = f"lookback must be >= 1, got {lookback}"
+        msg: str = f"lookback must be >= 1, got {lookback}"
         raise ValueError(msg)
     return _crossed(
         np.ascontiguousarray(fast, dtype=np.float64),
         np.ascontiguousarray(slow, dtype=np.float64),
         int(lookback),
-        False,  # noqa: FBT003
+        False,
     )
 
 
@@ -229,18 +237,19 @@ def cross_below(fast: np.ndarray, slow: np.ndarray, lookback: int = 1) -> np.nda
 class BarGeometry:
     """Parameter-free conditions, computed once for the whole dataset."""
 
-    inverted_hammer: np.ndarray
-    hammer: np.ndarray
-    made_new_high: np.ndarray
-    made_new_low: np.ndarray
-    previous_bar_green: np.ndarray
-    previous_bar_red: np.ndarray
+    inverted_hammer: BoolArray
+    hammer: BoolArray
+    made_new_high: BoolArray
+    made_new_low: BoolArray
+    previous_bar_green: BoolArray
+    previous_bar_red: BoolArray
 
     def __len__(self) -> int:
         return self.inverted_hammer.size
 
 
 def bar_geometry(bars: pd.DataFrame) -> BarGeometry:
+    """Every parameter-free condition, computed once over the whole frame."""
     return BarGeometry(
         inverted_hammer=inverted_hammer(bars),
         hammer=hammer(bars),
@@ -260,12 +269,12 @@ class MovingAverageGrid:
     """
 
     kind: str
-    periods: np.ndarray
-    below: np.ndarray
+    periods: IntArray
+    below: BoolArray
     """``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`."""
-    above: np.ndarray
+    above: BoolArray
     """``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`."""
-    values: np.ndarray | None = None
+    values: FloatArray | None = None
     """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept.
 
     Eight bytes per element against one: 580 MB rather than 64 MB for 39 periods over 1.65M
@@ -273,36 +282,41 @@ class MovingAverageGrid:
     """
 
     def row(self, period: int) -> int:
-        idx = int(np.searchsorted(self.periods, period))
+        """The row holding ``period``, or an error naming what the grid was built for."""
+        idx: int = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
-            msg = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
+            msg: str = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
             raise KeyError(msg)
         return idx
 
-    def below_for(self, period: int) -> np.ndarray:
-        return self.below[self.row(period)]
+    def below_for(self, period: int) -> BoolArray:
+        """One period's ``Close < MA`` gate."""
+        return np.asarray(self.below[self.row(period)])
 
-    def above_for(self, period: int) -> np.ndarray:
-        return self.above[self.row(period)]
+    def above_for(self, period: int) -> BoolArray:
+        """One period's ``Close > MA`` gate."""
+        return np.asarray(self.above[self.row(period)])
 
-    def values_for(self, period: int) -> np.ndarray:
+    def values_for(self, period: int) -> FloatArray:
+        """One period's raw moving-average values, when the grid kept them."""
         if self.values is None:
-            msg = (
+            msg: str = (
                 "this grid kept only the boolean gate; rebuild it with keep_values=True "
                 "to read raw moving-average values (needed for the MA trailing stop)"
             )
             raise ValueError(
                 msg,
             )
-        return self.values[self.row(period)]
+        return np.asarray(self.values[self.row(period)])
 
     @property
     def nbytes(self) -> int:
+        """Bytes the grid occupies -- what a parallel worker is handed."""
         return self.below.nbytes + self.above.nbytes + (0 if self.values is None else self.values.nbytes)
 
 
 def moving_average_grid(
-    close: np.ndarray,
+    close: FloatArray,
     periods: Iterable[int],
     kind: str = "ema",
     *,
@@ -313,9 +327,9 @@ def moving_average_grid(
     ``kind`` selects the NT8-compatible EMA or SMA from :mod:`nqbt.indicators`. Raw
     values are discarded unless ``keep_values`` is set -- see :attr:`MovingAverageGrid.values`.
     """
-    unique = np.unique(np.asarray(list(periods), dtype=np.int64))
+    unique: IntArray = np.unique(np.asarray(list(periods), dtype=np.int64))
     if unique.size == 0:
-        msg = "no periods supplied"
+        msg: str = "no periods supplied"
         raise ValueError(msg)
     if unique[0] < 1:
         msg = f"periods must be >= 1, got {unique[0]}"
@@ -328,12 +342,12 @@ def moving_average_grid(
         raise ValueError(msg) from None
 
     close = np.ascontiguousarray(close, dtype=np.float64)
-    below = np.empty((unique.size, close.size), dtype=np.bool_)
-    above = np.empty((unique.size, close.size), dtype=np.bool_)
-    values = np.empty((unique.size, close.size), dtype=np.float64) if keep_values else None
+    below: BoolArray = np.empty((unique.size, close.size), dtype=np.bool_)
+    above: BoolArray = np.empty((unique.size, close.size), dtype=np.bool_)
+    values: FloatArray | None = np.empty((unique.size, close.size), dtype=np.float64) if keep_values else None
 
     for i, period in enumerate(unique):
-        ma = fn(close, int(period))
+        ma: FloatArray = fn(close, int(period))
         below[i] = below_series(close, ma)
         above[i] = above_series(close, ma)
         if values is not None:
@@ -343,7 +357,7 @@ def moving_average_grid(
 
 
 @njit(cache=True)
-def count_true(stack: np.ndarray) -> np.ndarray:
+def count_true(stack: BoolArray) -> IntArray:
     """Per-bar count of satisfied conditions, given a ``[n_conditions, n_bars]`` stack.
 
     Backs the confluence pattern: "at least 3 of 5", with the minimum itself sweepable.

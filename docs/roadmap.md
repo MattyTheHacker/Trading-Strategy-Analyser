@@ -2105,23 +2105,72 @@ is genuinely what a real sweep is waiting on.
 
 ### M20b — typing and tooling ([#53])
 
-The package annotates well — only 5 functions have an untyped parameter and only 2 lack a return
-type — but **nothing checks any of it**, so the annotations are documentation that happens to be
-in the type position. Note this section's earlier claim that no linter or type checker existed is
-**stale**: `[tool.ruff]` and `[tool.mypy]` are both configured in `pyproject.toml` and
-`.github/workflows/checks.yaml` exists. What is missing is that **nothing runs them** — CI runs
-pytest and `pymarkdown scan .`, and nothing else. **The gap that matters is dtype, not
-coverage** ([#54]): there are **56 bare `np.ndarray` annotations across 7 modules and zero uses
-of `numpy.typing.NDArray`**, and in this codebase the element type is load-bearing in a way that
-is invisible today. `MovingAverageGrid.below` is `bool` and `.values` is `float64` — the whole
-66 MB vs 595 MB decision is that distinction, and both are annotated `np.ndarray`.
-`SessionInfo.trading_day` is `datetime64[D]` and `.in_session` is `bool`; both are `np.ndarray`.
-The `@njit` loop's `out` is a `float64` matrix into which `exit_reason` and `direction` are
-written as floats and mapped back to strings later — the one place a wrong dtype is silently
-lossy. Define `FloatArray`/`BoolArray`/`IntArray` once rather than spelling `NDArray[np.float64]`
-56 times; that is the same extract-and-reuse rule applied to types. **Do not annotate inside the
-`@njit` functions expecting Numba to use it** — it infers from the call, ignores the annotations,
-and a wrong one there is worse than none because it reads as a guarantee.
+**Done.** `ruff` and `mypy` both report zero on `nqbt/` and both gate CI; `CONTRIBUTING.md`
+§"Linting and typing" is the rule and the workflow is the live check. What is recorded here is
+the reasoning that outlives the counts.
+
+**The gap that mattered was dtype, not coverage** ([#54]). The package annotated well and none
+of it was checked, so a bare `np.ndarray` read as a type while saying only "some array" — and
+here the element type is load-bearing. `MovingAverageGrid.below` is bool where `.values` is
+float64, which is the whole 66 MB against 595 MB decision; `SessionInfo.trading_day` is
+`datetime64[D]` where `.in_session` is bool; and the `@njit` loop's `out` is a float64 matrix
+into which `exit_reason` and `direction` are written as floats and mapped back to strings later,
+the one place a wrong dtype is silently lossy. `nqbt/arrays.py` names each dtype once and
+`tests/test_array_dtypes.py` asserts the arrays really carry them, because an annotation nothing
+checks is worse than none. **Do not annotate inside an `@njit` function expecting numba to use
+it** — it infers from the call, ignores the annotation, and a wrong one reads as a guarantee.
+
+**Locals carry their type too, and mypy is what says they are right.** The signatures were
+already annotated; the bodies were not, so a reader had to re-derive from the expression what the
+signature stated once. Roughly 750 locals now name their type, derived from what mypy itself
+infers rather than from reading each expression, and the two constraints that shaped where they
+do not are worth keeping: a name can be annotated only **once per scope**, so the first binding is
+the declaration and one bound in two arms of a branch is declared above it; and `AnyArray` is a
+concrete `dtype[generic[object]]` rather than a wildcard, so annotating a local with it
+type-checks at the assignment and fails at every use after it.
+
+**The stubs are still not the runtime.** mypy proves an annotation is consistent with the stubs,
+which is what `DateArray` was before numpy 2.5. So the 178 array-alias locals were also checked
+the other way, by instrumenting a throwaway copy of the package with a dtype assertion after each
+one and running the suite over it — all 178 match. `OffsetArray` is the one alias this pass
+added: `np.intp` is what `flatnonzero`, `argsort` and `searchsorted` return, and it is not
+`int64` on every platform, so `IntArray` would have been a promise the package cannot keep.
+
+Three decisions the configuration now carries, each with its reason beside it in
+`pyproject.toml`:
+
+- **`D401` is off.** It wants an imperative verb where `CONTRIBUTING.md` says a docstring names
+  *what* a thing is, which is a noun phrase. The two rules cannot both hold.
+- **`max-args` is 10, not ruff's 5.** An entry point taking one keyword per choice its caller
+  must state is the shape of this codebase. What is left above ten is the parameter blobs [#59]
+  fixes, and each of those carries its own `noqa` naming the issue — so the rule still points at
+  the real problem instead of being blanket-disabled.
+- **numba has no keyword-only arguments**, so a jitted loop's toggles are positional booleans
+  and `FBT001`/`FBT003` are ignored for exactly the five modules that contain one — per file
+  rather than per line, because a jitted module's every toggle is one and an inline `noqa` at
+  each of the 27 sites would say the same thing 27 times.
+
+`Any` survives where it is the honest type — a condition's labels are whatever pandas holds them
+as, an archetype's `run`/`legs`/`signal` differ in signature per archetype — and every such site
+says so. joblib is the one untyped import: three symbols in one function did not earn a stub
+under `mypy_path`.
+
+**The order was the point.** A type checker introduced with a strict config and hundreds of
+errors gets switched off, so both tools reached zero *before* the CI job that enforces it
+existed, in a separate commit each.
+
+**The stubs move under you, and a clean local run does not prove a clean CI run.** `DateArray`
+was `NDArray[np.datetime64]` and type-checked against the numpy in the venv; CI installs the
+newest, and numpy 2.5 changed that parameter's default from `dt.date | int | None` to `Any`, so
+the alias smuggled in an explicit `Any` and the new gate failed on a machine nobody had run.
+Every alias that could carry a defaulted parameter now states it.
+
+**The fix was to stop letting the resolver choose.** Every dependency and dev dependency is now
+pinned `==` rather than `>=`, so a local zero and a CI zero are the same measurement; dependabot
+raises the bumps and each is tested like any other change. The failure mode that forced it is
+worth keeping in mind whenever a pin is loosened: CI resolves fresh, one minor version behind
+locally is enough to hide a failure, and `extend-select = ["ALL"]` gives ruff the same reach —
+a release that adds a rule fails a build nobody touched.
 
 ### M20c — structural cleanups ([#58])
 

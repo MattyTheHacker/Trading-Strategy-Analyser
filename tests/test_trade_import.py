@@ -237,7 +237,7 @@ def test_the_timezone_is_applied_and_a_different_one_moves_every_trade(tmp_path)
 
 def test_the_timezone_has_no_default(tmp_path):
     with pytest.raises(TypeError):
-        trade_import.read_executions(grid(tmp_path, SAMPLE, header=FULL_HEADER))  # type: ignore[call-arg]
+        trade_import.read_executions(grid(tmp_path, SAMPLE, header=FULL_HEADER))  # type: ignore[call-arg]  # the omission is the point
 
 
 # -- FIFO matching ------------------------------------------------------------

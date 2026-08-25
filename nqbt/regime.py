@@ -26,6 +26,8 @@ from numba import njit
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
+
 __all__ = [
     "ALL_REGIMES",
     "UNDEFINED",
@@ -84,7 +86,7 @@ ALL_REGIMES = (1 << len(Regime)) - 1
 
 def regimes_mask(regimes: Iterable[Regime]) -> int:
     """Combine regimes into the bitmask an archetype's ``regime_filter`` takes."""
-    mask = 0
+    mask: int = 0
     for regime in regimes:
         mask |= Regime(regime).bit
     return mask
@@ -99,7 +101,7 @@ def regimes_in(mask: int) -> tuple[Regime, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no regime owns."""
     if mask < 0 or mask & ~ALL_REGIMES:
-        msg = f"regime mask {mask} sets bits outside 0..{ALL_REGIMES}; use Regime.bit or regimes_mask()"
+        msg: str = f"regime mask {mask} sets bits outside 0..{ALL_REGIMES}; use Regime.bit or regimes_mask()"
         raise RegimeError(msg)
     if mask == 0:
         msg = "regime mask 0 admits no regime, so every combination along it would trade nothing"
@@ -115,7 +117,7 @@ def describe_mask(mask: int) -> str:
 def validate_lookback(lookback: int) -> int:
     """Reject a lookback the ratio is degenerate at -- see :data:`MIN_LOOKBACK`."""
     if lookback < MIN_LOOKBACK:
-        msg = f"regime lookback must be >= {MIN_LOOKBACK}, got {lookback}"
+        msg: str = f"regime lookback must be >= {MIN_LOOKBACK}, got {lookback}"
         raise RegimeError(msg)
     return lookback
 
@@ -126,7 +128,7 @@ def validate_thresholds(consolidating_below: float, directional_above: float) ->
     Equal thresholds are legal and collapse the unclassifiable band onto the boundary itself.
     """
     if not 0.0 <= consolidating_below <= 1.0:
-        msg = f"consolidating_below must lie in 0..1, got {consolidating_below}"
+        msg: str = f"consolidating_below must lie in 0..1, got {consolidating_below}"
         raise RegimeError(msg)
     if not 0.0 <= directional_above <= 1.0:
         msg = f"directional_above must lie in 0..1, got {directional_above}"
@@ -140,7 +142,7 @@ def validate_thresholds(consolidating_below: float, directional_above: float) ->
 
 
 @njit(cache=True)
-def _efficiency_ratio(close: np.ndarray, lookback: int) -> np.ndarray:
+def _efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
     """Net move over path length, ``nan`` until ``lookback`` bars of history exist.
 
     The window sum is recomputed rather than maintained incrementally, and a window that
@@ -172,7 +174,7 @@ def _regime_of(ratio: float, consolidating_below: float, directional_above: floa
 
 
 @njit(cache=True)
-def _label(values: np.ndarray, consolidating_below: float, directional_above: float) -> np.ndarray:
+def _label(values: FloatArray, consolidating_below: float, directional_above: float) -> LabelArray:
     n = values.size
     out = np.empty(n, dtype=np.int8)
     for i in range(n):
@@ -182,11 +184,11 @@ def _label(values: np.ndarray, consolidating_below: float, directional_above: fl
 
 @njit(cache=True)
 def _gate(
-    values: np.ndarray,
+    values: FloatArray,
     consolidating_below: float,
     directional_above: float,
     mask: int,
-) -> np.ndarray:
+) -> BoolArray:
     """One pass from ratio to boolean, so a sweep combination never builds a label array."""
     n = values.size
     out = np.zeros(n, dtype=np.bool_)
@@ -197,7 +199,7 @@ def _gate(
     return out
 
 
-def efficiency_ratio(close: np.ndarray, lookback: int) -> np.ndarray:
+def efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
     """Kaufman's efficiency ratio over ``lookback`` bars, aligned to ``close``.
 
     ``nan`` for the first ``lookback`` bars, which have no window to measure.
@@ -206,7 +208,7 @@ def efficiency_ratio(close: np.ndarray, lookback: int) -> np.ndarray:
     return _efficiency_ratio(np.ascontiguousarray(close, dtype=np.float64), int(lookback))
 
 
-def label(values: np.ndarray, consolidating_below: float, directional_above: float) -> np.ndarray:
+def label(values: FloatArray, consolidating_below: float, directional_above: float) -> LabelArray:
     """Cut efficiency ratios into ``int8`` :class:`Regime` values, :data:`UNDEFINED` for ``nan``.
 
     **Both boundaries fall in the band**: strictly below the lower threshold is consolidating,
@@ -221,11 +223,11 @@ def label(values: np.ndarray, consolidating_below: float, directional_above: flo
 
 
 def gate(
-    values: np.ndarray,
+    values: FloatArray,
     mask: int,
     consolidating_below: float,
     directional_above: float,
-) -> np.ndarray:
+) -> BoolArray:
     """Test every bar's regime against ``mask``, one boolean per bar.
 
     An :data:`UNDEFINED` bar passes nothing, :data:`ALL_REGIMES` included, which is why an
@@ -250,8 +252,8 @@ class EfficiencyRatioGrid:
     :meth:`row` is the only supported way from a lookback back to its row.
     """
 
-    lookbacks: np.ndarray
-    values: np.ndarray
+    lookbacks: IntArray
+    values: FloatArray
     """Efficiency ratios as ``[n_lookbacks, n_bars]`` float64, ``nan`` through each warm-up."""
 
     def __len__(self) -> int:
@@ -260,25 +262,25 @@ class EfficiencyRatioGrid:
 
     def row(self, lookback: int) -> int:
         """Find the row holding ``lookback``, or say what the grid was built for."""
-        idx = int(np.searchsorted(self.lookbacks, lookback))
+        idx: int = int(np.searchsorted(self.lookbacks, lookback))
         if idx >= self.lookbacks.size or self.lookbacks[idx] != lookback:
-            msg = (
+            msg: str = (
                 f"efficiency ratio over {lookback} bars is not in this grid; "
                 f"built for {self.lookbacks.tolist()}"
             )
             raise KeyError(msg)
         return idx
 
-    def values_for(self, lookback: int) -> np.ndarray:
+    def values_for(self, lookback: int) -> FloatArray:
         """Read one lookback's efficiency ratios."""
-        return self.values[self.row(lookback)]
+        return np.asarray(self.values[self.row(lookback)])
 
     def labels_for(
         self,
         lookback: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> LabelArray:
         """Label every bar at one lookback, the stratification key -- see :func:`label`."""
         return label(self.values_for(lookback), consolidating_below, directional_above)
 
@@ -288,7 +290,7 @@ class EfficiencyRatioGrid:
         mask: int,
         consolidating_below: float,
         directional_above: float,
-    ) -> np.ndarray:
+    ) -> BoolArray:
         """Test every bar at one lookback against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.values_for(lookback), mask, consolidating_below, directional_above)
 
@@ -298,20 +300,20 @@ class EfficiencyRatioGrid:
         return self.values.nbytes
 
 
-def efficiency_ratio_grid(close: np.ndarray, lookbacks: Iterable[int]) -> EfficiencyRatioGrid:
+def efficiency_ratio_grid(close: FloatArray, lookbacks: Iterable[int]) -> EfficiencyRatioGrid:
     """Compute every distinct lookback a sweep needs, once.
 
     Eight bytes per element, so this is the one series a long lookback axis makes expensive
     for a parallel worker -- ``docs/roadmap.md`` §M10.1.
     """
-    unique = np.unique(np.asarray(list(lookbacks), dtype=np.int64))
+    unique: IntArray = np.unique(np.asarray(list(lookbacks), dtype=np.int64))
     if unique.size == 0:
-        msg = "no lookbacks supplied"
+        msg: str = "no lookbacks supplied"
         raise RegimeError(msg)
     validate_lookback(int(unique[0]))
 
     close = np.ascontiguousarray(close, dtype=np.float64)
-    values = np.empty((unique.size, close.size), dtype=np.float64)
+    values: FloatArray = np.empty((unique.size, close.size), dtype=np.float64)
     for i, lookback in enumerate(unique):
         values[i] = _efficiency_ratio(close, int(lookback))
     return EfficiencyRatioGrid(lookbacks=unique, values=values)

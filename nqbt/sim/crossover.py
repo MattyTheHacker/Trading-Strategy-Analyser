@@ -26,8 +26,10 @@ from nqbt.sim.types import STOP_MIN_TICKS
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.context import Dataset
     from nqbt.sim.types import EmaCrossoverParams
+    from nqbt.trades import LegMatrix
 
 NO_ATR = np.zeros(0, dtype=np.float64)
 """Stand-in for the ATR array in swing-stop mode, where the loop never indexes it.
@@ -37,17 +39,17 @@ Numba needs an array of the right dtype whether or not the branch reading it run
 
 
 @njit(cache=True)
-def simulate_crossover(
-    open_: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    close: np.ndarray,
-    signal: np.ndarray,
-    direction_at: np.ndarray,
-    force_flat: np.ndarray,
-    atr: np.ndarray,
-    leg_quantities: np.ndarray,
-    target_r: np.ndarray,
+def simulate_crossover(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one argument per NT8 property; #59
+    open_: FloatArray,
+    high: FloatArray,
+    low: FloatArray,
+    close: FloatArray,
+    signal: BoolArray,
+    direction_at: FloatArray,
+    force_flat: BoolArray,
+    atr: FloatArray,
+    leg_quantities: IntArray,
+    target_r: FloatArray,
     tick_size: float,
     point_value: float,
     use_atr_stop: bool,
@@ -63,7 +65,7 @@ def simulate_crossover(
     fill_limit_on_touch: bool,
     ambiguity_policy: int,
     round_targets: bool,
-    out: np.ndarray,
+    out: FloatArray,
 ) -> int:
     """Run the crossover archetype over one dataset, writing one row per leg exit.
 
@@ -287,9 +289,9 @@ def simulate_crossover(
 
 @njit(cache=True)
 def _protective_stop(
-    high: np.ndarray,
-    low: np.ndarray,
-    atr: np.ndarray,
+    high: FloatArray,
+    low: FloatArray,
+    atr: FloatArray,
     signal_bar: int,
     fill: float,
     direction: float,
@@ -306,7 +308,7 @@ def _protective_stop(
     usual offset.
     """
     if use_atr_stop:
-        return fill - direction * atr[signal_bar] * atr_stop_multiple
+        return fill - direction * float(atr[signal_bar]) * atr_stop_multiple
 
     start = signal_bar - swing_lookback + 1
     start = max(start, 0)
@@ -318,7 +320,7 @@ def _protective_stop(
     return extreme - direction * stop_offset
 
 
-def regime_direction(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
+def regime_direction(fast: FloatArray, slow: FloatArray) -> FloatArray:
     """Which side the prevailing regime is on: ``LONG`` where ``fast > slow``, else ``SHORT``.
 
     The boundary matches :func:`nqbt.conditions.cross_above`'s. Defined on **every** bar rather
@@ -328,7 +330,7 @@ def regime_direction(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
     return np.where(fast > slow, trades.LONG, trades.SHORT).astype(np.float64)
 
 
-def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[np.ndarray, np.ndarray]:
+def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[FloatArray, FloatArray]:
     """The fast and slow EMA values this combination compares.
 
     Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
@@ -339,7 +341,7 @@ def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[np.nd
     )
 
 
-def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> np.ndarray:
+def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     """Bars whose close schedules an entry for the next bar's open.
 
     Each side's cross is ANDed with the prevailing regime, which matters once
@@ -347,8 +349,8 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> np.ndarray:
     back inside it.
     """
     fast, slow = crossover_averages(data, params)
-    direction = regime_direction(fast, slow)
-    signal = np.zeros(len(data), dtype=np.bool_)
+    direction: FloatArray = regime_direction(fast, slow)
+    signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
         signal |= conditions.cross_above(fast, slow, params.cross_lookback) & (direction == trades.LONG)
     if params.trade_short:
@@ -361,7 +363,7 @@ def crossover_legs(
     params: EmaCrossoverParams,
     instrument: Instrument = MNQ,
     *,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 
@@ -369,14 +371,14 @@ def crossover_legs(
     series is *not* overridden, so a drawn bar is taken on whichever side the averages were on.
     """
     fast, slow = crossover_averages(data, params)
-    direction_at = regime_direction(fast, slow)
+    direction_at: FloatArray = regime_direction(fast, slow)
     signal = crossover_signal(data, params) if signal is None else signal
-    quantities = np.asarray(params.leg_quantities, dtype=np.int64)
-    targets = np.asarray(params.target_r_multiples, dtype=np.float64)
-    atr = data.atr_values(params.atr_period) if params.use_atr_stop else NO_ATR
-    out = bracket.allocate_output(int(signal.sum()), quantities.size)
+    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
+    atr: FloatArray = data.atr_values(params.atr_period) if params.use_atr_stop else NO_ATR
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
-    count = simulate_crossover(
+    count: int = simulate_crossover(
         data.open,
         data.high,
         data.low,
@@ -405,7 +407,7 @@ def crossover_legs(
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
-        msg = "trade buffer overflowed; allocate_output's signal-count bound was violated"
+        msg: str = "trade buffer overflowed; allocate_output's signal-count bound was violated"
         raise RuntimeError(msg)
 
     return trades.validate_legs(trades.LegMatrix(out, count))
@@ -417,10 +419,10 @@ def run_crossover(
     instrument: Instrument = MNQ,
     *,
     with_times: bool = True,
-    signal: np.ndarray | None = None,
+    signal: BoolArray | None = None,
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
-    legs = crossover_legs(data, params, instrument, signal=signal)
+    legs: LegMatrix = crossover_legs(data, params, instrument, signal=signal)
     return trades.validate(
         trades.trades_to_frame(
             legs.matrix,

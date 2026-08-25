@@ -114,10 +114,23 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 
 CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead.
 
-**`ruff` and `mypy` must report no errors.** Neither is at zero on `nqbt/` yet and neither gates CI — [#57] and [#56] are the two issues that get there and add the jobs, in that order.
-**Until they land, the rule is that a change must not add errors**: check the count before and after and expect it to be the same or lower.
+**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt`, `ruff format --check .` and `mypy nqbt`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated; running them over the whole tree is still worth doing, but only the package's count has to stay at zero.
+
+Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-line reason, and so does every `# noqa`, every `# type: ignore` and the one `[tool.coverage]` exclusion. Add none of them without one. Put the reason **after the pragma on the same line** so that grepping for a bare `# noqa: X$` finds anything undocumented; only where 110 columns leave no room does it go on the line above. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
+
+### Local variables carry their type too
+
+**Annotate a local at its first binding**, with the same aliases the signatures use. A name can only be annotated once per scope, so that first binding is the declaration for the whole function; where a name is bound in two arms of a branch, declare it bare above the branch rather than typing one arm and not the other.
+
+Leave a local bare where the type cannot be stated honestly: a `pd.Series` whose dtype belongs to the caller, `json.loads`, duckdb rows, joblib. `disallow_any_explicit` rejects those anyway, and **a `# type: ignore` per local to say "unknown" is worse than no annotation** — it is a pragma with nothing to fix. Leave it bare, too, where mypy's inference and the runtime disagree, and say which in a comment; numpy types `datetime64 + timedelta64` as `timedelta64`, and `nqbt/sessions.py` has the site.
+
+`nqbt/arrays.py`'s `AnyArray` is **not** a wildcard. It is a concrete `dtype[generic[object]]`, so a local annotated with it type-checks at the assignment and then fails at every later use. Name the real dtype — the expression almost always states it — or leave the local bare.
 
 In almost all cases errors reported by either `ruff` or `mypy` should be fixed rather than hidden with ignore comments. Errors should only be ignored if they are a genuine misfire or there's an extremely good reason the issue shouldn't be fixed.
+
+### Dependencies are pinned exactly
+
+Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes — which is exactly how numpy 2.5 broke the mypy gate on the run after it landed, and `extend-select = ["ALL"]` gives ruff the same reach. Dependabot raises the bumps daily, grouped into one pull request, and each one runs the full suite plus both gates before it merges. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
 
 ### Lint changes are not exempt from review
 
@@ -183,7 +196,5 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 - **Say what a statistic was computed over.** Per trade or per leg, whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
 - **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse resolution.
 
-[#56]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/56
-[#57]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/57
 [#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105

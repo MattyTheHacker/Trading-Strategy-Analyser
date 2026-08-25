@@ -19,6 +19,7 @@ from nqbt.sim.runner import deadcat_signal
 from nqbt.trades import SHORT
 
 if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray
     from nqbt.context import Dataset
     from nqbt.instruments import Instrument
     from nqbt.sim.types import DeadCatParams
@@ -36,58 +37,61 @@ def explain_trades(
     The dataset must have been prepared with ``keep_ma_values=True``; the moving-average
     values themselves are needed to show *why* each trend gate passed, not just that it did.
     """
-    if any(g.values is None for g in data.mas.values()):
-        msg = "explain_trades needs raw indicator values; call context.prepare(..., keep_ma_values=True)"
+    if any(g.values is None for g in data.mas.values()):  # noqa: PD011 - a grid attribute, not a Series
+        msg: str = "explain_trades needs raw indicator values; call context.prepare(..., keep_ma_values=True)"
         raise ValueError(
             msg,
         )
 
-    signal = deadcat_signal(data, params)
-    index = data.index
-    tick = instrument.tick_size
+    signal: BoolArray = deadcat_signal(data, params)
+    index: pd.DatetimeIndex = data.index
+    tick: float = instrument.tick_size
 
-    ema = data.ma_values("ema", params.ema_period)
-    fast = data.ma_values("sma", params.fast_sma_period)
-    slow = data.ma_values("sma", params.slow_sma_period)
+    ema: FloatArray = data.ma_values("ema", params.ema_period)
+    fast: FloatArray = data.ma_values("sma", params.fast_sma_period)
+    slow: FloatArray = data.ma_values("sma", params.slow_sma_period)
     # The audit trail reports every gate whether or not this combination reads it, so VWAP
     # is required here even when ``use_vwap`` is off. That is why ``cli.py`` sets
     # ``needs_vwap=True`` unconditionally rather than taking the spec from the grid: a
     # sweep declares what it reads, but ``--explain`` exists to show what it did not.
-    vwap = data.vwap_values()
+    vwap: FloatArray = data.vwap_values()
 
-    rows = []
+    rows: list[dict[str, object]] = []
     for trade_id, legs in list(trades.groupby("trade_id"))[:limit]:
-        entry_bar = int(legs["entry_bar"].iloc[0])
-        s = entry_bar - 1  # the signal bar: the order rests for exactly one bar
-        p = s - 1  # the bar the "previous green" and "new high" gates look back at
+        entry_bar: int = int(legs["entry_bar"].iloc[0])
+        s: int = entry_bar - 1  # the signal bar: the order rests for exactly one bar
+        p: int = s - 1  # the bar the "previous green" and "new high" gates look back at
 
-        o, h, l, c = data.open[s], data.high[s], data.low[s], data.close[s]
-        body = abs(c - o)
-        upper = h - max(c, o)
-        lower = min(c, o) - l
+        sig_open: float = data.open[s]
+        sig_high: float = data.high[s]
+        sig_low: float = data.low[s]
+        sig_close: float = data.close[s]
+        body: float = abs(sig_close - sig_open)
+        upper: float = sig_high - max(sig_close, sig_open)
+        lower: float = min(sig_close, sig_open) - sig_low
 
         # Shared with the loop, not restated. See ``entry_bracket``: the copy that used to
         # sit here dropped the Close[0] - 2 ticks cap and was wrong on half of all trades.
         trigger, stop, risk = entry_bracket(
-            h,
-            l,
-            c,
+            sig_high,
+            sig_low,
+            sig_close,
             params.entry_offset_ticks * tick,
             params.stop_offset_ticks * tick,
             SHORT,  # DeadCatBounce is short-only; see nqbt.sim.bracket.entry_bracket.
         )
 
-        entry_price = float(legs["entry_price"].iloc[0])
-        gapped = data.open[entry_bar] <= trigger
+        entry_price: float = float(legs["entry_price"].iloc[0])
+        gapped: bool = data.open[entry_bar] <= trigger
 
-        row = {
+        row: dict[str, object] = {
             "trade_id": trade_id,
             "signal_time": index[s],
             "signal_bar": s,
-            "sig_open": o,
-            "sig_high": h,
-            "sig_low": l,
-            "sig_close": c,
+            "sig_open": sig_open,
+            "sig_high": sig_high,
+            "sig_low": sig_low,
+            "sig_close": sig_close,
             # -- inverted hammer -------------------------------------------------
             "body": body,
             "upper_wick": upper,
@@ -100,16 +104,16 @@ def explain_trades(
             "prev_close": data.close[p] if p >= 0 else np.nan,
             "prev_green_ok": (data.close[p] >= data.open[p]) if p >= 0 else False,
             "prev_high": data.high[p] if p >= 0 else np.nan,
-            "new_high_ok": (h > data.high[p]) if p >= 0 else False,
+            "new_high_ok": (sig_high > data.high[p]) if p >= 0 else False,
             # -- trend gates: operands, so the verdict is checkable ---------------
             "ema": ema[s],
-            "below_ema": not (c > ema[s]),
+            "below_ema": not (sig_close > ema[s]),
             "fast_sma": fast[s],
-            "below_fast_sma": not (c > fast[s]),
+            "below_fast_sma": not (sig_close > fast[s]),
             "slow_sma": slow[s],
-            "below_slow_sma": not (c > slow[s]),
+            "below_slow_sma": not (sig_close > slow[s]),
             "vwap": vwap[s],
-            "below_vwap": not (c > vwap[s]),
+            "below_vwap": not (sig_close > vwap[s]),
             "signal_fired": bool(signal[s]),
             # -- order arithmetic -------------------------------------------------
             "trigger": trigger,
@@ -127,7 +131,7 @@ def explain_trades(
         for leg in legs.sort_values("leg").itertuples():
             n = leg.leg
             row[f"leg{n}_target"] = leg.target_price
-            row[f"leg{n}_exit_time"] = index[int(leg.exit_bar)]
+            row[f"leg{n}_exit_time"] = index[int(leg.exit_bar)]  # type: ignore[arg-type]  # itertuples widens every column
             row[f"leg{n}_exit"] = leg.exit_price
             row[f"leg{n}_reason"] = leg.exit_reason
             row[f"leg{n}_r"] = leg.r_multiple
@@ -153,21 +157,21 @@ def ratchet_history(
     becomes ``High[bar-1] + 2 ticks`` when that is tighter, and the stop set at the close
     of bar ``i`` is the one live during bar ``i+1``.
     """
-    legs = trades[trades["trade_id"] == trade_id]
+    legs: pd.DataFrame = trades[trades["trade_id"] == trade_id]
     if legs.empty:
-        msg = f"no trade with id {trade_id}"
+        msg: str = f"no trade with id {trade_id}"
         raise KeyError(msg)
 
-    entry_bar = int(legs["entry_bar"].iloc[0])
-    last_bar = int(legs["exit_bar"].max())
-    offset = params.stop_offset_ticks * instrument.tick_size
+    entry_bar: int = int(legs["entry_bar"].iloc[0])
+    last_bar: int = int(legs["exit_bar"].max())
+    offset: float = params.stop_offset_ticks * instrument.tick_size
 
-    stop = float(legs["initial_stop"].iloc[0])
-    rows = []
+    stop: float = float(legs["initial_stop"].iloc[0])
+    rows: list[dict[str, object]] = []
     for i in range(entry_bar, last_bar + 1):
-        live = stop  # set at the close of bar i-1
-        candidate = data.high[i - 1] + offset if i >= 1 else np.nan
-        tightened = candidate < stop
+        live: float = stop  # set at the close of bar i-1
+        candidate: float = data.high[i - 1] + offset if i >= 1 else np.nan
+        tightened: bool = candidate < stop
         rows.append(
             {
                 "bar": i,
