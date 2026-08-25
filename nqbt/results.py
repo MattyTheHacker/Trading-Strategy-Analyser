@@ -23,6 +23,7 @@ import duckdb
 from nqbt import paths
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     import pandas as pd
@@ -130,7 +131,7 @@ def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has t
     root: str,
     instrument: str,
     bars: pd.DataFrame,
-    axes: dict,
+    axes: Mapping[str, Sequence[object]],
     back_adjust: bool = False,
     elapsed_s: float = 0.0,
     notes: str = "",

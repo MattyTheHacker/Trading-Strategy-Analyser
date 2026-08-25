@@ -33,7 +33,7 @@ from nqbt.instruments import MNQ, Instrument
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
 
-    from nqbt.archetypes import Archetype, Params
+    from nqbt.archetypes import Archetype, AxisValue, Params
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class Grid:
     ``base`` and ``axes`` mean.
     """
 
-    axes: dict[str, list] = field(default_factory=dict)
+    axes: dict[str, list[AxisValue]] = field(default_factory=dict)
     base: Params = None  # type: ignore[assignment]  # __post_init__ fills it
     archetype: Archetype = archetypes.DEFAULT
 
@@ -121,7 +121,7 @@ class Grid:
         base: Params | None = None,
         *,
         archetype: Archetype | None = None,
-        **axes: Iterable[object],
+        **axes: Iterable[AxisValue],
     ) -> Grid:
         """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
         if archetype is None:
@@ -147,7 +147,7 @@ class Grid:
         for values in itertools.product(*(self.axes[n] for n in names)):
             yield replace(self.base, **dict(zip(names, values, strict=True)))
 
-    def axis_values(self) -> dict[str, list]:
+    def axis_values(self) -> dict[str, list[AxisValue]]:
         """Every value each parameter will take across the sweep, swept or not.
 
         The whole parameter set rather than just ``axes``, because a period that is never
@@ -174,7 +174,7 @@ def run_combination(
     archetype: Archetype = archetypes.DEFAULT,
     *,
     keep_trades: bool = True,
-) -> tuple[dict, pd.DataFrame | None]:
+) -> tuple[dict[str, object], pd.DataFrame | None]:
     """Simulate one combination, returning its summary row and its trade log.
 
     The summary always comes off the raw leg matrix, so ``keep_trades`` changes what is
@@ -221,13 +221,13 @@ def _run_chunk(
     stop: int,
     *,
     keep_trades: bool,
-) -> tuple[list[dict], dict[int, pd.DataFrame]]:
+) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
     """Run combinations ``[start, stop)``. Module level so loky can pickle it.
 
     The worker regenerates its combinations from the grid rather than being handed a list;
     ``combinations()`` is deterministic, so ``start + offset`` is the serial path's ``combo_id``.
     """
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     logs: dict[int, pd.DataFrame] = {}
     for offset, params in enumerate(itertools.islice(grid.combinations(), start, stop)):
         combo_id = start + offset
@@ -246,8 +246,8 @@ def _sweep_serial(
     *,
     keep_trades: bool,
     progress_every: int,
-) -> tuple[list[dict], dict[int, pd.DataFrame]]:
-    rows: list[dict] = []
+) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
+    rows: list[dict[str, object]] = []
     logs: dict[int, pd.DataFrame] = {}
     started = time.perf_counter()
     for i, params in enumerate(grid.combinations()):
@@ -271,7 +271,7 @@ def _sweep_parallel(
     n_jobs: int,
     chunk_size: int | None,
     progress_every: int,
-) -> tuple[list[dict], dict[int, pd.DataFrame]]:
+) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
     """Spread chunks over processes, sharing one copy of the dataset.
 
     The payload is :meth:`Dataset.slim`, hoisted out of the generator below so every task
@@ -285,7 +285,7 @@ def _sweep_parallel(
         for start, stop in bounds
     )
 
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     logs: dict[int, pd.DataFrame] = {}
     for chunk_rows, chunk_logs in batches:
         rows.extend(chunk_rows)

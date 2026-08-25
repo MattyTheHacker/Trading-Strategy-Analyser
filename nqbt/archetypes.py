@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from nqbt.trades import LegMatrix
 
 
+type AxisValue = float | str
+"""One value a swept parameter may take: any number, or a name."""
+
+
 @runtime_checkable
 class Params(Protocol):
     """One combination's parameters: what the sweep requires of any ``params_cls``.
@@ -38,7 +42,7 @@ class Params(Protocol):
 
     __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
         ...
 
@@ -64,12 +68,12 @@ class Tier2Status(StrEnum):
     """No reconciliation attempted and none planned yet."""
 
 
-def _needs_time_of_day(values: Mapping[str, Sequence]) -> bool:
+def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
     """Whether any combination actually restricts its entries to some session phases."""
     return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
 
 
-def _regime_lookbacks(values: Mapping[str, Sequence]) -> tuple[int, ...]:
+def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
     """The efficiency-ratio lookbacks to build: none unless some combination filters on them.
 
     The grid holds float64 rather than a boolean gate, so an unasked-for lookback is the most
@@ -80,7 +84,7 @@ def _regime_lookbacks(values: Mapping[str, Sequence]) -> tuple[int, ...]:
     return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
 
 
-def _volume_keys(values: Mapping[str, Sequence]) -> tuple[volume.VolumeKey, ...]:
+def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.VolumeKey, ...]:
     """List the relative-volume series to build: none unless some combination filters on them.
 
     Sixteen bytes per bar per series, plus the baseline pass -- ``docs/roadmap.md`` §M10.2.
@@ -99,7 +103,7 @@ def _volume_keys(values: Mapping[str, Sequence]) -> tuple[volume.VolumeKey, ...]
     )
 
 
-def _trend_keys(values: Mapping[str, Sequence]) -> tuple[trend.TrendKey, ...]:
+def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendKey, ...]:
     """List the trend labels to build: none unless some combination filters on them.
 
     Eleven bytes per bar per label, and the averages behind them never reach the dataset --
@@ -119,7 +123,7 @@ def _trend_keys(values: Mapping[str, Sequence]) -> tuple[trend.TrendKey, ...]:
     )
 
 
-def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
+def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
     ``values`` maps each parameter name to every value the sweep will try for it, so a period
@@ -140,7 +144,7 @@ def moving_average_context(values: Mapping[str, Sequence]) -> ContextSpec:
     )
 
 
-def crossover_context(values: Mapping[str, Sequence]) -> ContextSpec:
+def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What EmaCrossover reads: two EMA grids, their raw values, and an ATR.
 
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
@@ -249,7 +253,7 @@ class Archetype:
     gated_by: Mapping[str, str] = field(default_factory=lambda: MA_GATES)
     """Axis -> the toggle that has to be on for it to change anything. Feeds ``dead_axes``."""
 
-    context_for: Callable[[Mapping[str, Sequence]], ContextSpec] = moving_average_context
+    context_for: Callable[[Mapping[str, Sequence[AxisValue]]], ContextSpec] = moving_average_context
     """Which precomputed series this archetype's signal reads."""
 
     not_sweepable: frozenset[str] = frozenset({"target_r_multiples"})

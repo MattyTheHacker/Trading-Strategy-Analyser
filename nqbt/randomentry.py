@@ -89,7 +89,7 @@ class NullResult:
     count_sensitive: bool
     """True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`."""
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, object]:
         """Flat mapping, for a report row or a CSV."""
         return asdict(self)
 
@@ -178,7 +178,7 @@ def _null_summary(
     signal: BoolArray,
     seed: int,
     pool: SessionMinutePool,
-) -> dict:
+) -> dict[str, float]:
     """One null realisation: draw a matched signal, simulate it, summarise it.
 
     Module level and seeded per draw so the parallel path returns the serial path's values in

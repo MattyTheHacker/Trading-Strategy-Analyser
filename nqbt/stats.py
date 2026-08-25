@@ -89,7 +89,7 @@ class Summary:
     read both before believing a coarse resolution -- ``docs/roadmap.md`` §M17."""
     commission_paid: float
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, float]:
         """Flat mapping of every statistic, for a results row or a CSV."""
         return asdict(self)
 
@@ -444,7 +444,7 @@ def path_statistic(pnl: FloatArray, name: str) -> float:
     return float(_max_consecutive(pnl < 0))
 
 
-def leg_summary(trades: pd.DataFrame) -> dict:
+def leg_summary(trades: pd.DataFrame) -> dict[str, float]:
     """NT8's view: every named entry counted as its own trade.
 
     Only for reconciling against Strategy Analyzer, whose "Total # of trades" is the leg count.

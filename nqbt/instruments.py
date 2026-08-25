@@ -12,7 +12,7 @@ import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, override
 
 # CME quarterly futures month codes.
 MONTH_CODES: dict[int, str] = {3: "H", 6: "M", 9: "U", 12: "Z"}
@@ -207,5 +207,6 @@ class ContractId:
         """The :class:`Instrument` this contract's root names."""
         return get_instrument(self.root)
 
+    @override
     def __str__(self) -> str:
         return self.nt8_name

@@ -211,7 +211,7 @@ def spread_vs_resampling(
     iterations: int = 1000,
     seed: int = 0,
     min_trades: int = MIN_TRADES,
-) -> dict:
+) -> dict[str, object]:
     """Does the between-contract spread exceed what relabelling the same trades produces?
 
     A permutation test over whole trades, restricted to

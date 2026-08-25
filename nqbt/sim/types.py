@@ -193,7 +193,7 @@ class DeadCatParams:
         remainder = self.order_quantity % n
         return tuple([base] * (n - 1) + [base + remainder])
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
         out = {}
         for f in fields(self):
@@ -342,7 +342,7 @@ class PullBackAndGoParams:
         remainder = self.order_quantity % n
         return tuple([base] * (n - 1) + [base + remainder])
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
         out = {}
         for f in fields(self):
@@ -511,7 +511,7 @@ class EmaCrossoverParams:
         remainder = self.order_quantity % n
         return tuple([base] * (n - 1) + [base + remainder])
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
         out = {}
         for f in fields(self):

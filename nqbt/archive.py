@@ -13,7 +13,7 @@ to understand a date.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from nqbt import paths
 
@@ -38,6 +38,7 @@ class MergeResult:
     sources: int
     skipped_lines: int = 0
 
+    @override
     def __str__(self) -> str:
         detail = f"+{self.added:,} new" if self.added else "no new bars"
         if self.revised:

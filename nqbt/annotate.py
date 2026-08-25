@@ -21,7 +21,7 @@ its timestamps, because a bar's own stamp is not a fill time.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import numpy as np
 import pandas as pd
@@ -183,6 +183,7 @@ class Annotation:
         """The matched subset: what a review may be computed over."""
         return self.frame[self.frame["matched"].astype(bool)]
 
+    @override
     def __str__(self) -> str:
         """Render the matched share and how many conditions each row carries."""
         return (

@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import numpy as np
 import pandas as pd
@@ -167,6 +167,7 @@ class ContractCoverage:
             return False
         return bool(self.first_bar <= first and last <= self.last_bar)
 
+    @override
     def __str__(self) -> str:
         """One line naming the contract and the range, or saying there is none."""
         if not self.cached:
@@ -192,6 +193,7 @@ class CoverageReport:
         """Fraction of trades that can be annotated. No trades is no coverage, not full coverage."""
         return self.covered / self.trades if self.trades else 0.0
 
+    @override
     def __str__(self) -> str:
         """Render the reviewable share, then one line per contract."""
         head = f"{self.covered}/{self.trades} trades reviewable ({self.share:.1%})"
@@ -215,6 +217,7 @@ class IncompleteTrades:
         """Fills dropped at both ends together."""
         return self.leading_fills + self.trailing_fills
 
+    @override
     def __str__(self) -> str:
         """Render what was dropped at each end."""
         return f"{self.leading_fills} leading and {self.trailing_fills} trailing fills dropped"
@@ -236,6 +239,7 @@ class ImportedTrades:
         """The legs of the trades whose bars are cached: what a review may be computed over."""
         return self.frame[self.frame["covered"]]
 
+    @override
     def __str__(self) -> str:
         """Leg count, the coverage report, and what could not be built into a trade."""
         return f"{len(self.frame)} legs, {self.coverage}\n  {self.incomplete}"

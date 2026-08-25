@@ -27,7 +27,7 @@ import hashlib
 import io
 import json
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import pandas as pd
 
@@ -35,7 +35,7 @@ from nqbt import archive, paths, sessions
 from nqbt.instruments import ContractId
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
 RAW_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
@@ -82,9 +82,13 @@ class ContractManifest:
     rows: int
 
     @classmethod
-    def from_dict(cls, d: dict) -> ContractManifest:
-        """Rebuild an entry from the JSON the manifest file holds."""
-        return cls(**{k: d[k] for k in cls.__slots__})
+    def from_dict(cls, d: Mapping[str, str | int]) -> ContractManifest:
+        """Rebuild an entry from the JSON the manifest file holds.
+
+        Keyed off ``__slots__`` so an entry an older version wrote raises ``KeyError``
+        rather than arriving half-filled.
+        """
+        return cls(**{k: d[k] for k in cls.__slots__})  # type: ignore[arg-type]  # JSON is untyped
 
 
 @dataclass(slots=True)
@@ -98,6 +102,7 @@ class IngestResult:
     """One of ``"created"``, ``"appended"``, ``"reparsed"``, ``"up-to-date"``."""
     warnings: list[str] = field(default_factory=list)
 
+    @override
     def __str__(self) -> str:
         return (
             f"{self.contract.nt8_name:<12} {self.action:<11} "

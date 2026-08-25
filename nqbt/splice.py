@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import pandas as pd
 
@@ -82,6 +82,7 @@ class RollDecision:
         """Whether the roll fired while the front contract was still dominant."""
         return not self.crossover_observed and self.handover_ratio < EARLY_ROLL_RATIO
 
+    @override
     def __str__(self) -> str:
         flag = "  [!] " if self.looks_early else ""
         return (
@@ -354,7 +355,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
             shifts[i] = running
 
     pieces: list[pd.DataFrame] = []
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     warnings: list[str] = []
 
     for i, contract in enumerate(contracts):
