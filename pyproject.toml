@@ -12,10 +12,10 @@ requires-python = ">=3.14"
 # means a release nobody chose can turn `main` red -- which it did, when numpy 2.5 changed a
 # default that `>=` had let in. Dependabot raises the bumps; see CONTRIBUTING.md.
 dependencies = [
-    "numpy==2.4.6",
+    "numpy==2.5.2",
     "pandas==3.0.5",
-    "pyarrow==25.0.0",
-    "numba==0.66.0",
+    "pyarrow==25.0.1",
+    "numba==0.67.0",
     "TA-Lib==0.7.1",
     "duckdb==1.5.5",
     "joblib==1.5.3",
@@ -29,8 +29,8 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "ruff==0.16.2",
-    "mypy==2.3.0",
+    "ruff==0.16.4",
+    "mypy==2.3.1",
     "pandas-stubs==3.0.5.260730",
     "pymarkdownlnt==0.9.39",
 ]
