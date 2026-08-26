@@ -487,9 +487,23 @@ risk, so **these R numbers are not comparable to another archetype's at the same
 more force than the same caveat carries for an ATR stop generally. And 1x ATR(3) on a quiet bar
 is a target that can be smaller than the round-trip commission, which no ranking will announce.
 
+**`ExitOnSessionCloseSeconds = 180`, where both ports set 30.** The flatten lands at 16:57:00 ET
+rather than 16:59:30, so it moves entries as well as exits — a resting order is cancelled on a
+force-flat bar, and `block_entry_at_session_close` reads the same mask. It is a property of the
+strategy, so it is carried on `Archetype` and read by `sweep.prepare_for`; building an InsideBar
+dataset through `context.prepare` directly has to pass it. Both `InsideBar` scripts set 180 and
+nothing else does.
+
 **Every property is initialised.** Unlike `PullBackAndGo.cs`, this `SetDefaults` sets all seven
 declared properties, so `InsideBarParams`'s defaults are the NinjaScript's directly rather than
 a reconciled configuration.
+
+**What a reconciliation of it has to hold fixed.** The no-entry window has to be off on *both*
+sides — `no_entry_minutes_before_close=0` here, and the Strategy Analyzer run started outside
+16:00–17:00 ET so the C#'s wall-clock test cannot fire — because that is the only configuration
+in which the two are testing the same strategy. `tools/reconcile_nt8.py`'s `CONFIGS["InsideBar"]`
+is that configuration. Everything else is `SetDefaults` unchanged, and the export is the one
+artefact that settles both the `IsFillLimitOnTouch = true` branch and the ATR indexing above.
 
 ### A no-entry window before the session close
 

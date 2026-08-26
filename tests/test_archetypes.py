@@ -82,6 +82,28 @@ def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     assert archetypes.INSIDEBAR.tier2 is Tier2Status.TIER1_ONLY
 
 
+def test_the_flatten_cutoff_is_the_ninjascripts_and_differs_between_them() -> None:
+    """``ExitOnSessionCloseSeconds`` is a strategy property, so it cannot be one global default.
+
+    Both stop-market ports set 30 and ``InsideBar.cs`` sets 180 -- two and a half minutes of
+    every session, on every trade still open, which no aggregate would announce.
+    """
+    assert archetypes.DEADCATBOUNCE.exit_on_close_seconds == 30
+    assert archetypes.PULLBACKANDGO.exit_on_close_seconds == 30
+    assert archetypes.EMACROSSOVER.exit_on_close_seconds == 30
+    assert archetypes.INSIDEBAR.exit_on_close_seconds == 180
+
+
+def test_prepare_for_takes_the_cutoff_from_the_archetype_unless_told_otherwise() -> None:
+    bars = synthetic_bars(2000)
+    inside = sweep.prepare_for(bars, sweep.Grid.of(InsideBarParams()))
+    deadcat = sweep.prepare_for(bars, sweep.Grid.of(DeadCatParams()))
+    override = sweep.prepare_for(bars, sweep.Grid.of(InsideBarParams()), exit_on_close_seconds=30)
+
+    assert int(inside.force_flat.sum()) > int(deadcat.force_flat.sum()), "180s flattens earlier"
+    assert list(override.force_flat) == list(deadcat.force_flat)
+
+
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------
 
 

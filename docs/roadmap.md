@@ -168,8 +168,11 @@ rediscovering an item the hard way.
 
 **Every position must be flat before the session close.** This is a prop-firm account rule, so
 it is not a preference, a parameter, or something a promising strategy gets to negotiate with.
-It also matches NT8, where `DeadCatBounce.cs` sets `IsExitOnSessionCloseStrategy = true` with
-`ExitOnSessionCloseSeconds = 30`, so Tier 1 and Tier 2 agree on it today.
+It also matches NT8, where every strategy in the submodule sets
+`IsExitOnSessionCloseStrategy = true`, so Tier 1 and Tier 2 agree on it today. **How far before
+the close is a per-strategy property, not one number**: `DeadCatBounce.cs` and
+`PullBackAndGo.cs` set `ExitOnSessionCloseSeconds = 30` and both InsideBar scripts set 180, so
+it is carried on `Archetype` and read by `sweep.prepare_for` rather than defaulted once.
 
 **It is already implemented — do not "add" it.** `sessions.force_flat_mask` produces the
 per-bar mask, the `@njit` loop exits everything still open at `EXIT_SESSION_CLOSE`, and

@@ -16,7 +16,7 @@ import pandas as pd
 
 from nqbt import archetypes, context, ingest, logsetup
 from nqbt.instruments import MNQ, NQ, ContractId
-from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+from nqbt.sim.types import DeadCatParams, InsideBarParams, PullBackAndGoParams
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,10 @@ CONFIGS = {
         require_new_high=True,
     ),
     "PullBackAndGo": PullBackAndGoParams(),
+    # The no-entry window is off because the C# measures it against the wall clock, so the
+    # two sides can only be made to test the same rule by both having it off. See
+    # docs/nt8-fidelity.md, "A no-entry window before the session close".
+    "InsideBar": InsideBarParams(no_entry_minutes_before_close=0),
 }
 
 
@@ -72,7 +76,9 @@ def parse_nt8(path: Path) -> pd.DataFrame:
         {
             "entry_time": when("Entry time"),
             "exit_time": when("Exit time"),
-            "leg": raw["Entry name"].str.extract(r"(\d+)")[0].astype(int),
+            # S1..S4 and L1..L4 carry their leg in the name; InsideBar brackets one order
+            # called "entry" and has no scale-out, so it is leg 1.
+            "leg": raw["Entry name"].str.extract(r"(\d+)")[0].fillna("1").astype(int),
             "entry_price": raw["Entry price"].astype(float),
             "exit_price": raw["Exit price"].astype(float),
             "net_pnl": money(raw["Profit"]),
@@ -92,7 +98,11 @@ def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
     params = CONFIGS[archetype_name]
     bars = ingest.load_contract(ContractId.parse(contract))
     instrument = NQ if contract.startswith("NQ") else MNQ
-    data = context.prepare(bars, archetype.context_for({k: [v] for k, v in params.as_dict().items()}))
+    data = context.prepare(
+        bars,
+        archetype.context_for({k: [v] for k, v in params.as_dict().items()}),
+        exit_on_close_seconds=archetype.exit_on_close_seconds,
+    )
     log = archetype.run(data, params, instrument)
     return log.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 

@@ -42,6 +42,9 @@ below and is what you quote; this file is the index, not the record.
 - `MaxRiskPerTrade` is in **ticks**, not dollars.
 - **A resting entry order is cancelled on a `force_flat` bar**, not tested for fill.
   `block_entry_at_session_close` guards only a *new* signal on that bar.
+- **`ExitOnSessionCloseSeconds` is per strategy, not one global 30.** Both stop-market ports set
+  30 and both InsideBar scripts set 180. It lives on `Archetype` and `sweep.prepare_for` reads
+  it; `context.prepare` called directly still defaults to 30 and has to be told.
 
 ## Structure
 

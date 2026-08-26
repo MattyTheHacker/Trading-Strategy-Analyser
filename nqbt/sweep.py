@@ -164,8 +164,16 @@ class Grid:
 
 
 def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs: Unpack[PrepareOptions]) -> Dataset:
-    """Build the shared dataset covering every series the grid needs."""
-    return context.prepare(bars, grid.required_context(), **kwargs)
+    """Build the shared dataset covering every series the grid needs.
+
+    The flatten cutoff comes from the archetype, which is where its NinjaScript property
+    lives; an explicit ``exit_on_close_seconds`` still wins.
+    """
+    options: PrepareOptions = {
+        "exit_on_close_seconds": grid.archetype.exit_on_close_seconds,
+        **kwargs,
+    }
+    return context.prepare(bars, grid.required_context(), **options)
 
 
 def run_combination(
