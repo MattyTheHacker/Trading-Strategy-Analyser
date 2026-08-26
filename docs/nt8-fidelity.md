@@ -416,6 +416,107 @@ four-leg scale-out is volatility-scaled rather than structure-scaled. Crossover 
 **not comparable to DeadCatBounce results at the same R numbers** — the same trap as
 comparing profit factor across bar resolutions.
 
+### M22 — the InsideBar rules, and the three with no evidence yet
+
+`InsideBar.cs` exists, so unlike M18 every rule below is a reading of real C# rather than a
+choice written down in advance. What none of them has is a Strategy Analyzer trade list, so
+`Archetype.tier2` is `TIER1_ONLY` and the three marked below are inferences the port could be
+wrong about. It is worth porting anyway for exactly that reason: it reaches three parts of the
+fill model no other archetype does, and `bracket.py` inherits whatever is wrong in them.
+
+**The entry is M18's market-on-next-open.** `EnterLong(0, OrderQuantity, "entry")` under
+`Calculate.OnBarClose`, so there is no trigger price, no "no touch, no fill" and no
+submittability test on the entry itself. A bar at or past the flatten cutoff cancels the order
+rather than filling it.
+
+**The signal reads two bars back, and both bounds are strict.** The inside bar is `[1]` and its
+mother bar is `[2]`, so `High[1] < High[2] && Low[1] > Low[2]` — a bar equalling either extreme
+of its predecessor is not inside it. The break is judged on `Close[0]` against the **mother**
+bar's extreme plus `ErrorMargin` of the mother bar's *range*, never against the inside bar's own
+high or low.
+
+**The three moving-average gates are strict, and do not mirror the two ports.** `InsideBar.cs`
+writes the positive form — `Close[0] > ema[0] && Close[0] > smaFast[0] && Close[0] > smaSlow[0]`
+— where both ports write the negation of a rejection. So equality **fails** here and **passes**
+there, which is a third pattern for the table under "The entry filters' equality boundaries".
+The shared boolean grid holds `above` as `~(close < ma)`, so it is the wrong boundary for this
+archetype and `insidebar_trends` reads the raw values instead. That is what
+`needs_ma_values` costs, and why it is on.
+
+**`BarsRequiredToTrade` costs one bar more here than in either port.** `CurrentBars[0] <=
+BarsRequiredToTrade` returns, against `CurrentBar < BarsRequiredToTrade` in both others. An
+off-by-one in warm-up is invisible in aggregate, so it is pinned by a test rather than assumed
+to mirror them.
+
+**`IsFillLimitOnTouch = true` — and its `true` branch has never been checked (no evidence).**
+Set in `SetDefaults`, against `false` on both ports, so a profit target fills on `low <= target`
+rather than needing `low < target`. `fill_limit_on_touch` has been a sweepable axis all along
+and no archetype's defaults reached the `true` side of it; the rule recorded under "Limit
+orders must trade *through*, not touch" is evidence about the `false` branch only. This is the
+first archetype whose trade list would settle the other one.
+
+**The bracket is computed in `OnExecutionUpdate`, from the fill, with two different anchors.**
+
+```csharp
+double atr    = ATR(ATRLength)[0];
+double stop   = Low[1] - ATRMultiplier * atr;   // long
+double target = price + atr;                    // `price` is the actual fill
+```
+
+Both ports place a bracket against a *trigger* the fill is defined relative to. Here the target
+hangs off the **fill** and the stop off the **signal bar's** adverse extreme — `Low[1]` inside
+`OnExecutionUpdate` is the signal bar, because the fill lands on the next bar's open. The stop
+never moves afterwards: there is no ratchet, and `SetStopLoss`'s third argument is
+`isSimulatedStop`, not a trailing flag.
+
+**The `ATR(ATRLength)` that line reads at `[0]` is taken as the *fill* bar's (no evidence).** `OnExecutionUpdate`
+runs on the bar the fill lands on, which is the same fact that makes `Low[1]` the signal bar —
+there is no reading of that C# under which `[1]` is the signal bar and `[0]` is also the signal
+bar. It does mean the level is set from a bar that is complete only because NT8 is replaying
+history, so it is the one rule here that a trade list has to **settle** rather than confirm.
+Two things make it the safer of the two readings in the meantime: it is the only one consistent
+with the `Low[1]` indexing, and it is not the optimistic choice — running the same signals with
+the ATR series lagged by one bar produces *more* same-bar target fills, not fewer, which is the
+opposite of what a self-fulfilling target would do. Reproduce that with
+`simulate_insidebar` called directly on a shifted ATR array; both branches are one line apart.
+
+**The geometry is lopsided by design.** `ATRLength = 3` with `ATRMultiplier = 10.0` puts the
+target 1x ATR(3) from the fill and the stop 10x ATR(3) beyond the signal bar — a high-win-rate,
+rare-large-loss profile whose R multiples cluster just above zero. `r_multiple` uses planned
+risk, so **these R numbers are not comparable to another archetype's at the same value**, with
+more force than the same caveat carries for an ATR stop generally. And 1x ATR(3) on a quiet bar
+is a target that can be smaller than the round-trip commission, which no ranking will announce.
+
+**Every property is initialised.** Unlike `PullBackAndGo.cs`, this `SetDefaults` sets all seven
+declared properties, so `InsideBarParams`'s defaults are the NinjaScript's directly rather than
+a reconciled configuration.
+
+### A no-entry window before the session close
+
+```csharp
+sessionIterator.GetNextSession(Now, true);
+if ((sessionIterator.ActualSessionEnd - Now).TotalHours <= 1) return;
+```
+
+A parameterised window, not a boolean, and **distinct from `block_entry_at_session_close`**,
+which guards only a new signal on the force-flat bar. The comparison is `<=`, so a bar exactly
+an hour out is blocked and the gate admits `remaining > window`. `sessions.seconds_to_session_end`
+is the quantity both this and `force_flat_mask` are cut from, so a window and the flatten cannot
+drift apart; both measure against the template's fixed close rather than the session's observed
+last bar, so a holiday early close is probably not covered.
+
+**`Now` is the wall clock, and that is a trap the port does not reproduce.** It resolves to
+`Core.Globals.Now` — `Connection.PlaybackConnection` is null in Strategy Analyzer — so the C#
+compares the end of *today's* session against the *real current time*, whatever bar is being
+processed. In a backtest that makes the rule either on for every bar or off for every bar,
+depending on the hour the run is started. The port implements the bar's own clock, which is what
+the rule means and what live trading does.
+
+**So this is the one rule the two tiers cannot agree on by construction**, and a Tier-2
+reconciliation of InsideBar needs `Now` replaced by `Time[0]` in the NinjaScript before it can
+mean anything. Until then, running the backtest more than an hour before the session close is
+the only configuration in which the C# and this port are testing the same rule.
+
 ## Indicators
 
 **TA-Lib's EMA does not match NT8's.** TA-Lib seeds with an SMA of the first `period`

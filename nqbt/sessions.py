@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, DateArray, OffsetArray
+    from nqbt.arrays import BoolArray, DateArray, FloatArray, IntArray, OffsetArray
 
 EASTERN = "America/New_York"
 
@@ -166,7 +166,22 @@ def force_flat_mask(
     a holiday early close is probably not covered -- ``docs/roadmap.md``, "Flat before the
     session close".
     """
-    naive: DateArray = info.eastern.tz_localize(None).to_numpy()
-    session_end = info.trading_day.astype("datetime64[s]") + np.timedelta64(template.close_seconds, "s")
-    cutoff = session_end - np.timedelta64(int(exit_on_close_seconds), "s")
-    return info.in_session & (naive.astype("datetime64[s]") >= cutoff)
+    return info.in_session & (seconds_to_session_end(info, template) <= float(exit_on_close_seconds))
+
+
+def seconds_to_session_end(
+    info: SessionInfo,
+    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
+) -> FloatArray:
+    """Seconds from each bar's end timestamp to its session's scheduled close.
+
+    Negative inside the maintenance break, which no real bar falls in. Measured against the
+    template's fixed close for the same reason :func:`force_flat_mask` is, and it is the
+    quantity both that mask and a no-entry window before the close are cut from --
+    ``docs/nt8-fidelity.md``, "A no-entry window before the session close".
+    """
+    # Both sides as seconds since the epoch: numpy types ``datetime64 + timedelta64`` as
+    # ``timedelta64``, which then refuses the subtraction.
+    naive: IntArray = info.eastern.tz_localize(None).to_numpy().astype("datetime64[s]").astype(np.int64)
+    close: IntArray = info.trading_day.astype("datetime64[s]").astype(np.int64) + template.close_seconds
+    return (close - naive).astype(np.float64)

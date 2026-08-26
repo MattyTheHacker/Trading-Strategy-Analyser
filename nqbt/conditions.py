@@ -41,6 +41,7 @@ __all__ = [
     "made_new_low",
     "previous_bar_green",
     "previous_bar_red",
+    "prior_bar_inside",
 ]
 
 
@@ -124,6 +125,20 @@ def _previous_bar_red(open_: FloatArray, close: FloatArray) -> BoolArray:
     return out
 
 
+@njit(cache=True)
+def _prior_bar_inside(high: FloatArray, low: FloatArray) -> BoolArray:
+    """``High[1] < High[2] and Low[1] > Low[2]``, stamped on the bar whose close judges it.
+
+    ``InsideBar.cs``. Both bounds are strict, so a bar equalling either extreme of its
+    predecessor is not inside it. The first two bars have no pair behind them.
+    """
+    n = high.size
+    out = np.zeros(n, dtype=np.bool_)
+    for i in range(2, n):
+        out[i] = high[i - 1] < high[i - 2] and low[i - 1] > low[i - 2]
+    return out
+
+
 def inverted_hammer(bars: pd.DataFrame) -> BoolArray:
     """:func:`_inverted_hammer` over a bar frame's OHLC columns."""
     return _inverted_hammer(
@@ -162,6 +177,11 @@ def previous_bar_green(bars: pd.DataFrame) -> BoolArray:
 def previous_bar_red(bars: pd.DataFrame) -> BoolArray:
     """:func:`_previous_bar_red` over a bar frame's opens and closes."""
     return _previous_bar_red(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
+
+
+def prior_bar_inside(bars: pd.DataFrame) -> BoolArray:
+    """:func:`_prior_bar_inside` over a bar frame's highs and lows."""
+    return _prior_bar_inside(bars["high"].to_numpy(np.float64), bars["low"].to_numpy(np.float64))
 
 
 def below_series(close: FloatArray, series: FloatArray) -> BoolArray:
@@ -243,6 +263,7 @@ class BarGeometry:
     made_new_low: BoolArray
     previous_bar_green: BoolArray
     previous_bar_red: BoolArray
+    prior_bar_inside: BoolArray
 
     def __len__(self) -> int:
         return self.inverted_hammer.size
@@ -257,6 +278,7 @@ def bar_geometry(bars: pd.DataFrame) -> BarGeometry:
         made_new_low=made_new_low(bars),
         previous_bar_green=previous_bar_green(bars),
         previous_bar_red=previous_bar_red(bars),
+        prior_bar_inside=prior_bar_inside(bars),
     )
 
 

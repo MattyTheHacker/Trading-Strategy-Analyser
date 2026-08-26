@@ -210,3 +210,27 @@ def test_the_union_of_two_specs_carries_the_new_fields() -> None:
     assert merged.atr_periods == (14, 20)
     assert merged.needs_vwap
     assert merged.needs_ma_values
+
+
+def test_the_session_clock_is_absent_unless_the_spec_asks_for_it() -> None:
+    data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
+    assert data.seconds_to_session_end is None
+    with pytest.raises(ContextError, match="needs_session_clock"):
+        data.session_end_gate(60)
+
+
+def test_the_session_clock_gate_admits_a_bar_strictly_outside_the_window() -> None:
+    """``(ActualSessionEnd - Now).TotalHours <= 1`` returns, so an hour exactly is blocked."""
+    idx = pd.DatetimeIndex(pd.to_datetime(["2024-01-16 20:59:00", "2024-01-16 21:00:00"], utc=True))
+    frame = bars(len(idx)).set_index(idx)
+    data = context.prepare(frame, ContextSpec(ema_periods=(21,), needs_session_clock=True))
+
+    assert list(data.seconds_to_session_end) == [3660.0, 3600.0]
+    assert list(data.session_end_gate(60)) == [True, False]
+    assert list(data.session_end_gate(61)) == [False, False]
+
+
+def test_the_union_of_two_specs_carries_the_session_clock() -> None:
+    assert (ContextSpec() | ContextSpec(needs_session_clock=True)).needs_session_clock
+    assert (ContextSpec(needs_session_clock=True) | ContextSpec()).needs_session_clock
+    assert not (ContextSpec() | ContextSpec()).needs_session_clock

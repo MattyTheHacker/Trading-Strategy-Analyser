@@ -71,6 +71,12 @@ class ContextSpec:
     """Keep the raw moving-average values, not just the boolean gates -- eight bytes per
     element against one, so off unless something reads the numbers themselves."""
 
+    needs_session_clock: bool = False
+    """Build the per-bar seconds-to-session-close clock (:mod:`nqbt.sessions`).
+
+    Read by an archetype whose entries stop some window before the close, which is a
+    different rule from the force-flat mask every archetype already gets."""
+
     def __or__(self, other: ContextSpec) -> ContextSpec:
         return ContextSpec(
             ema_periods=tuple(sorted({*self.ema_periods, *other.ema_periods})),
@@ -82,6 +88,7 @@ class ContextSpec:
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
             trend_keys=tuple(sorted({*self.trend_keys, *other.trend_keys})),
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
+            needs_session_clock=self.needs_session_clock or other.needs_session_clock,
         )
 
     def periods_by_kind(self) -> dict[str, tuple[int, ...]]:
@@ -126,6 +133,10 @@ class Dataset:
 
     trends: trend.TrendGrid | None = None
     """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
+
+    seconds_to_session_end: FloatArray | None = None
+    """Seconds from each bar to its session's scheduled close, or ``None`` when nothing
+    asked for them."""
 
     day_codes: IndexArray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
@@ -340,6 +351,23 @@ class Dataset:
         """Per-bar ``[3, n_bars]`` votes, so a review can say which component dissented."""
         return self._trends().votes_for(key)
 
+    def session_end_gate(self, minutes: float) -> BoolArray:
+        """Per-bar boolean: is this bar more than ``minutes`` from its session's close?
+
+        The no-entry window before the close, which is *not* the force-flat mask -- see
+        ``docs/nt8-fidelity.md``, "A no-entry window before the session close". Callers skip
+        it entirely at a window of zero.
+        """
+        if self.seconds_to_session_end is None:
+            msg: str = (
+                "no session clock in this dataset; prepare() was not asked for it. "
+                "Set needs_session_clock on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.seconds_to_session_end > minutes * 60.0
+
     @property
     def nbytes(self) -> int:
         """Bytes held by the derived arrays -- what a parallel worker is handed.
@@ -351,7 +379,13 @@ class Dataset:
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
         total += sum(a.nbytes for a in self.atrs.values())
-        for a in (self.vwap, self.below_vwap, self.above_vwap, self.day_codes):
+        for a in (
+            self.vwap,
+            self.below_vwap,
+            self.above_vwap,
+            self.seconds_to_session_end,
+            self.day_codes,
+        ):
             if a is not None:
                 total += a.nbytes
         if self.time_of_day is not None:
@@ -479,5 +513,6 @@ def prepare(
         regimes=regimes,
         volumes=volumes,
         trends=trends,
+        seconds_to_session_end=(sessions.seconds_to_session_end(info) if spec.needs_session_clock else None),
         day_codes=day_codes(bars.index),
     )

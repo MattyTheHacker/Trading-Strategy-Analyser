@@ -326,6 +326,7 @@ def test_only_the_archetype_with_a_rule_driven_exit_references_exit_signal() -> 
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/bracket.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/pullback.py")
+    assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/insidebar.py")
 
 
 def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -> None:

@@ -29,6 +29,16 @@ below and is what you quote; this file is the index, not the record.
   unset parameter, not a platform limit — `docs/roadmap.md` § "Order lifetime in NT8" has the
   three routes and their costs. The simulation keeps the one-bar lifetime because that is what
   the C# does.
+- **`IsFillLimitOnTouch = true` is InsideBar's, and its branch has no trade list behind it.**
+  Both other ports set `false`, so every reconciled target in the project needs `low < target`;
+  InsideBar needs `low <= target` and nothing has checked that side. `docs/nt8-fidelity.md` §M22.
+- **A bracket set in `OnExecutionUpdate` runs on the *fill* bar.** `Low[1]` there is the signal
+  bar and the ATR read at `[0]` is the fill bar's — one indexing, two anchors in one bracket. The ATR
+  half is an inference a trade list has to settle. `docs/nt8-fidelity.md` §M22.
+- **The no-entry window before the close is not `block_entry_at_session_close`.** One is a
+  parameterised window over `sessions.seconds_to_session_end`, the other guards a signal on the
+  force-flat bar alone. The C#'s version reads the wall clock and so cannot be reconciled as
+  written. `docs/nt8-fidelity.md`, "A no-entry window before the session close".
 - `MaxRiskPerTrade` is in **ticks**, not dollars.
 - **A resting entry order is cancelled on a `force_flat` bar**, not tested for fill.
   `block_entry_at_session_close` guards only a *new* signal on that bar.
@@ -61,6 +71,8 @@ below and is what you quote; this file is the index, not the record.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.
+- **The shared boolean MA grid is the wrong boundary for InsideBar**, whose C# tests positively
+  so equality *fails*. It reads the raw values instead, which is what `needs_ma_values` buys.
 - **`PullBackAndGoParams`'s defaults reproduce the reconciled configuration, not the
   NinjaScript's** — `PullBackAndGo.cs` leaves seven properties uninitialised in `SetDefaults`.
   `use_vwap` stays off: nothing has checked nqbt's VWAP against `OrderFlowVWAP`.

@@ -15,21 +15,22 @@ import pytest
 from nqbt import archetypes, sessions, sweep
 from nqbt.archetypes import Archetype, ArchetypeError, ContextSpec, Tier2Status
 from nqbt.instruments import NQ
-from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
+from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, InsideBarParams, PullBackAndGoParams
 
 # -- the registry -------------------------------------------------------------
 
 
 def test_every_archetype_is_registered() -> None:
-    assert archetypes.names() == ["DeadCatBounce", "EmaCrossover", "PullBackAndGo"]
+    assert archetypes.names() == ["DeadCatBounce", "EmaCrossover", "InsideBar", "PullBackAndGo"]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
     assert archetypes.get("EmaCrossover") is archetypes.EMACROSSOVER
+    assert archetypes.get("InsideBar") is archetypes.INSIDEBAR
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
 
 
 def test_an_unknown_name_lists_the_known_ones() -> None:
     with pytest.raises(ArchetypeError, match="DeadCatBounce"):
-        archetypes.get("InsideBar")
+        archetypes.get("SqueezeBreakout")
 
 
 def test_registering_a_duplicate_name_is_refused() -> None:
@@ -55,6 +56,7 @@ def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(DeadCatParams()) is archetypes.DEADCATBOUNCE
     assert archetypes.for_params(PullBackAndGoParams()) is archetypes.PULLBACKANDGO
     assert archetypes.for_params(EmaCrossoverParams()) is archetypes.EMACROSSOVER
+    assert archetypes.for_params(InsideBarParams()) is archetypes.INSIDEBAR
 
 
 def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
@@ -69,13 +71,15 @@ def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
 def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     """``tier2`` is the column that stops a ranking mixing a measurement with an assumption.
 
-    Both ports have a real NT8 trade list behind them. EmaCrossover has no NinjaScript at
-    all, so it must not claim one -- this is the assertion that would fail if someone
-    registered an original with the reconciled ports' status copied across.
+    Two ports have a real NT8 trade list behind them. EmaCrossover has no NinjaScript at
+    all and InsideBar has one that has never been run against this port, so neither may
+    claim one -- this is the assertion that would fail if someone registered an
+    unreconciled archetype with the reconciled ports' status copied across.
     """
     assert archetypes.DEADCATBOUNCE.tier2 is Tier2Status.RECONCILED
     assert archetypes.PULLBACKANDGO.tier2 is Tier2Status.RECONCILED
     assert archetypes.EMACROSSOVER.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.INSIDEBAR.tier2 is Tier2Status.TIER1_ONLY
 
 
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------
@@ -276,3 +280,24 @@ def test_the_two_archetypes_disagree_on_direction_over_the_same_bars() -> None:
     assert len(long_logs[0]) and len(short_logs[0]), "one side produced nothing"
     assert (long_logs[0]["direction"] == 1).all()
     assert (short_logs[0]["direction"] == -1).all()
+
+
+def test_an_insidebar_grid_sweeps_end_to_end() -> None:
+    """The third port reaching the results table through the registry, not a fork of it.
+
+    Its ``ContextSpec`` is the one that asks for raw moving-average values, an ATR and the
+    session clock together, so a sweep is what proves the three arrive.
+    """
+    bars = synthetic_bars()
+    grid = sweep.Grid.of(
+        InsideBarParams(slow_sma_period=50, bars_required_to_trade=60),
+        atr_multiplier=[5.0, 10.0],
+    )
+    spec = grid.required_context()
+    assert spec.needs_ma_values and spec.atr_periods == (3,) and spec.needs_session_clock
+
+    results, _ = sweep.sweep(bars, grid, NQ)
+    assert len(results) == 2
+    assert results["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
+    assert "error_margin" in results.columns
+    assert "require_previous_green" not in results.columns
