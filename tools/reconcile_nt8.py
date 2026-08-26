@@ -1,6 +1,10 @@
 """Compare an NT8 Strategy Analyzer Trades export against an nqbt run, leg for leg.
 
-    ./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> <archetype> <contract>
+    ./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> <archetype> <contract> [from]
+
+``from`` is an optional ISO date that trims the export. Needed whenever NT8 was asked for more
+history than the contract itself has: it serves its *merged* series there, which a per-contract
+archive cannot reproduce -- docs/nt8-fidelity.md, "Reconciliation result -- InsideBar".
 
 Reasoning, results and the traps are in docs/nt8-fidelity.md; this is the mechanism.
 """
@@ -24,9 +28,15 @@ EXIT_NAMES = {
     "Profit target": "target",
     "Stop loss": "stop",
     "Exit on session close": "session_close",
+    # Not an exit rule: NT8 reversing, which no archetype reproduces. Reported apart from the
+    # comparison rather than counted as a disagreement -- docs/nt8-fidelity.md, "The position
+    # guard does not hold in Strategy Analyzer".
+    "Close position": "reversal",
 }
 
-EXPECTED_ARGV = 4
+REVERSAL = "reversal"
+
+EXPECTED_ARGV = (4, 5)
 FIRST_DISAGREEMENTS = 5
 """Disagreeing legs shown inline; the point is to characterise them, not to list them all."""
 
@@ -105,11 +115,7 @@ def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
     params = CONFIGS[archetype_name]
     bars = ingest.load_contract(ContractId.parse(contract))
     instrument = NQ if contract.startswith("NQ") else MNQ
-    data = context.prepare(
-        bars,
-        archetype.context_for({k: [v] for k, v in params.as_dict().items()}),
-        exit_on_close_seconds=archetype.exit_on_close_seconds,
-    )
+    data = context.prepare(bars, archetype.context_for({k: [v] for k, v in params.as_dict().items()}))
     log = archetype.run(data, params, instrument)
     return log.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 
@@ -117,6 +123,10 @@ def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
 def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
     # Both ends are excluded: NT8 warms indicators from bars before the export starts, and
     # the export can stop before the backtest did. See docs/nt8-fidelity.md.
+    cut = nt8["exit_reason"] == REVERSAL
+    if cut.any():
+        logger.info("  reversals         %s cut short by an NT8 reversal, held out", f"{int(cut.sum()):,}")
+        nt8 = nt8[~cut]
     lo, hi = nt8["entry_time"].min(), nt8["entry_time"].max()
     inner = mine[(mine["entry_time"] > lo) & (mine["entry_time"] < hi)]
     nt8_inner = nt8[(nt8["entry_time"] > lo) & (nt8["entry_time"] < hi)]
@@ -178,12 +188,16 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
 
 def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
-    if len(argv) != EXPECTED_ARGV:
+    if len(argv) not in EXPECTED_ARGV:
         logger.info("%s", __doc__)
         return 2
     export, archetype_name, contract = argv[1], argv[2], argv[3]
     logger.info("== %s on %s ==", archetype_name, contract)
     nt8 = parse_nt8(Path(export))
+    if len(argv) == EXPECTED_ARGV[1]:
+        start = pd.Timestamp(argv[4], tz="UTC")
+        logger.info("  trimmed to        %s onwards", f"{start:%Y-%m-%d}")
+        nt8 = nt8[nt8["entry_time"] >= start]
     mine = run_nqbt(archetype_name, contract)
     reconcile(nt8, mine)
     return 0

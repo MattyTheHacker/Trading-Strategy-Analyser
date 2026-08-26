@@ -29,12 +29,19 @@ below and is what you quote; this file is the index, not the record.
   unset parameter, not a platform limit — `docs/roadmap.md` § "Order lifetime in NT8" has the
   three routes and their costs. The simulation keeps the one-bar lifetime because that is what
   the C# does.
-- **`IsFillLimitOnTouch = true` is InsideBar's, and its branch has no trade list behind it.**
-  Both other ports set `false`, so every reconciled target in the project needs `low < target`;
-  InsideBar needs `low <= target` and nothing has checked that side. `docs/nt8-fidelity.md` §M22.
-- **A bracket set in `OnExecutionUpdate` runs on the *fill* bar.** `Low[1]` there is the signal
-  bar and the ATR read at `[0]` is the fill bar's — one indexing, two anchors in one bracket. The ATR
-  half is an inference a trade list has to settle. `docs/nt8-fidelity.md` §M22.
+- **`IsFillLimitOnTouch = true` is InsideBar's, and its branch now has a trade list behind it.**
+  Both other ports set `false`, so their targets need `low < target`; InsideBar needs
+  `low <= target`. `docs/nt8-fidelity.md` §M22.
+- **`OnExecutionUpdate` runs with the *signal* bar current, not the fill bar.** So `[0]` is the
+  signal bar and `Low[1]` is the bar before it. Established at 100% of stop exits and 99.75% of
+  target exits against an inference that had both one bar later — any archetype bracketing from
+  `OnExecutionUpdate` inherits this. `docs/nt8-fidelity.md` §M22.
+- **`ExitOnSessionCloseSeconds` does not move a backtest's flatten**, which lands on the
+  session's last bar whatever the script sets. Carrying it per archetype was a regression;
+  `exit_on_close_seconds=30` is one default. `docs/nt8-fidelity.md` §M22.
+- **InsideBar's position guard reads `PositionAccount`, which never leaves Flat in Strategy
+  Analyzer**, so NT8 reverses where the port stays flat-to-flat. 2,581 of 21,884 exported trades.
+  `docs/nt8-fidelity.md`, "The position guard does not hold in Strategy Analyzer".
 - **The no-entry window before the close is not `block_entry_at_session_close`.** One is a
   parameterised window over `sessions.seconds_to_session_end`, the other guards a signal on the
   force-flat bar alone. The C#'s version reads the wall clock and so cannot be reconciled as

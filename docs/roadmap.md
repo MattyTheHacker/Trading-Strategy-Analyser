@@ -169,10 +169,11 @@ rediscovering an item the hard way.
 **Every position must be flat before the session close.** This is a prop-firm account rule, so
 it is not a preference, a parameter, or something a promising strategy gets to negotiate with.
 It also matches NT8, where every strategy in the submodule sets
-`IsExitOnSessionCloseStrategy = true`, so Tier 1 and Tier 2 agree on it today. **How far before
-the close is a per-strategy property, not one number**: `DeadCatBounce.cs` and
-`PullBackAndGo.cs` set `ExitOnSessionCloseSeconds = 30` and both InsideBar scripts set 180, so
-it is carried on `Archetype` and read by `sweep.prepare_for` rather than defaulted once.
+`IsExitOnSessionCloseStrategy = true`, so Tier 1 and Tier 2 agree on it today.
+`ExitOnSessionCloseSeconds` varies between them — 30 on both stop-market ports, 180 on both
+InsideBar scripts — and **a backtest ignores the difference**, flattening on the session's last
+bar either way, so it stays one default rather than a per-archetype setting
+([nt8-fidelity.md](nt8-fidelity.md) §M22).
 
 **It is already implemented — do not "add" it.** `sessions.force_flat_mask` produces the
 per-bar mask, the `@njit` loop exits everything still open at `EXIT_SESSION_CLOSE`, and
@@ -885,7 +886,9 @@ indicator rather than three, it drops the Keltner parity question flagged above 
 to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the
 two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22
 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and
-is the only version of this strategy with C# ground truth. The real structural cost is a two-sided OCO entry
+is the only version of this strategy with C# ground truth. Its trade list also settled two
+questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]`
+means inside `OnExecutionUpdate`. The real structural cost is a two-sided OCO entry
 model the loop lacks; the order-lifetime research above resolves that resubmission is exactly
 equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the
 second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate,

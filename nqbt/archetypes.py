@@ -289,14 +289,6 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     not_sweepable: frozenset[str] = frozenset({"target_r_multiples"})
     """Fields that are not legal axes. Listed rather than inferred -- see #60."""
 
-    exit_on_close_seconds: int = 30
-    """``ExitOnSessionCloseSeconds`` in the NinjaScript: how far before the session's close
-    the strategy is flattened.
-
-    A property of the strategy rather than of the bars, so it belongs here and not on a
-    :class:`~nqbt.context.ContextSpec`; :func:`nqbt.sweep.prepare_for` reads it. Both stop-market
-    ports set 30 and InsideBar sets 180 -- ``docs/nt8-fidelity.md`` §M22."""
-
     @property
     def sweepable(self) -> frozenset[str]:
         """Every field of :attr:`params_cls` that may be given a list of values.
@@ -346,7 +338,6 @@ INSIDEBAR = Archetype(
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=INSIDEBAR_GATES,
     context_for=insidebar_context,
-    exit_on_close_seconds=180,
 )
 """The third C#-backed port, and TIER1_ONLY until a trade list has been diffed against it."""
 
