@@ -1,0 +1,2 @@
+# The committed test fixture is a real parquet file. Never let it through eol conversion.
+*.parquet binary

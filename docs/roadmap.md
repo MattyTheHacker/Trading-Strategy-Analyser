@@ -529,6 +529,54 @@ the wrong way to do that: perturbing a value via `read_csv`/`to_csv` trips a *co
 difference and reports a column you did not touch, which reads like success. **Perturb the
 CSV text directly**, one field, and check the reported column is the one you edited.
 
+### What CI can gate on a dependency bump ([#161])
+
+The trade-log gate above is the right instrument and it cannot run on a pull request:
+`data/` and `verification/` are both gitignored, so CI has no bars and no NT8 exports. What
+CI *does* have is the whole suite twice, JIT on and JIT off — and until #161 every assertion
+over a simulated number stated a property rather than a value, which is precisely what a
+dependency bump does not violate. `CONTRIBUTING.md` § "Dependencies are pinned exactly" says
+each bump runs "the full suite plus both gates"; the gates were a local step nothing enforced,
+and a dependency pull request touches no file under `nqbt/sim/` that would prompt anyone to
+run them.
+
+**A bump to numpy, numba, pandas or pyarrow is a `nqbt/sim/` change in effect**, and the three
+tests #161 adds are the part of the gate that needs no data:
+
+| test | what a failure means |
+| --- | --- |
+| `tests/test_rng_stream_pins.py` | the `Generator` stream moved, so every null distribution and the M7a arm have to be re-measured |
+| `tests/test_numeric_pins.py` | the numeric pipeline moved — run the real trade-log gate before believing anything else |
+| `tests/test_parquet_round_trip.py` | the cache reader, the writer, or the session labels moved |
+
+Three things about them that are deliberate and read as mistakes otherwise:
+
+- **`test_numeric_pins.py` pins the transcript, not the property**, against `CONTRIBUTING.md`
+  § "Tests". That rule is right for behaviour and wrong here: a stated property cannot see a
+  one-ULP drift, and a one-ULP drift is what a numba bump moves. The simulation compares
+  floats against tick-grid levels, so at a fill boundary one ULP is a different trade, not a
+  rounding difference.
+- **Its bars are built from integer arithmetic and never from `numpy.random`.** Every other
+  synthetic fixture in the suite draws from `default_rng`, which would make a stream change
+  and a simulation change indistinguishable — the first thing that test asserts is that its
+  *input* is unchanged, so a failure can be attributed before it is investigated.
+- **`tests/fixtures/cached_bars.parquet` is a real cache file kept on purpose.** Every other
+  test writes and reads parquet inside one process under one version, which cannot catch a
+  reader that changed; only a file written by the *previous* version can. The test pins the
+  `created_by` string for that reason. Regenerate it when the cached schema changes, never to
+  make the test pass.
+
+The fixture's bars straddle the 2024-03-10 US DST transition and the 17:00 ET break, and the
+session labels stored at ingest are re-derived from the index and compared. That is the
+tzdata check: `tzdata` is pinned like everything else, and it is the one dependency whose bump
+moves session boundaries rather than arithmetic — so it earns a different check from the other
+three, and this is it.
+
+**What none of this replaces.** These are canaries, not the gate. The real gate is fourteen
+files over real bars, and the MNQ 03-24 agreement rate in `docs/nt8-fidelity.md` is still the
+only thing that says Tier 1 and Tier 2 agree. When a pin here fails, the answer is to run the
+real gate and find out what moved — not to re-pin.
+
 ### ~~M9~~ — the trade-log schema: done
 
 `nqbt/trades.py` is the contract between every producer of a trade log — the jitted
@@ -2491,3 +2539,4 @@ default is now known to be right for this machine.
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
 [#113]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/113
 [#126]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/126
+[#161]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/161
