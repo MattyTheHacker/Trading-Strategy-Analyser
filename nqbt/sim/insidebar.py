@@ -7,8 +7,9 @@ from the **fill** price with the stop anchored to the **signal bar**, and a no-e
 before the session close. Each rule, and which of them still has no evidence:
 ``docs/nt8-fidelity.md`` §M22.
 
-``Tier2Status.TIER1_ONLY`` until a real Strategy Analyzer trade list has been diffed
-against it.
+Diffed leg-for-leg against an MNQ 03-24 Strategy Analyzer export, which overturned two of
+the three rules the port originally had to infer -- ``docs/nt8-fidelity.md``,
+"Reconciliation result -- InsideBar".
 """
 
 from __future__ import annotations

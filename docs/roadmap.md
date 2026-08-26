@@ -866,9 +866,14 @@ M18 to buy.
 The archetype earns its place on what it reaches rather than on what it might make: three parts
 of the fill model no other archetype touches — `IsFillLimitOnTouch = true`, a bracket anchored
 to the fill and the signal bar at once, and a no-entry window before the session close. Each
-rule, the three with no evidence behind them, and the wall-clock trap that has to be fixed in
-the NinjaScript before a Tier-2 reconciliation of it can mean anything:
+rule, the two the port inferred wrongly, and the wall-clock trap that still has to be fixed in
+the NinjaScript before that one rule can be reconciled:
 [nt8-fidelity.md](nt8-fidelity.md) §M22 and "A no-entry window before the session close".
+
+**Its trade list paid for itself twice over.** It settled the `IsFillLimitOnTouch = true`
+branch, corrected both `OnExecutionUpdate` anchors, showed `ExitOnSessionCloseSeconds` does not
+move a backtest's flatten, caught a `PositionAccount` guard that made NT8 reverse, and turned up
+out-of-session stray bars sitting in the array every archetype indexes.
 
 **Read its results with the geometry in mind.** A target 1x ATR(3) from the fill against a stop
 10x ATR(3) beyond the signal bar is a high-win-rate, rare-large-loss shape: a win rate near the

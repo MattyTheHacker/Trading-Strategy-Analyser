@@ -39,9 +39,13 @@ below and is what you quote; this file is the index, not the record.
 - **`ExitOnSessionCloseSeconds` does not move a backtest's flatten**, which lands on the
   session's last bar whatever the script sets. Carrying it per archetype was a regression;
   `exit_on_close_seconds=30` is one default. `docs/nt8-fidelity.md` §M22.
-- **InsideBar's position guard reads `PositionAccount`, which never leaves Flat in Strategy
-  Analyzer**, so NT8 reverses where the port stays flat-to-flat. 2,581 of 21,884 exported trades.
-  `docs/nt8-fidelity.md`, "The position guard does not hold in Strategy Analyzer".
+- **A position guard must read `Position`, not `PositionAccount`**, which never leaves Flat in a
+  Strategy Analyzer backtest — InsideBar reversed on 2,581 of 21,884 trades until its C# was
+  fixed. `docs/nt8-fidelity.md`, "The position guard has to read `Position`".
+- **Out-of-session stray bars are flagged and not dropped**, so they sit in the array the
+  simulation indexes and become `[1]` at a session open. Worth 25 legs of InsideBar's
+  reconciliation; harmless to the two ports, which never read two bars back. `docs/nt8-fidelity.md`,
+  "Reconciliation result — InsideBar".
 - **The no-entry window before the close is not `block_entry_at_session_close`.** One is a
   parameterised window over `sessions.seconds_to_session_end`, the other guards a signal on the
   force-flat bar alone. The C#'s version reads the wall clock and so cannot be reconciled as

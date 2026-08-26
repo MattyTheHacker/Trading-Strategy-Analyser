@@ -150,11 +150,11 @@ def test_a_signal_on_a_force_flat_bar_is_blocked_when_asked() -> None:
 
 
 def test_a_signal_while_already_in_a_position_does_not_pyramid() -> None:
-    """The port is flat-to-flat, which is what the C#'s position guard asks for.
+    """Flat-to-flat, which is what ``Position.MarketPosition != Flat`` asks for.
 
-    **NT8 does not do this** -- the guard reads ``PositionAccount``, which never leaves Flat in
-    Strategy Analyzer, so the backtest reverses instead. ``docs/nt8-fidelity.md`` §M22, "The
-    position guard does not hold in Strategy Analyzer".
+    The C# read ``PositionAccount`` until the reconciliation caught it -- that property never
+    leaves Flat in Strategy Analyzer, so NT8 reversed instead. ``docs/nt8-fidelity.md`` §M22,
+    "The position guard has to read ``Position``".
     """
     trades = run(FLAT, signal_at=[1, 4], atr=40.0)
     assert list(trades["entry_bar"].unique()) == [2]
