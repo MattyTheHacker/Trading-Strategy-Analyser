@@ -105,41 +105,59 @@ FLAT = [(100.0, 100.5, 99.5, 100.0)] * 6
 
 # -- the entry, which is M18's market-on-next-open -----------------------------
 
+# Every signal below sits at bar 1 or later: the stop anchors to the bar *before* the signal
+# bar, so bar 0 can never carry one. The loop refuses it rather than wrapping the index.
+
 
 def test_the_entry_fills_at_the_next_bars_open_without_touching_anything() -> None:
     trades = run(
         [
-            (100.0, 100.5, 99.5, 100.0),  # 0: signal
-            (102.0, 102.5, 101.5, 102.0),  # 1: gapped up; a stop-market entry would miss
+            (100.0, 100.5, 99.5, 100.0),  # 0: the stop's anchor
+            (100.0, 100.5, 99.5, 100.0),  # 1: signal
+            (102.0, 102.5, 101.5, 102.0),  # 2: gapped up; a stop-market entry would miss
             *FLAT,
         ],
-        signal_at=[0],
+        signal_at=[1],
         atr=40.0,
     )
-    assert trades["entry_bar"].iloc[0] == 1
+    assert trades["entry_bar"].iloc[0] == 2
     assert trades["entry_price"].iloc[0] == pytest.approx(102.0)
 
 
+def test_a_signal_on_the_first_bar_is_refused_rather_than_wrapping_the_anchor() -> None:
+    """Bar 0 has no bar behind it, and numba would index the *last* bar instead.
+
+    Unreachable through :func:`insidebar_signal`, which needs an inside bar and a mother bar
+    behind the signal -- but the random-entry arm injects a signal wherever it likes.
+    """
+    assert run(FLAT, signal_at=[0], atr=40.0).empty
+
+
 def test_slippage_on_the_entry_takes_the_direction_sign() -> None:
-    long_side = run(FLAT, signal_at=[0], slippage=2.0, direction=LONG, atr=40.0)
-    short_side = run(FLAT, signal_at=[0], slippage=2.0, direction=SHORT, atr=40.0)
+    long_side = run(FLAT, signal_at=[1], slippage=2.0, direction=LONG, atr=40.0)
+    short_side = run(FLAT, signal_at=[1], slippage=2.0, direction=SHORT, atr=40.0)
     assert long_side["entry_price"].iloc[0] == pytest.approx(100.0 + 2 * TICK)
     assert short_side["entry_price"].iloc[0] == pytest.approx(100.0 - 2 * TICK)
 
 
 def test_the_order_is_cancelled_at_the_flatten_point() -> None:
-    assert run(FLAT, signal_at=[0], force_flat_at=[1], atr=40.0).empty
+    assert run(FLAT, signal_at=[1], force_flat_at=[2], atr=40.0).empty
 
 
 def test_a_signal_on_a_force_flat_bar_is_blocked_when_asked() -> None:
-    assert run(FLAT, signal_at=[0], force_flat_at=[0], atr=40.0).empty
-    assert not run(FLAT, signal_at=[0], force_flat_at=[0], block_entry_at_close=False, atr=40.0).empty
+    assert run(FLAT, signal_at=[1], force_flat_at=[1], atr=40.0).empty
+    assert not run(FLAT, signal_at=[1], force_flat_at=[1], block_entry_at_close=False, atr=40.0).empty
 
 
 def test_a_signal_while_already_in_a_position_does_not_pyramid() -> None:
-    """``PositionAccount.MarketPosition != Flat`` returns, so a second signal is dropped."""
-    trades = run(FLAT, signal_at=[0, 3], atr=40.0)
-    assert list(trades["entry_bar"].unique()) == [1]
+    """Flat-to-flat, which is what ``Position.MarketPosition != Flat`` asks for.
+
+    The C# read ``PositionAccount`` until the reconciliation caught it -- that property never
+    leaves Flat in Strategy Analyzer, so NT8 reversed instead. ``docs/nt8-fidelity.md`` §M22,
+    "The position guard has to read ``Position``".
+    """
+    trades = run(FLAT, signal_at=[1, 4], atr=40.0)
+    assert list(trades["entry_bar"].unique()) == [2]
 
 
 def test_bars_required_to_trade_costs_one_more_bar_than_the_other_ports() -> None:
@@ -152,43 +170,49 @@ def test_bars_required_to_trade_costs_one_more_bar_than_the_other_ports() -> Non
     assert not run(FLAT, signal_at=[2], bars_required=1, atr=40.0).empty
 
 
-# -- the bracket, computed in OnExecutionUpdate from two different anchors ------
+# -- the bracket, and the two bars OnExecutionUpdate reads it from -------------
+
+# Established leg-for-leg against an MNQ 03-24 trade list, against an inference that had both
+# terms one bar later: ``OnExecutionUpdate`` runs with the **signal** bar still current, so
+# ATR[0] is the signal bar's and Low[1] is the bar before it -- the inside bar.
 
 
-def test_the_stop_sits_an_atr_multiple_beyond_the_signal_bars_low() -> None:
-    trades = run(FLAT, signal_at=[0], atr=4.0, atr_multiplier=2.5)
+def test_the_stop_sits_an_atr_multiple_beyond_the_inside_bars_low() -> None:
+    trades = run(FLAT, signal_at=[1], atr=4.0, atr_multiplier=2.5)
     leg = trades.iloc[0]
     assert leg["initial_stop"] == pytest.approx(99.5 - 2.5 * 4.0)
     assert leg["risk_points"] == pytest.approx(100.0 - (99.5 - 10.0))
 
 
-def test_the_stop_reads_the_signal_bars_low_not_the_fill_bars() -> None:
-    """``Low[1]`` inside ``OnExecutionUpdate`` is the signal bar: the fill is on the next bar.
+def test_the_stop_is_anchored_to_the_inside_bar_not_the_signal_bar_or_the_fill_bar() -> None:
+    """``Low[1]`` in ``OnExecutionUpdate``, where ``[0]`` is the signal bar.
 
-    The M13 / M10.4 off-by-one in a new place. Bar 1's low is far below bar 0's, so a stop
-    that read the fill bar lands nowhere near 94 and this says which bar it read.
+    Three distinct lows, so the assertion says which of the three bars was read. The trade
+    list put this at 100% of stop exits; the other two candidates matched none of them.
     """
     trades = run(
         [
-            (100.0, 100.5, 95.0, 100.0),  # 0: signal; its low is the stop's anchor
-            (100.0, 100.5, 90.0, 100.0),  # 1: the fill bar, with a much lower low
+            (100.0, 100.5, 95.0, 100.0),  # 0: the inside bar -- Low[1] at execution
+            (100.0, 100.5, 93.0, 100.0),  # 1: signal
+            (100.0, 100.5, 90.0, 100.0),  # 2: the fill bar
             *FLAT,
         ],
-        signal_at=[0],
+        signal_at=[1],
         atr=1.0,
         atr_multiplier=1.0,
     )
-    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0), "read 93 or 90, not 95"
 
 
-def test_the_stop_mirrors_onto_the_signal_bars_high_for_a_short() -> None:
+def test_the_stop_mirrors_onto_the_inside_bars_high_for_a_short() -> None:
     trades = run(
         [
-            (100.0, 105.0, 99.5, 100.0),  # 0: signal
-            (100.0, 110.0, 99.5, 100.0),  # 1: the fill bar
+            (100.0, 105.0, 99.5, 100.0),  # 0: the inside bar
+            (100.0, 107.0, 99.5, 100.0),  # 1: signal
+            (100.0, 110.0, 99.5, 100.0),  # 2: the fill bar
             *FLAT,
         ],
-        signal_at=[0],
+        signal_at=[1],
         direction=SHORT,
         atr=1.0,
         atr_multiplier=1.0,
@@ -200,35 +224,54 @@ def test_the_target_is_one_atr_from_the_fill_price_not_from_the_signal_close() -
     """``target = price + atr``, where ``price`` is the execution's own fill."""
     trades = run(
         [
-            (100.0, 100.5, 99.5, 100.0),  # 0: signal, closing at 100
-            (108.0, 108.5, 107.5, 108.0),  # 1: fills at 108, so the target is 112
+            (100.0, 100.5, 99.5, 100.0),  # 0: anchor
+            (100.0, 100.5, 99.5, 100.0),  # 1: signal, closing at 100
+            (108.0, 108.5, 107.5, 108.0),  # 2: fills at 108, so the target is 112
             *[(108.0, 108.5, 107.5, 108.0)] * 5,
         ],
-        signal_at=[0],
+        signal_at=[1],
         atr=4.0,
         atr_multiplier=10.0,
     )
     assert trades["target_price"].iloc[0] == pytest.approx(112.0)
 
 
-def test_the_bracket_reads_the_atr_of_the_fill_bar_not_the_signal_bar() -> None:
-    """``ATR(ATRLength)[0]`` in ``OnExecutionUpdate``, where ``[0]`` is the bar of the fill.
+def test_the_bracket_reads_the_signal_bars_atr_not_the_fill_bars() -> None:
+    """``ATR(ATRLength)[0]`` in ``OnExecutionUpdate``, where ``[0]`` is the signal bar.
 
-    The same indexing that makes ``Low[1]`` the signal bar, applied to the other term. It is
-    the one rule of this port that a trade list has to settle rather than confirm --
-    ``docs/nt8-fidelity.md`` §M22 -- so it is pinned where a change to it would be loud.
+    The port originally read the fill bar's, on the reasoning that the fill lands on the next
+    bar's open so the series must have advanced by then. The trade list says otherwise: the
+    signal bar's ATR reproduces NT8's target on 99.75% of target exits and the fill bar's on
+    19%. The correct reading is also the one that reads no bar the fill could not have seen.
     """
     atr = np.full(len(FLAT), 1.0)
-    atr[1] = 10.0
-    trades = run(FLAT, signal_at=[0], atr=atr, atr_multiplier=1.0)
+    atr[1] = 5.0  # the signal bar
+    atr[2] = 10.0  # the fill bar
+    trades = run(FLAT, signal_at=[1], atr=atr, atr_multiplier=1.0)
     leg = trades.iloc[0]
-    assert leg["target_price"] == pytest.approx(110.0), "target read the signal bar's ATR"
-    assert leg["initial_stop"] == pytest.approx(99.5 - 10.0), "stop read the signal bar's ATR"
+    assert leg["target_price"] == pytest.approx(105.0), "target read the fill bar's ATR"
+    assert leg["initial_stop"] == pytest.approx(99.5 - 5.0), "stop read the fill bar's ATR"
+
+
+def test_the_stop_lands_on_the_tick_grid_too() -> None:
+    """An ATR multiple puts the stop off the grid, where both ports' tick offsets cannot.
+
+    NT8 snaps a submitted price whatever the script asks for, and an exchange takes a stop no
+    more than it takes a target at a half tick -- ``docs/nt8-fidelity.md``, "Targets snap to
+    the tick grid". Snapped before the risk, so ``r_multiple`` measures the real stop.
+    """
+    trades = run(FLAT, signal_at=[1], atr=1.1, atr_multiplier=1.0)
+    leg = trades.iloc[0]
+    assert leg["initial_stop"] == pytest.approx(98.5), "99.5 - 1.1 = 98.4, which is off the grid"
+    assert leg["risk_points"] == pytest.approx(1.5)
+
+    raw = run(FLAT, signal_at=[1], atr=1.1, atr_multiplier=1.0, round_targets=False)
+    assert raw["initial_stop"].iloc[0] == pytest.approx(98.4)
 
 
 def test_targets_land_on_the_tick_grid_unless_that_is_switched_off() -> None:
-    rounded = run(FLAT, signal_at=[0], atr=3.6, atr_multiplier=10.0)
-    raw = run(FLAT, signal_at=[0], atr=3.6, atr_multiplier=10.0, round_targets=False)
+    rounded = run(FLAT, signal_at=[1], atr=3.6, atr_multiplier=10.0)
+    raw = run(FLAT, signal_at=[1], atr=3.6, atr_multiplier=10.0, round_targets=False)
     assert rounded["target_price"].iloc[0] == pytest.approx(103.5)
     assert raw["target_price"].iloc[0] == pytest.approx(103.6)
 
@@ -236,16 +279,17 @@ def test_targets_land_on_the_tick_grid_unless_that_is_switched_off() -> None:
 def test_an_entry_whose_stop_is_already_through_the_fill_is_skipped() -> None:
     """A stop at or through the price it protects is not a stop order.
 
-    Reachable here for M18's reason: the fill is wherever the next bar opens, so a gap can
-    put the signal bar's low on the wrong side of it.
+    Reachable here for M18's reason: the fill is wherever the next bar opens, so a gap can put
+    the inside bar's low on the wrong side of it.
     """
     trades = run(
         [
-            (100.0, 100.5, 99.5, 100.0),  # 0: signal; stop at 99.4
-            (99.0, 99.5, 98.5, 99.0),  # 1: opens below its own stop
+            (100.0, 100.5, 99.5, 100.0),  # 0: the anchor; stop at 99.5 - 0.1, snapped to 99.5
+            (100.0, 100.5, 99.5, 100.0),  # 1: signal
+            (99.0, 99.5, 98.5, 99.0),  # 2: opens below its own stop
             *FLAT,
         ],
-        signal_at=[0],
+        signal_at=[1],
         atr=0.1,
         atr_multiplier=1.0,
     )
@@ -254,7 +298,7 @@ def test_an_entry_whose_stop_is_already_through_the_fill_is_skipped() -> None:
 
 def test_the_whole_position_rides_on_one_leg() -> None:
     """``InsideBar.cs`` brackets the entry with one stop and one target; it never scales out."""
-    trades = run(FLAT, signal_at=[0], atr=40.0, quantities=(4,))
+    trades = run(FLAT, signal_at=[1], atr=40.0, quantities=(4,))
     assert len(trades) == 1
     assert trades["leg"].iloc[0] == 1
     assert trades["quantity"].iloc[0] == 4
@@ -266,32 +310,39 @@ def test_the_whole_position_rides_on_one_leg() -> None:
 def test_a_target_touched_to_the_tick_fills_when_fill_limit_on_touch_is_set() -> None:
     """``IsFillLimitOnTouch = true``: ``high >= target``, where both ports need ``high >``.
 
-    The `true` branch has existed as a sweep axis all along and no archetype's defaults
-    reached it. ``docs/nt8-fidelity.md``, "Limit orders must trade *through*, not touch".
+    The `true` branch has existed as a sweep axis all along and no archetype's defaults reached
+    it. ``docs/nt8-fidelity.md``, "Limit orders must trade *through*, not touch".
     """
     rows = [
-        (100.0, 100.5, 99.5, 100.0),  # 0: signal
-        (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100, target at 101
-        (100.0, 101.0, 99.5, 100.0),  # 2: high touches the target exactly
+        (100.0, 100.5, 99.5, 100.0),  # 0: anchor
+        (100.0, 100.5, 99.5, 100.0),  # 1: signal
+        (100.0, 100.5, 99.5, 100.0),  # 2: fill at 100, target at 101
+        (100.0, 101.0, 99.5, 100.0),  # 3: high touches the target exactly
         *FLAT,
     ]
-    touched = run(rows, signal_at=[0], atr=1.0, atr_multiplier=10.0, fill_limit_on_touch=True)
-    through = run(rows, signal_at=[0], atr=1.0, atr_multiplier=10.0, fill_limit_on_touch=False)
+    touched = run(rows, signal_at=[1], atr=1.0, atr_multiplier=10.0, fill_limit_on_touch=True)
+    through = run(rows, signal_at=[1], atr=1.0, atr_multiplier=10.0, fill_limit_on_touch=False)
     assert touched["exit_reason"].iloc[0] == "target"
-    assert touched["exit_bar"].iloc[0] == 2
+    assert touched["exit_bar"].iloc[0] == 3
     assert through["exit_reason"].iloc[0] == "end_of_data"
 
 
 def test_the_touch_rule_mirrors_onto_a_shorts_low() -> None:
     rows = [
-        (100.0, 100.5, 99.5, 100.0),  # 0: signal
-        (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100, target at 99
-        (100.0, 100.5, 99.0, 100.0),  # 2: low touches the target exactly
+        (100.0, 100.5, 99.5, 100.0),  # 0: anchor
+        (100.0, 100.5, 99.5, 100.0),  # 1: signal
+        (100.0, 100.5, 99.5, 100.0),  # 2: fill at 100, target at 99
+        (100.0, 100.5, 99.0, 100.0),  # 3: low touches the target exactly
         *FLAT,
     ]
-    touched = run(rows, signal_at=[0], direction=SHORT, atr=1.0, atr_multiplier=10.0)
+    touched = run(rows, signal_at=[1], direction=SHORT, atr=1.0, atr_multiplier=10.0)
     through = run(
-        rows, signal_at=[0], direction=SHORT, atr=1.0, atr_multiplier=10.0, fill_limit_on_touch=False
+        rows,
+        signal_at=[1],
+        direction=SHORT,
+        atr=1.0,
+        atr_multiplier=10.0,
+        fill_limit_on_touch=False,
     )
     assert touched["exit_reason"].iloc[0] == "target"
     assert through["exit_reason"].iloc[0] == "end_of_data"
@@ -303,12 +354,13 @@ def test_the_touch_rule_mirrors_onto_a_shorts_low() -> None:
 def test_the_stop_closes_the_position_and_pays_slippage() -> None:
     trades = run(
         [
-            (100.0, 100.5, 99.5, 100.0),  # 0: signal; stop at 98.5
-            (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100
-            (100.0, 100.5, 98.0, 99.0),  # 2: trades through the stop
+            (100.0, 100.5, 99.5, 100.0),  # 0: anchor; stop at 98.5
+            (100.0, 100.5, 99.5, 100.0),  # 1: signal
+            (100.0, 100.5, 99.5, 100.0),  # 2: fill at 100
+            (100.0, 100.5, 98.0, 99.0),  # 3: trades through the stop
             *FLAT,
         ],
-        signal_at=[0],
+        signal_at=[1],
         atr=1.0,
         atr_multiplier=1.0,
         slippage=2.0,
@@ -319,21 +371,21 @@ def test_the_stop_closes_the_position_and_pays_slippage() -> None:
 
 
 def test_the_session_close_flattens_whatever_is_left() -> None:
-    trades = run(FLAT, signal_at=[0], atr=40.0, force_flat_at=[3])
+    trades = run(FLAT, signal_at=[1], atr=40.0, force_flat_at=[4])
     leg = trades.iloc[0]
     assert leg["exit_reason"] == "session_close"
-    assert leg["exit_bar"] == 3
+    assert leg["exit_bar"] == 4
 
 
 def test_a_position_open_at_the_last_bar_is_liquidated_there() -> None:
-    trades = run(FLAT, signal_at=[0], atr=40.0)
+    trades = run(FLAT, signal_at=[1], atr=40.0)
     leg = trades.iloc[0]
     assert leg["exit_reason"] == "end_of_data"
     assert leg["exit_bar"] == len(FLAT) - 1
 
 
 def test_the_buffer_overflowing_is_reported_rather_than_written_past() -> None:
-    count, _ = simulate(FLAT, signal_at=[0], atr=40.0, max_rows=0)
+    count, _ = simulate(FLAT, signal_at=[1], atr=40.0, max_rows=0)
     assert count == -1
 
 

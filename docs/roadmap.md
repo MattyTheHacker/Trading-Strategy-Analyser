@@ -168,8 +168,12 @@ rediscovering an item the hard way.
 
 **Every position must be flat before the session close.** This is a prop-firm account rule, so
 it is not a preference, a parameter, or something a promising strategy gets to negotiate with.
-It also matches NT8, where `DeadCatBounce.cs` sets `IsExitOnSessionCloseStrategy = true` with
-`ExitOnSessionCloseSeconds = 30`, so Tier 1 and Tier 2 agree on it today.
+It also matches NT8, where every strategy in the submodule sets
+`IsExitOnSessionCloseStrategy = true`, so Tier 1 and Tier 2 agree on it today.
+`ExitOnSessionCloseSeconds` varies between them — 30 on both stop-market ports, 180 on both
+InsideBar scripts — and **a backtest ignores the difference**, flattening on the session's last
+bar either way, so it stays one default rather than a per-archetype setting
+([nt8-fidelity.md](nt8-fidelity.md) §M22).
 
 **It is already implemented — do not "add" it.** `sessions.force_flat_mask` produces the
 per-bar mask, the `@njit` loop exits everything still open at `EXIT_SESSION_CLOSE`, and
@@ -862,9 +866,14 @@ M18 to buy.
 The archetype earns its place on what it reaches rather than on what it might make: three parts
 of the fill model no other archetype touches — `IsFillLimitOnTouch = true`, a bracket anchored
 to the fill and the signal bar at once, and a no-entry window before the session close. Each
-rule, the three with no evidence behind them, and the wall-clock trap that has to be fixed in
-the NinjaScript before a Tier-2 reconciliation of it can mean anything:
+rule, the two the port inferred wrongly, and the wall-clock trap that still has to be fixed in
+the NinjaScript before that one rule can be reconciled:
 [nt8-fidelity.md](nt8-fidelity.md) §M22 and "A no-entry window before the session close".
+
+**Its trade list paid for itself twice over.** It settled the `IsFillLimitOnTouch = true`
+branch, corrected both `OnExecutionUpdate` anchors, showed `ExitOnSessionCloseSeconds` does not
+move a backtest's flatten, caught a `PositionAccount` guard that made NT8 reverse, and turned up
+out-of-session stray bars sitting in the array every archetype indexes.
 
 **Read its results with the geometry in mind.** A target 1x ATR(3) from the fill against a stop
 10x ATR(3) beyond the signal bar is a high-win-rate, rare-large-loss shape: a win rate near the
@@ -882,7 +891,9 @@ indicator rather than three, it drops the Keltner parity question flagged above 
 to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the
 two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22
 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and
-is the only version of this strategy with C# ground truth. The real structural cost is a two-sided OCO entry
+is the only version of this strategy with C# ground truth. Its trade list also settled two
+questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]`
+means inside `OnExecutionUpdate`. The real structural cost is a two-sided OCO entry
 model the loop lacks; the order-lifetime research above resolves that resubmission is exactly
 equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the
 second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate,

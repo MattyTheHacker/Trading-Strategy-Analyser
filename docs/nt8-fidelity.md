@@ -317,6 +317,15 @@ So the snap is the platform's, not the script's, and `round_targets` should be t
 archetype — it is a property of what an exchange will accept, which no NinjaScript can opt
 out of.
 
+**And it is not only targets.** An exchange takes a stop at a half tick no more than a limit,
+so a stop has to be snapped too. Both stop-market ports place theirs at a bar extreme plus a
+whole number of ticks, so they land on the grid by construction and could not reach this;
+InsideBar's `Low[1] − ATRMultiplier × ATR` misses it on nearly every trade. The snap goes on
+before the risk is taken, so the submittability test and every `r_multiple` measure the stop
+that was actually submitted. **`EmaCrossover`'s ATR stop has the same shape and is not yet
+snapped** — it is `TIER1_ONLY` with no C# to reconcile against, so it is recorded here rather
+than fixed alongside.
+
 ### The entry filters' equality boundaries, which do not mirror each other
 
 Every filter is ported as the **negation of the C#'s rejection**, not as the positive form
@@ -416,13 +425,14 @@ four-leg scale-out is volatility-scaled rather than structure-scaled. Crossover 
 **not comparable to DeadCatBounce results at the same R numbers** — the same trap as
 comparing profit factor across bar resolutions.
 
-### M22 — the InsideBar rules, and the three with no evidence yet
+### M22 — the InsideBar rules
 
-`InsideBar.cs` exists, so unlike M18 every rule below is a reading of real C# rather than a
-choice written down in advance. What none of them has is a Strategy Analyzer trade list, so
-`Archetype.tier2` is `TIER1_ONLY` and the three marked below are inferences the port could be
-wrong about. It is worth porting anyway for exactly that reason: it reaches three parts of the
-fill model no other archetype does, and `bracket.py` inherits whatever is wrong in them.
+`InsideBar.cs` exists, so unlike M18 every rule below is a reading of real C#, and every one has
+now been diffed against a Strategy Analyzer trade list — "Reconciliation result — InsideBar"
+below. It earned its place on what it reaches rather than on what it might make: three parts of
+the fill model no other archetype touches, and `bracket.py` inherits whatever is wrong in them.
+Two of the three rules the port had to infer turned out to be wrong, which is the argument for
+reconciling each archetype rather than trusting the shared engine because the first one passed.
 
 **The entry is M18's market-on-next-open.** `EnterLong(0, OrderQuantity, "entry")` under
 `Calculate.OnBarClose`, so there is no trigger price, no "no touch, no fill" and no
@@ -448,12 +458,12 @@ BarsRequiredToTrade` returns, against `CurrentBar < BarsRequiredToTrade` in both
 off-by-one in warm-up is invisible in aggregate, so it is pinned by a test rather than assumed
 to mirror them.
 
-**`IsFillLimitOnTouch = true` — and its `true` branch has never been checked (no evidence).**
-Set in `SetDefaults`, against `false` on both ports, so a profit target fills on `low <= target`
-rather than needing `low < target`. `fill_limit_on_touch` has been a sweepable axis all along
-and no archetype's defaults reached the `true` side of it; the rule recorded under "Limit
-orders must trade *through*, not touch" is evidence about the `false` branch only. This is the
-first archetype whose trade list would settle the other one.
+**`IsFillLimitOnTouch = true`, and this is the archetype that finally checked it.** Set in
+`SetDefaults`, against `false` on both ports, so a profit target fills on `low <= target` rather
+than needing `low < target`. `fill_limit_on_touch` had been a sweepable axis all along and no
+archetype's defaults reached the `true` side of it, so the rule recorded under "Limit orders
+must trade *through*, not touch" was evidence about the `false` branch only. Both branches now
+have a trade list behind them.
 
 **The bracket is computed in `OnExecutionUpdate`, from the fill, with two different anchors.**
 
@@ -464,32 +474,130 @@ double target = price + atr;                    // `price` is the actual fill
 ```
 
 Both ports place a bracket against a *trigger* the fill is defined relative to. Here the target
-hangs off the **fill** and the stop off the **signal bar's** adverse extreme — `Low[1]` inside
-`OnExecutionUpdate` is the signal bar, because the fill lands on the next bar's open. The stop
-never moves afterwards: there is no ratchet, and `SetStopLoss`'s third argument is
-`isSimulatedStop`, not a trailing flag.
+hangs off the **fill** and the stop off a bar's adverse extreme, which is two anchors in one
+bracket. The stop never moves afterwards: there is no ratchet, and `SetStopLoss`'s third
+argument is `isSimulatedStop`, not a trailing flag.
 
-**The `ATR(ATRLength)` that line reads at `[0]` is taken as the *fill* bar's (no evidence).** `OnExecutionUpdate`
-runs on the bar the fill lands on, which is the same fact that makes `Low[1]` the signal bar —
-there is no reading of that C# under which `[1]` is the signal bar and `[0]` is also the signal
-bar. It does mean the level is set from a bar that is complete only because NT8 is replaying
-history, so it is the one rule here that a trade list has to **settle** rather than confirm.
-Two things make it the safer of the two readings in the meantime: it is the only one consistent
-with the `Low[1]` indexing, and it is not the optimistic choice — running the same signals with
-the ATR series lagged by one bar produces *more* same-bar target fills, not fewer, which is the
-opposite of what a self-fulfilling target would do. Reproduce that with
-`simulate_insidebar` called directly on a shifted ATR array; both branches are one line apart.
+**`OnExecutionUpdate` runs with the *signal* bar still current**, not the fill bar. So `[0]` is
+the signal bar and `Low[1]` is the bar before it — the **inside** bar. The port originally had
+both terms one bar later, reasoning that the fill lands on the next bar's open so the series
+must have advanced by then. The trade list settled it the other way on both, decisively:
+
+| candidate | reproduces NT8 |
+|---|---|
+| stop from the inside bar `[1]` × the signal bar's ATR `[0]` | **100%** of stop exits |
+| stop from the signal bar × the signal bar's ATR | 0% |
+| stop from the fill bar × the fill bar's ATR | 0% |
+| target from the signal bar's ATR | **99.75%** of target exits |
+| target from the fill bar's ATR | 19% |
+
+The correct reading is also the one that reads **no bar the fill could not have seen**, which
+removes the open question the port shipped with. It is a warning about the general case: `[0]`
+inside `OnExecutionUpdate` is not the execution's bar, and any future archetype that brackets
+from there inherits this indexing.
 
 **The geometry is lopsided by design.** `ATRLength = 3` with `ATRMultiplier = 10.0` puts the
-target 1x ATR(3) from the fill and the stop 10x ATR(3) beyond the signal bar — a high-win-rate,
+target 1x ATR(3) from the fill and the stop 10x ATR(3) beyond the inside bar — a high-win-rate,
 rare-large-loss profile whose R multiples cluster just above zero. `r_multiple` uses planned
 risk, so **these R numbers are not comparable to another archetype's at the same value**, with
 more force than the same caveat carries for an ATR stop generally. And 1x ATR(3) on a quiet bar
 is a target that can be smaller than the round-trip commission, which no ranking will announce.
 
+**The stop is snapped to the tick grid, not just the target.** An ATR multiple lands off the
+grid where both ports' whole-tick offsets cannot — see "Targets snap to the tick grid", which
+this archetype is the first to reach the stop half of.
+
+**`ExitOnSessionCloseSeconds = 180` changes nothing, and the port must not act on it.**
+`InsideBar.cs` sets 180 where both ports set 30, which should put the flatten at 16:57:00 ET
+rather than on the session's last bar. It does not: NT8 flattened at 17:00 on every one of the
+eleven session-close exits in the reconciliation window, and honouring the 180 in the simulation
+*lowered* agreement from 99.64% to 98.42%. Whether the Strategy Analyzer resets the property or
+historical flattening is simply per-bar, a trade list cannot tell apart — the observable is that
+**a backtest flattens on the session's last bar**, which `exit_on_close_seconds=30` reproduces
+for every archetype at any bar resolution below a minute. The property was briefly carried per
+archetype and that was a regression; it is one default again.
+
 **Every property is initialised.** Unlike `PullBackAndGo.cs`, this `SetDefaults` sets all seven
 declared properties, so `InsideBarParams`'s defaults are the NinjaScript's directly rather than
 a reconciled configuration.
+
+**What a reconciliation of it has to hold fixed.** The no-entry window has to be off on *both*
+sides — `no_entry_minutes_before_close=0` here, and the Strategy Analyzer run started outside
+16:00–17:00 ET so the C#'s wall-clock test cannot fire — because that is the only configuration
+in which the two are testing the same strategy. `tools/reconcile_nt8.py`'s `CONFIGS["InsideBar"]`
+is that configuration. Everything else is `SetDefaults` unchanged.
+
+### The position guard has to read `Position`, not `PositionAccount`
+
+```csharp
+if (PositionAccount.MarketPosition != MarketPosition.Flat) return;   // never fires
+if (Position.MarketPosition != MarketPosition.Flat) return;          // what it meant
+```
+
+`PositionAccount` is the **account** position, and in a Strategy Analyzer backtest it never
+leaves `Flat`. So the guard never fired, `EnterLong()`/`EnterShort()` reached the managed
+approach while a position was open, and NT8 **reversed**: `EntriesPerDirection = 1` blocks a
+second entry on the same side, but an opposite-side entry closes the position and opens the new
+one in a single transaction.
+
+The first export made it unmissable — **2,581 of 21,884 trades exited as `Close position`, and
+every one handed straight over to an opposite-side entry at the same timestamp and the same
+price**, where no other exit type did. NT8 took 1,262 trades in the reconciliation window to the
+port's 956, and 96.7% of the port's entries were NT8 entries: the port was not inventing trades,
+it was missing the ones NT8 took while already in a position.
+
+`InsideBar.cs` now reads `Position` and the reversals are gone — zero `Close position` exits in
+the second export. **This is the second property in this one script that behaves differently in
+Strategy Analyzer from what its author assumed**, alongside the wall-clock `Now` below, and it
+is the reason a port is not evidence about anything until a trade list has been diffed against
+it. `InsideBarTrailing.cs` is immune: it guards on `Position` as well, behind an
+`IgnoreAccountPosition` toggle.
+
+### Reconciliation result — InsideBar (#126, #157)
+
+Source: **MNQ 03-24, 1-minute, an NT8 Strategy Analyzer export of 16,744 trades** at
+`SetDefaults`, reconciled over **2023-12-14 → 2024-03-15**.
+
+**The window is the front-month period, and that is forced.** Requesting `MNQ 03-24` from 2020
+gives NT8's *merged* series, not that contract's own bars: before the December roll only 10.9%
+of exported entries land inside the archive's bar for their timestamp, against **100.0% after
+it — every one exactly at the bar's open**, which is the market-on-next-open entry confirmed to
+the tick. A reconciliation window is evidence about the bars it contains.
+
+| field | agreement |
+|---|---|
+| entry price | 100.00% |
+| exit price | 99.47% |
+| exit time | 99.79% |
+| exit reason | 99.79% |
+| net P&L | 99.47% |
+| **identical everywhere** | **942 of 947 — 99.47%** |
+
+Reproduce it with the export in place:
+
+```bash
+./.venv/Scripts/python.exe tools/reconcile_nt8.py \
+  verification/nt8_trades/nt8_trades_MNQ_03-24_insidebar.csv InsideBar "MNQ 03-24" 2023-12-14
+```
+
+**What this settled.** The `IsFillLimitOnTouch = true` branch, which nothing in the project had
+evidence for. The `OnExecutionUpdate` indexing, established against both terms independently and
+against an inference that had them one bar later. And that `ExitOnSessionCloseSeconds` does not
+move a backtest's flatten. `Archetype.tier2` is `RECONCILED`.
+
+**Almost all of the residual is out-of-session stray bars, and it is not InsideBar's.** The
+export files carry occasional prints outside session hours — 47 of MNQ 03-24's 132,454 bars —
+which NT8, building bars against the ETH template, never forms. `sessions.classify` flags them
+and nothing drops them, so they sit in the array the simulation indexes: at the first bar of a
+Sunday session a stray becomes `[1]`, and InsideBar's inside-bar test reads `[1]` and `[2]`
+directly. Dropping them takes this reconciliation from **942/947 to 967/968 — 99.90%**, with
+NT8-only entries falling from 22 to 1 and nqbt-only from 7 to 0, and leaves the DeadCatBounce
+and PullBackAndGo reconciliations **bit-for-bit unchanged**, because neither reads two bars back
+through a strict geometric test. The rule is general and the sensitivity is not.
+
+The single remaining disagreement after that is a trade entered at 13:00 ET on 2024-02-19 —
+Presidents' Day, an exchange early close, which `force_flat_mask` measures against the
+template's fixed 17:00 and already records as uncovered.
 
 ### A no-entry window before the session close
 

@@ -7,8 +7,9 @@ from the **fill** price with the stop anchored to the **signal bar**, and a no-e
 before the session close. Each rule, and which of them still has no evidence:
 ``docs/nt8-fidelity.md`` §M22.
 
-``Tier2Status.TIER1_ONLY`` until a real Strategy Analyzer trade list has been diffed
-against it.
+Diffed leg-for-leg against an MNQ 03-24 Strategy Analyzer export, which overturned two of
+the three rules the port originally had to infer -- ``docs/nt8-fidelity.md``,
+"Reconciliation result -- InsideBar".
 """
 
 from __future__ import annotations
@@ -129,16 +130,24 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one 
                 return -1
 
         # ---- the entry order fills at this bar's open, unconditionally -------------------
-        if not in_position and pending_bar >= 0 and pending_bar == i - 1:
+        if not in_position and pending_bar >= 1 and pending_bar == i - 1:
             # A bar at or past the flatten cutoff cancels the order rather than filling it.
             if not force_flat[i]:
                 d = pending_direction
                 fill = open_[i] + d * slippage
-                # ``OnExecutionUpdate`` runs on the fill bar, so ATR[0] is this bar's and
-                # Low[1]/High[1] are the signal bar's -- ``docs/nt8-fidelity.md`` §M22.
-                bar_atr = atr[i]
-                adverse, _ = bracket.sided(low[pending_bar], high[pending_bar], d)
+                # ``OnExecutionUpdate`` runs with the **signal** bar still current, so its
+                # ATR[0] is the signal bar's and its Low[1] is the inside bar's -- the bar
+                # before it. Both established leg-for-leg against a trade list, against an
+                # inference that had them one bar later -- ``docs/nt8-fidelity.md`` §M22.
+                bar_atr = atr[pending_bar]
+                adverse, _ = bracket.sided(low[pending_bar - 1], high[pending_bar - 1], d)
                 candidate_stop = adverse - d * atr_multiplier * bar_atr
+                if round_targets:
+                    # An ATR multiple lands off the grid, and an exchange takes a stop no more
+                    # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
+                    # the tick grid". Snapped before the risk, which the submittability test
+                    # and every R multiple are measured from.
+                    candidate_stop = bracket.round_to_tick(candidate_stop, tick_size)
                 candidate_risk = d * (fill - candidate_stop)
                 # A stop at or through the price it protects is not a stop order --
                 # ``docs/nt8-fidelity.md`` §M18.

@@ -71,15 +71,14 @@ def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
 def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     """``tier2`` is the column that stops a ranking mixing a measurement with an assumption.
 
-    Two ports have a real NT8 trade list behind them. EmaCrossover has no NinjaScript at
-    all and InsideBar has one that has never been run against this port, so neither may
-    claim one -- this is the assertion that would fail if someone registered an
-    unreconciled archetype with the reconciled ports' status copied across.
+    All three ports have a real NT8 trade list behind them. EmaCrossover has no NinjaScript
+    at all, so it must not claim one -- this is the assertion that would fail if someone
+    registered an original with the reconciled ports' status copied across.
     """
     assert archetypes.DEADCATBOUNCE.tier2 is Tier2Status.RECONCILED
     assert archetypes.PULLBACKANDGO.tier2 is Tier2Status.RECONCILED
+    assert archetypes.INSIDEBAR.tier2 is Tier2Status.RECONCILED
     assert archetypes.EMACROSSOVER.tier2 is Tier2Status.TIER1_ONLY
-    assert archetypes.INSIDEBAR.tier2 is Tier2Status.TIER1_ONLY
 
 
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------

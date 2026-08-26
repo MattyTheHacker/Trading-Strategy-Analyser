@@ -335,11 +335,11 @@ INSIDEBAR = Archetype(
     run=insidebar.run_insidebar,
     legs=insidebar.insidebar_legs,
     signal=insidebar.insidebar_signal,
-    tier2=Tier2Status.TIER1_ONLY,
+    tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBAR_GATES,
     context_for=insidebar_context,
 )
-"""The third C#-backed port, and TIER1_ONLY until a trade list has been diffed against it."""
+"""The third C#-backed port, diffed leg-for-leg against an MNQ 03-24 trade list."""
 
 _REGISTRY: dict[str, Archetype] = {a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, INSIDEBAR, PULLBACKANDGO)}
 
