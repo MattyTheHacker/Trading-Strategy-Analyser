@@ -8,6 +8,11 @@ write is defined by :mod:`nqbt.trades`. Neither belongs here: the review layer n
 and has no strategy at all.
 """
 
-from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
+from nqbt.sim.types import (
+    DeadCatParams,
+    EmaCrossoverParams,
+    InsideBarParams,
+    PullBackAndGoParams,
+)
 
-__all__ = ["DeadCatParams", "EmaCrossoverParams", "PullBackAndGoParams"]
+__all__ = ["DeadCatParams", "EmaCrossoverParams", "InsideBarParams", "PullBackAndGoParams"]

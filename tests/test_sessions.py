@@ -99,6 +99,21 @@ def test_force_flat_cutoff_is_configurable() -> None:
     assert list(mask) == [True, True]
 
 
+def test_seconds_to_session_end_counts_down_to_the_templates_close() -> None:
+    info = sessions.classify(idx("2024-01-16 20:00:00", "2024-01-16 21:59:00", "2024-01-16 22:00:00"))
+    assert [t.strftime("%H:%M") for t in info.eastern] == ["15:00", "16:59", "17:00"]
+    assert list(sessions.seconds_to_session_end(info)) == [7200.0, 60.0, 0.0]
+
+
+def test_the_force_flat_mask_is_that_countdown_cut_at_the_exit_seconds() -> None:
+    """One definition of the session end, so a no-entry window cannot drift from the flatten."""
+    info = sessions.classify(idx("2024-01-16 21:58:00", "2024-01-16 21:59:00", "2024-01-16 22:00:00"))
+    remaining = sessions.seconds_to_session_end(info)
+    for seconds in (30, 90, 120):
+        expected = info.in_session & (remaining <= seconds)
+        assert list(sessions.force_flat_mask(info, exit_on_close_seconds=seconds)) == list(expected)
+
+
 def test_classify_handles_an_empty_index() -> None:
     info = sessions.classify(pd.DatetimeIndex([], tz="UTC"))
     assert len(info) == 0

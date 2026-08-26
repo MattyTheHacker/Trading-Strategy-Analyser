@@ -518,3 +518,152 @@ class EmaCrossoverParams:
             value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
         return out
+
+
+@dataclass(slots=True)
+class InsideBarParams:
+    """Rule set for the InsideBar archetype -- an inside-bar breakout with an ATR bracket.
+
+    Ported from ``ninjatrader-scripts/Strategies/InsideBar.cs``, whose ``SetDefaults``
+    initialises **all seven** declared properties, so these defaults are the NinjaScript's
+    directly. Every rule and every open question: ``docs/nt8-fidelity.md`` §M22.
+
+    **The geometry is deliberately lopsided** -- a target 1x ATR(3) from the fill against a
+    stop 10x ATR(3) beyond the signal bar, so R multiples cluster just above zero and are not
+    comparable to another archetype's at the same value.
+    """
+
+    order_quantity: int = 4
+    """One entry, one stop and one target: ``InsideBar.cs`` never scales out."""
+
+    ema_period: int = 22
+    fast_sma_period: int = 35
+    slow_sma_period: int = 200
+    """The three averages the breakout is gated on. All three must agree, and the comparison
+    is **strict** on each -- ``docs/nt8-fidelity.md`` §M22."""
+
+    error_margin: float = 0.01
+    """Fraction of the mother bar's range the close must clear its extreme by."""
+
+    atr_length: int = 3
+    atr_multiplier: float = 10.0
+    """ATR period, and how many of them the stop sits beyond the signal bar's extreme. The
+    target is a bare 1x ATR from the fill, which the NinjaScript hardcodes."""
+
+    bars_required_to_trade: int = 5
+    """``CurrentBars[0] <= BarsRequiredToTrade`` returns, so the first tradable bar is one
+    later than the two ported archetypes' -- ``docs/nt8-fidelity.md`` §M22."""
+
+    no_entry_minutes_before_close: int = 60
+    """No entry within this many minutes of the session's scheduled close, off at ``0``.
+
+    Distinct from :attr:`block_entry_at_session_close`, which guards only the force-flat bar.
+    The NinjaScript's one hour, and the wall-clock trap it carries: ``docs/nt8-fidelity.md``
+    §M22."""
+
+    phase_filter: int = timeofday.ALL_PHASES
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
+
+    regime_lookback: int = 20
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """The efficiency-ratio lookback and its two cuts -- see
+    :attr:`DeadCatParams.regime_directional_above`."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    volume_rolling_bars: int = 30
+    volume_baseline_sessions: int = 20
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """The form the ratio is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.volume_heavy_above`."""
+
+    trend_filter: int = trend.ALL_TRENDS
+    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    trend_slope_lookback: int = 5
+    trend_min_agreement: int = 3
+    """The pair the label reads, its slope lookback and how many components must agree --
+    see :attr:`DeadCatParams.trend_min_agreement`."""
+
+    ambiguity_policy: int = 1
+    """See :attr:`DeadCatParams.ambiguity_policy` -- the same concept, the same default."""
+
+    fill_limit_on_touch: bool = True
+    """``IsFillLimitOnTouch = true`` in the NinjaScript, unlike both ports: a target fills
+    when price merely reaches it. ``docs/nt8-fidelity.md``, "Limit orders must trade
+    *through*, not touch" -- and §M22 for what still has no evidence behind it."""
+
+    block_entry_at_session_close: bool = True
+    """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as both ports."""
+
+    round_targets: bool = True
+    """On, although ``InsideBar.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
+    anyway. See ``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
+
+    # -- costs, absent from the NinjaScript but required for an honest backtest --
+    commission_per_contract: float = 0.0
+    """Round-turn commission per contract, charged once per leg on exit."""
+    slippage_ticks: float = 0.0
+    """Adverse slippage on the entry and both market exits. Never applied to a limit target."""
+
+    def __post_init__(self) -> None:
+        for name in ("order_quantity", "ema_period", "fast_sma_period", "slow_sma_period", "atr_length"):
+            if getattr(self, name) < 1:
+                msg: str = f"{name} must be >= 1"
+                raise ValueError(msg)
+        if not 0.0 <= self.error_margin <= 1.0:
+            msg = f"error_margin must be in [0, 1], got {self.error_margin}; NT8 caps it with Range(0, 1)"
+            raise ValueError(msg)
+        if self.atr_multiplier <= 0.0:
+            msg = f"atr_multiplier must be > 0, got {self.atr_multiplier}"
+            raise ValueError(msg)
+        if self.no_entry_minutes_before_close < 0:
+            msg = f"no_entry_minutes_before_close must be >= 0, got {self.no_entry_minutes_before_close}"
+            raise ValueError(msg)
+        timeofday.validate_mask(self.phase_filter)
+        regime.validate_mask(self.regime_filter)
+        regime.validate_lookback(self.regime_lookback)
+        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
+        volume.validate_mask(self.volume_filter)
+        volume.validate_form(self.volume_form)
+        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
+        # form is swept onto it.
+        volume.validate_rolling_bars(self.volume_rolling_bars)
+        volume.validate_baseline_sessions(self.volume_baseline_sessions)
+        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
+        trend.validate_mask(self.trend_filter)
+        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
+        trend.validate_slope_lookback(self.trend_slope_lookback)
+        trend.validate_min_agreement(self.trend_min_agreement)
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """The whole position on one leg -- ``InsideBar.cs`` brackets it with one order pair."""
+        return (self.order_quantity,)
+
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
+        for f in fields(self):
+            value: object = getattr(self, f.name)
+            out[f.name] = list(value) if isinstance(value, tuple) else value
+        return out

@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from nqbt import regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
-from nqbt.sim import crossover, pullback, runner
-from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
+from nqbt.sim import crossover, insidebar, pullback, runner
+from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, InsideBarParams, PullBackAndGoParams
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -166,6 +166,28 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     )
 
 
+def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
+    """What InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
+
+    ``needs_ma_values`` because its three gates are **strict**, which the boolean grids do not
+    hold -- ``docs/nt8-fidelity.md`` §M22. The session clock is conditional on some combination
+    actually setting a no-entry window.
+    """
+    sma: set[int] = {int(v) for v in values.get("fast_sma_period", ())}
+    sma |= {int(v) for v in values.get("slow_sma_period", ())}
+    return ContextSpec(
+        ema_periods=tuple(sorted({int(v) for v in values.get("ema_period", ())})),
+        sma_periods=tuple(sorted(sma)),
+        atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())})),
+        needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
+        trend_keys=_trend_keys(values),
+        needs_ma_values=True,
+        needs_session_clock=any(int(v) > 0 for v in values.get("no_entry_minutes_before_close", ())),
+    )
+
+
 INERT_AT: Mapping[str, object] = {
     "regime_filter": regime.ALL_REGIMES,
     "volume_filter": volume.ALL_STATES,
@@ -227,6 +249,12 @@ CROSSOVER_GATES: Mapping[str, str] = {
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
 Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17.
+"""
+
+
+INSIDEBAR_GATES: Mapping[str, str] = {**REGIME_GATES, **VOLUME_GATES, **TREND_GATES}
+"""InsideBar reads all three averages and the ATR on every combination, so only the shared
+context filters gate an axis.
 """
 
 
@@ -301,7 +329,19 @@ EMACROSSOVER = Archetype(
 )
 """The first original archetype: no NinjaScript, and TIER1_ONLY until there is one."""
 
-_REGISTRY: dict[str, Archetype] = {a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, PULLBACKANDGO)}
+INSIDEBAR = Archetype(
+    name="InsideBar",
+    params_cls=InsideBarParams,
+    run=insidebar.run_insidebar,
+    legs=insidebar.insidebar_legs,
+    signal=insidebar.insidebar_signal,
+    tier2=Tier2Status.TIER1_ONLY,
+    gated_by=INSIDEBAR_GATES,
+    context_for=insidebar_context,
+)
+"""The third C#-backed port, and TIER1_ONLY until a trade list has been diffed against it."""
+
+_REGISTRY: dict[str, Archetype] = {a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, INSIDEBAR, PULLBACKANDGO)}
 
 DEFAULT = DEADCATBOUNCE
 """What a ``Grid`` assumes when nothing says otherwise. Changing it reinterprets every stored

@@ -91,11 +91,12 @@ a new part of the fill model with no evidence behind it yet, and `bracket.py` in
 whatever is wrong. This is the argument for reconciling each archetype rather than trusting
 the shared engine because the first one passed.
 
-**Cheap, and unblocked:** porting `InsideBar.cs` and `InsideBarTrailing.cs`. Both have C# ground truth, which makes them the cheapest *trustworthy*
-archetypes available, unlike M18 and M19. `InsideBar` is the structural form of the squeeze
-idea and is worth porting before M19 is built from scratch. `InsideBarTrailing` is the second
-consumer of `EXIT_SIGNAL`, which M18 has now made a working exit rather than a reservation —
-and it is the first chance to check the signal exit against a trade list.
+**Cheap, and unblocked:** porting `InsideBarTrailing.cs`. It has C# ground truth, which makes it the cheapest *trustworthy*
+archetype available, unlike M18 and M19. `InsideBar` — the structural form of the squeeze
+idea, and the reason to do it before M19 is built from scratch — is done (M22 below).
+`InsideBarTrailing` is the second consumer of `EXIT_SIGNAL`, which M18 has now made a working
+exit rather than a reservation — and it is the first chance to check the signal exit against a
+trade list.
 
 Deliberately unscheduled work carries no label of its own — the reasoning for each is in its
 milestone note below, and the issue is the record of whether it is queued.
@@ -856,6 +857,21 @@ only its two-sided OCO entry. And the per-combination cost of a high-leg archety
 known rather than assumed, which is what the numpy summary path ([#33]) was moved ahead of
 M18 to buy.
 
+### M22 — InsideBar, the third C#-backed port ([#126])
+
+The archetype earns its place on what it reaches rather than on what it might make: three parts
+of the fill model no other archetype touches — `IsFillLimitOnTouch = true`, a bracket anchored
+to the fill and the signal bar at once, and a no-entry window before the session close. Each
+rule, the three with no evidence behind them, and the wall-clock trap that has to be fixed in
+the NinjaScript before a Tier-2 reconciliation of it can mean anything:
+[nt8-fidelity.md](nt8-fidelity.md) §M22 and "A no-entry window before the session close".
+
+**Read its results with the geometry in mind.** A target 1x ATR(3) from the fill against a stop
+10x ATR(3) beyond the signal bar is a high-win-rate, rare-large-loss shape: a win rate near the
+top of the range and R multiples just above zero are what it looks like working, not what it
+looks like broken, and neither number compares to another archetype's. Judge it on net P&L at
+realistic costs — where a 1x ATR(3) target on a quiet bar can be smaller than the round trip.
+
 ### M19 — squeeze breakout ([#51])
 
 Queued rather than scheduled; the expensive archetype. "Squeeze" means at least three things,
@@ -864,9 +880,9 @@ debt), bandwidth (`(upper − lower) / mid` below a trailing percentile — Boll
 structural (inside bars — no new indicators at all). **Recommend the bandwidth form first:** one
 indicator rather than three, it drops the Keltner parity question flagged above as most likely
 to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the
-two share it instead of each inventing one. **And port `InsideBar.cs` before either** — it is
-the same compression-then-break idea, needs no new indicator work beyond ATR, and is the only
-version of this strategy with C# ground truth. The real structural cost is a two-sided OCO entry
+two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22
+below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and
+is the only version of this strategy with C# ground truth. The real structural cost is a two-sided OCO entry
 model the loop lacks; the order-lifetime research above resolves that resubmission is exactly
 equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the
 second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate,
@@ -2288,8 +2304,8 @@ crossover be the first exercise of the new long-side code. Rejected: a long-side
 against `PullBackAndGo`'s NT8 trade list is a bug, whereas the same bug found on an original
 archetype is indistinguishable from the strategy simply being bad. It is long-only
 `EnterLongStopMarket`, the exact mirror of DeadCatBounce's entry, so it tests the new path
-precisely and it has ground truth. `InsideBar.cs` and `InsideBarTrailing.cs` remain unported and
-are the cheapest further archetypes available.
+precisely and it has ground truth. `InsideBar.cs` followed for the same reason (M22);
+`InsideBarTrailing.cs` remains unported and is the cheapest further archetype available.
 
 **~~The bracket engine is extracted during M18~~ — done ([#38]).** Before would have been
 designing an abstraction from one example; after would have meant fidelity-critical code
@@ -2463,3 +2479,4 @@ default is now known to be right for this machine.
 [#92]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/92
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
 [#113]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/113
+[#126]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/126

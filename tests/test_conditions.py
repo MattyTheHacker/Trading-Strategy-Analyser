@@ -104,12 +104,31 @@ def test_previous_bar_red_rejects_a_flat_close() -> None:
     assert not conditions.previous_bar_red(green)[1]
 
 
+def test_prior_bar_inside_needs_both_bounds_strictly_inside() -> None:
+    # InsideBar.cs: High[1] < High[2] and Low[1] > Low[2], stamped on the bar that judges
+    # the breakout -- so it reads two bars back, not one.
+    frame = bars([(5, 10, 1, 5), (5, 9, 2, 5), (5, 5, 5, 5)])
+    assert list(conditions.prior_bar_inside(frame)) == [False, False, True]
+
+
+def test_a_bar_equalling_either_extreme_is_not_inside_its_predecessor() -> None:
+    equal_high = bars([(5, 10, 1, 5), (5, 10, 2, 5), (5, 5, 5, 5)])
+    equal_low = bars([(5, 10, 1, 5), (5, 9, 1, 5), (5, 5, 5, 5)])
+    assert not conditions.prior_bar_inside(equal_high)[2]
+    assert not conditions.prior_bar_inside(equal_low)[2]
+
+
 def test_first_bar_can_never_satisfy_a_lookback_condition() -> None:
     frame = bars([(1, 10, 1, 5)])
     assert not conditions.made_new_high(frame)[0]
     assert not conditions.made_new_low(frame)[0]
     assert not conditions.previous_bar_green(frame)[0]
     assert not conditions.previous_bar_red(frame)[0]
+
+
+def test_the_first_two_bars_can_never_carry_an_inside_bar_behind_them() -> None:
+    frame = bars([(5, 10, 1, 5), (5, 9, 2, 5)])
+    assert list(conditions.prior_bar_inside(frame)) == [False, False]
 
 
 # -- trend gate ---------------------------------------------------------------
@@ -241,6 +260,11 @@ def test_bar_geometry_bundles_the_long_side_mirror_conditions() -> None:
     assert list(geom.hammer) == [True, True]
     assert list(geom.made_new_low) == [False, True]
     assert list(geom.previous_bar_red) == [False, True]
+
+
+def test_bar_geometry_bundles_the_inside_bar_condition() -> None:
+    frame = bars([(5, 10, 1, 5), (5, 9, 2, 5), (5, 5, 5, 5)])
+    assert list(conditions.bar_geometry(frame).prior_bar_inside) == [False, False, True]
 
 
 # -- NT8 cross semantics (M18.1) ----------------------------------------------
