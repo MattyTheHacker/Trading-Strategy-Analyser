@@ -130,7 +130,9 @@ In almost all cases errors reported by either `ruff` or `mypy` should be fixed r
 
 ### Dependencies are pinned exactly
 
-Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes — which is exactly how numpy 2.5 broke the mypy gate on the run after it landed, and `extend-select = ["ALL"]` gives ruff the same reach. Dependabot raises the bumps daily, grouped into one pull request, and each one runs the full suite plus both gates before it merges. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
+Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes — which is exactly how numpy 2.5 broke the mypy gate on the run after it landed, and `extend-select = ["ALL"]` gives ruff the same reach. Dependabot raises the bumps daily, grouped into one pull request. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
+
+**Treat a bump to numpy, numba, pandas or pyarrow as a change to `nqbt/sim/`**, because it is one: it reaches the simulation without touching a file in it, so nothing else will prompt you to check. CI carries the three pins that need no data — `tests/test_rng_stream_pins.py`, `tests/test_numeric_pins.py` and `tests/test_parquet_round_trip.py` — and a failure in any of them is a finding to explain, never a value to re-pin. They are canaries and not the gate: the trade-log gate and the NT8 reconciliation still need `data/` and `verification/` and still run locally. See [`docs/roadmap.md`](docs/roadmap.md) § "What CI can gate on a dependency bump".
 
 ### Lint changes are not exempt from review
 
