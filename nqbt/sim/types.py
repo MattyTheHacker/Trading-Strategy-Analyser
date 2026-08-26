@@ -606,8 +606,10 @@ class InsideBarParams:
     """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as both ports."""
 
     round_targets: bool = True
-    """On, although ``InsideBar.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
-    anyway. See ``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
+    """On, although ``InsideBar.cs`` never calls ``RoundToTickSize``: NT8 snaps submitted
+    prices anyway. **Here it covers the stop as well as the target**, which an ATR multiple
+    puts off the grid where both ports' tick offsets cannot. See ``docs/nt8-fidelity.md``,
+    "Targets snap to the tick grid"."""
 
     # -- costs, absent from the NinjaScript but required for an honest backtest --
     commission_per_contract: float = 0.0

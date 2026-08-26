@@ -13,14 +13,17 @@ import pytest
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "reconcile_nt8.py"
 
+# Copied from ``verification/nt8_trades/``: the real export's columns, trailing comma and
+# all. A fixture that is not the export's own shape pins nothing about parsing it.
 HEADER = (
-    "Trade number,Instrument,Account,Strategy,Market pos.,Quantity,Entry price,Exit price,"
-    "Entry time,Exit time,Entry name,Exit name,Profit,Cum. net profit,Commission,MAE,MFE,ETD,Bars\n"
+    "Trade number,Instrument,Account,Strategy,Market pos.,Qty,Entry price,Exit price,"
+    "Entry time,Exit time,Entry name,Exit name,Profit,Cum. net profit,Commission,"
+    "Clearing Fee,Exchange Fee,IP Fee,NFA Fee,MAE,MFE,ETD,Bars,\n"
 )
 ROW = (
     "1,MNQ 03-24,Backtest,{strategy},Long,4,16000.00,16010.00,"
-    "02/01/2024 10:00:00 AM,02/01/2024 10:05:00 AM,{entry_name},{exit_name},$40.00,$40.00,$0.00,"
-    "$0.00,$0.00,$0.00,5\n"
+    "02/01/2024 10:00:00 AM,02/01/2024 10:05:00 AM,{entry_name},{exit_name},{profit},$80.00,$0.00,"
+    "$0.00,$0.00,$0.00,$0.00,$0.00,$80.00,$0.00,5,\n"
 )
 
 
@@ -38,10 +41,10 @@ def tool():
     return load_tool()
 
 
-def export(tmp_path, entry_name, exit_name="Profit target"):
+def export(tmp_path, entry_name, exit_name="Profit target", profit="$80.00"):
     path = tmp_path / "trades.csv"
     path.write_text(
-        HEADER + ROW.format(strategy="X", entry_name=entry_name, exit_name=exit_name),
+        HEADER + ROW.format(strategy="X", entry_name=entry_name, exit_name=exit_name, profit=profit),
         encoding="utf-8",
     )
     return path
@@ -81,3 +84,17 @@ def test_the_insidebar_config_switches_the_wall_clock_window_off(tool) -> None:
     ``docs/nt8-fidelity.md``, "A no-entry window before the session close".
     """
     assert tool.CONFIGS["InsideBar"].no_entry_minutes_before_close == 0
+
+
+@pytest.mark.parametrize("profit", ["-$80.00", "($80.00)"])
+def test_a_loss_stays_a_loss_in_either_of_nt8s_sign_conventions(tool, tmp_path, profit) -> None:
+    """Accounting format is a regional setting, and stripping the brackets is not enough.
+
+    A dropped sign still joins, so it reads as a P&L disagreement on every losing leg rather
+    than as a parse bug -- which is the expensive way to find out.
+    """
+    assert tool.parse_nt8(export(tmp_path, "entry", profit=profit))["net_pnl"].iloc[0] == -80.0
+
+
+def test_a_profit_is_left_alone(tool, tmp_path) -> None:
+    assert tool.parse_nt8(export(tmp_path, "entry", profit="$1080.00"))["net_pnl"].iloc[0] == 1080.0

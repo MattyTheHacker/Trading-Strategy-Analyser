@@ -317,6 +317,15 @@ So the snap is the platform's, not the script's, and `round_targets` should be t
 archetype — it is a property of what an exchange will accept, which no NinjaScript can opt
 out of.
 
+**And it is not only targets.** An exchange takes a stop at a half tick no more than a limit,
+so a stop has to be snapped too. Both stop-market ports place theirs at a bar extreme plus a
+whole number of ticks, so they land on the grid by construction and could not reach this;
+InsideBar's `Low[1] − ATRMultiplier × ATR` misses it on nearly every trade. The snap goes on
+before the risk is taken, so the submittability test and every `r_multiple` measure the stop
+that was actually submitted. **`EmaCrossover`'s ATR stop has the same shape and is not yet
+snapped** — it is `TIER1_ONLY` with no C# to reconcile against, so it is recorded here rather
+than fixed alongside.
+
 ### The entry filters' equality boundaries, which do not mirror each other
 
 Every filter is ported as the **negation of the C#'s rejection**, not as the positive form
@@ -486,6 +495,10 @@ rare-large-loss profile whose R multiples cluster just above zero. `r_multiple` 
 risk, so **these R numbers are not comparable to another archetype's at the same value**, with
 more force than the same caveat carries for an ATR stop generally. And 1x ATR(3) on a quiet bar
 is a target that can be smaller than the round-trip commission, which no ranking will announce.
+
+**The stop is snapped to the tick grid, not just the target.** An ATR multiple lands off the
+grid where both ports' whole-tick offsets cannot — see "Targets snap to the tick grid", which
+this archetype is the first to reach the stop half of.
 
 **`ExitOnSessionCloseSeconds = 180`, where both ports set 30.** The flatten lands at 16:57:00 ET
 rather than 16:59:30, so it moves entries as well as exits — a resting order is cancelled on a

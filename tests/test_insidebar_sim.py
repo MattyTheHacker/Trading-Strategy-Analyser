@@ -226,6 +226,22 @@ def test_the_bracket_reads_the_atr_of_the_fill_bar_not_the_signal_bar() -> None:
     assert leg["initial_stop"] == pytest.approx(99.5 - 10.0), "stop read the signal bar's ATR"
 
 
+def test_the_stop_lands_on_the_tick_grid_too() -> None:
+    """An ATR multiple puts the stop off the grid, where both ports' tick offsets cannot.
+
+    NT8 snaps a submitted price whatever the script asks for, and an exchange takes a stop no
+    more than it takes a target at a half tick -- ``docs/nt8-fidelity.md``, "Targets snap to
+    the tick grid". Snapped before the risk, so ``r_multiple`` measures the real stop.
+    """
+    trades = run(FLAT, signal_at=[0], atr=1.1, atr_multiplier=1.0)
+    leg = trades.iloc[0]
+    assert leg["initial_stop"] == pytest.approx(98.5), "99.5 - 1.1 = 98.4, which is off the grid"
+    assert leg["risk_points"] == pytest.approx(1.5)
+
+    raw = run(FLAT, signal_at=[0], atr=1.1, atr_multiplier=1.0, round_targets=False)
+    assert raw["initial_stop"].iloc[0] == pytest.approx(98.4)
+
+
 def test_targets_land_on_the_tick_grid_unless_that_is_switched_off() -> None:
     rounded = run(FLAT, signal_at=[0], atr=3.6, atr_multiplier=10.0)
     raw = run(FLAT, signal_at=[0], atr=3.6, atr_multiplier=10.0, round_targets=False)

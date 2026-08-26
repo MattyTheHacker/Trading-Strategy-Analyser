@@ -139,6 +139,12 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one 
                 bar_atr = atr[i]
                 adverse, _ = bracket.sided(low[pending_bar], high[pending_bar], d)
                 candidate_stop = adverse - d * atr_multiplier * bar_atr
+                if round_targets:
+                    # An ATR multiple lands off the grid, and an exchange takes a stop no more
+                    # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
+                    # the tick grid". Snapped before the risk, which the submittability test
+                    # and every R multiple are measured from.
+                    candidate_stop = bracket.round_to_tick(candidate_stop, tick_size)
                 candidate_risk = d * (fill - candidate_stop)
                 # A stop at or through the price it protects is not a stop order --
                 # ``docs/nt8-fidelity.md`` §M18.

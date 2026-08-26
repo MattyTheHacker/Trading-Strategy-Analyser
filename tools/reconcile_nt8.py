@@ -64,7 +64,14 @@ def parse_nt8(path: Path) -> pd.DataFrame:
     raw.columns = [c.strip() for c in raw.columns]
 
     def money(column: pd.Series) -> pd.Series:
-        return column.str.replace(r"[$,()]", "", regex=True).astype(float)
+        """NT8 writes a loss as ``-$4.50`` or, in accounting format, as ``($4.50)``.
+
+        Stripping the brackets without negating turns every loss into a gain, and the join
+        still succeeds -- so it reads as a P&L disagreement rather than as a parse bug.
+        """
+        negative = column.str.strip().str.startswith("(")
+        bare = column.str.replace(r"[$,()]", "", regex=True).astype(float)
+        return bare.where(~negative, -bare.abs())
 
     def when(column: str) -> pd.Series:
         naive = pd.to_datetime(raw[column], format="%d/%m/%Y %I:%M:%S %p")
