@@ -1,0 +1,48 @@
+name: Lint Commit Messages
+
+# Only the squashed result is checked. `main` takes squash merges only, so the branch's own
+# commits never land and linting them would block a merge over text that is discarded.
+#
+# "edited" is the load-bearing trigger: the squashed subject comes from the PR title, so a
+# retitle has to re-run the check. CONTRIBUTING.md, "Commits".
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  squashed-commit:
+    name: Lint the squashed commit message
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      # Through the environment, never interpolated into the script: a pull request title is
+      # attacker-controlled text.
+      - name: Assemble the message GitHub will squash onto main
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          {
+            printf '%s\n\n' "$PR_TITLE"
+            printf '%s\n' "$PR_BODY"
+          } | tr -d '\r' > pr-message.txt
+
+      - name: Lint it
+        run: |
+          python tools/lint_commit_messages.py \
+            --message-file pr-message.txt \
+            --subject-suffix ' (#${{ github.event.pull_request.number }})' \
+            --github

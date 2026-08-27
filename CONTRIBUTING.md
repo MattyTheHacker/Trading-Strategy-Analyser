@@ -161,9 +161,49 @@ Points that have each cost time:
 
 ## Commits
 
-- **Imperative mood**: "Add the phase filter", not "Added" or "Adds".
-- **Subject line at most 80 characters.** Shorter is better.
-- **A body is for when the subject genuinely cannot carry it.** Wrap it at 80 columns, leave a blank line after the subject, and explain *why* rather than restating the diff.
+- **The subject begins with one of ten verbs.** `Add`, `Bump`, `Document`, `Fix`, `Move`, `Port`, `Reconcile`, `Refactor`, `Remove`, `Update` — and nothing else. A milestone tag, a filename or a bare capitalised word is not a prefix either: `M17.4 -- sweep_axes takes resolution`, `Docs: record the findings` and `instruments.py: route every figure` are all rejected.
+- **Subject line at most 72 characters as it lands**, the space and `(#N)` GitHub appends included. That is where GitHub truncates a subject with an ellipsis, and a subject that has to be expanded to be read is a subject nobody reads. It leaves about 65 characters to write in.
+- **A body is for when the subject genuinely cannot carry it.** Leave a blank line after the subject and explain *why* rather than restating the diff.
+
+**Body line length is deliberately not a rule.** The body that reaches `main` is the pull request description, and PR and issue bodies are never hard-wrapped here — one line per paragraph, blank line between, and GitHub wraps them. That is a rendering question, not a linting one. The 80-column convention was dropped rather than compromised, because holding both at once is impossible.
+
+### The ten verbs
+
+| verb | for |
+|---|---|
+| `Add` | a new capability, file, test or guard — also what `implement`, `introduce`, `create`, `store` and `support` become |
+| `Fix` | a defect corrected, including one found against NT8 |
+| `Update` | an existing thing changed — `change`, `modify`, `set` |
+| `Remove` | a deletion — `drop`, `delete` |
+| `Refactor` | structure changed, behaviour held — `simplify`, `clean up`, `reduce` |
+| `Move` | relocated or renamed — `migrate`, `rename` |
+| `Document` | docs, README, roadmap, decision records — `record`, `plan`, `note` |
+| `Bump` | a dependency version, which is mostly Dependabot's |
+| `Port` | NinjaScript translated into Python — a Tier 1/Tier 2 term, not a synonym for `Add` |
+| `Reconcile` | checked against a real NT8 trade list — also `pin`, as in pinning an indicator against NT8 |
+
+`Port` and `Reconcile` are here because the prime directive needs them: "Port InsideBar.cs as the third C#-backed archetype" is not `Add`, and "Reconcile InsideBar against its NT8 trade list" is not `Fix`. The other eight are generic.
+
+**Mood is settled by construction, not by a heuristic.** The vocabulary lists base forms only, so `Added`, `Adds`, `Adding`, `Built` and `Rewrote` fail because they are not in it — there is no stemmer, no wordlist of non-imperative forms, and no dependency on ruff. The measured cost: a precise but unlisted verb has to be rephrased, so `Gate dependency bumps in CI with three pins` becomes `Add three pins to gate dependency bumps in CI`. That is the trade — scannability bought with a little precision.
+
+**Only the squashed result is checked.** `main` takes squash merges only, so the branch's own commits never land — the subject that reaches `main` is the pull request title. CI assembles the title and body the way GitHub will and runs [`tools/lint_commit_messages.py`](tools/lint_commit_messages.py) over that, and over nothing else. The rules above therefore bind the **pull request title**; a branch commit can say whatever gets you through the afternoon.
+
+Check a title before you use it:
+
+```bash
+echo "Add the phase filter to the sweep axes" | ./.venv/Scripts/python.exe tools/lint_commit_messages.py --stdin
+```
+
+Two things the rules above do not say, each of which has already cost a commit:
+
+- **GitHub appends a space and `(#N)`, and it counts.** Two subjects on `main` were written to exactly 80 and pushed past it by the number. The check measures the subject as it lands.
+- **Dependabot's titles are exempt from the length rule and the prefix warning.** It writes its own, they run past 72, and it could not act on either. They are no more ours to control than a `Merge` or `Revert` subject is.
+
+**A Conventional Commits prefix is accepted but not recommended.** `fix(sim): derive the session end` passes and raises a warning; one of the ten verbs is the house style. Only the eleven types the spec names are recognised — `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`. **The type stands in for the verb**, so the word after the colon is unconstrained; `fix(sim): derive the session end` is fine even though `derive` is not one of the ten. Anything else before a colon is not a prefix at all, it is a subject that fails to start with one of the ten.
+
+Why accepted rather than required: measured over the last 100 commits of 32 major repositories, adoption is bimodal and tracks tooling rather than quality. The JavaScript and TypeScript projects that generate changelogs and semver bumps from commit types sit at 91-100%; everything else — Django, Rails, Go, Rust, NumPy, pandas, scikit-learn, Kafka, the kernel — sits at or near zero. `nqbt` publishes nothing and has no changelog, so the prefix buys nothing here.
+
+Why ten verbs rather than a mood check: mapping every subject in this repository's history onto a canonical set condensed 83% of them into these ten, and the residue was the milestone-tagged subjects that carry no verb at all. Five verbs — `Add`, `Document`, `Update`, `Bump`, `Refactor` — covered 70 of the 80 that mapped.
 
 ## Pull requests
 
