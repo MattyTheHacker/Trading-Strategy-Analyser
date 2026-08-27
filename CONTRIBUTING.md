@@ -186,15 +186,16 @@ Points that have each cost time:
 
 **Mood is settled by construction, not by a heuristic.** The vocabulary lists base forms only, so `Added`, `Adds`, `Adding`, `Built` and `Rewrote` fail because they are not in it — there is no stemmer, no wordlist of non-imperative forms, and no dependency on ruff. The measured cost: a precise but unlisted verb has to be rephrased, so `Gate dependency bumps in CI with three pins` becomes `Add three pins to gate dependency bumps in CI`. That is the trade — scannability bought with a little precision.
 
-[`tools/lint_commit_messages.py`](tools/lint_commit_messages.py) enforces the rest, and CI runs it twice per pull request: once over every commit the branch adds, and once over the message GitHub will squash onto `main`. Check a message before you write it:
+**Only the squashed result is checked.** `main` takes squash merges only, so the branch's own commits never land — the subject that reaches `main` is the pull request title. CI assembles the title and body the way GitHub will and runs [`tools/lint_commit_messages.py`](tools/lint_commit_messages.py) over that, and over nothing else. The rules above therefore bind the **pull request title**; a branch commit can say whatever gets you through the afternoon.
+
+Check a title before you use it:
 
 ```bash
-git log --format=%B -z origin/main..HEAD | ./.venv/Scripts/python.exe tools/lint_commit_messages.py --stdin
+echo "Add the phase filter to the sweep axes" | ./.venv/Scripts/python.exe tools/lint_commit_messages.py --stdin
 ```
 
-Three things the rules above do not say, each of which has already cost a commit:
+Two things the rules above do not say, each of which has already cost a commit:
 
-- **The subject that lands on `main` is the pull request title**, because `main` takes squash merges only. The title is the thing to get right; the branch's commits are squashed away.
 - **GitHub appends a space and `(#N)`, and it counts.** Two subjects on `main` were written to exactly 80 and pushed past it by the number. The check measures the subject as it lands.
 - **Dependabot's titles are exempt from the length rule and the prefix warning.** It writes its own, they run past 72, and it could not act on either. They are no more ours to control than a `Merge` or `Revert` subject is.
 

@@ -1,5 +1,8 @@
 name: Lint Commit Messages
 
+# Only the squashed result is checked. `main` takes squash merges only, so the branch's own
+# commits never land and linting them would block a merge over text that is discarded.
+#
 # "edited" is the load-bearing trigger: the squashed subject comes from the PR title, so a
 # retitle has to re-run the check. CONTRIBUTING.md, "Commits".
 on:
@@ -43,24 +46,3 @@ jobs:
             --message-file pr-message.txt \
             --subject-suffix ' (#${{ github.event.pull_request.number }})' \
             --github
-
-  branch-commits:
-    name: Lint the branch commit messages
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version-file: .python-version
-
-      - name: Lint every commit this branch adds
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          git log --no-merges --format=%B -z "$BASE_SHA..$HEAD_SHA" \
-            | python tools/lint_commit_messages.py --stdin --github
