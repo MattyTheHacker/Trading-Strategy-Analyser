@@ -11,6 +11,11 @@ naive wall-clock arithmetic within a session is exact.
 
 Exported files contain stray prints outside session hours, which NT8 building bars against an
 ETH template would never form; :func:`classify` marks them out of session.
+
+**The template's 17:00 close is the scheduled one.** The session end everything downstream
+counts down to is the trading day's last in-session bar, which is where a CME half-day actually
+stops -- ``docs/nt8-fidelity.md``, "The session end is the observed last bar, not the
+template's".
 """
 
 from __future__ import annotations
@@ -162,9 +167,8 @@ def force_flat_mask(
     triggers the flatten when its end timestamp reaches ``session_end - seconds``. A mask
     rather than one index per session, so the simulation asks only "must I be flat here?".
 
-    The cutoff comes from the template's fixed close, not the session's observed last bar, so
-    a holiday early close is probably not covered -- ``docs/roadmap.md``, "Flat before the
-    session close".
+    Every session's last bar is in the mask, holiday early closes included --
+    ``docs/nt8-fidelity.md``, "The session end is the observed last bar, not the template's".
     """
     return info.in_session & (seconds_to_session_end(info, template) <= float(exit_on_close_seconds))
 
@@ -173,15 +177,40 @@ def seconds_to_session_end(
     info: SessionInfo,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> FloatArray:
-    """Seconds from each bar's end timestamp to its session's scheduled close.
+    """Seconds from each bar's end timestamp to its session's end, which is its last bar.
 
-    Negative inside the maintenance break, which no real bar falls in. Measured against the
-    template's fixed close for the same reason :func:`force_flat_mask` is, and it is the
-    quantity both that mask and a no-entry window before the close are cut from --
+    Reaches exactly zero on that bar. The quantity both :func:`force_flat_mask` and a no-entry
+    window before the close are cut from, so the two cannot drift apart --
     ``docs/nt8-fidelity.md``, "A no-entry window before the session close".
     """
-    # Both sides as seconds since the epoch: numpy types ``datetime64 + timedelta64`` as
-    # ``timedelta64``, which then refuses the subtraction.
-    naive: IntArray = info.eastern.tz_localize(None).to_numpy().astype("datetime64[s]").astype(np.int64)
-    close: IntArray = info.trading_day.astype("datetime64[s]").astype(np.int64) + template.close_seconds
-    return (close - naive).astype(np.float64)
+    return (_session_end_seconds(info, template) - _epoch_seconds(info.eastern)).astype(np.float64)
+
+
+def _epoch_seconds(eastern: pd.DatetimeIndex) -> IntArray:
+    """Eastern wall-clock timestamps as whole seconds since the epoch, offset discarded."""
+    return eastern.tz_localize(None).to_numpy().astype("datetime64[s]").astype(np.int64)
+
+
+def _session_end_seconds(info: SessionInfo, template: SessionTemplate) -> IntArray:
+    """Each bar's session end as epoch seconds: the last in-session bar of its trading day.
+
+    Observed rather than scheduled, because NT8's trading-hours template carries the holiday
+    calendar and the data is the only place that calendar can be read from here. Falls back to
+    the template's fixed close for a trading day holding no in-session bar at all.
+
+    Assumes ascending timestamp order, as :func:`_session_edges` does.
+    """
+    # Epoch seconds on both sides: numpy types ``datetime64 + timedelta64`` as ``timedelta64``,
+    # which then refuses the subtraction.
+    end: IntArray = info.trading_day.astype("datetime64[s]").astype(np.int64) + template.close_seconds
+
+    closes: OffsetArray = np.flatnonzero(info.is_session_close)
+    if closes.size == 0:
+        return end
+
+    closing_day: DateArray = info.trading_day[closes]
+    slot: OffsetArray = np.searchsorted(closing_day, info.trading_day).clip(max=closes.size - 1)
+    has_close: BoolArray = closing_day[slot] == info.trading_day
+
+    end[has_close] = _epoch_seconds(info.eastern)[closes][slot[has_close]]
+    return end

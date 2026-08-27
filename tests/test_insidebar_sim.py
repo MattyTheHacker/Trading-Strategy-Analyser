@@ -392,10 +392,21 @@ def test_the_buffer_overflowing_is_reported_rather_than_written_past() -> None:
 # -- the signal, over a real prepared dataset ----------------------------------
 
 
+SESSION_CLOSE = "2024-01-16 22:00"
+"""17:00 ET, and the last bar of every frame below. The session end is the observed last bar,
+so without it a handful of hand-written rows would be a session ending wherever they stop."""
+
+
 def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
-    """Hand-written bars on a minute index, stamped mid-session unless told otherwise."""
+    """Hand-written bars on a minute index, stamped mid-session unless told otherwise.
+
+    A copy of the final row is appended at :data:`SESSION_CLOSE` to close the session, so the
+    rows a test wrote about are never the ones the flatten and the no-entry window act on.
+    """
     arr = np.asarray(rows, dtype=np.float64)
     idx = pd.date_range(start, periods=len(arr), freq="min", tz="UTC")
+    idx = idx.append(pd.DatetimeIndex([pd.Timestamp(SESSION_CLOSE, tz="UTC")]))
+    arr = np.vstack([arr, arr[-1]])
     out = pd.DataFrame(
         {
             "open": arr[:, 0],
@@ -438,7 +449,7 @@ BREAKOUT = [
 def test_the_breakout_signal_needs_an_inside_bar_a_break_and_the_averages() -> None:
     params = signalling()
     data = prepared(frame(BREAKOUT), params)
-    assert list(insidebar_signal(data, params)) == [False, False, True]
+    assert list(insidebar_signal(data, params))[: len(BREAKOUT)] == [False, False, True]
     assert insidebar_direction(data, params)[2] == LONG
 
 
@@ -473,7 +484,7 @@ def test_the_short_side_mirrors_the_long_one() -> None:
         (99.0, 100.0, 80.0, 85.0),  # closes below 90 - 20 * 0.01
     ]
     data = prepared(frame(rows), params)
-    assert list(insidebar_signal(data, params)) == [False, False, True]
+    assert list(insidebar_signal(data, params))[: len(rows)] == [False, False, True]
     assert insidebar_direction(data, params)[2] == SHORT
 
 
