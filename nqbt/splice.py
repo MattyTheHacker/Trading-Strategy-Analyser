@@ -26,14 +26,15 @@ import itertools
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, override
 
+import numpy as np
 import pandas as pd
 
-from nqbt import ingest, paths
+from nqbt import indicators, ingest, paths
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from nqbt.arrays import BoolArray
+    from nqbt.arrays import BoolArray, FloatArray, OffsetArray
     from nqbt.instruments import ContractId
 
 FULL_SESSION_FRACTION = 0.5
@@ -442,6 +443,52 @@ def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
             raise SpliceError(
                 msg,
             )
+
+
+# -- roll seams ---------------------------------------------------------------
+
+
+SEAM_COLUMNS = [
+    "previous_contract",
+    "contract",
+    "previous_bar",
+    "gap_minutes",
+    "carry_over",
+    "true_range",
+]
+"""Columns of :func:`roll_seams`, in order."""
+
+
+def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
+    """The first bar of each contract's segment, with the break it sits across.
+
+    ``carry_over`` is the seam bar's open against the previous bar's close and ``gap_minutes``
+    the wall-clock distance between them. On a back-adjusted series the carry-over holds no
+    contract basis at all, so it is a price move rather than a splice artefact --
+    ``docs/nt8-fidelity.md``, "True Range at a roll boundary".
+    """
+    if "contract" not in series.columns:
+        msg = "series has no contract column; roll seams can only be found on a spliced series"
+        raise SpliceError(msg)
+
+    contracts = series["contract"].to_numpy()
+    at: OffsetArray = np.flatnonzero(contracts[1:] != contracts[:-1]) + 1
+    high, low, close = (series[column].to_numpy(np.float64) for column in ("high", "low", "close"))
+    true_range: FloatArray = indicators.nt8_true_range(high, low, close)
+    stamps: pd.DatetimeIndex = pd.DatetimeIndex(series.index)
+
+    return pd.DataFrame(
+        {
+            "previous_contract": contracts[at - 1],
+            "contract": contracts[at],
+            "previous_bar": stamps[at - 1],
+            "gap_minutes": (stamps[at] - stamps[at - 1]).total_seconds() / 60.0,
+            "carry_over": series["open"].to_numpy(np.float64)[at] - close[at - 1],
+            "true_range": true_range[at],
+        },
+        index=stamps[at],
+        columns=SEAM_COLUMNS,
+    )
 
 
 def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:

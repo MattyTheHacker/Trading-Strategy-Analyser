@@ -63,10 +63,12 @@ definition, and the trade-list export being in the machine's display timezone ra
 Both were invisible from the Python side. Book the session for the questions, not the queue —
 `gh issue list --label needs-ninjatrader` is what is actually outstanding.
 
-**[#23]'s roll-boundary half is still a decision, not a measurement.** The session-boundary
-half is settled: True Range does not reset. On a back-adjusted series ATR will step at each
-roll, and the guidance is to judge an ATR-sensitive rule per contract ([#31]) rather than to
-special-case the splice.
+**[#23] is settled on both halves, and the roll half needed no NinjaTrader time after all.**
+True Range does not reset at a session boundary, and there is nothing to reset it to at a roll
+either: back-adjustment cancels the contract basis exactly at the seam, so the step is the
+price move over whatever break the seam spans. Rule and evidence in `docs/nt8-fidelity.md`,
+"True Range at a roll boundary"; the decision and what it cost to reach are under "Decisions
+taken".
 
 ### What M15.5 changed, and the lesson that outlives it
 
@@ -684,8 +686,8 @@ far below a tick and would never show up in a result; it would simply mean the p
 pin.
 
 Still true and still unpaid: BB and KC are swept over period *and* multiplier, so the
-66 MB → 595 MB lesson applies with an extra factor — **keep boolean gates only**. And
-[#23]'s roll-boundary half remains a decision rather than a measurement.
+66 MB → 595 MB lesson applies with an extra factor — **keep boolean gates only**. [#23]'s
+roll-boundary half is now settled too — see "Decisions taken".
 
 ### ~~M17~~ — the archetype protocol: done ([#24])
 
@@ -2313,6 +2315,32 @@ scheduled.
 ---
 
 ## Decisions taken
+
+**True Range crosses a roll boundary unchanged, and the splice is not special-cased** ([#23]).
+The prediction that reached the ticket was "back-adjustment makes the gap small but not zero,
+so ATR steps at each of the 18 rolls". Half of that is wrong and the half that is right is
+right for another reason, which is why measuring it was worth the afternoon.
+
+The gap is not small-but-not-zero — the residual basis is **exactly zero**, on all 36 seams
+across both roots. The shift is `front_close − back_close` at the last bar the front contract
+contributes, and that is precisely the bar a seam reads its previous close from, so the two
+cancel bit for bit rather than approximately. Nothing is left at a seam except the back
+contract's own move over the break, which is measurable inside one contract with no splice in
+it. `splice.roll_seams` produces the table and a test pins the property against a *drifting*
+basis, so an offset read off any other bar fails it.
+
+ATR does still step, so both standing consequences hold — do not read the step as a volatility
+event, and judge an ATR-sensitive rule per contract ([#31]). What changed is what the step
+means, and therefore what a fix would have to fix: **the largest steps are missing sessions,
+not roll artefacts.** The front contract owns its final session and NT8's archive holds only
+its first hour, so most seams today span a whole absent trading day rather than the maintenance
+break. That is the already-recorded cost of correct roll dates, and nothing about the splice or
+about True Range would improve it — resetting TR at a roll would have hidden a data gap behind
+a plausible-looking number, which is the more expensive failure.
+
+The cheap generalisation: **a prediction with a mechanism in it is worth measuring even when
+the conclusion turns out unchanged**, because the mechanism is what the next decision is made
+from.
 
 **New archetypes: infrastructure now, one archetype now, M11 keeps its slot.** `CLAUDE.md`
 records "which archetype is actually worth trading is a later question" and treats

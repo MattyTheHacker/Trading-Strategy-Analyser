@@ -20,6 +20,10 @@ rates — quote it rather than any figure repeated elsewhere.
   bars out of tens of thousands.
 - **True Range does not reset at a session boundary.** It reads the previous bar's close across
   the maintenance break, so on many session opens the gap makes TR exceed `H−L`.
+- **Nor at a roll.** Back-adjustment cancels the contract basis *exactly* at a seam, so the step
+  ATR takes there is the price move over the break the seam spans — and today that is usually a
+  session the front contract's archive does not hold, not a market event. `splice.roll_seams`
+  lists them; judge an ATR-sensitive rule per contract instead (`dispersion.py`).
 
 TA-Lib is left only for MACD and RSI, which no archetype reads and which carry the same problem
 unfixed. Anything a new archetype reads must be pinned against NT8 first.
