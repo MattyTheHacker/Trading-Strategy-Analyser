@@ -733,13 +733,55 @@ the negative assertions.
 previous bar's close across the 17:00–18:00 ET maintenance break like any other bar. On
 **27 of the 65 session opens** in this window the overnight gap makes TR exceed `H−L`, so
 this is a material choice rather than a formality — the first is 2023-12-07 23:01, where
-`H−L` is 11.50 and TR is 12.50. The roll-boundary half of #23 remains a decision, not a
-measurement: ATR will step at each roll on a back-adjusted series, and a per-contract run
-(`dispersion.py`) is the way to judge an ATR-sensitive rule.
+`H−L` is 11.50 and TR is 12.50. It does not reset at a roll boundary either — see below.
 
 **VWAP** is hand-rolled session-anchored `Σ(typical × volume) / Σ(volume)`, reset at each
 18:00 ET open. `OrderFlowVWAP` at `VWAPResolution.Standard` works from bar data, so minute
 bars are the right input — tick data would *reduce* agreement.
+
+### True Range at a roll boundary (#23)
+
+**Nothing is special-cased at a roll, and the reason is stronger than "NT8 would not either".**
+A seam bar reads the previous bar's close like any other, and on a back-adjusted series that
+previous close carries **no contract basis at all**.
+
+**Back-adjustment removes the basis exactly, not approximately.** The shift comes from
+`front_close − back_close` at the last bar the front contract contributes, which is precisely
+the bar a seam reads back to, so the two cancel. Measured over both cached back-adjusted series
+with `splice.roll_seams`: the seam carry-over equals the *back contract's own* close-to-open
+move over the same interval to the last bit, on **all 36 seams** — 18 rolls in each root.
+`tests/test_splice.py::test_back_adjustment_leaves_no_contract_basis_at_the_seam` pins it
+against a basis that widens across the overlap, so an offset read off any other bar fails it.
+
+**So the step measures the break the seam sits across, not the roll.** `roll_seams` reports
+that break as `gap_minutes`, and it falls in three populations:
+
+| `gap_minutes` | what the seam spans | carry-over |
+|---|---|---|
+| 61 | the 17:00–18:00 ET maintenance break alone | a few points |
+| ~1,320–1,380 | a session the front contract's archive does not hold | up to several hundred |
+| ~2,880–2,940 | a weekend | tens to a few hundred |
+
+The middle row is the larger population today and it is **not a market event**: it is the known
+cost of correct roll dates (`.claude/rules/data-pipeline.md`, "Correct roll dates cost bars").
+The front contract owns its last session but holds only the first hour of it, so the seam
+carries a whole session's move in one bar. That is a data-coverage gap wearing a roll's
+clothing, and filling it from the neighbouring contract would splice two different prices into
+one session.
+
+**What it costs ATR.** Wilder at period *n* decays a single TR spike by `(n−1)/n` per bar, so at
+the default 14 a seam is still 10% of its initial excess 32 bars later and 1% of it 63 bars
+later — the recursion never forgets, exactly as with the seed. Run `roll_seams` for the current
+sizes rather than quoting a figure from here; on the series as it stands, ATR(14) at a seam runs
+several times its value on the bar before.
+
+Two standing consequences:
+
+- **Do not read the step as a volatility event.** A regime, squeeze or trigger rule reading ATR
+  will fire around every roll for a reason that has nothing to do with the market.
+- **Judge an ATR-sensitive rule per contract** (`dispersion.py`, #31). A front-month window runs
+  roll day to roll day, so it contains no seam — which is the same property that makes it
+  directly reproducible in Strategy Analyzer.
 
 ## Sessions
 

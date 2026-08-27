@@ -199,6 +199,81 @@ def test_shifts_accumulate_across_multiple_rolls() -> None:
     assert list(report.segments["shift"]) == pytest.approx([25.0, 15.0, 0.0])
 
 
+# -- roll seams ---------------------------------------------------------------
+
+
+def moving_frame(prices: dict[str, float], volumes: dict[str, int]) -> pd.DataFrame:
+    """A contract whose price changes day to day, so a seam carries a real move."""
+    return pd.concat([make_frame([day], price, {day: volumes[day]}) for day, price in prices.items()])
+
+
+def drifting_basis_frames() -> dict[ContractId, pd.DataFrame]:
+    """Two contracts whose basis widens 8 -> 10 -> 22 over the three days.
+
+    An offset measured on any bar but the last one the front contract contributes would
+    therefore leave a residual at the seam.
+    """
+    front = moving_frame(
+        {"2024-03-06": 100.0, "2024-03-07": 102.0, "2024-03-08": 104.0},
+        {"2024-03-06": 900, "2024-03-07": 800, "2024-03-08": 100},
+    )
+    back = moving_frame(
+        {"2024-03-06": 108.0, "2024-03-07": 112.0, "2024-03-08": 126.0},
+        {"2024-03-06": 100, "2024-03-07": 200, "2024-03-08": 900},
+    )
+    return {FRONT: front, BACK: back}
+
+
+def test_back_adjustment_leaves_no_contract_basis_at_the_seam() -> None:
+    frames = drifting_basis_frames()
+    series, _ = splice.build_continuous([FRONT, BACK], frames, back_adjust=True)
+    seam = splice.roll_seams(series).iloc[0]
+
+    # The same interval measured entirely inside the back contract, which holds no basis
+    # at all. The two agree because the offset is read at exactly the bar the seam follows.
+    back = frames[BACK]
+    within_one_contract = back.loc[seam.name, "open"] - back.loc[seam["previous_bar"], "close"]
+    assert seam["carry_over"] == pytest.approx(within_one_contract)
+
+
+def test_true_range_at_a_seam_reads_across_the_roll_rather_than_resetting() -> None:
+    series, _ = splice.build_continuous([FRONT, BACK], drifting_basis_frames(), back_adjust=True)
+    seam = splice.roll_seams(series).iloc[0]
+
+    # A True Range that reset at the roll would be the seam bar's own high-low range.
+    bar = series.loc[seam.name]
+    assert bar["high"] - bar["low"] == pytest.approx(2.0)
+    assert seam["true_range"] == pytest.approx(abs(seam["carry_over"]) + 1.0)
+
+
+def test_roll_seams_finds_one_bar_per_contract_handover() -> None:
+    series, _ = splice.build_continuous([FRONT, BACK], two_contract_frames(), back_adjust=True)
+    seams = splice.roll_seams(series)
+
+    assert list(seams["previous_contract"]) == ["MNQ 03-24"]
+    assert list(seams["contract"]) == ["MNQ 06-24"]
+    assert seams.index[0] == series.index[series["contract"] == "MNQ 06-24"][0]
+    # Every seam sits across a break, so the bar it reads back to is a real earlier bar.
+    assert (seams["gap_minutes"] > 0).all()
+    assert list(seams["previous_bar"]) == [series.index[series["contract"] == "MNQ 03-24"][-1]]
+
+
+def test_a_single_contract_series_has_no_seams() -> None:
+    series, _ = splice.build_continuous([FRONT], {FRONT: two_contract_frames()[FRONT]})
+    seams = splice.roll_seams(series)
+
+    assert seams.empty
+    assert list(seams.columns) == splice.SEAM_COLUMNS
+
+
+def test_roll_seams_rejects_a_series_that_was_never_spliced() -> None:
+    with pytest.raises(splice.SpliceError, match="no contract column"):
+        splice.roll_seams(make_frame(DAYS, 100.0, 900))
+
+
+# -- reporting ----------------------------------------------------------------
+
+
 def test_report_stays_quiet_about_a_healthy_coverage_roll() -> None:
     # Front winds down to 100 while the back runs 300 across a full session; over the two
     # shared bars that is 60 vs 100, a ratio of 0.6 -- the back contract is clearly

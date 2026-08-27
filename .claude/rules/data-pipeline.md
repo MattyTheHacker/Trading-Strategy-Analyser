@@ -56,6 +56,10 @@ paths:
   that splices two different prices into one session.
 - Volume-crossover rolls are no longer undetectable once the AddOn has warmed the database;
   `docs/nt8-fidelity.md` § "Contract data" has the current agreement figures.
+- **A seam carries no contract basis, so anything that jumps there is a real move over a real
+  gap** — usually the missing session above rather than the maintenance break.
+  `splice.roll_seams` reports each seam with the gap it spans; `docs/nt8-fidelity.md`, "True
+  Range at a roll boundary".
 
 ## Time and bars
 
