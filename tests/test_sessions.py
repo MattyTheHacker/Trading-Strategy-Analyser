@@ -99,10 +99,56 @@ def test_force_flat_cutoff_is_configurable() -> None:
     assert list(mask) == [True, True]
 
 
-def test_seconds_to_session_end_counts_down_to_the_templates_close() -> None:
+def test_seconds_to_session_end_counts_down_to_the_sessions_last_bar() -> None:
     info = sessions.classify(idx("2024-01-16 20:00:00", "2024-01-16 21:59:00", "2024-01-16 22:00:00"))
     assert [t.strftime("%H:%M") for t in info.eastern] == ["15:00", "16:59", "17:00"]
     assert list(sessions.seconds_to_session_end(info)) == [7200.0, 60.0, 0.0]
+
+
+def test_a_holiday_early_close_flattens_on_its_own_last_bar() -> None:
+    """MLK 2024: CME stops at 13:00 ET, four hours before the template says it should."""
+    info = sessions.classify(
+        idx(
+            "2024-01-15 17:59:00",  # Mon 12:59 ET, the holiday
+            "2024-01-15 18:00:00",  # Mon 13:00 ET, the exchange's early close
+            "2024-01-15 23:01:00",  # Mon 18:01 ET -> Tuesday's session opens
+            "2024-01-16 22:00:00",  # Tue 17:00 ET, a full-length close
+        ),
+    )
+    assert [t.strftime("%m-%d %H:%M") for t in info.eastern] == [
+        "01-15 12:59",
+        "01-15 13:00",
+        "01-15 18:01",
+        "01-16 17:00",
+    ]
+    assert list(info.is_session_close) == [False, True, False, True]
+
+    # Both halves: the holiday's last bar is four hours from the template's fixed close, and
+    # the countdown reaches zero on it anyway. Measured against the template it never would.
+    eastern = info.eastern.tz_localize(None)
+    seconds_past_midnight = eastern[1].hour * 3600 + eastern[1].minute * 60
+    assert 17 * 3600 - seconds_past_midnight == 4 * 3600
+    assert list(sessions.seconds_to_session_end(info)) == [60.0, 0.0, 82740.0, 0.0]
+    assert list(sessions.force_flat_mask(info)) == [False, True, False, True]
+
+
+def test_a_session_truncated_by_a_data_hole_still_flattens() -> None:
+    """A missing tail is indistinguishable from an early close, and both have to flatten.
+
+    There are no later bars in that session to close the position in.
+    """
+    info = sessions.classify(idx("2024-01-16 21:41:00", "2024-01-16 21:42:00"))
+    assert [t.strftime("%H:%M") for t in info.eastern] == ["16:41", "16:42"]
+    assert list(sessions.force_flat_mask(info)) == [False, True]
+
+
+def test_a_day_with_no_in_session_bar_falls_back_to_the_template_close() -> None:
+    """A weekend stray has no observed session end, so there is nothing to derive one from."""
+    info = sessions.classify(idx("2024-03-09 15:44:00"))
+    assert not info.in_session[0]
+    assert not info.is_session_close[0]
+    assert list(sessions.seconds_to_session_end(info)) == [(17 - 10) * 3600 - 44 * 60]
+    assert list(sessions.force_flat_mask(info)) == [False]
 
 
 def test_the_force_flat_mask_is_that_countdown_cut_at_the_exit_seconds() -> None:

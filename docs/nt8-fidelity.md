@@ -567,11 +567,11 @@ the tick. A reconciliation window is evidence about the bars it contains.
 | field | agreement |
 |---|---|
 | entry price | 100.00% |
-| exit price | 99.47% |
-| exit time | 99.79% |
-| exit reason | 99.79% |
-| net P&L | 99.47% |
-| **identical everywhere** | **942 of 947 — 99.47%** |
+| exit price | 99.58% |
+| exit time | 99.89% |
+| exit reason | 99.89% |
+| net P&L | 99.58% |
+| **identical everywhere** | **943 of 947 — 99.58%** |
 
 Reproduce it with the export in place:
 
@@ -590,14 +590,51 @@ export files carry occasional prints outside session hours — 47 of MNQ 03-24's
 which NT8, building bars against the ETH template, never forms. `sessions.classify` flags them
 and nothing drops them, so they sit in the array the simulation indexes: at the first bar of a
 Sunday session a stray becomes `[1]`, and InsideBar's inside-bar test reads `[1]` and `[2]`
-directly. Dropping them takes this reconciliation from **942/947 to 967/968 — 99.90%**, with
-NT8-only entries falling from 22 to 1 and nqbt-only from 7 to 0, and leaves the DeadCatBounce
-and PullBackAndGo reconciliations **bit-for-bit unchanged**, because neither reads two bars back
-through a strict geometric test. The rule is general and the sensitivity is not.
+directly. Dropping them took this reconciliation to **967/968 — 99.90%**, with NT8-only entries
+falling from 22 to 1 and nqbt-only from 7 to 0, and left the DeadCatBounce and PullBackAndGo
+reconciliations **bit-for-bit unchanged**, because neither reads two bars back through a strict
+geometric test. The rule is general and the sensitivity is not. That was measured against the
+then-current 942/947, which #68 has since moved to 943/947.
 
-The single remaining disagreement after that is a trade entered at 13:00 ET on 2024-02-19 —
-Presidents' Day, an exchange early close, which `force_flat_mask` measures against the
-template's fixed 17:00 and already records as uncovered.
+**The Presidents' Day disagreement is the one #68 fixed.** A trade entered at 13:00 ET on
+2024-02-19, an exchange early close, which `force_flat_mask` measured against the template's
+fixed 17:00 and so never flattened. Deriving the session end from the observed last bar takes
+this reconciliation from 942/947 to 943/947 and leaves the DeadCatBounce and PullBackAndGo
+reconciliations above bit-for-bit unchanged — see "The session end is the observed last bar,
+not the template's".
+
+### The session end is the observed last bar, not the template's (#68)
+
+`sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and
+`force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to
+17:00 ET the two are the same thing, so the mask is unchanged there.
+
+It changes the sessions that stop early. NT8's trading-hours template carries the holiday
+calendar, so on Thanksgiving, Christmas Eve or 3 July its `ActualSessionEnd` is 13:00 and it
+flattens there. Measured against the template's fixed 17:00 instead, nothing on such a session
+ever reached the cutoff and **the mask came back empty** — the position was never forced flat at
+all. `is_session_close` was already data-derived, so the two disagreed precisely on the days that
+mattered.
+
+Counted over the archive as it stood when this landed: **109 of MNQ's 1,269 sessions and 65 of
+NQ's 1,210 had an empty mask**, 63 on each root by an hour or more, and roughly two-thirds of
+those a 13:00 ET exchange half-day. The rest are sessions the data truncates rather than the
+exchange.
+
+**The failure was worse than a position held too long.** On MLK 2024 the array runs
+`… 12:59, 13:00, 18:01 …`: the exchange shuts and the next session opens five hours later, so an
+entry order resting from the 13:00 bar lived its one bar into **the following session** and
+filled there, five hours and a session boundary from the signal that placed it. Every leg the
+trade-log gate lost is that or its sibling — an entry filled *on* a half-day's last bar, which
+`block_entry_at_session_close` now guards. The trade entered at 13:00 ET on Presidents' Day 2024
+in the InsideBar reconciliation above is the second kind.
+
+**The observed end approximates a calendar the data does not carry**, and it cannot tell an
+exchange half-day from a session whose tail is missing. Both now flatten, which is the safe
+direction: a session with no later bars has nowhere else to close the position, and the
+alternative is the order jumping the boundary above. One consequence to know — a position still
+open on the **last bar of the dataset** is now written as `session_close` rather than dropped
+unwritten.
 
 ### A no-entry window before the session close
 
@@ -610,8 +647,8 @@ A parameterised window, not a boolean, and **distinct from `block_entry_at_sessi
 which guards only a new signal on the force-flat bar. The comparison is `<=`, so a bar exactly
 an hour out is blocked and the gate admits `remaining > window`. `sessions.seconds_to_session_end`
 is the quantity both this and `force_flat_mask` are cut from, so a window and the flatten cannot
-drift apart; both measure against the template's fixed close rather than the session's observed
-last bar, so a holiday early close is probably not covered.
+drift apart, and since #68 both measure against the session's observed last bar — so the window
+closes an hour before a half-day's 13:00 close, as `ActualSessionEnd` does.
 
 **`Now` is the wall clock, and that is a trap the port does not reproduce.** It resolves to
 `Core.Globals.Now` — `Connection.PlaybackConnection` is null in Strategy Analyzer — so the C#
@@ -712,6 +749,8 @@ through Friday afternoon. A session is labelled by the date it **ends** on.
 Validated against the data: median **1380 bars/session** (exactly 23 hours); 65 of 66
 sessions open at 18:01 ET and 63 close at 17:00 ET. The outliers are real CME holiday
 early closes (MLK, Presidents' Day) and the export's truncated first and last sessions.
+Both kinds end before the template says they should, and the flatten follows the bars rather
+than the template — "The session end is the observed last bar, not the template's".
 
 No session ever spans a DST transition — US transitions happen 02:00 Sunday and the market
 is closed Friday 17:00 → Sunday 18:00 — so naive wall-clock arithmetic inside a session is

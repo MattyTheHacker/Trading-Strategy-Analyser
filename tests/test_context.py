@@ -221,13 +221,30 @@ def test_the_session_clock_is_absent_unless_the_spec_asks_for_it() -> None:
 
 def test_the_session_clock_gate_admits_a_bar_strictly_outside_the_window() -> None:
     """``(ActualSessionEnd - Now).TotalHours <= 1`` returns, so an hour exactly is blocked."""
-    idx = pd.DatetimeIndex(pd.to_datetime(["2024-01-16 20:59:00", "2024-01-16 21:00:00"], utc=True))
+    idx = pd.DatetimeIndex(
+        # 15:59, 16:00 and 17:00 ET. The last one is the session end the other two count to.
+        pd.to_datetime(["2024-01-16 20:59:00", "2024-01-16 21:00:00", "2024-01-16 22:00:00"], utc=True),
+    )
     frame = bars(len(idx)).set_index(idx)
     data = context.prepare(frame, ContextSpec(ema_periods=(21,), needs_session_clock=True))
 
-    assert list(data.seconds_to_session_end) == [3660.0, 3600.0]
-    assert list(data.session_end_gate(60)) == [True, False]
-    assert list(data.session_end_gate(61)) == [False, False]
+    assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
+    assert list(data.session_end_gate(60)) == [True, False, False]
+    assert list(data.session_end_gate(61)) == [False, False, False]
+
+
+def test_the_no_entry_window_follows_a_holiday_early_close_too() -> None:
+    """One session end feeds the window and the flatten, so neither can miss a half-day."""
+    idx = pd.DatetimeIndex(
+        # MLK 2024: 11:59, 12:00 and 13:00 ET, and the exchange stops at the last of them.
+        pd.to_datetime(["2024-01-15 16:59:00", "2024-01-15 17:00:00", "2024-01-15 18:00:00"], utc=True),
+    )
+    frame = bars(len(idx)).set_index(idx)
+    data = context.prepare(frame, ContextSpec(ema_periods=(21,), needs_session_clock=True))
+
+    assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
+    assert list(data.session_end_gate(60)) == [True, False, False]
+    assert list(data.force_flat) == [False, False, True]
 
 
 def test_the_union_of_two_specs_carries_the_session_clock() -> None:

@@ -218,12 +218,13 @@ time. Concretely, for planned work:
 - **The prop-account simulator** ([#75]) treats the daily flat as one of the rules it replays,
   alongside trailing drawdown and the consistency ratio.
 
-**Holiday early closes are probably not handled — [#68].** `force_flat_mask` derives its cutoff
-from the *template's* fixed 17:00 ET close, not from the session's observed last bar, so on a
-CME half-day nothing reaches the cutoff and the mask appears to come back empty. Note the
-asymmetry: `is_session_close` *is* data-derived and does handle early closes, so the two
-disagree precisely on the days that matter. Roughly 5–8 sessions a year. **Verify with a query
-before fixing**, and note that a fix changes Tier-1 results on those days.
+~~**Holiday early closes are probably not handled — [#68].**~~ **Confirmed and fixed.**
+`force_flat_mask` derived its cutoff from the *template's* fixed 17:00 ET close, so on a CME
+half-day nothing reached it and the mask came back empty. It now counts down to the session's
+observed last bar, which is what `is_session_close` always did. The measured scale, the two
+things the observed end cannot distinguish, and what it did to the InsideBar reconciliation are
+in [nt8-fidelity.md](nt8-fidelity.md), "The session end is the observed last bar, not the
+template's".
 
 ---
 
