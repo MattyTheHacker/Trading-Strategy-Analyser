@@ -8,17 +8,25 @@ from tools.lint_commit_messages import (
     SUBJECT_MAX_LENGTH,
     check_message,
     first_word,
-    is_non_imperative,
     main,
+    non_imperative_words,
+    verb_candidate,
+)
+
+
+# The mood verdict comes from ruff at run time. Unit tests inject it instead, so they
+# stay deterministic and never shell out; the integration tests below exercise the real call.
+MOOD: frozenset[str] = frozenset(
+    "added adds adding fixed fixes fixing refactoring bumps derived handling".split()
 )
 
 
 def rules(message: str, suffix: str = "") -> set[str]:
-    return {finding.rule for finding in check_message(message, suffix)}
+    return {finding.rule for finding in check_message(message, suffix, MOOD)}
 
 
 def errors(message: str, suffix: str = "") -> set[str]:
-    return {finding.rule for finding in check_message(message, suffix) if finding.is_error}
+    return {finding.rule for finding in check_message(message, suffix, MOOD) if finding.is_error}
 
 
 def test_a_subject_matching_the_house_rules_produces_nothing() -> None:
@@ -51,25 +59,7 @@ def test_real_subjects_from_this_repo_pass(subject: str) -> None:
 )
 def test_past_tense_third_person_and_gerunds_are_rejected(subject: str, offender: str) -> None:
     assert "subject-imperative" in errors(subject)
-    assert offender in check_message(subject)[0].message
-
-
-@pytest.mark.parametrize(
-    "word",
-    ["embed", "exceed", "feed", "need", "proceed", "read", "seed", "speed", "spread", "succeed"],
-)
-def test_imperatives_ending_in_ed_are_not_mistaken_for_past_tense(word: str) -> None:
-    assert not is_non_imperative(word)
-
-
-@pytest.mark.parametrize("word", ["address", "bypass", "discuss", "express", "pass", "process"])
-def test_imperatives_ending_in_s_are_not_mistaken_for_third_person(word: str) -> None:
-    assert not is_non_imperative(word)
-
-
-@pytest.mark.parametrize("word", ["bring", "string"])
-def test_imperatives_ending_in_ing_are_not_mistaken_for_gerunds(word: str) -> None:
-    assert not is_non_imperative(word)
+    assert offender in check_message(subject, "", MOOD)[0].message
 
 
 def test_the_suffix_github_appends_counts_towards_the_limit() -> None:
@@ -83,7 +73,7 @@ def test_the_suffix_github_appends_counts_towards_the_limit() -> None:
 
 def test_the_reported_length_is_the_bare_subject_and_the_landed_one() -> None:
     subject = "Derive the session end from the observed last bar, not the template"
-    (finding,) = check_message(subject, " (#164)")
+    (finding,) = check_message(subject, " (#164)", MOOD)
     assert f"is {len(subject)} characters" in finding.message
     assert f"becomes {len(subject) + len(' (#164)')}" in finding.message
 
@@ -181,13 +171,6 @@ def test_a_source_must_be_given() -> None:
         main([])
 
 
-def test_the_gerunds_on_the_blocklist_still_fire() -> None:
-    # Dropping the -ing fallback is not the same as dropping the -ing rule: the words that
-    # are gerunds in practice stay listed, and "Handling" is one of them.
-    assert "subject-imperative" in errors("Handling of the ambiguous bar moves into bracket.py")
-    assert "subject-imperative" in errors("Adding the phase filter")
-
-
 @pytest.mark.parametrize(
     "subject",
     [
@@ -214,12 +197,12 @@ def test_the_old_prefix_conventions_are_rejected(subject: str) -> None:
     ],
 )
 def test_a_bare_imperative_subject_passes_without_a_warning(subject: str) -> None:
-    assert check_message(subject) == []
+    assert check_message(subject, "", MOOD) == []
 
 
 @pytest.mark.parametrize("conventional_type", sorted(CONVENTIONAL_TYPES))
 def test_every_conventional_type_is_accepted_but_warned_about(conventional_type: str) -> None:
-    findings = check_message(f"{conventional_type}: drop the stale roadmap figures")
+    findings = check_message(f"{conventional_type}: drop the stale roadmap figures", "", MOOD)
     assert [f.rule for f in findings] == ["subject-conventional-prefix"]
     assert not findings[0].is_error
 
@@ -242,7 +225,7 @@ def test_the_mood_is_still_judged_behind_a_conventional_prefix() -> None:
 
 def test_dependabot_is_exempt_from_the_prefix_warning_as_well_as_the_ceiling() -> None:
     # It cannot act on either, so warning about them is noise on every dependency PR.
-    assert check_message("build(deps): bump numba from 0.66.0 to 0.67.0", " (#153)") == []
+    assert check_message("build(deps): bump numba from 0.66.0 to 0.67.0", " (#153)", MOOD) == []
 
 
 @pytest.mark.parametrize(
@@ -253,4 +236,30 @@ def test_dependabot_is_exempt_from_the_prefix_warning_as_well_as_the_ceiling() -
     ],
 )
 def test_a_colon_later_in_the_subject_is_not_read_as_a_prefix(subject: str) -> None:
-    assert check_message(subject) == []
+    assert check_message(subject, "", MOOD) == []
+
+
+def test_verb_candidate_looks_past_a_conventional_prefix() -> None:
+    assert verb_candidate("fix(sim): derive the session end") == "derive"
+    assert verb_candidate("Derive the session end") == "derive"
+    assert verb_candidate("build(deps): bump numba") == "bump"
+
+
+def test_ruff_supplies_the_mood_verdict() -> None:
+    # The integration point: no wordlist of ours, ruff's D401 decides. It answers only for
+    # verbs it knows, and stays silent rather than guessing -- which is why "built" is absent.
+    verdict = non_imperative_words(["added", "adds", "returns", "sends", "derive", "add", "built"])
+    assert {"added", "adds", "returns", "sends"} <= verdict
+    assert "derive" not in verdict
+    assert "add" not in verdict
+
+
+def test_the_oracle_does_not_flag_plural_nouns() -> None:
+    # The failure mode of the suffix heuristic this replaced: it read every -s word as a
+    # third-person verb, so "Sessions", "Refs" and "Docs" were all reported.
+    assert non_imperative_words(["sessions", "refs", "docs", "plugins", "dashboards"]) == frozenset()
+
+
+def test_an_empty_vocabulary_does_not_invoke_ruff() -> None:
+    assert non_imperative_words([]) == frozenset()
+    assert non_imperative_words(["M17.4", "9000", ""]) == frozenset()

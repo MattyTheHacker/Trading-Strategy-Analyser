@@ -16,7 +16,11 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,75 +38,13 @@ CONVENTIONAL_PREFIX_PATTERN = re.compile(r"^(?P<type>\w+)(\([^)]*\))?!?: ")
 STRAY_PREFIX_PATTERN = re.compile(r"^(?:\[[^\]]*\]\s*|[^\s:]+:\s|\S+\s+--\s)")
 """``Docs:``, ``instruments.py:``, ``[DevTools]`` and ``M17.4 --``: the old conventions."""
 
+PROBE_OBJECT = "the thing"
+"""Filler so the probe docstring is a sentence. D401 only ever reads its first word."""
+
+D401_REPORT_PATTERN = re.compile(r'D401 [^"]*"(\w+) ' + PROBE_OBJECT + r'\."')
+
 BOT_SCOPE_PATTERN = re.compile(r"^\w+\(deps[^)]*\)!?: ")
 """Dependabot writes its own titles and they run past 72. Not ours to control either."""
-
-NON_IMPERATIVE_FIRST_WORDS = frozenset(
-    """
-    added adds adding
-    allowed allows allowing
-    applied applies applying
-    bumped bumps bumping
-    changed changes changing
-    cleaned cleans cleaning
-    corrected corrects correcting
-    created creates creating
-    deleted deletes deleting
-    deprecated deprecates deprecating
-    disabled disables disabling
-    documented documents documenting
-    dropped drops dropping
-    enabled enables enabling
-    ensured ensures ensuring
-    extracted extracts extracting
-    fixed fixes fixing
-    handled handles handling
-    implemented implements implementing
-    improved improves improving
-    included includes including
-    introduced introduces introducing
-    made makes making
-    merged merges merging
-    migrated migrates migrating
-    modified modifies modifying
-    moved moves moving
-    prevented prevents preventing
-    refactored refactors refactoring
-    released releases releasing
-    removed removes removing
-    renamed renames renaming
-    replaced replaces replacing
-    resolved resolves resolving
-    restored restores restoring
-    reverted reverts reverting
-    simplified simplifies simplifying
-    started starts starting
-    stopped stops stopping
-    supported supports supporting
-    switched switches switching
-    tested tests testing
-    tidied tidies tidying
-    updated updates updating
-    used uses using
-    wrote writes writing
-    """.split()
-)
-"""The offenders CONTRIBUTING.md names, and their nearest relatives."""
-
-IMPERATIVES_ENDING_IN_S = frozenset(
-    """
-    address bypass compress cross discuss dismiss express focus
-    harness miss pass process progress stress suppress toss
-    """.split()
-)
-"""Imperative verbs the third-person -s fallback would otherwise reject."""
-
-IMPERATIVES_ENDING_IN_ED = frozenset(
-    """
-    bleed breed embed exceed feed need proceed read seed shed speed spread succeed
-    """.split()
-)
-"""Imperative verbs the past-tense -ed fallback would otherwise reject."""
 
 
 @dataclass(frozen=True)
@@ -132,25 +74,66 @@ def first_word(subject: str) -> str:
     return word.strip("\"'`*_.,:;()[]").lower()
 
 
-def is_non_imperative(word: str) -> bool:
-    """Whether the subject's first word reads as past tense, third person or a gerund.
+def ruff_executable() -> str:
+    """Where ruff is, preferring the interpreter's own environment over the PATH."""
+    scripts = Path(sys.executable).parent
+    for candidate in (scripts / "ruff.exe", scripts / "ruff", scripts / "Scripts" / "ruff.exe"):
+        if candidate.exists():
+            return str(candidate)
+    found = shutil.which("ruff")
+    if found:
+        return found
+    message = "ruff is needed for the imperative-mood check. Install it: pip install -e '.[dev]'"
+    raise RuntimeError(message)
 
-    Conservative by design: it misses novel verbs rather than flagging correct ones,
-    because a false positive here blocks a merge. CONTRIBUTING.md, "Commits".
+
+def non_imperative_words(words: Iterable[str]) -> frozenset[str]:
+    """Ask ruff's D401 which of these opening words are not in the imperative mood.
+
+    Reuses the stemmer and wordlist behind ruff's own rule instead of keeping a second copy
+    here. Each word is posed as a one-line docstring, which is the only text D401 reads.
+    ``docs/roadmap.md`` is not the place for this; CONTRIBUTING.md, "Commits", is.
     """
-    if not word.isalpha():
-        return False
-    if word in NON_IMPERATIVE_FIRST_WORDS:
-        return True
-    if word.endswith("ing"):
-        # No morphological fallback here: "reasoning", "handling" and "caching" are nouns in
-        # this codebase's vocabulary, and blocking a correct subject is worse than missing one.
-        return False
-    if word.endswith("ed"):
-        return word not in IMPERATIVES_ENDING_IN_ED
-    if word.endswith("s") and not word.endswith("ss"):
-        return word not in IMPERATIVES_ENDING_IN_S
-    return False
+    vocabulary = sorted({word for word in words if word.isalpha()})
+    if not vocabulary:
+        return frozenset()
+
+    stanzas = [
+        f'def probe_{index}() -> None:\n    """{word} {PROBE_OBJECT}."""\n'
+        for index, word in enumerate(vocabulary)
+    ]
+    with tempfile.TemporaryDirectory() as directory:
+        probe_path = Path(directory) / "probe.py"
+        probe_path.write_text("\n\n".join(stanzas), encoding="utf-8")
+        completed = subprocess.run(  # noqa: S603
+            [
+                ruff_executable(),
+                "check",
+                "--isolated",
+                "--select",
+                "D401",
+                "--output-format",
+                "concise",
+                "--no-cache",
+                str(probe_path),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+
+    if completed.returncode not in (0, 1):
+        message = f"ruff could not run the D401 check: {completed.stderr.strip()}"
+        raise RuntimeError(message)
+    return frozenset(D401_REPORT_PATTERN.findall(completed.stdout or ""))
+
+
+def verb_candidate(subject: str) -> str:
+    """The word whose mood is judged: the first one after any conventional prefix."""
+    _, remainder = split_conventional_prefix(subject.strip())
+    return first_word(remainder)
 
 
 def check_subject_shape(remainder: str, conventional_type: str | None) -> list[Finding]:
@@ -180,7 +163,7 @@ def check_subject_shape(remainder: str, conventional_type: str | None) -> list[F
     return []
 
 
-def check_subject(subject: str, suffix: str) -> list[Finding]:
+def check_subject(subject: str, suffix: str, non_imperative: frozenset[str]) -> list[Finding]:
     """Apply every subject-level rule."""
     if not subject.strip():
         return [Finding("subject-empty", "The subject line is empty.", is_error=True)]
@@ -214,7 +197,7 @@ def check_subject(subject: str, suffix: str) -> list[Finding]:
         return findings
 
     word = first_word(remainder)
-    if is_non_imperative(word):
+    if word in non_imperative:
         findings.append(
             Finding(
                 "subject-imperative",
@@ -263,12 +246,16 @@ def check_body(lines: list[str]) -> list[Finding]:
     ]
 
 
-def check_message(message: str, suffix: str = "") -> list[Finding]:
+def check_message(
+    message: str,
+    suffix: str = "",
+    non_imperative: frozenset[str] = frozenset(),
+) -> list[Finding]:
     """Apply every rule to one whole commit message."""
     lines = message.rstrip().splitlines()
     if not lines:
         return [Finding("subject-empty", "The message is empty.", is_error=True)]
-    return check_subject(lines[0], suffix) + check_body(lines[1:])
+    return check_subject(lines[0], suffix, non_imperative) + check_body(lines[1:])
 
 
 def emit(text: str) -> None:
@@ -320,9 +307,13 @@ def main(argv: list[str] | None = None) -> int:
         emit("No commit messages to check.")
         return 0
 
+    # One ruff invocation for the whole run, not one per message.
+    subjects = [message.strip().splitlines()[0] for message in messages if message.strip()]
+    non_imperative = non_imperative_words(verb_candidate(subject) for subject in subjects)
+
     errors = 0
     for message in messages:
-        findings = check_message(message, args.subject_suffix)
+        findings = check_message(message, args.subject_suffix, non_imperative)
         errors += sum(1 for finding in findings if finding.is_error)
         subject = message.strip().splitlines()[0] if message.strip() else "(empty)"
         report(subject, findings, github=args.github)

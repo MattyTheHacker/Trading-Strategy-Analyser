@@ -167,6 +167,8 @@ Points that have each cost time:
 
 **Body line length is deliberately not a rule.** The body that reaches `main` is the pull request description, and PR and issue bodies are never hard-wrapped here — one line per paragraph, blank line between, and GitHub wraps them. That is a rendering question, not a linting one. The 80-column convention was dropped rather than compromised, because holding both at once is impossible.
 
+**The mood verdict is ruff's, not ours.** The check poses the subject's opening word as a one-line docstring and asks `ruff check --select D401`, so the stemmer and verb list behind ruff's own rule decide, and there is no second wordlist here to drift. It follows that ruff must be installed for the check to run, and that it inherits D401's behaviour exactly — including staying **silent when it does not recognise the verb** rather than guessing. `Built the filter` and `Rewrote the engine` pass for that reason. A pass is not proof the mood is right.
+
 [`tools/lint_commit_messages.py`](tools/lint_commit_messages.py) enforces the rest, and CI runs it twice per pull request: once over every commit the branch adds, and once over the message GitHub will squash onto `main`. Check a message before you write it:
 
 ```bash
