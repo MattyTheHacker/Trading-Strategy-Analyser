@@ -161,13 +161,30 @@ Points that have each cost time:
 
 ## Commits
 
-- **The subject begins with a verb in the imperative mood**: "Add the phase filter", not "Added" or "Adds". A milestone tag, a filename or a bare capitalised word is not a prefix — `M17.4 -- sweep_axes takes resolution`, `Docs: record the findings` and `instruments.py: route every figure` are all rejected. Say what the commit *does*: "Take resolution and contract in sweep_axes".
+- **The subject begins with one of ten verbs.** `Add`, `Bump`, `Document`, `Fix`, `Move`, `Port`, `Reconcile`, `Refactor`, `Remove`, `Update` — and nothing else. A milestone tag, a filename or a bare capitalised word is not a prefix either: `M17.4 -- sweep_axes takes resolution`, `Docs: record the findings` and `instruments.py: route every figure` are all rejected.
 - **Subject line at most 72 characters as it lands**, the space and `(#N)` GitHub appends included. That is where GitHub truncates a subject with an ellipsis, and a subject that has to be expanded to be read is a subject nobody reads. It leaves about 65 characters to write in.
 - **A body is for when the subject genuinely cannot carry it.** Leave a blank line after the subject and explain *why* rather than restating the diff.
 
 **Body line length is deliberately not a rule.** The body that reaches `main` is the pull request description, and PR and issue bodies are never hard-wrapped here — one line per paragraph, blank line between, and GitHub wraps them. That is a rendering question, not a linting one. The 80-column convention was dropped rather than compromised, because holding both at once is impossible.
 
-**The mood verdict is ruff's, not ours.** The check poses the subject's opening word as a one-line docstring and asks `ruff check --select D401`, so the stemmer and verb list behind ruff's own rule decide, and there is no second wordlist here to drift. It follows that ruff must be installed for the check to run, and that it inherits D401's behaviour exactly — including staying **silent when it does not recognise the verb** rather than guessing. `Built the filter` and `Rewrote the engine` pass for that reason. A pass is not proof the mood is right.
+### The ten verbs
+
+| verb | for |
+|---|---|
+| `Add` | a new capability, file, test or guard — also what `implement`, `introduce`, `create`, `store` and `support` become |
+| `Fix` | a defect corrected, including one found against NT8 |
+| `Update` | an existing thing changed — `change`, `modify`, `set` |
+| `Remove` | a deletion — `drop`, `delete` |
+| `Refactor` | structure changed, behaviour held — `simplify`, `clean up`, `reduce` |
+| `Move` | relocated or renamed — `migrate`, `rename` |
+| `Document` | docs, README, roadmap, decision records — `record`, `plan`, `note` |
+| `Bump` | a dependency version, which is mostly Dependabot's |
+| `Port` | NinjaScript translated into Python — a Tier 1/Tier 2 term, not a synonym for `Add` |
+| `Reconcile` | checked against a real NT8 trade list — also `pin`, as in pinning an indicator against NT8 |
+
+`Port` and `Reconcile` are here because the prime directive needs them: "Port InsideBar.cs as the third C#-backed archetype" is not `Add`, and "Reconcile InsideBar against its NT8 trade list" is not `Fix`. The other eight are generic.
+
+**Mood is settled by construction, not by a heuristic.** The vocabulary lists base forms only, so `Added`, `Adds`, `Adding`, `Built` and `Rewrote` fail because they are not in it — there is no stemmer, no wordlist of non-imperative forms, and no dependency on ruff. The measured cost: a precise but unlisted verb has to be rephrased, so `Gate dependency bumps in CI with three pins` becomes `Add three pins to gate dependency bumps in CI`. That is the trade — scannability bought with a little precision.
 
 [`tools/lint_commit_messages.py`](tools/lint_commit_messages.py) enforces the rest, and CI runs it twice per pull request: once over every commit the branch adds, and once over the message GitHub will squash onto `main`. Check a message before you write it:
 
@@ -179,11 +196,13 @@ Three things the rules above do not say, each of which has already cost a commit
 
 - **The subject that lands on `main` is the pull request title**, because `main` takes squash merges only. The title is the thing to get right; the branch's commits are squashed away.
 - **GitHub appends a space and `(#N)`, and it counts.** Two subjects on `main` were written to exactly 80 and pushed past it by the number. The check measures the subject as it lands.
-- **Dependabot's titles are exempt from the length rule.** It writes its own, they run past 72, and they are no more ours to control than a `Merge` or `Revert` subject is.
+- **Dependabot's titles are exempt from the length rule and the prefix warning.** It writes its own, they run past 72, and it could not act on either. They are no more ours to control than a `Merge` or `Revert` subject is.
 
-**A Conventional Commits prefix is accepted but not recommended.** `fix(sim): derive the session end` passes and raises a warning; a bare imperative subject is the house style. Only the eleven types the spec names are recognised — `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test` — and the mood rule still applies to whatever follows the colon, so `fix: derived the session end` fails. Anything else before a colon is not a prefix at all; it is a subject that fails to start with a verb.
+**A Conventional Commits prefix is accepted but not recommended.** `fix(sim): derive the session end` passes and raises a warning; one of the ten verbs is the house style. Only the eleven types the spec names are recognised — `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`. **The type stands in for the verb**, so the word after the colon is unconstrained; `fix(sim): derive the session end` is fine even though `derive` is not one of the ten. Anything else before a colon is not a prefix at all, it is a subject that fails to start with one of the ten.
 
-Why accepted rather than required: measured over the last 100 commits of 32 major repositories, adoption is bimodal and tracks tooling rather than quality. The JavaScript and TypeScript projects that generate changelogs and semver bumps from commit types sit at 91-100%; everything else — Django, Rails, Go, Rust, NumPy, pandas, scikit-learn, Kafka, the kernel — sits at or near zero. `nqbt` publishes nothing and has no changelog, so the prefix buys nothing here. Imperative mood, by contrast, held at 0-8% violation in 31 of those 32, which is why that is the rule with teeth.
+Why accepted rather than required: measured over the last 100 commits of 32 major repositories, adoption is bimodal and tracks tooling rather than quality. The JavaScript and TypeScript projects that generate changelogs and semver bumps from commit types sit at 91-100%; everything else — Django, Rails, Go, Rust, NumPy, pandas, scikit-learn, Kafka, the kernel — sits at or near zero. `nqbt` publishes nothing and has no changelog, so the prefix buys nothing here.
+
+Why ten verbs rather than a mood check: mapping every subject in this repository's history onto a canonical set condensed 83% of them into these ten, and the residue was the milestone-tagged subjects that carry no verb at all. Five verbs — `Add`, `Document`, `Update`, `Bump`, `Refactor` — covered 70 of the 80 that mapped.
 
 ## Pull requests
 
