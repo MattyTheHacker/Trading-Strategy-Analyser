@@ -26,6 +26,14 @@ SUBJECT_MAX_LENGTH = 72
 GENERATED_SUBJECT_PREFIXES = ("Merge ", "Revert ")
 """Subjects GitHub writes itself. Exempt from length, because their shape is not ours to pick."""
 
+CONVENTIONAL_TYPES = frozenset("build chore ci docs feat fix perf refactor revert style test".split())
+"""Accepted but not recommended, so a bare imperative subject stays the house style."""
+
+CONVENTIONAL_PREFIX_PATTERN = re.compile(r"^(?P<type>\w+)(\([^)]*\))?!?: ")
+
+STRAY_PREFIX_PATTERN = re.compile(r"^(?:\[[^\]]*\]\s*|[^\s:]+:\s|\S+\s+--\s)")
+"""``Docs:``, ``instruments.py:``, ``[DevTools]`` and ``M17.4 --``: the old conventions."""
+
 BOT_SCOPE_PATTERN = re.compile(r"^\w+\(deps[^)]*\)!?: ")
 """Dependabot writes its own titles and they run past 72. Not ours to control either."""
 
@@ -106,28 +114,21 @@ class Finding:
     is_error: bool
 
 
-def strip_scope_prefix(subject: str) -> str:
-    """Drop a leading scope, so the mood is judged on the verb that follows it.
+def split_conventional_prefix(subject: str) -> tuple[str | None, str]:
+    """Split a valid ``type(scope):`` prefix off the subject, returning the type and the rest.
 
-    Two shapes: ``build(deps): bump ...`` and ``[DevTools] Remove ...``. Without this the
-    scope itself is read as the verb, and one ending in "s" trips the third-person rule.
+    The type must be one the Conventional Commits spec names. ``Docs:`` and
+    ``instruments.py:`` are not prefixes, they are a subject that fails to start with a verb.
     """
-    remainder = subject.strip()
-    if remainder.startswith("["):
-        _, closed, tail = remainder.partition("]")
-        if closed:
-            return tail.strip()
-
-    head, separator, tail = remainder.partition(": ")
-    if not separator or " " in head:
-        return remainder
-    return tail
+    match = CONVENTIONAL_PREFIX_PATTERN.match(subject)
+    if match and match.group("type") in CONVENTIONAL_TYPES:
+        return match.group("type"), subject[match.end() :]
+    return None, subject
 
 
 def first_word(subject: str) -> str:
-    """The first word of the subject, lowercased, with any scope prefix removed."""
-    remainder = strip_scope_prefix(subject).strip()
-    word = remainder.split(" ", maxsplit=1)[0]
+    """The first word of the subject, lowercased and stripped of surrounding punctuation."""
+    word = subject.strip().split(" ", maxsplit=1)[0]
     return word.strip("\"'`*_.,:;()[]").lower()
 
 
@@ -152,6 +153,33 @@ def is_non_imperative(word: str) -> bool:
     return False
 
 
+def check_subject_shape(remainder: str, conventional_type: str | None) -> list[Finding]:
+    """Whether the subject starts with a verb, once a valid conventional prefix is removed."""
+    if conventional_type is not None:
+        return []
+
+    stray = STRAY_PREFIX_PATTERN.match(remainder)
+    if stray:
+        return [
+            Finding(
+                "subject-shape",
+                f"{stray.group(0).strip()!r} is not a prefix the rules recognise. Start with a verb "
+                "in the imperative mood, or with a Conventional Commits type.",
+                is_error=True,
+            ),
+        ]
+
+    if not first_word(remainder).isalpha():
+        return [
+            Finding(
+                "subject-shape",
+                "The subject must begin with a verb in the imperative mood.",
+                is_error=True,
+            ),
+        ]
+    return []
+
+
 def check_subject(subject: str, suffix: str) -> list[Finding]:
     """Apply every subject-level rule."""
     if not subject.strip():
@@ -169,7 +197,23 @@ def check_subject(subject: str, suffix: str) -> list[Finding]:
     if subject.rstrip().endswith("."):
         findings.append(Finding("subject-full-stop", "The subject ends in a full stop.", is_error=True))
 
-    word = first_word(subject)
+    conventional_type, remainder = split_conventional_prefix(subject.strip())
+    if conventional_type is not None and not BOT_SCOPE_PATTERN.match(subject):
+        findings.append(
+            Finding(
+                "subject-conventional-prefix",
+                f'"{conventional_type}:" is accepted but not the house style; a bare imperative '
+                "subject is preferred.",
+                is_error=False,
+            ),
+        )
+
+    shape = check_subject_shape(remainder, conventional_type)
+    findings.extend(shape)
+    if shape:
+        return findings
+
+    word = first_word(remainder)
     if is_non_imperative(word):
         findings.append(
             Finding(

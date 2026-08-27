@@ -161,7 +161,7 @@ Points that have each cost time:
 
 ## Commits
 
-- **Imperative mood**: "Add the phase filter", not "Added" or "Adds".
+- **The subject begins with a verb in the imperative mood**: "Add the phase filter", not "Added" or "Adds". A milestone tag, a filename or a bare capitalised word is not a prefix — `M17.4 -- sweep_axes takes resolution`, `Docs: record the findings` and `instruments.py: route every figure` are all rejected. Say what the commit *does*: "Take resolution and contract in sweep_axes".
 - **Subject line at most 72 characters as it lands**, the space and `(#N)` GitHub appends included. That is where GitHub truncates a subject with an ellipsis, and a subject that has to be expanded to be read is a subject nobody reads. It leaves about 65 characters to write in.
 - **A body is for when the subject genuinely cannot carry it.** Leave a blank line after the subject and explain *why* rather than restating the diff.
 
@@ -179,7 +179,9 @@ Three things the rules above do not say, each of which has already cost a commit
 - **GitHub appends a space and `(#N)`, and it counts.** Two subjects on `main` were written to exactly 80 and pushed past it by the number. The check measures the subject as it lands.
 - **Dependabot's titles are exempt from the length rule.** It writes its own, they run past 72, and they are no more ours to control than a `Merge` or `Revert` subject is.
 
-**Conventional Commits (`feat:`, `fix:`, `chore:`) is deliberately not used.** Measured over the last 100 commits of 32 major repositories, adoption is bimodal and tracks tooling rather than quality: the JavaScript and TypeScript projects that generate changelogs and semver bumps from commit types sit at 91-100%, and everything else — Django, Rails, Go, Rust, NumPy, pandas, scikit-learn, Kafka, the kernel — sits at or near zero. `nqbt` publishes nothing and has no changelog, so the prefix would buy nothing. Imperative mood, by contrast, held at 0-8% violation in 31 of those 32 repositories, which is why it is the rule that is enforced.
+**A Conventional Commits prefix is accepted but not recommended.** `fix(sim): derive the session end` passes and raises a warning; a bare imperative subject is the house style. Only the eleven types the spec names are recognised — `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test` — and the mood rule still applies to whatever follows the colon, so `fix: derived the session end` fails. Anything else before a colon is not a prefix at all; it is a subject that fails to start with a verb.
+
+Why accepted rather than required: measured over the last 100 commits of 32 major repositories, adoption is bimodal and tracks tooling rather than quality. The JavaScript and TypeScript projects that generate changelogs and semver bumps from commit types sit at 91-100%; everything else — Django, Rails, Go, Rust, NumPy, pandas, scikit-learn, Kafka, the kernel — sits at or near zero. `nqbt` publishes nothing and has no changelog, so the prefix buys nothing here. Imperative mood, by contrast, held at 0-8% violation in 31 of those 32, which is why that is the rule with teeth.
 
 ## Pull requests
 

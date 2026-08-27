@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from tools.lint_commit_messages import (
+    CONVENTIONAL_TYPES,
     SUBJECT_MAX_LENGTH,
     check_message,
     first_word,
@@ -69,19 +70,6 @@ def test_imperatives_ending_in_s_are_not_mistaken_for_third_person(word: str) ->
 @pytest.mark.parametrize("word", ["bring", "string"])
 def test_imperatives_ending_in_ing_are_not_mistaken_for_gerunds(word: str) -> None:
     assert not is_non_imperative(word)
-
-
-def test_a_non_alphabetic_opener_is_left_alone() -> None:
-    # "M17.4 -- sweep_axes: one mechanism ..." is the shape half this repo's history uses.
-    assert not is_non_imperative("m17.4")
-    assert errors("M17.4 -- sweep_axes: one mechanism for strategy and contract") == set()
-
-
-def test_a_scope_prefix_is_stripped_before_the_mood_is_judged() -> None:
-    assert first_word("build(deps): bump the python group") == "bump"
-    assert first_word("Derive the session end") == "derive"
-    # A colon that is not a type prefix must not eat the subject.
-    assert first_word("M17.4 -- sweep_axes: one mechanism") == "m17.4"
 
 
 def test_the_suffix_github_appends_counts_towards_the_limit() -> None:
@@ -193,20 +181,6 @@ def test_a_source_must_be_given() -> None:
         main([])
 
 
-@pytest.mark.parametrize(
-    "subject",
-    [
-        # Real, from main. A morphological -ing rule reads "reasoning" as a gerund and
-        # blocks it; it is the noun subject of "belongs".
-        "Docs: reasoning belongs in docs/, not in the source",
-        "Caching of the numba kernels survives a parallel worker",
-        "Rounding of the ambiguous bar follows NT8",
-    ],
-)
-def test_nouns_ending_in_ing_are_not_mistaken_for_gerunds(subject: str) -> None:
-    assert errors(subject) == set()
-
-
 def test_the_gerunds_on_the_blocklist_still_fire() -> None:
     # Dropping the -ing fallback is not the same as dropping the -ing rule: the words that
     # are gerunds in practice stay listed, and "Handling" is one of them.
@@ -215,20 +189,68 @@ def test_the_gerunds_on_the_blocklist_still_fire() -> None:
 
 
 @pytest.mark.parametrize(
-    ("subject", "expected"),
+    "subject",
     [
-        ("[DevTools] Remove the dead Timeline profiler code", "remove"),
-        ("[flags] Enable enableParallelTransitions", "enable"),
-        ("build(deps): bump the python group", "bump"),
-        ("Docs: reasoning belongs in docs/", "reasoning"),
+        "M17.4 -- sweep_axes takes resolution and contract",
+        "M17.1 + M17.2 -- the archetype registry",
+        "Docs: record the M15 findings and stop quoting figures",
+        "instruments.py: route every monetary figure through the spec",
+        "[DevTools] Remove the dead profiler code",
+        "WIP: still poking at the bracket engine",
     ],
 )
-def test_a_bracketed_scope_is_stripped_like_a_type_prefix(subject: str, expected: str) -> None:
-    # Without this, "[DevTools]" is read as the verb, ends in "s", and trips the
-    # third-person rule. Measured as a false positive against facebook/react.
-    assert first_word(subject) == expected
+def test_the_old_prefix_conventions_are_rejected(subject: str) -> None:
+    # A milestone tag, a filename or a capitalised word is not a prefix the rules know:
+    # the subject has to start with a verb, or with a real Conventional Commits type.
+    assert "subject-shape" in errors(subject)
 
 
-def test_a_bracketed_scope_does_not_make_a_correct_subject_fail() -> None:
-    assert errors("[DevTools] Remove the dead Timeline profiler code") == set()
-    assert "subject-imperative" in errors("[DevTools] Added component search to the Profiler")
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Add the phase filter to the sweep axes",
+        "Derive the session end from the observed last bar",
+        "Move the leg writer behind a single entry point",
+    ],
+)
+def test_a_bare_imperative_subject_passes_without_a_warning(subject: str) -> None:
+    assert check_message(subject) == []
+
+
+@pytest.mark.parametrize("conventional_type", sorted(CONVENTIONAL_TYPES))
+def test_every_conventional_type_is_accepted_but_warned_about(conventional_type: str) -> None:
+    findings = check_message(f"{conventional_type}: drop the stale roadmap figures")
+    assert [f.rule for f in findings] == ["subject-conventional-prefix"]
+    assert not findings[0].is_error
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "fix(sim): derive the session end from the last bar",
+        "refactor(sweep)!: take resolution and contract",
+    ],
+)
+def test_a_scope_and_a_breaking_marker_are_accepted(subject: str) -> None:
+    assert errors(subject) == set()
+
+
+def test_the_mood_is_still_judged_behind_a_conventional_prefix() -> None:
+    assert "subject-imperative" in errors("fix(sim): derived the session end")
+    assert "subject-imperative" in errors("build(deps): bumps the python group")
+
+
+def test_dependabot_is_exempt_from_the_prefix_warning_as_well_as_the_ceiling() -> None:
+    # It cannot act on either, so warning about them is noise on every dependency PR.
+    assert check_message("build(deps): bump numba from 0.66.0 to 0.67.0", " (#153)") == []
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Add a guard: the sweep must not rank free money",
+        "Handle the 09:30 bar as the pre-open",
+    ],
+)
+def test_a_colon_later_in_the_subject_is_not_read_as_a_prefix(subject: str) -> None:
+    assert check_message(subject) == []
