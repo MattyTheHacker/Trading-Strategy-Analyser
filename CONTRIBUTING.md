@@ -162,8 +162,24 @@ Points that have each cost time:
 ## Commits
 
 - **Imperative mood**: "Add the phase filter", not "Added" or "Adds".
-- **Subject line at most 80 characters.** Shorter is better.
-- **A body is for when the subject genuinely cannot carry it.** Wrap it at 80 columns, leave a blank line after the subject, and explain *why* rather than restating the diff.
+- **Subject line at most 72 characters as it lands**, the space and `(#N)` GitHub appends included. That is where GitHub truncates a subject with an ellipsis, and a subject that has to be expanded to be read is a subject nobody reads. It leaves about 65 characters to write in.
+- **A body is for when the subject genuinely cannot carry it.** Leave a blank line after the subject and explain *why* rather than restating the diff.
+
+**Body line length is deliberately not a rule.** The body that reaches `main` is the pull request description, and PR and issue bodies are never hard-wrapped here — one line per paragraph, blank line between, and GitHub wraps them. That is a rendering question, not a linting one. The 80-column convention was dropped rather than compromised, because holding both at once is impossible.
+
+[`tools/lint_commit_messages.py`](tools/lint_commit_messages.py) enforces the rest, and CI runs it twice per pull request: once over every commit the branch adds, and once over the message GitHub will squash onto `main`. Check a message before you write it:
+
+```bash
+git log --format=%B -z origin/main..HEAD | ./.venv/Scripts/python.exe tools/lint_commit_messages.py --stdin
+```
+
+Three things the rules above do not say, each of which has already cost a commit:
+
+- **The subject that lands on `main` is the pull request title**, because `main` takes squash merges only. The title is the thing to get right; the branch's commits are squashed away.
+- **GitHub appends a space and `(#N)`, and it counts.** Two subjects on `main` were written to exactly 80 and pushed past it by the number. The check measures the subject as it lands.
+- **Dependabot's titles are exempt from the length rule.** It writes its own, they run past 72, and they are no more ours to control than a `Merge` or `Revert` subject is.
+
+**Conventional Commits (`feat:`, `fix:`, `chore:`) is deliberately not used.** Measured over the last 100 commits of 32 major repositories, adoption is bimodal and tracks tooling rather than quality: the JavaScript and TypeScript projects that generate changelogs and semver bumps from commit types sit at 91-100%, and everything else — Django, Rails, Go, Rust, NumPy, pandas, scikit-learn, Kafka, the kernel — sits at or near zero. `nqbt` publishes nothing and has no changelog, so the prefix would buy nothing. Imperative mood, by contrast, held at 0-8% violation in 31 of those 32 repositories, which is why it is the rule that is enforced.
 
 ## Pull requests
 
