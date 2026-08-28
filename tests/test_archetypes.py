@@ -15,16 +15,29 @@ import pytest
 from nqbt import archetypes, sessions, sweep
 from nqbt.archetypes import Archetype, ArchetypeError, ContextSpec, Tier2Status
 from nqbt.instruments import NQ
-from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, InsideBarParams, PullBackAndGoParams
+from nqbt.sim.types import (
+    DeadCatParams,
+    EmaCrossoverParams,
+    InsideBarParams,
+    InsideBarTrailingParams,
+    PullBackAndGoParams,
+)
 
 # -- the registry -------------------------------------------------------------
 
 
 def test_every_archetype_is_registered() -> None:
-    assert archetypes.names() == ["DeadCatBounce", "EmaCrossover", "InsideBar", "PullBackAndGo"]
+    assert archetypes.names() == [
+        "DeadCatBounce",
+        "EmaCrossover",
+        "InsideBar",
+        "InsideBarTrailing",
+        "PullBackAndGo",
+    ]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
     assert archetypes.get("EmaCrossover") is archetypes.EMACROSSOVER
     assert archetypes.get("InsideBar") is archetypes.INSIDEBAR
+    assert archetypes.get("InsideBarTrailing") is archetypes.INSIDEBARTRAILING
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
 
 
@@ -57,6 +70,7 @@ def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(PullBackAndGoParams()) is archetypes.PULLBACKANDGO
     assert archetypes.for_params(EmaCrossoverParams()) is archetypes.EMACROSSOVER
     assert archetypes.for_params(InsideBarParams()) is archetypes.INSIDEBAR
+    assert archetypes.for_params(InsideBarTrailingParams()) is archetypes.INSIDEBARTRAILING
 
 
 def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
@@ -71,14 +85,16 @@ def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
 def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     """``tier2`` is the column that stops a ranking mixing a measurement with an assumption.
 
-    All three ports have a real NT8 trade list behind them. EmaCrossover has no NinjaScript
-    at all, so it must not claim one -- this is the assertion that would fail if someone
-    registered an original with the reconciled ports' status copied across.
+    Three ports have a real NT8 trade list behind them. EmaCrossover has no NinjaScript at
+    all and InsideBarTrailing has one that nothing has been diffed against, so neither may
+    claim one -- this is the assertion that would fail if someone registered either with the
+    reconciled ports' status copied across.
     """
     assert archetypes.DEADCATBOUNCE.tier2 is Tier2Status.RECONCILED
     assert archetypes.PULLBACKANDGO.tier2 is Tier2Status.RECONCILED
     assert archetypes.INSIDEBAR.tier2 is Tier2Status.RECONCILED
     assert archetypes.EMACROSSOVER.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.INSIDEBARTRAILING.tier2 is Tier2Status.TIER1_ONLY
 
 
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------

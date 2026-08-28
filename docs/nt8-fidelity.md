@@ -603,6 +603,113 @@ this reconciliation from 942/947 to 943/947 and leaves the DeadCatBounce and Pul
 reconciliations above bit-for-bit unchanged — see "The session end is the observed last bar,
 not the template's".
 
+### M23 — the InsideBarTrailing rules, and the two only a trade list can settle
+
+`InsideBarTrailing.cs` shares `InsideBar.cs`'s entry and replaces its single bracket with three
+exit mechanisms the simulation did not have. **Nothing below has been diffed against a trade
+list**, so unlike §M22 this section is a reading of C# and not evidence about NT8;
+`Archetype.tier2` is `TIER1_ONLY` and the two rules that reflection genuinely cannot settle are
+marked as such and belong on #67's list.
+
+**The entry is InsideBar's, and it is shared rather than copied.** Same inside bar, same mother
+bar, same three strict moving-average gates, same market-on-next-open — so
+`InsideBarTrailingParams` subclasses `InsideBarParams` and both archetypes call
+`insidebar_signal`. What differs is four defaults, and one of them is not a tweak:
+`ErrorMargin = 0.1` against `0.01` is **ten times the breakout buffer** and a materially
+different strategy. The others are `SmaSlowPeriod 125` against `200`, `OrderQuantity 6` against
+`4`, and the one-hour session-end guard, which this script simply does not have.
+
+**The position is split across two entry orders with different exit engines.**
+
+```csharp
+firstLotQuantity  = (int) Math.Ceiling(OrderQuantity * PartialTakeProfitPercentage);  // 4 of 6
+secondLotQuantity = OrderQuantity - firstLotQuantity;                                 // 2 of 6
+```
+
+`entry1` gets a fixed stop and a profit target; `entry2` gets a trailing stop and no target at
+all. With `StopTargetHandling.PerEntryExecution` that is two brackets over one position rather
+than one bracket with two legs, which is exactly how the port resolves it: one call to
+`resolve_brackets` per lot per bar, each with its own stop, target and planned risk, and the
+shared engine unchanged. The structural argument for that shape rather than a generalised
+`bracket.py`: [`roadmap.md`](roadmap.md) §M23.
+
+**Both lots are bracketed off the same fill, from the same two bars as InsideBar's.**
+`OnExecutionUpdate` runs with the signal bar current, so the ATR it reads at `[0]` is the signal bar's
+and `High[1] - Low[1]` is the **inside** bar's range — the indexing §M22 established leg-for-leg
+against a trade list, inherited here rather than re-derived.
+
+**The trailing stop is not the ratchet, and its cadence is an assumption.**
+
+```csharp
+double trailingStopDistance = (High[1] - Low[1]) / TickSize * TrailingStopMultiplier;
+SetTrailStop("entry2", CalculationMode.Ticks, trailingStopDistance, false);
+```
+
+DeadCatBounce's and PullBackAndGo's ratchet moves the stop to a *lagged bar's* extreme plus an
+offset; an NT8 trail stop follows the **high-water mark** by a fixed tick distance. Different
+rule, different failure modes. The distance is a tick count in the C#, so the port computes it
+as one and converts back rather than multiplying the range directly.
+
+Two things about it are **not** established, and must not be read as though they were:
+
+- **When the level advances within a bar.** The port advances it at the **bar close**, from the
+  high-water mark through that bar, so the new level is live from the next bar — the same
+  cadence as the ratchet, and the one consistent with bar-close OHLC fills.
+- **Whether it can be hit on the same bar it advances.** Under the cadence above it cannot.
+
+Both are one-run questions in Strategy Analyzer with a Trades export, and until one is run they
+are the reason this archetype is `TIER1_ONLY`. `tests/test_insidebartrailing_sim.py` pins each
+of them by name so that a trade list overturning either fails a test rather than shifting a
+number quietly.
+
+**A trail distance under one tick refuses the trade.** The submittability rule — "a stop at or
+through the price it protects is not a stop order" — applied to the trailing lot, which is
+reachable only when the inside bar has no range at all. What NT8 does with
+`SetTrailStop(..., 0, false)` has never been observed, so the port declines the entry rather than
+running a lot with no protective order behind it. That is the conservative reading, not a
+measurement.
+
+**The trend-violation exit is the second `EXIT_SIGNAL` consumer, and its cadence is the trap.**
+
+```csharp
+if (position.MarketPosition == MarketPosition.Long && (ema[0] < smaFast[0]))
+    ExitLong("Exit Long Trend Violation", "entry1");   // and "entry2"
+```
+
+It lives in `OnPositionUpdate`, which fires on **position changes** — not on every bar. Porting
+it as a per-bar check would be a different and much busier strategy, so the port fires it only
+where the position actually changed: at the entry fill, and when one lot leaves while the other
+is still open. The comparison is strict, so `ema == smaFast` holds the position, and it
+generalises through the sign multiplier rather than as two branches. The fill is the next bar's
+open, which is §M18's rule for a managed market exit and the only `EXIT_SIGNAL` semantics the
+project has.
+
+**Which position changes NT8 counts is a trade-list question**, on #67's list alongside the
+trail's cadence. This is the first chance to check a signal exit against real C# at all —
+EmaCrossover, the only other producer, has no NinjaScript to be checked against.
+
+**The max-loss exit is dead, and the port reproduces that rather than fixing it.**
+
+```csharp
+if (position.GetUnrealizedProfitLoss(...) > -200) return;
+if (... < -MaximumLossPerTrade && MaximumLossPerTrade > 0) { ... }
+```
+
+`MaximumLossPerTrade` defaults to `0`, so the second condition can never be true and the branch
+never runs. The hardcoded `-200` above it is a currency amount with no parameter behind it and
+no scaling, so it means ten times the exposure on NQ that it means on MNQ. The port carries the
+**reconciled** behaviour, which is "this never fires", the way `PullBackAndGoParams` reproduces
+its reconciled configuration rather than its NinjaScript's: `maximum_loss_per_trade` exists,
+defaults to `0.0`, and raises on anything else. Enabling it means a currency threshold, and a
+currency threshold has to go through `instruments.py` before it means the same thing on both
+roots.
+
+**What a reconciliation of it will have to hold fixed.** Everything is `SetDefaults` unchanged —
+there is no wall-clock rule here to disable, because the script has no session-end guard. The
+questions to put to the export, in order of what they would move: the trail's within-bar
+cadence, `OnPositionUpdate`'s firing set, and whether a zero-distance trail is refused or
+ignored.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and

@@ -84,13 +84,23 @@ below and is what you quote; this file is the index, not the record.
   `docs/roadmap.md` § "What M15.5 changed".
 - **Stop-and-reverse is not supported.** The loop's `in_position` boolean assumes flat-to-flat
   and reversal collides with the one-bar entry lifetime. A deliberate limitation.
-- **`EXIT_SIGNAL` is spent by EmaCrossover alone** — a rule-driven exit with no bracket level. A
-  test guards structurally that DeadCatBounce, PullBackAndGo and `bracket.py` never import it.
+- **`EXIT_SIGNAL` is spent by EmaCrossover and InsideBarTrailing** — a rule-driven exit with no
+  bracket level, and the second is the first with C# behind it. A test guards structurally that
+  DeadCatBounce, PullBackAndGo, InsideBar and `bracket.py` never produce it, *and* that the two
+  that should still do.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.
 - **The shared boolean MA grid is the wrong boundary for InsideBar**, whose C# tests positively
   so equality *fails*. It reads the raw values instead, which is what `needs_ma_values` buys.
+- **The split-lot model sits beside `bracket.py`, not inside it.** `InsideBarTrailing`'s two
+  lots resolve through `resolve_brackets` one at a time with the other legs masked out, so the
+  engine takes one stop for the whole position exactly as it always has. Deliberate: the
+  abstraction gets extracted when a second archetype needs it. `docs/roadmap.md` §M23.
+- **A trailing stop is not the ratchet.** It follows the high-water mark by a fixed distance;
+  the ratchet moves to a lagged bar's extreme. Its within-bar cadence and `OnPositionUpdate`'s
+  firing set are **assumptions, not evidence** — both on #67, and both the reason
+  InsideBarTrailing is `TIER1_ONLY`. `docs/nt8-fidelity.md` §M23.
 - **`PullBackAndGoParams`'s defaults reproduce the reconciled configuration, not the
   NinjaScript's** — `PullBackAndGo.cs` leaves seven properties uninitialised in `SetDefaults`.
   `use_vwap` stays off: nothing has checked nqbt's VWAP against `OrderFlowVWAP`.

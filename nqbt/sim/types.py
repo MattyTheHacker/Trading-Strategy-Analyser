@@ -6,7 +6,9 @@ the manual-trade importer and knows nothing about strategies.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, fields
+from typing import override
 
 from nqbt import regime, timeofday, trend, volume
 
@@ -669,3 +671,89 @@ class InsideBarParams:
             value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
         return out
+
+
+MIN_SPLIT_QUANTITY = 2
+"""Fewest contracts InsideBarTrailing can take, one per lot -- the NinjaScript's ``Range(2, ...)``."""
+
+MAX_PARTIAL_SHARE = 0.9
+"""Largest share the bracketed lot may take, so the trailing lot always gets something."""
+
+
+@dataclass(slots=True)
+class InsideBarTrailingParams(InsideBarParams):
+    """Rule set for the InsideBarTrailing archetype -- InsideBar's entry, split-lot exits.
+
+    Ported from ``ninjatrader-scripts/Strategies/InsideBarTrailing.cs``. It subclasses
+    :class:`InsideBarParams` because the two NinjaScripts share one entry rule and differ only
+    in its defaults, so the entry is one implementation with two sets of them.
+
+    **The four redeclared defaults are not cosmetic.** ``error_margin`` is ten times
+    ``InsideBar.cs``'s, which is a different strategy rather than a tweak, and the script drops
+    the no-entry window entirely. ``docs/nt8-fidelity.md`` §M23.
+    """
+
+    order_quantity: int = 6
+    """``Range(2, int.MaxValue)`` in the NinjaScript, because it is split across two entries."""
+
+    slow_sma_period: int = 125
+    error_margin: float = 0.1
+    """``InsideBar.cs``'s 200 and 0.01. Ten times the breakout buffer is a different rule --
+    ``docs/nt8-fidelity.md`` §M23."""
+
+    no_entry_minutes_before_close: int = 0
+    """Off: this NinjaScript has no session-end guard, where ``InsideBar.cs`` has an hour."""
+
+    partial_take_profit_percentage: float = 0.6
+    """Share of ``order_quantity`` the bracketed lot takes, rounded **up** -- 4 of 6."""
+
+    trailing_stop_multiplier: float = 5.0
+    """Multiples of the inside bar's range the trailing stop follows the high-water mark by."""
+
+    maximum_loss_per_trade: float = 0.0
+    """Dead in the NinjaScript and refused at anything else here -- ``docs/nt8-fidelity.md``
+    §M23. Enabling it needs a currency amount routed through :mod:`nqbt.instruments`."""
+
+    @override
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.order_quantity < MIN_SPLIT_QUANTITY:
+            msg: str = (
+                f"order_quantity must be >= {MIN_SPLIT_QUANTITY} to split, got {self.order_quantity}; "
+                f"NT8 caps it with Range({MIN_SPLIT_QUANTITY}, int.MaxValue)"
+            )
+            raise ValueError(msg)
+        if not 0.0 <= self.partial_take_profit_percentage <= MAX_PARTIAL_SHARE:
+            msg = (
+                f"partial_take_profit_percentage must be in [0, {MAX_PARTIAL_SHARE}], got "
+                f"{self.partial_take_profit_percentage}; NT8 caps it with Range(0, {MAX_PARTIAL_SHARE})"
+            )
+            raise ValueError(msg)
+        if self.trailing_stop_multiplier < 1.0:
+            msg = (
+                f"trailing_stop_multiplier must be >= 1, got {self.trailing_stop_multiplier}; "
+                f"NT8 caps it with Range(1, double.MaxValue)"
+            )
+            raise ValueError(msg)
+        if min(self.leg_quantities) < 1:
+            msg = (
+                f"the split leaves a lot of zero contracts: {self.leg_quantities} from "
+                f"order_quantity={self.order_quantity} at {self.partial_take_profit_percentage}"
+            )
+            raise ValueError(msg)
+        if self.maximum_loss_per_trade != 0.0:
+            msg = (
+                "maximum_loss_per_trade is unreachable in the NinjaScript and unimplemented here; "
+                "it must stay 0.0 -- see docs/nt8-fidelity.md, §M23"
+            )
+            raise ValueError(msg)
+
+    @property
+    @override
+    def leg_quantities(self) -> tuple[int, ...]:
+        """The two entry orders' sizes: the bracketed lot, then the trailing one.
+
+        ``(int) Math.Ceiling(OrderQuantity * PartialTakeProfitPercentage)`` and the remainder.
+        """
+        first: int = math.ceil(self.order_quantity * self.partial_take_profit_percentage)
+        return (first, self.order_quantity - first)

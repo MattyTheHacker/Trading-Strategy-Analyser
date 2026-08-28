@@ -118,6 +118,7 @@ max-args = 10
 "nqbt/sim/crossover.py" = ["FBT001", "FBT003"]
 "nqbt/sim/deadcat.py" = ["FBT001", "FBT003"]
 "nqbt/sim/insidebar.py" = ["FBT001", "FBT003"]
+"nqbt/sim/insidebartrailing.py" = ["FBT001", "FBT003"]
 "nqbt/sim/runner.py" = ["FBT003"]
 # Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
 # numba, pandas and TA-Lib.
