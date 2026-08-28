@@ -1892,18 +1892,34 @@ where both are defined. A reconciliation would come back 100% and prove nothing.
 would: it drops the oldest value out of its window and can move past the close, giving 842
 differing bars at 15-minute SMA(20), which is the case [#72] would make live.
 
-**So the instrument is a per-bar probe, not a trade list.**
+**So the instrument is a per-bar probe, not a trade list — and it has been run ([#183]).**
 `ninjatrader-scripts/Strategies/NqbtHigherTimeframeProbe.cs` records `Times[1][0]` against
 `Time[0]` on every 1-minute bar and writes the coarse series NT8 built beside it, so the
-boundary is decided on every coarse close — ~15,000 over one contract — rather than on the zero
-trades that would discriminate. It carries the SMA columns too, because NinjaTrader time is too
-scarce to come back for a column that costs nothing now.
-`tools/reconcile_higher_timeframe.py` compares the export on all four questions separately
-(anchoring, seeding, projection, warm-up), and `tests/test_reconcile_higher_timeframe.py`
-exercises each check against an export perturbed in the one way that check exists to catch —
-for the projection check, that perturbation is the other candidate rule. **Until the probe is
-run, all four are assumptions**; the fidelity record says so in
-`docs/nt8-fidelity.md` § "And so is the higher-timeframe average".
+boundary is decided on every coarse close rather than on the zero trades that would
+discriminate. Over `MNQ 03-24` with a 60-minute secondary series — 1,479,760 1-minute bars,
+24,826 coarse bars — **the projection agrees on 1,479,701 of 1,479,701 comparable bars, and on
+all 24,752 coarse closes NT8 reads the bar stamped alongside the fine bar.** Seeding agrees
+exactly on EMA(3), EMA(50), SMA(3) and SMA(50); the warm-up is 59 bars against 59; anchoring is
+exact over the 1,525 coarse bars of the front-month window, the earlier prefix being NT8's
+merged series. Per-question figures: `docs/nt8-fidelity.md` § "And so is the higher-timeframe
+average".
+
+**That the probe reports which *bar* was read, rather than what the average computed to, is
+what made it worth building.** The result does not depend on the arithmetic being monotone, so
+it settles the boundary for every moving-average kind at once and the SMA case above is
+answered without ever needing the trade list [#72] would have required.
+
+`tools/reconcile_higher_timeframe.py` compares the export on all four questions separately, and
+`tests/test_reconcile_higher_timeframe.py` exercises each check against an export perturbed in
+the one way that check exists to catch — for the projection check, that perturbation is the
+other candidate rule. Two of its own defects were found by the real export and are pinned:
+reading `read_csv`'s microsecond stamps as nanoseconds put the whole comparison in 1970, the
+trap `resample.py` already records; and counting the warm-up over the *archive* rather than the
+probe's own bars compared 59 leading bars against 5 and called it a disagreement.
+
+**What is still not established** is a leg-for-leg trade-list diff of an archetype with
+`higher_timeframe_filter` switched on. The gate is assembled from parts that are each now
+checked against NinjaTrader, which is the weaker claim.
 
 ### M11 — manual trade review ([#44])
 
@@ -2801,6 +2817,7 @@ default is now known to be right for this machine.
 [#71]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/71
 [#72]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/72
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73
+[#183]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/183
 [#75]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/75
 [#76]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/76
 [#81]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/81

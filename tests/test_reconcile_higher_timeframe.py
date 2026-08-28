@@ -60,6 +60,10 @@ def agreeing_export(bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     primary = pd.DataFrame(index=stamps)
     primary["bar"] = np.arange(len(bars))
+    # The probe writes the primary OHLCV beside the coarse half, and the warm-up check reads
+    # it: a fixture without these columns lets a check pass that the real export would break.
+    for column in ("open", "high", "low", "close", "volume"):
+        primary[column] = bars[column].to_numpy()
     primary["coarse_utc"] = reads
     # -1 exactly where no coarse bar has closed yet, which is what the probe writes.
     ordinal = pd.Series(np.arange(len(coarse)), index=coarse.index).reindex(stamps).ffill()
@@ -74,7 +78,19 @@ def agreeing_export(bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 def export():
     bars = minute_bars()
     primary, coarse = agreeing_export(bars)
-    return bars, primary, coarse
+    # Microsecond stamps, which is what read_csv hands back. Building the fixture with
+    # date_range instead gives nanoseconds and hides every resolution assumption in the
+    # tool -- one shipped that way and put the whole comparison in 1970.
+    return bars, as_microseconds(primary), as_microseconds(coarse)
+
+
+def as_microseconds(frame: pd.DataFrame) -> pd.DataFrame:
+    """Re-stamp a frame the way ``read_csv`` would, rather than the way ``date_range`` does."""
+    out = frame.copy()
+    out.index = pd.DatetimeIndex(out.index).as_unit("us")
+    if "coarse_utc" in out.columns:
+        out["coarse_utc"] = pd.DatetimeIndex(out["coarse_utc"]).as_unit("us")
+    return out
 
 
 # -- the checks pass on an export that agrees ---------------------------------
@@ -86,7 +102,7 @@ def test_every_check_agrees_on_an_export_that_matches(export) -> None:
     assert rht.check_anchoring(coarse, bars, COARSE_MINUTES)
     assert rht.check_seeding(coarse, primary, {"short": SHORT, "long": LONG})
     assert rht.check_projection(primary, coarse)
-    assert rht.check_warmup(primary, bars, higher_timeframe.key(COARSE_MINUTES, LONG))
+    assert rht.check_warmup(primary, higher_timeframe.key(COARSE_MINUTES, LONG))
 
 
 def test_the_resolution_and_periods_are_recovered_from_the_export(export) -> None:
@@ -94,6 +110,18 @@ def test_the_resolution_and_periods_are_recovered_from_the_export(export) -> Non
 
     assert rht.infer_coarse_minutes(pd.DatetimeIndex(coarse.index)) == COARSE_MINUTES
     assert rht.infer_periods(primary, coarse) == {"short": SHORT, "long": LONG}
+
+
+def test_the_projection_survives_a_microsecond_index(export) -> None:
+    """The resolution the export actually parses to, not the one date_range produces."""
+    _, primary, coarse = export
+    assert pd.DatetimeIndex(coarse.index).unit == "us"
+
+    read = rht.nqbt_reads(pd.DatetimeIndex(coarse.index), pd.DatetimeIndex(primary.index))
+
+    # Reading microseconds as nanoseconds lands every bar in 1970 rather than raising.
+    assert read.dropna().min().year == pd.DatetimeIndex(coarse.index)[0].year
+    assert rht.infer_coarse_minutes(pd.DatetimeIndex(coarse.index)) == COARSE_MINUTES
 
 
 # -- and fail on the one difference each exists to catch ----------------------
@@ -147,12 +175,12 @@ def test_the_seeding_check_catches_a_differently_seeded_average(export) -> None:
 
 
 def test_the_warmup_check_catches_a_different_number_of_unreadable_bars(export) -> None:
-    bars, primary, _ = export
+    _, primary, _ = export
 
     late = primary.copy()
     late.iloc[:120, late.columns.get_loc("coarse_bar")] = rht.NO_COARSE_BAR
 
-    assert not rht.check_warmup(late, bars, higher_timeframe.key(COARSE_MINUTES, LONG))
+    assert not rht.check_warmup(late, higher_timeframe.key(COARSE_MINUTES, LONG))
 
 
 # -- the export parses, warm-up rows included ---------------------------------

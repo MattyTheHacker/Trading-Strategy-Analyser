@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from nqbt import higher_timeframe, indicators, ingest, logsetup, resample
+from nqbt import higher_timeframe, indicators, ingest, logsetup, resample, sessions
 from nqbt.instruments import ContractId
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,25 @@ def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) 
         detail += f"; {only_nt8:,} only in NT8, {only_ours:,} only in nqbt"
     if mismatched:
         detail += "; " + ", ".join(f"{c} on {n:,}" for c, n in mismatched.items())
+    if not agreed:
+        detail += settled_from(nt8_coarse, ours, shared)
     return report("anchoring", agreed=agreed, detail=detail)
+
+
+def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.DatetimeIndex) -> str:
+    """Where the two series stop disagreeing, which is usually NT8's merge boundary.
+
+    Asked for more history than a contract has, NinjaTrader serves its *merged* series and a
+    per-contract archive cannot reproduce it -- so a long disagreeing prefix followed by exact
+    agreement is the expected shape, not a defect. Naming the changeover is what tells the two
+    apart, and a bare count does not.
+    """
+    differs = nt8_coarse.loc[shared, "close"].to_numpy() != ours.loc[shared, "close"].to_numpy()
+    if not differs.any():
+        return ""
+    last_bad = shared[differs].max()
+    after = shared[shared > last_bad]
+    return f"; agrees on all {len(after):,} bars after {last_bad}"
 
 
 def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict[str, int]) -> bool:
@@ -146,10 +164,20 @@ def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.
     re-deriving the rule here, so this compares NinjaTrader against the shipped code path and
     not against a second implementation of it. Seconds rather than nanoseconds because
     float64 carries 1.8e9 exactly and 1.8e18 does not.
+
+    ``dtype=`` is not optional on either conversion: ``read_csv`` hands back microsecond
+    stamps, and reading those as nanoseconds puts every bar in 1970 -- the same trap
+    ``resample.py`` records.
     """
-    seconds: np.ndarray = coarse_stamps.astype("int64").to_numpy() / 1_000_000_000
+    seconds: np.ndarray = epoch_seconds(coarse_stamps)
     read: np.ndarray = higher_timeframe.project(coarse_stamps, seconds.astype(np.float64), stamps)
     return pd.Series(pd.to_datetime(read, unit="s", utc=True), index=stamps)
+
+
+def epoch_seconds(stamps: pd.DatetimeIndex) -> np.ndarray:
+    """UTC seconds since the epoch, whatever resolution the index happens to carry."""
+    naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz else stamps
+    return naive.to_numpy(dtype="datetime64[s]").astype("int64")
 
 
 def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
@@ -179,9 +207,16 @@ def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
     return report("projection", agreed=agreed, detail=detail)
 
 
-def check_warmup(primary: pd.DataFrame, bars: pd.DataFrame, key: higher_timeframe.HigherTimeframeKey) -> bool:
-    """How many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count."""
+def check_warmup(primary: pd.DataFrame, key: higher_timeframe.HigherTimeframeKey) -> bool:
+    """How many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count.
+
+    Measured over **the probe's own bars**, never the archive's. The two series rarely start
+    at the same minute, and a warm-up is counted from the series start: reading the archive
+    here compared 59 leading bars against 5 and called it a disagreement.
+    """
     theirs: int = int((primary["coarse_bar"] == NO_COARSE_BAR).sum())
+    bars: pd.DataFrame = primary[list(OHLCV)].copy()
+    bars["trading_day"] = sessions.classify(pd.DatetimeIndex(bars.index)).trading_day
     grid = higher_timeframe.higher_timeframe_grid(bars, [key], bar_minutes=1)
     ours: int = int((grid.labels_for(key) == higher_timeframe.UNDEFINED).sum())
     return report(
@@ -200,6 +235,10 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
         primary = primary[primary.index >= start]
         nt8_coarse = nt8_coarse[nt8_coarse.index >= start]
 
+    # Clip to the probe's own span: an archive that runs past where the export stopped is not
+    # a disagreement, and its trailing coarse bar would be reported as one.
+    bars = bars[(bars.index >= primary.index[0]) & (bars.index <= primary.index[-1])]
+    nt8_coarse = nt8_coarse[nt8_coarse.index <= primary.index[-1]]
     bars = bars[bars.index.isin(primary.index)]
     minutes: int = infer_coarse_minutes(pd.DatetimeIndex(nt8_coarse.index))
     periods: dict[str, int] = infer_periods(primary, nt8_coarse)
@@ -211,7 +250,13 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
         f"{len(nt8_coarse):,}",
         minutes,
     )
-    logger.info("  periods read from the export: %s", periods)
+    logger.info("  periods read from the export: %s", periods or "none recovered")
+    if not periods:
+        logger.warning(
+            "      no period reproduces the export's averages, so seeding is NOT checked. "
+            "Expected on a trimmed window: NT8's average carries history from before the "
+            "trim and ours cannot. Re-run seeding untrimmed -- it needs no archive.",
+        )
 
     results: list[bool] = [
         check_anchoring(nt8_coarse, bars, minutes),
@@ -219,7 +264,7 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
         check_projection(primary, nt8_coarse),
     ]
     if periods:
-        results.append(check_warmup(primary, bars, higher_timeframe.key(minutes, max(periods.values()))))
+        results.append(check_warmup(primary, higher_timeframe.key(minutes, max(periods.values()))))
 
     agreed: bool = all(results)
     logger.info("")
@@ -232,7 +277,7 @@ def infer_coarse_minutes(coarse_stamps: pd.DatetimeIndex) -> int:
     if coarse_stamps.size < 2:
         msg: str = "the coarse export holds fewer than two bars; nothing to infer a resolution from"
         raise ValueError(msg)
-    gaps = np.diff(coarse_stamps.astype("int64").to_numpy()) // 60_000_000_000
+    gaps = np.diff(epoch_seconds(coarse_stamps)) // 60
     values, counts = np.unique(gaps[gaps > 0], return_counts=True)
     return int(values[counts.argmax()])
 

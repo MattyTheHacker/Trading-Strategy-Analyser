@@ -1109,14 +1109,38 @@ An SMA drops the oldest value out of its window and *can* move past the close, s
 is observable there — 842 differing bars at 15-minute SMA(20) over the same data. The day
 [#72] makes the kind sweepable, a trade list becomes a valid instrument.
 
-**What settles it now is `NqbtHigherTimeframeProbe.cs`**, which records `Times[1][0]` against
-`Time[0]` per bar and so decides the question on every coarse close rather than on the zero
-trades that would discriminate. It carries three further questions that are genuine assumptions
-here: whether NT8 seeds `EMA(Closes[1], n)` the way `indicators.nt8_ema` does on a *secondary*
-series, whether NT8's own bar builder cuts the coarse series where `resample.py` cuts it, and
-how many leading bars pass before the secondary series is readable. Compare with
-`tools/reconcile_higher_timeframe.py`. **Until that run happens all four are assumptions**, and
-no archetype is reconciled with the filter switched on.
+**Reconciled ([#183]).** `NqbtHigherTimeframeProbe.cs` was run in Strategy Analyzer over
+`MNQ 03-24` with a 60-minute secondary series: 1,479,760 1-minute bars from 2020-01-01 to
+2024-03-15, and 24,826 coarse bars. `tools/reconcile_higher_timeframe.py` compares it. All four
+questions are answered, and three of them exactly:
+
+| question | result |
+|---|---|
+| projection | **0 of 1,479,701** bars differ. On all **24,752** coarse closes NT8 reads the coarse bar stamped alongside the fine bar |
+| seeding | **0 differ** on EMA(3), EMA(50), SMA(3) and SMA(50) over 24,752 coarse closes |
+| warm-up | **59 against 59** leading bars unreadable |
+| anchoring | exact over the **1,525** coarse bars of the front-month window; the prefix is NT8's merged series, below |
+
+**The projection result settles the boundary for every moving-average kind at once, which is
+why the probe was worth building rather than a trading script.** It compares *which bar* NT8
+reads, not what the average computed to, so it does not depend on the arithmetic being
+monotone — the SMA case that a trade list would have been needed for is answered by the same
+column. `higher_timeframe.project`'s `side="right"` is NinjaTrader's own rule.
+
+**The anchoring prefix is NT8's merge policy, not a bucketing difference.** Asked for four
+years of a contract that has about six months of its own history, NinjaTrader serves its merged
+series for the rest. Agreement is exact from **2023-12-08 23:00** onward — 1,525 coarse bars,
+zero differences on open, high, low, close and volume — and before that the archive holds one
+to four contracts an hour against NT8's thousands, which is the back-month contract against a
+merged front month. The changeover bucket at 2023-12-08 22:00 agrees on open and close and
+differs on high, low and volume, being the one bucket straddling the handover. This is the
+trap `reconcile_nt8.py` documents, met again; `settled_from` in the comparison tool names the
+changeover so a merged prefix cannot read as a defect.
+
+**Still not established:** no archetype has been reconciled leg-for-leg with
+`higher_timeframe_filter` switched on. The gate is built from parts that are each now checked
+against NinjaTrader, which is a weaker claim than a trade-list diff and is deliberately
+recorded as such.
 
 Everything else — that the side is a three-state label, that equality gets its own state, that
 the kind is fixed at EMA — is a research choice with no NT8 counterpart, and is recorded in
