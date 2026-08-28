@@ -21,7 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SUBJECT_MAX_LENGTH = 72
-"""Where GitHub truncates a subject with an ellipsis. Measured as the subject lands, suffix included."""
+"""Where GitHub splits the subject and moves the remainder into the body, suffix included."""
+
+SUBJECT_WARN_LENGTH = 55
+"""Where the repository file table clips it instead. Warning-level: CONTRIBUTING.md, "Commits"."""
 
 GENERATED_SUBJECT_PREFIXES = ("Merge ", "Revert ")
 """Subjects GitHub writes itself. Exempt from length, because their shape is not ours to pick."""
@@ -167,15 +170,24 @@ def check_subject_length(subject: str, suffix: str) -> list[Finding]:
         return []
 
     landed = f"{subject}{suffix}"
-    if len(landed) <= SUBJECT_MAX_LENGTH:
+    if len(landed) <= SUBJECT_WARN_LENGTH:
         return []
 
     becomes = f", which becomes {len(landed)} once GitHub appends {suffix!r}" if suffix else ""
+    if len(landed) > SUBJECT_MAX_LENGTH:
+        return [
+            Finding(
+                "subject-max-length",
+                f"The subject is {len(subject)} characters{becomes}. The limit is {SUBJECT_MAX_LENGTH}.",
+                is_error=True,
+            ),
+        ]
     return [
         Finding(
-            "subject-max-length",
-            f"The subject is {len(subject)} characters{becomes}. The limit is {SUBJECT_MAX_LENGTH}.",
-            is_error=True,
+            "subject-clipped",
+            f"The subject is {len(subject)} characters{becomes}. Past {SUBJECT_WARN_LENGTH} the "
+            f"repository file table clips it.",
+            is_error=False,
         ),
     ]
 
