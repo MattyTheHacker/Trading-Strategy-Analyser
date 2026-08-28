@@ -3,7 +3,11 @@ name: Bump Submodules
 # This replaces Dependabot's `gitsubmodule` ecosystem, which cannot do the job: `Trading-Docs`
 # is private, a personal account cannot grant Dependabot access to a private repository, and
 # one unreachable submodule fails the whole run — taking the public submodule down with it.
-# A workflow can mint a token for all three repositories, so it reaches both.
+#
+# The pointers move through the git data API rather than through `git commit`, because `main`
+# requires signed commits: GitHub signs a commit created by an app token, so long as the
+# request carries no author, committer or signature of its own. `createCommitOnBranch` signs
+# too but only writes blobs, and a submodule pointer is a `160000` tree entry.
 
 on:
   schedule:
@@ -23,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BRANCH: deps/submodules
+      MESSAGE: Bump the submodules to their remote heads
     steps:
       - name: Generate Access Token
         uses: actions/create-github-app-token@v3
@@ -37,30 +42,58 @@ jobs:
             Trading-Docs
 
       - uses: actions/checkout@v7
-        with:
-          submodules: true
-          token: ${{ steps.generate-token.outputs.token }}
 
-      - name: Move each pointer to the head of its tracked branch
+      - name: Collect the submodules whose tracked branch has moved
         id: bump
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
-          git submodule update --remote
-          if git diff --quiet; then
-            echo "Every submodule is already at its remote head."
+          echo "base-sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          : > moved.txt
+          while read -r key path; do
+            name="${key#submodule.}"
+            name="${name%.path}"
+            url="$(git config --file .gitmodules --get "submodule.$name.url")"
+            branch="$(git config --file .gitmodules --get "submodule.$name.branch" || echo HEAD)"
+            repo="${url#git@github.com:}"
+            repo="${repo#https://github.com/}"
+            repo="${repo%.git}"
+            held="$(git rev-parse "HEAD:$path")"
+            head="$(gh api "repos/$repo/commits/$branch" --jq .sha)"
+            if [ "$held" = "$head" ]; then
+              echo "$path is already at the head of $branch."
+              continue
+            fi
+            echo "$path ${held:0:7} -> ${head:0:7}"
+            printf '%s %s\n' "$path" "$head" >> moved.txt
+          done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.path$')
+          if [ ! -s moved.txt ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git diff --submodule=short
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Commit the new pointers
+      - name: Commit the new pointers, signed by GitHub
         if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          BASE_SHA: ${{ steps.bump.outputs.base-sha }}
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch --create "$BRANCH"
-          git commit --all --message 'Bump the submodules to their remote heads'
-          git push --force origin "$BRANCH"
+          base_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$BASE_SHA" --jq .tree.sha)"
+          python3 tools/submodule_tree_payload.py "$base_tree" moved.txt > tree.json
+          tree="$(gh api "repos/$GITHUB_REPOSITORY/git/trees" --method POST --input tree.json --jq .sha)"
+
+          # No author, committer or signature: any of the three stops GitHub signing it.
+          commit="$(gh api "repos/$GITHUB_REPOSITORY/git/commits" --method POST --jq .sha \
+            -f message="$MESSAGE" -f tree="$tree" -f "parents[]=$BASE_SHA")"
+          gh api "repos/$GITHUB_REPOSITORY/git/commits/$commit" \
+            --jq '"signature: \(.verification.verified) (\(.verification.reason))"'
+
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --silent 2>/dev/null; then
+            gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" --method PATCH --silent -F sha="$commit" -F force=true
+          else
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" --method POST --silent -f ref="refs/heads/$BRANCH" -f sha="$commit"
+          fi
 
       - name: Open the pull request
         if: steps.bump.outputs.changed == 'true'
@@ -79,7 +112,7 @@ jobs:
           gh pr create \
             --base main \
             --head "$BRANCH" \
-            --title 'Bump the submodules to their remote heads' \
+            --title "$MESSAGE" \
             --body-file pr-body.md \
             --label dependencies \
             --label submodules
