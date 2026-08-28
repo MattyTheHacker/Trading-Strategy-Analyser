@@ -14,7 +14,7 @@ the three rules the port originally had to infer -- ``docs/nt8-fidelity.md``,
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from numba import njit
@@ -36,27 +36,24 @@ MOTHER_BAR_LAG = 2
 """Bars back to the mother bar: the inside bar is ``[1]`` and its own predecessor is ``[2]``."""
 
 
+class InsideBarRules(NamedTuple):
+    """The scalar rule set :func:`simulate_insidebar` reads, one field per NT8 property."""
+
+    atr_multiplier: float
+    bars_required: int
+    block_entry_at_session_close: bool
+
+
 @njit(cache=True)
-def simulate_insidebar(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one argument per NT8 property; #59
-    open_: FloatArray,
-    high: FloatArray,
-    low: FloatArray,
-    close: FloatArray,
+def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule, in bar order
+    bars: bracket.Bars,
     signal: BoolArray,
     direction_at: FloatArray,
-    force_flat: BoolArray,
     atr: FloatArray,
     leg_quantities: IntArray,
-    tick_size: float,
-    point_value: float,
-    atr_multiplier: float,
-    commission_per_contract: float,
-    slippage_ticks: float,
-    bars_required: int,
-    block_entry_at_session_close: bool,
-    fill_limit_on_touch: bool,
-    ambiguity_policy: int,
-    round_targets: bool,
+    costs: bracket.Costs,
+    fills: bracket.FillRules,
+    rules: InsideBarRules,
     out: FloatArray,
 ) -> int:
     """Run the InsideBar archetype over one dataset, writing one row per leg exit.
@@ -70,10 +67,10 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one 
     both reading the ATR of the bar the fill lands on. Returns the number of rows written, or
     ``-1`` if ``out`` overflowed.
     """
-    n = close.size
+    n = bars.close.size
     n_legs = leg_quantities.size
-    slippage = slippage_ticks * tick_size
-    min_risk = STOP_MIN_TICKS * tick_size
+    slippage = bracket.slippage_points(costs)
+    min_risk = STOP_MIN_TICKS * costs.tick_size
 
     written = 0
     trade_id = 0
@@ -83,48 +80,30 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one 
     pending_direction = 0.0
 
     d = 0.0
-    entry_price = 0.0
-    entry_bar = 0
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, True)
     stop = 0.0
-    risk = 0.0
-    run_high = 0.0
-    run_low = 0.0
-
-    leg_open = np.zeros(n_legs, dtype=np.bool_)
-    leg_target = np.zeros(n_legs, dtype=np.float64)
+    excursion = bracket.Excursion(0.0, 0.0)
+    legs = bracket.Legs(
+        np.zeros(n_legs, dtype=np.bool_),
+        np.zeros(n_legs, dtype=np.float64),
+        leg_quantities,
+    )
 
     for i in range(n):
         # ---- the live bracket, resolved against this bar --------------------------------
         if in_position:
-            run_high = max(run_high, high[i])
-            run_low = min(run_low, low[i])
+            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
             written, in_position = bracket.resolve_brackets(
                 out,
                 written,
-                trade_id,
-                entry_bar,
+                trade,
+                stop,
+                legs,
+                excursion,
+                bars,
                 i,
-                entry_price,
-                stop,
-                stop,
-                risk,
-                leg_open,
-                leg_target,
-                leg_quantities,
-                run_high,
-                run_low,
-                open_[i],
-                high[i],
-                low[i],
-                close[i],
-                force_flat[i],
-                slippage,
-                point_value,
-                commission_per_contract,
-                fill_limit_on_touch,
-                ambiguity_policy,
-                d,
-                True,  # held since this bar's open, so a gap through the stop fills at it
+                costs,
+                fills,
             )
             if written < 0:
                 return -1
@@ -132,75 +111,66 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one 
         # ---- the entry order fills at this bar's open, unconditionally -------------------
         if not in_position and pending_bar >= 1 and pending_bar == i - 1:
             # A bar at or past the flatten cutoff cancels the order rather than filling it.
-            if not force_flat[i]:
+            if not bars.force_flat[i]:
                 d = pending_direction
-                fill = open_[i] + d * slippage
+                fill = bars.open_[i] + d * slippage
                 # ``OnExecutionUpdate`` runs with the **signal** bar still current, so its
                 # ATR[0] is the signal bar's and its Low[1] is the inside bar's -- the bar
                 # before it. Both established leg-for-leg against a trade list, against an
                 # inference that had them one bar later -- ``docs/nt8-fidelity.md`` §M22.
                 bar_atr = atr[pending_bar]
-                adverse, _ = bracket.sided(low[pending_bar - 1], high[pending_bar - 1], d)
-                candidate_stop = adverse - d * atr_multiplier * bar_atr
-                if round_targets:
+                adverse, _ = bracket.sided(bars.low[pending_bar - 1], bars.high[pending_bar - 1], d)
+                candidate_stop = adverse - d * rules.atr_multiplier * bar_atr
+                if fills.round_targets:
                     # An ATR multiple lands off the grid, and an exchange takes a stop no more
                     # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
                     # the tick grid". Snapped before the risk, which the submittability test
                     # and every R multiple are measured from.
-                    candidate_stop = bracket.round_to_tick(candidate_stop, tick_size)
+                    candidate_stop = bracket.round_to_tick(candidate_stop, costs.tick_size)
                 candidate_risk = d * (fill - candidate_stop)
                 # A stop at or through the price it protects is not a stop order --
                 # ``docs/nt8-fidelity.md`` §M18.
                 if candidate_risk >= min_risk:
                     trade_id += 1
-                    entry_price = fill
-                    entry_bar = i
+                    trade = bracket.OpenTrade(
+                        trade_id=trade_id,
+                        entry_bar=i,
+                        entry_price=fill,
+                        initial_stop=candidate_stop,
+                        risk=candidate_risk,
+                        direction=d,
+                        filled_at_open=True,
+                    )
                     stop = candidate_stop
-                    risk = candidate_risk
-                    run_high = high[i]
-                    run_low = low[i]
+                    excursion = bracket.Excursion(bars.high[i], bars.low[i])
                     raw_target = fill + d * bar_atr
                     for leg in range(n_legs):
-                        leg_open[leg] = True
-                        leg_target[leg] = (
-                            bracket.round_to_tick(raw_target, tick_size) if round_targets else raw_target
+                        legs.is_open[leg] = True
+                        legs.target[leg] = (
+                            bracket.round_to_tick(raw_target, costs.tick_size)
+                            if fills.round_targets
+                            else raw_target
                         )
                     written, in_position = bracket.resolve_brackets(
                         out,
                         written,
-                        trade_id,
-                        entry_bar,
+                        trade,
+                        stop,
+                        legs,
+                        excursion,
+                        bars,
                         i,
-                        entry_price,
-                        stop,
-                        stop,
-                        risk,
-                        leg_open,
-                        leg_target,
-                        leg_quantities,
-                        run_high,
-                        run_low,
-                        open_[i],
-                        high[i],
-                        low[i],
-                        close[i],
-                        force_flat[i],
-                        slippage,
-                        point_value,
-                        commission_per_contract,
-                        fill_limit_on_touch,
-                        ambiguity_policy,
-                        d,
-                        True,  # filled at this bar's open, so it is held from the open
+                        costs,
+                        fills,
                     )
                     if written < 0:
                         return -1
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's entry -------------------------------
-        if in_position or i <= bars_required or not signal[i]:
+        if in_position or i <= rules.bars_required or not signal[i]:
             continue
-        if block_entry_at_session_close and force_flat[i]:
+        if rules.block_entry_at_session_close and bars.force_flat[i]:
             continue
         pending_bar = i
         pending_direction = direction_at[i]
@@ -208,29 +178,18 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one 
     # Anything still open when the series runs out is liquidated at the last bar.
     if in_position:
         last = n - 1
-        exit_fill = close[last] - d * slippage
+        exit_fill = bars.close[last] - d * slippage
         for leg in range(n_legs):
-            if leg_open[leg]:
+            if legs.is_open[leg]:
                 written = bracket.write_leg(
                     out,
                     written,
-                    trade_id,
+                    trade,
+                    legs,
                     leg,
-                    entry_bar,
-                    last,
-                    entry_price,
-                    exit_fill,
-                    stop,
-                    leg_target[leg],
-                    leg_quantities[leg],
-                    trades.EXIT_END_OF_DATA,
-                    risk,
-                    run_high,
-                    run_low,
-                    point_value,
-                    commission_per_contract,
-                    False,
-                    d,
+                    bracket.LegExit(last, exit_fill, trades.EXIT_END_OF_DATA, False),
+                    excursion,
+                    costs,
                 )
                 if written < 0:
                     return -1
@@ -313,25 +272,27 @@ def insidebar_legs(
     out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
     count: int = simulate_insidebar(
-        data.open,
-        data.high,
-        data.low,
-        data.close,
+        bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         direction_at,
-        data.force_flat,
         data.atr_values(params.atr_length),
         quantities,
-        instrument.tick_size,
-        instrument.point_value,
-        params.atr_multiplier,
-        params.commission_per_contract,
-        params.slippage_ticks,
-        params.bars_required_to_trade,
-        params.block_entry_at_session_close,
-        params.fill_limit_on_touch,
-        params.ambiguity_policy,
-        params.round_targets,
+        bracket.Costs(
+            tick_size=instrument.tick_size,
+            point_value=instrument.point_value,
+            commission_per_contract=params.commission_per_contract,
+            slippage_ticks=params.slippage_ticks,
+        ),
+        bracket.FillRules(
+            fill_limit_on_touch=params.fill_limit_on_touch,
+            ambiguity_policy=params.ambiguity_policy,
+            round_targets=params.round_targets,
+        ),
+        InsideBarRules(
+            atr_multiplier=params.atr_multiplier,
+            bars_required=params.bars_required_to_trade,
+            block_entry_at_session_close=params.block_entry_at_session_close,
+        ),
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound

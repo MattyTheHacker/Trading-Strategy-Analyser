@@ -66,31 +66,34 @@ def deadcat_legs(
     out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
     count: int = deadcat.simulate_deadcat(
-        data.open,
-        data.high,
-        data.low,
-        data.close,
+        bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
-        data.force_flat,
         quantities,
         targets,
-        instrument.tick_size,
-        instrument.point_value,
-        float(params.stop_offset_ticks),
-        float(params.entry_offset_ticks),
-        params.tp_multiplier,
-        float(params.max_risk_ticks),
-        params.commission_per_contract,
-        params.slippage_ticks,
-        params.bars_required_to_trade,
-        params.min_reward_risk,
-        params.ratchet_lag,
-        float(params.stop_offset_ticks),  # ratchet reapplies the same offset as the entry
-        params.block_entry_at_session_close,
-        params.fill_limit_on_touch,
-        params.ambiguity_policy,
-        trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo does.
-        True,  # DeadCatBounce.cs rounds every target with RoundToTickSize
+        bracket.Costs(
+            tick_size=instrument.tick_size,
+            point_value=instrument.point_value,
+            commission_per_contract=params.commission_per_contract,
+            slippage_ticks=params.slippage_ticks,
+        ),
+        bracket.FillRules(
+            fill_limit_on_touch=params.fill_limit_on_touch,
+            ambiguity_policy=params.ambiguity_policy,
+            round_targets=True,  # DeadCatBounce.cs rounds every target with RoundToTickSize
+        ),
+        deadcat.DeadCatRules(
+            stop_offset_ticks=float(params.stop_offset_ticks),
+            entry_offset_ticks=float(params.entry_offset_ticks),
+            tp_multiplier=params.tp_multiplier,
+            max_risk_ticks=float(params.max_risk_ticks),
+            bars_required=params.bars_required_to_trade,
+            min_reward_risk=params.min_reward_risk,
+            ratchet_lag=params.ratchet_lag,
+            # The ratchet reapplies the same offset as the entry.
+            ratchet_offset_ticks=float(params.stop_offset_ticks),
+            block_entry_at_session_close=params.block_entry_at_session_close,
+            direction=trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo does.
+        ),
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
