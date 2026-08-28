@@ -14,9 +14,40 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal, override
 
-# CME quarterly futures month codes.
-MONTH_CODES: dict[int, str] = {3: "H", 6: "M", 9: "U", 12: "Z"}
+# The CME futures month codes, in calendar order. Every root uses these letters; which
+# months a root actually lists is per-instrument -- ``Instrument.contract_months``.
+MONTH_CODES: dict[int, str] = {
+    1: "F",
+    2: "G",
+    3: "H",
+    4: "J",
+    5: "K",
+    6: "M",
+    7: "N",
+    8: "Q",
+    9: "U",
+    10: "V",
+    11: "X",
+    12: "Z",
+}
 CODE_MONTHS: dict[str, int] = {v: k for k, v in MONTH_CODES.items()}
+
+
+def months_from_codes(codes: str) -> frozenset[int]:
+    """The months a run of futures month codes names, so ``"HMUZ"`` is the March cycle."""
+    unknown: str = "".join(sorted(set(codes) - set(CODE_MONTHS)))
+    if unknown:
+        listed: str = "".join(MONTH_CODES.values())
+        msg: str = f"not futures month codes: {unknown!r}; expected letters from {listed}"
+        raise ValueError(msg)
+    return frozenset(CODE_MONTHS[code] for code in codes)
+
+
+QUARTERLY_MONTHS = months_from_codes("HMUZ")
+"""The March cycle, which is what the equity index futures list."""
+
+ALL_MONTHS = frozenset(MONTH_CODES)
+"""Every calendar month, which is what the energy futures list."""
 
 RoundMode = Literal["nearest", "up", "down"]
 
@@ -33,6 +64,8 @@ class Instrument:
     tick_size: float
     point_value: float
     """Dollars per 1.00 of price movement, per contract."""
+    contract_months: frozenset[int] = QUARTERLY_MONTHS
+    """The months this root lists contracts in, as :data:`MONTH_CODES` keys."""
     exchange: str = "CME"
     currency: str = "USD"
     session_template: str = "CME US Index Futures ETH"
@@ -135,7 +168,41 @@ MNQ = Instrument(
     point_value=2.0,
 )
 
-INSTRUMENTS: dict[str, Instrument] = {inst.symbol: inst for inst in (NQ, MNQ)}
+ES = Instrument(
+    symbol="ES",
+    name="E-mini S&P 500",
+    tick_size=0.25,
+    point_value=50.0,
+)
+
+GC = Instrument(
+    symbol="GC",
+    name="Gold",
+    tick_size=0.10,
+    point_value=100.0,
+    contract_months=months_from_codes("GJMQVZ"),
+    exchange="COMEX",
+)
+
+SI = Instrument(
+    symbol="SI",
+    name="Silver",
+    tick_size=0.005,
+    point_value=5000.0,
+    contract_months=months_from_codes("FHKNUZ"),
+    exchange="COMEX",
+)
+
+CL = Instrument(
+    symbol="CL",
+    name="Light Sweet Crude Oil",
+    tick_size=0.01,
+    point_value=1000.0,
+    contract_months=ALL_MONTHS,
+    exchange="NYMEX",
+)
+
+INSTRUMENTS: dict[str, Instrument] = {inst.symbol: inst for inst in (NQ, MNQ, ES, GC, SI, CL)}
 
 
 def get_instrument(symbol: str) -> Instrument:
@@ -143,9 +210,13 @@ def get_instrument(symbol: str) -> Instrument:
     try:
         return INSTRUMENTS[symbol.strip().upper()]
     except KeyError:
-        known: str = ", ".join(sorted(INSTRUMENTS))
-        msg: str = f"unknown instrument {symbol!r}; known instruments: {known}"
+        msg: str = f"unknown instrument {symbol!r}; known instruments: {known_roots()}"
         raise KeyError(msg) from None
+
+
+def known_roots() -> str:
+    """Every registered root symbol, for an error message to name."""
+    return ", ".join(sorted(INSTRUMENTS))
 
 
 # "MNQ 03-24", "NQ 12-25" -- the naming NT8's Historical Data export produces.
@@ -154,7 +225,11 @@ _CONTRACT_RE = re.compile(r"^\s*(?P<root>[A-Za-z]{1,4})\s+(?P<month>\d{2})-(?P<y
 
 @dataclass(frozen=True, slots=True, order=True)
 class ContractId:
-    """A single quarterly contract, e.g. MNQ 03-24.
+    """A single listed contract, e.g. MNQ 03-24.
+
+    Both halves are checked against the registry: the root must be an :data:`INSTRUMENTS`
+    entry, and the month must be one that root lists. ``docs/roadmap.md``, "Contract
+    validity is the instrument registry's answer".
 
     Ordered by (year, month) first so that a sorted list of contracts is in expiry
     order -- which is what the splicer needs to find adjacent pairs.
@@ -165,14 +240,18 @@ class ContractId:
     root: str
 
     def __post_init__(self) -> None:
-        if self.month not in MONTH_CODES:
-            msg: str = (
-                f"{self.root} {self.month:02d}-{self.year}: month must be one of "
-                f"{sorted(MONTH_CODES)} (NQ/MNQ are quarterly contracts)"
+        try:
+            instrument: Instrument = get_instrument(self.root)
+        except KeyError:
+            msg: str = f"{self}: unknown root {self.root!r}; known roots: {known_roots()}"
+            raise ValueError(msg) from None
+        if self.month not in instrument.contract_months:
+            listed: str = "".join(MONTH_CODES[m] for m in sorted(instrument.contract_months))
+            msg = (
+                f"{self}: {self.root} lists {sorted(instrument.contract_months)} "
+                f"({listed}), not month {self.month}"
             )
-            raise ValueError(
-                msg,
-            )
+            raise ValueError(msg)
 
     @classmethod
     def parse(cls, text: str) -> ContractId:

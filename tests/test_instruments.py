@@ -1,6 +1,6 @@
 import pytest
 
-from nqbt.instruments import MNQ, NQ, ContractId, get_instrument
+from nqbt.instruments import CL, ES, GC, MNQ, NQ, SI, ContractId, get_instrument, months_from_codes
 
 
 def test_tick_values_differ_tenfold_between_nq_and_mnq() -> None:
@@ -78,9 +78,46 @@ def test_contract_ids_sort_into_expiry_order() -> None:
     ]
 
 
-def test_contract_id_rejects_non_quarterly_months() -> None:
-    with pytest.raises(ValueError, match="quarterly"):
+def test_contract_id_rejects_a_month_its_root_does_not_list() -> None:
+    with pytest.raises(ValueError, match=r"MNQ lists \[3, 6, 9, 12\] \(HMUZ\)"):
         ContractId(year=2024, month=1, root="MNQ")
+
+    # March is quarterly, but gold lists the even months instead.
+    with pytest.raises(ValueError, match=r"GC lists .* \(GJMQVZ\)"):
+        ContractId.parse("GC 03-26")
+
+
+def test_contract_id_rejects_a_root_that_is_not_registered() -> None:
+    """The gate that lets NG 02-26 be rejected for being natural gas, not for February."""
+    with pytest.raises(ValueError, match="unknown root 'NG'"):
+        ContractId.parse("NG 03-26")
+
+
+def test_each_root_lists_the_months_its_exchange_lists() -> None:
+    assert ContractId.parse("ES 12-25").cache_key == "ES_2025Z"
+    assert ContractId.parse("GC 02-26").cache_key == "GC_2026G"
+    assert ContractId.parse("SI 07-26").cache_key == "SI_2026N"
+    # Crude lists every month, including ones no other registered root does.
+    assert ContractId.parse("CL 11-26").cache_key == "CL_2026X"
+
+
+def test_tick_values_match_the_published_contract_specs() -> None:
+    """tick_size x point_value is the figure CME publishes, which cross-checks both."""
+    assert ES.tick_value == pytest.approx(12.50)
+    assert GC.tick_value == pytest.approx(10.00)
+    assert SI.tick_value == pytest.approx(25.00)
+    assert CL.tick_value == pytest.approx(10.00)
+
+
+def test_price_decimals_follow_each_tick_grid() -> None:
+    assert (GC.price_decimals, SI.price_decimals, CL.price_decimals) == (1, 3, 2)
+
+
+def test_month_codes_round_trip_through_their_letters() -> None:
+    assert months_from_codes("HMUZ") == frozenset({3, 6, 9, 12})
+    assert months_from_codes("") == frozenset()
+    with pytest.raises(ValueError, match="not futures month codes"):
+        months_from_codes("HMUZY")
 
 
 def test_contract_id_rejects_unparseable_names() -> None:
@@ -90,4 +127,4 @@ def test_contract_id_rejects_unparseable_names() -> None:
 
 def test_unknown_instrument_names_the_known_ones() -> None:
     with pytest.raises(KeyError, match="MNQ"):
-        get_instrument("ES")
+        get_instrument("NG")

@@ -2465,6 +2465,17 @@ and commission, where the classic form reverses in one order. That is a real dif
 published crossover results and belongs in any comparison against them.
 See [#13].
 
+**Contract validity is the instrument registry's answer** ([#69]). Whether a file in `data/archive/` names a contract used to be decided in three places, and the one that fired first was the one least related to whether the thing is tradeable here. `ContractId.__post_init__` checked the month against a module-level quarterly set; the root was never checked at all. So `NG 02-26` was rejected for **being February**, not for being natural gas — and `NG 03-26` passed every gate, was cached under `cache/bars/NG/`, and failed only much later at `contract.instrument`, as a `KeyError`, at the point something asked for its money spec.
+
+Validity is now one question asked of `INSTRUMENTS`: the root must be a registered `Instrument`, and the month must be one that root's `contract_months` lists. `MONTH_CODES` carries all twelve CME letters, because `cache_key` needs them regardless, and the *listed* cycle moved onto the instrument where it varies — the equity index roots list `HMUZ`, gold `GJMQVZ`, silver `FHKNUZ`, crude all twelve. Adding a root is one `Instrument(...)` entry and nothing else.
+
+ES, GC, SI and CL are registered on that basis. Each entry's `tick_size` × `point_value` reproduces the tick value CME publishes — $12.50, $10.00, $25.00 and $10.00 — which cross-checks both figures at once, and `tests/test_instruments.py` pins them.
+
+**The registry is deliberately ahead of the rest of the system.** Registering a root makes its exports nameable and its dollars convertible; it does not make it tradeable here. Two known gaps, neither closed:
+
+- `Instrument.session_template` is a bare `str` that nothing resolves — `SessionTemplate` is threaded through `sessions`, `resample` and `randomentry` as an argument with the index-ETH default instead. Nothing diverges today, because the Globex ETH window is 18:00–17:00 ET for equity index, metals and energy alike, but the field must be wired from NT8's Data Series window before anything consumes it.
+- The $1.50 round-turn commission is an index-futures figure and does not transfer. Costs are per-caller and default to zero, so this is the standing free-money trap rather than a new one.
+
 **Roll dates need no reconciliation against NT8.** All 18 MNQ roll dates moved when the archive
 made volume crossovers detectable, which raised whether Tier 1 and Tier 2 still agree across a
 roll. Decided: not worth chasing. NT8 merges contracts on the rollover dates **configured in its
@@ -2611,6 +2622,7 @@ default is now known to be right for this machine.
 [#66]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/66
 [#67]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/67
 [#68]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/68
+[#69]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/69
 [#71]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/71
 [#72]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/72
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73

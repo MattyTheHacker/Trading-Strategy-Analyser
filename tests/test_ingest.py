@@ -274,7 +274,7 @@ def test_discover_exports_reports_names_it_cannot_place(tmp_path) -> None:
     assert {skip.path.name for skip in scan.skipped} == {"NG 02-26.Last.txt", "junk.Last.txt"}
 
     reasons = {skip.path.name: skip.reason for skip in scan.skipped}
-    assert "quarterly" in reasons["NG 02-26.Last.txt"]
+    assert "unknown root 'NG'" in reasons["NG 02-26.Last.txt"]
     assert "cannot parse contract name" in reasons["junk.Last.txt"]
 
 
@@ -297,7 +297,7 @@ def test_ingest_all_returns_the_files_it_skipped(export, cache) -> None:
 
     assert [r.contract.nt8_name for r in results] == ["MNQ 03-24"]
     assert [skip.path.name for skip in skipped] == ["NG 02-26.Last.txt"]
-    assert "quarterly" in skipped[0].reason
+    assert "unknown root 'NG'" in skipped[0].reason
 
 
 def test_ingest_all_names_the_skipped_files_when_none_are_ingestable(tmp_path) -> None:
