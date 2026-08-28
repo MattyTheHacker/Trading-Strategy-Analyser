@@ -9,11 +9,15 @@ Tier 2 to drift. **Do not fork it.** Each rule and its evidence: ``docs/nt8-fide
 The split is the entry half against the bracket half -- a new archetype writes only the first.
 Everything here is an ``@njit(cache=True)`` device function, which Numba inlines into the
 calling loop at no cost.
+
+The ``NamedTuple`` blobs below are what the loops pass each other in place of long positional
+lists. They have to live in an importable module for ``cache=True`` to reuse its disk cache --
+``docs/roadmap.md`` §M20c.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from numba import njit
@@ -49,36 +53,117 @@ if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IntArray
 
 
+class Bars(NamedTuple):
+    """The per-bar series every loop indexes, held together so one bar cannot be split.
+
+    ``force_flat`` rides with the OHLC because it is a fact about the bar rather than about a
+    strategy: it marks bars at or past the exit-on-session-close cutoff. Keeping it here is
+    what stops the bracket engine being handed a different bar's flag than the one it is
+    resolving.
+    """
+
+    open_: FloatArray
+    high: FloatArray
+    low: FloatArray
+    close: FloatArray
+    force_flat: BoolArray
+
+
+class Costs(NamedTuple):
+    """What one contract costs to trade, and the grid its prices sit on.
+
+    ``slippage_ticks`` is a tick count, as every NinjaScript expresses it;
+    :func:`slippage_points` is the one place it becomes a price.
+    """
+
+    tick_size: float
+    point_value: float
+    commission_per_contract: float
+    slippage_ticks: float
+
+
+class FillRules(NamedTuple):
+    """The three NT8 settings that decide how a price level becomes a fill.
+
+    Each one and the evidence behind it: ``docs/nt8-fidelity.md``.
+    """
+
+    fill_limit_on_touch: bool
+    ambiguity_policy: int
+    round_targets: bool
+
+
+class OpenTrade(NamedTuple):
+    """The position as it opened -- fixed for its whole life, whatever the stop does after.
+
+    ``filled_at_open`` is false for an entry that filled intrabar, which is what keeps the
+    gapped-stop rule off its entry bar: the position did not exist at that bar's open.
+    ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
+    """
+
+    trade_id: int
+    entry_bar: int
+    entry_price: float
+    initial_stop: float
+    risk: float
+    direction: float
+    filled_at_open: bool
+
+
+class Legs(NamedTuple):
+    """The three parallel per-leg arrays, one entry per leg.
+
+    Mutated through the arrays -- ``legs.is_open[leg] = False`` -- never by rebinding, which a
+    tuple would not allow.
+    """
+
+    is_open: BoolArray
+    target: FloatArray
+    quantity: IntArray
+
+
+class Excursion(NamedTuple):
+    """The high- and low-water marks the position has reached, which MAE and MFE come from."""
+
+    run_high: float
+    run_low: float
+
+
+class LegExit(NamedTuple):
+    """Where, at what and why one leg left."""
+
+    bar: int
+    price: float
+    reason: float
+    ambiguous: bool
+
+
 @njit(cache=True)
-def resolve_brackets(  # noqa: C901, PLR0912, PLR0913, PLR0917 - one argument per NT8 property; #59
+def slippage_points(costs: Costs) -> float:
+    """Slippage as a price, from the tick count the NinjaScript expresses it in."""
+    return costs.slippage_ticks * costs.tick_size
+
+
+@njit(cache=True)
+def extend_excursion(excursion: Excursion, high: float, low: float) -> Excursion:
+    """The water marks after one more bar."""
+    return Excursion(max(excursion.run_high, high), min(excursion.run_low, low))
+
+
+@njit(cache=True)
+def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in the order they resolve
     out: FloatArray,
     written: int,
-    trade_id: int,
-    entry_bar: int,
-    i: int,
-    entry_price: float,
-    initial_stop: float,
+    trade: OpenTrade,
     stop: float,
-    risk: float,
-    leg_open: BoolArray,
-    leg_target: FloatArray,
-    leg_quantities: IntArray,
-    run_high: float,
-    run_low: float,
-    open_px: float,
-    high_px: float,
-    low_px: float,
-    close_px: float,
-    must_flatten: bool,
-    slippage: float,
-    point_value: float,
-    commission_per_contract: float,
-    fill_limit_on_touch: bool,
-    ambiguity_policy: int,
-    direction: float,
-    held_from_bar_open: bool,
+    legs: Legs,
+    excursion: Excursion,
+    bars: Bars,
+    i: int,
+    costs: Costs,
+    fills: FillRules,
 ) -> tuple[int, bool]:
-    """Resolve one bar against the live stop and targets, closing whatever leaves.
+    """Resolve bar ``i`` against the live stop and targets, closing whatever leaves.
 
     Returns the new write count and whether the position is still open. A write count of ``-1``
     means ``out`` overflowed and the caller must abandon the run.
@@ -89,13 +174,15 @@ def resolve_brackets(  # noqa: C901, PLR0912, PLR0913, PLR0917 - one argument pe
     and force-flat is last, so a position that reached a target and then ran out of session
     records both.
 
-    ``held_from_bar_open`` is false on the entry bar, which is what keeps the gapped-stop rule
-    off it -- ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
-
     Called by both the in-position path and the entry-bar path; **do not fork it again**.
     """
-    n_legs = leg_open.size
-    adverse_px, favourable_px = sided(low_px, high_px, direction)
+    n_legs = legs.is_open.size
+    direction = trade.direction
+    open_px = bars.open_[i]
+    adverse_px, favourable_px = sided(bars.low[i], bars.high[i], direction)
+    slippage = slippage_points(costs)
+    # The position was held from this bar's open unless it filled intrabar on this very bar.
+    held_from_bar_open = i > trade.entry_bar or trade.filled_at_open
 
     # The stop fills at the open when the bar gapped through it, otherwise at its own price.
     stop_fill = stop
@@ -106,139 +193,95 @@ def resolve_brackets(  # noqa: C901, PLR0912, PLR0913, PLR0917 - one argument pe
     any_target_hit = False
     nearest_target = 0.0
     for leg in range(n_legs):
-        if leg_open[leg] and not np.isnan(leg_target[leg]):  # noqa: SIM102 - needs a continue guard; #146
-            if limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
-                if not any_target_hit or abs(leg_target[leg] - open_px) < abs(nearest_target - open_px):
-                    nearest_target = leg_target[leg]
+        if legs.is_open[leg] and not np.isnan(legs.target[leg]):  # noqa: SIM102 - needs a continue guard; #146
+            if limit_filled(favourable_px, legs.target[leg], fills.fill_limit_on_touch, direction):
+                if not any_target_hit or abs(legs.target[leg] - open_px) < abs(nearest_target - open_px):
+                    nearest_target = legs.target[leg]
                 any_target_hit = True
     ambiguous = stop_hit and any_target_hit
-    targets_first = ambiguous and targets_reached_first(open_px, stop, nearest_target, ambiguity_policy)
+    targets_first = ambiguous and targets_reached_first(open_px, stop, nearest_target, fills.ambiguity_policy)
 
     if stop_hit and not targets_first:
         # The whole position leaves at the stop, adverse slippage meaning a worse fill.
         fill = stop_fill - direction * slippage
         for leg in range(n_legs):
-            if leg_open[leg]:
+            if legs.is_open[leg]:
                 written = write_leg(
                     out,
                     written,
-                    trade_id,
+                    trade,
+                    legs,
                     leg,
-                    entry_bar,
-                    i,
-                    entry_price,
-                    fill,
-                    initial_stop,
-                    leg_target[leg],
-                    leg_quantities[leg],
-                    EXIT_STOP,
-                    risk,
-                    run_high,
-                    run_low,
-                    point_value,
-                    commission_per_contract,
-                    ambiguous,
-                    direction,
+                    LegExit(i, fill, EXIT_STOP, ambiguous),
+                    excursion,
+                    costs,
                 )
                 if written < 0:
                     return -1, False
-                leg_open[leg] = False
+                legs.is_open[leg] = False
         return written, False
 
     for leg in range(n_legs):
-        if leg_open[leg] and not np.isnan(leg_target[leg]):  # noqa: SIM102 - needs a continue guard; #146
-            if limit_filled(favourable_px, leg_target[leg], fill_limit_on_touch, direction):
+        if legs.is_open[leg] and not np.isnan(legs.target[leg]):  # noqa: SIM102 - needs a continue guard; #146
+            if limit_filled(favourable_px, legs.target[leg], fills.fill_limit_on_touch, direction):
                 # Limit order: fills at its price, never worse, no slippage.
                 written = write_leg(
                     out,
                     written,
-                    trade_id,
+                    trade,
+                    legs,
                     leg,
-                    entry_bar,
-                    i,
-                    entry_price,
-                    leg_target[leg],
-                    initial_stop,
-                    leg_target[leg],
-                    leg_quantities[leg],
-                    EXIT_TARGET,
-                    risk,
-                    run_high,
-                    run_low,
-                    point_value,
-                    commission_per_contract,
-                    ambiguous,
-                    direction,
+                    LegExit(i, legs.target[leg], EXIT_TARGET, ambiguous),
+                    excursion,
+                    costs,
                 )
                 if written < 0:
                     return -1, False
-                leg_open[leg] = False
+                legs.is_open[leg] = False
 
     if targets_first:
         # The inferred path reached the targets first and the stop on the way back,
         # so whatever is still open leaves on this same bar.
         fill = stop_fill - direction * slippage
         for leg in range(n_legs):
-            if leg_open[leg]:
+            if legs.is_open[leg]:
                 written = write_leg(
                     out,
                     written,
-                    trade_id,
+                    trade,
+                    legs,
                     leg,
-                    entry_bar,
-                    i,
-                    entry_price,
-                    fill,
-                    initial_stop,
-                    leg_target[leg],
-                    leg_quantities[leg],
-                    EXIT_STOP,
-                    risk,
-                    run_high,
-                    run_low,
-                    point_value,
-                    commission_per_contract,
-                    ambiguous,
-                    direction,
+                    LegExit(i, fill, EXIT_STOP, ambiguous),
+                    excursion,
+                    costs,
                 )
                 if written < 0:
                     return -1, False
-                leg_open[leg] = False
+                legs.is_open[leg] = False
 
     still_open = False
     for leg in range(n_legs):
-        if leg_open[leg]:
+        if legs.is_open[leg]:
             still_open = True
             break
 
-    if still_open and must_flatten:
-        fill = close_px - direction * slippage
+    if still_open and bars.force_flat[i]:
+        fill = bars.close[i] - direction * slippage
         for leg in range(n_legs):
-            if leg_open[leg]:
+            if legs.is_open[leg]:
                 written = write_leg(
                     out,
                     written,
-                    trade_id,
+                    trade,
+                    legs,
                     leg,
-                    entry_bar,
-                    i,
-                    entry_price,
-                    fill,
-                    initial_stop,
-                    leg_target[leg],
-                    leg_quantities[leg],
-                    EXIT_SESSION_CLOSE,
-                    risk,
-                    run_high,
-                    run_low,
-                    point_value,
-                    commission_per_contract,
-                    ambiguous,
-                    direction,
+                    LegExit(i, fill, EXIT_SESSION_CLOSE, ambiguous),
+                    excursion,
+                    costs,
                 )
                 if written < 0:
                     return -1, False
-                leg_open[leg] = False
+                legs.is_open[leg] = False
         still_open = False
 
     return written, still_open
@@ -338,59 +381,56 @@ def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
 
 
 @njit(cache=True)
-def write_leg(  # noqa: PLR0913, PLR0917 - one argument per leg-log column; #59
+def write_leg(
     out: FloatArray,
     written: int,
-    trade_id: int,
+    trade: OpenTrade,
+    legs: Legs,
     leg: int,
-    entry_bar: int,
-    exit_bar: int,
-    entry_price: float,
-    exit_price: float,
-    initial_stop: float,
-    target_price: float,
-    quantity: int,
-    reason: float,
-    risk: float,
-    run_high: float,
-    run_low: float,
-    point_value: float,
-    commission_per_contract: float,
-    ambiguous: bool,
-    direction: float,
+    leg_exit: LegExit,
+    excursion: Excursion,
+    costs: Costs,
 ) -> int:
     """Append one leg exit. Returns the new row count, or -1 if ``out`` is full."""
     if written >= out.shape[0]:
         return -1
 
+    direction = trade.direction
+    quantity = legs.quantity[leg]
     # Positive when the trade made money, whichever side it was on.
-    pnl_per_unit = (exit_price - entry_price) * direction
-    gross = pnl_per_unit * quantity * point_value
-    commission = commission_per_contract * quantity
+    pnl_per_unit = (leg_exit.price - trade.entry_price) * direction
+    gross = pnl_per_unit * quantity * costs.point_value
+    commission = costs.commission_per_contract * quantity
     net = gross - commission
 
-    out[written, C_TRADE_ID] = trade_id
+    out[written, C_TRADE_ID] = trade.trade_id
     out[written, C_LEG] = leg + 1
-    out[written, C_ENTRY_BAR] = entry_bar
-    out[written, C_EXIT_BAR] = exit_bar
-    out[written, C_ENTRY_PRICE] = entry_price
-    out[written, C_EXIT_PRICE] = exit_price
-    out[written, C_INITIAL_STOP] = initial_stop
-    out[written, C_TARGET_PRICE] = target_price
+    out[written, C_ENTRY_BAR] = trade.entry_bar
+    out[written, C_EXIT_BAR] = leg_exit.bar
+    out[written, C_ENTRY_PRICE] = trade.entry_price
+    out[written, C_EXIT_PRICE] = leg_exit.price
+    out[written, C_INITIAL_STOP] = trade.initial_stop
+    out[written, C_TARGET_PRICE] = legs.target[leg]
     out[written, C_QUANTITY] = quantity
     out[written, C_DIRECTION] = direction
-    out[written, C_EXIT_REASON] = reason
+    out[written, C_EXIT_REASON] = leg_exit.reason
     out[written, C_GROSS_PNL] = gross
     out[written, C_COMMISSION] = commission
     out[written, C_NET_PNL] = net
-    out[written, C_R_MULTIPLE] = pnl_per_unit / risk if risk > 0.0 else np.nan
-    out[written, C_RISK_POINTS] = risk
+    out[written, C_R_MULTIPLE] = pnl_per_unit / trade.risk if trade.risk > 0.0 else np.nan
+    out[written, C_RISK_POINTS] = trade.risk
     # run_high/run_low are tracked regardless of direction, so the adverse one is whichever
     # term is larger; the other is negative or smaller by construction.
-    out[written, C_MAE] = max(direction * (entry_price - run_high), direction * (entry_price - run_low))
-    out[written, C_MFE] = max(direction * (run_high - entry_price), direction * (run_low - entry_price))
-    out[written, C_BARS_HELD] = exit_bar - entry_bar
-    out[written, C_AMBIGUOUS] = 1.0 if ambiguous else 0.0
+    out[written, C_MAE] = max(
+        direction * (trade.entry_price - excursion.run_high),
+        direction * (trade.entry_price - excursion.run_low),
+    )
+    out[written, C_MFE] = max(
+        direction * (excursion.run_high - trade.entry_price),
+        direction * (excursion.run_low - trade.entry_price),
+    )
+    out[written, C_BARS_HELD] = leg_exit.bar - trade.entry_bar
+    out[written, C_AMBIGUOUS] = 1.0 if leg_exit.ambiguous else 0.0
     return written + 1
 
 

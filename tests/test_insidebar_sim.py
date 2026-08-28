@@ -69,25 +69,18 @@ def simulate(
         else np.zeros((max_rows, N_COLUMNS), dtype=np.float64)
     )
     count = insidebar.simulate_insidebar(
-        o,
-        h,
-        low,
-        c,
+        bracket.Bars(o, h, low, c, force_flat),
         signal,
         direction_at,
-        force_flat,
         np.full(n, atr, dtype=np.float64) if np.isscalar(atr) else np.asarray(atr, dtype=np.float64),
         np.asarray(quantities, dtype=np.int64),
-        TICK,
-        instrument.point_value,
-        atr_multiplier,
-        commission,
-        slippage,
-        bars_required,
-        block_entry_at_close,
-        fill_limit_on_touch,
-        ambiguity_policy,
-        round_targets,
+        bracket.Costs(TICK, instrument.point_value, commission, slippage),
+        bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
+        insidebar.InsideBarRules(
+            atr_multiplier=atr_multiplier,
+            bars_required=bars_required,
+            block_entry_at_session_close=block_entry_at_close,
+        ),
         out,
     )
     return count, out

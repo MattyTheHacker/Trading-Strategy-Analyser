@@ -62,31 +62,34 @@ def pullbackandgo_legs(
     out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
     count: int = deadcat.simulate_deadcat(
-        data.open,
-        data.high,
-        data.low,
-        data.close,
+        bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
-        data.force_flat,
         quantities,
         targets,
-        instrument.tick_size,
-        instrument.point_value,
-        float(params.stop_offset_ticks),
-        0.0,  # entry_offset_ticks: no close-based trigger cap; trigger is bare High[0]
-        1.0,  # tp_multiplier: PullBackAndGo.cs has no TPMultiplier property
-        float("inf"),  # max_risk_ticks: no MaxRiskPerTrade property, so no cap
-        params.commission_per_contract,
-        params.slippage_ticks,
-        params.bars_required_to_trade,
-        0.0,  # min_reward_risk: no property on PullBackAndGo.cs
-        params.ratchet_lag,
-        float(params.ratchet_offset_ticks),
-        params.block_entry_at_session_close,
-        params.fill_limit_on_touch,
-        params.ambiguity_policy,
-        trades.LONG,
-        params.round_targets,
+        bracket.Costs(
+            tick_size=instrument.tick_size,
+            point_value=instrument.point_value,
+            commission_per_contract=params.commission_per_contract,
+            slippage_ticks=params.slippage_ticks,
+        ),
+        bracket.FillRules(
+            fill_limit_on_touch=params.fill_limit_on_touch,
+            ambiguity_policy=params.ambiguity_policy,
+            round_targets=params.round_targets,
+        ),
+        deadcat.DeadCatRules(
+            stop_offset_ticks=float(params.stop_offset_ticks),
+            # No close-based trigger cap: the trigger is a bare High[0].
+            entry_offset_ticks=0.0,
+            tp_multiplier=1.0,  # PullBackAndGo.cs has no TPMultiplier property
+            max_risk_ticks=float("inf"),  # no MaxRiskPerTrade property, so no cap
+            bars_required=params.bars_required_to_trade,
+            min_reward_risk=0.0,  # no property on PullBackAndGo.cs
+            ratchet_lag=params.ratchet_lag,
+            ratchet_offset_ticks=float(params.ratchet_offset_ticks),
+            block_entry_at_session_close=params.block_entry_at_session_close,
+            direction=trades.LONG,
+        ),
         out,
     )
     if count < 0:  # pragma: no cover - allocation is a proven upper bound

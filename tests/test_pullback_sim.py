@@ -54,31 +54,24 @@ def run(
 
     out = bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
     count = deadcat.simulate_deadcat(
-        o,
-        h,
-        l,
-        c,
+        bracket.Bars(o, h, l, c, force_flat),
         signal,
-        force_flat,
         np.asarray(quantities, dtype=np.int64),
         np.asarray(targets, dtype=np.float64),
-        TICK,
-        instrument.point_value,
-        2.0,  # stop_offset_ticks: Low[0] - 2 ticks
-        0.0,  # entry_offset_ticks: no close-based cap, trigger is bare High[0]
-        1.0,  # tp_multiplier: no property on PullBackAndGo.cs
-        1e9,  # max_risk_ticks: no cap on PullBackAndGo.cs
-        commission,
-        slippage,
-        bars_required,
-        0.0,  # min_reward_risk: no property on PullBackAndGo.cs
-        ratchet_lag,
-        0.0,  # ratchet_offset_ticks: bare Low[1], no offset reapplied
-        True,
-        fill_limit_on_touch,
-        ambiguity_policy,
-        LONG,
-        round_targets,
+        bracket.Costs(TICK, instrument.point_value, commission, slippage),
+        bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
+        deadcat.DeadCatRules(
+            stop_offset_ticks=2.0,  # Low[0] - 2 ticks
+            entry_offset_ticks=0.0,  # no close-based cap, trigger is bare High[0]
+            tp_multiplier=1.0,  # no property on PullBackAndGo.cs
+            max_risk_ticks=1e9,  # no cap on PullBackAndGo.cs
+            bars_required=bars_required,
+            min_reward_risk=0.0,  # no property on PullBackAndGo.cs
+            ratchet_lag=ratchet_lag,
+            ratchet_offset_ticks=0.0,  # bare Low[1], no offset reapplied
+            block_entry_at_session_close=True,
+            direction=LONG,
+        ),
         out,
     )
     assert count >= 0, "trade buffer overflowed"

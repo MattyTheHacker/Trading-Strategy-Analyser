@@ -2460,12 +2460,24 @@ a release that adds a rule fails a build nobody touched.
 
 ### M20c — structural cleanups ([#58])
 
-Worth doing when adjacent rather than as a project. `simulate_deadcat` takes 23 parameters and
-`_write` takes 18, all passed positionally at 8 call sites, where one transposition writes
-plausible numbers into the wrong columns ([#59]). The question was whether Numba tolerates a
-`NamedTuple`, and it is **measured, not assumed**: bit-identical result, 1.01× the scalar version
-over 5M iterations, and `@njit(cache=True)` still compiles — which matters because the disk cache
-is what makes parallel workers cheap. The rest, in descending order of value: `sweep.SWEEPABLE`
+Worth doing when adjacent rather than as a project. **~~Parameter blobs~~ ([#59]) — done.**
+`simulate_deadcat` took 23 parameters and `_write` 18, all passed positionally, where one
+transposition writes plausible numbers into the wrong columns. Every loop now takes at most ten
+arguments, and the seven `NamedTuple` blobs they travel in live in `nqbt/sim/bracket.py`. Two
+groupings are worth more than the argument count: `Bars` carries `force_flat` beside the OHLC and
+`resolve_brackets` indexes it at the `i` it was given, so a bar can no longer be split across
+callers; and `OpenTrade.filled_at_open` replaces the `held_from_bar_open` flag each call site used
+to assert for itself.
+
+The Numba question was **measured, not assumed**, and `tools/numba_tuple_probe.py` is what
+measures it: bit-identical result, 1.01× the scalar version over 5M iterations, arrays inside a
+blob compile, and the disk cache is reused. That last claim had to be tightened. **A blob defined
+in `__main__` writes a cache and then misses it on every run, silently** — the probe originally
+checked only that `cache=True` raised nothing at definition, which is a weaker claim than the one
+parallel workers depend on. It is why the blobs live in an importable module rather than beside
+the loops that read them, and the probe now demonstrates both halves.
+
+The rest, in descending order of value: `sweep.SWEEPABLE`
 reads `__slots__` rather than `dataclasses.fields()` ([#60]) and will break quietly at M17 by
 dropping an axis rather than raising; `results.best()` interpolates `by` into SQL ([#61]);
 `bars[...].to_numpy(np.float64)` appears 12 times ([#62]); `_cmd_run` reimplements `per_trade`,

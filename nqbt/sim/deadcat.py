@@ -11,75 +11,66 @@ trigger, the fill and submittability tests, the ratchet -- and the evidence behi
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from numba import njit
 
-from nqbt.sim.bracket import (
-    entry_bracket,
-    passes_reward_risk,
-    resolve_brackets,
-    round_to_tick,
-    sided,
-    write_leg,
-)
+from nqbt.sim import bracket
 from nqbt.trades import EXIT_END_OF_DATA
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IntArray
 
 
+class DeadCatRules(NamedTuple):
+    """The scalar rule set :func:`simulate_deadcat` reads, one field per NT8 property.
+
+    Shared with PullBackAndGo, which sets the handful of fields the two strategies genuinely
+    differ on -- ``ratchet_offset_ticks`` above all, which is separate from
+    ``stop_offset_ticks`` for that reason. ``direction`` is ``+1.0`` long / ``-1.0`` short.
+    """
+
+    stop_offset_ticks: float
+    entry_offset_ticks: float
+    tp_multiplier: float
+    max_risk_ticks: float
+    bars_required: int
+    min_reward_risk: float
+    ratchet_lag: int
+    ratchet_offset_ticks: float
+    block_entry_at_session_close: bool
+    direction: float
+
+
 @njit(cache=True)
-def simulate_deadcat(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one argument per NT8 property; #59
-    open_: FloatArray,
-    high: FloatArray,
-    low: FloatArray,
-    close: FloatArray,
+def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule, in bar order
+    bars: bracket.Bars,
     signal: BoolArray,
-    force_flat: BoolArray,
     leg_quantities: IntArray,
     target_r: FloatArray,
-    tick_size: float,
-    point_value: float,
-    stop_offset_ticks: float,
-    entry_offset_ticks: float,
-    tp_multiplier: float,
-    max_risk_ticks: float,
-    commission_per_contract: float,
-    slippage_ticks: float,
-    bars_required: int,
-    min_reward_risk: float,
-    ratchet_lag: int,
-    ratchet_offset_ticks: float,
-    block_entry_at_session_close: bool,
-    fill_limit_on_touch: bool,
-    ambiguity_policy: int,
-    direction: float,
-    round_targets: bool,
+    costs: bracket.Costs,
+    fills: bracket.FillRules,
+    rules: DeadCatRules,
     out: FloatArray,
 ) -> int:
     """Run one bracket archetype over one dataset, writing one row per leg exit.
 
     Shared by DeadCatBounce and PullBackAndGo: both are a stop order in the trade direction, a
     ratcheting stop, and up to four R-multiple targets with the last leg a runner. ``signal``
-    is the precomputed conjunction of every active entry filter, ``force_flat`` marks bars at
-    or past the exit-on-session-close cutoff, and ``direction`` is ``+1.0`` long / ``-1.0``
-    short.
-
-    ``ratchet_offset_ticks`` is separate from ``stop_offset_ticks`` because the two C#
-    strategies genuinely differ there, and ``round_targets`` is a parameter for the same
-    reason -- ``docs/nt8-fidelity.md``.
+    is the precomputed conjunction of every active entry filter, and ``bars.force_flat`` marks
+    bars at or past the exit-on-session-close cutoff.
 
     Returns the number of rows written to ``out``; a negative return means ``out`` was too
     small.
     """
-    n = close.size
+    n = bars.close.size
     n_legs = leg_quantities.size
-    slippage = slippage_ticks * tick_size
-    stop_offset = stop_offset_ticks * tick_size
-    entry_offset = entry_offset_ticks * tick_size
-    ratchet_offset = ratchet_offset_ticks * tick_size
+    direction = rules.direction
+    slippage = bracket.slippage_points(costs)
+    stop_offset = rules.stop_offset_ticks * costs.tick_size
+    entry_offset = rules.entry_offset_ticks * costs.tick_size
+    ratchet_offset = rules.ratchet_offset_ticks * costs.tick_size
 
     written = 0
     trade_id = 0
@@ -89,50 +80,30 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one ar
     pending_trigger = 0.0
     pending_stop = 0.0
 
-    entry_price = 0.0
-    entry_bar = 0
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, direction, False)
     stop = 0.0
-    risk = 0.0
-    initial_stop = 0.0
-    run_high = 0.0
-    run_low = 0.0
-
-    leg_open = np.zeros(n_legs, dtype=np.bool_)
-    leg_target = np.zeros(n_legs, dtype=np.float64)
+    excursion = bracket.Excursion(0.0, 0.0)
+    legs = bracket.Legs(
+        np.zeros(n_legs, dtype=np.bool_),
+        np.zeros(n_legs, dtype=np.float64),
+        leg_quantities,
+    )
 
     for i in range(n):
         # ---- exits, using the stop and targets set at the close of bar i-1 ----------
         if in_position:
-            run_high = max(run_high, high[i])
-            run_low = min(run_low, low[i])
-
-            written, in_position = resolve_brackets(
+            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
+            written, in_position = bracket.resolve_brackets(
                 out,
                 written,
-                trade_id,
-                entry_bar,
-                i,
-                entry_price,
-                initial_stop,
+                trade,
                 stop,
-                risk,
-                leg_open,
-                leg_target,
-                leg_quantities,
-                run_high,
-                run_low,
-                open_[i],
-                high[i],
-                low[i],
-                close[i],
-                force_flat[i],
-                slippage,
-                point_value,
-                commission_per_contract,
-                fill_limit_on_touch,
-                ambiguity_policy,
-                direction,
-                True,  # held since this bar's open, so a gap through the stop fills at it
+                legs,
+                excursion,
+                bars,
+                i,
+                costs,
+                fills,
             )
             if written < 0:
                 return -1
@@ -143,63 +114,55 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one ar
         elif pending_bar >= 0 and pending_bar == i - 1:
             filled = False
             fill = 0.0
-            # force_flat[i], not block_entry_at_session_close: that flag only stops a
+            # bars.force_flat[i], not block_entry_at_session_close: that flag only stops a
             # *new* signal on a force-flat bar, never an order resting from the bar before.
-            if not force_flat[i]:
-                if direction * open_[i] >= direction * pending_trigger:
-                    fill = open_[i] + direction * slippage  # gapped through the trigger
+            if not bars.force_flat[i]:
+                if direction * bars.open_[i] >= direction * pending_trigger:
+                    fill = bars.open_[i] + direction * slippage  # gapped through the trigger
                     filled = True
                 else:
-                    _, touch = sided(low[i], high[i], direction)
+                    _, touch = bracket.sided(bars.low[i], bars.high[i], direction)
                     if direction * touch >= direction * pending_trigger:
                         fill = pending_trigger + direction * slippage
                         filled = True
 
             if filled:
                 trade_id += 1
-                entry_price = fill
-                entry_bar = i
-                initial_stop = pending_stop
-                stop = pending_stop
                 risk = direction * (pending_trigger - pending_stop)
-                run_high = high[i]
-                run_low = low[i]
+                trade = bracket.OpenTrade(
+                    trade_id=trade_id,
+                    entry_bar=i,
+                    entry_price=fill,
+                    initial_stop=pending_stop,
+                    risk=risk,
+                    direction=direction,
+                    # Entered intrabar: the position did not exist at this bar's open.
+                    filled_at_open=False,
+                )
+                stop = pending_stop
+                excursion = bracket.Excursion(bars.high[i], bars.low[i])
                 for leg in range(n_legs):
-                    leg_open[leg] = True
+                    legs.is_open[leg] = True
                     if np.isnan(target_r[leg]):
-                        leg_target[leg] = np.nan
+                        legs.target[leg] = np.nan
                     else:
-                        raw = pending_trigger + direction * risk * target_r[leg] * tp_multiplier
-                        leg_target[leg] = round_to_tick(raw, tick_size) if round_targets else raw
+                        raw = pending_trigger + direction * risk * target_r[leg] * rules.tp_multiplier
+                        legs.target[leg] = (
+                            bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
+                        )
 
                 # The entry bar can reach the stop as well, and resolves like any other.
-                written, in_position = resolve_brackets(
+                written, in_position = bracket.resolve_brackets(
                     out,
                     written,
-                    trade_id,
-                    entry_bar,
-                    i,
-                    entry_price,
-                    initial_stop,
+                    trade,
                     stop,
-                    risk,
-                    leg_open,
-                    leg_target,
-                    leg_quantities,
-                    run_high,
-                    run_low,
-                    open_[i],
-                    high[i],
-                    low[i],
-                    close[i],
-                    force_flat[i],
-                    slippage,
-                    point_value,
-                    commission_per_contract,
-                    fill_limit_on_touch,
-                    ambiguity_policy,
-                    direction,
-                    False,  # entered intrabar: the position did not exist at the open
+                    legs,
+                    excursion,
+                    bars,
+                    i,
+                    costs,
+                    fills,
                 )
                 if written < 0:
                     return -1
@@ -208,31 +171,35 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one ar
 
         # ---- close of bar i: ratchet, or look for a new signal ----------------------
         if in_position:
-            ref = i - ratchet_lag
+            ref = i - rules.ratchet_lag
             if ref >= 0:
-                adverse_ref, _ = sided(low[ref], high[ref], direction)
+                adverse_ref, _ = bracket.sided(bars.low[ref], bars.high[ref], direction)
                 new_stop = adverse_ref - direction * ratchet_offset
                 if direction * new_stop > direction * stop:
                     stop = new_stop
-        elif i >= bars_required and signal[i] and not (block_entry_at_session_close and force_flat[i]):
-            trigger, candidate_stop, candidate_risk = entry_bracket(
-                high[i],
-                low[i],
-                close[i],
+        elif (
+            i >= rules.bars_required
+            and signal[i]
+            and not (rules.block_entry_at_session_close and bars.force_flat[i])
+        ):
+            trigger, candidate_stop, candidate_risk = bracket.entry_bracket(
+                bars.high[i],
+                bars.low[i],
+                bars.close[i],
                 entry_offset,
                 stop_offset,
                 direction,
             )
             # MaxRiskPerTrade is expressed in ticks, not dollars.
-            too_risky = candidate_risk > max_risk_ticks * tick_size
+            too_risky = candidate_risk > rules.max_risk_ticks * costs.tick_size
             # A stop-market entry must sit strictly beyond the market it is submitted into,
             # which under Calculate.OnBarClose is the signal bar's close.
-            submittable = direction * trigger > direction * close[i]
+            submittable = direction * trigger > direction * bars.close[i]
             if (
                 candidate_risk > 0.0
                 and not too_risky
                 and submittable
-                and passes_reward_risk(target_r, min_reward_risk)
+                and bracket.passes_reward_risk(target_r, rules.min_reward_risk)
             ):
                 pending_bar = i
                 pending_trigger = trigger
@@ -242,29 +209,18 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917 - one ar
     # rather than dropped.
     if in_position:
         last = n - 1
-        exit_fill = close[last] - direction * slippage
+        exit_fill = bars.close[last] - direction * slippage
         for leg in range(n_legs):
-            if leg_open[leg]:
-                written = write_leg(
+            if legs.is_open[leg]:
+                written = bracket.write_leg(
                     out,
                     written,
-                    trade_id,
+                    trade,
+                    legs,
                     leg,
-                    entry_bar,
-                    last,
-                    entry_price,
-                    exit_fill,
-                    initial_stop,
-                    leg_target[leg],
-                    leg_quantities[leg],
-                    EXIT_END_OF_DATA,
-                    risk,
-                    run_high,
-                    run_low,
-                    point_value,
-                    commission_per_contract,
-                    False,
-                    direction,
+                    bracket.LegExit(last, exit_fill, EXIT_END_OF_DATA, False),
+                    excursion,
+                    costs,
                 )
                 if written < 0:
                     return -1
