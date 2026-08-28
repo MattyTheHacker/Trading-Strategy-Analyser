@@ -1880,14 +1880,30 @@ discharged: all three were wanted.
 - **One resample per distinct resolution, whatever periods share it.** Two periods on the
   hourly cost one aggregation and two EMAs over a series 60 times shorter than the archive.
 
-**The one question this cannot settle from Python.** NT8 serves a secondary series through
-`Closes[1][0]`, and *when* that series updates relative to a same-stamped primary bar is a
-property of its event ordering rather than of the arithmetic. The rule implemented here is the
-one that matches how this project's own 1-minute gates read an average, and it is the only
-reading that does not discard knowable information — but it is an assumption until a
-multi-series NinjaScript is run through Strategy Analyzer and its trade list diffed. Recorded
-in `docs/nt8-fidelity.md` § "And so is the higher-timeframe average" as an open question rather
-than as a reproduced rule.
+**The one question this cannot settle from Python, and why a trade list is the wrong tool for
+it.** NT8 serves a secondary series through `Closes[1][0]`, and *when* that series updates
+relative to a same-stamped primary bar is a property of its event ordering rather than of the
+arithmetic. **For an EMA the two readings are algebraically indistinguishable**: the update
+moves the average toward the close and never past it, so `close − EMA_new =
+(1 − α)(close − EMA_prev)` keeps the sign and the gate never flips. Over 914,700 MNQ bars at
+5/15/60 minutes × periods 3/20/50 the label differs on exactly one bar in every configuration
+— the first coarse close, where the lagged reading is still in warm-up — and on zero bars
+where both are defined. A reconciliation would come back 100% and prove nothing. An **SMA**
+would: it drops the oldest value out of its window and can move past the close, giving 842
+differing bars at 15-minute SMA(20), which is the case [#72] would make live.
+
+**So the instrument is a per-bar probe, not a trade list.**
+`ninjatrader-scripts/Strategies/NqbtHigherTimeframeProbe.cs` records `Times[1][0]` against
+`Time[0]` on every 1-minute bar and writes the coarse series NT8 built beside it, so the
+boundary is decided on every coarse close — ~15,000 over one contract — rather than on the zero
+trades that would discriminate. It carries the SMA columns too, because NinjaTrader time is too
+scarce to come back for a column that costs nothing now.
+`tools/reconcile_higher_timeframe.py` compares the export on all four questions separately
+(anchoring, seeding, projection, warm-up), and `tests/test_reconcile_higher_timeframe.py`
+exercises each check against an export perturbed in the one way that check exists to catch —
+for the projection check, that perturbation is the other candidate rule. **Until the probe is
+run, all four are assumptions**; the fidelity record says so in
+`docs/nt8-fidelity.md` § "And so is the higher-timeframe average".
 
 ### M11 — manual trade review ([#44])
 

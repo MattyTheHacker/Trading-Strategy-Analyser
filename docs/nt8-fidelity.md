@@ -1089,18 +1089,34 @@ the sweep summary tables gaining the three parameter columns. The skip has to be
 than a no-op mask for the reason it does under the other three: a bar before the first coarse
 bar has closed is `UNDEFINED` and passes nothing, `ALL_SIDES` included.
 
-**Unlike the four above, this one has an NT8-shaped question that is still open, and it is
-recorded as open rather than answered.** NinjaScript expresses the same gate as
-an `EMA` of period 50 over a `Closes[1]` added with `AddDataSeries`, tested against
-`Close[0]`, and *when* that
-secondary series updates relative to a same-stamped primary bar is a property of NT8's event
-ordering, not of the arithmetic. The rule implemented here is that a coarse bar is readable
-from the fine bar closing alongside it and from none before it — which matches how this
-project's own 1-minute gates read an average, and is the only reading that does not discard
-knowable information. **It is an assumption until a multi-series NinjaScript is run through
-Strategy Analyzer and its trade list diffed**, and no archetype is reconciled with the filter
-switched on. The bars themselves are not in question: aggregation is exact (`docs/roadmap.md`
-§ M13), so the coarse series a resample produces is bit-identical to one NT8 builds.
+**Unlike the four above, this one has an NT8-shaped question — and a trade list is the wrong
+instrument for it.** NinjaScript expresses the same gate as an `EMA` of period 50 over a
+`Closes[1]` added with `AddDataSeries`, tested against `Close[0]`, and *when* that secondary
+series updates relative to a same-stamped primary bar is a property of NT8's event ordering,
+not of the arithmetic. The rule implemented here is that a coarse bar is readable from the fine
+bar closing alongside it and from none before it.
+
+**For an EMA the two readings cannot be told apart by any trade list, and that is algebra
+rather than a measurement.** The update moves the average toward the close and never past it,
+so `close − EMA_new = (1 − α)(close − EMA_prev)` with `α = 2/(period+1)` keeps the sign, and the
+gate therefore never flips. Measured over 914,700 MNQ bars at 5/15/60 minutes × periods
+3/20/50, the label differs on exactly one bar in every configuration and that one is the first
+coarse close, where the lagged reading is still in warm-up; where both are defined the
+disagreement count is zero. A reconciliation would return 100% and settle nothing.
+
+**An SMA is a different matter, which is what makes this worth recording rather than closing.**
+An SMA drops the oldest value out of its window and *can* move past the close, so the boundary
+is observable there — 842 differing bars at 15-minute SMA(20) over the same data. The day
+[#72] makes the kind sweepable, a trade list becomes a valid instrument.
+
+**What settles it now is `NqbtHigherTimeframeProbe.cs`**, which records `Times[1][0]` against
+`Time[0]` per bar and so decides the question on every coarse close rather than on the zero
+trades that would discriminate. It carries three further questions that are genuine assumptions
+here: whether NT8 seeds `EMA(Closes[1], n)` the way `indicators.nt8_ema` does on a *secondary*
+series, whether NT8's own bar builder cuts the coarse series where `resample.py` cuts it, and
+how many leading bars pass before the secondary series is readable. Compare with
+`tools/reconcile_higher_timeframe.py`. **Until that run happens all four are assumptions**, and
+no archetype is reconciled with the filter switched on.
 
 Everything else — that the side is a three-state label, that equality gets its own state, that
 the kind is fixed at EMA — is a research choice with no NT8 counterpart, and is recorded in
