@@ -1075,6 +1075,37 @@ carry whatever parity the gates carry rather than a second definition. Everythin
 three components, the agreement score, the thresholds — is a research choice with no NT8
 counterpart, and is recorded in `docs/roadmap.md` § M10.3.
 
+### And so is the higher-timeframe average (#73)
+
+`nqbt/higher_timeframe.py` is the fifth of the same shape and carries the same status. A moving
+average computed on resampled bars has no NinjaScript counterpart *here*, is not a fill rule,
+and cannot move a trade; `higher_timeframe_filter` is the one place it touches a reconciled
+archetype, and like the four filters above it is absent from both `DeadCatBounce.cs` and
+`PullBackAndGo.cs`.
+
+It defaults to `ALL_SIDES` and each signal **skips it entirely** at that value, so 12 of the 14
+captured files are byte-identical across the change, `sha256` included, the two that move being
+the sweep summary tables gaining the three parameter columns. The skip has to be no call rather
+than a no-op mask for the reason it does under the other three: a bar before the first coarse
+bar has closed is `UNDEFINED` and passes nothing, `ALL_SIDES` included.
+
+**Unlike the four above, this one has an NT8-shaped question that is still open, and it is
+recorded as open rather than answered.** NinjaScript expresses the same gate as
+an `EMA` of period 50 over a `Closes[1]` added with `AddDataSeries`, tested against
+`Close[0]`, and *when* that
+secondary series updates relative to a same-stamped primary bar is a property of NT8's event
+ordering, not of the arithmetic. The rule implemented here is that a coarse bar is readable
+from the fine bar closing alongside it and from none before it — which matches how this
+project's own 1-minute gates read an average, and is the only reading that does not discard
+knowable information. **It is an assumption until a multi-series NinjaScript is run through
+Strategy Analyzer and its trade list diffed**, and no archetype is reconciled with the filter
+switched on. The bars themselves are not in question: aggregation is exact (`docs/roadmap.md`
+§ M13), so the coarse series a resample produces is bit-identical to one NT8 builds.
+
+Everything else — that the side is a three-state label, that equality gets its own state, that
+the kind is fixed at EMA — is a research choice with no NT8 counterpart, and is recorded in
+`docs/roadmap.md` § "Multi-timeframe moving averages".
+
 ## Contract data
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a limited

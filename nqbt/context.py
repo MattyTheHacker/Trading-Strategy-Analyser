@@ -20,11 +20,12 @@ from typing import TYPE_CHECKING, TypedDict, cast
 import numpy as np
 import pandas as pd
 
-from nqbt import conditions, indicators, regime, sessions, timeofday, trend, volume
+from nqbt import conditions, higher_timeframe, indicators, regime, sessions, timeofday, trend, volume
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IndexArray, LabelArray
     from nqbt.conditions import MovingAverageGrid
+    from nqbt.higher_timeframe import HigherTimeframeGrid
     from nqbt.regime import EfficiencyRatioGrid
     from nqbt.sessions import SessionInfo
     from nqbt.timeofday import TimeOfDay
@@ -67,6 +68,10 @@ class ContextSpec:
     does **not** imply :attr:`needs_ma_values` -- the averages behind a label are built and
     dropped inside :func:`nqbt.trend.trend_grid`."""
 
+    higher_timeframe_keys: tuple[higher_timeframe.HigherTimeframeKey, ...] = ()
+    """Coarse moving averages to build (:mod:`nqbt.higher_timeframe`). Empty builds nothing,
+    and an entry costs one resample per distinct resolution rather than one per period."""
+
     needs_ma_values: bool = False
     """Keep the raw moving-average values, not just the boolean gates -- eight bytes per
     element against one, so off unless something reads the numbers themselves."""
@@ -87,6 +92,9 @@ class ContextSpec:
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
             trend_keys=tuple(sorted({*self.trend_keys, *other.trend_keys})),
+            higher_timeframe_keys=tuple(
+                sorted({*self.higher_timeframe_keys, *other.higher_timeframe_keys}),
+            ),
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
             needs_session_clock=self.needs_session_clock or other.needs_session_clock,
         )
@@ -133,6 +141,9 @@ class Dataset:
 
     trends: trend.TrendGrid | None = None
     """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
+
+    higher_timeframes: higher_timeframe.HigherTimeframeGrid | None = None
+    """Coarse moving averages per declared key, or ``None`` when nothing asked for them."""
 
     seconds_to_session_end: FloatArray | None = None
     """Seconds from each bar to its session's scheduled close, or ``None`` when nothing
@@ -351,6 +362,33 @@ class Dataset:
         """Per-bar ``[3, n_bars]`` votes, so a review can say which component dissented."""
         return self._trends().votes_for(key)
 
+    def _higher_timeframes(self) -> higher_timeframe.HigherTimeframeGrid:
+        if self.higher_timeframes is None:
+            msg: str = (
+                "no higher-timeframe averages in this dataset; prepare() was not asked for "
+                "them. Add the average to higher_timeframe_keys on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.higher_timeframes
+
+    def higher_timeframe_gate(self, key: higher_timeframe.HigherTimeframeKey, mask: int) -> BoolArray:
+        """Per-bar boolean: whether this bar's side of the coarse average passes ``mask``.
+
+        Callers skip this entirely at :data:`nqbt.higher_timeframe.ALL_SIDES` -- see
+        :func:`nqbt.higher_timeframe.gate`.
+        """
+        return self._higher_timeframes().gate_for(key, mask)
+
+    def higher_timeframe_values(self, key: higher_timeframe.HigherTimeframeKey) -> FloatArray:
+        """Per-bar coarse average as the fine series sees it, the raw quantity behind the sides."""
+        return self._higher_timeframes().values_for(key)
+
+    def higher_timeframe_labels(self, key: higher_timeframe.HigherTimeframeKey) -> LabelArray:
+        """Per-bar :class:`nqbt.higher_timeframe.Side`, for stratifying results."""
+        return self._higher_timeframes().labels_for(key)
+
     def session_end_gate(self, minutes: float) -> BoolArray:
         """Per-bar boolean: is this bar more than ``minutes`` from its session's close?
 
@@ -396,6 +434,8 @@ class Dataset:
             total += self.volumes.nbytes
         if self.trends is not None:
             total += self.trends.nbytes
+        if self.higher_timeframes is not None:
+            total += self.higher_timeframes.nbytes
         return total
 
     def slim(self) -> Dataset:
@@ -464,6 +504,11 @@ def prepare(
         regime.efficiency_ratio_grid(close, spec.regime_lookbacks) if spec.regime_lookbacks else None
     )
     trends: TrendGrid | None = trend.trend_grid(close, spec.trend_keys) if spec.trend_keys else None
+    higher_timeframes: HigherTimeframeGrid | None = (
+        higher_timeframe.higher_timeframe_grid(bars, spec.higher_timeframe_keys, bar_minutes=bar_minutes)
+        if spec.higher_timeframe_keys
+        else None
+    )
     volumes: VolumeGrid | None = (
         volume.volume_grid(
             bars["volume"].to_numpy(np.float64),
@@ -513,6 +558,7 @@ def prepare(
         regimes=regimes,
         volumes=volumes,
         trends=trends,
+        higher_timeframes=higher_timeframes,
         seconds_to_session_end=(sessions.seconds_to_session_end(info) if spec.needs_session_clock else None),
         day_codes=day_codes(bars.index),
     )

@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import override
 
-from nqbt import regime, timeofday, trend, volume
+from nqbt import higher_timeframe, regime, timeofday, trend, volume
 
 
 @dataclass(slots=True)
@@ -97,6 +97,21 @@ class DeadCatParams:
     MIXED. ``3`` is unanimity, and inert while :attr:`trend_filter` admits everything --
     ``docs/roadmap.md`` §M10.3."""
 
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Which side of a coarse moving average an entry may be taken on, as a
+    :mod:`nqbt.higher_timeframe` bitmask.
+
+    Absent from the NinjaScript, off by default, and a bitmask for the same reason
+    :attr:`phase_filter` is. The average is stamped from the last **completed** coarse bar --
+    ``docs/roadmap.md`` § "Multi-timeframe moving averages"."""
+
+    higher_timeframe_minutes: int = 60
+    """Minutes one coarse bar spans, anchored to the session open."""
+
+    higher_timeframe_period: int = 50
+    """Bars of *that* resolution the average is taken over, never 1-minute bars. An EMA, and
+    inert while :attr:`higher_timeframe_filter` admits every side."""
+
     tp_multiplier: float = 1.0
     """Scales every leg's target. ``TPMultiplier`` in the NinjaScript."""
 
@@ -176,6 +191,11 @@ class DeadCatParams:
         trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
         trend.validate_slope_lookback(self.trend_slope_lookback)
         trend.validate_min_agreement(self.trend_min_agreement)
+        higher_timeframe.validate_mask(self.higher_timeframe_filter)
+        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
+        # inertly until the filter is swept onto it.
+        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
+        higher_timeframe.validate_period(self.higher_timeframe_period)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -186,6 +206,11 @@ class DeadCatParams:
     def trend_key(self) -> trend.TrendKey:
         """Which of the dataset's trend labels this combination reads."""
         return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -260,6 +285,15 @@ class PullBackAndGoParams:
     """The pair the label reads, its slope lookback and how many components must agree --
     see :attr:`DeadCatParams.trend_min_agreement`."""
 
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Which side of a coarse moving average an entry may be taken on --
+    see :attr:`DeadCatParams.higher_timeframe_filter`."""
+
+    higher_timeframe_minutes: int = 60
+    higher_timeframe_period: int = 50
+    """The coarse resolution and the period averaged over it --
+    see :attr:`DeadCatParams.higher_timeframe_period`."""
+
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
     """Ticks below the signal bar's low for the stop. ``TickSize * 2`` in the NinjaScript."""
@@ -325,6 +359,11 @@ class PullBackAndGoParams:
         trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
         trend.validate_slope_lookback(self.trend_slope_lookback)
         trend.validate_min_agreement(self.trend_min_agreement)
+        higher_timeframe.validate_mask(self.higher_timeframe_filter)
+        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
+        # inertly until the filter is swept onto it.
+        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
+        higher_timeframe.validate_period(self.higher_timeframe_period)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -335,6 +374,11 @@ class PullBackAndGoParams:
     def trend_key(self) -> trend.TrendKey:
         """Which of the dataset's trend labels this combination reads."""
         return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -416,6 +460,15 @@ class EmaCrossoverParams:
     """The pair the label reads, its slope lookback and how many components must agree --
     see :attr:`DeadCatParams.trend_min_agreement`."""
 
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Which side of a coarse moving average an entry may be taken on --
+    see :attr:`DeadCatParams.higher_timeframe_filter`."""
+
+    higher_timeframe_minutes: int = 60
+    higher_timeframe_period: int = 50
+    """The coarse resolution and the period averaged over it --
+    see :attr:`DeadCatParams.higher_timeframe_period`."""
+
     exit_on_opposite_cross: bool = True
     """Close the position at the next bar's open when the regime flips.
 
@@ -488,6 +541,11 @@ class EmaCrossoverParams:
         trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
         trend.validate_slope_lookback(self.trend_slope_lookback)
         trend.validate_min_agreement(self.trend_min_agreement)
+        higher_timeframe.validate_mask(self.higher_timeframe_filter)
+        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
+        # inertly until the filter is swept onto it.
+        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
+        higher_timeframe.validate_period(self.higher_timeframe_period)
         if self.fast_period == self.slow_period:
             msg = (
                 f"fast_period and slow_period are both {self.fast_period}; identical "
@@ -504,6 +562,11 @@ class EmaCrossoverParams:
     def trend_key(self) -> trend.TrendKey:
         """Which of the dataset's trend labels this combination reads."""
         return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
@@ -596,6 +659,15 @@ class InsideBarParams:
     """The pair the label reads, its slope lookback and how many components must agree --
     see :attr:`DeadCatParams.trend_min_agreement`."""
 
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Which side of a coarse moving average an entry may be taken on --
+    see :attr:`DeadCatParams.higher_timeframe_filter`."""
+
+    higher_timeframe_minutes: int = 60
+    higher_timeframe_period: int = 50
+    """The coarse resolution and the period averaged over it --
+    see :attr:`DeadCatParams.higher_timeframe_period`."""
+
     ambiguity_policy: int = 1
     """See :attr:`DeadCatParams.ambiguity_policy` -- the same concept, the same default."""
 
@@ -648,6 +720,11 @@ class InsideBarParams:
         trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
         trend.validate_slope_lookback(self.trend_slope_lookback)
         trend.validate_min_agreement(self.trend_min_agreement)
+        higher_timeframe.validate_mask(self.higher_timeframe_filter)
+        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
+        # inertly until the filter is swept onto it.
+        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
+        higher_timeframe.validate_period(self.higher_timeframe_period)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -658,6 +735,11 @@ class InsideBarParams:
     def trend_key(self) -> trend.TrendKey:
         """Which of the dataset's trend labels this combination reads."""
         return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
 
     @property
     def leg_quantities(self) -> tuple[int, ...]:
