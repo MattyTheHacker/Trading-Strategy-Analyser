@@ -353,13 +353,13 @@ INSIDEBARTRAILING = Archetype(
     run=insidebartrailing.run_insidebartrailing,
     legs=insidebartrailing.insidebartrailing_legs,
     signal=insidebar.insidebar_signal,
-    tier2=Tier2Status.TIER1_ONLY,
+    tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBAR_GATES,
     context_for=insidebar_context,
 )
-"""InsideBar's entry with split-lot exits. Shares the signal function rather than a copy of it,
-and stays TIER1_ONLY until a trade list settles the two exit cadences -- ``docs/nt8-fidelity.md``
-§M23."""
+"""The fourth C#-backed port: InsideBar's entry, shared rather than copied, with split-lot
+exits. Diffed leg-for-leg against an MNQ 03-24 trade list, which overturned three of the four
+exit rules the port had inferred -- ``docs/nt8-fidelity.md`` §M23."""
 
 _REGISTRY: dict[str, Archetype] = {
     a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, INSIDEBAR, INSIDEBARTRAILING, PULLBACKANDGO)

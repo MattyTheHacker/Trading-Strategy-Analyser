@@ -7,10 +7,10 @@ the position is split into a bracketed lot and a trailing lot that resolve indep
 trailing stop follows the high-water mark rather than a lagged bar's extreme, and a trend
 violation flattens whatever is left.
 
-**No trade list has been diffed against any of it**, so the archetype is
-``Tier2Status.TIER1_ONLY`` and the two rules a trade list has to settle -- the trailing stop's
-cadence and ``OnPositionUpdate``'s -- are recorded as assumptions in ``docs/nt8-fidelity.md``
-§M23 rather than as evidence.
+Diffed leg-for-leg against an MNQ 03-24 Strategy Analyzer export, which **overturned three of
+the four exit rules this port originally inferred** -- ``docs/nt8-fidelity.md``, "Reconciliation
+result -- InsideBarTrailing". Read that before changing anything in the exit half: each of the
+four was plausible in both directions, and the tests name the measurement that decided it.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from nqbt import trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, insidebar
 from nqbt.sim.types import STOP_MIN_TICKS
+from nqbt.trades import C_EXIT_PRICE
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -69,7 +70,7 @@ def resolve_lots(  # noqa: PLR0913, PLR0917 - one argument per bracket property;
     ambiguity_policy: int,
     direction: float,
     held_from_bar_open: bool,
-) -> int:
+) -> tuple[int, float]:
     """Resolve one bar against each lot's own stop and target, closing whatever leaves.
 
     One call to :func:`nqbt.sim.bracket.resolve_brackets` per lot, with ``lot_mask`` hiding
@@ -77,9 +78,12 @@ def resolve_lots(  # noqa: PLR0913, PLR0917 - one argument per bracket property;
     ``lot_mask`` is the caller's scratch buffer, overwritten on every call.
 
     The split-lot model sits **beside** the shared engine rather than generalising it --
-    ``docs/roadmap.md`` §M23. Returns the new write count, or ``-1`` if ``out`` overflowed.
+    ``docs/roadmap.md`` §M23. Returns the new write count and the price the last lot to leave
+    filled at -- which is the price the trend-violation exit takes -- or ``-1`` and ``NaN`` if
+    ``out`` overflowed.
     """
     n_lots = leg_open.size
+    last_fill = np.nan
     for lot in range(n_lots):
         if not leg_open[lot]:
             continue
@@ -114,9 +118,88 @@ def resolve_lots(  # noqa: PLR0913, PLR0917 - one argument per bracket property;
             held_from_bar_open,
         )
         if written < 0:
-            return -1
+            return -1, np.nan
+        if leg_open[lot] and not lot_mask[lot]:
+            last_fill = out[written - 1, C_EXIT_PRICE]
         leg_open[lot] = lot_mask[lot]
+    return written, last_fill
+
+
+@njit(cache=True)
+def flatten_lots(  # noqa: PLR0913, PLR0917 - one argument per leg-log column; #59
+    out: FloatArray,
+    written: int,
+    trade_id: int,
+    entry_bar: int,
+    exit_bar: int,
+    entry_price: float,
+    exit_price: float,
+    lot_initial_stop: FloatArray,
+    lot_risk: FloatArray,
+    leg_open: BoolArray,
+    leg_target: FloatArray,
+    leg_quantities: IntArray,
+    reason: float,
+    run_high: float,
+    run_low: float,
+    point_value: float,
+    commission_per_contract: float,
+    direction: float,
+) -> int:
+    """Close every still-open lot at one price for one reason, and mark them closed.
+
+    Shared by the trend-violation exit and the end-of-data liquidation, which differ only in
+    the price, the bar and the reason.
+    """
+    for lot in range(leg_open.size):
+        if not leg_open[lot]:
+            continue
+        written = bracket.write_leg(
+            out,
+            written,
+            trade_id,
+            lot,
+            entry_bar,
+            exit_bar,
+            entry_price,
+            exit_price,
+            lot_initial_stop[lot],
+            leg_target[lot],
+            leg_quantities[lot],
+            reason,
+            lot_risk[lot],
+            run_high,
+            run_low,
+            point_value,
+            commission_per_contract,
+            False,
+            direction,
+        )
+        if written < 0:
+            return -1
+        leg_open[lot] = False
     return written
+
+
+@njit(cache=True)
+def trailed_stop(
+    lot_stop: FloatArray,
+    run_high: float,
+    run_low: float,
+    trail_distance: float,
+    tick_size: float,
+    direction: float,
+    round_targets: bool,
+) -> float:
+    """Where the trailing stop sits given the high-water mark so far, never retreating."""
+    _, favourable = bracket.sided(run_low, run_high, direction)
+    candidate = favourable - direction * trail_distance
+    if round_targets:
+        candidate = bracket.round_to_tick(candidate, tick_size)
+    standing = float(lot_stop[TRAILING_LOT])
+    if direction * candidate > direction * standing:
+        return candidate
+    return standing
 
 
 @njit(cache=True)
@@ -146,6 +229,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR09
     point_value: float,
     atr_multiplier: float,
     trailing_stop_multiplier: float,
+    position_update_loss_gate: float,
     commission_per_contract: float,
     slippage_ticks: float,
     bars_required: int,
@@ -177,12 +261,12 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR09
     in_position = False
     pending_bar = -1
     pending_direction = 0.0
-    pending_signal_exit = False
 
     d = 0.0
     entry_price = 0.0
     entry_bar = 0
     trail_distance = 0.0
+    trigger_fill = np.nan
     run_high = 0.0
     run_low = 0.0
 
@@ -196,46 +280,12 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR09
     for i in range(n):
         position_changed = False
 
-        # ---- the trend-violation exit submitted at the last position change ------------
-        if in_position and pending_signal_exit:
-            # A market order, so it fills at this bar's first price and takes precedence over
-            # the brackets -- ``docs/nt8-fidelity.md`` §M18, "The signal exit fills at the next
-            # bar's open too".
-            fill = open_[i] - d * slippage
-            for lot in range(n_lots):
-                if leg_open[lot]:
-                    written = bracket.write_leg(
-                        out,
-                        written,
-                        trade_id,
-                        lot,
-                        entry_bar,
-                        i,
-                        entry_price,
-                        fill,
-                        lot_initial_stop[lot],
-                        leg_target[lot],
-                        leg_quantities[lot],
-                        trades.EXIT_SIGNAL,
-                        lot_risk[lot],
-                        run_high,
-                        run_low,
-                        point_value,
-                        commission_per_contract,
-                        False,
-                        d,
-                    )
-                    if written < 0:
-                        return -1
-                    leg_open[lot] = False
-            in_position = False
-
         # ---- the live brackets, resolved against this bar -------------------------------
-        elif in_position:
+        if in_position:
             run_high = max(run_high, high[i])
             run_low = min(run_low, low[i])
             before = open_lots(leg_open)
-            written = resolve_lots(
+            written, trigger_fill = resolve_lots(
                 out,
                 written,
                 trade_id,
@@ -269,7 +319,6 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR09
             after = open_lots(leg_open)
             in_position = after > 0
             position_changed = in_position and after != before
-        pending_signal_exit = False
 
         # ---- both entry orders fill at this bar's open, unconditionally ------------------
         if not in_position and pending_bar >= 1 and pending_bar == i - 1:
@@ -320,8 +369,14 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR09
                     )
                     # The runner has no target: ``SetProfitTarget`` is never called for it.
                     leg_target[TRAILING_LOT] = np.nan
+                    # `SetTrailStop` is submitted *during* this bar rather than resting from
+                    # its open, so on the entry bar alone it follows the bar's own extreme
+                    # before being tested. Measured -- ``docs/nt8-fidelity.md`` §M23.
+                    lot_stop[TRAILING_LOT] = trailed_stop(
+                        lot_stop, run_high, run_low, trail_distance, tick_size, d, round_targets
+                    )
                     position_changed = True
-                    written = resolve_lots(
+                    written, trigger_fill = resolve_lots(
                         out,
                         written,
                         trade_id,
@@ -357,21 +412,62 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR09
 
         # ---- close of bar i: trail the runner's stop ------------------------------------
         if in_position and leg_open[TRAILING_LOT]:
-            # The high-water mark through this bar, so the new level is in force from the next
-            # one and cannot be hit on the bar that set it. Bar-close cadence, matching the
-            # ratchet; **an assumption, not evidence** -- ``docs/nt8-fidelity.md`` §M23.
-            _, favourable = bracket.sided(run_low, run_high, d)
-            trailed = favourable - d * trail_distance
-            if round_targets:
-                trailed = bracket.round_to_tick(trailed, tick_size)
-            if d * trailed > d * lot_stop[TRAILING_LOT]:
-                lot_stop[TRAILING_LOT] = trailed
+            # The high-water mark through this bar, so the new level is in force from the **next**
+            # one and cannot be hit on the bar that set it. Measured, not assumed: advancing it
+            # within the bar instead drops agreement from 98.42% to 94.04% --
+            # ``docs/nt8-fidelity.md`` §M23.
+            lot_stop[TRAILING_LOT] = trailed_stop(
+                lot_stop, run_high, run_low, trail_distance, tick_size, d, round_targets
+            )
 
-        # ---- close of bar i: the trend violation, then a new signal ---------------------
-        if in_position and position_changed and d * (ema[i] - fast_sma[i]) < 0.0:
-            # The C#'s max-loss branch above this one is unreachable: MaximumLossPerTrade
-            # defaults to 0 and the branch requires it > 0 -- ``docs/nt8-fidelity.md`` §M23.
-            pending_signal_exit = True
+        # ---- the trend violation, on whichever bar the position just changed ------------
+        if in_position and position_changed and i >= 1:
+            # `OnPositionUpdate` runs at strategy time `i - 1` -- the one-bar offset
+            # `OnExecutionUpdate` has -- and the market exit it submits fills at this bar's
+            # open. Both settled against a trade list; ``docs/nt8-fidelity.md`` §M23.
+            #
+            # `if (GetUnrealizedProfitLoss(...) > -200) return;` sits **above** both branches in
+            # `OnPositionUpdate`, so it gates the trend violation as well as the dead max-loss
+            # one. A currency amount on the whole open position, hence `point_value`. The
+            # max-loss branch beneath it stays unreachable: `MaximumLossPerTrade` defaults to 0
+            # and its own condition requires it > 0.
+            open_quantity = 0
+            for lot in range(n_lots):
+                if leg_open[lot]:
+                    open_quantity += leg_quantities[lot]
+            unrealised = (close[i - 1] - entry_price) * d * open_quantity * point_value
+            if (
+                unrealised <= -position_update_loss_gate
+                and d * (ema[i - 1] - fast_sma[i - 1]) < 0.0
+                and not np.isnan(trigger_fill)
+            ):
+                written = flatten_lots(
+                    out,
+                    written,
+                    trade_id,
+                    entry_bar,
+                    i,
+                    entry_price,
+                    # The same fill, not a fresh market order: NT8 closed the remaining lot at
+                    # the price and bar the triggering exit filled at, on every one of the 303
+                    # in the export. It carries that fill's slippage and takes no second helping
+                    # -- ``docs/nt8-fidelity.md`` §M23.
+                    trigger_fill,
+                    lot_initial_stop,
+                    lot_risk,
+                    leg_open,
+                    leg_target,
+                    leg_quantities,
+                    trades.EXIT_SIGNAL,
+                    run_high,
+                    run_low,
+                    point_value,
+                    commission_per_contract,
+                    d,
+                )
+                if written < 0:
+                    return -1
+                in_position = False
 
         if in_position or i <= bars_required or not signal[i]:
             continue
@@ -383,32 +479,28 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR09
     # Anything still open when the series runs out is liquidated at the last bar.
     if in_position:
         last = n - 1
-        exit_fill = close[last] - d * slippage
-        for lot in range(n_lots):
-            if leg_open[lot]:
-                written = bracket.write_leg(
-                    out,
-                    written,
-                    trade_id,
-                    lot,
-                    entry_bar,
-                    last,
-                    entry_price,
-                    exit_fill,
-                    lot_initial_stop[lot],
-                    leg_target[lot],
-                    leg_quantities[lot],
-                    trades.EXIT_END_OF_DATA,
-                    lot_risk[lot],
-                    run_high,
-                    run_low,
-                    point_value,
-                    commission_per_contract,
-                    False,
-                    d,
-                )
-                if written < 0:
-                    return -1
+        written = flatten_lots(
+            out,
+            written,
+            trade_id,
+            entry_bar,
+            last,
+            entry_price,
+            close[last] - d * slippage,
+            lot_initial_stop,
+            lot_risk,
+            leg_open,
+            leg_target,
+            leg_quantities,
+            trades.EXIT_END_OF_DATA,
+            run_high,
+            run_low,
+            point_value,
+            commission_per_contract,
+            d,
+        )
+        if written < 0:
+            return -1
 
     return written
 
@@ -446,6 +538,7 @@ def insidebartrailing_legs(
         instrument.point_value,
         params.atr_multiplier,
         params.trailing_stop_multiplier,
+        params.position_update_loss_gate,
         params.commission_per_contract,
         params.slippage_ticks,
         params.bars_required_to_trade,

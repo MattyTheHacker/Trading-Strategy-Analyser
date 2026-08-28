@@ -1,10 +1,9 @@
 """InsideBarTrailing simulation tests on hand-built bars.
 
-`InsideBarTrailing.cs` exists, but no Strategy Analyzer trade list has been diffed against this
-port, so these pin it against the **C#** rather than against NT8. Two of the rules they pin are
-assumptions the C# cannot settle -- when a trailing stop advances, and how often
-``OnPositionUpdate`` fires -- and those tests exist to make the assumption visible and to fail
-loudly when a trade list overturns it. ``docs/nt8-fidelity.md`` §M23.
+Diffed leg-for-leg against an MNQ 03-24 Strategy Analyzer export, which **overturned three of
+the four rules the port had to infer** -- ``docs/nt8-fidelity.md``, "Reconciliation result --
+InsideBarTrailing". The tests that pin those three name the measurement, because each was
+plausible in both directions until the trade list decided.
 
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
@@ -26,7 +25,7 @@ FAR_ATR = 40.0
 """An ATR large enough that the bracketed lot's stop and target never bind, so a test about
 the trailing lot is about the trailing lot."""
 
-FAR_TRAIL = 4.0
+FAR_TRAIL = 10.0
 """And a trail wide enough not to bind on :data:`QUIET` bars, for the mirror-image reason."""
 
 
@@ -43,6 +42,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
     quantities=(4, 2),
     atr_multiplier=1.0,
     trail_multiplier=FAR_TRAIL,
+    loss_gate=0.0,
     slippage=0.0,
     commission=0.0,
     instrument=MNQ,
@@ -55,7 +55,9 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
     """Simulate hand-written OHLC rows.
 
     ``ema`` and ``fast_sma`` take a scalar or a per-bar sequence and default equal, which is the
-    one relationship the trend-violation exit never fires on for either side.
+    one relationship the trend-violation exit never fires on for either side. ``loss_gate``
+    defaults **off**, unlike the NinjaScript's $200, so a test about the trend violation does
+    not also have to engineer a large loss; the gate has its own tests below.
     """
     arr = np.asarray(rows, dtype=np.float64)
     o, h, low, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -93,6 +95,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
         instrument.point_value,
         atr_multiplier,
         trail_multiplier,
+        loss_gate,
         commission,
         slippage,
         bars_required,
@@ -117,8 +120,20 @@ FLAT = (100.0, 100.5, 99.5, 100.0)
 
 QUIET = [FLAT] * 8
 
+# Bar 3 stops the runner out, leaving the bracketed lot for the trend violation to flatten.
+PARTIAL = [
+    FLAT,  # 0: inside bar, range 1.0
+    FLAT,  # 1: signal
+    FLAT,  # 2: fill at 100; trail starts at 96.0 and the entry bar advances it to 96.5
+    (100.0, 100.5, 95.0, 95.5),  # 3: 95.0 <= 96.5, so the runner stops out at 96.5
+    *QUIET,
+]
+
 STOPPED_ON_ENTRY = [FLAT, FLAT, (100.0, 100.5, 90.0, 95.0), *QUIET]
 """Both lots' stops sit inside the entry bar's own range, so both close where they opened."""
+
+VIOLATED_AT_THE_CHANGE = [0.0] * 2 + [-1.0] * 10
+"""An EMA below the fast SMA from bar 2 on, which is the bar :data:`PARTIAL`'s change reads."""
 
 
 # -- the split, which is the structural change ---------------------------------
@@ -128,7 +143,8 @@ def test_one_entry_becomes_two_lots_with_their_own_exit_engines() -> None:
     """``EnterLong`` twice, ``entry1`` bracketed and ``entry2`` trailing.
 
     The whole point of the archetype: one position, two independent brackets, so a leg log
-    carries two rows per trade rather than the one ``InsideBar.cs`` produces.
+    carries two rows per trade rather than the one ``InsideBar.cs`` produces. The export agrees
+    -- 13,043 ``entry1`` rows and 13,043 ``entry2`` rows, at 4 and 2 contracts.
     """
     trades = run(QUIET, signal_at=[1])
     assert list(trades["leg"]) == [1, 2]
@@ -148,7 +164,7 @@ def test_the_trailing_lot_has_no_profit_target_at_all() -> None:
 def test_the_two_lots_carry_their_own_stops_and_their_own_planned_risk() -> None:
     trades = run(QUIET, signal_at=[1], atr=8.0, trail_multiplier=2.0)
     # The bracketed lot: one ATR beyond the inside bar's low. The trailing lot: two inside-bar
-    # ranges below the fill.
+    # ranges below the fill, which is where it starts before it trails.
     assert trades["initial_stop"].iloc[0] == pytest.approx(99.5 - 8.0)
     assert trades["initial_stop"].iloc[1] == pytest.approx(100.0 - 2.0)
     assert trades["risk_points"].iloc[0] == pytest.approx(8.5)
@@ -168,8 +184,7 @@ def test_the_split_rounds_the_bracketed_lot_up() -> None:
 # -- the trailing stop ---------------------------------------------------------
 
 # `SetTrailStop("entry2", CalculationMode.Ticks, (High[1] - Low[1]) / TickSize * mult, false)`,
-# read with the signal bar current so `[1]` is the inside bar. When it advances within a bar is
-# an assumption -- see the two tests that say so.
+# read with the signal bar current so `[1]` is the inside bar.
 
 
 def test_the_trail_distance_is_the_inside_bars_range_times_the_multiplier() -> None:
@@ -193,59 +208,76 @@ def test_the_trail_is_anchored_to_the_inside_bar_not_the_signal_bar() -> None:
     assert trades["initial_stop"].iloc[1] == pytest.approx(98.0)
 
 
-def test_the_trail_follows_the_high_water_mark_and_never_retreats() -> None:
-    rows = [
-        FLAT,  # 0: inside bar, range 1.0
-        FLAT,  # 1: signal
-        FLAT,  # 2: fill at 100; the stop starts at 99.0 and trails to 99.5
-        (100.0, 103.0, 99.6, 102.0),  # 3: new high 103, so the stop trails to 102.0
-        (102.0, 102.5, 102.1, 102.2),  # 4: a lower high must not pull the stop back down
-        (102.0, 102.5, 101.0, 101.5),  # 5: 101.0 <= 102.0, so the runner stops out here
-        *QUIET,
-    ]
-    trades = run(rows, signal_at=[1], trail_multiplier=1.0)
+def test_the_trail_advances_on_the_entry_bar_and_can_be_hit_there() -> None:
+    """**Measured.** The entry bar is the one bar the trail follows within.
+
+    ``SetTrailStop`` is submitted *during* that bar rather than resting from its open, and the
+    export shows it acting on the bar's own extreme: 22 of the 24 legs that still disagreed
+    before this rule were NT8 stopping out on the entry bar. Adding it took the reconciliation
+    from 98.42% to **99.80%** -- ``docs/nt8-fidelity.md`` §M23.
+    """
+    trades = run(QUIET, signal_at=[1], trail_multiplier=1.0)
     runner = trades[trades["leg"] == 2].iloc[0]
-    assert runner["exit_reason"] == "stop"
-    assert runner["exit_bar"] == 5
-    assert runner["exit_price"] == pytest.approx(102.0)
+    # Entry at 100.0 and the entry bar's high 100.5, so the trail advances to 99.5 and the
+    # bar's own low reaches it. Where it started, 99.0, is what the log keeps as initial_stop.
+    assert runner["initial_stop"] == pytest.approx(99.0)
+    assert runner["exit_bar"] == runner["entry_bar"] == 2
+    assert runner["exit_price"] == pytest.approx(99.5)
 
 
-def test_the_trail_cannot_be_hit_on_the_bar_that_advanced_it() -> None:
-    """**An assumption, not evidence.** The trail is bar-close cadence, like the ratchet.
+def test_after_the_entry_bar_the_trail_cannot_be_hit_on_the_bar_that_advanced_it() -> None:
+    """**Measured, and the opposite reading is worse.** A resting trail is bar-close cadence.
 
     Bar 3 makes a new high *and* trades below where that new high would put the stop, but not
-    below the level standing when the bar opened. A trail that advanced intrabar would exit
-    here; this port exits a bar later. Only a trade list settles it -- ``docs/nt8-fidelity.md``
-    §M23.
+    below the level standing when the bar opened. Advancing it within the bar here as well --
+    which is what the entry bar does -- drops the reconciliation from 99.80% to 94.04%, so the
+    two cases genuinely differ. ``docs/nt8-fidelity.md`` §M23.
     """
     rows = [
         FLAT,  # 0: inside bar, range 1.0
         FLAT,  # 1: signal
-        FLAT,  # 2: fill at 100; the stop ends this bar at 99.5
-        (100.0, 103.0, 99.6, 102.0),  # 3: would-be stop 102.0, low 99.6 -- above 99.5
-        (102.0, 102.5, 101.0, 101.5),  # 4: the advanced stop finally binds
+        FLAT,  # 2: fill at 100; trail 98.5 after the entry bar's own advance
+        (100.0, 103.0, 100.6, 102.0),  # 3: would-be stop 101.0, low 100.6 -- above 98.5
+        (102.0, 102.5, 100.5, 101.0),  # 4: the advanced stop finally binds
         *QUIET,
     ]
-    trades = run(rows, signal_at=[1], trail_multiplier=1.0)
+    trades = run(rows, signal_at=[1], trail_multiplier=2.0)
     runner = trades[trades["leg"] == 2].iloc[0]
     assert runner["exit_bar"] == 4, "the stop set at bar 3's close is not live during bar 3"
-    assert runner["exit_price"] == pytest.approx(102.0)
+    assert runner["exit_price"] == pytest.approx(101.0)
+
+
+def test_the_trail_follows_the_high_water_mark_and_never_retreats() -> None:
+    rows = [
+        FLAT,  # 0: inside bar, range 1.0
+        FLAT,  # 1: signal
+        FLAT,  # 2: fill at 100; trail 98.5
+        (100.0, 103.0, 99.6, 102.0),  # 3: new high 103, so the stop trails to 101.0
+        (102.0, 102.5, 102.1, 102.2),  # 4: a lower high must not pull the stop back down
+        (102.0, 102.5, 100.5, 101.0),  # 5: 100.5 <= 101.0, so the runner stops out here
+        *QUIET,
+    ]
+    trades = run(rows, signal_at=[1], trail_multiplier=2.0)
+    runner = trades[trades["leg"] == 2].iloc[0]
+    assert runner["exit_reason"] == "stop"
+    assert runner["exit_bar"] == 5
+    assert runner["exit_price"] == pytest.approx(101.0)
 
 
 def test_the_trail_mirrors_onto_a_shorts_low_water_mark() -> None:
     rows = [
         FLAT,  # 0: inside bar, range 1.0
         FLAT,  # 1: signal
-        FLAT,  # 2: fill at 100; the short's stop starts at 101.0 and trails to 100.5
-        (100.0, 100.4, 97.0, 98.0),  # 3: new low 97, so the stop trails down to 98.0
-        (98.0, 99.0, 97.5, 98.5),  # 4: 99.0 >= 98.0, so the runner stops out here
+        FLAT,  # 2: fill at 100; the short's trail is 99.5 + 2.0 = 101.5
+        (100.0, 100.4, 97.0, 98.0),  # 3: new low 97, so the stop trails down to 99.0
+        (98.0, 99.5, 97.5, 98.5),  # 4: 99.5 >= 99.0, so the runner stops out here
         *QUIET,
     ]
-    trades = run(rows, signal_at=[1], direction=SHORT, trail_multiplier=1.0)
+    trades = run(rows, signal_at=[1], direction=SHORT, trail_multiplier=2.0)
     runner = trades[trades["leg"] == 2].iloc[0]
     assert runner["exit_reason"] == "stop"
     assert runner["exit_bar"] == 4
-    assert runner["exit_price"] == pytest.approx(98.0)
+    assert runner["exit_price"] == pytest.approx(99.0)
 
 
 def test_the_trailing_stop_lands_on_the_tick_grid() -> None:
@@ -256,11 +288,17 @@ def test_the_trailing_stop_lands_on_the_tick_grid() -> None:
     assert stop / TICK == pytest.approx(round(stop / TICK))
 
 
+def test_the_trail_stays_off_the_grid_when_rounding_is_switched_off() -> None:
+    """The same switch that governs the target, reaching the trail at both ends of its life."""
+    trades = run(QUIET, signal_at=[1], trail_multiplier=1.3, round_targets=False)
+    assert trades["initial_stop"].iloc[1] == pytest.approx(98.7)
+
+
 def test_an_inside_bar_with_no_range_leaves_the_runner_unprotected_and_is_refused() -> None:
     """The submittability rule applied to the trail: a zero-distance stop is not a stop.
 
-    What NT8 does with ``SetTrailStop(..., 0, false)`` has never been observed, so the port
-    refuses the trade rather than running an unprotected lot -- ``docs/nt8-fidelity.md`` §M23.
+    What NT8 does with ``SetTrailStop(..., 0, false)`` is still unobserved -- the export has no
+    such trade -- so the port refuses the entry rather than running an unprotected lot.
     """
     rows = [
         (100.0, 100.0, 100.0, 100.0),  # 0: the inside bar, no range at all
@@ -284,67 +322,125 @@ def test_an_entry_whose_fixed_stop_is_already_through_the_fill_is_still_skipped(
 
 # -- the trend-violation exit, the second EXIT_SIGNAL consumer ------------------
 
-# `OnPositionUpdate` fires on **position changes**, not on every bar. Which changes NT8 counts,
-# and therefore how often this can fire, is a trade-list question -- #67.
+# `OnPositionUpdate` fires on **position changes**, and the export settled what that reaches:
+# all 303 of NT8's trend-violation exits left at the same bar and the same price as the
+# trailing lot's stop that triggered them.
 
 
-def test_a_trend_violation_at_the_entry_flattens_both_lots_at_the_next_open() -> None:
-    """``ExitLong("Exit Long Trend Violation", ...)`` for both entries, as a market order."""
-    trades = run(QUIET, signal_at=[1], ema=[0.0] * 2 + [-1.0] * 6, fast_sma=0.0)
-    assert list(trades["exit_reason"]) == ["signal", "signal"]
-    assert list(trades["exit_bar"]) == [3, 3]
-    assert list(trades["quantity"]) == [4, 2]
-    assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+def test_one_lot_leaving_flattens_the_other_at_that_same_fill() -> None:
+    """The reachable path, and the only one the export contains.
 
-
-def test_the_violation_is_not_checked_on_a_bar_where_the_position_did_not_change() -> None:
-    """The cadence trap. A per-bar check is a **different strategy** -- ``#67``.
-
-    The averages cross against the position at bar 4, with nothing entering or leaving, and
-    nothing happens. This test is the one that fails first if the port is ever "fixed" into a
-    per-bar check without a trade list to justify it.
+    Not a fresh market order on the next bar: NT8 closed the remaining lot at **the price and
+    bar the triggering exit filled at**, on every one of the 303 -- ``docs/nt8-fidelity.md``
+    §M23. Reading it as a next-bar market order costs 12 legs of the reconciliation.
     """
-    ema = [0.0] * 4 + [-1.0] * 4
-    trades = run(QUIET, signal_at=[1], ema=ema, fast_sma=0.0)
+    trades = run(PARTIAL, signal_at=[1], ema=VIOLATED_AT_THE_CHANGE, trail_multiplier=4.0)
+    runner = trades[trades["leg"] == 2].iloc[0]
+    bracketed = trades[trades["leg"] == 1].iloc[0]
+    assert runner["exit_reason"] == "stop"
+    assert bracketed["exit_reason"] == "signal"
+    assert bracketed["exit_bar"] == runner["exit_bar"] == 3
+    assert bracketed["exit_price"] == pytest.approx(runner["exit_price"])
+
+
+def test_nothing_leaving_means_no_position_change_to_check() -> None:
+    """The cadence trap. A per-bar check is a **different strategy**.
+
+    The averages cross against the position at bar 4 with nothing entering or leaving, and
+    nothing happens. This is the test that fails first if the port is ever "fixed" into a
+    per-bar check.
+    """
+    trades = run(QUIET, signal_at=[1], ema=[0.0] * 4 + [-1.0] * 4)
     assert set(trades["exit_reason"]) == {"end_of_data"}
 
 
-def test_one_lot_leaving_is_a_position_change_that_can_flatten_the_other() -> None:
-    """The reachable case: ``entry1`` takes its target, and the runner is checked at that fill."""
-    rows = [
-        FLAT,  # 0: inside bar
-        FLAT,  # 1: signal
-        FLAT,  # 2: fill at 100, target at 104
-        (100.0, 105.0, 99.6, 104.5),  # 3: the bracketed lot takes its target
-        *[(104.0, 104.5, 103.5, 104.0)] * 8,
-    ]
-    ema = [0.0] * 3 + [-1.0] * 9
-    trades = run(rows, signal_at=[1], atr=4.0, ema=ema, fast_sma=0.0)
-    bracketed = trades[trades["leg"] == 1].iloc[0]
-    runner = trades[trades["leg"] == 2].iloc[0]
-    assert bracketed["exit_reason"] == "target"
-    assert bracketed["exit_bar"] == 3
-    assert runner["exit_reason"] == "signal"
-    assert runner["exit_bar"] == 4
+def test_the_entry_fill_alone_cannot_fire_it() -> None:
+    """The entry is a position change, but nothing has left for the exit to fill alongside.
+
+    The port fired here before the export was read, which is where three quarters of its 340
+    spurious signal exits came from -- against NT8's 12 in the same window.
+    """
+    trades = run(QUIET, signal_at=[1], ema=[-1.0] * 8)
+    assert set(trades["exit_reason"]) == {"end_of_data"}
 
 
 def test_the_averages_touching_exactly_is_not_a_violation() -> None:
     """``ema[0] < smaFast[0]`` is strict on both sides, so equality holds the position."""
-    trades = run(QUIET, signal_at=[1], ema=5.0, fast_sma=5.0)
-    assert set(trades["exit_reason"]) == {"end_of_data"}
+    trades = run(PARTIAL, signal_at=[1], ema=5.0, fast_sma=5.0, trail_multiplier=4.0)
+    assert "signal" not in set(trades["exit_reason"])
+
+
+def test_the_averages_are_read_at_the_bar_before_the_fill() -> None:
+    """``OnPositionUpdate`` runs at strategy time ``i - 1``, the offset ``OnExecutionUpdate`` has.
+
+    The violation is on bar 2 only, and it still fires for the change on bar 3; a version
+    reading bar 3's averages instead would hold the position.
+    """
+    prior = [0.0, 0.0, -1.0] + [0.0] * 9
+    at_fill = [0.0, 0.0, 0.0, -1.0] + [0.0] * 8
+    assert "signal" in set(run(PARTIAL, signal_at=[1], ema=prior, trail_multiplier=4.0)["exit_reason"])
+    assert "signal" not in set(run(PARTIAL, signal_at=[1], ema=at_fill, trail_multiplier=4.0)["exit_reason"])
 
 
 def test_the_violation_mirrors_onto_a_short() -> None:
     """``ema[0] > smaFast[0]`` for a short -- the same comparison through the sign multiplier."""
-    rising = run(QUIET, signal_at=[1], direction=SHORT, ema=[0.0] * 2 + [1.0] * 6, fast_sma=0.0)
-    falling = run(QUIET, signal_at=[1], direction=SHORT, ema=[0.0] * 2 + [-1.0] * 6, fast_sma=0.0)
-    assert set(rising["exit_reason"]) == {"signal"}
-    assert set(falling["exit_reason"]) == {"end_of_data"}
+    rows = [
+        FLAT,  # 0: inside bar
+        FLAT,  # 1: signal
+        FLAT,  # 2: fill at 100; the short's trail is 99.5 + 4.0 = 103.5
+        (100.0, 105.0, 99.5, 104.5),  # 3: 105.0 >= 103.5, so the runner stops out
+        *QUIET,
+    ]
+    rising = [0.0] * 2 + [1.0] * 10
+    falling = [0.0] * 2 + [-1.0] * 10
+    kwargs = {"signal_at": [1], "direction": SHORT, "trail_multiplier": 4.0}
+    assert "signal" in set(run(rows, ema=rising, **kwargs)["exit_reason"])
+    assert "signal" not in set(run(rows, ema=falling, **kwargs)["exit_reason"])
 
 
-def test_the_signal_exit_pays_slippage_in_the_adverse_direction() -> None:
-    trades = run(QUIET, signal_at=[1], ema=[0.0] * 2 + [-1.0] * 6, slippage=2.0)
-    assert trades["exit_price"].iloc[0] == pytest.approx(100.0 - 2 * TICK)
+# -- the loss gate above both branches -----------------------------------------
+
+
+def test_the_gate_above_both_branches_holds_a_position_that_is_not_far_enough_down() -> None:
+    """``if (GetUnrealizedProfitLoss(...) > -200) return;`` sits above the trend check too.
+
+    Reading it as belonging to the dead max-loss branch beneath it is what produced 340 signal
+    exits against NT8's 12. It is the single largest correction the export made.
+    """
+    kwargs = {"signal_at": [1], "ema": VIOLATED_AT_THE_CHANGE, "trail_multiplier": 4.0}
+    assert "signal" in set(run(PARTIAL, loss_gate=0.0, **kwargs)["exit_reason"])
+    fenced = run(PARTIAL, loss_gate=200.0, **kwargs)["exit_reason"]
+    assert "signal" not in set(fenced), "a few points down is not $200 down"
+
+
+# Entry at 100.0, the runner stopped out on bar 4, and bar 3 closed five points against the
+# position -- $40 on four MNQ contracts and $400 on four NQ ones.
+GATE_SCALE = [
+    FLAT,  # 0: inside bar
+    FLAT,  # 1: signal
+    FLAT,  # 2: fill at 100; trail 90.5 after the entry bar's advance
+    (100.0, 100.5, 95.0, 95.0),  # 3: the close the gate is measured at
+    (95.0, 95.5, 90.0, 91.0),  # 4: 90.0 <= 90.5, so the runner stops out and the gate is read
+    *QUIET,
+]
+
+
+def test_the_gate_is_account_currency_so_it_binds_differently_on_the_two_roots() -> None:
+    """A currency threshold with no scaling behind it: ten times the exposure on NQ.
+
+    The hazard the NinjaScript's hardcoded ``-200`` carries, and the reason it has to reach
+    ``instruments.py`` rather than being compared against points.
+    """
+    kwargs = {
+        "signal_at": [1],
+        "ema": [0.0] * 3 + [-1.0] * 10,
+        "trail_multiplier": 10.0,
+        "loss_gate": 200.0,
+    }
+    mnq = run(GATE_SCALE, instrument=MNQ, **kwargs)
+    nq = run(GATE_SCALE, instrument=NQ, **kwargs)
+    assert "signal" not in set(mnq["exit_reason"]), "$40 down does not clear a $200 gate"
+    assert "signal" in set(nq["exit_reason"]), "$400 down does"
 
 
 # -- the shared exits, which both lots reach independently ---------------------
@@ -367,8 +463,8 @@ def test_the_entry_orders_are_cancelled_at_the_flatten_point() -> None:
 
 
 def test_a_signal_on_a_force_flat_bar_is_blocked_when_asked() -> None:
-    """``block_entry_at_session_close`` guards a *new* signal; the cancel above guards a resting
-    order. Two rules, and the flag only ever meant the first."""
+    """``block_entry_at_session_close`` guards a *new* signal; the cancel above guards a
+    resting order. Two rules, and the flag only ever meant the first."""
     assert run(QUIET, signal_at=[1], force_flat_at=[1]).empty
     assert not run(QUIET, signal_at=[1], force_flat_at=[1], block_entry_at_close=False).empty
 
@@ -377,19 +473,16 @@ def test_a_signal_while_already_in_a_position_does_not_pyramid() -> None:
     assert list(run(QUIET, signal_at=[1, 4])["entry_bar"].unique()) == [2]
 
 
-def test_the_trail_stays_off_the_grid_when_rounding_is_switched_off() -> None:
-    """The same switch that governs the target, reaching the trail at both ends of its life."""
-    trades = run(QUIET, signal_at=[1], trail_multiplier=1.3, round_targets=False)
-    assert trades["initial_stop"].iloc[1] == pytest.approx(98.7)
-
-
 @pytest.mark.parametrize(
     ("kwargs", "path"),
     [
         ({}, "the end of the data"),
         ({"force_flat_at": [4]}, "the session close, through the shared engine"),
-        ({"atr": 0.5, "trail_multiplier": 1.0, "rows": STOPPED_ON_ENTRY}, "a stop on the entry bar"),
-        ({"ema": [0.0] * 2 + [-1.0] * 6}, "the trend-violation exit"),
+        ({"rows": STOPPED_ON_ENTRY, "atr": 0.5, "trail_multiplier": 1.0}, "a stop on the entry bar"),
+        (
+            {"rows": PARTIAL, "ema": VIOLATED_AT_THE_CHANGE, "trail_multiplier": 4.0},
+            "the trend-violation exit",
+        ),
     ],
 )
 def test_the_buffer_overflowing_is_reported_rather_than_written_past(kwargs, path) -> None:
@@ -419,12 +512,16 @@ def test_the_defaults_are_not_insidebars_and_the_difference_is_not_cosmetic() ->
 def test_the_max_loss_branch_is_dead_and_may_not_be_switched_on() -> None:
     """``MaximumLossPerTrade`` defaults to 0 and its own branch requires it > 0.
 
-    Enabling it means a currency amount, which has to go through ``instruments.py`` before it
-    can mean the same thing on NQ and MNQ -- ``docs/nt8-fidelity.md`` §M23.
+    The export confirms it: not one ``Exit Long/Short Max Loss`` row in 26,086. Enabling it
+    means a currency amount, which has to go through ``instruments.py`` first.
     """
     assert InsideBarTrailingParams().maximum_loss_per_trade == 0.0
     with pytest.raises(ValueError, match="unreachable in the NinjaScript"):
         InsideBarTrailingParams(maximum_loss_per_trade=200.0)
+
+
+def test_the_loss_gate_defaults_to_the_ninjascripts_hardcoded_amount() -> None:
+    assert InsideBarTrailingParams().position_update_loss_gate == 200.0
 
 
 @pytest.mark.parametrize(
@@ -434,6 +531,7 @@ def test_the_max_loss_branch_is_dead_and_may_not_be_switched_on() -> None:
         ({"partial_take_profit_percentage": 0.95}, r"must be in \[0, 0.9\]"),
         ({"partial_take_profit_percentage": -0.1}, r"must be in \[0, 0.9\]"),
         ({"trailing_stop_multiplier": 0.5}, "must be >= 1"),
+        ({"position_update_loss_gate": -1.0}, "loss magnitude"),
         ({"partial_take_profit_percentage": 0.0}, "lot of zero contracts"),
     ],
 )
@@ -502,7 +600,8 @@ def test_the_entry_is_insidebars_and_not_a_second_copy_of_it() -> None:
     """One entry rule, two sets of defaults -- the reason the params class subclasses.
 
     Given the same values for every field the entry reads, the two archetypes must produce the
-    same signal array bar for bar; a forked entry would drift silently.
+    same signal array bar for bar; a forked entry would drift silently. The export's 100.00%
+    entry-price agreement is the same claim measured against NT8.
     """
     trailing = signalling(error_margin=0.01, no_entry_minutes_before_close=60)
     plain = InsideBarParams(
@@ -526,8 +625,12 @@ def test_the_larger_error_margin_refuses_a_break_the_smaller_one_takes() -> None
 
 
 def test_a_run_produces_a_valid_leg_log_on_both_instruments() -> None:
-    """Everything monetary goes through ``instruments.py``: same geometry, ten times the P&L."""
-    params = signalling(atr_multiplier=2.0)
+    """Everything monetary goes through ``instruments.py``: same geometry, ten times the P&L.
+
+    The loss gate is off here, because it is the one rule that deliberately does *not* scale --
+    that is pinned by the two-root gate test above.
+    """
+    params = signalling(atr_multiplier=2.0, position_update_loss_gate=0.0)
     bars = frame([*BREAKOUT, (115.0, 116.0, 114.0, 115.0), *[(116.0, 117.0, 115.0, 116.0)] * 3])
     data = prepared(bars, params)
 
@@ -544,10 +647,9 @@ def test_a_run_produces_a_valid_leg_log_on_both_instruments() -> None:
 # -- the registry --------------------------------------------------------------
 
 
-def test_the_archetype_is_registered_and_claims_no_ninjatrader_evidence() -> None:
-    """``TIER1_ONLY`` until a trade list settles the trail and the exit cadence -- ``#67``."""
+def test_the_archetype_is_registered_and_carries_its_reconciliation() -> None:
     assert archetypes.get("InsideBarTrailing") is archetypes.INSIDEBARTRAILING
-    assert archetypes.INSIDEBARTRAILING.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.INSIDEBARTRAILING.tier2 is Tier2Status.RECONCILED
     assert archetypes.for_params(InsideBarTrailingParams()) is archetypes.INSIDEBARTRAILING
     assert archetypes.for_params(InsideBarParams()) is archetypes.INSIDEBAR
 

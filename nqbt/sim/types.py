@@ -710,6 +710,14 @@ class InsideBarTrailingParams(InsideBarParams):
     trailing_stop_multiplier: float = 5.0
     """Multiples of the inside bar's range the trailing stop follows the high-water mark by."""
 
+    position_update_loss_gate: float = 200.0
+    """How far under water the open position must be before ``OnPositionUpdate`` acts at all.
+
+    The NinjaScript's hardcoded ``-200``, which has no property behind it and sits **above**
+    both exit branches -- so it gates the live trend violation, not just the dead max-loss
+    check. **Account currency, so it means ten times the move on MNQ that it means on NQ**;
+    it reaches ``instruments.py``'s point value in the loop. ``docs/nt8-fidelity.md`` §M23."""
+
     maximum_loss_per_trade: float = 0.0
     """Dead in the NinjaScript and refused at anything else here -- ``docs/nt8-fidelity.md``
     §M23. Enabling it needs a currency amount routed through :mod:`nqbt.instruments`."""
@@ -727,6 +735,12 @@ class InsideBarTrailingParams(InsideBarParams):
             msg = (
                 f"partial_take_profit_percentage must be in [0, {MAX_PARTIAL_SHARE}], got "
                 f"{self.partial_take_profit_percentage}; NT8 caps it with Range(0, {MAX_PARTIAL_SHARE})"
+            )
+            raise ValueError(msg)
+        if self.position_update_loss_gate < 0.0:
+            msg = (
+                f"position_update_loss_gate is a loss magnitude and must be >= 0, got "
+                f"{self.position_update_loss_gate}"
             )
             raise ValueError(msg)
         if self.trailing_stop_multiplier < 1.0:

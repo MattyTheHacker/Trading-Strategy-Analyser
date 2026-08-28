@@ -972,10 +972,19 @@ rule-driven exit, so the semantics M18 wrote down — a managed market exit fill
 bar's open, taking precedence over the brackets — finally have something to be reconciled
 against. The structural test that pinned single use now pins the set, both halves.
 
-**Two rules are assumptions and the archetype is `TIER1_ONLY` because of them**: when a trail
-stop advances within a bar, and which position changes `OnPositionUpdate` counts. Both are
-one-run questions belonging on [#67], and neither may be treated as settled by any result this
-archetype produces in the meantime.
+**Its trade list overturned three of the four exit rules the port inferred**, and the port was
+written to be checked rather than trusted: the two questions it turned on were on [#67] *before*
+the code existed. What moved, in the order the corrections landed — the `-200` gate governing
+the trend violation and not just the dead branch under it, `OnPositionUpdate`'s one-bar offset,
+the exit being part of the triggering fill, and a trail advancing within its entry bar but not
+within any later one — is in [nt8-fidelity.md](nt8-fidelity.md), "Reconciliation result —
+InsideBarTrailing". Agreement went 80.18% → 99.80% across those four.
+
+**The generalisation worth keeping: a guard clause belongs to the method, not to the branch
+below it.** Reading `if (pnl > -200) return;` as part of the max-loss check under it is what
+produced 340 spurious signal exits against NT8's 12 — a plain misreading of C# scope, made
+easy by the ticket describing the two together, and invisible to every test written from the
+same misreading. Only the trade list caught it.
 
 ### M19 — squeeze breakout ([#51])
 

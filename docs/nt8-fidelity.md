@@ -603,13 +603,13 @@ this reconciliation from 942/947 to 943/947 and leaves the DeadCatBounce and Pul
 reconciliations above bit-for-bit unchanged — see "The session end is the observed last bar,
 not the template's".
 
-### M23 — the InsideBarTrailing rules, and the two only a trade list can settle
+### M23 — the InsideBarTrailing rules
 
 `InsideBarTrailing.cs` shares `InsideBar.cs`'s entry and replaces its single bracket with three
-exit mechanisms the simulation did not have. **Nothing below has been diffed against a trade
-list**, so unlike §M22 this section is a reading of C# and not evidence about NT8;
-`Archetype.tier2` is `TIER1_ONLY` and the two rules that reflection genuinely cannot settle are
-marked as such and belong on #67's list.
+exit mechanisms the simulation did not have. Every rule below has been diffed against a
+Strategy Analyzer trade list — "Reconciliation result — InsideBarTrailing" below — and **that
+list overturned three of the four the port had inferred**, which is the argument for
+reconciling each archetype rather than trusting a shared engine because the last one passed.
 
 **The entry is InsideBar's, and it is shared rather than copied.** Same inside bar, same mother
 bar, same three strict moving-average gates, same market-on-next-open — so
@@ -617,7 +617,8 @@ bar, same three strict moving-average gates, same market-on-next-open — so
 `insidebar_signal`. What differs is four defaults, and one of them is not a tweak:
 `ErrorMargin = 0.1` against `0.01` is **ten times the breakout buffer** and a materially
 different strategy. The others are `SmaSlowPeriod 125` against `200`, `OrderQuantity 6` against
-`4`, and the one-hour session-end guard, which this script simply does not have.
+`4`, and the one-hour session-end guard, which this script simply does not have. Entry price
+agreed with NT8 on **100.00%** of joined legs, so the sharing is verified rather than assumed.
 
 **The position is split across two entry orders with different exit engines.**
 
@@ -630,15 +631,17 @@ secondLotQuantity = OrderQuantity - firstLotQuantity;                           
 all. With `StopTargetHandling.PerEntryExecution` that is two brackets over one position rather
 than one bracket with two legs, which is exactly how the port resolves it: one call to
 `resolve_brackets` per lot per bar, each with its own stop, target and planned risk, and the
-shared engine unchanged. The structural argument for that shape rather than a generalised
-`bracket.py`: [`roadmap.md`](roadmap.md) §M23.
+shared engine unchanged. The export carries 13,043 `entry1` rows and 13,043 `entry2` rows at 4
+and 2 contracts, so the split itself needed no inference. The structural argument for that shape
+rather than a generalised `bracket.py`: [`roadmap.md`](roadmap.md) §M23.
 
 **Both lots are bracketed off the same fill, from the same two bars as InsideBar's.**
-`OnExecutionUpdate` runs with the signal bar current, so the ATR it reads at `[0]` is the signal bar's
-and `High[1] - Low[1]` is the **inside** bar's range — the indexing §M22 established leg-for-leg
-against a trade list, inherited here rather than re-derived.
+`OnExecutionUpdate` runs with the signal bar current, so the ATR it reads at `[0]` is the signal
+bar's and `High[1] - Low[1]` is the **inside** bar's range — the indexing §M22 established
+leg-for-leg, inherited here rather than re-derived, and confirmed by the trail distances
+matching.
 
-**The trailing stop is not the ratchet, and its cadence is an assumption.**
+#### The trailing stop, and the two cadences that are not the same cadence
 
 ```csharp
 double trailingStopDistance = (High[1] - Low[1]) / TickSize * TrailingStopMultiplier;
@@ -650,101 +653,142 @@ offset; an NT8 trail stop follows the **high-water mark** by a fixed tick distan
 rule, different failure modes. The distance is a tick count in the C#, so the port computes it
 as one and converts back rather than multiplying the range directly.
 
-Two things about it are **not** established, and must not be read as though they were:
+**A resting trail advances at the bar close, so it cannot be hit on the bar that set it.**
+Advancing it within the bar everywhere drops agreement from 99.80% to **94.04%**, so this is
+measured rather than assumed — and it matches the ratchet's cadence, which is the one thing the
+port did guess right.
 
-- **When the level advances within a bar.** The port advances it at the **bar close**, from the
-  high-water mark through that bar, so the new level is live from the next bar — the same
-  cadence as the ratchet, and the one consistent with bar-close OHLC fills.
-- **Whether it can be hit on the same bar it advances.** Under the cadence above it cannot.
-
-Both are one-run questions in Strategy Analyzer with a Trades export, and until one is run they
-are the reason this archetype is `TIER1_ONLY`. `tests/test_insidebartrailing_sim.py` pins each
-of them by name so that a trade list overturning either fails a test rather than shifting a
-number quietly.
+**The entry bar is the exception, and it advances within.** `SetTrailStop` is submitted *during*
+that bar rather than resting from its open, and the export shows it acting on that bar's own
+extreme: **22 of the 24 legs** that still disagreed under a uniform bar-close cadence were NT8
+stopping out on the entry bar. Every one of the four cases inspected by hand is explained
+exactly — for a short entered at 17484.50 with a 22.50 distance, NT8 exited at 17491.00, which
+is the entry bar's low of 17468.50 plus 22.50 to the tick. Adding the entry-bar advance took the
+reconciliation from 98.42% to **99.80%**.
 
 **A trail distance under one tick refuses the trade.** The submittability rule — "a stop at or
-through the price it protects is not a stop order" — applied to the trailing lot, which is
-reachable only when the inside bar has no range at all. What NT8 does with
-`SetTrailStop(..., 0, false)` has never been observed, so the port declines the entry rather than
-running a lot with no protective order behind it. That is the conservative reading, not a
-measurement.
+through the price it protects is not a stop order" — applied to the trailing lot, reachable only
+when the inside bar has no range at all. The export contains no such trade, so what NT8 does
+with `SetTrailStop(..., 0, false)` is still unobserved; the port declines the entry rather than
+running a lot with no protective order behind it. That one is still the conservative reading
+rather than a measurement.
 
-**The trend-violation exit is the second `EXIT_SIGNAL` consumer, and its cadence is the trap.**
+#### The `-200` gate sits above **both** branches, and the trend violation is beneath it
 
 ```csharp
+if (marketPosition == MarketPosition.Flat) return;
+if (position.GetUnrealizedProfitLoss(PerformanceUnit.Currency, Close[0]) > -200) return;
+if (... < -MaximumLossPerTrade && MaximumLossPerTrade > 0) { /* max loss - dead */ }
 if (position.MarketPosition == MarketPosition.Long && (ema[0] < smaFast[0]))
     ExitLong("Exit Long Trend Violation", "entry1");   // and "entry2"
 ```
 
-It lives in `OnPositionUpdate`, which fires on **position changes** — not on every bar. Porting
-it as a per-bar check would be a different and much busier strategy, so the port fires it only
-where the position actually changed: at the entry fill, and when one lot leaves while the other
-is still open. The comparison is strict, so `ema == smaFast` holds the position, and it
-generalises through the sign multiplier rather than as two branches. The fill is the next bar's
-open, which is §M18's rule for a managed market exit and the only `EXIT_SIGNAL` semantics the
-project has.
+**This was the single largest correction the export made.** Reading the hardcoded `-200` as
+belonging to the max-loss branch beneath it — which is how it reads if you start from that
+branch — leaves the trend violation ungated, and the port fired it **340 times** in the
+reconciliation window against NT8's **12**. It is an early return at the top of the method, so
+the trend violation cannot fire until the open position is at least $200 down at `Close[0]`.
 
-**Which position changes NT8 counts is a trade-list question**, on #67's list alongside the
-trail's cadence. This is the first chance to check a signal exit against real C# at all —
-EmaCrossover, the only other producer, has no NinjaScript to be checked against.
+It is a **currency amount on the whole open position with no scaling behind it**, so it means
+ten times the price move on MNQ that it means on NQ. It therefore goes through
+`instruments.py`'s point value like every other monetary figure, and `position_update_loss_gate`
+carries it as a parameter because the C# will not.
 
-**The max-loss exit is dead, and the port reproduces that rather than fixing it.**
+#### The trend-violation exit, the second `EXIT_SIGNAL` consumer
 
-```csharp
-if (position.GetUnrealizedProfitLoss(...) > -200) return;
-if (... < -MaximumLossPerTrade && MaximumLossPerTrade > 0) { ... }
+**It fires only where the position actually changed, and only where something is left to sell.**
+`OnPositionUpdate` fires on position changes rather than on every bar; porting it as a per-bar
+check would be a different and much busier strategy. The entry fill is a position change, but
+with both lots just opened there is nothing for the exit to fill alongside — and the gate above
+would block it anyway, since a fresh position is not $200 down. In the whole export the trigger
+was **the trailing lot's stop, 303 times out of 303**.
+
+**The remaining lot leaves at the price and bar the triggering fill did** — the same fill event,
+not a market order on the next bar. All 303 of NT8's trend-violation exits share their sibling's
+exit time and exit price exactly. Reading it as a next-bar market order, which is what §M18's
+`EXIT_SIGNAL` rule would suggest, costs 12 legs; that rule describes an exit decided in
+`OnBarUpdate` at a bar close, and this one is not.
+
+**The averages are read at strategy time `i - 1`**, the same one-bar offset `OnExecutionUpdate`
+has, and the comparison is strict, so `ema == smaFast` holds the position. It generalises
+through the sign multiplier rather than as two branches.
+
+#### The max-loss exit is dead, and the export confirms it
+
+`MaximumLossPerTrade` defaults to `0`, so `< -MaximumLossPerTrade && MaximumLossPerTrade > 0`
+can never be true. **Not one `Exit Long/Short Max Loss` row appears in the export's 26,086**, so
+this is now a measurement rather than a reading of the C#. The port carries the reconciled
+behaviour the way `PullBackAndGoParams` reproduces its reconciled configuration:
+`maximum_loss_per_trade` exists, defaults to `0.0`, and raises on anything else. Enabling it
+means a second currency threshold, and it would have to go through `instruments.py` exactly as
+the gate above does.
+
+### Reconciliation result — InsideBarTrailing (#127)
+
+Source: **MNQ 03-24, 1-minute, an NT8 Strategy Analyzer export of 26,086 legs** at
+`SetDefaults`, reconciled over **2023-12-14 → 2024-03-15** — the same instrument, series and
+window as §M22's, changing only the strategy, so a difference between the two reconciliations is
+attributable to the exit model rather than to the data.
+
+| field | agreement |
+|---|---|
+| entry price | 100.00% |
+| exit price | 99.80% |
+| exit time | 99.93% |
+| exit reason | 100.00% |
+| net P&L | 99.80% |
+| **identical everywhere** | **1,517 of 1,520 — 99.80%** |
+
+Net P&L over the joined legs: NT8 −8,947.00 against nqbt −8,921.00. Reproduce it with the export
+in place:
+
+```bash
+./.venv/Scripts/python.exe tools/reconcile_nt8.py \
+  verification/nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing.csv \
+  InsideBarTrailing "MNQ 03-24" 2023-12-14
 ```
 
-`MaximumLossPerTrade` defaults to `0`, so the second condition can never be true and the branch
-never runs. The hardcoded `-200` above it is a currency amount with no parameter behind it and
-no scaling, so it means ten times the exposure on NQ that it means on MNQ. The port carries the
-**reconciled** behaviour, which is "this never fires", the way `PullBackAndGoParams` reproduces
-its reconciled configuration rather than its NinjaScript's: `maximum_loss_per_trade` exists,
-defaults to `0.0`, and raises on anything else. Enabling it means a currency threshold, and a
-currency threshold has to go through `instruments.py` before it means the same thing on both
-roots.
+**What this settled**, in the order the corrections landed: that the `-200` gate governs the
+trend violation and not just the dead branch under it (80.18% → 97.23%); that `OnPositionUpdate`
+runs at the same one-bar offset `OnExecutionUpdate` does (→ 97.63%, and exit reason to 100.00%);
+that the exit it submits is part of the triggering fill rather than a next-bar market order
+(→ 98.42%); and that a trail advances within its entry bar but not within any later one
+(→ 99.80%). `Archetype.tier2` is `RECONCILED`.
 
-**What a reconciliation of it will have to hold fixed.** Everything is `SetDefaults` unchanged —
-there is no wall-clock rule here to disable, because the script has no session-end guard, so
-`tools/reconcile_nt8.py`'s `CONFIGS["InsideBarTrailing"]` is a bare `InsideBarTrailingParams()`.
-The questions to put to the export, in order of what they would move: the trail's within-bar
-cadence, `OnPositionUpdate`'s firing set, and whether a zero-distance trail is refused or
-ignored.
+**The residual is three legs, all leg-1 targets off by a tick or two** — the same class of
+residual InsideBar's reconciliation carries, and small enough that chasing it would be fitting
+noise. There are 6 NT8-only and 10 nqbt-only legs at the window edges.
 
-**The export settings, so the run is reproducible and comparable to InsideBar's.** Same
-instrument, series and window as the M22 export, changing only the strategy — which is what
-makes a difference between the two reconciliations attributable to the exit model rather than to
-the data.
+**The two open questions it closed were #67's.** Both were added there before the port was
+written, precisely because reflection cannot answer them; both are now answered by measurement
+rather than by argument.
+
+#### How the export was produced
+
+Same settings as §M22's, changing only the strategy.
 
 | Strategy Analyzer setting | value |
 |---|---|
 | Strategy | `InsideBarTrailing`, every parameter left at `SetDefaults` |
 | Instrument | `MNQ 03-24` |
-| Data series | 1 minute, `Last`, session template **CME US Index Futures ETH** |
-| From → To | `2020-01-02` → `2024-03-15`, the same request M22 used |
+| Data series | 1 minute, `Last`, `<Use instrument settings>` — the ETH template |
+| From → To | `2020-01-02` → `2024-03-15` |
 | Order fill resolution | Standard — the script sets it, do not raise it to High |
 | Slippage | 0 ticks |
-| Commission | none, and no clearing/exchange/NFA fee template |
+| Commission | none, and no fee template |
 | Min. bars required | 5, which `BarsRequiredToTrade` already sets |
 
 Export via **Trades → right-click → Export**, not the Summary tab: summary statistics hide fill
-semantics, which is the only thing this run is for. Then, with the file in place:
-
-```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py   verification/nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing.csv   InsideBarTrailing "MNQ 03-24" 2023-12-14
-```
+semantics, which is the only thing this run is for.
 
 **The request runs to 2020 and the reconciliation starts at 2023-12-14 on purpose.** NT8 serves
 its *merged* series for a contract before that contract's own bars begin, which a per-contract
-archive cannot reproduce — the trailing date argument trims the export to the front-month window
-where 100% of M22's entries landed exactly on a bar's open.
+archive cannot reproduce — the trailing date argument trims the export to the front-month window.
 
-**Three exit names are new, and one is deliberately unmapped.** `Trail stop` maps to `stop` and
+**Three exit names are new, and two are deliberately unmapped.** `Trail stop` maps to `stop` and
 both `Exit Long/Short Trend Violation` map to `signal`. `Exit Long/Short Max Loss` is **not**
-mapped: that branch is unreachable at `MaximumLossPerTrade = 0`, so an export carrying one
-falsifies the reading above and must stop the run rather than be counted as agreement. NT8 names
-each of these from the C#'s own signal string, so if the export disagrees the parser says which
-name it did not know and the fix is one line against a file that already exists.
+mapped: that branch is unreachable, so an export carrying one falsifies the reading above and
+must stop the run rather than be counted as agreement.
 
 ### The session end is the observed last bar, not the template's (#68)
 

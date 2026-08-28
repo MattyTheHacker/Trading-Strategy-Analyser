@@ -98,9 +98,18 @@ below and is what you quote; this file is the index, not the record.
   engine takes one stop for the whole position exactly as it always has. Deliberate: the
   abstraction gets extracted when a second archetype needs it. `docs/roadmap.md` §M23.
 - **A trailing stop is not the ratchet.** It follows the high-water mark by a fixed distance;
-  the ratchet moves to a lagged bar's extreme. Its within-bar cadence and `OnPositionUpdate`'s
-  firing set are **assumptions, not evidence** — both on #67, and both the reason
-  InsideBarTrailing is `TIER1_ONLY`. `docs/nt8-fidelity.md` §M23.
+  the ratchet moves to a lagged bar's extreme. **It advances within its entry bar and at the
+  close of every bar after**, which is two cadences and not one — a uniform within-bar rule
+  costs 5.8 points of agreement. `docs/nt8-fidelity.md` §M23.
+- **A C# guard clause belongs to its method, not to the branch below it.** `if (pnl > -200)
+  return;` at the top of `OnPositionUpdate` gates InsideBarTrailing's *trend violation* as well
+  as the dead max-loss check under it; reading it as the max-loss branch's own fired the exit
+  340 times against NT8's 12. It is a **currency** amount, so it goes through `instruments.py`.
+  `docs/nt8-fidelity.md` §M23.
+- **An exit submitted from `OnPositionUpdate` is part of the triggering fill**, taking its bar
+  and its price — not a market order at the next bar's open, which is §M18's rule for an exit
+  decided in `OnBarUpdate`. Two different `EXIT_SIGNAL` semantics, and the archetype says which.
+  `docs/nt8-fidelity.md` §M23.
 - **`PullBackAndGoParams`'s defaults reproduce the reconciled configuration, not the
   NinjaScript's** — `PullBackAndGo.cs` leaves seven properties uninitialised in `SetDefaults`.
   `use_vwap` stays off: nothing has checked nqbt's VWAP against `OrderFlowVWAP`.
