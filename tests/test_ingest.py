@@ -255,11 +255,59 @@ def test_discover_exports_finds_and_parses_contract_names(tmp_path) -> None:
     for name in ["MNQ 03-24.Last.txt", "NQ 12-25.Last.txt", "notes.txt", "junk.Last.txt"]:
         (data_dir / name).write_text("", encoding="utf-8")
 
-    found = ingest.discover_exports(data_dir)
+    found = ingest.discover_exports(data_dir).exports
     assert {c.nt8_name for c in found} == {"MNQ 03-24", "NQ 12-25"}
 
-    mnq_only = ingest.discover_exports(data_dir, root="mnq")
+    mnq_only = ingest.discover_exports(data_dir, root="mnq").exports
     assert {c.nt8_name for c in mnq_only} == {"MNQ 03-24"}
+
+
+def test_discover_exports_reports_names_it_cannot_place(tmp_path) -> None:
+    """An export whose name will not parse must be reported, not silently dropped."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    for name in ["MNQ 03-24.Last.txt", "NG 02-26.Last.txt", "junk.Last.txt", "notes.txt"]:
+        (data_dir / name).write_text("", encoding="utf-8")
+
+    scan = ingest.discover_exports(data_dir)
+    assert {c.nt8_name for c in scan.exports} == {"MNQ 03-24"}
+    assert {skip.path.name for skip in scan.skipped} == {"NG 02-26.Last.txt", "junk.Last.txt"}
+
+    reasons = {skip.path.name: skip.reason for skip in scan.skipped}
+    assert "unknown root 'NG'" in reasons["NG 02-26.Last.txt"]
+    assert "cannot parse contract name" in reasons["junk.Last.txt"]
+
+
+def test_a_skipped_export_is_still_reported_when_filtered_to_one_root(tmp_path) -> None:
+    """The root filter narrows what ingests; it must not narrow what is reported."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    for name in ["MNQ 03-24.Last.txt", "NQ 12-25.Last.txt", "NG 02-26.Last.txt"]:
+        (data_dir / name).write_text("", encoding="utf-8")
+
+    scan = ingest.discover_exports(data_dir, root="MNQ")
+    assert {c.nt8_name for c in scan.exports} == {"MNQ 03-24"}
+    assert [skip.path.name for skip in scan.skipped] == ["NG 02-26.Last.txt"]
+
+
+def test_ingest_all_returns_the_files_it_skipped(export, cache) -> None:
+    (export.parent / "NG 02-26.Last.txt").write_text("", encoding="utf-8")
+
+    _, results, skipped = ingest.ingest_all(data_dir=export.parent, cache_dir=cache)
+
+    assert [r.contract.nt8_name for r in results] == ["MNQ 03-24"]
+    assert [skip.path.name for skip in skipped] == ["NG 02-26.Last.txt"]
+    assert "unknown root 'NG'" in skipped[0].reason
+
+
+def test_ingest_all_names_the_skipped_files_when_none_are_ingestable(tmp_path) -> None:
+    """A folder of misnamed exports must not report only that it found nothing."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "NG 02-26.Last.txt").write_text("", encoding="utf-8")
+
+    with pytest.raises(ingest.IngestError, match="skipped NG 02-26.Last.txt"):
+        ingest.ingest_all(data_dir=data_dir, cache_dir=tmp_path / "cache")
 
 
 def test_ingest_all_reports_when_nothing_is_found(tmp_path) -> None:

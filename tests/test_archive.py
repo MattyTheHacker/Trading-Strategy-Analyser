@@ -171,7 +171,7 @@ def test_ingest_reads_the_archive_and_sees_both_sources(dirs, tmp_path) -> None:
     write(manual / "MNQ 03-24.Last.txt", BASE)
     write(addon / "MNQ 03-24.Last.txt", [early, *BASE])
 
-    merges, results = ingest.ingest_all(
+    merges, results, _ = ingest.ingest_all(
         sources=[manual, addon],
         archive_dir=arch,
         cache_dir=tmp_path / "cache",

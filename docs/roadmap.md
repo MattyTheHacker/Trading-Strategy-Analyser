@@ -2465,6 +2465,21 @@ and commission, where the classic form reverses in one order. That is a real dif
 published crossover results and belongs in any comparison against them.
 See [#13].
 
+**Contract validity is the instrument registry's answer** ([#69]). Whether a file in `data/archive/` names a contract used to be decided in three places, and the one that fired first was the one least related to whether the thing is tradeable here. `ContractId.__post_init__` checked the month against a module-level quarterly set; the root was never checked at all. So `NG 02-26` was rejected for **being February**, not for being natural gas — and `NG 03-26` passed every gate, was cached under `cache/bars/NG/`, and failed only much later at `contract.instrument`, as a `KeyError`, at the point something asked for its money spec.
+
+Validity is now one question asked of `INSTRUMENTS`: the root must be a registered `Instrument`, and the month must be one that root's `contract_months` lists. `MONTH_CODES` carries all twelve CME letters, because `cache_key` needs them regardless, and the *listed* cycle moved onto the instrument where it varies — the equity index roots list `HMUZ`, gold `GJMQVZ`, silver `FHKNUZ`, crude all twelve. Adding a root is one `Instrument(...)` entry and nothing else.
+
+ES, GC, SI and CL are registered on that basis, together with the micro beside each full-size root — MES, MGC, SIL and MCL. Each entry's `tick_size` × `point_value` reproduces the tick value CME publishes — $12.50, $10.00, $25.00 and $10.00 full-size, $1.25, $1.00, $5.00 and $1.00 micro — which cross-checks both figures at once, and `tests/test_instruments.py` pins them.
+
+**Micros are registered explicitly, not derived, and silver is why.** The obvious rule is "prefix M, divide the point value by ten", and it holds for four of the five pairs. Micro silver is **SIL**, not MSI, and it is 1,000 troy ounces against SI's 5,000 — a fifth, not a tenth. A derived registry would therefore have produced a symbol nothing exports under *and* a silver point value **2× too large**, in the one place every dollar figure in the project is obliged to route through. The tick *size* is genuinely shared within each pair, which is what makes the pairs look derivable in the first place. `test_a_micro_cannot_be_derived_from_its_full_size_root` exists to stop the registry being "simplified" into that rule later.
+
+A root may also carry a digit now (`M2K`, `6E`). The regex was letters-only, so those failed with "cannot parse contract name" — a parse error standing in front of the real answer. Which roots exist is the registry's question, and the regex should not be answering a different one.
+
+**The registry is deliberately ahead of the rest of the system.** Registering a root makes its exports nameable and its dollars convertible; it does not make it tradeable here. Two known gaps, neither closed:
+
+- `Instrument.session_template` is a bare `str` that nothing resolves — `SessionTemplate` is threaded through `sessions`, `resample` and `randomentry` as an argument with the index-ETH default instead. Nothing diverges today, because the Globex ETH window is 18:00–17:00 ET for equity index, metals and energy alike, but the field must be wired from NT8's Data Series window before anything consumes it.
+- The $1.50 round-turn commission is an index-futures figure and does not transfer. Costs are per-caller and default to zero, so this is the standing free-money trap rather than a new one.
+
 **Roll dates need no reconciliation against NT8.** All 18 MNQ roll dates moved when the archive
 made volume crossovers detectable, which raised whether Tier 1 and Tier 2 still agree across a
 roll. Decided: not worth chasing. NT8 merges contracts on the rollover dates **configured in its
@@ -2611,6 +2626,7 @@ default is now known to be right for this machine.
 [#66]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/66
 [#67]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/67
 [#68]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/68
+[#69]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/69
 [#71]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/71
 [#72]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/72
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73

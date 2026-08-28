@@ -112,6 +112,26 @@ class IngestResult:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class SkippedExport:
+    """An export-shaped file whose name is not a contract this project ingests."""
+
+    path: Path
+    reason: str
+
+    @override
+    def __str__(self) -> str:
+        return f"{self.path.name}: {self.reason}"
+
+
+@dataclass(frozen=True, slots=True)
+class ExportScan:
+    """What one export folder holds, split into what ingests and what does not."""
+
+    exports: dict[ContractId, Path]
+    skipped: list[SkippedExport]
+
+
 class IngestError(RuntimeError):
     """Raised when a raw export cannot be parsed into usable bars."""
 
@@ -250,19 +270,25 @@ def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
 # -- ingestion ----------------------------------------------------------------
 
 
-def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None) -> dict[ContractId, Path]:
-    """Find raw exports, keyed by contract, optionally filtered to one root symbol."""
+def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None) -> ExportScan:
+    """Find raw exports, keyed by contract, optionally filtered to one root symbol.
+
+    A file whose name is not a contract this project ingests is reported in
+    :attr:`ExportScan.skipped`, never dropped silently.
+    """
     found: dict[ContractId, Path] = {}
+    skipped: list[SkippedExport] = []
     for path in sorted(data_dir.glob("*.Last.txt")):
         name: str = path.name.removesuffix(".Last.txt")
         try:
             contract: ContractId = ContractId.parse(name)
-        except ValueError:
+        except ValueError as exc:
+            skipped.append(SkippedExport(path, str(exc)))
             continue
         if root is not None and contract.root != root.upper():
             continue
         found[contract] = path
-    return found
+    return ExportScan(found, skipped)
 
 
 def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> Path:
@@ -401,12 +427,13 @@ def ingest_all(
     cache_dir: Path = paths.CACHE_DIR,
     root: str | None = None,
     force: bool = False,
-) -> tuple[list[archive.MergeResult], list[IngestResult]]:
+) -> tuple[list[archive.MergeResult], list[IngestResult], list[SkippedExport]]:
     """Refresh the archive from every source, then ingest it.
 
     The archive step is not optional by default, so it cannot be skipped by forgetting it.
     ``data_dir`` bypasses it and ingests one folder directly, for inspecting a single export in
-    isolation; **not the normal path**.
+    isolation; **not the normal path**. The third return is every file the scan could not
+    place, so a misnamed export is reported rather than lost.
     """
     manifest_path: Path = cache_dir / "manifest.json"
     manifest: dict[str, ContractManifest] = load_manifest(manifest_path)
@@ -416,16 +443,18 @@ def ingest_all(
         merges = archive.build_archive(sources, archive_dir, root=root)
         data_dir = archive_dir
 
-    exports: dict[ContractId, Path] = discover_exports(data_dir, root=root)
-    if not exports:
+    scan: ExportScan = discover_exports(data_dir, root=root)
+    if not scan.exports:
         target: str = f" for {root}" if root else ""
         msg: str = f"no NT8 exports{target} found in {data_dir}"
+        if scan.skipped:
+            msg += "; skipped " + ", ".join(str(skip) for skip in scan.skipped)
         raise IngestError(msg)
 
     results: list[IngestResult] = []
-    for contract, source in sorted(exports.items()):
+    for contract, source in sorted(scan.exports.items()):
         result, _ = ingest_contract(contract, source, cache_dir=cache_dir, manifest=manifest, force=force)
         results.append(result)
 
     save_manifest(manifest, manifest_path)
-    return merges, results
+    return merges, results, scan.skipped
