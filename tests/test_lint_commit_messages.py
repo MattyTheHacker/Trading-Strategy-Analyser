@@ -7,6 +7,7 @@ from tools.lint_commit_messages import (
     ALLOWED_VERBS,
     CONVENTIONAL_TYPES,
     SUBJECT_MAX_LENGTH,
+    SUBJECT_WARN_LENGTH,
     check_message,
     first_word,
     main,
@@ -102,7 +103,7 @@ def test_dependabot_raises_neither_the_warning_nor_the_ceiling() -> None:
     assert check_message("build(deps): bump numba from 0.66.0 to 0.67.0", " (#153)") == []
     bot = "build(deps): bump the python group across 1 directory with 5 updates"
     assert len(bot) + len(" (#153)") > SUBJECT_MAX_LENGTH
-    assert errors(bot, " (#153)") == set()
+    assert rules(bot, " (#153)") == set()
 
 
 @pytest.mark.parametrize(
@@ -155,6 +156,28 @@ def test_the_reported_length_is_the_bare_subject_and_the_landed_one() -> None:
 def test_a_subject_at_the_ceiling_passes_and_one_past_it_fails() -> None:
     assert "subject-max-length" not in errors("Add " + "x" * (SUBJECT_MAX_LENGTH - 4))
     assert "subject-max-length" in errors("Add " + "x" * (SUBJECT_MAX_LENGTH - 3))
+
+
+def test_a_subject_at_the_clip_passes_and_one_past_it_warns() -> None:
+    assert rules("Add " + "x" * (SUBJECT_WARN_LENGTH - 4)) == set()
+    assert rules("Add " + "x" * (SUBJECT_WARN_LENGTH - 3)) == {"subject-clipped"}
+
+
+def test_the_clip_warning_never_fails_a_run() -> None:
+    (finding,) = check_message("Add " + "x" * (SUBJECT_WARN_LENGTH - 3))
+    assert finding.rule == "subject-clipped"
+    assert not finding.is_error
+
+
+def test_the_ceiling_error_stands_in_for_the_clip_warning_rather_than_joining_it() -> None:
+    (finding,) = check_message("Add " + "x" * (SUBJECT_MAX_LENGTH - 3))
+    assert finding.rule == "subject-max-length"
+
+
+def test_the_clip_is_pinned_to_what_the_file_table_did_to_two_real_subjects() -> None:
+    # Measured on the repository file table: 53 characters as landed fits, 61 is clipped.
+    assert rules("Update the PR body rules for what lands on main", " (#174)") == set()
+    assert rules("Add a commit-message linter and gate what lands on main", " (#165)") == {"subject-clipped"}
 
 
 @pytest.mark.parametrize(
