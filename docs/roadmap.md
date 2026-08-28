@@ -1917,9 +1917,11 @@ reading `read_csv`'s microsecond stamps as nanoseconds put the whole comparison 
 trap `resample.py` already records; and counting the warm-up over the *archive* rather than the
 probe's own bars compared 59 leading bars against 5 and called it a disagreement.
 
-**What is still not established** is a leg-for-leg trade-list diff of an archetype with
-`higher_timeframe_filter` switched on. The gate is assembled from parts that are each now
-checked against NinjaTrader, which is the weaker claim.
+**The gate is checked whole, not only in its parts**: composing NT8's own close against NT8's
+own coarse EMA into a side reproduces `higher_timeframe_labels` on all 1,479,760 bars, the six
+`AT` bars included. A leg-for-leg trade-list diff would only re-exercise the conjunction and
+the bracket, which this change leaves byte-identical and which are already reconciled on other
+archetypes — so it is deliberately not planned rather than outstanding.
 
 ### M11 — manual trade review ([#44])
 

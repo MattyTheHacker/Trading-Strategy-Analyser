@@ -1120,6 +1120,7 @@ questions are answered, and three of them exactly:
 | seeding | **0 differ** on EMA(3), EMA(50), SMA(3) and SMA(50) over 24,752 coarse closes |
 | warm-up | **59 against 59** leading bars unreadable |
 | anchoring | exact over the **1,525** coarse bars of the front-month window; the prefix is NT8's merged series, below |
+| the gate itself | **0 of 1,479,760** bars differ, composing NT8's own close against NT8's own coarse EMA into a side and comparing it with `higher_timeframe_labels` |
 
 **The projection result settles the boundary for every moving-average kind at once, which is
 why the probe was worth building rather than a trading script.** It compares *which bar* NT8
@@ -1137,10 +1138,20 @@ differs on high, low and volume, being the one bucket straddling the handover. T
 trap `reconcile_nt8.py` documents, met again; `settled_from` in the comparison tool names the
 changeover so a merged prefix cannot read as a defect.
 
-**Still not established:** no archetype has been reconciled leg-for-leg with
-`higher_timeframe_filter` switched on. The gate is built from parts that are each now checked
-against NinjaTrader, which is a weaker claim than a trade-list diff and is deliberately
-recorded as such.
+**The gate is checked as a whole and not only in its parts.** Composing NinjaTrader's own
+`Close[0]` against its own 50-period EMA of `Closes[1]` into a side reproduces
+`higher_timeframe_labels` on every one of 1,479,760 bars: 628,106 `BELOW`, 851,589 `ABOVE`, 59
+`UNDEFINED`, and the 6 `AT` bars where the close falls exactly on the average — NinjaTrader
+lands on the same six. The boolean a sweep applies agrees bar for bar at both `BELOW` and
+`ABOVE`.
+
+**A leg-for-leg trade-list diff would add nothing here, and is deliberately not planned.** What
+it would exercise beyond the above is the conjunction in `sim/filters.py` and the bracket, and
+those are shared unchanged with `phase_filter`, `regime_filter`, `volume_filter` and
+`trend_filter` on archetypes that are already reconciled; the trade-log gate showed 12 of 14
+files byte-identical across this change. Getting one would mean writing a NinjaScript archetype
+with a secondary series purely to produce it, which is the NinjaTrader time `CONTRIBUTING.md`
+reserves for candidates worth trading.
 
 Everything else — that the side is a three-state label, that equality gets its own state, that
 the kind is fixed at EMA — is a research choice with no NT8 counterpart, and is recorded in
