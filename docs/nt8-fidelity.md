@@ -705,10 +705,46 @@ currency threshold has to go through `instruments.py` before it means the same t
 roots.
 
 **What a reconciliation of it will have to hold fixed.** Everything is `SetDefaults` unchanged —
-there is no wall-clock rule here to disable, because the script has no session-end guard. The
-questions to put to the export, in order of what they would move: the trail's within-bar
+there is no wall-clock rule here to disable, because the script has no session-end guard, so
+`tools/reconcile_nt8.py`'s `CONFIGS["InsideBarTrailing"]` is a bare `InsideBarTrailingParams()`.
+The questions to put to the export, in order of what they would move: the trail's within-bar
 cadence, `OnPositionUpdate`'s firing set, and whether a zero-distance trail is refused or
 ignored.
+
+**The export settings, so the run is reproducible and comparable to InsideBar's.** Same
+instrument, series and window as the M22 export, changing only the strategy — which is what
+makes a difference between the two reconciliations attributable to the exit model rather than to
+the data.
+
+| Strategy Analyzer setting | value |
+|---|---|
+| Strategy | `InsideBarTrailing`, every parameter left at `SetDefaults` |
+| Instrument | `MNQ 03-24` |
+| Data series | 1 minute, `Last`, session template **CME US Index Futures ETH** |
+| From → To | `2020-01-02` → `2024-03-15`, the same request M22 used |
+| Order fill resolution | Standard — the script sets it, do not raise it to High |
+| Slippage | 0 ticks |
+| Commission | none, and no clearing/exchange/NFA fee template |
+| Min. bars required | 5, which `BarsRequiredToTrade` already sets |
+
+Export via **Trades → right-click → Export**, not the Summary tab: summary statistics hide fill
+semantics, which is the only thing this run is for. Then, with the file in place:
+
+```bash
+./.venv/Scripts/python.exe tools/reconcile_nt8.py   verification/nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing.csv   InsideBarTrailing "MNQ 03-24" 2023-12-14
+```
+
+**The request runs to 2020 and the reconciliation starts at 2023-12-14 on purpose.** NT8 serves
+its *merged* series for a contract before that contract's own bars begin, which a per-contract
+archive cannot reproduce — the trailing date argument trims the export to the front-month window
+where 100% of M22's entries landed exactly on a bar's open.
+
+**Three exit names are new, and one is deliberately unmapped.** `Trail stop` maps to `stop` and
+both `Exit Long/Short Trend Violation` map to `signal`. `Exit Long/Short Max Loss` is **not**
+mapped: that branch is unreachable at `MaximumLossPerTrade = 0`, so an export carrying one
+falsifies the reading above and must stop the run rather than be counted as agreement. NT8 names
+each of these from the C#'s own signal string, so if the export disagrees the parser says which
+name it did not know and the fix is one line against a file that already exists.
 
 ### The session end is the observed last bar, not the template's (#68)
 
