@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, override
 import numpy as np
 import pandas as pd
 
-from nqbt import ingest, notes, paths, regime, timeofday, trend, volume
+from nqbt import higher_timeframe, ingest, notes, paths, regime, timeofday, trend, volume
 from nqbt.arrays import AnyArray, BoolArray, DateArray, IntArray, LabelArray
 from nqbt.instruments import ContractId
 
@@ -70,6 +70,7 @@ _PHASE_NAMES = tuple(phase.name.lower() for phase in timeofday.SessionPhase)
 _REGIME_NAMES = tuple(state.name.lower() for state in regime.Regime)
 _VOLUME_NAMES = tuple(state.name.lower() for state in volume.VolumeState)
 _TREND_NAMES = tuple(state.name.lower() for state in trend.Trend)
+_SIDE_NAMES = tuple(side.name.lower() for side in higher_timeframe.Side)
 """Label values are lowercase names rather than codes, as ``exit_reason`` already is."""
 
 _SIDES = ("entry", "exit")
@@ -499,6 +500,21 @@ def _conditions_at(data: Dataset, at: IntArray, thresholds: LabelThresholds) -> 
     if data.time_of_day is not None:
         out["phase"] = _named(data.phase_values()[at], _PHASE_NAMES, OUT_OF_SESSION_LABEL)
         out["bar_of_session"] = data.bar_of_session()[at]
+    out.update(_indicator_conditions(data, at))
+    if data.regimes is not None:
+        out.update(_regime_conditions(data.regimes, at, thresholds))
+    if data.volumes is not None:
+        out.update(_volume_conditions(data.volumes, at, thresholds))
+    if data.trends is not None:
+        out.update(_trend_conditions(data.trends, at, thresholds))
+    if data.higher_timeframes is not None:
+        out.update(_higher_timeframe_conditions(data.higher_timeframes, at))
+    return out
+
+
+def _indicator_conditions(data: Dataset, at: IntArray) -> dict[str, Column]:
+    """Gather the moving averages, the ATRs and the session VWAP, wherever each was built."""
+    out: dict[str, Column] = {}
     for kind, grid in sorted(data.mas.items()):
         for period in grid.periods.tolist():
             out[f"above_{kind}_{period}"] = data.ma_gate(kind, period, above=True)[at]
@@ -509,12 +525,6 @@ def _conditions_at(data: Dataset, at: IntArray, thresholds: LabelThresholds) -> 
     if data.vwap is not None:
         out["vwap"] = data.vwap_values()[at]
         out["above_vwap"] = data.vwap_gate(above=True)[at]
-    if data.regimes is not None:
-        out.update(_regime_conditions(data.regimes, at, thresholds))
-    if data.volumes is not None:
-        out.update(_volume_conditions(data.volumes, at, thresholds))
-    if data.trends is not None:
-        out.update(_trend_conditions(data.trends, at, thresholds))
     return out
 
 
@@ -577,6 +587,23 @@ def _trend_conditions(
         if thresholds.labels_trend:
             labels: LabelArray = trend.label(agreement, int(thresholds.trend_min_agreement))  # type: ignore[arg-type]  # checked
             out[f"trend_{suffix}"] = _named(labels, _TREND_NAMES, UNDEFINED_LABEL)
+    return out
+
+
+def _higher_timeframe_conditions(
+    grid: higher_timeframe.HigherTimeframeGrid,
+    at: IntArray,
+) -> dict[str, Column]:
+    """Gather every coarse average built and the side price sits on, which takes no threshold."""
+    out: dict[str, Column] = {}
+    for key in grid.keys:
+        suffix: str = f"{key.minutes}_{key.period}"
+        out[f"higher_timeframe_{suffix}"] = grid.values_for(key)[at]
+        out[f"higher_timeframe_side_{suffix}"] = _named(
+            grid.labels_for(key)[at],
+            _SIDE_NAMES,
+            UNDEFINED_LABEL,
+        )
     return out
 
 

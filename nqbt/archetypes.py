@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
-from nqbt import regime, timeofday, trend, volume
+from nqbt import higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import crossover, insidebar, insidebartrailing, pullback, runner
 from nqbt.sim.types import (
@@ -129,6 +129,27 @@ def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendK
     )
 
 
+def _higher_timeframe_keys(
+    values: Mapping[str, Sequence[AxisValue]],
+) -> tuple[higher_timeframe.HigherTimeframeKey, ...]:
+    """List the coarse averages to build: none unless some combination filters on a side.
+
+    Nine bytes per bar per average, plus one resample per distinct resolution --
+    ``docs/roadmap.md`` § "Multi-timeframe moving averages".
+    """
+    if not any(int(v) != higher_timeframe.ALL_SIDES for v in values.get("higher_timeframe_filter", ())):
+        return ()
+    return tuple(
+        sorted(
+            {
+                higher_timeframe.key(int(minutes), int(period))
+                for minutes in values.get("higher_timeframe_minutes", ())
+                for period in values.get("higher_timeframe_period", ())
+            },
+        ),
+    )
+
+
 def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
@@ -147,6 +168,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
         trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
     )
 
 
@@ -168,6 +190,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
         trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_ma_values=True,
     )
 
@@ -189,6 +212,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
         trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_ma_values=True,
         needs_session_clock=any(int(v) > 0 for v in values.get("no_entry_minutes_before_close", ())),
     )
@@ -198,6 +222,7 @@ INERT_AT: Mapping[str, object] = {
     "regime_filter": regime.ALL_REGIMES,
     "volume_filter": volume.ALL_STATES,
     "trend_filter": trend.ALL_TRENDS,
+    "higher_timeframe_filter": higher_timeframe.ALL_SIDES,
 }
 """What a toggle's off value is, where it is not simply ``False``.
 
@@ -235,6 +260,14 @@ TREND_GATES: Mapping[str, str] = {
 trends.
 """
 
+HIGHER_TIMEFRAME_GATES: Mapping[str, str] = {
+    "higher_timeframe_minutes": "higher_timeframe_filter",
+    "higher_timeframe_period": "higher_timeframe_filter",
+}
+"""Shared by every archetype: both coarse-average axes do nothing while the filter admits every
+side.
+"""
+
 # A period only matters when its filter is switched on.
 MA_GATES: Mapping[str, str] = {
     "ema_period": "use_ema",
@@ -243,6 +276,7 @@ MA_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
     **TREND_GATES,
+    **HIGHER_TIMEFRAME_GATES,
 }
 
 CROSSOVER_GATES: Mapping[str, str] = {
@@ -251,6 +285,7 @@ CROSSOVER_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
     **TREND_GATES,
+    **HIGHER_TIMEFRAME_GATES,
 }
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
@@ -258,7 +293,12 @@ Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17
 """
 
 
-INSIDEBAR_GATES: Mapping[str, str] = {**REGIME_GATES, **VOLUME_GATES, **TREND_GATES}
+INSIDEBAR_GATES: Mapping[str, str] = {
+    **REGIME_GATES,
+    **VOLUME_GATES,
+    **TREND_GATES,
+    **HIGHER_TIMEFRAME_GATES,
+}
 """InsideBar reads all three averages and the ATR on every combination, so only the shared
 context filters gate an axis.
 """

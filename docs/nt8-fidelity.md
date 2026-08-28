@@ -1075,6 +1075,88 @@ carry whatever parity the gates carry rather than a second definition. Everythin
 three components, the agreement score, the thresholds — is a research choice with no NT8
 counterpart, and is recorded in `docs/roadmap.md` § M10.3.
 
+### And so is the higher-timeframe average (#73)
+
+`nqbt/higher_timeframe.py` is the fifth of the same shape and carries the same status. A moving
+average computed on resampled bars has no NinjaScript counterpart *here*, is not a fill rule,
+and cannot move a trade; `higher_timeframe_filter` is the one place it touches a reconciled
+archetype, and like the four filters above it is absent from both `DeadCatBounce.cs` and
+`PullBackAndGo.cs`.
+
+It defaults to `ALL_SIDES` and each signal **skips it entirely** at that value, so 12 of the 14
+captured files are byte-identical across the change, `sha256` included, the two that move being
+the sweep summary tables gaining the three parameter columns. The skip has to be no call rather
+than a no-op mask for the reason it does under the other three: a bar before the first coarse
+bar has closed is `UNDEFINED` and passes nothing, `ALL_SIDES` included.
+
+**Unlike the four above, this one has an NT8-shaped question — and a trade list is the wrong
+instrument for it.** NinjaScript expresses the same gate as an `EMA` of period 50 over a
+`Closes[1]` added with `AddDataSeries`, tested against `Close[0]`, and *when* that secondary
+series updates relative to a same-stamped primary bar is a property of NT8's event ordering,
+not of the arithmetic. The rule implemented here is that a coarse bar is readable from the fine
+bar closing alongside it and from none before it.
+
+**For an EMA the two readings cannot be told apart by any trade list, and that is algebra
+rather than a measurement.** The update moves the average toward the close and never past it,
+so `close − EMA_new = (1 − α)(close − EMA_prev)` with `α = 2/(period+1)` keeps the sign, and the
+gate therefore never flips. Measured over 914,700 MNQ bars at 5/15/60 minutes × periods
+3/20/50, the label differs on exactly one bar in every configuration and that one is the first
+coarse close, where the lagged reading is still in warm-up; where both are defined the
+disagreement count is zero. A reconciliation would return 100% and settle nothing.
+
+**An SMA is a different matter, which is what makes this worth recording rather than closing.**
+An SMA drops the oldest value out of its window and *can* move past the close, so the boundary
+is observable there — 842 differing bars at 15-minute SMA(20) over the same data. The day
+[#72] makes the kind sweepable, a trade list becomes a valid instrument.
+
+**Reconciled ([#183]).** `NqbtHigherTimeframeProbe.cs` was run in Strategy Analyzer over
+`MNQ 03-24` with a 60-minute secondary series: 1,479,760 1-minute bars from 2020-01-01 to
+2024-03-15, and 24,826 coarse bars. `tools/reconcile_higher_timeframe.py` compares it. All four
+questions are answered, and three of them exactly:
+
+| question | result |
+|---|---|
+| projection | **0 of 1,479,701** bars differ. On all **24,752** coarse closes NT8 reads the coarse bar stamped alongside the fine bar |
+| seeding | **0 differ** on EMA(3), EMA(50), SMA(3) and SMA(50) over 24,752 coarse closes |
+| warm-up | **59 against 59** leading bars unreadable |
+| anchoring | exact over the **1,525** coarse bars of the front-month window; the prefix is NT8's merged series, below |
+| the gate itself | **0 of 1,479,760** bars differ, composing NT8's own close against NT8's own coarse EMA into a side and comparing it with `higher_timeframe_labels` |
+
+**The projection result settles the boundary for every moving-average kind at once, which is
+why the probe was worth building rather than a trading script.** It compares *which bar* NT8
+reads, not what the average computed to, so it does not depend on the arithmetic being
+monotone — the SMA case that a trade list would have been needed for is answered by the same
+column. `higher_timeframe.project`'s `side="right"` is NinjaTrader's own rule.
+
+**The anchoring prefix is NT8's merge policy, not a bucketing difference.** Asked for four
+years of a contract that has about six months of its own history, NinjaTrader serves its merged
+series for the rest. Agreement is exact from **2023-12-08 23:00** onward — 1,525 coarse bars,
+zero differences on open, high, low, close and volume — and before that the archive holds one
+to four contracts an hour against NT8's thousands, which is the back-month contract against a
+merged front month. The changeover bucket at 2023-12-08 22:00 agrees on open and close and
+differs on high, low and volume, being the one bucket straddling the handover. This is the
+trap `reconcile_nt8.py` documents, met again; `settled_from` in the comparison tool names the
+changeover so a merged prefix cannot read as a defect.
+
+**The gate is checked as a whole and not only in its parts.** Composing NinjaTrader's own
+`Close[0]` against its own 50-period EMA of `Closes[1]` into a side reproduces
+`higher_timeframe_labels` on every one of 1,479,760 bars: 628,106 `BELOW`, 851,589 `ABOVE`, 59
+`UNDEFINED`, and the 6 `AT` bars where the close falls exactly on the average — NinjaTrader
+lands on the same six. The boolean a sweep applies agrees bar for bar at both `BELOW` and
+`ABOVE`.
+
+**A leg-for-leg trade-list diff would add nothing here, and is deliberately not planned.** What
+it would exercise beyond the above is the conjunction in `sim/filters.py` and the bracket, and
+those are shared unchanged with `phase_filter`, `regime_filter`, `volume_filter` and
+`trend_filter` on archetypes that are already reconciled; the trade-log gate showed 12 of 14
+files byte-identical across this change. Getting one would mean writing a NinjaScript archetype
+with a secondary series purely to produce it, which is the NinjaTrader time `CONTRIBUTING.md`
+reserves for candidates worth trading.
+
+Everything else — that the side is a three-state label, that equality gets its own state, that
+the kind is fixed at EMA — is a research choice with no NT8 counterpart, and is recorded in
+`docs/roadmap.md` § "Multi-timeframe moving averages".
+
 ## Contract data
 
 **Exports are moving windows, not snapshots.** NinjaTrader serves each contract for a limited
