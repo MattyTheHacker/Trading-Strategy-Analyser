@@ -97,7 +97,7 @@ nqbt ingest                      # refresh data/archive from every source, then 
 nqbt contracts                   # what is cached
 nqbt splice --root MNQ           # build the continuous series
 nqbt splice --root MNQ --back-adjust --diagnostics
-nqbt run --root MNQ --commission 0.74 --slippage 1 --explain 10
+nqbt run --root MNQ --commission 1.50 --slippage 1 --explain 10
 ```
 
 `nqbt run --explain N` writes a hand-checkable audit trail: the signal bar's geometry,
@@ -114,7 +114,7 @@ from nqbt.sim.types import DeadCatParams
 
 bars = splice.load_continuous("MNQ")
 grid = sweep.Grid.of(
-    DeadCatParams(commission_per_contract=0.74, slippage_ticks=1.0),
+    DeadCatParams(commission_per_contract=1.50, slippage_ticks=1.0),
     ema_period=[9, 15, 21, 30],
     fast_sma_period=[40, 60, 80],
     use_slow_sma=[True, False],
@@ -192,18 +192,29 @@ combination, which otherwise multiplies runtime for byte-identical rows.
 
 ## Current finding
 
-At $0.74/RT commission and 1 tick of slippage:
+At $1.50/RT commission and 1 tick of slippage, over the whole continuous series
+(`tools/rerun_sweeps.py`, one 96-combination grid per stratum):
 
-| | MNQ, 192 combinations | NQ, 96 combinations |
+| | MNQ | NQ |
 |---|---|---|
-| profitable (PF > 1.0) | 0 | 0 |
-| best PF | 0.746 | 0.829 |
-| median PF | 0.706 | 0.806 |
+| profitable (PF > 1.0), unfiltered | 0 of 96 | 0 of 96 |
+| best PF, unfiltered | 0.667 | 0.816 |
+| median PF, unfiltered | 0.633 | 0.793 |
 
 Nothing in either tested space survives costs. The fill assumption is not what's causing it
 — NT8's ambiguity rule versus a blanket worst case differs by only **+0.009 PF** on
-average, with ambiguous bars at 3.4% of exits. The losses are structural, and NQ failing
-independently on its own 4.7 years is corroboration rather than a second data point.
+average, with ambiguous bars at 3–4% of exits unfiltered. The losses are structural, and NQ
+failing independently on its own series is corroboration rather than a second data point.
+
+**Stratifying by market regime and session phase does not rescue it.** Eleven strata per
+root — unfiltered, one per regime, one per session phase — put 21 of 2,112 rows above a
+profit factor of 1, and all 21 are one cell: NQ in the `CLOSE` phase, whose exits are
+decided by the forced flat rather than by the rules. The same trade list reads 1.390
+through the NQ spec and **1.020 through the MNQ spec** — identical geometry, identical
+commission, gross P&L ×10 — so the apparent edge is the commission-to-point-value ratio
+and not the clock. Reasoning and the rest of the numbers: [`docs/roadmap.md`](docs/roadmap.md)
+§ "Stored sweeps — dropped and re-run, stratified". Re-derive any figure here with
+`results.query` over `combos` joined to `sweeps`.
 
 **Instrument scaling is exact.** Running the same NQ bars through both instrument specs
 gives byte-identical trade geometry — entry and exit bars, prices, stops, targets,
