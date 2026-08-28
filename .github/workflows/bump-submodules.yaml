@@ -1,0 +1,85 @@
+name: Bump Submodules
+
+# This replaces Dependabot's `gitsubmodule` ecosystem, which cannot do the job: `Trading-Docs`
+# is private, a personal account cannot grant Dependabot access to a private repository, and
+# one unreachable submodule fails the whole run — taking the public submodule down with it.
+# A workflow can mint a token for all three repositories, so it reaches both.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Bump the submodules to their remote heads
+    if: github.repository == 'MattyTheHacker/Trading-Strategy-Analyser'
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: deps/submodules
+    steps:
+      - name: Generate Access Token
+        uses: actions/create-github-app-token@v3
+        id: generate-token
+        with:
+          client-id: ${{ vars.PR_AUTO_UPDATE_CLIENT_ID }}
+          private-key: ${{ secrets.PR_AUTO_UPDATE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            Trading-Strategy-Analyser
+            ninjatrader-scripts
+            Trading-Docs
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          token: ${{ steps.generate-token.outputs.token }}
+
+      - name: Move each pointer to the head of its tracked branch
+        id: bump
+        run: |
+          git submodule update --remote
+          if git diff --quiet; then
+            echo "Every submodule is already at its remote head."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --submodule=short
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the new pointers
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch --create "$BRANCH"
+          git commit --all --message 'Bump the submodules to their remote heads'
+          git push --force origin "$BRANCH"
+
+      - name: Open the pull request
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            echo "The open pull request for $BRANCH now carries the new pointers."
+            exit 0
+          fi
+          cat > pr-body.md <<'BODY'
+          Moves each submodule pointer to the head of the branch `.gitmodules` tracks.
+
+          Raised by [`bump-submodules.yaml`](.github/workflows/bump-submodules.yaml) rather than by Dependabot, which cannot reach the private `Trading-Docs`.
+          BODY
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title 'Bump the submodules to their remote heads' \
+            --body-file pr-body.md \
+            --label dependencies \
+            --label submodules
