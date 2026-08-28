@@ -1,6 +1,20 @@
 import pytest
 
-from nqbt.instruments import CL, ES, GC, MNQ, NQ, SI, ContractId, get_instrument, months_from_codes
+from nqbt.instruments import (
+    CL,
+    ES,
+    GC,
+    MCL,
+    MES,
+    MGC,
+    MNQ,
+    NQ,
+    SI,
+    SIL,
+    ContractId,
+    get_instrument,
+    months_from_codes,
+)
 
 
 def test_tick_values_differ_tenfold_between_nq_and_mnq() -> None:
@@ -107,6 +121,40 @@ def test_tick_values_match_the_published_contract_specs() -> None:
     assert GC.tick_value == pytest.approx(10.00)
     assert SI.tick_value == pytest.approx(25.00)
     assert CL.tick_value == pytest.approx(10.00)
+
+
+def test_every_micro_shares_its_full_size_root_tick_grid() -> None:
+    """A micro is a smaller multiplier on the same prices, so only point_value moves."""
+    for full, micro in [(NQ, MNQ), (ES, MES), (GC, MGC), (SI, SIL), (CL, MCL)]:
+        assert micro.tick_size == full.tick_size
+        assert micro.contract_months == full.contract_months
+        assert micro.point_value < full.point_value
+
+
+def test_micro_tick_values_match_the_published_contract_specs() -> None:
+    assert MNQ.tick_value == pytest.approx(0.50)
+    assert MES.tick_value == pytest.approx(1.25)
+    assert MGC.tick_value == pytest.approx(1.00)
+    assert SIL.tick_value == pytest.approx(5.00)
+    assert MCL.tick_value == pytest.approx(1.00)
+
+
+def test_a_micro_cannot_be_derived_from_its_full_size_root() -> None:
+    """Silver breaks both halves of the obvious rule, so the registry stays explicit.
+
+    A derived micro would be named MSI and priced at a tenth of SI. Both are wrong, and
+    the price half is wrong by 2x in a project where every dollar figure routes here.
+    """
+    assert SIL.symbol != "MSI"
+    assert SI.point_value / SIL.point_value == pytest.approx(5.0)
+    for full, micro in [(NQ, MNQ), (ES, MES), (GC, MGC), (CL, MCL)]:
+        assert full.point_value / micro.point_value == pytest.approx(10.0)
+
+
+def test_a_root_may_carry_a_digit_and_the_registry_still_decides() -> None:
+    """M2K used to fail the regex, which hid the real answer behind a parse error."""
+    with pytest.raises(ValueError, match="unknown root 'M2K'"):
+        ContractId.parse("M2K 03-26")
 
 
 def test_price_decimals_follow_each_tick_grid() -> None:

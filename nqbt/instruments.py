@@ -202,7 +202,44 @@ CL = Instrument(
     exchange="NYMEX",
 )
 
-INSTRUMENTS: dict[str, Instrument] = {inst.symbol: inst for inst in (NQ, MNQ, ES, GC, SI, CL)}
+MES = Instrument(
+    symbol="MES",
+    name="Micro E-mini S&P 500",
+    tick_size=0.25,
+    point_value=5.0,
+)
+
+MGC = Instrument(
+    symbol="MGC",
+    name="Micro Gold",
+    tick_size=0.10,
+    point_value=10.0,
+    contract_months=months_from_codes("GJMQVZ"),
+    exchange="COMEX",
+)
+
+# Micro silver is SIL, not MSI, and is a fifth of SI rather than a tenth.
+SIL = Instrument(
+    symbol="SIL",
+    name="Micro Silver",
+    tick_size=0.005,
+    point_value=1000.0,
+    contract_months=months_from_codes("FHKNUZ"),
+    exchange="COMEX",
+)
+
+MCL = Instrument(
+    symbol="MCL",
+    name="Micro WTI Crude Oil",
+    tick_size=0.01,
+    point_value=100.0,
+    contract_months=ALL_MONTHS,
+    exchange="NYMEX",
+)
+
+INSTRUMENTS: dict[str, Instrument] = {
+    inst.symbol: inst for inst in (NQ, MNQ, ES, MES, GC, MGC, SI, SIL, CL, MCL)
+}
 
 
 def get_instrument(symbol: str) -> Instrument:
@@ -219,8 +256,9 @@ def known_roots() -> str:
     return ", ".join(sorted(INSTRUMENTS))
 
 
-# "MNQ 03-24", "NQ 12-25" -- the naming NT8's Historical Data export produces.
-_CONTRACT_RE = re.compile(r"^\s*(?P<root>[A-Za-z]{1,4})\s+(?P<month>\d{2})-(?P<year>\d{2})\s*$")
+# "MNQ 03-24", "NQ 12-25" -- the naming NT8's Historical Data export produces. A root may
+# carry digits ("M2K", "6E"); which roots exist is the registry's answer, not the regex's.
+_CONTRACT_RE = re.compile(r"^\s*(?P<root>[A-Za-z0-9]{1,4})\s+(?P<month>\d{2})-(?P<year>\d{2})\s*$")
 
 
 @dataclass(frozen=True, slots=True, order=True)
