@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from nqbt import sessions, splice
+from nqbt import ingest, sessions, splice
 from nqbt.instruments import ContractId
 
 FRONT = ContractId.parse("MNQ 03-24")
@@ -456,3 +456,20 @@ def test_a_contract_squeezed_to_no_bars_is_reported_not_silently_dropped(monkeyp
 
     assert any("contributes no bars" in w for w in report.warnings)
     assert "MNQ 06-24" not in series["contract"].to_numpy()
+
+
+def test_splice_root_reports_an_export_it_could_not_place(tmp_path) -> None:
+    """A misnamed file in the archive must reach the report, not vanish from the splice."""
+    data_dir, cache_dir = tmp_path / "archive", tmp_path / "cache"
+    data_dir.mkdir()
+    for contract, frame in two_contract_frames().items():
+        (data_dir / f"{contract.nt8_name}.Last.txt").write_text("", encoding="utf-8")
+        path = ingest.contract_cache_path(contract, cache_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_parquet(path, engine="pyarrow", index=True)
+    (data_dir / "NG 02-26.Last.txt").write_text("", encoding="utf-8")
+
+    _, report = splice.splice_root("MNQ", data_dir=data_dir, cache_dir=cache_dir, write=False)
+
+    assert list(report.segments["contract"]) == ["MNQ 03-24", "MNQ 06-24"]
+    assert any("skipped NG 02-26.Last.txt" in w for w in report.warnings)

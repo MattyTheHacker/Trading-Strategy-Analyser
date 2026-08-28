@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
-    merges, results = ingest.ingest_all(
+    merges, results, skipped = ingest.ingest_all(
         data_dir=args.data_dir,
         cache_dir=args.cache_dir,
         root=args.root,
@@ -38,6 +38,11 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         )
         for merge in changed:
             logger.info("  %s", merge)
+        logger.info("")
+
+    if skipped:
+        for skip in skipped:
+            logger.info("[!] skipped %s", skip)
         logger.info("")
 
     total: int = 0

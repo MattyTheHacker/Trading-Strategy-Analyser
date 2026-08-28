@@ -508,7 +508,8 @@ def splice_root(
     write: bool = True,
 ) -> tuple[pd.DataFrame, SpliceReport]:
     """Build (and optionally cache) the continuous series for one root symbol."""
-    contracts: list[ContractId] = sorted(ingest.discover_exports(data_dir, root=root))
+    scan: ingest.ExportScan = ingest.discover_exports(data_dir, root=root)
+    contracts: list[ContractId] = sorted(scan.exports)
     if not contracts:
         msg: str = f"no contracts found for {root} in {data_dir}"
         raise SpliceError(msg)
@@ -521,6 +522,7 @@ def splice_root(
         confirm_sessions=confirm_sessions,
         allow_coverage_boundary=allow_coverage_boundary,
     )
+    report.warnings.extend(f"skipped {skip}" for skip in scan.skipped)
 
     if write:
         out: Path = continuous_path(root, back_adjust=back_adjust, cache_dir=cache_dir)

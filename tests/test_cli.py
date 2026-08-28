@@ -90,7 +90,7 @@ def test_cmd_ingest_reports_the_merge_and_the_bar_count(monkeypatch, base_args, 
     merge.__str__ = lambda self: "MNQ 03-24: +12 bars"
     result = MagicMock(warnings=["a stray print"], rows_total=100)
     result.__str__ = lambda self: "MNQ 03-24 appended"
-    ingest_all = MagicMock(return_value=([merge], [result]))
+    ingest_all = MagicMock(return_value=([merge], [result], ["NG 02-26.Last.txt: not quarterly"]))
     monkeypatch.setattr(cli.ingest, "ingest_all", ingest_all)
 
     assert cli._cmd_ingest(base_args) == 0
@@ -106,6 +106,7 @@ def test_cmd_ingest_reports_the_merge_and_the_bar_count(monkeypatch, base_args, 
     assert "MNQ 03-24: +12 bars" in text
     assert "MNQ 03-24 appended" in text
     assert "[!] a stray print" in text
+    assert "[!] skipped NG 02-26.Last.txt: not quarterly" in text
     assert "1 contracts, 100 bars cached in" in text
 
 
