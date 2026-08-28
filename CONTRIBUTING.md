@@ -165,7 +165,7 @@ Points that have each cost time:
 - **Subject line at most 72 characters as it lands**, the space and `(#N)` GitHub appends included. That is where GitHub truncates a subject with an ellipsis, and a subject that has to be expanded to be read is a subject nobody reads. It leaves about 65 characters to write in.
 - **A body is for when the subject genuinely cannot carry it.** Leave a blank line after the subject and explain *why* rather than restating the diff.
 
-**Body line length is deliberately not a rule.** The body that reaches `main` is the pull request description, and PR and issue bodies are never hard-wrapped here — one line per paragraph, blank line between, and GitHub wraps them. That is a rendering question, not a linting one. The 80-column convention was dropped rather than compromised, because holding both at once is impossible.
+**Body line length is deliberately not a rule.** **PR and issue bodies are never hard-wrapped here** — one line per paragraph, blank line between. The body that reaches `main` is the pull request description, and the squash merge wraps it on the way in, so a commit on `main` reading at about 70 columns is that automatic wrap and not a body someone hand-wrapped. Hard-wrapping the source of it would be wrapping twice. That is a rendering question, not a linting one. The 80-column convention was dropped rather than compromised, because holding both at once is impossible.
 
 ### The ten verbs
 
@@ -208,7 +208,7 @@ Why ten verbs rather than a mood check: mapping every subject in this repository
 ## Pull requests
 
 - **The body briefly explains the change**: what moved, and the reasoning a reviewer would otherwise have to reconstruct. Detailed argument still belongs in `docs/` — link to the section rather than duplicating it.
-- **State how it was verified.** For anything under `nqbt/sim/`, that means the trade-log gate's output, not a description of it.
+- **State how it was verified, and keep it to a line.** Name what was run and what it returned — `trade-log gate: BYTE-FOR-BYTE IDENTICAL across all 14 files`, `tools/reconcile_nt8.py` against the MNQ 03-24 export: `RECONCILED`. A claim carries its number; it does not carry the transcript that produced it. **Raw output — the gate's fourteen lines, a coverage table, a reconciliation's per-field agreement — belongs in `docs/` or nowhere**, because the body lands on `main` as the commit description and a pasted run cannot be re-checked from there anyway.
 - **Repeat the closing keyword for every issue.** `Closes #1, #2` links only `#1`. Write `Closes #1. Closes #2.` and check `closingIssuesReferences` on the pull request before merging. Alternatively, link the issues manually via the GUI.
 - **Do not quote figures that go stale.** Consider if the number is even needed in documentation or if it's better being generated or retrieved at the time it's needed. If it's definitely needed, point at the document that holds the live number.
 - **Branch off `main` and never commit to it directly.**
