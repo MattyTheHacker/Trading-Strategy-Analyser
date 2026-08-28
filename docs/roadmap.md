@@ -932,6 +932,60 @@ top of the range and R multiples just above zero are what it looks like working,
 looks like broken, and neither number compares to another archetype's. Judge it on net P&L at
 realistic costs — where a 1x ATR(3) target on a quiet bar can be smaller than the round trip.
 
+### M23 — InsideBarTrailing, split lots and a trailing stop ([#127])
+
+The same entry as M22 and a materially harder exit model: the position splits across two entry
+orders with different exit engines, the runner's stop trails a high-water mark rather than
+ratcheting off a lagged bar, and a trend violation flattens whatever is left. Each rule and
+which of them has no evidence: [nt8-fidelity.md](nt8-fidelity.md) §M23.
+
+**The entry is shared, not forked.** `InsideBarTrailingParams` subclasses `InsideBarParams` and
+both archetypes call `insidebar_signal`, because the two NinjaScripts differ in defaults rather
+than in rules. That is what makes `sweepable` reading `dataclasses.fields()` rather than
+`__slots__` load-bearing rather than merely correct — see "Moving-average axes" — and the
+difference the defaults make is not cosmetic: ten times the breakout buffer is a different
+strategy.
+
+**Decision: the split-lot model sits beside `bracket.py` rather than generalising it.** The
+engine takes one stop for the whole position and per-leg targets, which is the wrong shape for
+two independent brackets. Two ways out were available and only one was taken:
+
+- *Generalise the engine* — make the stop per-leg, so `resolve_brackets` resolves each leg
+  against its own. That is a real restructure of the fidelity-critical code, on the evidence of
+  a single archetype, and it would put "the stop takes the whole position" — a rule three
+  reconciliations rest on — behind a rewrite.
+- *Resolve each lot through the engine as it stands*, which is what shipped.
+  `insidebartrailing.resolve_lots` calls `resolve_brackets` once per lot per bar with every
+  other leg masked out, so each bracket meets the one implementation of every fill rule and
+  `bracket.py` is not touched at all. Under `StopTargetHandling.PerEntryExecution` that is also
+  the more literal reading of what NT8 does.
+
+The rule this follows is **extract the abstraction from two examples, not from one**. If a
+second split-lot archetype arrives and wants the same thing, the shape to extract will be
+visible in two places instead of guessed at from one — and the trade-log gate stayed
+byte-for-byte identical across all fourteen files precisely because the shared engine was left
+alone.
+
+**`EXIT_SIGNAL` now has two consumers, and this is the first with C# behind it.** EmaCrossover
+reserved it with no NinjaScript to be checked against; `InsideBarTrailing.cs` has a real
+rule-driven exit, so the semantics M18 wrote down — a managed market exit filling at the next
+bar's open, taking precedence over the brackets — finally have something to be reconciled
+against. The structural test that pinned single use now pins the set, both halves.
+
+**Its trade list overturned three of the four exit rules the port inferred**, and the port was
+written to be checked rather than trusted: the two questions it turned on were on [#67] *before*
+the code existed. What moved, in the order the corrections landed — the `-200` gate governing
+the trend violation and not just the dead branch under it, `OnPositionUpdate`'s one-bar offset,
+the exit being part of the triggering fill, and a trail advancing within its entry bar but not
+within any later one — is in [nt8-fidelity.md](nt8-fidelity.md), "Reconciliation result —
+InsideBarTrailing". Agreement went 80.18% → 99.80% across those four.
+
+**The generalisation worth keeping: a guard clause belongs to the method, not to the branch
+below it.** Reading `if (pnl > -200) return;` as part of the max-loss check under it is what
+produced 340 spurious signal exits against NT8's 12 — a plain misreading of C# scope, made
+easy by the ticket describing the two together, and invisible to every test written from the
+same misreading. Only the trade list caught it.
+
 ### M19 — squeeze breakout ([#51])
 
 Queued rather than scheduled; the expensive archetype. "Squeeze" means at least three things,
@@ -2568,4 +2622,5 @@ default is now known to be right for this machine.
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
 [#113]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/113
 [#126]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/126
+[#127]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/127
 [#161]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/161

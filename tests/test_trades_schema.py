@@ -292,6 +292,17 @@ def imports_of(module: str) -> set[str]:
     return found
 
 
+def names_used_in(module: str) -> set[str]:
+    """Every attribute name the file reads off something, so ``trades.EXIT_SIGNAL`` is seen.
+
+    ``imports_of`` cannot see it: the constant arrives through ``from nqbt import trades`` and
+    is spent as an attribute, so a rule about who *produces* an exit reason has to read the
+    uses rather than the imports.
+    """
+    tree = ast.parse((PACKAGE / module).read_text(encoding="utf-8"))
+    return {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+
+
 def test_the_import_analysis_sees_both_forms_of_import() -> None:
     """Guards the guard. Without this the layering tests silently pass on anything."""
     seen = imports_of("sim/runner.py")
@@ -318,15 +329,21 @@ def test_the_trade_schema_knows_nothing_about_bars_or_strategies() -> None:
     assert not offenders, f"nqbt/trades.py must stay standalone; found {offenders}"
 
 
-def test_only_the_archetype_with_a_rule_driven_exit_references_exit_signal() -> None:
-    # A structural guard, not just a today-it-doesn't-happen-to-fire one. DeadCatBounce has
-    # no rule-driven exit and the shared bracket engine has no rules at all, so neither
-    # should import the constant it would need to produce one. EmaCrossover is the archetype
-    # the reservation was made for, and it must be the only one spending it.
+def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> None:
+    # A structural guard, not just a today-it-doesn't-happen-to-fire one. DeadCatBounce and
+    # InsideBar have no rule-driven exit and the shared bracket engine has no rules at all, so
+    # none of them should import the constant it would need to produce one. The two that do
+    # are EmaCrossover, which the reservation was made for, and InsideBarTrailing, whose
+    # NinjaScript exits on a trend violation -- docs/nt8-fidelity.md §M23.
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/bracket.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/pullback.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/insidebar.py")
+    # And the positive half, without which the negatives would pass on a typo.
+    assert "nqbt.trades" in imports_of("sim/crossover.py")
+    assert "nqbt.trades" in imports_of("sim/insidebartrailing.py")
+    assert {"EXIT_SIGNAL"} <= names_used_in("sim/crossover.py")
+    assert {"EXIT_SIGNAL"} <= names_used_in("sim/insidebartrailing.py")
 
 
 def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -> None:
