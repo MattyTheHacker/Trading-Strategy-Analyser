@@ -2518,12 +2518,47 @@ spliced series, where `contract` is null by definition, would have created `comb
 as an integer column that no contract name could ever afterwards be inserted into. Measured,
 not reasoned about; `tests/test_sweep_stats.py` pins it.
 
-**Stored sweeps — drop and re-run, not yet** ([#71]). Everything in `results/sweeps.duckdb` was
-computed against a continuous series with different roll dates, so those rows are not comparable
-with anything generated now. They are not wrong, they are answers to a different question, and
-nothing reads them automatically. Clear the table and re-run at the point something actually
-needs to query it — most cheaply once M10's labels exist, so the re-run produces stratified
-results rather than needing a third pass.
+**Stored sweeps — dropped and re-run, stratified** ([#71]). Everything previously in
+`results/sweeps.duckdb` was computed against a continuous series with different roll dates, at
+$0.74 commission, and before the M10 labels existed. Those rows were answers to a different
+question, so they were dropped rather than added to. `tools/rerun_sweeps.py` is the re-run, and
+it is a committed tool rather than a shell session because the drop has to happen for a reason
+that is not obvious: `_append_or_create` writes an existing table **by name** and silently drops
+a column the table does not have, so appending stratified rows to the pre-#39 schema would have
+stored them with `regime_filter` and `phase_filter` thrown away.
+
+**Eleven strata per root, one dimension at a time.** Unfiltered, then once per regime, then once
+per session phase — not the 32 cells the product would give. Each label answers "no edge
+anywhere, or edge in one stratum drowned by the others?" on its own, and crossing them is what
+[#48]'s guard exists to refuse. Every stratum runs the same 96-combination grid, so the stratum
+is the only thing that varies between two comparable rows. **`ambiguity_policy` is not swept**:
+`0` is a blanket worst case, deliberately *more* pessimistic than NT8 rather than equal to it, so
+half the stored rows would have ranked a combination against a fill rule the prime directive
+rejects. The trade is that the 0.009 profit factor between the two policies came from the rows
+that were dropped and is no longer re-derivable from `combos`; re-add the axis to re-measure it.
+
+**The answer is "no edge anywhere", and one cell needed ruling out to say so.** 21 of the 2,112
+rows reach a profit factor above 1, and all 21 are the same cell: NQ, `phase=CLOSE`, every one of
+them with `use_vwap` on. Nothing else in either root, either label, crosses 1.0 — MNQ's own
+`CLOSE` stratum tops out at 0.954. Three reasons that cell is not a finding, in ascending order
+of how much they settle it:
+
+- It is the best of 22 stratum-cells chosen after looking, at 105–180 trades each.
+- `CLOSE` is the structurally anomalous phase ([#16]): its exits are decided by the clock rather
+  than by the rules, and `session_close_share` reads 0.5–2.5% there against 0.03–0.04%
+  unfiltered — the order of magnitude M10.4 predicted, arriving as predicted.
+- **The same trade list reads 1.390 through the NQ spec and 1.020 through the MNQ spec.** Same
+  110 trades, same geometry, the same $660 of commission, gross P&L ×10. The apparent edge is
+  almost entirely the commission-to-point-value ratio and almost none of it is the clock, which
+  is exactly the free-money trap `instruments.py` exists to make visible.
+
+**The decomposition behaved as M10.1 and M10.4 said it would**, which is the check that the run
+is sane rather than a result from it: the seven phase strata sum to the unfiltered trade count
+exactly, on all 96 combinations of both roots, and the three regime strata never do — they run
+1 to 7 trades over, because a regime label flips bar to bar where a phase is a contiguous block.
+
+Live numbers rather than the ones above: `results.query` over `combos` joined to `sweeps`, which
+carries the stratum in `notes` and ties the whole re-run together with one `batch_id`.
 
 **Trade source format — deferred, by design.** An example will arrive; until then the importer is
 specified as an adapter boundary ([#45]) rather than around a guessed layout. Everything upstream

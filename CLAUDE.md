@@ -123,8 +123,10 @@ gh issue view <n>                               # blocked-by, blocking, sub-issu
 Three standing facts that are not status and do not move:
 
 - **DeadCatBounce is unprofitable across every combination tested**, on both roots, at
-  realistic costs. **Decided: not a blocker** — it is the test fixture that proves the system
-  works.
+  realistic costs, and **stratifying by regime or by session phase does not rescue it** — the
+  one cell that clears a profit factor of 1 is ruled out in `docs/roadmap.md` § "Stored sweeps
+  — dropped and re-run, stratified", which is the section to quote rather than this line.
+  **Decided: not a blocker** — it is the test fixture that proves the system works.
 - **Its entry rule is nonetheless measurably better than random** (`nqbt/randomentry.py`),
   which is "there is signal; the loss is in costs, hold time or bracket geometry", not "the
   entry rule is worthless". Quote `docs/roadmap.md` §M7a for the numbers and the caveats that
