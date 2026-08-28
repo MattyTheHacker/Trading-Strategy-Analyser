@@ -1,3 +1,9 @@
 [submodule "ninjatrader-scripts"]
 	path = ninjatrader-scripts
 	url = git@github.com:MattyTheHacker/ninjatrader-scripts.git
+	branch = main
+
+[submodule "Trading-Docs"]
+	path = Trading-Docs
+	url = git@github.com:MattyTheHacker/Trading-Docs.git
+	branch = main

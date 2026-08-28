@@ -1,7 +1,6 @@
 data
 cache
 results
-docs/concepts
 __pycache__/
 *.py[cod]
 *.egg-info/
