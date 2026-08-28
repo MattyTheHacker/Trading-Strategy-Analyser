@@ -1,6 +1,7 @@
 data
 cache
 results
+docs/concepts
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -12,4 +13,3 @@ verification
 .ruff_cache/
 .coverage
 coverage.xml
-docs/discretionary_trading_concepts.md
