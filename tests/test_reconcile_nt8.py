@@ -50,7 +50,10 @@ def export(tmp_path, entry_name, exit_name="Profit target", profit="$80.00"):
     return path
 
 
-@pytest.mark.parametrize(("entry_name", "leg"), [("S1", 1), ("S4", 4), ("L2", 2)])
+@pytest.mark.parametrize(
+    ("entry_name", "leg"),
+    [("S1", 1), ("S4", 4), ("L2", 2), ("entry1", 1), ("entry2", 2)],
+)
 def test_a_scale_out_port_carries_its_leg_in_the_entry_name(tool, tmp_path, entry_name, leg) -> None:
     assert tool.parse_nt8(export(tmp_path, entry_name))["leg"].iloc[0] == leg
 
@@ -75,6 +78,46 @@ def test_every_configured_archetype_is_one_the_registry_knows(tool) -> None:
 
     for name, params in tool.CONFIGS.items():
         assert archetypes.get(name).params_cls is type(params)
+
+
+@pytest.mark.parametrize(
+    ("exit_name", "reason"),
+    [
+        ("Trail stop", "stop"),
+        ("Exit Long Trend Violation", "signal"),
+        ("Exit Short Trend Violation", "signal"),
+    ],
+)
+def test_insidebartrailings_three_new_exit_names_are_mapped(tool, tmp_path, exit_name, reason) -> None:
+    """The names NT8 will write for `SetTrailStop` and for the two `ExitLong`/`ExitShort` calls.
+
+    A trail is still a stop, and the trend violation is the archetype's ``EXIT_SIGNAL``. Getting
+    either wrong stops the run after the export already cost a NinjaTrader session.
+    """
+    parsed = tool.parse_nt8(export(tmp_path, "entry1", exit_name=exit_name))
+    assert parsed["exit_reason"].iloc[0] == reason
+
+
+@pytest.mark.parametrize("exit_name", ["Exit Long Max Loss", "Exit Short Max Loss"])
+def test_the_max_loss_exit_is_left_unmapped_on_purpose(tool, tmp_path, exit_name) -> None:
+    """It is unreachable at ``MaximumLossPerTrade = 0``, so an export carrying one is a finding.
+
+    Mapping it would let the branch the port declares dead pass silently through a
+    reconciliation -- ``docs/nt8-fidelity.md`` §M23.
+    """
+    with pytest.raises(SystemExit, match="Max Loss"):
+        tool.parse_nt8(export(tmp_path, "entry1", exit_name=exit_name))
+
+
+def test_the_insidebartrailing_config_is_setdefaults_unchanged(tool) -> None:
+    """Unlike InsideBar's, nothing has to be switched off: there is no wall-clock rule here.
+
+    Pinned because "the defaults" is the whole configuration a reconciliation of it assumes --
+    ``docs/nt8-fidelity.md`` §M23, "What a reconciliation of it will have to hold fixed".
+    """
+    from nqbt.sim.types import InsideBarTrailingParams
+
+    assert tool.CONFIGS["InsideBarTrailing"] == InsideBarTrailingParams()
 
 
 def test_the_insidebar_config_switches_the_wall_clock_window_off(tool) -> None:

@@ -16,8 +16,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from nqbt import regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
-from nqbt.sim import crossover, insidebar, pullback, runner
-from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, InsideBarParams, PullBackAndGoParams
+from nqbt.sim import crossover, insidebar, insidebartrailing, pullback, runner
+from nqbt.sim.types import (
+    DeadCatParams,
+    EmaCrossoverParams,
+    InsideBarParams,
+    InsideBarTrailingParams,
+    PullBackAndGoParams,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -341,7 +347,23 @@ INSIDEBAR = Archetype(
 )
 """The third C#-backed port, diffed leg-for-leg against an MNQ 03-24 trade list."""
 
-_REGISTRY: dict[str, Archetype] = {a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, INSIDEBAR, PULLBACKANDGO)}
+INSIDEBARTRAILING = Archetype(
+    name="InsideBarTrailing",
+    params_cls=InsideBarTrailingParams,
+    run=insidebartrailing.run_insidebartrailing,
+    legs=insidebartrailing.insidebartrailing_legs,
+    signal=insidebar.insidebar_signal,
+    tier2=Tier2Status.RECONCILED,
+    gated_by=INSIDEBAR_GATES,
+    context_for=insidebar_context,
+)
+"""The fourth C#-backed port: InsideBar's entry, shared rather than copied, with split-lot
+exits. Diffed leg-for-leg against an MNQ 03-24 trade list, which overturned three of the four
+exit rules the port had inferred -- ``docs/nt8-fidelity.md`` §M23."""
+
+_REGISTRY: dict[str, Archetype] = {
+    a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, INSIDEBAR, INSIDEBARTRAILING, PULLBACKANDGO)
+}
 
 DEFAULT = DEADCATBOUNCE
 """What a ``Grid`` assumes when nothing says otherwise. Changing it reinterprets every stored

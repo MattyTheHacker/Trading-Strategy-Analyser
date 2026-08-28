@@ -20,14 +20,28 @@ import pandas as pd
 
 from nqbt import archetypes, context, ingest, logsetup
 from nqbt.instruments import MNQ, NQ, ContractId
-from nqbt.sim.types import DeadCatParams, InsideBarParams, PullBackAndGoParams
+from nqbt.sim.types import (
+    DeadCatParams,
+    InsideBarParams,
+    InsideBarTrailingParams,
+    PullBackAndGoParams,
+)
 
 logger = logging.getLogger(__name__)
 
 EXIT_NAMES = {
     "Profit target": "target",
     "Stop loss": "stop",
+    # SetTrailStop's own exit, which only InsideBarTrailing places. A trail is still a stop.
+    "Trail stop": "stop",
     "Exit on session close": "session_close",
+    # InsideBarTrailing's trend violation, named by the C# rather than by NT8 -- the two-string
+    # ExitLong overload is (signalName, fromEntrySignal), so the signal name is what is exported.
+    "Exit Long Trend Violation": "signal",
+    "Exit Short Trend Violation": "signal",
+    # "Exit Long Max Loss" and "Exit Short Max Loss" are deliberately absent. That branch is
+    # unreachable at MaximumLossPerTrade = 0, so an export carrying one falsifies the reading in
+    # docs/nt8-fidelity.md §M23 and must stop the run rather than be quietly counted.
     # Not an exit rule: NT8 reversing, which no archetype reproduces. Reported apart from the
     # comparison rather than counted as a disagreement -- docs/nt8-fidelity.md, "The position
     # guard does not hold in Strategy Analyzer".
@@ -65,6 +79,8 @@ CONFIGS = {
     # two sides can only be made to test the same rule by both having it off. See
     # docs/nt8-fidelity.md, "A no-entry window before the session close".
     "InsideBar": InsideBarParams(no_entry_minutes_before_close=0),
+    # SetDefaults unchanged: this NinjaScript has no wall-clock window to switch off.
+    "InsideBarTrailing": InsideBarTrailingParams(),
 }
 
 
@@ -93,8 +109,10 @@ def parse_nt8(path: Path) -> pd.DataFrame:
         {
             "entry_time": when("Entry time"),
             "exit_time": when("Exit time"),
-            # S1..S4 and L1..L4 carry their leg in the name; InsideBar brackets one order
-            # called "entry" and has no scale-out, so it is leg 1.
+            # S1..S4 and L1..L4 carry their leg in the name, and so do InsideBarTrailing's
+            # "entry1"/"entry2" -- which land on legs 1 and 2, the order the port writes its
+            # bracketed and trailing lots in. InsideBar brackets one order called "entry" and
+            # has no scale-out, so it is leg 1.
             "leg": raw["Entry name"].str.extract(r"(\d+)")[0].fillna("1").astype(int),
             "entry_price": raw["Entry price"].astype(float),
             "exit_price": raw["Exit price"].astype(float),
