@@ -332,6 +332,34 @@ def atr_bracket_distance(atr_value: float, multiple: float, floor_points: float)
 
 
 @njit(cache=True)
+def swing_stop(
+    bars: Bars,
+    signal_bar: int,
+    lookback: int,
+    offset: float,
+    direction: float,
+) -> float:
+    """A structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
+
+    The window ends at ``signal_bar`` and includes it, and never reads the bar the fill happens
+    on. ``offset`` is a price rather than a tick count, and pushes the stop *beyond* the extreme
+    so it does not sit exactly on the level it protects. **Not floored** -- a structural level
+    widened to clear a cost floor stops being the level it is.
+
+    Shared by EmaCrossover's swing mode and ElasticBand's :data:`~nqbt.sim.types.STOP_SWING`.
+    **Do not fork it.**
+    """
+    start = signal_bar - lookback + 1
+    start = max(start, 0)
+    extreme = 0.0
+    for j in range(start, signal_bar + 1):
+        adverse, _ = sided(bars.low[j], bars.high[j], direction)
+        if j == start or direction * adverse < direction * extreme:
+            extreme = adverse
+    return extreme - direction * offset
+
+
+@njit(cache=True)
 def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     """Which raw price is adverse and which is favourable for this direction.
 

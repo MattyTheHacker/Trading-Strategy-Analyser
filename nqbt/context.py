@@ -20,10 +20,21 @@ from typing import TYPE_CHECKING, TypedDict, cast
 import numpy as np
 import pandas as pd
 
-from nqbt import conditions, higher_timeframe, indicators, regime, sessions, timeofday, trend, volume
+from nqbt import (
+    bands,
+    conditions,
+    higher_timeframe,
+    indicators,
+    regime,
+    sessions,
+    timeofday,
+    trend,
+    volume,
+)
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IndexArray, LabelArray
+    from nqbt.bands import BandGrid
     from nqbt.conditions import MovingAverageGrid
     from nqbt.higher_timeframe import HigherTimeframeGrid
     from nqbt.regime import EfficiencyRatioGrid
@@ -54,6 +65,10 @@ class ContextSpec:
     :func:`nqbt.conditions.ma_keys`, which is also where the legal kinds live."""
 
     atr_periods: tuple[int, ...] = ()
+    band_periods: tuple[int, ...] = ()
+    """Bollinger periods to build (:mod:`nqbt.bands`). Empty builds nothing, and the band
+    multiple is **not** part of the key -- one period serves every multiple."""
+
     needs_vwap: bool = False
     needs_time_of_day: bool = False
     """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
@@ -88,6 +103,7 @@ class ContextSpec:
         return ContextSpec(
             ma_keys=tuple(sorted({*self.ma_keys, *other.ma_keys})),
             atr_periods=tuple(sorted({*self.atr_periods, *other.atr_periods})),
+            band_periods=tuple(sorted({*self.band_periods, *other.band_periods})),
             needs_vwap=self.needs_vwap or other.needs_vwap,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
@@ -130,6 +146,10 @@ class Dataset:
     spec: ContextSpec
     mas: dict[str, MovingAverageGrid] = field(default_factory=dict)
     atrs: dict[int, FloatArray] = field(default_factory=dict)
+    band: bands.BandGrid | None = None
+    """Bollinger basis, dispersion and extension per declared period, or ``None`` when
+    nothing asked for them."""
+
     vwap: FloatArray | None = None
     below_vwap: BoolArray | None = None
     above_vwap: BoolArray | None = None
@@ -202,6 +222,29 @@ class Dataset:
                 msg,
             )
         return self.atrs[period]
+
+    def _band(self) -> BandGrid:
+        if self.band is None:
+            msg: str = (
+                "no band grid in this dataset; prepare() was not asked for one. "
+                "Add the period to band_periods on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+        return self.band
+
+    def band_basis(self, period: int) -> FloatArray:
+        """One period's band midline -- the level a reversion targets."""
+        return self._band().basis_for(period)
+
+    def band_stddev(self, period: int) -> FloatArray:
+        """One period's standard deviation -- the band's half-width at one multiple."""
+        return self._band().stddev_for(period)
+
+    def band_stretch(self, period: int) -> FloatArray:
+        """One period's signed extension in standard deviations, for gating and stratifying."""
+        return self._band().stretch_for(period)
 
     def vwap_gate(self, *, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) the session VWAP?"""
@@ -420,6 +463,8 @@ class Dataset:
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
         total += sum(a.nbytes for a in self.atrs.values())
+        if self.band is not None:
+            total += self.band.nbytes
         for a in (
             self.vwap,
             self.below_vwap,
@@ -554,6 +599,7 @@ def prepare(
             for kind, periods in spec.periods_by_kind().items()
         },
         atrs={p: indicators.nt8_atr(high, low, close, p) for p in spec.atr_periods},
+        band=bands.band_grid(close, spec.band_periods) if spec.band_periods else None,
         vwap=vwap,
         below_vwap=below_vwap,
         above_vwap=above_vwap,

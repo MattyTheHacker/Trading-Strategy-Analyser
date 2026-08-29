@@ -16,9 +16,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
-from nqbt.sim import crossover, insidebar, insidebartrailing, pullback, runner
+from nqbt.sim import crossover, elasticband, insidebar, insidebartrailing, pullback, runner
 from nqbt.sim.types import (
+    STOP_ATR,
     DeadCatParams,
+    ElasticBandParams,
     EmaCrossoverParams,
     InsideBarParams,
     InsideBarTrailingParams,
@@ -213,6 +215,29 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     )
 
 
+def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
+    """What ElasticBand reads: a band grid per period, and an ATR only where a stop needs one.
+
+    **No moving-average grid at all** -- the basis is the band's own, so this is the first
+    archetype that builds none. The band multiple is not part of the key, so sweeping it is
+    free -- ``docs/roadmap.md`` §M26.
+    """
+    atr: set[int] = (
+        {int(v) for v in values.get("atr_period", ())}
+        if any(int(v) == STOP_ATR for v in values.get("stop_mode", ()))
+        else set()
+    )
+    return ContextSpec(
+        band_periods=tuple(sorted({int(v) for v in values.get("band_period", ())})),
+        atr_periods=tuple(sorted(atr)),
+        needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
+        trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
+    )
+
+
 def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
 
@@ -323,6 +348,22 @@ context filters gate an axis.
 """
 
 
+ELASTICBAND_GATES: Mapping[str, str] = {
+    **REGIME_GATES,
+    **VOLUME_GATES,
+    **TREND_GATES,
+    **HIGHER_TIMEFRAME_GATES,
+}
+"""Only the shared context filters gate an axis here.
+
+**The stop and target axes cannot be gated and this is a known blind spot**: they are inert at
+every ``stop_mode`` but one, and ``dead_axes`` only knows how to compare a toggle against a
+single off value. Sweeping ``atr_stop_multiple`` under ``STOP_EXCURSION`` runs identical
+combinations and nothing will say so -- the same shape as ``volume_rolling_bars``,
+``.claude/rules/sweep-and-context.md``.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callables below
     """How to sweep one strategy. Frozen, so a lookup cannot mutate the registry."""
@@ -420,8 +461,31 @@ INSIDEBARTRAILING = Archetype(
 exits. Diffed leg-for-leg against an MNQ 03-24 trade list, which overturned three of the four
 exit rules the port had inferred -- ``docs/nt8-fidelity.md`` §M23."""
 
+ELASTICBAND = Archetype(
+    name="ElasticBand",
+    params_cls=ElasticBandParams,
+    run=elasticband.run_elasticband,
+    legs=elasticband.elasticband_legs,
+    signal=elasticband.elasticband_signal,
+    tier2=Tier2Status.TIER1_ONLY,
+    gated_by=ELASTICBAND_GATES,
+    context_for=elasticband_context,
+    not_sweepable=frozenset({"target_r_multiples", "target_stretch_levels"}),
+)
+"""The second original and the first mean-reversion archetype: no NinjaScript, and
+TIER1_ONLY until there is one. Its three exit schemes are three grids rather than three
+archetypes -- ``docs/roadmap.md`` §M26."""
+
 _REGISTRY: dict[str, Archetype] = {
-    a.name: a for a in (DEADCATBOUNCE, EMACROSSOVER, INSIDEBAR, INSIDEBARTRAILING, PULLBACKANDGO)
+    a.name: a
+    for a in (
+        DEADCATBOUNCE,
+        ELASTICBAND,
+        EMACROSSOVER,
+        INSIDEBAR,
+        INSIDEBARTRAILING,
+        PULLBACKANDGO,
+    )
 }
 
 DEFAULT = DEADCATBOUNCE

@@ -4,6 +4,7 @@ paths:
   - "nqbt/context.py"
   - "nqbt/archetypes.py"
   - "nqbt/conditions.py"
+  - "nqbt/bands.py"
   - "nqbt/results.py"
   - "nqbt/dispersion.py"
   - "nqbt/timeofday.py"
@@ -12,6 +13,7 @@ paths:
   - "nqbt/trend.py"
   - "nqbt/higher_timeframe.py"
   - "tests/test_context.py"
+  - "tests/test_bands.py"
   - "tests/test_regime.py"
   - "tests/test_volume.py"
   - "tests/test_trend.py"
@@ -67,6 +69,15 @@ paths:
   a values-carrying grid over its own two periods and drops it, so the shared grids stay
   boolean-only however a sweep is configured. Do not "simplify" it into reading
   `Dataset.ma_values` — that is the 8-bytes-against-1 switch, per period, per worker.
+- **The band grid is keyed by period alone, and the multiple is free.** `bands.band_grid`
+  builds basis, standard deviation and stretch per period; every `entry_std`, `max_entry_std`
+  and stretch target reads the same three rows, so sweeping a multiple costs nothing. Do not
+  add the multiple to the key "for symmetry" with `ma_keys` — it would multiply the grid for no
+  information. `docs/roadmap.md` §M26.
+- **ElasticBand's stop and target axes cannot be gated at all, and that is a known blind spot.**
+  They are inert at every `stop_mode`/`target_mode` but one, and `dead_axes` compares a toggle
+  against a single off value. Sweeping `atr_stop_multiple` under `STOP_EXCURSION` runs identical
+  combinations and nothing will say so — same shape as `volume_rolling_bars` below.
 - **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
   `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
   caught. Sweeping the window under a per-bar form runs identical combinations.

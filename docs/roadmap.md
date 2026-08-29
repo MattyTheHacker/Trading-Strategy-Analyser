@@ -1324,19 +1324,289 @@ stop, or accepting the clock as the third exit.
   with a far stop puts both inside one bar less often than the reverse does. Read it rather than
   assuming it; the mechanism is what the next decision gets made from.
 
-#### What [#169] still has to build
+#### What [#169] built, and the first measurement against the null
 
-The design is settled and the two primitives exist; nothing else does. A Bollinger grid keyed by
-period on `ContextSpec` and `Dataset` (basis, σ and stretch, one row each), an
-`ElasticBandParams` carrying all three exit schemes as parameters, the entry half in
-`nqbt/sim/elasticband.py`, a registry entry at `Tier2Status.TIER1_ONLY`, its axes in
-`dead_axes`, and the three grids of the exit section above — **B and C first**. The rule set the port will be checked
-against is already written down: [nt8-fidelity.md](nt8-fidelity.md) §M26.
+`nqbt/bands.py` holds the grid, keyed by period alone: basis, standard deviation and stretch,
+one row each. `ElasticBandParams` carries all three exit schemes as parameters,
+`nqbt/sim/elasticband.py` is the entry half, and the registry entry is `TIER1_ONLY`.
+`sweep_axes` takes the three schemes as three grids, which is what the strategy axis is for.
+
+**The band multiple really is free, and the archetype builds no moving-average grid at all** —
+the first one that does not, because the basis is the band's own.
+
+**Two things `dead_axes` cannot see here.** The stop and target axes are inert at every
+`stop_mode` and `target_mode` but one, and it only knows how to compare a toggle against a
+single off value, so sweeping `atr_stop_multiple` under `STOP_EXCURSION` runs identical
+combinations silently. Same shape as `volume_rolling_bars`, recorded in
+`.claude/rules/sweep-and-context.md` rather than worked around.
+
+**The invalidation exit and the time stop are guarded against each other rather than merely
+documented.** Both write `EXIT_SIGNAL`, so `__post_init__` refuses a combination with both on —
+a log carrying both cannot say which fired, and that was the cost this design accepted when it
+declined to add an exit code.
+
+##### The result: the entry beats the null on one scheme, and is still not profitable
+
+Measured on **four MNQ front-month contracts — 03-24, 09-24, 03-25 and 09-25 — per contract
+rather than spliced**, because both σ and ATR step at every roll seam and this archetype fires
+on extension. One parameter set per scheme, not a sweep. Costs are the real ones: $1.50 round
+trip per contract and one tick of slippage. 200 null iterations, so the smallest reachable
+*p* is about 0.005.
+
+| scheme | profit factor | expectancy | win rate |
+|---|---|---|---|
+| A, rotation | same on 4/4 | same on 4/4 | same on 4/4 |
+| B, ATR bracket | same on 4/4 | same on 4/4 | **better on 3/4** |
+| C, time and mean | **better on 4/4** | better on 3/4 | **worse on 4/4** |
+
+**Read the consistency across contracts, not the individual p-values.** Thirty-six comparisons
+were run; a single one clearing 0.05 is the expected output of that many. Four contracts
+agreeing on the sign is the part that is hard to get by chance, and it is what the table
+reports.
+
+**C is the finding, and its shape is the opposite of the usual mean-reversion story.** Its
+profit factor beats the matched null on every contract while its win rate is *worse* than the
+null on every contract. So the entry is not finding trades that win more often — it is finding
+trades whose payoff distribution is better, and the extension threshold is selecting for size
+rather than for frequency. Anything that tunes this archetype on win rate is tuning against the
+only thing it has.
+
+**Every scheme is still unprofitable at realistic costs**, which is the same result
+DeadCatBounce reached and for the same reason: there is signal, and it does not cover the round
+trip. This is a measurement of three chosen configurations rather than of the archetype —
+nothing has been swept yet, and the promotion criteria under "Decisions taken" are not close to
+met.
+
+**The null arm's trade counts do not match on two of the three schemes, and that bounds what
+the table can say.** The matched null holds the signal *count* fixed and randomises the day,
+but a drawn bar then meets a different stop geometry: under `STOP_EXCURSION` most draws fail
+the minimum-risk test, so A trades about 10,000 times against a null median near 1,900, and C
+trades about 5,800 against a null median near 8,600. **Only B is cleanly matched** — roughly
+1,400 against 1,300 — which makes B's win-rate result the best-evidenced cell in the table and
+A's blanket "indistinguishable" the weakest. This is a property of pairing a *structural* stop
+with a day-randomising null, not a defect in either; it belongs on [#32]'s caveat list.
+
+##### The sweep, and why the exit geometry is not the deciding factor after all
+
+The working expectation was that the TP/SL logic would decide this archetype's profitability
+more than anything else — it is the one whose geometry inverts, and three whole schemes were
+built for it. **Measured at one minute it is not true**, and the way it fails is more useful
+than the expectation was. **Read this whole subsection as one-minute-only**: the full sweep
+below adds bar size as an axis and finds it dominates everything here, which the η² table cannot
+show because it holds resolution fixed.
+
+**The run.** 11,808 combinations per contract over the four MNQ front-months named above:
+`band_period × entry_std × min_bars_outside × max_entry_std × band_lag` crossed with each
+scheme's own exit axes, at $1.50 round trip and one tick. 40,672 of the 47,232 rows clear 30
+trades. **6.3% of them are profitable**, and **7 of the 10,168 configurations present on all
+four contracts are profitable on all four**.
+
+**Which axis moves the profit factor**, as the share of PF variance a single axis explains
+(η², within scheme, over the ranges swept):
+
+| scheme | entry axes | exit axes | largest single axis |
+|---|---|---|---|
+| A, rotation | 0.44 | 0.08 | `entry_std` 0.25 |
+| B, ATR bracket | 0.06 | 0.09 | `atr_stop_multiple` 0.06 |
+| C, time and mean | 0.22 | 0.12 | `entry_std` 0.10 |
+
+`entry_std` is the largest single axis in every scheme. **η² is a property of the ranges swept,
+not of the strategy** — a wider `tp_multiplier` range would raise the exit column — so read the
+table as "over ranges a person would actually try", not as a law.
+
+**The surface only half replicates.** Spearman rank correlation of PF between contracts, over
+configurations present on all four: A **+0.51**, C **+0.50**, B **+0.07** (one pair negative).
+So B's geometry surface carries essentially no information that survives to another contract,
+and A's and C's carry some — most of it in the entry axes above.
+
+**Selecting on one contract is worse than not selecting.** The best 20 configurations on
+03-24 average PF 1.489 there and 1.320 on 03-25, but **0.760 and 0.832** on 09-24 and 09-25 —
+*below the median of every configuration* on those two contracts, which is 0.839 and 0.883.
+This is the multiple-comparisons trap producing exactly what the standing rubric says it
+produces, on this project's own data, and it is worth quoting whenever a sweep result is being
+read.
+
+##### The method that does answer the question: excess over the matched null
+
+A sweep can say which geometry has the highest profit factor. It cannot say **whether that
+geometry earned it**, because a bracket that suits the bars flatters a random entry just as
+much. The random-entry arm splits the two, per geometry:
+
+- **`null_median`** — what this TP/SL yields on these bars with no entry edge at all. The
+  geometry's own contribution.
+- **`observed − null_median`** — what the entry rule adds *at that geometry*. The excess.
+
+Run with the entry **fixed** at the middle of every axis, chosen before looking at any result,
+varying only the exit geometry, 200 iterations, MNQ 03-24:
+
+| scheme | observed PF spread | null PF spread | excess spread | verdicts |
+|---|---|---|---|---|
+| B, ATR bracket | 0.638 → 0.990 (0.352) | 0.640 → 0.864 (0.224) | −0.003 → +0.125 | indistinguishable from random, 9/9 |
+| C, time and mean | 0.724 → 0.825 (0.101) | 0.483 → 0.802 (0.319) | +0.023 → +0.252 | better than random, 11/12 |
+
+**Observed PF correlates +0.71 with null PF across geometries.** Most of what a geometry
+sweep is ranking is what the geometry does to *any* entry.
+
+**B is the pure case of the trap.** Widening the bracket takes observed PF from 0.638 to 0.990
+and looks like tuning; roughly two thirds of that move is present in the random arm, the excess
+never clears significance, and the highest cell is still under 1. This is `Trading-Docs`'
+"R:R and win rate are not independent knobs" measured rather than argued.
+
+**C is the finding, and it inverts the ranking.** Its observed PF barely moves across
+geometries while its null moves three times as much, so the excess is where all the information
+is — and **the excess is largest at the nearest target and smallest at the furthest**, which is
+the opposite order to the profit factor:
+
+| C geometry | observed PF | null PF | excess |
+|---|---|---|---|
+| target −0.5σ | 0.724 (worst) | 0.483 | **+0.241 (best)** |
+| target +0.0σ | 0.740 | 0.637 | +0.103 |
+| target +0.5σ | 0.755 (best) | 0.709 | +0.047 (worst) |
+
+Picking the geometry on profit factor picks the one where the entry's advantage has been given
+away. The mechanism is that a near target is a *bad* geometry for a random entry — small wins
+against an unbounded stop — and a good one for an entry that genuinely reverts, so the near
+target is where the entry's information is worth most.
+
+**The standing instruction that follows: rank exit geometries by excess over the matched null,
+never by profit factor.** The two agree on B, where neither is significant, and point in
+opposite directions on C, where one of them is — so the case that matters is the case where
+profit factor misleads, and nothing in a sweep table says so.
+`tools/geometry_contribution.py` runs the comparison and reports the two rankings side by side
+with the word DISAGREE when they part.
+
+##### Two axes that do nothing, and neither is visible to `dead_axes`
+
+- **`max_entry_std` at 4.0 is inert** — mean PF moves by about 0.002 in every scheme, because
+  the stretch rarely reaches 4 standard deviations. The ceiling from Leung and Li is a real
+  idea and this parameterisation of it is not a test of that idea; it needs a value close to
+  `entry_std` to bite at all.
+- **`exit_on_invalidation` is structurally unreachable under `STOP_EXCURSION` at
+  `stop_offset_ticks = 0`.** It changes the profit factor in **0%** of cells there, against 80%
+  at two ticks and 88% at eight: the stop sits *at* the excursion extreme, so price reaching it
+  intrabar exits the trade before any close beyond it can be observed. Two rules that look
+  independent are one rule plus an offset.
+
+Both are the same class as the ATR dollar floor collapsing `atr_stop_multiple`: whether an axis
+does anything is a property of the *data* and of another parameter, not of the grid, so
+`dead_axes` cannot see it and only a spread check on the realised numbers will.
+
+##### The full sweep: every contract, five resolutions, and a tight stop
+
+**The sweep above was one minute only, and that made its headline wrong.** Resolution was not an
+axis in it, so "the exit geometry is not the deciding factor" was measured with the largest
+lever held fixed. Re-run properly — **both roots, all 19 contracts each, resolutions 1, 2, 5, 10
+and 15 minutes, 1,026 combinations per point, 194,940 rows** — the picture changes and the
+earlier η² table should be read as a within-one-minute result rather than a general one.
+
+**Bar size is the biggest lever there is.** Median profit factor, MNQ, over every combination at
+that resolution:
+
+| resolution | ATR stop | tight stop |
+|---|---|---|
+| 1 min | 0.861 | 0.791 |
+| 5 min | 0.922 | 0.884 |
+| 15 min | 0.955 | 0.955 |
+
+Monotone in both columns, on both roots. **The mechanism is friction, and it was predicted
+before it was measured**: commission is a fixed sum per trade, so it is a shrinking share of a
+larger bar's range — median 7.6% of an average losing trade at 1 minute against 3.0% at 15.
+Nothing about the strategy improves with bar size; what improves is how much of it survives the
+round trip.
+
+##### A stop just beyond the signal candle: measured, and it does not help
+
+The idea is a cheap repeated attempt — put the stop a tick or two past the candle that signalled,
+so a move that keeps going costs almost nothing and the next bar can try again. It is now
+`STOP_SWING` and `swing_lookback = 1` is exactly that stop.
+
+**It makes no difference.** Median profit factor across the whole MNQ sweep, by how far beyond
+the extreme the stop sits and how many bars it looks back over:
+
+| offset, ticks | lookback 1 | lookback 2 | lookback 3 |
+|---|---|---|---|
+| 0 | 0.858 | 0.859 | 0.858 |
+| 2 | 0.866 | 0.866 | 0.866 |
+| 8 | 0.869 | 0.869 | 0.869 |
+
+Flat to three decimal places in every direction. **At one minute the tight stop is materially
+worse than the ATR bracket** (0.791 against 0.861) and it only pulls level by 10 minutes. The
+reason it cannot win is the one the cost floor already predicts: a tighter stop shrinks R while
+the round trip stays the same size, so it buys more attempts at a worse price each. It is a
+sound idea about *market* structure defeated by *cost* structure.
+
+##### Profit-taking: less aggressive is better, and it is the one exit axis that matters
+
+Median profit factor by where the target sits, in standard deviations from the basis, signed
+towards the trade — −1.5 exits well before the mean, +2.0 holds through it to the far band:
+
+| target | 1 min | 5 min | 15 min | win rate at 15 min |
+|---|---|---|---|---|
+| −1.5σ | 0.689 | 0.805 | 0.873 | 0.23 |
+| −0.5σ | 0.773 | 0.867 | 0.949 | 0.17 |
+| +0.0σ | 0.803 | 0.888 | 0.970 | 0.15 |
+| +1.0σ | 0.831 | 0.917 | 1.000 | 0.13 |
+| +2.0σ | 0.841 | 0.941 | **1.007** | 0.11 |
+
+**Monotone across every resolution**, and the only cells in the whole table that reach 1.0 are
+the two most patient targets at 15 minutes. So the answer to "would more or less aggressive
+profit taking help" is **less**: take the win rate from 23% down to 11% and hold for the bigger
+move. That is the opposite of the usual mean-reversion instinct, and it is the same direction
+§M26's earlier null decomposition found for the *observed* profit factor — with the same warning
+attached, that observed profit factor and excess over the null rank geometries differently.
+
+##### Held out, and then the test it fails
+
+Selecting on the oldest half of the contracts by expiry and confirming on the newest half:
+
+| root | top 20 on the selection half | the same 20 on the held-out half | all configurations |
+|---|---|---|---|
+| MNQ | 1.386 | **1.022** | 0.903 / 0.882 |
+| NQ | 1.497 | **1.202** | 0.970 / 0.938 |
+
+Rank correlation between the halves is **+0.79** on both roots, so the surface genuinely
+replicates — mostly because resolution is in it and resolution replicates. **This is a real
+improvement on the one-minute result**, where selection landed below the median of everything.
+
+**It still fails the null.** The configuration the split chose — 15 minutes, band period 20,
+entry at 3σ, stop one tick beyond the signal candle, target +0.5σ — run against a matched random
+entry on eight contracts per root, with trade counts matching closely enough to trust the
+comparison:
+
+| root | observed PF | null PF | excess | profitable | **beats the null** |
+|---|---|---|---|---|---|
+| MNQ, $1.50 round trip | 1.180 | 0.954 | +0.226 | 4/8 | **2/8** |
+| NQ, $4.50 round trip | 1.258 | 0.953 | +0.305 | 4/8 | **1/8** |
+
+The mean excess is positive and it is **two quarters carrying it** — 03-23 and 09-24 both show
+about +0.8, and the rest sit at or below zero. Per contract the chosen configuration is
+profitable through 2022 and 2023 and loses through 2024 to 2026, with a $16,204 drawdown on a
+single MNQ contract against $42,164 of profit summed over all nineteen. That is not an edge that
+decayed; it is an edge that was never separable from two good quarters.
+
+##### NQ beats MNQ on the same rules, and it is arithmetic rather than edge
+
+Costed honestly — **$1.50 round trip on MNQ against $4.50 on NQ**, rather than the sweep's
+mistake of applying MNQ's figure to both — NQ still comes out ahead: 32.2% of combinations
+profitable against 21.0%, and a median profit factor above 1.0 at 15 minutes where MNQ reaches
+0.955. Commission is three times larger and the point value is ten times larger, so the drag per
+point is about a third of MNQ's.
+
+**It buys money, not edge**: NQ beats the matched null on *fewer* contracts than MNQ, not more.
+Any rule this marginal is worth more on the big contract, and that is a fact about the contract
+rather than about the rule. It also cuts the other way for a prop account, where the position
+size that clears the friction floor may exceed what the account permits.
 
 **Build that grid once, because M19 reads it too.** The bandwidth form recommended above for
 the squeeze is `(upper − lower) / basis`, which is `2 · num_std · σ / basis` off the same two
 rows — so the two archetypes share one grid rather than each inventing a Bollinger of its own,
 which is the first item on the standing rubric.
+
+**What [#170] would be checked against is already written down**: [nt8-fidelity.md](nt8-fidelity.md)
+§M26 names the NinjaScript every rule becomes. **It is not earned.** The full sweep is the one
+the promotion criteria under "Decisions taken" asked for, and the archetype fails them: the
+configuration that survives held-out selection beats a matched random entry on two contracts out
+of eight, and its profit is two quarters wide.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 

@@ -248,15 +248,13 @@ def _protective_stop(
         )
         return fill - direction * distance
 
-    stop_offset = rules.stop_offset_ticks * costs.tick_size
-    start = signal_bar - rules.swing_lookback + 1
-    start = max(start, 0)
-    extreme = 0.0
-    for j in range(start, signal_bar + 1):
-        adverse, _ = bracket.sided(bars.low[j], bars.high[j], direction)
-        if j == start or direction * adverse < direction * extreme:
-            extreme = adverse
-    return extreme - direction * stop_offset
+    return bracket.swing_stop(
+        bars,
+        signal_bar,
+        rules.swing_lookback,
+        rules.stop_offset_ticks * costs.tick_size,
+        direction,
+    )
 
 
 def regime_direction(fast: FloatArray, slow: FloatArray) -> FloatArray:

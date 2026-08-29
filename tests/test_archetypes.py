@@ -29,12 +29,14 @@ from nqbt.sim.types import (
 def test_every_archetype_is_registered() -> None:
     assert archetypes.names() == [
         "DeadCatBounce",
+        "ElasticBand",
         "EmaCrossover",
         "InsideBar",
         "InsideBarTrailing",
         "PullBackAndGo",
     ]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
+    assert archetypes.get("ElasticBand") is archetypes.ELASTICBAND
     assert archetypes.get("EmaCrossover") is archetypes.EMACROSSOVER
     assert archetypes.get("InsideBar") is archetypes.INSIDEBAR
     assert archetypes.get("InsideBarTrailing") is archetypes.INSIDEBARTRAILING

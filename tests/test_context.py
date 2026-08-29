@@ -275,3 +275,36 @@ def test_the_union_of_two_specs_carries_the_session_clock() -> None:
     assert (ContextSpec() | ContextSpec(needs_session_clock=True)).needs_session_clock
     assert (ContextSpec(needs_session_clock=True) | ContextSpec()).needs_session_clock
     assert not (ContextSpec() | ContextSpec()).needs_session_clock
+
+
+def test_the_band_grid_is_absent_unless_the_spec_asks_for_it() -> None:
+    data = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
+    assert data.band is None
+    for read in (data.band_basis, data.band_stddev, data.band_stretch):
+        with pytest.raises(ContextError, match="band_periods"):
+            read(20)
+
+
+def test_the_band_grid_is_built_for_exactly_the_declared_periods() -> None:
+    data = context.prepare(bars(), ContextSpec(band_periods=(20, 50)))
+    assert data.band is not None
+    assert data.band.periods.tolist() == [20, 50]
+    assert data.band_stretch(20).shape == (len(data),)
+    # No moving-average grid was asked for, so none exists -- the band carries its own basis.
+    assert data.mas == {}
+    with pytest.raises(KeyError, match="band period 30 is not in this grid"):
+        data.band_basis(30)
+
+
+def test_the_union_of_two_specs_carries_the_band_periods() -> None:
+    merged = ContextSpec(band_periods=(20,)) | ContextSpec(band_periods=(50,), atr_periods=(14,))
+    assert merged.band_periods == (20, 50)
+    assert merged.atr_periods == (14,)
+
+
+def test_the_band_grid_counts_towards_what_a_worker_is_handed() -> None:
+    without = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
+    with_band = context.prepare(
+        bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), band_periods=(20,))
+    )
+    assert with_band.nbytes == without.nbytes + with_band.band.nbytes
