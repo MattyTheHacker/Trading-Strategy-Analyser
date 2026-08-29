@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import context, sessions, stats
+from nqbt import conditions, context, sessions, stats
 from nqbt.context import ContextSpec
 from nqbt.instruments import MNQ
 from nqbt.sim.runner import deadcat_legs, run_deadcat
@@ -98,8 +98,9 @@ PARAMS = DeadCatParams(
 """Every gate on and costs applied, so the pins cover the whole signal and the cost path."""
 
 SPEC = ContextSpec(
-    ema_periods=(PARAMS.ema_period,),
-    sma_periods=tuple(sorted({PARAMS.slow_sma_period, PARAMS.fast_sma_period})),
+    ma_keys=conditions.ma_keys(
+        ema=(PARAMS.ema_period,), sma=tuple(sorted({PARAMS.slow_sma_period, PARAMS.fast_sma_period}))
+    ),
     needs_vwap=True,
 )
 

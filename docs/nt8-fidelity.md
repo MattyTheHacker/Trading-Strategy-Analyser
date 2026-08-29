@@ -937,6 +937,20 @@ this is a material choice rather than a formality — the first is 2023-12-07 23
 18:00 ET open. `OrderFlowVWAP` at `VWAPResolution.Standard` works from bar data, so minute
 bars are the right input — tick data would *reduce* agreement.
 
+### WMA and HMA, ported from the NinjaScript rather than reconciled (#72)
+
+**These two are pinned against `@WMA.cs` and `@HMA.cs` themselves, not against an NT8 export.** Every other indicator here was read out of NinjaTrader by `NqbtIndicatorProbe.cs`; these were not, because the probe predates them. The prime directive still binds — the C# is the ground truth and it is transcribed literally — but the evidence is a class weaker than the M16 series above, and that is why `MA_KINDS` records where each came from rather than claiming an agreement rate. An archetype that switches a gate onto one of them has not been reconciled at that setting.
+
+**WMA weights `1..k` with the heaviest on the newest bar, over an expanding window.** It emits from bar 0 exactly as `nt8_sma` does: at bar *i* the window is `min(period, i+1)` bars and the divisor is that window's triangular number, so the warm-up is a shorter WMA rather than a null.
+
+**`@WMA.cs` has two branches and `indicators.nt8_wma` implements the one minute bars take.** Where the bar type supports `RemoveLastBar` — which time-based bars do — NT8 rebuilds the weighted sum from scratch every bar; otherwise it carries `wsum` and `sum` forward and updates them. The two are algebraically identical and numerically are not, and this is **the same choice `nt8_stddev` already faced**: the accumulating form drifts, the rebuilt one is exact, and the exact one is also what NT8 runs here. `tests/test_indicators.py::test_nt8_wma_matches_the_recursive_form_of_the_same_sum` pins that they agree, so the branch is a decision rather than an assumption.
+
+**The cost of rebuilding is real but small**, and it is the reason the choice is recorded rather than hidden: over the 1,663,489-bar MNQ continuous series, `nt8_wma` runs 0.025 s at period 21 and 0.220 s at period 200, against 0.003 s and 0.004 s for `nt8_ema`, which is `O(n)` at any period. `nt8_hma` is roughly 1.5× its WMA — 0.052 s and 0.356 s — because it is three of them. Re-measure rather than quoting these; they are one machine's.
+
+**HMA is NT8's composition of three WMAs and both inner lengths truncate.** `WMA(2·WMA(period/2) − WMA(period), (int)sqrt(period))`, where `period/2` is C# integer division and the square root is cast, not rounded — so period 14 is `WMA(7)`, `WMA(14)` and an outer `WMA(3)`. NT8 caps the period with `Range(2, int.MaxValue)` and `nt8_hma` refuses 1 for the same reason: its inner `WMA(0)` has nothing to average.
+
+**VWMA is deliberately absent, and it is the one that needs a probe.** It reads volume as well as price, and the obstacle there is the shape of `MovingAverageKind.compute` — `(values, period)`, a single series — rather than the data, which `prepare` already pulls out of `bars["volume"]` for the session VWAP. What actually needs NinjaTrader is that `@VWMA.cs`'s two branches genuinely disagree during warm-up rather than merely rounding differently: the `RemoveLastBar` branch sums `min(CurrentBar, Period)` bars and returns `0` at bar 0, the other sums `CurrentBar + 1` and returns `Input[0]`. Choosing between them from the C# alone is guessing, and a wrong warm-up is exactly the seeding class of defect the EMA and the ATR were both caught by.
+
 ### True Range at a roll boundary (#23)
 
 **Nothing is special-cased at a roll, and the reason is stronger than "NT8 would not either".**
@@ -1128,8 +1142,9 @@ disagreement count is zero. A reconciliation would return 100% and settle nothin
 
 **An SMA is a different matter, which is what makes this worth recording rather than closing.**
 An SMA drops the oldest value out of its window and *can* move past the close, so the boundary
-is observable there — 842 differing bars at 15-minute SMA(20) over the same data. The day
-[#72] makes the kind sweepable, a trade list becomes a valid instrument.
+is observable there — 842 differing bars at 15-minute SMA(20) over the same data. [#72] made
+the *fine* gates' kind sweepable and left this series fixed at EMA, so the day
+`HigherTimeframeKey` gains a kind of its own, a trade list becomes a valid instrument.
 
 **Reconciled ([#183]).** `NqbtHigherTimeframeProbe.cs` was run in Strategy Analyzer over
 `MNQ 03-24` with a 60-minute secondary series: 1,479,760 1-minute bars from 2020-01-01 to

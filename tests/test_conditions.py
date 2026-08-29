@@ -212,21 +212,82 @@ def test_grid_carries_above_alongside_below() -> None:
     assert all(grid.above_for(1))
 
 
-def test_grid_supports_both_kinds() -> None:
+def test_every_registered_kind_builds_a_grid_of_its_own_indicator() -> None:
+    close = np.random.default_rng(4).normal(20000, 40, 500)
+    for kind, registered in conditions.MA_KINDS.items():
+        grid = conditions.moving_average_grid(close, [20], kind=kind, keep_values=True)
+        assert grid.values_for(20) == pytest.approx(registered.compute(close, 20)), kind
+
+
+def test_the_four_kinds_are_four_different_series() -> None:
     close = np.arange(50, dtype=np.float64)
-    ema = conditions.moving_average_grid(close, [10], kind="ema", keep_values=True)
-    sma = conditions.moving_average_grid(close, [10], kind="sma", keep_values=True)
-    assert ema.values_for(10)[-1] != pytest.approx(sma.values_for(10)[-1])
+    last = {
+        kind: conditions.moving_average_grid(close, [10], kind=kind, keep_values=True).values_for(10)[-1]
+        for kind in conditions.MA_KINDS
+    }
+    assert len(set(last.values())) == len(conditions.MA_KINDS), last
 
 
 def test_grid_rejects_bad_input() -> None:
     close = np.arange(50, dtype=np.float64)
-    with pytest.raises(ValueError, match="no periods"):
+    with pytest.raises(conditions.MovingAverageError, match="no periods"):
         conditions.moving_average_grid(close, [])
-    with pytest.raises(ValueError, match=">= 1"):
+    with pytest.raises(conditions.MovingAverageError, match=">= 1"):
         conditions.moving_average_grid(close, [0, 21])
-    with pytest.raises(ValueError, match="unknown moving average"):
-        conditions.moving_average_grid(close, [21], kind="wma")
+    with pytest.raises(conditions.MovingAverageError, match="unknown moving average"):
+        conditions.moving_average_grid(close, [21], kind="tema")
+
+
+def test_the_grid_refuses_a_period_the_kind_itself_refuses() -> None:
+    close = np.arange(50, dtype=np.float64)
+    # NT8 caps HMA with Range(2, ...), and every other kind takes 1.
+    with pytest.raises(conditions.MovingAverageError, match="hma needs period >= 2"):
+        conditions.moving_average_grid(close, [1], kind="hma")
+    assert conditions.moving_average_grid(close, [1], kind="wma").periods.tolist() == [1]
+
+
+# -- (kind, period) keys -------------------------------------------------------
+
+
+def test_ma_key_rejects_an_unknown_kind_by_name() -> None:
+    with pytest.raises(conditions.MovingAverageError, match="unknown moving average kind 'zma'"):
+        conditions.ma_key("zma", 21)
+
+
+def test_ma_keys_sorts_and_deduplicates_across_kinds() -> None:
+    assert conditions.ma_keys(sma=(175, 60, 60), ema=(21,)) == (
+        conditions.ma_key("ema", 21),
+        conditions.ma_key("sma", 60),
+        conditions.ma_key("sma", 175),
+    )
+
+
+def test_ma_keys_separates_the_same_period_of_two_kinds() -> None:
+    keys = conditions.ma_keys(ema=(50,), wma=(50,))
+    assert keys == (conditions.ma_key("ema", 50), conditions.ma_key("wma", 50))
+    assert len({key.kind for key in keys}) == 2, "the period alone is not the key"
+
+
+def test_ma_keys_validates_every_pair_it_is_given() -> None:
+    with pytest.raises(conditions.MovingAverageError, match="hma needs period >= 2"):
+        conditions.ma_keys(ema=(21,), hma=(1,))
+
+
+def test_ma_keys_from_pairs_keeps_both_gates_that_share_a_kind() -> None:
+    """The reason this exists: as keyword arguments the second 'sma' would overwrite the first."""
+    keys = conditions.ma_keys_from_pairs((("ema", 21), ("sma", 60), ("sma", 175)))
+    assert keys == conditions.ma_keys(ema=(21,), sma=(60, 175))
+    assert len(keys) == 3
+
+
+def test_ma_keys_from_pairs_deduplicates_gates_that_agree_exactly() -> None:
+    keys = conditions.ma_keys_from_pairs((("wma", 50), ("wma", 50), ("ema", 50)))
+    assert keys == (conditions.ma_key("ema", 50), conditions.ma_key("wma", 50))
+
+
+def test_ma_keys_from_pairs_validates_every_pair_it_is_given() -> None:
+    with pytest.raises(conditions.MovingAverageError, match="hma needs period >= 2"):
+        conditions.ma_keys_from_pairs((("ema", 21), ("hma", 1)))
 
 
 # -- confluence ---------------------------------------------------------------

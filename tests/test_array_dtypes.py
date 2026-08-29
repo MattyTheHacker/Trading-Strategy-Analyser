@@ -10,14 +10,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import context, regime, sessions, timeofday, trend, volume
+from nqbt import conditions, context, regime, sessions, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams
 
 SPEC = ContextSpec(
-    ema_periods=(9,),
-    sma_periods=(20,),
+    ma_keys=conditions.ma_keys(ema=(9,), sma=(20,)),
     atr_periods=(14,),
     needs_vwap=True,
     needs_time_of_day=True,

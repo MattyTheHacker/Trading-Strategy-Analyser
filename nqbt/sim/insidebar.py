@@ -211,9 +211,9 @@ def insidebar_trends(data: Dataset, params: InsideBarParams) -> tuple[BoolArray,
     form rather than a rejection, unlike the two ports, and the raw values are read for that
     reason. ``docs/nt8-fidelity.md`` §M22.
     """
-    ema: FloatArray = data.ma_values("ema", params.ema_period)
-    fast: FloatArray = data.ma_values("sma", params.fast_sma_period)
-    slow: FloatArray = data.ma_values("sma", params.slow_sma_period)
+    ema: FloatArray = data.ma_values(params.ema_kind, params.ema_period)
+    fast: FloatArray = data.ma_values(params.fast_sma_kind, params.fast_sma_period)
+    slow: FloatArray = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
     up: BoolArray = (data.close > ema) & (data.close > fast) & (data.close > slow)
     down: BoolArray = (data.close < ema) & (data.close < fast) & (data.close < slow)
     return up, down

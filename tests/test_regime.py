@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, regime, sessions, sweep
+from nqbt import archetypes, conditions, context, regime, sessions, sweep
 from nqbt.context import ContextError, ContextSpec
 from nqbt.regime import ALL_REGIMES, UNDEFINED, Regime, RegimeError
 from nqbt.sim.crossover import crossover_signal
@@ -247,7 +247,7 @@ def bars(n: int = 1400, seed: int = 5) -> pd.DataFrame:
 
 
 def prepared(**spec: object) -> context.Dataset:
-    return context.prepare(bars(), ContextSpec(ema_periods=(11,), sma_periods=(80, 155), **spec))
+    return context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec))
 
 
 def test_the_ratios_are_absent_when_nothing_asked_for_them() -> None:
@@ -333,8 +333,7 @@ def test_sweeping_a_regime_axis_that_no_filter_reads_is_refused(axis) -> None:
 )
 def test_the_filter_narrows_a_signal_to_the_regimes_it_admits(signal_fn, params_cls) -> None:
     spec = ContextSpec(
-        ema_periods=(9, 11, 21),
-        sma_periods=(60, 80, 155, 175),
+        ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
         atr_periods=(14,),
         regime_lookbacks=(20,),
         needs_ma_values=True,
@@ -394,7 +393,7 @@ def test_a_filtered_run_enters_only_inside_the_admitted_regimes() -> None:
     frame = bars()
     data = context.prepare(
         frame,
-        ContextSpec(ema_periods=(11,), sma_periods=(80, 155), regime_lookbacks=(20,)),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), regime_lookbacks=(20,)),
     )
     mask = regime.regimes_mask([Regime.CONSOLIDATING, Regime.UNCLASSIFIABLE])
     log = run_deadcat(data, DeadCatParams(bars_required_to_trade=20, regime_filter=mask))

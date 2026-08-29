@@ -12,6 +12,12 @@ paths:
 rates — quote it rather than any figure repeated elsewhere.
 
 - **EMA**: different seeding. `indicators.py` hand-rolls NT8's recursion.
+- **WMA and HMA are ported from `@WMA.cs`/`@HMA.cs`, not read out of a probe export** — a
+  weaker class of evidence than everything else here, and the reason `docs/nt8-fidelity.md` §
+  "WMA and HMA, ported from the NinjaScript rather than reconciled" says so out loud. `@WMA.cs`
+  has two branches; the implemented one rebuilds the weighted sum every bar, which is what a
+  time bar runs and is the exact one. **VWMA is absent on purpose** — its branches disagree
+  during warm-up, so it needs NinjaTrader rather than a reading of the C#.
 - **ATR**: seeds with an *expanding simple average* of True Range before switching to Wilder.
 - **StdDev**: *population* divisor over an expanding window, computed two-pass.
 - **Bollinger**: `SMA ± k·StdDev`.

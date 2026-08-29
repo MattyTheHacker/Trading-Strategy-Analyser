@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, sessions, sweep, trend
+from nqbt import archetypes, conditions, context, sessions, sweep, trend
 from nqbt.context import ContextError, ContextSpec
 from nqbt.sim.crossover import crossover_signal
 from nqbt.sim.pullback import pullback_signal
@@ -337,7 +337,7 @@ def bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
 def prepared(**spec: object) -> context.Dataset:
     return context.prepare(
         bars(),
-        ContextSpec(ema_periods=(11,), sma_periods=(80, 155), **spec),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),
         bar_minutes=1,
     )
 
@@ -474,8 +474,7 @@ def test_sweeping_a_trend_axis_that_no_filter_reads_is_refused(axis) -> None:
 )
 def test_the_filter_narrows_a_signal_to_the_trends_it_admits(signal_fn, params_cls) -> None:
     spec = ContextSpec(
-        ema_periods=(9, 11, 21),
-        sma_periods=(60, 80, 155, 175),
+        ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
         atr_periods=(14,),
         trend_keys=(KEY,),
         needs_ma_values=True,
@@ -535,7 +534,7 @@ def test_a_filtered_run_enters_only_inside_the_admitted_trends() -> None:
     frame = bars()
     data = context.prepare(
         frame,
-        ContextSpec(ema_periods=(11,), sma_periods=(80, 155), trend_keys=(KEY,)),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), trend_keys=(KEY,)),
         bar_minutes=1,
     )
     mask = trend.trends_mask([Trend.MIXED, Trend.DOWN])

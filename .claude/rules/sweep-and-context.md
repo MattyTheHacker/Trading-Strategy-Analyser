@@ -29,8 +29,15 @@ paths:
   not raise; it makes every combination along it identical.
 - **`prepare` builds what a `ContextSpec` declares, not everything.** Reading an undeclared
   series raises `ContextError` naming the field to set, rather than returning `None` into a
-  boolean AND. Grids are keyed by `(kind, period)`. `cli.py` asks for VWAP unconditionally on
-  purpose — `--explain` exists to show what a sweep did *not* read.
+  boolean AND. **Grids are keyed by `(kind, period)` the whole way through** —
+  `ContextSpec.ma_keys` carries the pairs, each gate has a `<gate>_kind` beside its
+  `<gate>_period`, and a kind is a legal sweep axis. Adding a kind means adding it to
+  `conditions.MA_KINDS`, and one that does not match NT8's recursion is a fidelity break rather
+  than a feature. **Build the keys with `ma_keys_from_pairs` wherever the kinds come from
+  separate gates** — `ma_keys(**{gate_kind: periods})` looks equivalent and silently loses a
+  gate whenever two of them share a kind, which the stock `ema`/`sma`/`sma` set always does.
+  `cli.py` asks for VWAP unconditionally on purpose — `--explain` exists to show what a sweep
+  did *not* read.
 - **`sweep_axes` is the one mechanism for strategy × resolution × contract.** The strategy axis
   is a list of grids, not archetype names; the contract axis is carried by `bars` itself. **Do
   not add a second wrapper for a new axis.** `combo_id` means the same parameters at every axis

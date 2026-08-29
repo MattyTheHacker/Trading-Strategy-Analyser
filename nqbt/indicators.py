@@ -21,17 +21,25 @@ if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, DateArray, FloatArray
 
 __all__ = [
+    "MIN_HMA_PERIOD",
     "new_session_flags",
     "nt8_atr",
     "nt8_bollinger",
     "nt8_ema",
+    "nt8_hma",
     "nt8_keltner",
     "nt8_sma",
     "nt8_stddev",
     "nt8_true_range",
+    "nt8_wma",
     "session_vwap",
     "typical_price",
 ]
+
+MIN_HMA_PERIOD = 2
+"""Shortest period an HMA takes -- NT8's ``Range(2, int.MaxValue)``. At ``1`` its inner
+``WMA(period // 2)`` would have no bars to average.
+"""
 
 
 @njit(cache=True)
@@ -74,6 +82,42 @@ def nt8_sma(values: FloatArray, period: int) -> FloatArray:
             total = out[i - 1] * i
             out[i] = (total + values[i]) / (i + 1)
     return out
+
+
+@njit(cache=True)
+def nt8_wma(values: FloatArray, period: int) -> FloatArray:
+    """Weighted moving average, weights ``1..k`` with the heaviest on the newest bar.
+
+    Emits from index 0 over an expanding window, exactly as :func:`nt8_sma` does. **The
+    weighted sum is rebuilt every bar rather than updated**, which is what NT8's own
+    minute-bar branch does -- ``docs/nt8-fidelity.md`` § "WMA and HMA, ported from the
+    NinjaScript rather than reconciled".
+    """
+    n = values.size
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        span = min(period, i + 1)
+        total = 0.0
+        weight = 0
+        for j in range(span):
+            total += (span - j) * values[i - j]
+            weight += span - j
+        out[i] = total / weight
+    return out
+
+
+def nt8_hma(values: FloatArray, period: int) -> FloatArray:
+    """Hull moving average: ``WMA(2*WMA(p/2) - WMA(p), sqrt(p))``, all three NT8's WMA.
+
+    Both inner lengths **truncate**: ``period // 2`` and ``int(sqrt(period))``. NT8 caps the
+    period with ``Range(2, ...)`` and this follows -- see :data:`MIN_HMA_PERIOD`.
+    """
+    if period < MIN_HMA_PERIOD:
+        msg: str = f"nt8_hma needs period >= {MIN_HMA_PERIOD}, got {period}; NT8 caps it with Range(2, ...)"
+        raise ValueError(msg)
+    half: FloatArray = nt8_wma(values, period // 2)
+    full: FloatArray = nt8_wma(values, period)
+    return nt8_wma(2.0 * half - full, int(np.sqrt(period)))
 
 
 @njit(cache=True)

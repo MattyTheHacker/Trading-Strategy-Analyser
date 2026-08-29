@@ -98,7 +98,7 @@ def _cmd_splice(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from nqbt import context, stats
+    from nqbt import conditions, context, stats
     from nqbt.instruments import get_instrument
     from nqbt.sim import runner
     from nqbt.sim.types import DeadCatParams
@@ -107,6 +107,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         ema_period=args.ema,
         slow_sma_period=args.slow_sma,
         fast_sma_period=args.fast_sma,
+        ema_kind=args.ema_kind,
+        slow_sma_kind=args.slow_sma_kind,
+        fast_sma_kind=args.fast_sma_kind,
         order_quantity=args.quantity,
         commission_per_contract=args.commission,
         slippage_ticks=args.slippage,
@@ -127,8 +130,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
     data: Dataset = context.prepare(
         bars,
         context.ContextSpec(
-            ema_periods=(params.ema_period,),
-            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            ma_keys=conditions.ma_keys_from_pairs(
+                (
+                    (params.ema_kind, params.ema_period),
+                    (params.fast_sma_kind, params.fast_sma_period),
+                    (params.slow_sma_kind, params.slow_sma_period),
+                ),
+            ),
             needs_vwap=True,
         ),
         keep_ma_values=bool(args.explain),
@@ -160,9 +168,12 @@ def _log_run(
         f"{len(bars):,}",
     )
     logger.info(
-        "  params        EMA %d, SMA %d/%d, qty %d %s",
+        "  params        %s(%d), %s(%d)/%s(%d), qty %d %s",
+        params.ema_kind.upper(),
         params.ema_period,
+        params.fast_sma_kind.upper(),
         params.fast_sma_period,
+        params.slow_sma_kind.upper(),
         params.slow_sma_period,
         params.order_quantity,
         params.leg_quantities,
@@ -218,6 +229,8 @@ def _write_run_outputs(
 
 def build_parser() -> argparse.ArgumentParser:
     """The parser for every ``nqbt`` subcommand."""
+    from nqbt import conditions
+
     parser: argparse.ArgumentParser = argparse.ArgumentParser(prog="nqbt", description=__doc__)
     parser.add_argument(
         "--data-dir",
@@ -282,6 +295,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--ema", type=int, default=21)
     p_run.add_argument("--slow-sma", type=int, default=175)
     p_run.add_argument("--fast-sma", type=int, default=60)
+    kinds: list[str] = sorted(conditions.MA_KINDS)
+    p_run.add_argument("--ema-kind", choices=kinds, default="ema")
+    p_run.add_argument("--slow-sma-kind", choices=kinds, default="sma")
+    p_run.add_argument("--fast-sma-kind", choices=kinds, default="sma")
     p_run.add_argument("--quantity", type=int, default=4)
     p_run.add_argument(
         "--commission",

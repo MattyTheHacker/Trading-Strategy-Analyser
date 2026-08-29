@@ -12,7 +12,7 @@ filters' equality boundaries".
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from numba import njit
@@ -20,15 +20,19 @@ from numba import njit
 from nqbt import indicators
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable, Mapping
 
     import pandas as pd
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray
 
 __all__ = [
+    "MA_KINDS",
     "BarGeometry",
+    "MovingAverageError",
     "MovingAverageGrid",
+    "MovingAverageKey",
+    "MovingAverageKind",
     "above_series",
     "bar_geometry",
     "below_series",
@@ -37,8 +41,12 @@ __all__ = [
     "cross_below",
     "hammer",
     "inverted_hammer",
+    "ma_key",
+    "ma_keys",
+    "ma_keys_from_pairs",
     "made_new_high",
     "made_new_low",
+    "moving_average_grid",
     "previous_bar_green",
     "previous_bar_red",
     "prior_bar_inside",
@@ -282,6 +290,70 @@ def bar_geometry(bars: pd.DataFrame) -> BarGeometry:
     )
 
 
+class MovingAverageError(ValueError):
+    """Raised for a moving-average kind no grid can be built for, or a period one refuses."""
+
+
+class MovingAverageKind(NamedTuple):
+    """How one kind of average is computed, and the shortest period it accepts."""
+
+    compute: Callable[[FloatArray, int], FloatArray]
+    min_period: int
+
+
+class MovingAverageKey(NamedTuple):
+    """One moving-average grid a sweep needs, and the pair every gate is looked up by."""
+
+    kind: str
+    period: int
+
+
+MA_KINDS: Mapping[str, MovingAverageKind] = {
+    "ema": MovingAverageKind(indicators.nt8_ema, 1),
+    "hma": MovingAverageKind(indicators.nt8_hma, indicators.MIN_HMA_PERIOD),
+    "sma": MovingAverageKind(indicators.nt8_sma, 1),
+    "wma": MovingAverageKind(indicators.nt8_wma, 1),
+}
+"""Every kind a grid can be built for, all four matching NT8's recursion rather than the
+textbook one. They do not carry the same weight of evidence: ``ema`` and ``sma`` were read out
+of NinjaTrader by ``NqbtIndicatorProbe.cs`` -- ``docs/nt8-fidelity.md`` § "Indicators" --
+while ``wma`` and ``hma`` were transcribed from the NinjaScript and never probed --
+``docs/nt8-fidelity.md`` § "WMA and HMA, ported from the NinjaScript rather than reconciled".
+"""
+
+
+def ma_key(kind: str, period: int) -> MovingAverageKey:
+    """Build a grid key, rejecting an unknown kind and a period that kind refuses."""
+    if kind not in MA_KINDS:
+        msg: str = f"unknown moving average kind {kind!r}; use one of {sorted(MA_KINDS)}"
+        raise MovingAverageError(msg)
+    minimum: int = MA_KINDS[kind].min_period
+    if period < minimum:
+        msg = f"{kind}({period}) is too short; {kind} needs period >= {minimum}"
+        raise MovingAverageError(msg)
+    return MovingAverageKey(kind, int(period))
+
+
+def ma_keys_from_pairs(pairs: Iterable[tuple[str, int]]) -> tuple[MovingAverageKey, ...]:
+    """Build the key set from explicit ``(kind, period)`` pairs, one per gate.
+
+    The form to use when the kinds come from separate gates rather than from a literal:
+    two gates sharing a kind are two pairs here, where as keyword arguments to
+    :func:`ma_keys` they would be one key overwriting the other.
+    """
+    return tuple(sorted({ma_key(kind, int(period)) for kind, period in pairs}))
+
+
+def ma_keys(**periods_by_kind: Iterable[int]) -> tuple[MovingAverageKey, ...]:
+    """Build the sorted, deduplicated key set a :class:`~nqbt.context.ContextSpec` carries.
+
+    ``ma_keys(ema=(21,), sma=(60, 175))`` is the three grids that pair of gates needs. A kind
+    can only appear once, so a caller holding one pair per gate wants
+    :func:`ma_keys_from_pairs` instead.
+    """
+    return ma_keys_from_pairs((kind, int(p)) for kind, periods in periods_by_kind.items() for p in periods)
+
+
 @dataclass(slots=True)
 class MovingAverageGrid:
     """``Close < MA(p)`` for every period in a sweep, as ``[n_periods, n_bars]``.
@@ -344,24 +416,18 @@ def moving_average_grid(
     *,
     keep_values: bool = False,
 ) -> MovingAverageGrid:
-    """Compute every distinct MA period a sweep needs, once.
+    """Compute every distinct period one kind of average is needed at, once.
 
-    ``kind`` selects the NT8-compatible EMA or SMA from :mod:`nqbt.indicators`. Raw
-    values are discarded unless ``keep_values`` is set -- see :attr:`MovingAverageGrid.values`.
+    ``kind`` selects one of :data:`MA_KINDS`. Raw values are discarded unless ``keep_values``
+    is set -- see :attr:`MovingAverageGrid.values`.
     """
     unique: IntArray = np.unique(np.asarray(list(periods), dtype=np.int64))
     if unique.size == 0:
         msg: str = "no periods supplied"
-        raise ValueError(msg)
-    if unique[0] < 1:
-        msg = f"periods must be >= 1, got {unique[0]}"
-        raise ValueError(msg)
-
-    try:
-        fn = {"ema": indicators.nt8_ema, "sma": indicators.nt8_sma}[kind]
-    except KeyError:
-        msg = f"unknown moving average kind {kind!r}; use 'ema' or 'sma'"
-        raise ValueError(msg) from None
+        raise MovingAverageError(msg)
+    for period in unique:
+        ma_key(kind, int(period))
+    fn: Callable[[FloatArray, int], FloatArray] = MA_KINDS[kind].compute
 
     close = np.ascontiguousarray(close, dtype=np.float64)
     below: BoolArray = np.empty((unique.size, close.size), dtype=np.bool_)

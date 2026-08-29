@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, resample, sessions, sweep, timeofday
+from nqbt import archetypes, conditions, context, resample, sessions, sweep, timeofday
 from nqbt.context import ContextError, ContextSpec
 from nqbt.sim.crossover import crossover_signal
 from nqbt.sim.pullback import pullback_signal
@@ -273,20 +273,22 @@ def bars(n: int = 1400, seed: int = 5) -> pd.DataFrame:
 
 
 def test_time_of_day_is_absent_when_nothing_asked_for_it() -> None:
-    data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
+    data = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
     assert data.time_of_day is None
 
 
 def test_reading_time_of_day_nobody_declared_names_the_spec_field_to_set() -> None:
-    data = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
+    data = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
     for read in (lambda: data.phase_gate(ALL_PHASES), data.phase_values, data.bar_of_session):
         with pytest.raises(ContextError, match="needs_time_of_day"):
             read()
 
 
 def test_time_of_day_is_present_and_counted_when_the_spec_asks() -> None:
-    plain = context.prepare(bars(), ContextSpec(ema_periods=(21,)))
-    asked = context.prepare(bars(), ContextSpec(ema_periods=(21,), needs_time_of_day=True))
+    plain = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
+    asked = context.prepare(
+        bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_time_of_day=True)
+    )
     assert asked.phase_values().shape == (len(asked),)
     assert asked.bar_of_session().shape == (len(asked),)
     assert asked.phase_gate(CASH_OPEN.bit).dtype == np.bool_
@@ -337,8 +339,7 @@ def test_a_grid_asks_for_the_labels_only_when_some_combination_narrows_the_phase
 def test_the_filter_narrows_a_signal_to_the_phases_it_admits(signal_fn, params_cls) -> None:
     frame = bars()
     spec = ContextSpec(
-        ema_periods=(9, 11, 21),
-        sma_periods=(60, 80, 155, 175),
+        ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
         atr_periods=(14,),
         needs_time_of_day=True,
         needs_ma_values=True,
@@ -365,7 +366,7 @@ def test_the_default_filter_is_exactly_no_filter() -> None:
     frame = bars()
     data = context.prepare(
         frame,
-        ContextSpec(ema_periods=(11,), sma_periods=(80, 155), needs_time_of_day=True),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), needs_time_of_day=True),
     )
     params = DeadCatParams(bars_required_to_trade=20)
     assert np.array_equal(
@@ -384,7 +385,7 @@ def test_a_filtered_run_enters_only_inside_the_admitted_phases() -> None:
     frame = bars()
     data = context.prepare(
         frame,
-        ContextSpec(ema_periods=(11,), sma_periods=(80, 155), needs_time_of_day=True),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), needs_time_of_day=True),
     )
     mask = timeofday.phases_mask([SessionPhase.OVERNIGHT, SessionPhase.LONDON])
     log = run_deadcat(data, DeadCatParams(bars_required_to_trade=20, phase_filter=mask))
@@ -455,7 +456,7 @@ def test_the_seven_single_phase_filters_partition_the_unfiltered_signal() -> Non
     """
     data = context.prepare(
         bars(),
-        ContextSpec(ema_periods=(11,), sma_periods=(80, 155), needs_time_of_day=True),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), needs_time_of_day=True),
     )
     whole = deadcat_signal(data, DeadCatParams(bars_required_to_trade=20))
     parts = [
