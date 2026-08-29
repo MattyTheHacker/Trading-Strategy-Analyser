@@ -801,6 +801,101 @@ both `Exit Long/Short Trend Violation` map to `signal`. `Exit Long/Short Max Los
 mapped: that branch is unreachable, so an export carrying one falsifies the reading above and
 must stop the run rather than be counted as agreement.
 
+### M26 — the elastic band rules, written before the Python (#167, #168)
+
+**Nothing below is implemented yet**, which makes this section different in kind from every
+other one here. §M18 recorded rules that existed in Python and not in C#; these exist in
+neither. They are written down first because the prime directive binds during development, and
+a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later —
+the exploration is then wasted rather than merely unvalidated. Each item names the NinjaScript
+it would be written as. The reasoning behind the choices, and the alternatives rejected, are in
+[roadmap.md](roadmap.md) §M26; only the rules are here.
+
+`Archetype.tier2` will be `TIER1_ONLY` when it is registered, and stays there until a trade
+list has been diffed against it.
+
+**The band is `Bollinger(numStdDev, period)` on close**, and both halves of it are already
+pinned: `Bollinger.Middle[0]` is `nt8_sma` and the half-width is `numStdDev × StdDev(period)`,
+each exact against the probe export on every bar of the M16 window — see "Indicators" above.
+`Bollinger.Upper[0]` and `.Lower[0]` are `middle ± spread`. **No new indicator is needed and no
+new probe run is required**, which is the property the band was chosen for.
+
+**The entry test is a standard-deviation threshold, not a band touch.** `band_stretch` is
+`(Close[0] − Bollinger.Middle[0])` over `StdDev(period)`, and the gate is
+`band_stretch <= -entry_std` for a long and `>= entry_std` for a short. Written against the
+indicator instead it is `Close[0] <= Bollinger(entryStd, period).Lower[0]`, and the two forms
+agree on every bar except one: **at bar 0 `StdDev` is 0**, the bands collapse onto the close,
+and the division form reads 0 rather than infinite. Measured over 200,000 bars at three periods
+and three multiples, bar 0 was the only disagreement in every configuration
+([roadmap.md](roadmap.md) §M26). `BarsRequiredToTrade` excludes it either way, so the choice is
+free; the division form is taken because it makes the multiple a free sweep axis.
+
+**Extension depth is bounded on both sides.** `entry_std` is the floor and `max_entry_std` the
+ceiling — beyond some extension the move is a trend breaking out rather than a band being
+stretched, which is an optimal-stopping result and a practitioner observation both
+([roadmap.md](roadmap.md) §M26). **Extension duration is a separate gate.** `min_bars_outside`
+is how many consecutive bars have been outside — `conditions.consecutive_true`
+over the same boolean, and in NinjaScript an `int` incremented in `OnBarUpdate` and reset to 0
+whenever the bar closes back inside. Both come from [#167]'s own statement of the thesis and
+neither implies the other.
+
+**The band is read from the signal bar, which includes that bar's own close.** This is not
+lookahead — every input is a completed bar at or before *i* — but it is self-referential: the
+move being tested widens σ and moves the basis, damping its own measured stretch. The
+alternative is the `[1]` index on both `Bollinger` and `StdDev`, tested against `Close[0]`. It is a
+swept toggle rather than an assumption.
+
+**The entry is market-on-next-open, and §M18's consequences apply unchanged.** `EnterLong()` /
+`EnterShort()` under `Calculate.OnBarClose` submit at the close of bar *i* and NT8 fills at the
+open of bar *i+1*. There is no trigger price, so no "no touch, no fill" and no submittability
+rule; a bar at or past the flatten cutoff cancels the order rather than filling it. The second
+form is a limit at the band, which rests — so it is cancelled after one bar, and it must trade
+*through* rather than touch to fill ("Limit orders must trade *through*, not touch").
+
+**Direction is chosen by which band was breached, and the archetype is flat between trades.**
+Only one side can be extended at a time, so there is no OCO pair to express and no
+stop-and-reverse. `EntriesPerDirection` is not reached.
+
+**The stop and the target are three schemes, not one rule**, and they are swept as three grids
+over one parameter class — the reasoning and the evidence are in [roadmap.md](roadmap.md) §M26,
+"Three exit schemes". What each becomes in NinjaScript:
+
+| scheme | stop | target |
+|---|---|---|
+| A, band rotation | adverse extreme of the excursion bars, offset by `stopOffsetTicks` | `Bollinger.Middle[0]`, then the opposite band |
+| B, volatility bracket | `Math.Max(atr * multiple, floor / pointValue)` off the fill | the R ladder, capped at `Bollinger.Middle[0]` |
+| C, time and mean | `maxRiskTicks` only, a catastrophe limit rather than a strategy stop | `Bollinger.Middle[0]`, whole position |
+
+All three are `SetStopLoss` / `SetProfitTarget` against a level the script already holds, so none
+of them needs anything NT8 does not express. **Only B's stop is floored**, because only it is a
+distance rather than a level — a structural stop pushed away from its structure stops being the
+rule it is.
+
+**A target that is a level is written as a price, not as an R multiple.** `Bollinger.Middle[0]`
+at the signal bar. Where legs scale out they do so at fractions of the distance back to it —
+`fill + d × (basis − fill) × fraction[leg]` — so the archetype writes `legs.target[leg]` as
+prices and `bracket.py` resolves them exactly as it resolves an R-multiple target. Nothing in
+the bracket engine changes.
+
+**`r_multiple` therefore means a third thing.** Under A and C, R is set by the band geometry and
+is identical across every combination sharing a ratio; under B it is the ratio of two different
+volatility measures. Elastic band results are not comparable with DeadCatBounce's or
+EmaCrossover's at the same R.
+
+**Two signal exits are specified and both are `EXIT_SIGNAL`.** A's invalidation exit — price
+closing back outside the band beyond the excursion extreme — and C's time stop, an `int`
+incremented in `OnBarUpdate` against `maxHoldBars`. Both are market orders at the close of bar
+*i*, filled at the open of *i+1*, taking precedence over the stop and the targets on that bar
+because NT8's managed approach cancels a position's brackets when something else flattens it.
+**A grid must not enable both**, because the trade log then cannot say which fired: no new exit
+code was added, deliberately, since one would move `trades.py` and every stored log's schema.
+
+**Flat before the session close binds harder here than on any existing archetype**, because
+"hold until price returns to the basis" is an unbounded hold. `IsExitOnSessionCloseStrategy`
+handles it identically to every other archetype and nothing new is needed, but the expected
+`session_close_share` is high enough that it changes what the results mean —
+[roadmap.md](roadmap.md) §M26.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and

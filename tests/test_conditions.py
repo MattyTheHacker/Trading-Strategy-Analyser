@@ -382,3 +382,21 @@ def test_a_lookback_below_one_is_refused() -> None:
     for fn in (conditions.cross_above, conditions.cross_below):
         with pytest.raises(ValueError, match="lookback must be >= 1"):
             fn(fast, slow, 0)
+
+
+def test_consecutive_true_counts_a_run_and_resets_on_the_first_false() -> None:
+    mask = np.array([False, True, True, True, False, True])
+    assert list(conditions.consecutive_true(mask)) == [0, 1, 2, 3, 0, 1]
+
+
+def test_consecutive_true_counts_bars_where_count_true_counts_conditions() -> None:
+    mask = np.array([True, True, False, True])
+    stack = np.vstack([mask, mask])
+    assert list(conditions.consecutive_true(mask)) == [1, 2, 0, 1]
+    assert list(conditions.count_true(stack)) == [2, 2, 0, 2]
+
+
+def test_consecutive_true_on_uniform_and_empty_input() -> None:
+    assert list(conditions.consecutive_true(np.ones(3, dtype=np.bool_))) == [1, 2, 3]
+    assert list(conditions.consecutive_true(np.zeros(3, dtype=np.bool_))) == [0, 0, 0]
+    assert conditions.consecutive_true(np.array([], dtype=np.bool_)).size == 0

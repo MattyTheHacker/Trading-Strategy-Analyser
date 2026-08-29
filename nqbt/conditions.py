@@ -36,6 +36,7 @@ __all__ = [
     "above_series",
     "bar_geometry",
     "below_series",
+    "consecutive_true",
     "count_true",
     "cross_above",
     "cross_below",
@@ -442,6 +443,22 @@ def moving_average_grid(
             values[i] = ma
 
     return MovingAverageGrid(kind=kind, periods=unique, below=below, above=above, values=values)
+
+
+@njit(cache=True)
+def consecutive_true(mask: BoolArray) -> IntArray:
+    """How many bars up to and including this one are ``True`` unbroken; ``0`` where it is not.
+
+    The other axis from :func:`count_true`, which counts conditions on one bar where this
+    counts bars for one condition -- ``docs/roadmap.md`` §M26.
+    """
+    n = mask.size
+    out = np.zeros(n, dtype=np.int64)
+    run = 0
+    for i in range(n):
+        run = run + 1 if mask[i] else 0
+        out[i] = run
+    return out
 
 
 @njit(cache=True)
