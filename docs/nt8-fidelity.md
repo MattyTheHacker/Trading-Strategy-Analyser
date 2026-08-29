@@ -567,11 +567,11 @@ the tick. A reconciliation window is evidence about the bars it contains.
 | field | agreement |
 |---|---|
 | entry price | 100.00% |
-| exit price | 99.58% |
-| exit time | 99.89% |
-| exit reason | 99.89% |
-| net P&L | 99.58% |
-| **identical everywhere** | **943 of 947 — 99.58%** |
+| exit price | 100.00% |
+| exit time | 100.00% |
+| exit reason | 100.00% |
+| net P&L | 100.00% |
+| **identical everywhere** | **968 of 968 — 100.00%** |
 
 Reproduce it with the export in place:
 
@@ -585,23 +585,23 @@ evidence for. The `OnExecutionUpdate` indexing, established against both terms i
 against an inference that had them one bar later. And that `ExitOnSessionCloseSeconds` does not
 move a backtest's flatten. `Archetype.tier2` is `RECONCILED`.
 
-**Almost all of the residual is out-of-session stray bars, and it is not InsideBar's.** The
-export files carry occasional prints outside session hours — 47 of MNQ 03-24's 132,454 bars —
-which NT8, building bars against the ETH template, never forms. `sessions.classify` flags them
-and nothing drops them, so they sit in the array the simulation indexes: at the first bar of a
-Sunday session a stray becomes `[1]`, and InsideBar's inside-bar test reads `[1]` and `[2]`
-directly. Dropping them took this reconciliation to **967/968 — 99.90%**, with NT8-only entries
-falling from 22 to 1 and nqbt-only from 7 to 0, and left the DeadCatBounce and PullBackAndGo
-reconciliations **bit-for-bit unchanged**, because neither reads two bars back through a strict
-geometric test. The rule is general and the sensitivity is not. That was measured against the
-then-current 942/947, which #68 has since moved to 943/947.
+**The whole residual was out-of-session stray bars, and it was not InsideBar's** (#160). The
+export files carry occasional prints outside session hours which NT8, building bars against the
+ETH template, never forms; `sessions.classify` flagged them and nothing dropped them, so they
+sat in the array the simulation indexes. At the first bar of a Sunday session a stray becomes
+`[1]`, and InsideBar's inside-bar test reads `[1]` and `[2]` directly. Dropping them in
+`load_contract` took this reconciliation from **943/947 — 99.58%** to **968/968 — 100.00%**,
+NT8-only entries from 22 to 1 and nqbt-only from 7 to 0, and left the DeadCatBounce and
+PullBackAndGo reconciliations **bit-for-bit unchanged**, because neither reads two bars back
+through a strict geometric test. The rule is general and the sensitivity is not: any future
+archetype reading two bars back inherits the same exposure.
 
-**The Presidents' Day disagreement is the one #68 fixed.** A trade entered at 13:00 ET on
-2024-02-19, an exchange early close, which `force_flat_mask` measured against the template's
-fixed 17:00 and so never flattened. Deriving the session end from the observed last bar takes
-this reconciliation from 942/947 to 943/947 and leaves the DeadCatBounce and PullBackAndGo
-reconciliations above bit-for-bit unchanged — see "The session end is the observed last bar,
-not the template's".
+**The Presidents' Day disagreement is the one #68 fixed**, and it was the last one standing
+before the strays went. A trade entered at 13:00 ET on 2024-02-19, an exchange early close,
+which `force_flat_mask` measured against the template's fixed 17:00 and so never flattened.
+Deriving the session end from the observed last bar took this reconciliation from 942/947 to
+943/947 and left the DeadCatBounce and PullBackAndGo reconciliations above bit-for-bit
+unchanged — see "The session end is the observed last bar, not the template's".
 
 ### M23 — the InsideBarTrailing rules
 
@@ -733,13 +733,13 @@ attributable to the exit model rather than to the data.
 | field | agreement |
 |---|---|
 | entry price | 100.00% |
-| exit price | 99.80% |
-| exit time | 99.93% |
+| exit price | 100.00% |
+| exit time | 100.00% |
 | exit reason | 100.00% |
-| net P&L | 99.80% |
-| **identical everywhere** | **1,517 of 1,520 — 99.80%** |
+| net P&L | 100.00% |
+| **identical everywhere** | **1,522 of 1,522 — 100.00%** |
 
-Net P&L over the joined legs: NT8 −8,947.00 against nqbt −8,921.00. Reproduce it with the export
+Net P&L over the joined legs: NT8 −8,913.00 against nqbt −8,913.00. Reproduce it with the export
 in place:
 
 ```bash
@@ -755,9 +755,10 @@ that the exit it submits is part of the triggering fill rather than a next-bar m
 (→ 98.42%); and that a trail advances within its entry bar but not within any later one
 (→ 99.80%). `Archetype.tier2` is `RECONCILED`.
 
-**The residual is three legs, all leg-1 targets off by a tick or two** — the same class of
-residual InsideBar's reconciliation carries, and small enough that chasing it would be fitting
-noise. There are 6 NT8-only and 10 nqbt-only legs at the window edges.
+**The last three legs went with the out-of-session strays** (#160), the same fix and the same
+cause as InsideBar's: this archetype shares that entry, so it reads `[1]` and `[2]` too. They
+were leg-1 targets off by a tick or two, and dropping the strays took the run from 1,517/1,520
+to 1,522/1,522. There are 4 NT8-only and 2 nqbt-only legs left at the window edges.
 
 **The two open questions it closed were #67's.** Both were added there before the port was
 written, precisely because reflection cannot answer them; both are now answered by measurement
@@ -986,8 +987,19 @@ is closed Friday 17:00 → Sunday 18:00 — so naive wall-clock arithmetic insid
 exact.
 
 Exports also contain stray prints outside session hours (isolated volume-1 bars on
-Saturdays). NT8 building bars against an ETH template never forms these, so they are
-tagged `in_session=False` at ingest and dropped from the continuous series.
+Saturdays) — 47 of MNQ 03-24's 132,454 bars, and 0.086% on the worst of the 38 contracts
+cached when #160 landed. NT8 building bars against an ETH template never forms these, so
+they are tagged
+`in_session=False` in the Parquet cache, which stays lossless, and `ingest.load_contract` drops
+them on the way out. A per-contract frame and a spliced one are therefore the same bar set,
+which they were not before #160: `context.prepare` computed over every row it was handed while
+`build_continuous` filtered first, so a stray at a session open became `[1]` and shifted every
+`[n]` behind it. What that was worth is in "Reconciliation result — InsideBar".
+
+**A large share is a broken export, not strays, and is refused rather than filtered.**
+`ingest.STRAY_SHARE_LIMIT` is the line; above it `load_contract` raises, because a file where
+the count is not a rounding error is saying the export or the session template is wrong, and
+quietly filtering it would hide that.
 
 **NT8's trade-list export is in the machine's display timezone, not UTC.** This corrects an
 earlier claim here, and the earlier evidence contains the reason it was wrong: the

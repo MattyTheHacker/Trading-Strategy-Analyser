@@ -224,10 +224,12 @@ def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFr
     stamps: list[pd.Timestamp] = []
     open_et = pd.Timestamp(start, tz=sessions.EASTERN)
     for _ in range(sessions_wanted):
-        stamps.extend(open_et + pd.Timedelta(minutes=m) for m in range(1, 1381))
-        open_et += pd.Timedelta(days=1)
+        # Skipped before generating, not after: a session opening on a Friday evening ends on
+        # a Saturday, and every bar of it is out of session.
         while open_et.dayofweek in (4, 5):
             open_et += pd.Timedelta(days=1)
+        stamps.extend(open_et + pd.Timedelta(minutes=m) for m in range(1, 1381))
+        open_et += pd.Timedelta(days=1)
 
     idx = pd.DatetimeIndex(stamps).tz_convert("UTC")
     idx.name = "ts_utc"

@@ -1155,11 +1155,10 @@ that pool, so it can never be smaller than the number of draws. That is why ther
 resample-on-collision loop to get subtly wrong.
 
 **The pool is deliberately not narrowed to in-session bars.** The null must face the same bar
-universe the strategy faced. A per-contract frame keeps a handful of out-of-session stray
-prints and the strategy's own signal is computed over them too; narrowing one side and not the
-other would compare two different bar universes, and would break the subset guarantee above.
-On the spliced series the question does not arise — `build_continuous` has already filtered
-them out.
+universe the strategy faced, and narrowing one side and not the other would compare two
+different bar universes and break the subset guarantee above. Since [#160] the question is
+moot on both series — `ingest.load_contract` and `build_continuous` filter alike — but the
+rule is the reason it stays moot rather than something to reinstate.
 
 **`SessionMinutePool` is hoisted out of the Monte Carlo loop because of a measurement.**
 Grouping means an argsort over the whole series, and rebuilding it per draw was **89% of an
@@ -1345,10 +1344,9 @@ open?" is a sweep rather than a set of hand-run backtests. `ALL_PHASES` is the d
 archetype's signal **skips the conjunction entirely** at that value, which is why adding the
 field to two reconciled archetypes moved nothing.
 
-That skip is not an optimisation. An out-of-session stray print passes *no* mask, `ALL_PHASES`
-included, so ANDing the gate at the default would quietly drop the strays and move a
-per-contract result — the same asymmetry `context.prepare` and `build_continuous` already
-disagree on. The no-op has to be no call.
+That skip is not an optimisation. A bar carrying no label passes *no* mask, `ALL_PHASES`
+included, so ANDing the gate at the default would quietly drop those bars and move a result.
+The no-op has to be no call.
 
 **Gated.** All 12 captured trade logs are byte-identical (`sha256` too); the two sweep summary
 tables differ by the added `phase_filter` column and are identical on every pre-existing
@@ -1873,10 +1871,10 @@ discharged: all three were wanted.
   `bars` is deliberate: it is the same word `ema_period` uses, on a different series.
 - **`UNDEFINED` is −1, not a fourth side**, for the reason [#40]'s, [#41]'s and [#42]'s are: it
   cannot be swept into a filter by accident, and it passes no mask including `ALL_SIDES`.
-- **The average is projected onto every fine bar, out-of-session strays included**, which is
-  where this differs from `volume`'s baseline. A moving average is continuous across the
-  maintenance break and across a session boundary — that is what makes it a higher timeframe —
-  and the existing 1-minute gates do not special-case those bars either.
+- **The average is projected onto every fine bar**, which is where this differs from
+  `volume`'s baseline. A moving average is continuous across the maintenance break and across a
+  session boundary — that is what makes it a higher timeframe — and the existing 1-minute gates
+  do not special-case those bars either.
 - **One resample per distinct resolution, whatever periods share it.** Two periods on the
   hourly cost one aggregation and two EMAs over a series 60 times shorter than the archive.
 
@@ -2257,8 +2255,8 @@ Three further conventions `nqbt/resample.py` implements, recorded here rather th
   The identity is not merely an optimisation — the 1-minute path is what every reconciliation
   and every captured trade log was produced against, so resampling must not perturb it even by
   dropping a row. A stray out-of-session print has no session to be anchored to and so no bucket
-  it could honestly join; dropping it matches `splice.build_continuous` and differs from a
-  per-contract 1-minute frame, which keeps them.
+  it could honestly join. Since [#160] the filter is belt-and-braces on a frame from
+  `load_contract` or `build_continuous`, both of which have already dropped them.
 
 Because the grouping key includes the trading day, no bucket can span the 17:00–18:00
 maintenance break or the weekend. That falls out of the anchoring rather than needing its own
@@ -2841,4 +2839,5 @@ default is now known to be right for this machine.
 [#113]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/113
 [#126]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/126
 [#127]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/127
+[#160]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/160
 [#161]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/161

@@ -17,8 +17,9 @@ anything else falls back to a full reparse. Hashing only the head cannot see a r
 which froze stale bars in the cache and dropped real ones at the seam.
 
 The cache is deliberately lossless -- out-of-session prints are tagged, not dropped, so the raw
-export can always be reconstructed from Parquet. Filtering happens downstream in
-:mod:`nqbt.splice`.
+export can always be reconstructed from Parquet. :func:`load_contract` drops them on the way
+out, so a per-contract bar frame and a spliced one are the same bar set --
+``docs/nt8-fidelity.md``, "Sessions".
 """
 
 from __future__ import annotations
@@ -58,6 +59,11 @@ TICK_STAMP_PARTS = 3
 """Whitespace-separated parts of a tick export's timestamp, the third sub-second."""
 HASH_CHUNK_BYTES = 1 << 20
 """Read size when hashing. Hashing is I/O bound and cheap next to parsing."""
+
+STRAY_SHARE_LIMIT = 0.01
+"""Out-of-session share above which a cached contract is a broken export, not stray prints.
+
+Comfortably above every rate measured here -- ``docs/nt8-fidelity.md``, "Sessions"."""
 
 
 @dataclass(slots=True)
@@ -296,13 +302,30 @@ def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR)
     return cache_dir / "bars" / contract.root / f"{contract.cache_key}.parquet"
 
 
+def drop_out_of_session(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
+    """Drop the stray prints NT8 would never have formed into bars.
+
+    Raises :class:`IngestError` above :data:`STRAY_SHARE_LIMIT`, where the export is telling us
+    something other than "a handful of strays" and filtering it would hide that.
+    """
+    strays: int = int((~frame["in_session"]).sum())
+    if strays > len(frame) * STRAY_SHARE_LIMIT:
+        msg: str = (
+            f"{source_name}: {strays:,} of {len(frame):,} bars fall outside session hours, "
+            f"above the {STRAY_SHARE_LIMIT:.0%} that stray prints account for; the export or "
+            f"the session template is wrong rather than the bars being strays"
+        )
+        raise IngestError(msg)
+    return frame[frame["in_session"]]
+
+
 def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
-    """Read one contract's cached bars."""
+    """Read one contract's cached bars, less the prints NT8 would never have formed."""
     path: Path = contract_cache_path(contract, cache_dir)
     if not path.exists():
         msg: str = f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first"
         raise FileNotFoundError(msg)
-    return pd.read_parquet(path)
+    return drop_out_of_session(pd.read_parquet(path), source_name=contract.nt8_name)
 
 
 def ingest_contract(
@@ -384,7 +407,8 @@ def ingest_contract(
     if out_of_session:
         warnings.append(
             f"{out_of_session:,} bars fall outside session hours (stray prints); "
-            "tagged in_session=False and excluded from the continuous series",
+            "tagged in_session=False in the cache and dropped from every bar frame "
+            "`load_contract` hands out",
         )
 
     updated: ContractManifest = ContractManifest(
