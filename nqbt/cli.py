@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from nqbt.context import Dataset
     from nqbt.ingest import ContractManifest
     from nqbt.instruments import Instrument
+    from nqbt.sim.types import DeadCatParams
+    from nqbt.stats import Summary
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +98,8 @@ def _cmd_splice(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from nqbt import context
+    from nqbt import context, stats
     from nqbt.instruments import get_instrument
-    from nqbt.sim import explain as explain_mod
     from nqbt.sim import runner
     from nqbt.sim.types import DeadCatParams
 
@@ -138,16 +139,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
         logger.info("no trades")
         return 0
 
-    per_trade: pd.Series[float] = trades.groupby("trade_id")["net_pnl"].sum()
-    wins: pd.Series[bool] = per_trade > 0
-    losses: float = -per_trade[~wins].sum()
-    pf: float = per_trade[wins].sum() / losses if losses > 0 else float("inf")
-    equity: pd.Series[float] = per_trade.cumsum()
-    max_dd: float = float((equity.cummax() - equity).max())
+    _log_run(args.root, bars, params, stats.summarise(trades), trades["exit_reason"].value_counts())
+    _write_run_outputs(args, data, params, trades, instrument)
+    return 0
 
+
+def _log_run(
+    root: str,
+    bars: pd.DataFrame,
+    params: DeadCatParams,
+    summary: Summary,
+    exit_reasons: pd.Series[int],
+) -> None:
+    """Report one run. Every figure is read off ``summary``; nothing is computed here."""
     logger.info(
         "%s %s -> %s  %s bars",
-        args.root,
+        root,
         bars.index[0].date(),
         bars.index[-1].date(),
         f"{len(bars):,}",
@@ -165,37 +172,48 @@ def _cmd_run(args: argparse.Namespace) -> int:
         params.commission_per_contract,
         params.slippage_ticks,
     )
-    logger.info("  trades        %s  (%s leg exits)", f"{len(per_trade):,}", f"{len(trades):,}")
-    logger.info("  win rate      %s", f"{wins.mean():.2%}")
-    logger.info("  net P&L       %s", f"${per_trade.sum():,.2f}")
-    logger.info("  expectancy    %s / trade", f"${per_trade.mean():.2f}")
-    logger.info("  profit factor %.3f", pf)
-    logger.info("  max drawdown  %s", f"${max_dd:,.2f}")
-    logger.info("  mean R        %s", f"{trades['r_multiple'].mean():+.3f}")
+    logger.info("  trades        %s  (%s leg exits)", f"{summary.trades:,}", f"{summary.legs:,}")
+    logger.info("  win rate      %s", f"{summary.win_rate:.2%}")
+    logger.info("  net P&L       %s", f"${summary.net_pnl:,.2f}")
+    logger.info("  expectancy    %s / trade", f"${summary.expectancy:.2f}")
+    logger.info("  profit factor %.3f", summary.profit_factor)
+    logger.info("  max drawdown  %s", f"${summary.max_drawdown:,.2f}")
+    logger.info("  mean R        %s", f"{summary.mean_r:+.3f}")
     logger.info(
         "  ambiguous     %s of leg exits (bar held both stop and target; stop assumed)",
-        f"{trades['ambiguous_bar'].mean():.2%}",
+        f"{summary.ambiguous_share:.2%}",
     )
     logger.info(
         "  exit reasons  %s",
-        ", ".join(f"{k} {v:,}" for k, v in trades["exit_reason"].value_counts().items()),
+        ", ".join(f"{reason} {count:,}" for reason, count in exit_reasons.items()),
     )
+
+
+def _write_run_outputs(
+    args: argparse.Namespace,
+    data: Dataset,
+    params: DeadCatParams,
+    trades: pd.DataFrame,
+    instrument: Instrument,
+) -> None:
+    """Write the trade log and, under ``--explain``, the NT8 audit trail."""
+    from nqbt.sim import explain as explain_mod
 
     if args.trades:
         trades.to_csv(args.trades, index=False)
         logger.info("")
         logger.info("trade log -> %s", args.trades)
 
-    if args.explain:
-        detail: pd.DataFrame = explain_mod.explain_trades(data, params, trades, instrument, args.explain)
-        detail.to_csv(args.explain_out, index=False)
-        logger.info("hand-check detail for %d trades -> %s", len(detail), args.explain_out)
-        first: int = int(trades["trade_id"].iloc[0])
-        hist: pd.DataFrame = explain_mod.ratchet_history(data, params, trades, first, instrument)
-        hist.to_csv(args.ratchet_out, index=False)
-        logger.info("ratchet history for trade %d -> %s", first, args.ratchet_out)
+    if not args.explain:
+        return
 
-    return 0
+    detail: pd.DataFrame = explain_mod.explain_trades(data, params, trades, instrument, args.explain)
+    detail.to_csv(args.explain_out, index=False)
+    logger.info("hand-check detail for %d trades -> %s", len(detail), args.explain_out)
+    first: int = int(trades["trade_id"].iloc[0])
+    hist: pd.DataFrame = explain_mod.ratchet_history(data, params, trades, first, instrument)
+    hist.to_csv(args.ratchet_out, index=False)
+    logger.info("ratchet history for trade %d -> %s", first, args.ratchet_out)
 
 
 def build_parser() -> argparse.ArgumentParser:
