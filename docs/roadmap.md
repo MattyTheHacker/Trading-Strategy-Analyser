@@ -2558,10 +2558,13 @@ transcribed from NT8's own `@WMA.cs` and `@HMA.cs`, which are on disk under
 `bin/Custom/Indicators/`, and pinned against hand-computed values from that source rather than
 against an export — a class weaker than the M16 indicators, and recorded as such in
 `docs/nt8-fidelity.md` § "WMA and HMA, ported from the NinjaScript rather than reconciled".
-**VWMA is deliberately not here**: it needs volume, which no `MovingAverageGrid` carries, and
-`@VWMA.cs`'s two branches disagree during warm-up rather than merely rounding differently, so
-picking one from the C# alone would be guessing at exactly the seeding question the EMA and the
-ATR were each caught by. That is a probe's job, not a port's.
+**VWMA is deliberately not here**, and the reason is the second half rather than the first.
+Volume is not missing — `prepare` already reads `bars["volume"]` for the session VWAP — so
+carrying it into a grid is a signature change, `MovingAverageKind.compute` being
+`(values, period)` over a single series. What needs NinjaTrader is that `@VWMA.cs`'s two
+branches disagree during warm-up rather than merely rounding differently, so picking one from
+the C# alone would be guessing at exactly the seeding question the EMA and the ATR were each
+caught by. That is a probe's job, not a port's.
 
 **A kind sweep needs a fresh results database, and nothing will say so.** `_append_or_create`
 writes `combos` by name and drops a column the stored table does not already have, and only
