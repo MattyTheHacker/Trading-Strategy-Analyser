@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "MIN_HMA_PERIOD",
+    "band_stretch",
     "new_session_flags",
     "nt8_atr",
     "nt8_bollinger",
@@ -203,6 +204,24 @@ def nt8_bollinger(
     middle: FloatArray = nt8_sma(values, period)
     spread: FloatArray = num_std * nt8_stddev(values, period)
     return middle + spread, middle, middle - spread
+
+
+@njit(cache=True)
+def band_stretch(values: FloatArray, basis: FloatArray, stddev: FloatArray) -> FloatArray:
+    """How far each value sits from ``basis``, signed, in units of ``stddev``.
+
+    ``2.0`` is the upper band of a two-sigma channel and ``-2.0`` the lower, so the number is
+    read against a band multiple directly. **Zero wherever ``stddev`` is zero** -- a window
+    with no dispersion has no extension to measure -- ``docs/roadmap.md`` §M26.
+    """
+    n = values.size
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        if stddev[i] > 0.0:
+            out[i] = (values[i] - basis[i]) / stddev[i]
+        else:
+            out[i] = 0.0
+    return out
 
 
 def nt8_keltner(

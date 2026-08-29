@@ -203,3 +203,41 @@ def test_new_session_flags_marks_each_days_first_bar() -> None:
 
 def test_new_session_flags_on_empty_input() -> None:
     assert indicators.new_session_flags(np.array([], dtype="datetime64[D]")).size == 0
+
+
+def test_band_stretch_is_the_band_multiple_a_value_sits_at() -> None:
+    values = np.array([100.0, 104.0, 95.0])
+    basis = np.array([100.0, 100.0, 100.0])
+    stddev = np.array([2.0, 2.0, 2.0])
+    assert indicators.band_stretch(values, basis, stddev) == pytest.approx([0.0, 2.0, -2.5])
+
+
+def test_band_stretch_reads_zero_where_the_window_has_no_dispersion() -> None:
+    # Not inf, not nan: a flat window has no extension to measure.
+    out = indicators.band_stretch(
+        np.array([100.0, 105.0]),
+        np.array([100.0, 100.0]),
+        np.zeros(2),
+    )
+    assert list(out) == [0.0, 0.0]
+    assert np.isfinite(out).all()
+
+
+def test_band_stretch_crosses_a_multiple_exactly_where_the_bollinger_band_does() -> None:
+    rng = np.random.default_rng(11)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 5_000))
+    period = 20
+    stddev = indicators.nt8_stddev(close, period)
+    flat = stddev == 0.0
+    # Only bar 0, where the bands collapse onto the close -- ``docs/roadmap.md`` §M26.
+    assert list(np.flatnonzero(flat)) == [0]
+    for num_std in (1.0, 2.0, 3.0):
+        upper, middle, lower = indicators.nt8_bollinger(close, period, num_std)
+        stretch = indicators.band_stretch(close, middle, stddev)
+        assert np.array_equal((stretch >= num_std)[~flat], (close >= upper)[~flat])
+        assert np.array_equal((stretch <= -num_std)[~flat], (close <= lower)[~flat])
+
+
+def test_band_stretch_on_empty_input() -> None:
+    empty = np.array([], dtype=np.float64)
+    assert indicators.band_stretch(empty, empty, empty).size == 0
