@@ -986,6 +986,36 @@ produced 340 spurious signal exits against NT8's 12 — a plain misreading of C#
 easy by the ticket describing the two together, and invisible to every test written from the
 same misreading. Only the trade list caught it.
 
+### ATR-multiple brackets and the dollar floor ([#76])
+
+Two archetypes size a bracket off ATR for opposite reasons — EmaCrossover because a crossover
+has no structural swing to anchor to ([#37]), the two InsideBar ports because their NinjaScript
+does — so the sizing is one `@njit` device function in `bracket.py` rather than a multiplication
+written out three times. `atr_bracket_distance` is what every ATR-derived stop distance goes
+through, and the ports pass `NO_BRACKET_FLOOR` because their C# has no floor to reproduce.
+
+**Why the floor is in dollars and not in points.** A quiet regime can size an ATR bracket
+smaller than the round trip costs to trade, which is a bracket that cannot win. The floor that
+fixes it is a *money* quantity: NQ and MNQ share a tick size and differ 10× in tick value, so a
+floor written in points is $300 of risk on one root and $30 on the other, and a sweep across
+both roots would be comparing two different rules. `min_bracket_dollars` is per contract —
+which is the unit commission is quoted in — and `Instrument.dollars_to_points` converts it once
+per run, so the axis means the same thing on every instrument.
+
+**It applies to the ATR stop only, not to the swing stop.** An ATR stop *is* a distance from
+the fill, so widening it is the same kind of quantity; a swing stop is a structural level, and
+pushing it away from the structure would stop it being the rule it is. `dead_axes` therefore
+gates the axis on `use_atr_stop`, alongside the period and the multiple.
+
+**What it does to R, which is the consequence [#34] recorded.** EmaCrossover's R was already
+ATR-scaled rather than structure-scaled, so its numbers do not compare to DeadCatBounce's at
+the same values. The floor adds a second break: on every combination where it binds, R is
+neither — it is dollar-scaled, and identical across every ATR multiple in the sweep, because
+the multiple stopped setting the distance. **A grid swept over `atr_stop_multiple` with a floor
+high enough to bind collapses that axis without emptying it**, which `dead_axes` cannot see
+because whether the floor binds is a property of the bars. Read the realised `risk_points`
+spread before attributing anything to the multiple.
+
 ### M19 — squeeze breakout ([#51])
 
 Queued rather than scheduled; the expensive archetype. "Squeeze" means at least three things,

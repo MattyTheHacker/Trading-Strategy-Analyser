@@ -407,6 +407,15 @@ default is an ATR multiple hung off the fill — planned risk is then exactly
 alternative mode is the adverse extreme of the last `swing_lookback` completed bars plus the
 usual two ticks, which is the closest thing to DeadCatBounce's stop. Both are swept.
 
+**The ATR stop has a hard floor in dollars per contract**, off at `0`. A quiet regime
+otherwise sizes a bracket smaller than the round trip costs to trade, and `min_bracket_dollars`
+is what stops it: the stop distance is `Math.Max(atr * multiple, floor / pointValue)`. It is
+expressible — `Instrument.MasterInstrument.PointValue` is the conversion, so a port writes the
+property in dollars and divides, exactly as `nqbt` does through
+`Instrument.dollars_to_points`. It applies to the ATR mode only; the swing mode's stop is a
+structural level rather than a distance. Reasoning and the effect on R:
+[roadmap.md](roadmap.md) § "ATR-multiple brackets and the dollar floor".
+
 **An entry whose stop would sit at or through its own fill is skipped.** This is the
 existing "a stop entry at or through the market is never submitted" rule applied to the
 protective stop, and it is reachable here for the same reason the entry rule became
@@ -423,7 +432,8 @@ would have to be written *around* rather than to.
 **`r_multiple` means something different.** R is `stop - entry`, so with an ATR stop the
 four-leg scale-out is volatility-scaled rather than structure-scaled. Crossover results are
 **not comparable to DeadCatBounce results at the same R numbers** — the same trap as
-comparing profit factor across bar resolutions.
+comparing profit factor across bar resolutions. Where the dollar floor binds it is neither:
+R is then dollar-scaled and the same on every ATR multiple in the sweep.
 
 ### M22 — the InsideBar rules
 

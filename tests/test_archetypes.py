@@ -193,6 +193,15 @@ def test_every_gate_names_a_real_field_on_its_own_params_class() -> None:
             assert toggle in known, f"{a.name}: gate {toggle!r} is not a field"
 
 
+def test_the_bracket_floor_is_dead_while_the_swing_stop_is_selected() -> None:
+    """The floor sizes the ATR stop only, so sweeping it in swing mode buys nothing."""
+    base = EmaCrossoverParams(use_atr_stop=False)
+    with pytest.raises(sweep.SweepError, match="min_bracket_dollars"):
+        sweep.Grid.of(base, min_bracket_dollars=[0.0, 30.0])
+    grid = sweep.Grid.of(base, min_bracket_dollars=[0.0, 30.0], use_atr_stop=[True, False])
+    assert len(grid) == 4
+
+
 def test_dead_axes_guards_pullbackandgo_too() -> None:
     """The guard came with the archetype rather than being reimplemented per strategy."""
     base = PullBackAndGoParams(use_slow_sma=False)

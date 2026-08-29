@@ -120,7 +120,14 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                 # inference that had them one bar later -- ``docs/nt8-fidelity.md`` §M22.
                 bar_atr = atr[pending_bar]
                 adverse, _ = bracket.sided(bars.low[pending_bar - 1], bars.high[pending_bar - 1], d)
-                candidate_stop = adverse - d * rules.atr_multiplier * bar_atr
+                # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
+                # § "ATR-multiple brackets and the dollar floor".
+                stop_distance = bracket.atr_bracket_distance(
+                    bar_atr,
+                    rules.atr_multiplier,
+                    bracket.NO_BRACKET_FLOOR,
+                )
+                candidate_stop = adverse - d * stop_distance
                 if fills.round_targets:
                     # An ATR multiple lands off the grid, and an exchange takes a stop no more
                     # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to

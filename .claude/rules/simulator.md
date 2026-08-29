@@ -80,6 +80,11 @@ below and is what you quote; this file is the index, not the record.
   every loop now sits under, and #59 is why. They must also stay in an **importable module** —
   a blob declared beside its loop writes a `cache=True` disk cache and then misses it on every
   run, silently, which costs the parallel workers their compile. `docs/roadmap.md` §M20c.
+- **`atr_bracket_distance` is the one ATR sizing**, shared by EmaCrossover's stop and both
+  InsideBar ports'. Its dollar floor is per contract and converted through `instruments.py`,
+  because NQ and MNQ differ 10x in tick value; the ports pass `NO_BRACKET_FLOOR` because their
+  C# has none. It sizes the ATR stop only, never the swing stop, and it breaks R comparability
+  wherever it binds. `docs/roadmap.md` § "ATR-multiple brackets and the dollar floor".
 - **The four market-context filters live in `sim/filters.py`, not in each signal.** Session
   phase, regime, volume and trend are properties of the bars rather than of a strategy, so every
   archetype's signal ends with the one shared conjunction and a new one gets them by declaring
