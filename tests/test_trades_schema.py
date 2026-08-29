@@ -334,7 +334,8 @@ def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> 
     # InsideBar have no rule-driven exit and the shared bracket engine has no rules at all, so
     # none of them should import the constant it would need to produce one. The two that do
     # are EmaCrossover, which the reservation was made for, and InsideBarTrailing, whose
-    # NinjaScript exits on a trend violation -- docs/nt8-fidelity.md §M23.
+    # NinjaScript exits on a trend violation -- docs/nt8-fidelity.md §M23. ElasticBand is the
+    # third: its invalidation exit and its time stop both write it -- §M26.
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/bracket.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/pullback.py")
@@ -342,8 +343,10 @@ def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> 
     # And the positive half, without which the negatives would pass on a typo.
     assert "nqbt.trades" in imports_of("sim/crossover.py")
     assert "nqbt.trades" in imports_of("sim/insidebartrailing.py")
+    assert "nqbt.trades" in imports_of("sim/elasticband.py")
     assert {"EXIT_SIGNAL"} <= names_used_in("sim/crossover.py")
     assert {"EXIT_SIGNAL"} <= names_used_in("sim/insidebartrailing.py")
+    assert {"EXIT_SIGNAL"} <= names_used_in("sim/elasticband.py")
 
 
 def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -> None:

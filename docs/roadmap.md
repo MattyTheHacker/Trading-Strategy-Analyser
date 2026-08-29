@@ -1324,19 +1324,76 @@ stop, or accepting the clock as the third exit.
   with a far stop puts both inside one bar less often than the reverse does. Read it rather than
   assuming it; the mechanism is what the next decision gets made from.
 
-#### What [#169] still has to build
+#### What [#169] built, and the first measurement against the null
 
-The design is settled and the two primitives exist; nothing else does. A Bollinger grid keyed by
-period on `ContextSpec` and `Dataset` (basis, σ and stretch, one row each), an
-`ElasticBandParams` carrying all three exit schemes as parameters, the entry half in
-`nqbt/sim/elasticband.py`, a registry entry at `Tier2Status.TIER1_ONLY`, its axes in
-`dead_axes`, and the three grids of the exit section above — **B and C first**. The rule set the port will be checked
-against is already written down: [nt8-fidelity.md](nt8-fidelity.md) §M26.
+`nqbt/bands.py` holds the grid, keyed by period alone: basis, standard deviation and stretch,
+one row each. `ElasticBandParams` carries all three exit schemes as parameters,
+`nqbt/sim/elasticband.py` is the entry half, and the registry entry is `TIER1_ONLY`.
+`sweep_axes` takes the three schemes as three grids, which is what the strategy axis is for.
+
+**The band multiple really is free, and the archetype builds no moving-average grid at all** —
+the first one that does not, because the basis is the band's own.
+
+**Two things `dead_axes` cannot see here.** The stop and target axes are inert at every
+`stop_mode` and `target_mode` but one, and it only knows how to compare a toggle against a
+single off value, so sweeping `atr_stop_multiple` under `STOP_EXCURSION` runs identical
+combinations silently. Same shape as `volume_rolling_bars`, recorded in
+`.claude/rules/sweep-and-context.md` rather than worked around.
+
+**The invalidation exit and the time stop are guarded against each other rather than merely
+documented.** Both write `EXIT_SIGNAL`, so `__post_init__` refuses a combination with both on —
+a log carrying both cannot say which fired, and that was the cost this design accepted when it
+declined to add an exit code.
+
+##### The result: the entry beats the null on one scheme, and is still not profitable
+
+Measured on **four MNQ front-month contracts — 03-24, 09-24, 03-25 and 09-25 — per contract
+rather than spliced**, because both σ and ATR step at every roll seam and this archetype fires
+on extension. One parameter set per scheme, not a sweep. Costs are the real ones: $1.50 round
+trip per contract and one tick of slippage. 200 null iterations, so the smallest reachable
+*p* is about 0.005.
+
+| scheme | profit factor | expectancy | win rate |
+|---|---|---|---|
+| A, rotation | same on 4/4 | same on 4/4 | same on 4/4 |
+| B, ATR bracket | same on 4/4 | same on 4/4 | **better on 3/4** |
+| C, time and mean | **better on 4/4** | better on 3/4 | **worse on 4/4** |
+
+**Read the consistency across contracts, not the individual p-values.** Thirty-six comparisons
+were run; a single one clearing 0.05 is the expected output of that many. Four contracts
+agreeing on the sign is the part that is hard to get by chance, and it is what the table
+reports.
+
+**C is the finding, and its shape is the opposite of the usual mean-reversion story.** Its
+profit factor beats the matched null on every contract while its win rate is *worse* than the
+null on every contract. So the entry is not finding trades that win more often — it is finding
+trades whose payoff distribution is better, and the extension threshold is selecting for size
+rather than for frequency. Anything that tunes this archetype on win rate is tuning against the
+only thing it has.
+
+**Every scheme is still unprofitable at realistic costs**, which is the same result
+DeadCatBounce reached and for the same reason: there is signal, and it does not cover the round
+trip. This is a measurement of three chosen configurations rather than of the archetype —
+nothing has been swept yet, and the promotion criteria under "Decisions taken" are not close to
+met.
+
+**The null arm's trade counts do not match on two of the three schemes, and that bounds what
+the table can say.** The matched null holds the signal *count* fixed and randomises the day,
+but a drawn bar then meets a different stop geometry: under `STOP_EXCURSION` most draws fail
+the minimum-risk test, so A trades about 10,000 times against a null median near 1,900, and C
+trades about 5,800 against a null median near 8,600. **Only B is cleanly matched** — roughly
+1,400 against 1,300 — which makes B's win-rate result the best-evidenced cell in the table and
+A's blanket "indistinguishable" the weakest. This is a property of pairing a *structural* stop
+with a day-randomising null, not a defect in either; it belongs on [#32]'s caveat list.
 
 **Build that grid once, because M19 reads it too.** The bandwidth form recommended above for
 the squeeze is `(upper − lower) / basis`, which is `2 · num_std · σ / basis` off the same two
 rows — so the two archetypes share one grid rather than each inventing a Bollinger of its own,
 which is the first item on the standing rubric.
+
+**What [#170] would be checked against is already written down**: [nt8-fidelity.md](nt8-fidelity.md)
+§M26 names the NinjaScript every rule becomes. It is not earned yet — see the promotion criteria
+under "Decisions taken", which a sweep has still to be run against.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 

@@ -8,9 +8,62 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, fields
-from typing import override
+from typing import Protocol, override
 
-from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
+from nqbt import bands, conditions, higher_timeframe, regime, timeofday, trend, volume
+
+
+class ContextFilterParams(Protocol):
+    """The five context filters and every field behind them, as one shape.
+
+    Structural so that :func:`validate_context_filters` is one definition rather than a copy
+    per parameter class. Narrower than :class:`nqbt.sim.filters.ContextFiltered`, which
+    describes what the *signal* reads; this describes what has to be checked.
+    """
+
+    phase_filter: int
+    regime_filter: int
+    regime_lookback: int
+    regime_consolidating_below: float
+    regime_directional_above: float
+    volume_filter: int
+    volume_form: int
+    volume_rolling_bars: int
+    volume_baseline_sessions: int
+    volume_thin_below: float
+    volume_heavy_above: float
+    trend_filter: int
+    trend_fast_period: int
+    trend_slow_period: int
+    trend_slope_lookback: int
+    trend_min_agreement: int
+    higher_timeframe_filter: int
+    higher_timeframe_minutes: int
+    higher_timeframe_period: int
+
+
+def validate_context_filters(params: ContextFilterParams) -> None:
+    """Check every shared context-filter field, raising on the first that is out of range.
+
+    The sub-fields are checked **whatever their filter admits**, so a nonsense window or
+    resolution cannot ride along inertly until a sweep turns its filter on.
+    """
+    timeofday.validate_mask(params.phase_filter)
+    regime.validate_mask(params.regime_filter)
+    regime.validate_lookback(params.regime_lookback)
+    regime.validate_thresholds(params.regime_consolidating_below, params.regime_directional_above)
+    volume.validate_mask(params.volume_filter)
+    volume.validate_form(params.volume_form)
+    volume.validate_rolling_bars(params.volume_rolling_bars)
+    volume.validate_baseline_sessions(params.volume_baseline_sessions)
+    volume.validate_thresholds(params.volume_thin_below, params.volume_heavy_above)
+    trend.validate_mask(params.trend_filter)
+    trend.validate_periods(params.trend_fast_period, params.trend_slow_period)
+    trend.validate_slope_lookback(params.trend_slope_lookback)
+    trend.validate_min_agreement(params.trend_min_agreement)
+    higher_timeframe.validate_mask(params.higher_timeframe_filter)
+    higher_timeframe.validate_minutes(params.higher_timeframe_minutes)
+    higher_timeframe.validate_period(params.higher_timeframe_period)
 
 
 @dataclass(slots=True)
@@ -186,26 +239,7 @@ class DeadCatParams:
                 msg = f"{gate}_period must be >= 1"
                 raise ValueError(msg)
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
-        timeofday.validate_mask(self.phase_filter)
-        regime.validate_mask(self.regime_filter)
-        regime.validate_lookback(self.regime_lookback)
-        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
-        volume.validate_mask(self.volume_filter)
-        volume.validate_form(self.volume_form)
-        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
-        # form is swept onto it.
-        volume.validate_rolling_bars(self.volume_rolling_bars)
-        volume.validate_baseline_sessions(self.volume_baseline_sessions)
-        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
-        trend.validate_mask(self.trend_filter)
-        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
-        trend.validate_slope_lookback(self.trend_slope_lookback)
-        trend.validate_min_agreement(self.trend_min_agreement)
-        higher_timeframe.validate_mask(self.higher_timeframe_filter)
-        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
-        # inertly until the filter is swept onto it.
-        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
-        higher_timeframe.validate_period(self.higher_timeframe_period)
+        validate_context_filters(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -364,26 +398,7 @@ class PullBackAndGoParams:
                 msg = f"{gate}_period must be >= 1"
                 raise ValueError(msg)
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
-        timeofday.validate_mask(self.phase_filter)
-        regime.validate_mask(self.regime_filter)
-        regime.validate_lookback(self.regime_lookback)
-        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
-        volume.validate_mask(self.volume_filter)
-        volume.validate_form(self.volume_form)
-        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
-        # form is swept onto it.
-        volume.validate_rolling_bars(self.volume_rolling_bars)
-        volume.validate_baseline_sessions(self.volume_baseline_sessions)
-        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
-        trend.validate_mask(self.trend_filter)
-        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
-        trend.validate_slope_lookback(self.trend_slope_lookback)
-        trend.validate_min_agreement(self.trend_min_agreement)
-        higher_timeframe.validate_mask(self.higher_timeframe_filter)
-        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
-        # inertly until the filter is swept onto it.
-        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
-        higher_timeframe.validate_period(self.higher_timeframe_period)
+        validate_context_filters(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -565,26 +580,7 @@ class EmaCrossoverParams:
         if self.min_bracket_dollars < 0.0:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
-        timeofday.validate_mask(self.phase_filter)
-        regime.validate_mask(self.regime_filter)
-        regime.validate_lookback(self.regime_lookback)
-        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
-        volume.validate_mask(self.volume_filter)
-        volume.validate_form(self.volume_form)
-        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
-        # form is swept onto it.
-        volume.validate_rolling_bars(self.volume_rolling_bars)
-        volume.validate_baseline_sessions(self.volume_baseline_sessions)
-        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
-        trend.validate_mask(self.trend_filter)
-        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
-        trend.validate_slope_lookback(self.trend_slope_lookback)
-        trend.validate_min_agreement(self.trend_min_agreement)
-        higher_timeframe.validate_mask(self.higher_timeframe_filter)
-        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
-        # inertly until the filter is swept onto it.
-        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
-        higher_timeframe.validate_period(self.higher_timeframe_period)
+        validate_context_filters(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
             msg = (
                 f"fast and slow are both {self.fast_kind}({self.fast_period}); identical "
@@ -754,26 +750,7 @@ class InsideBarParams:
         if self.no_entry_minutes_before_close < 0:
             msg = f"no_entry_minutes_before_close must be >= 0, got {self.no_entry_minutes_before_close}"
             raise ValueError(msg)
-        timeofday.validate_mask(self.phase_filter)
-        regime.validate_mask(self.regime_filter)
-        regime.validate_lookback(self.regime_lookback)
-        regime.validate_thresholds(self.regime_consolidating_below, self.regime_directional_above)
-        volume.validate_mask(self.volume_filter)
-        volume.validate_form(self.volume_form)
-        # Checked whatever the form, so a nonsense window cannot ride along inertly until the
-        # form is swept onto it.
-        volume.validate_rolling_bars(self.volume_rolling_bars)
-        volume.validate_baseline_sessions(self.volume_baseline_sessions)
-        volume.validate_thresholds(self.volume_thin_below, self.volume_heavy_above)
-        trend.validate_mask(self.trend_filter)
-        trend.validate_periods(self.trend_fast_period, self.trend_slow_period)
-        trend.validate_slope_lookback(self.trend_slope_lookback)
-        trend.validate_min_agreement(self.trend_min_agreement)
-        higher_timeframe.validate_mask(self.higher_timeframe_filter)
-        # Checked whatever the filter admits, so a nonsense resolution cannot ride along
-        # inertly until the filter is swept onto it.
-        higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
-        higher_timeframe.validate_period(self.higher_timeframe_period)
+        validate_context_filters(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -902,3 +879,263 @@ class InsideBarTrailingParams(InsideBarParams):
         """
         first: int = math.ceil(self.order_quantity * self.partial_take_profit_percentage)
         return (first, self.order_quantity - first)
+
+
+STOP_ATR = 0
+STOP_EXCURSION = 1
+STOP_CATASTROPHE = 2
+STOP_MODES = {
+    STOP_ATR: "atr",
+    STOP_EXCURSION: "excursion",
+    STOP_CATASTROPHE: "catastrophe",
+}
+"""Where the elastic band's protective stop goes, one per exit scheme -- ``docs/roadmap.md``
+§M26, "Three exit schemes". ``atr`` is a distance off the fill and the only floored one;
+``excursion`` is the adverse extreme of the bars that were outside the band; ``catastrophe``
+is :attr:`ElasticBandParams.catastrophe_stop_ticks` and is an account rule rather than a
+strategy stop.
+"""
+
+TARGET_STRETCH = 0
+TARGET_R = 1
+TARGET_MODES = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
+"""Which per-leg target tuple is read. ``stretch`` places every leg on a band level and is the
+mean-reversion geometry; ``r`` uses the shared R ladder and is comparable with EmaCrossover.
+"""
+
+
+@dataclass(slots=True)
+class ElasticBandParams:
+    """Rule set for the ElasticBand archetype -- an original, with no NinjaScript.
+
+    The first mean-reversion archetype: fade a close far enough outside a Bollinger band and
+    target the middle. Every rule it implements, and the NinjaScript each would be written as:
+    ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes: ``docs/roadmap.md``
+    §M26.
+    """
+
+    band_period: int = 20
+    """Period of both the basis and the standard deviation, which are one window."""
+
+    entry_std: float = 2.0
+    """How far outside the basis a close must sit to signal, in standard deviations."""
+
+    max_entry_std: float = 0.0
+    """Ceiling on that extension, off at ``0``.
+
+    Beyond some point the move is a trend breaking out rather than a band being stretched, so
+    the entry region is bounded rather than one-sided -- ``docs/roadmap.md`` §M26."""
+
+    min_bars_outside: int = 1
+    """Consecutive bars that must have been outside before an entry, the signal bar included."""
+
+    band_lag: int = 0
+    """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one.
+
+    At ``0`` the band contains the bar being tested, which damps the signal rather than
+    looking ahead -- ``docs/roadmap.md`` §M26."""
+
+    trade_long: bool = True
+    trade_short: bool = True
+    """Which side to fade. Long fades a close below the lower band."""
+
+    phase_filter: int = timeofday.ALL_PHASES
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
+
+    regime_lookback: int = 20
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """The efficiency-ratio lookback and its two cuts -- see
+    :attr:`DeadCatParams.regime_directional_above`."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    volume_rolling_bars: int = 30
+    volume_baseline_sessions: int = 20
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """The relative-volume series and its two cuts -- see
+    :attr:`DeadCatParams.volume_heavy_above`."""
+
+    trend_filter: int = trend.ALL_TRENDS
+    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    trend_slope_lookback: int = 5
+    trend_min_agreement: int = 3
+    """The trend label's averages and its agreement threshold -- see
+    :attr:`DeadCatParams.trend_min_agreement`."""
+
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Sides of a coarse average an entry may be taken on -- see
+    :attr:`DeadCatParams.higher_timeframe_filter`."""
+
+    higher_timeframe_minutes: int = 60
+    higher_timeframe_period: int = 50
+    """The coarse resolution and the period averaged on it -- see
+    :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    stop_mode: int = STOP_ATR
+    """One of :data:`STOP_MODES`."""
+
+    atr_period: int = 14
+    atr_stop_multiple: float = 2.0
+    """Stop distance as a multiple of ATR at the signal bar, under :data:`STOP_ATR`."""
+
+    min_bracket_dollars: float = 0.0
+    """Floor on the ATR stop distance in **dollars per contract**, off at ``0``.
+
+    Applies to :data:`STOP_ATR` alone, because only it is a distance rather than a level --
+    see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
+
+    stop_offset_ticks: int = 2
+    """Ticks beyond the excursion extreme under :data:`STOP_EXCURSION`, so the stop never sits
+    exactly on the level it protects."""
+
+    catastrophe_stop_ticks: int = 400
+    """Stop distance under :data:`STOP_CATASTROPHE`, in ticks from the fill.
+
+    Deliberately wide: it is the account's loss limit rather than a strategy stop, and the
+    scheme it belongs to exists to test whether a strategy stop helps at all."""
+
+    target_mode: int = TARGET_STRETCH
+    """One of :data:`TARGET_MODES`."""
+
+    target_stretch_levels: tuple[float, ...] = (0.0, float("nan"))
+    """Per-leg exit levels in standard deviations from the basis, ``nan`` marking a runner.
+
+    ``0.0`` is the midline and ``+k`` the far band, so ``(0.0, 2.0)`` is the rotation ladder.
+    Read under :data:`TARGET_STRETCH`. Signed **towards the target**: a long's levels rise."""
+
+    target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
+    """Per-leg targets in R, read under :data:`TARGET_R` and capped at the basis -- a target
+    beyond the mean is not a mean-reversion target."""
+
+    tp_multiplier: float = 1.0
+    """Scales every R target, as on the ported archetypes. Not applied to a stretch level,
+    which is already a position rather than a distance."""
+
+    exit_on_invalidation: bool = False
+    """Leave at the next open when price closes further outside than the excursion extreme.
+
+    The range broke and held, which is the mean-reversion definition of a failed trade."""
+
+    max_hold_bars: int = 0
+    """Time stop in bars, off at ``0``, on top of the session flatten every archetype has."""
+
+    order_quantity: int = 4
+
+    bars_required_to_trade: int = 200
+
+    ambiguity_policy: int = 1
+    """See :attr:`DeadCatParams.ambiguity_policy` -- same concept, same default."""
+
+    fill_limit_on_touch: bool = False
+    block_entry_at_session_close: bool = True
+    round_targets: bool = True
+    """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
+
+    commission_per_contract: float = 0.0
+    slippage_ticks: float = 0.0
+    """Adverse slippage on the entry and both market exits. Never applied to a limit target."""
+
+    def __post_init__(self) -> None:
+        self._validate_entry()
+        self._validate_exit_scheme()
+        validate_context_filters(self)
+
+    def _validate_entry(self) -> None:
+        """Check the band and the rule that decides which bars signal."""
+        bands.validate_period(self.band_period)
+        if self.entry_std <= 0.0:
+            msg: str = f"entry_std must be > 0, got {self.entry_std}"
+            raise ValueError(msg)
+        if self.max_entry_std != 0.0 and self.max_entry_std <= self.entry_std:
+            msg = (
+                f"max_entry_std {self.max_entry_std} must exceed entry_std {self.entry_std} "
+                "or be 0 to switch the ceiling off; otherwise no bar can pass both"
+            )
+            raise ValueError(msg)
+        if self.min_bars_outside < 1:
+            msg = f"min_bars_outside must be >= 1, got {self.min_bars_outside}"
+            raise ValueError(msg)
+        if self.band_lag < 0:
+            msg = f"band_lag must be >= 0, got {self.band_lag}"
+            raise ValueError(msg)
+        if not (self.trade_long or self.trade_short):
+            msg = "trade_long and trade_short are both off, so nothing can ever be entered"
+            raise ValueError(msg)
+
+    def _validate_exit_scheme(self) -> None:
+        """Check the stop, the targets and the two signal exits against each other."""
+        if self.stop_mode not in STOP_MODES:
+            msg: str = f"unknown stop_mode {self.stop_mode}; use one of {sorted(STOP_MODES)}"
+            raise ValueError(msg)
+        if self.target_mode not in TARGET_MODES:
+            msg = f"unknown target_mode {self.target_mode}; use one of {sorted(TARGET_MODES)}"
+            raise ValueError(msg)
+        if self.order_quantity < len(self.target_levels):
+            msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_levels)} legs"
+            raise ValueError(msg)
+        for name in ("atr_period", "catastrophe_stop_ticks"):
+            if getattr(self, name) < 1:
+                msg = f"{name} must be >= 1"
+                raise ValueError(msg)
+        if self.min_bracket_dollars < 0.0:
+            msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
+            raise ValueError(msg)
+        if self.max_hold_bars < 0:
+            msg = f"max_hold_bars must be >= 0, got {self.max_hold_bars}"
+            raise ValueError(msg)
+        # Both write EXIT_SIGNAL, so a log carrying both cannot say which fired --
+        # ``docs/nt8-fidelity.md`` §M26.
+        if self.exit_on_invalidation and self.max_hold_bars > 0:
+            msg = (
+                "exit_on_invalidation and max_hold_bars both write EXIT_SIGNAL, so a trade "
+                "log with both on cannot say which exit fired; enable one per grid"
+            )
+            raise ValueError(msg)
+
+    @property
+    def target_levels(self) -> tuple[float, ...]:
+        """The per-leg target tuple this combination reads, whichever mode selected it."""
+        if self.target_mode == TARGET_STRETCH:
+            return self.target_stretch_levels
+        return self.target_r_multiples
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
+        n: int = len(self.target_levels)
+        base: int = self.order_quantity // n
+        remainder: int = self.order_quantity % n
+        return tuple([base] * (n - 1) + [base + remainder])
+
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
+        for f in fields(self):
+            value: object = getattr(self, f.name)
+            out[f.name] = list(value) if isinstance(value, tuple) else value
+        return out

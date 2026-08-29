@@ -10,9 +10,16 @@ and has no strategy at all.
 
 from nqbt.sim.types import (
     DeadCatParams,
+    ElasticBandParams,
     EmaCrossoverParams,
     InsideBarParams,
     PullBackAndGoParams,
 )
 
-__all__ = ["DeadCatParams", "EmaCrossoverParams", "InsideBarParams", "PullBackAndGoParams"]
+__all__ = [
+    "DeadCatParams",
+    "ElasticBandParams",
+    "EmaCrossoverParams",
+    "InsideBarParams",
+    "PullBackAndGoParams",
+]

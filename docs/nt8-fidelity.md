@@ -803,16 +803,16 @@ must stop the run rather than be counted as agreement.
 
 ### M26 — the elastic band rules, written before the Python (#167, #168)
 
-**Nothing below is implemented yet**, which makes this section different in kind from every
-other one here. §M18 recorded rules that existed in Python and not in C#; these exist in
-neither. They are written down first because the prime directive binds during development, and
-a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later —
-the exploration is then wasted rather than merely unvalidated. Each item names the NinjaScript
-it would be written as. The reasoning behind the choices, and the alternatives rejected, are in
+**Every rule below was written down before the Python existed, and the Python was then written
+to it** — the order §M18 could not manage, because there the rules were recorded after the fact.
+There is still no NinjaScript, so nothing here is backed by a trade list. Each item names the
+NinjaScript it would be written as, because a rule chosen at design time that NT8 cannot express
+makes the archetype unreconcilable later, and the exploration is then wasted rather than merely
+unvalidated. The reasoning behind the choices, and the alternatives rejected, are in
 [roadmap.md](roadmap.md) §M26; only the rules are here.
 
-`Archetype.tier2` will be `TIER1_ONLY` when it is registered, and stays there until a trade
-list has been diffed against it.
+`Archetype.tier2` is `TIER1_ONLY`, and stays there until a trade list has been diffed against
+it.
 
 **The band is `Bollinger(numStdDev, period)` on close**, and both halves of it are already
 pinned: `Bollinger.Middle[0]` is `nt8_sma` and the half-width is `numStdDev × StdDev(period)`,

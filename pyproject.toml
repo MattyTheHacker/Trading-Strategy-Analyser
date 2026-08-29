@@ -117,6 +117,7 @@ max-args = 10
 "nqbt/sim/bracket.py" = ["FBT001"]
 "nqbt/sim/crossover.py" = ["FBT003"]
 "nqbt/sim/deadcat.py" = ["FBT003"]
+"nqbt/sim/elasticband.py" = ["FBT003"]
 "nqbt/sim/insidebar.py" = ["FBT003"]
 "nqbt/sim/insidebartrailing.py" = ["FBT003"]
 # Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
