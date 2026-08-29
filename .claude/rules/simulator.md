@@ -42,9 +42,9 @@ below and is what you quote; this file is the index, not the record.
 - **A position guard must read `Position`, not `PositionAccount`**, which never leaves Flat in a
   Strategy Analyzer backtest — InsideBar reversed on 2,581 of 21,884 trades until its C# was
   fixed. `docs/nt8-fidelity.md`, "The position guard has to read `Position`".
-- **Out-of-session stray bars are flagged and not dropped**, so they sit in the array the
-  simulation indexes and become `[1]` at a session open. Worth 25 legs of InsideBar's
-  reconciliation; harmless to the two ports, which never read two bars back. `docs/nt8-fidelity.md`,
+- **The bars a run indexes are in-session only**, on a per-contract frame as much as a spliced
+  one — `ingest.load_contract` drops the strays. Leaving them in put a stray at `[1]` at a
+  session open and cost InsideBar 25 legs of its reconciliation. `docs/nt8-fidelity.md`,
   "Reconciliation result — InsideBar".
 - **The no-entry window before the close is not `block_entry_at_session_close`.** One is a
   parameterised window over `sessions.seconds_to_session_end`, the other guards a signal on the

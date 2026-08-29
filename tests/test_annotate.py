@@ -753,7 +753,8 @@ def test_contract_bars_reads_the_per_contract_cache(tmp_path) -> None:
     frame = bars(10)
     path = ingest.contract_cache_path(ContractId.parse("MNQ 09-26"), tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(path)
+    # in_session is part of the cached schema, and load_contract filters on it.
+    frame.assign(in_session=sessions.classify(frame.index).in_session).to_parquet(path)
 
     log = manual_log(
         [

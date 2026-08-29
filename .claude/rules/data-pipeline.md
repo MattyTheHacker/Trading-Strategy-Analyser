@@ -76,10 +76,12 @@ paths:
 - **Resampling is exact, not approximate** — OHLC aggregation is associative, so a 5-minute bar
   built from five 1-minute bars is bit-identical to one NT8 builds from ticks. Do not reach for
   `data/tick/`; that is the more-precise-than-NT8 error.
-- **Out-of-session stray prints reach the indicators on a per-contract run but not on a spliced
-  one.** `prepare` computes over every row it is handed; `build_continuous` filters to
-  in-session first. Measured as inert on one contract, so this is a known asymmetry rather than
-  a live bug — re-measure rather than assume if the parser starts keeping more strays.
+- **Out-of-session stray prints are dropped where the cache becomes a bar frame.**
+  `ingest.load_contract` filters, so a per-contract frame and a spliced one hold the same bars
+  and `[n]` means the same thing in both. The Parquet cache itself stays lossless — it is the
+  only place the raw export can be reconstructed from. Above `ingest.STRAY_SHARE_LIMIT` the
+  load **raises**: that is a broken export or the wrong session template, not strays, and
+  filtering it would hide the problem. `docs/nt8-fidelity.md` § "Sessions".
 
 ## Reconciling against NT8
 
@@ -89,8 +91,7 @@ paths:
 - **Annotate real trades against the raw series, never the back-adjusted one.** The lookup
   succeeds and every comparison is silently wrong. `docs/roadmap.md` §M11.
 - **Do not check a reconciliation by leg count.** Leading history legitimately adds signals and
-  `trade_id` shifts after any earlier removal, so join on `(entry_time, leg)`. The bar-index
-  offset is not constant either — that drift is out-of-session strays and is inert.
+  `trade_id` shifts after any earlier removal, so join on `(entry_time, leg)`.
 - `verification/nt8_reconciliation_MNQ_03-24.csv` is a **pre-fix** run despite its name; read
   `verification/README.md` first. The whole folder is **gitignored and exists only on this
   machine** (#91).

@@ -15,6 +15,12 @@ LINES = [
 ]
 
 
+def session_lines(count, start="2024-03-08 18:00"):
+    """``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
+    stamps = pd.date_range(start, periods=count, freq="min")
+    return [f"{ts:%Y%m%d %H%M%S};18000.25;18002.00;17999.50;18001.00;120" for ts in stamps]
+
+
 def write(path, lines, *, trailing_newline=True):
     text = "\n".join(lines) + ("\n" if trailing_newline else "")
     path.write_text(text, encoding="utf-8")
@@ -221,21 +227,67 @@ def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path) -> None:
     assert frame["close"].iloc[0] == pytest.approx(18004.00)
 
 
-def test_out_of_session_prints_are_kept_but_flagged(cache, tmp_path) -> None:
+def test_out_of_session_prints_are_cached_but_not_handed_out(cache, tmp_path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
         data_dir / "MNQ 03-24.Last.txt",
         [
-            *LINES,
+            *session_lines(200),
             "20240309 154400;18001.00;18001.00;18001.00;18001.00;1",  # Saturday print
         ],
     )
     result, _ = run(src, cache)
-    frame = ingest.load_contract(CONTRACT, cache)
-    assert len(frame) == 4  # lossless: nothing dropped
-    assert int((~frame["in_session"]).sum()) == 1
+    cached = pd.read_parquet(ingest.contract_cache_path(CONTRACT, cache))
+    assert len(cached) == 201  # lossless: the export can still be reconstructed
+    assert int((~cached["in_session"]).sum()) == 1
     assert any("outside session hours" in w for w in result.warnings)
+
+    assert len(ingest.load_contract(CONTRACT, cache)) == 200
+
+
+def cached_frame(flags: list[bool]) -> pd.DataFrame:
+    """A frame shaped like the parquet cache, flagged as ``flags`` says rather than by clock."""
+    prices = np.arange(len(flags), dtype=np.float64)
+    return pd.DataFrame(
+        {
+            "open": prices,
+            "high": prices + 1.0,
+            "low": prices - 1.0,
+            "close": prices,
+            "volume": np.ones(len(flags), dtype=np.int64),
+            "trading_day": pd.Timestamp("2024-03-08"),
+            "in_session": flags,
+        },
+        index=pd.date_range("2024-03-08 00:01", periods=len(flags), freq="min", tz="UTC", name="ts_utc"),
+    )
+
+
+def test_dropping_strays_renumbers_positions_and_moves_no_bar() -> None:
+    """The whole point: a stray shifts every ``[n]`` behind it, and dropping it must not."""
+    frame = cached_frame([False, *[True] * 200, False])
+    kept = ingest.drop_out_of_session(frame, source_name=CONTRACT.nt8_name)
+
+    assert len(kept) == 200
+    assert kept.index[0] == frame.index[1]
+    pd.testing.assert_frame_equal(kept, frame[frame["in_session"]])
+
+
+def test_a_frame_that_is_mostly_strays_is_rejected_rather_than_filtered() -> None:
+    frame = cached_frame([False] * 3 + [True] * 200)
+    with pytest.raises(ingest.IngestError, match="outside session hours"):
+        ingest.drop_out_of_session(frame, source_name=CONTRACT.nt8_name)
+
+
+def test_a_stray_share_exactly_at_the_limit_is_still_filtered() -> None:
+    at_limit = int(200 * ingest.STRAY_SHARE_LIMIT)
+    frame = cached_frame([False] * at_limit + [True] * (200 - at_limit))
+    assert len(ingest.drop_out_of_session(frame, source_name=CONTRACT.nt8_name)) == 200 - at_limit
+
+
+def test_an_empty_frame_has_no_stray_share_to_divide_by() -> None:
+    empty = cached_frame([])
+    assert ingest.drop_out_of_session(empty, source_name=CONTRACT.nt8_name).empty
 
 
 def test_ohlc_violations_are_rejected_loudly(cache, tmp_path) -> None:
