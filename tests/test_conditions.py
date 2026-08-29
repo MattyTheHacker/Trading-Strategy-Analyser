@@ -273,6 +273,23 @@ def test_ma_keys_validates_every_pair_it_is_given() -> None:
         conditions.ma_keys(ema=(21,), hma=(1,))
 
 
+def test_ma_keys_from_pairs_keeps_both_gates_that_share_a_kind() -> None:
+    """The reason this exists: as keyword arguments the second 'sma' would overwrite the first."""
+    keys = conditions.ma_keys_from_pairs((("ema", 21), ("sma", 60), ("sma", 175)))
+    assert keys == conditions.ma_keys(ema=(21,), sma=(60, 175))
+    assert len(keys) == 3
+
+
+def test_ma_keys_from_pairs_deduplicates_gates_that_agree_exactly() -> None:
+    keys = conditions.ma_keys_from_pairs((("wma", 50), ("wma", 50), ("ema", 50)))
+    assert keys == (conditions.ma_key("ema", 50), conditions.ma_key("wma", 50))
+
+
+def test_ma_keys_from_pairs_validates_every_pair_it_is_given() -> None:
+    with pytest.raises(conditions.MovingAverageError, match="hma needs period >= 2"):
+        conditions.ma_keys_from_pairs((("ema", 21), ("hma", 1)))
+
+
 # -- confluence ---------------------------------------------------------------
 
 

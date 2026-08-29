@@ -193,7 +193,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
 
 
 def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What EmaCrossover reads: two EMA grids, their raw values, and an ATR.
+    """What EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
 
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
     ``docs/roadmap.md`` §M17.

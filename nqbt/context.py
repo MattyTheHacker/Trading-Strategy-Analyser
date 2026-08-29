@@ -105,10 +105,10 @@ class ContextSpec:
 
         :attr:`ma_keys` regrouped, and the only thing :func:`prepare` reads it through.
         """
-        grouped: dict[str, tuple[int, ...]] = {}
+        grouped: dict[str, set[int]] = {}
         for kind, period in self.ma_keys:
-            grouped[kind] = (*grouped.get(kind, ()), period)
-        return grouped
+            grouped.setdefault(kind, set()).add(period)
+        return {kind: tuple(sorted(periods)) for kind, periods in grouped.items()}
 
 
 @dataclass(slots=True)

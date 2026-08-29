@@ -130,12 +130,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     data: Dataset = context.prepare(
         bars,
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                **{
-                    params.ema_kind: (params.ema_period,),
-                    params.fast_sma_kind: (params.fast_sma_period,),
-                    params.slow_sma_kind: (params.slow_sma_period,),
-                },
+            ma_keys=conditions.ma_keys_from_pairs(
+                (
+                    (params.ema_kind, params.ema_period),
+                    (params.fast_sma_kind, params.fast_sma_period),
+                    (params.slow_sma_kind, params.slow_sma_period),
+                ),
             ),
             needs_vwap=True,
         ),

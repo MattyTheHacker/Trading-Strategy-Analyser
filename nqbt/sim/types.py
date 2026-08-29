@@ -437,7 +437,8 @@ class EmaCrossoverParams:
 
     fast_period: int = 9
     slow_period: int = 21
-    """The two periods that cross. Equal periods never cross and are rejected."""
+    """The two periods that cross. Rejected only when the kinds match too, because
+    ``ema(21)`` against ``sma(21)`` is a real cross."""
 
     fast_kind: str = "ema"
     slow_kind: str = "ema"
@@ -584,9 +585,9 @@ class EmaCrossoverParams:
         # inertly until the filter is swept onto it.
         higher_timeframe.validate_minutes(self.higher_timeframe_minutes)
         higher_timeframe.validate_period(self.higher_timeframe_period)
-        if self.fast_period == self.slow_period:
+        if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
             msg = (
-                f"fast_period and slow_period are both {self.fast_period}; identical "
+                f"fast and slow are both {self.fast_kind}({self.fast_period}); identical "
                 "averages never cross, so every combination along that axis trades nothing"
             )
             raise ValueError(msg)

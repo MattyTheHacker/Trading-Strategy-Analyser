@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from nqbt import cli, ingest, splice, stats
+from nqbt import cli, conditions, ingest, splice, stats
 
 
 @pytest.fixture(autouse=True)
@@ -255,6 +255,43 @@ def test_cmd_run_says_so_when_there_are_no_trades(monkeypatch, base_args, stub_r
     assert cli._cmd_run(run_args(base_args)) == 0
     assert "no trades" in output(console)
     explain.assert_not_called()
+
+
+def test_cmd_run_builds_a_grid_for_every_gate_when_two_of_them_share_a_kind(
+    monkeypatch,
+    base_args,
+    stub_run,
+    console,
+) -> None:
+    """The stock gates are ema/sma/sma, so a spec keyed by kind loses the fast SMA entirely.
+
+    ``use_fast_sma`` is on by default, so the loss is not silent at run time -- the signal
+    raises reading a grid ``prepare`` was never asked to build.
+    """
+    prepare = MagicMock()
+    monkeypatch.setattr("nqbt.context.prepare", prepare)
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=pd.DataFrame()))
+
+    assert cli._cmd_run(run_args(base_args)) == 0
+
+    spec = prepare.call_args.args[1]
+    assert spec.ma_keys == conditions.ma_keys(ema=(21,), sma=(60, 175))
+
+
+def test_cmd_run_asks_for_the_kind_each_gate_was_given(
+    monkeypatch,
+    base_args,
+    stub_run,
+    console,
+) -> None:
+    prepare = MagicMock()
+    monkeypatch.setattr("nqbt.context.prepare", prepare)
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=pd.DataFrame()))
+
+    assert cli._cmd_run(run_args(base_args, fast_sma_kind="wma", ema_kind="hma")) == 0
+
+    spec = prepare.call_args.args[1]
+    assert spec.ma_keys == conditions.ma_keys(hma=(21,), wma=(60,), sma=(175,))
 
 
 def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub_run, console) -> None:

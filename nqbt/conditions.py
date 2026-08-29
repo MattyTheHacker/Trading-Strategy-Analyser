@@ -43,6 +43,7 @@ __all__ = [
     "inverted_hammer",
     "ma_key",
     "ma_keys",
+    "ma_keys_from_pairs",
     "made_new_high",
     "made_new_low",
     "moving_average_grid",
@@ -313,8 +314,11 @@ MA_KINDS: Mapping[str, MovingAverageKind] = {
     "sma": MovingAverageKind(indicators.nt8_sma, 1),
     "wma": MovingAverageKind(indicators.nt8_wma, 1),
 }
-"""Every kind a grid can be built for. All four match NT8's recursion rather than the
-textbook one -- ``docs/nt8-fidelity.md`` § "Indicators".
+"""Every kind a grid can be built for, all four matching NT8's recursion rather than the
+textbook one. They do not carry the same weight of evidence: ``ema`` and ``sma`` were read out
+of NinjaTrader by ``NqbtIndicatorProbe.cs`` -- ``docs/nt8-fidelity.md`` § "Indicators" --
+while ``wma`` and ``hma`` were transcribed from the NinjaScript and never probed --
+``docs/nt8-fidelity.md`` § "WMA and HMA, ported from the NinjaScript rather than reconciled".
 """
 
 
@@ -330,14 +334,24 @@ def ma_key(kind: str, period: int) -> MovingAverageKey:
     return MovingAverageKey(kind, int(period))
 
 
+def ma_keys_from_pairs(pairs: Iterable[tuple[str, int]]) -> tuple[MovingAverageKey, ...]:
+    """Build the key set from explicit ``(kind, period)`` pairs, one per gate.
+
+    The form to use when the kinds come from separate gates rather than from a literal:
+    two gates sharing a kind are two pairs here, where as keyword arguments to
+    :func:`ma_keys` they would be one key overwriting the other.
+    """
+    return tuple(sorted({ma_key(kind, int(period)) for kind, period in pairs}))
+
+
 def ma_keys(**periods_by_kind: Iterable[int]) -> tuple[MovingAverageKey, ...]:
     """Build the sorted, deduplicated key set a :class:`~nqbt.context.ContextSpec` carries.
 
-    ``ma_keys(ema=(21,), sma=(60, 175))`` is the three grids that pair of gates needs.
+    ``ma_keys(ema=(21,), sma=(60, 175))`` is the three grids that pair of gates needs. A kind
+    can only appear once, so a caller holding one pair per gate wants
+    :func:`ma_keys_from_pairs` instead.
     """
-    return tuple(
-        sorted({ma_key(kind, int(p)) for kind, periods in periods_by_kind.items() for p in periods}),
-    )
+    return ma_keys_from_pairs((kind, int(p)) for kind, periods in periods_by_kind.items() for p in periods)
 
 
 @dataclass(slots=True)

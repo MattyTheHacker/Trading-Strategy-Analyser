@@ -2563,6 +2563,14 @@ against an export — a class weaker than the M16 indicators, and recorded as su
 picking one from the C# alone would be guessing at exactly the seeding question the EMA and the
 ATR were each caught by. That is a probe's job, not a port's.
 
+**A kind sweep needs a fresh results database, and nothing will say so.** `_append_or_create`
+writes `combos` by name and drops a column the stored table does not already have, and only
+`AXIS_COLUMNS` are migrated in — so appending a kind sweep to a database written before [#72]
+silently loses `ema_kind`, `fast_sma_kind` and `slow_sma_kind`, leaving rows that differ only
+by kind indistinguishable. That is the pre-existing rule for any new parameter column rather
+than something this change introduced, but it is the first parameter whose *absence* changes
+what a row means. Write kind sweeps to a new database until the general fix lands.
+
 **Which `@WMA.cs` branch to implement was the one real fidelity decision**, and it is the same
 one `nt8_stddev` faced: NT8 rebuilds the weighted sum every bar for a bar type supporting
 `RemoveLastBar`, which time bars do, and carries it forward otherwise. The rebuilt form is exact

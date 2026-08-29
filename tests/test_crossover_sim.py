@@ -496,11 +496,18 @@ def test_the_regime_boundary_matches_the_cross_it_pairs_with() -> None:
         ({"cross_lookback": 0}, "cross_lookback must be >= 1"),
         ({"min_bracket_dollars": -1.0}, "min_bracket_dollars must be >= 0"),
         ({"fast_period": 21}, "identical\nx?averages never cross"),
+        ({"fast_period": 21, "fast_kind": "sma", "slow_kind": "sma"}, "both sma\\(21\\)"),
     ],
 )
 def test_an_unusable_parameter_set_is_refused(kwargs, match) -> None:
     with pytest.raises(ValueError, match=match.replace("\nx?", " ")):
         EmaCrossoverParams(**kwargs)
+
+
+def test_equal_periods_of_different_kinds_are_a_real_cross_and_are_allowed() -> None:
+    """``ema(21)`` and ``sma(21)`` are two different series, so they do cross."""
+    params = EmaCrossoverParams(fast_period=21, slow_period=21, fast_kind="ema", slow_kind="sma")
+    assert (params.fast_kind, params.slow_kind) == ("ema", "sma")
 
 
 def test_the_leg_split_matches_the_ported_archetypes() -> None:

@@ -156,6 +156,17 @@ def test_periods_by_kind_groups_the_keys_into_one_grid_call_each() -> None:
     assert ContextSpec().periods_by_kind() == {}, "a kind with no periods is not a grid"
 
 
+def test_periods_by_kind_sorts_and_deduplicates_whatever_order_the_keys_arrived_in() -> None:
+    """The keys every builder produces are sorted; a spec constructed by hand need not be."""
+    unsorted = (
+        conditions.ma_key("sma", 175),
+        conditions.ma_key("ema", 21),
+        conditions.ma_key("sma", 60),
+        conditions.ma_key("sma", 175),
+    )
+    assert ContextSpec(ma_keys=unsorted).periods_by_kind() == {"ema": (21,), "sma": (60, 175)}
+
+
 # -- the size claim ------------------------------------------------------------
 
 
