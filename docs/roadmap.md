@@ -2508,10 +2508,18 @@ the loops that read them, and the probe now demonstrates both halves.
 The rest, in descending order of value: `sweep.SWEEPABLE`
 reads `__slots__` rather than `dataclasses.fields()` ([#60]) and will break quietly at M17 by
 dropping an axis rather than raising; `results.best()` interpolates `by` into SQL ([#61]);
-`bars[...].to_numpy(np.float64)` appears 12 times ([#62]); `_cmd_run` reimplements `per_trade`,
-profit factor and max drawdown inline, a **third independent definition** that already differs
-from `stats` in a corner ([#63]); and `explain.py` and `cli.py` are untested ([#64] — `explain.py`
-gained `tests/test_explain.py` during M20a, so this is now `cli.py` alone). **Resist adding
+`bars[...].to_numpy(np.float64)` appears 12 times ([#62]); and `explain.py` and `cli.py` are
+untested ([#64] — `explain.py` gained `tests/test_explain.py` during M20a, so this is now
+`cli.py` alone).
+
+**~~The third profit factor~~ ([#63]) — done.** `_cmd_run` reimplemented `per_trade`, profit
+factor and max drawdown inline; it now calls `stats.summarise` and reads the fields off, with
+`_log_run` printing and computing nothing. **The corner the two definitions disagreed in is
+settled in `stats`' favour**: a run of nothing but scratches reported an infinite profit factor
+from the CLI and `0.0` from `_ratio`, and now reports `_ratio`'s. Nothing else moved — the
+command's output over the whole MNQ history is identical before and after, which is the check
+worth repeating on the next one of these, since the reimplementation had drifted in a place no
+test looked. **Resist adding
 classes beyond the parameter blobs and M17's protocol**, and specifically resist
 `numba.jitclass` inside the loop: it carries real compilation and boxing costs, and the loop is
 23% of a combination, so there is nothing to win and fidelity-critical code to lose.

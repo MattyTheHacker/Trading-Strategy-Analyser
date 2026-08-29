@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from nqbt import cli, ingest, splice
+from nqbt import cli, ingest, splice, stats
 
 
 @pytest.fixture(autouse=True)
@@ -224,13 +224,22 @@ def stub_run(monkeypatch):
 
 
 def trade_log() -> pd.DataFrame:
+    """A two-leg winner and a one-leg loser, carrying every column ``summarise`` reads."""
     return pd.DataFrame(
         {
             "trade_id": [1, 1, 2],
             "net_pnl": [30.0, 10.0, -20.0],
+            "commission": [1.5, 1.5, 1.5],
+            "bars_held": [4, 9, 3],
+            "mae_points": [2.0, 2.0, 5.0],
+            "mfe_points": [8.0, 12.0, 1.0],
             "r_multiple": [1.5, 0.5, -1.0],
             "ambiguous_bar": [False, False, True],
             "exit_reason": ["target", "target", "stop"],
+            "entry_time": pd.to_datetime(["2024-01-02 15:00"] * 3, utc=True),
+            "exit_time": pd.to_datetime(
+                ["2024-01-02 15:04", "2024-01-02 15:09", "2024-01-03 15:03"], utc=True
+            ),
         }
     )
 
@@ -271,6 +280,18 @@ def test_cmd_run_reports_an_infinite_profit_factor_rather_than_dividing_by_zero(
 
     assert cli._cmd_run(run_args(base_args)) == 0
     assert "profit factor inf" in output(console)
+
+
+def test_cmd_run_reports_the_profit_factor_stats_defines_when_nothing_won_or_lost(
+    monkeypatch, base_args, stub_run, console
+) -> None:
+    """Scratches only. Two definitions disagreed here, and ``stats._ratio``'s is the one."""
+    scratches = trade_log().assign(net_pnl=[0.0, 0.0, 0.0])
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=scratches))
+
+    assert cli._cmd_run(run_args(base_args)) == 0
+    assert stats.summarise(scratches).profit_factor == 0.0
+    assert "profit factor 0.000" in output(console)
 
 
 def test_cmd_run_names_every_file_it_wrote(monkeypatch, base_args, stub_run, console, tmp_path) -> None:
