@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, higher_timeframe, indicators, resample, sessions, sweep
+from nqbt import archetypes, conditions, context, higher_timeframe, indicators, resample, sessions, sweep
 from nqbt.context import ContextError, ContextSpec
 from nqbt.higher_timeframe import (
     ALL_SIDES,
@@ -318,7 +318,7 @@ def test_the_grid_costs_nine_bytes_a_bar_for_each_average() -> None:
 def prepared(**spec: object) -> context.Dataset:
     return context.prepare(
         random_bars(),
-        ContextSpec(ema_periods=(11,), sma_periods=(80, 155), **spec),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),
         bar_minutes=1,
     )
 

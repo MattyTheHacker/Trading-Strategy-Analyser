@@ -37,7 +37,7 @@ class ContextError(KeyError):
     """Raised when a strategy reads a series :func:`prepare` was not asked to build."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ContextSpec:
     """Everything a strategy's signal will read out of a :class:`Dataset`.
 
@@ -49,8 +49,10 @@ class ContextSpec:
     :class:`Dataset`, and ``context.py`` must not import from :mod:`nqbt.sim`.
     """
 
-    ema_periods: tuple[int, ...] = ()
-    sma_periods: tuple[int, ...] = ()
+    ma_keys: tuple[conditions.MovingAverageKey, ...] = ()
+    """Moving-average grids to build, each a ``(kind, period)`` pair. Built by
+    :func:`nqbt.conditions.ma_keys`, which is also where the legal kinds live."""
+
     atr_periods: tuple[int, ...] = ()
     needs_vwap: bool = False
     needs_time_of_day: bool = False
@@ -84,8 +86,7 @@ class ContextSpec:
 
     def __or__(self, other: ContextSpec) -> ContextSpec:
         return ContextSpec(
-            ema_periods=tuple(sorted({*self.ema_periods, *other.ema_periods})),
-            sma_periods=tuple(sorted({*self.sma_periods, *other.sma_periods})),
+            ma_keys=tuple(sorted({*self.ma_keys, *other.ma_keys})),
             atr_periods=tuple(sorted({*self.atr_periods, *other.atr_periods})),
             needs_vwap=self.needs_vwap or other.needs_vwap,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
@@ -100,12 +101,14 @@ class ContextSpec:
         )
 
     def periods_by_kind(self) -> dict[str, tuple[int, ...]]:
-        """The grids to build, keyed by kind. Keying by ``(kind, period)`` is what #72 needs."""
-        return {
-            kind: periods
-            for kind, periods in (("ema", self.ema_periods), ("sma", self.sma_periods))
-            if periods
-        }
+        """One sorted period list per kind, which is one grid call each.
+
+        :attr:`ma_keys` regrouped, and the only thing :func:`prepare` reads it through.
+        """
+        grouped: dict[str, tuple[int, ...]] = {}
+        for kind, period in self.ma_keys:
+            grouped[kind] = (*grouped.get(kind, ()), period)
+        return grouped
 
 
 @dataclass(slots=True)
@@ -459,7 +462,7 @@ def day_codes(index: pd.Index) -> IndexArray | None:  # type: ignore[explicit-an
     return local.to_numpy().astype("datetime64[D]").astype(np.int32)
 
 
-DEFAULT_SPEC = ContextSpec(ema_periods=(21,), sma_periods=(60, 175), needs_vwap=True)
+DEFAULT_SPEC = ContextSpec(ma_keys=conditions.ma_keys(ema=(21,), sma=(60, 175)), needs_vwap=True)
 """What :func:`prepare` builds when nothing says otherwise: the pre-#27 unconditional set."""
 
 

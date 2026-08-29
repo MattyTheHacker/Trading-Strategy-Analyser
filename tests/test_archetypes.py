@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, sessions, sweep
+from nqbt import archetypes, conditions, sessions, sweep
 from nqbt.archetypes import Archetype, ArchetypeError, ContextSpec, Tier2Status
 from nqbt.instruments import NQ
 from nqbt.sim.types import (
@@ -149,11 +149,10 @@ def test_an_axis_the_archetype_does_not_have_is_rejected_by_name() -> None:
 
 
 def test_specs_union_so_several_archetypes_can_share_one_dataset() -> None:
-    a = ContextSpec(ema_periods=(9, 21), sma_periods=(60,), needs_vwap=False)
-    b = ContextSpec(ema_periods=(21, 50), sma_periods=(175,), needs_vwap=True)
+    a = ContextSpec(ma_keys=conditions.ma_keys(ema=(9, 21), sma=(60,)), needs_vwap=False)
+    b = ContextSpec(ma_keys=conditions.ma_keys(ema=(21, 50), sma=(175,)), needs_vwap=True)
     both = a | b
-    assert both.ema_periods == (9, 21, 50)
-    assert both.sma_periods == (60, 175)
+    assert both.ma_keys == conditions.ma_keys(ema=(9, 21, 50), sma=(60, 175))
     assert both.needs_vwap is True
 
 

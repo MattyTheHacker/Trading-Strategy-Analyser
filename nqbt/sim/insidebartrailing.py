@@ -469,8 +469,8 @@ def insidebartrailing_legs(
         direction_at,
         data.atr_values(params.atr_length),
         TrendAverages(
-            ema=data.ma_values("ema", params.ema_period),
-            fast_sma=data.ma_values("sma", params.fast_sma_period),
+            ema=data.ma_values(params.ema_kind, params.ema_period),
+            fast_sma=data.ma_values(params.fast_sma_kind, params.fast_sma_period),
         ),
         quantities,
         bracket.Costs(

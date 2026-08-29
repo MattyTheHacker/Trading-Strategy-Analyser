@@ -47,9 +47,9 @@ def explain_trades(
     index: pd.DatetimeIndex = data.index
     tick: float = instrument.tick_size
 
-    ema: FloatArray = data.ma_values("ema", params.ema_period)
-    fast: FloatArray = data.ma_values("sma", params.fast_sma_period)
-    slow: FloatArray = data.ma_values("sma", params.slow_sma_period)
+    ema: FloatArray = data.ma_values(params.ema_kind, params.ema_period)
+    fast: FloatArray = data.ma_values(params.fast_sma_kind, params.fast_sma_period)
+    slow: FloatArray = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
     # The audit trail reports every gate whether or not this combination reads it, so VWAP
     # is required here even when ``use_vwap`` is off. That is why ``cli.py`` sets
     # ``needs_vwap=True`` unconditionally rather than taking the spec from the grid: a

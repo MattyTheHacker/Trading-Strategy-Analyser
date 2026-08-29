@@ -195,6 +195,9 @@ def run_args(base_args, **overrides):
     base_args.ema = 21
     base_args.slow_sma = 175
     base_args.fast_sma = 60
+    base_args.ema_kind = "ema"
+    base_args.slow_sma_kind = "sma"
+    base_args.fast_sma_kind = "sma"
     base_args.quantity = 4
     base_args.commission = 0.0
     base_args.slippage = 0.0
@@ -262,7 +265,7 @@ def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub
 
     text = output(console)
     assert "MNQ 2024-01-02 -> 2024-03-01  2 bars" in text
-    assert "params        EMA 21, SMA 60/175" in text
+    assert "params        EMA(21), SMA(60)/SMA(175)" in text
     assert "trades        2  (3 leg exits)" in text  # a two-leg winner and a one-leg loser
     assert "profit factor 2.000" in text  # +40 against -20
     assert "max drawdown  $20.00" in text

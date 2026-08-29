@@ -275,8 +275,8 @@ def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[Float
     Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
     """
     return (
-        data.ma_values("ema", params.fast_period),
-        data.ma_values("ema", params.slow_period),
+        data.ma_values(params.fast_kind, params.fast_period),
+        data.ma_values(params.slow_kind, params.slow_period),
     )
 
 

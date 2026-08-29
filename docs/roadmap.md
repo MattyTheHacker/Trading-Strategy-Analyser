@@ -740,7 +740,7 @@ Three things the landed part settled, worth not relitigating:
   rather than deferred because M17 is exactly the change that would have triggered it.
 - **`ContextSpec` lives in `context.py`, not beside the registry** — it describes a
   `Dataset`, and `context.py` must not import from `nqbt.sim`. Grids are keyed by
-  `(kind, period)`, which is the half of [#72] that no longer needs doing.
+  `(kind, period)`, which is the half of [#72] this milestone did for free.
 
 **The results schema ([#29]) settled first**, before [#28] filled it and before the
 stale-database re-run ([#71]). `strategy`, `resolution`, `contract` and `tier2` exist on both
@@ -1895,7 +1895,8 @@ discharged: all three were wanted.
 
 - **The kind is fixed at EMA**, for the reason `trend.KIND` is: one definition, so the same
   parameters mean the same measurement everywhere, and `HigherTimeframeKey` gains a field the
-  day an SMA average is actually wanted. It is also what keeps [#72] a separate question.
+  day an SMA average is actually wanted. [#72] made the fine gates' kind sweepable and
+  deliberately did not reach here, so that day has not arrived.
 - **The period counts coarse bars, never fine ones.** `higher_timeframe_period=50` at
   `higher_timeframe_minutes=60` is 50 hours, not 50 minutes. Naming it `period` rather than
   `bars` is deliberate: it is the same word `ema_period` uses, on a different series.
@@ -1918,7 +1919,7 @@ moves the average toward the close and never past it, so `close − EMA_new =
 — the first coarse close, where the lagged reading is still in warm-up — and on zero bars
 where both are defined. A reconciliation would come back 100% and prove nothing. An **SMA**
 would: it drops the oldest value out of its window and can move past the close, giving 842
-differing bars at 15-minute SMA(20), which is the case [#72] would make live.
+differing bars at 15-minute SMA(20), which is the case a coarse SMA would make live.
 
 **So the instrument is a per-bar probe, not a trade list — and it has been run ([#183]).**
 `ninjatrader-scripts/Strategies/NqbtHigherTimeframeProbe.cs` records `Times[1][0]` against
@@ -2528,17 +2529,46 @@ classes beyond the parameter blobs and M17's protocol**, and specifically resist
 
 **Already sweepable, jointly, with no work needed:** every field of `DeadCatParams` except
 `target_r_multiples` is a legal axis, periods and on/off toggles alike, and `Grid.dead_axes()`
-refuses a period axis whose toggle is off in every combination. Two dimensions are **not**
-reachable. **MA kind as an axis** ([#72]) — kind is fixed by field name, so "what if the fast
-filter were an EMA rather than an SMA?" cannot be asked, and only `nt8_ema` and `nt8_sma` exist.
-The trap is the prime directive: a new kind must match NT8's recursion rather than the textbook
-one, which is exactly where TA-Lib's EMA already differs through seeding alone. **~~Multi-timeframe
-MAs~~ ([#73]) — done**, and the trap it names is discharged in § "Multi-timeframe moving
-averages" rather than here: `nqbt/higher_timeframe.py` stamps a coarse EMA from the last
-*completed* coarse bar, and the test that would fail if the current one leaked is named there.
-**MA kind gets much cheaper once M16 and M17 land** — M16 establishes the pin-it-against-NT8
-procedure a new kind needs, and M17's `required_context` already has to key grids by
-`(kind, period)`. Reconsider after those rather than now.
+refuses a period axis whose toggle is off in every combination. Both of the dimensions this
+section was opened for are now reachable. **~~Multi-timeframe MAs~~ ([#73]) — done**, and the
+trap it names is discharged in § "Multi-timeframe moving averages" rather than here:
+`nqbt/higher_timeframe.py` stamps a coarse EMA from the last *completed* coarse bar, and the
+test that would fail if the current one leaked is named there. **~~MA kind as an axis~~
+([#72]) — done**, and it was as cheap as the ticket predicted once [#19] and [#27] had landed.
+
+### Moving-average kind as a swept axis ([#72])
+
+**Every gate carries a `<gate>_kind` beside its `<gate>_period`**, defaulting to the kind the
+NinjaScript hardcodes, so "what if the fast filter were an EMA rather than an SMA?" is now one
+axis. `ContextSpec.ma_keys` is a tuple of `(kind, period)` pairs in place of the two
+kind-specific period tuples, `Dataset.mas` was already a grid per kind, and
+`archetypes._ma_keys` crosses each gate's two axes so a sweep builds exactly the grids some
+combination could read. Grid cost is linear in the number of kinds, and every default is
+unchanged: the trade-log gate is byte-identical on 12 of 14 files, the two sweep summaries
+differing only by the three added parameter columns.
+
+**The gates keep their NinjaScript names, and `ema_kind="wma"` is the price of that.** Renaming
+`ema_period` to something neutral would have broken the rule that a name mirroring a NinjaScript
+property keeps NT8's word, and would have renamed columns in every stored results table. The
+awkward reading is deliberate: the gate is named after what `DeadCatBounce.cs` computes into it,
+the kind says what this simulation actually computes.
+
+**Two new kinds, and the third is the one that needs NinjaTrader.** `nt8_wma` and `nt8_hma` are
+transcribed from NT8's own `@WMA.cs` and `@HMA.cs`, which are on disk under
+`bin/Custom/Indicators/`, and pinned against hand-computed values from that source rather than
+against an export — a class weaker than the M16 indicators, and recorded as such in
+`docs/nt8-fidelity.md` § "WMA and HMA, ported from the NinjaScript rather than reconciled".
+**VWMA is deliberately not here**: it needs volume, which no `MovingAverageGrid` carries, and
+`@VWMA.cs`'s two branches disagree during warm-up rather than merely rounding differently, so
+picking one from the C# alone would be guessing at exactly the seeding question the EMA and the
+ATR were each caught by. That is a probe's job, not a port's.
+
+**Which `@WMA.cs` branch to implement was the one real fidelity decision**, and it is the same
+one `nt8_stddev` faced: NT8 rebuilds the weighted sum every bar for a bar type supporting
+`RemoveLastBar`, which time bars do, and carries it forward otherwise. The rebuilt form is exact
+and is what minute bars run, so that is what `nt8_wma` does. It costs `O(n·period)` — 0.220 s
+against `nt8_ema`'s 0.004 s at period 200 over 1.66M bars, and an HMA is three WMAs — which is
+affordable and is only paid by a sweep that asks for those kinds.
 
 ### Tier-2 verification — [#67] is all that remains ([#65])
 

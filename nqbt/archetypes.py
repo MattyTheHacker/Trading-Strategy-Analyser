@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
-from nqbt import higher_timeframe, regime, timeofday, trend, volume
+from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import crossover, insidebar, insidebartrailing, pullback, runner
 from nqbt.sim.types import (
@@ -72,6 +72,12 @@ class Tier2Status(StrEnum):
 
     NOT_CHECKED = "not-checked"
     """No reconciliation attempted and none planned yet."""
+
+
+MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
+"""The three moving-average gates the ported archetypes share, as the prefix each pair of
+``<gate>_period`` and ``<gate>_kind`` fields is named after.
+"""
 
 
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
@@ -150,6 +156,24 @@ def _higher_timeframe_keys(
     )
 
 
+def _ma_keys(
+    values: Mapping[str, Sequence[AxisValue]],
+    gates: Sequence[str],
+) -> tuple[conditions.MovingAverageKey, ...]:
+    """Cross each gate's kind axis with its period axis: every grid some combination may read.
+
+    A gate contributes nothing unless both of its axes are present, exactly as a missing
+    period axis built nothing before. Cost is linear in the number of kinds --
+    ``docs/roadmap.md`` § "Moving-average kind as a swept axis".
+    """
+    periods_by_kind: dict[str, set[int]] = {}
+    for gate in gates:
+        for kind in values.get(f"{gate}_kind", ()):
+            for period in values.get(f"{gate}_period", ()):
+                periods_by_kind.setdefault(str(kind), set()).add(int(period))
+    return conditions.ma_keys(**periods_by_kind)
+
+
 def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """The context spec shared by every archetype built on the MA grids plus VWAP.
 
@@ -157,12 +181,8 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
     that is only swept still gets its grid built. Which series are conditional and why:
     ``docs/roadmap.md`` §M17.
     """
-    ema: set[int] = {int(v) for v in values.get("ema_period", ())}
-    sma: set[int] = {int(v) for v in values.get("fast_sma_period", ())}
-    sma |= {int(v) for v in values.get("slow_sma_period", ())}
     return ContextSpec(
-        ema_periods=tuple(sorted(ema)),
-        sma_periods=tuple(sorted(sma)),
+        ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
         needs_vwap=any(values.get("use_vwap", ())),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -178,13 +198,11 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
     ``docs/roadmap.md`` §M17.
     """
-    fast: set[int] = {int(v) for v in values.get("fast_period", ())}
-    slow: set[int] = {int(v) for v in values.get("slow_period", ())}
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
     )
     return ContextSpec(
-        ema_periods=tuple(sorted(fast | slow)),
+        ma_keys=_ma_keys(values, ("fast", "slow")),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -202,11 +220,8 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     hold -- ``docs/nt8-fidelity.md`` §M22. The session clock is conditional on some combination
     actually setting a no-entry window.
     """
-    sma: set[int] = {int(v) for v in values.get("fast_sma_period", ())}
-    sma |= {int(v) for v in values.get("slow_sma_period", ())}
     return ContextSpec(
-        ema_periods=tuple(sorted({int(v) for v in values.get("ema_period", ())})),
-        sma_periods=tuple(sorted(sma)),
+        ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
         atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())})),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -268,11 +283,14 @@ HIGHER_TIMEFRAME_GATES: Mapping[str, str] = {
 side.
 """
 
-# A period only matters when its filter is switched on.
+# A period and its kind only matter when the filter reading them is switched on.
 MA_GATES: Mapping[str, str] = {
     "ema_period": "use_ema",
+    "ema_kind": "use_ema",
     "fast_sma_period": "use_fast_sma",
+    "fast_sma_kind": "use_fast_sma",
     "slow_sma_period": "use_slow_sma",
+    "slow_sma_kind": "use_slow_sma",
     **REGIME_GATES,
     **VOLUME_GATES,
     **TREND_GATES,

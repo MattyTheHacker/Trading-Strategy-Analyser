@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass, fields
 from typing import override
 
-from nqbt import higher_timeframe, regime, timeofday, trend, volume
+from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
 
 
 @dataclass(slots=True)
@@ -25,6 +25,15 @@ class DeadCatParams:
     ema_period: int = 11
     slow_sma_period: int = 155
     fast_sma_period: int = 80
+
+    ema_kind: str = "ema"
+    slow_sma_kind: str = "sma"
+    fast_sma_kind: str = "sma"
+    """Which average each gate is actually computed as -- one of
+    :data:`nqbt.conditions.MA_KINDS`. Absent from the NinjaScript, which hardcodes an ``EMA``
+    and two ``SMA``s; the gates keep their NinjaScript names so the C# and the Python can
+    still be diffed by eye -- ``docs/roadmap.md`` § "Moving-average kind as a swept axis"."""
+
     order_quantity: int = 4
 
     use_ema: bool = True
@@ -172,10 +181,11 @@ class DeadCatParams:
             raise ValueError(
                 msg,
             )
-        for name in ("ema_period", "slow_sma_period", "fast_sma_period"):
-            if getattr(self, name) < 1:
-                msg = f"{name} must be >= 1"
+        for gate in ("ema", "slow_sma", "fast_sma"):
+            if getattr(self, f"{gate}_period") < 1:
+                msg = f"{gate}_period must be >= 1"
                 raise ValueError(msg)
+            conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         timeofday.validate_mask(self.phase_filter)
         regime.validate_mask(self.regime_filter)
         regime.validate_lookback(self.regime_lookback)
@@ -241,6 +251,15 @@ class PullBackAndGoParams:
     ema_period: int = 21
     slow_sma_period: int = 175
     fast_sma_period: int = 60
+
+    ema_kind: str = "ema"
+    slow_sma_kind: str = "sma"
+    fast_sma_kind: str = "sma"
+    """Which average each gate is actually computed as -- one of
+    :data:`nqbt.conditions.MA_KINDS`. Absent from the NinjaScript, which hardcodes an ``EMA``
+    and two ``SMA``s; the gates keep their NinjaScript names so the C# and the Python can
+    still be diffed by eye -- ``docs/roadmap.md`` § "Moving-average kind as a swept axis"."""
+
     order_quantity: int = 4
 
     use_ema: bool = True
@@ -340,10 +359,11 @@ class PullBackAndGoParams:
             raise ValueError(
                 msg,
             )
-        for name in ("ema_period", "slow_sma_period", "fast_sma_period"):
-            if getattr(self, name) < 1:
-                msg = f"{name} must be >= 1"
+        for gate in ("ema", "slow_sma", "fast_sma"):
+            if getattr(self, f"{gate}_period") < 1:
+                msg = f"{gate}_period must be >= 1"
                 raise ValueError(msg)
+            conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         timeofday.validate_mask(self.phase_filter)
         regime.validate_mask(self.regime_filter)
         regime.validate_lookback(self.regime_lookback)
@@ -417,8 +437,12 @@ class EmaCrossoverParams:
 
     fast_period: int = 9
     slow_period: int = 21
-    """EMA periods, NT8-seeded via :func:`nqbt.indicators.nt8_ema`. Equal periods never
-    cross and are rejected."""
+    """The two periods that cross. Equal periods never cross and are rejected."""
+
+    fast_kind: str = "ema"
+    slow_kind: str = "ema"
+    """Which average each side is computed as -- one of :data:`nqbt.conditions.MA_KINDS`. The
+    archetype's name records what it was built as, not what it is limited to."""
 
     cross_lookback: int = 1
     """``n`` in ``CrossAbove(fast, slow, n)`` -- a cross within the last ``n`` bars counts."""
@@ -532,6 +556,8 @@ class EmaCrossoverParams:
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
+        for gate in ("fast", "slow"):
+            conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         if self.cross_lookback < 1:
             msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
             raise ValueError(msg)
@@ -618,6 +644,14 @@ class InsideBarParams:
     slow_sma_period: int = 200
     """The three averages the breakout is gated on. All three must agree, and the comparison
     is **strict** on each -- ``docs/nt8-fidelity.md`` §M22."""
+
+    ema_kind: str = "ema"
+    slow_sma_kind: str = "sma"
+    fast_sma_kind: str = "sma"
+    """Which average each gate is actually computed as -- one of
+    :data:`nqbt.conditions.MA_KINDS`. Absent from the NinjaScript, which hardcodes an ``EMA``
+    and two ``SMA``s; the gates keep their NinjaScript names so the C# and the Python can
+    still be diffed by eye -- ``docs/roadmap.md`` § "Moving-average kind as a swept axis"."""
 
     error_margin: float = 0.01
     """Fraction of the mother bar's range the close must clear its extreme by."""
@@ -708,6 +742,8 @@ class InsideBarParams:
             if getattr(self, name) < 1:
                 msg: str = f"{name} must be >= 1"
                 raise ValueError(msg)
+        for gate in ("ema", "slow_sma", "fast_sma"):
+            conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         if not 0.0 <= self.error_margin <= 1.0:
             msg = f"error_margin must be in [0, 1], got {self.error_margin}; NT8 caps it with Range(0, 1)"
             raise ValueError(msg)

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import context, resample, results, sessions, stats, sweep, trades
+from nqbt import conditions, context, resample, results, sessions, stats, sweep, trades
 from nqbt.instruments import NQ
 from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
@@ -252,15 +252,32 @@ def test_required_context_covers_every_combination() -> None:
     base = DeadCatParams(use_slow_sma=True)
     g = sweep.Grid.of(base, ema_period=[9, 21], fast_sma_period=[40, 60], slow_sma_period=[150, 200])
     spec = g.required_context()
-    assert spec.ema_periods == (9, 21)
-    assert spec.sma_periods == (40, 60, 150, 200)
+    assert spec.ma_keys == conditions.ma_keys(ema=(9, 21), sma=(40, 60, 150, 200))
 
 
 def test_required_context_includes_unswept_defaults() -> None:
     g = sweep.Grid.of(DeadCatParams(ema_period=11, fast_sma_period=80), use_vwap=[True, False])
     spec = g.required_context()
-    assert 11 in spec.ema_periods
-    assert 80 in spec.sma_periods
+    assert conditions.ma_key("ema", 11) in spec.ma_keys
+    assert conditions.ma_key("sma", 80) in spec.ma_keys
+
+
+def test_sweeping_a_kind_builds_every_pair_it_crosses_with_its_period() -> None:
+    base = DeadCatParams(use_slow_sma=True)
+    g = sweep.Grid.of(base, ema_kind=["ema", "wma"], ema_period=[9, 21])
+    spec = g.required_context()
+    assert spec.ma_keys == conditions.ma_keys(
+        ema=(9, 21),
+        wma=(9, 21),
+        sma=(base.fast_sma_period, base.slow_sma_period),
+    )
+    assert len(g) == 4
+
+
+def test_a_kind_axis_is_dead_while_the_filter_reading_it_is_off() -> None:
+    base = DeadCatParams(use_slow_sma=False)
+    with pytest.raises(sweep.SweepError, match="slow_sma_kind"):
+        sweep.Grid.of(base, slow_sma_kind=["sma", "wma"])
 
 
 # -- parallel execution -------------------------------------------------------
@@ -553,8 +570,8 @@ def test_every_grid_at_one_axis_point_shares_a_single_dataset(axis_bars, monkeyp
     # And the union really is a union: VWAP comes from the first grid, period 9 the second.
     for spec in calls:
         assert spec.needs_vwap
-        assert 9 in spec.ema_periods
-        assert 21 in spec.ema_periods
+        assert conditions.ma_key("ema", 9) in spec.ma_keys
+        assert conditions.ma_key("ema", 21) in spec.ma_keys
 
 
 # -- the axes compose ----------------------------------------------------------

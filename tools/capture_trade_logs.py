@@ -40,7 +40,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from nqbt import context, ingest, logsetup, splice, stats, sweep
+from nqbt import conditions, context, ingest, logsetup, splice, stats, sweep
 from nqbt.instruments import MNQ, NQ, ContractId
 from nqbt.sim.runner import run_deadcat
 from nqbt.sim.types import DeadCatParams
@@ -80,7 +80,11 @@ def capture(outdir: Path) -> None:
         fill_limit_on_touch=True,
         ambiguity_policy=0,
     )
-    data = context.prepare(bars, context.ContextSpec((21,), (60, 175), needs_vwap=True))
+    recon_spec = context.ContextSpec(
+        ma_keys=conditions.ma_keys(ema=(21,), sma=(60, 175)),
+        needs_vwap=True,
+    )
+    data = context.prepare(bars, recon_spec)
     write(run_deadcat(data, recon, MNQ), outdir / "recon.csv")
 
     # 2 and 3. Current settings with costs, through both instrument specs.
@@ -88,8 +92,10 @@ def capture(outdir: Path) -> None:
     data = context.prepare(
         bars,
         context.ContextSpec(
-            ema_periods=(live.ema_period,),
-            sma_periods=(live.fast_sma_period, live.slow_sma_period),
+            ma_keys=conditions.ma_keys(
+                ema=(live.ema_period,),
+                sma=(live.fast_sma_period, live.slow_sma_period),
+            ),
             needs_vwap=True,
         ),
     )

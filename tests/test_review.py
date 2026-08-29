@@ -12,7 +12,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import annotate, context, review, sessions, stats, timeofday, trade_import, trades, volume
+from nqbt import (
+    annotate,
+    conditions,
+    context,
+    review,
+    sessions,
+    stats,
+    timeofday,
+    trade_import,
+    trades,
+    volume,
+)
 from nqbt.annotate import LabelThresholds
 from nqbt.context import ContextSpec
 from nqbt.review import ReviewError
@@ -24,7 +35,7 @@ MINUTES = 480
 TZ = "Europe/London"
 
 SPEC = ContextSpec(
-    ema_periods=(3,),
+    ma_keys=conditions.ma_keys(ema=(3,)),
     needs_time_of_day=True,
     regime_lookbacks=(2,),
     volume_keys=(volume.key(int(volume.VolumeForm.PER_BAR), volume.NO_ROLLING, 5),),
@@ -276,7 +287,7 @@ def test_time_of_day_is_rendered_before_the_ranking() -> None:
 
 
 def test_a_dataset_with_no_clock_reports_no_time_of_day_rather_than_raising() -> None:
-    data = dataset(ContextSpec(ema_periods=(3,)))
+    data = dataset(ContextSpec(ma_keys=conditions.ma_keys(ema=(3,))))
     entries = list(range(0, 80, 2))
     log = sim_log(entries, data, pnl=alternating(len(entries)))
     annotation = annotated(log, data)

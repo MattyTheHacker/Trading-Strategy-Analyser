@@ -14,14 +14,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import annotate, context, guard, notes, review, sessions
+from nqbt import annotate, conditions, context, guard, notes, review, sessions
 from nqbt.context import ContextSpec
 from nqbt.notes import NotesError
 
 BASE = 18000.0
 START = "2024-01-02 15:00"
 BARS = 200
-SPEC = ContextSpec(ema_periods=(3,), needs_time_of_day=True)
+SPEC = ContextSpec(ma_keys=conditions.ma_keys(ema=(3,)), needs_time_of_day=True)
 
 
 def bars(count: int = BARS) -> pd.DataFrame:

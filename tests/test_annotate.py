@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import annotate, context, ingest, regime, sessions, trade_import, trades, trend, volume
+from nqbt import annotate, conditions, context, ingest, regime, sessions, trade_import, trades, trend, volume
 from nqbt.annotate import UNMATCHED, AnnotationError, LabelThresholds
 from nqbt.context import ContextSpec
 from nqbt.instruments import ContractId
@@ -21,8 +21,7 @@ BASE = 18000.0
 START = "2024-01-02 15:00"
 
 FULL_SPEC = ContextSpec(
-    ema_periods=(3,),
-    sma_periods=(5,),
+    ma_keys=conditions.ma_keys(ema=(3,), sma=(5,)),
     atr_periods=(4,),
     needs_vwap=True,
     needs_time_of_day=True,
@@ -466,14 +465,14 @@ def test_each_condition_is_the_datasets_own_value_at_that_bar() -> None:
 
 
 def test_a_condition_the_dataset_was_not_asked_for_is_absent_rather_than_null() -> None:
-    data = dataset(spec=ContextSpec(ema_periods=(3,)))
+    data = dataset(spec=ContextSpec(ma_keys=conditions.ma_keys(ema=(3,))))
     annotated = annotate.annotate_trades(sim_log([(60, 64)], data.index), data)
     assert "entry_above_ema_3" in annotated.conditions
     assert not [name for name in annotated.conditions if "efficiency_ratio" in name or "vwap" in name]
 
 
 def test_raw_moving_average_values_travel_only_when_the_dataset_kept_them() -> None:
-    spec = ContextSpec(ema_periods=(3,))
+    spec = ContextSpec(ma_keys=conditions.ma_keys(ema=(3,)))
     without = annotate.annotate_trades(
         sim_log([(60, 64)], bars().index),
         context.prepare(bars(), spec),
@@ -724,7 +723,9 @@ def test_a_dataset_with_no_bars_is_refused() -> None:
         ],
     )
     with pytest.raises(AnnotationError, match="no bars"):
-        annotate.annotate_trades(log, context.prepare(empty, ContextSpec(ema_periods=(3,))))
+        annotate.annotate_trades(
+            log, context.prepare(empty, ContextSpec(ma_keys=conditions.ma_keys(ema=(3,))))
+        )
 
 
 def test_an_empty_log_annotates_to_an_empty_frame_carrying_the_same_columns() -> None:

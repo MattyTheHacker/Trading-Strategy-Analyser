@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import context, sessions
+from nqbt import conditions, context, sessions
 from nqbt.instruments import MNQ
 from nqbt.sim import bracket, deadcat
 from nqbt.sim.pullback import pullback_signal, run_pullbackandgo
@@ -254,8 +254,9 @@ def test_pullback_signal_and_run_wire_together_end_to_end() -> None:
     data = context.prepare(
         bars,
         context.ContextSpec(
-            ema_periods=(params.ema_period,),
-            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            ma_keys=conditions.ma_keys(
+                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
+            ),
             needs_vwap=True,
         ),
     )
@@ -277,8 +278,9 @@ def test_every_entry_condition_actually_binds() -> None:
     data = context.prepare(
         synthetic_bars(),
         context.ContextSpec(
-            ema_periods=(params.ema_period,),
-            sma_periods=(params.fast_sma_period, params.slow_sma_period),
+            ma_keys=conditions.ma_keys(
+                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
+            ),
             needs_vwap=True,
         ),
     )
@@ -327,8 +329,7 @@ def test_every_filter_can_be_switched_off_independently() -> None:
     data = context.prepare(
         synthetic_bars(),
         context.ContextSpec(
-            ema_periods=(21,),
-            sma_periods=(60, 175),
+            ma_keys=conditions.ma_keys(ema=(21,), sma=(60, 175)),
             needs_vwap=True,
         ),
     )
@@ -369,3 +370,33 @@ def test_every_filter_can_be_switched_off_independently() -> None:
 def test_params_reject_a_non_positive_period() -> None:
     with pytest.raises(ValueError, match="must be >= 1"):
         PullBackAndGoParams(ema_period=0)
+
+
+def test_params_reject_a_kind_no_grid_can_be_built_for() -> None:
+    with pytest.raises(conditions.MovingAverageError, match="unknown moving average kind 'tema'"):
+        PullBackAndGoParams(ema_kind="tema")
+
+
+def test_params_reject_a_period_the_named_kind_itself_refuses() -> None:
+    # Legal at every other kind, and NT8 caps HMA with Range(2, ...).
+    assert PullBackAndGoParams(fast_sma_kind="wma", fast_sma_period=1).fast_sma_period == 1
+    with pytest.raises(conditions.MovingAverageError, match="hma needs period >= 2"):
+        PullBackAndGoParams(fast_sma_kind="hma", fast_sma_period=1)
+
+
+def test_a_gate_reads_whichever_kind_its_parameters_name() -> None:
+    base = PullBackAndGoParams(
+        bars_required_to_trade=200,
+        use_fast_sma=False,
+        use_slow_sma=False,
+        require_new_low=False,
+        require_previous_red=False,
+    )
+    data = context.prepare(
+        synthetic_bars(),
+        context.ContextSpec(ma_keys=conditions.ma_keys(ema=(base.ema_period,), hma=(base.ema_period,))),
+    )
+    as_hma = pullback_signal(data, replace(base, ema_kind="hma"))
+    assert not np.array_equal(pullback_signal(data, base), as_hma), "the kind changed nothing"
+    expected = data.geometry.hammer & data.ma_gate("hma", base.ema_period, above=True)
+    assert np.array_equal(as_hma, expected)
