@@ -43,6 +43,7 @@ class CrossoverRules(NamedTuple):
 
     use_atr_stop: bool
     atr_stop_multiple: float
+    min_bracket_points: float
     swing_lookback: int
     stop_offset_ticks: float
     tp_multiplier: float
@@ -234,12 +235,18 @@ def _protective_stop(
     """Where the protective stop goes, in whichever of the two modes is selected.
 
     Both read the **signal** bar and the bars before it, never the bar the fill happens on. The
-    ATR mode hangs the stop off the fill, so planned risk is exactly ``atr * multiple``; the
-    swing mode uses the adverse extreme of the last ``swing_lookback`` completed bars plus the
-    usual offset.
+    ATR mode hangs the stop off the fill, so planned risk is the ATR multiple or the dollar
+    floor, whichever is wider; the swing mode uses the adverse extreme of the last
+    ``swing_lookback`` completed bars plus the usual offset and is **not** floored, because its
+    stop is a structural level rather than a distance.
     """
     if rules.use_atr_stop:
-        return fill - direction * float(atr[signal_bar]) * rules.atr_stop_multiple
+        distance = bracket.atr_bracket_distance(
+            float(atr[signal_bar]),
+            rules.atr_stop_multiple,
+            rules.min_bracket_points,
+        )
+        return fill - direction * distance
 
     stop_offset = rules.stop_offset_ticks * costs.tick_size
     start = signal_bar - rules.swing_lookback + 1
@@ -331,6 +338,7 @@ def crossover_legs(
         CrossoverRules(
             use_atr_stop=params.use_atr_stop,
             atr_stop_multiple=params.atr_stop_multiple,
+            min_bracket_points=instrument.dollars_to_points(params.min_bracket_dollars),
             swing_lookback=params.swing_lookback,
             stop_offset_ticks=float(params.stop_offset_ticks),
             tp_multiplier=params.tp_multiplier,

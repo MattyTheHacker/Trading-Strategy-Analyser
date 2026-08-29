@@ -36,6 +36,7 @@ def simulate(
     targets=(1.0, 1.5, 2.0, np.nan),
     use_atr_stop=True,
     atr_stop_multiple=1.0,
+    min_bracket_dollars=0.0,
     swing_lookback=3,
     stop_offset_ticks=2.0,
     tp_multiplier=1.0,
@@ -86,6 +87,7 @@ def simulate(
         crossover.CrossoverRules(
             use_atr_stop=use_atr_stop,
             atr_stop_multiple=atr_stop_multiple,
+            min_bracket_points=instrument.dollars_to_points(min_bracket_dollars),
             swing_lookback=swing_lookback,
             stop_offset_ticks=stop_offset_ticks,
             tp_multiplier=tp_multiplier,
@@ -225,6 +227,73 @@ def test_an_entry_whose_stop_is_already_through_the_fill_is_skipped() -> None:
 
 def test_a_zero_atr_stop_is_skipped_rather_than_traded_at_no_risk() -> None:
     assert run(FLAT, signal_at=[0], atr=0.0).empty
+
+
+# -- the hard dollar floor under the ATR bracket -------------------------------
+
+# MNQ is $2 a point, so a $30 floor is 15 points; NQ is $20 a point and the same $30 is
+# 1.5. Every case below picks its ATR against those two distances.
+
+
+def test_the_dollar_floor_widens_a_bracket_the_atr_would_size_below_it() -> None:
+    trades = run(FLAT, signal_at=[0], atr=4.0, atr_stop_multiple=1.0, min_bracket_dollars=30.0)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(100.0 - 15.0)
+    assert trades["risk_points"].iloc[0] == pytest.approx(15.0)
+
+
+def test_the_dollar_floor_leaves_a_wider_atr_bracket_alone() -> None:
+    trades = run(FLAT, signal_at=[0], atr=20.0, atr_stop_multiple=1.0, min_bracket_dollars=30.0)
+    assert trades["risk_points"].iloc[0] == pytest.approx(20.0)
+
+
+def test_an_atr_bracket_exactly_on_the_floor_is_the_floor() -> None:
+    """The boundary the two branches meet at, where neither may nudge the stop."""
+    trades = run(FLAT, signal_at=[0], atr=15.0, atr_stop_multiple=1.0, min_bracket_dollars=30.0)
+    assert trades["risk_points"].iloc[0] == pytest.approx(15.0)
+
+
+def test_the_same_dollar_floor_is_a_different_distance_on_each_instrument() -> None:
+    """Why the floor is in dollars: NQ and MNQ share a tick size and differ 10x in value.
+
+    A floor written in points would be $300 of risk on one and $30 on the other.
+    """
+    kwargs = {"atr": 0.5, "atr_stop_multiple": 1.0, "min_bracket_dollars": 30.0}
+    micro = run(FLAT, signal_at=[0], instrument=MNQ, **kwargs)
+    full = run(FLAT, signal_at=[0], instrument=NQ, **kwargs)
+    assert micro["risk_points"].iloc[0] == pytest.approx(15.0)
+    assert full["risk_points"].iloc[0] == pytest.approx(1.5)
+
+
+def test_the_floor_does_not_reach_the_swing_stop() -> None:
+    """A swing stop is a structural level rather than a distance, so it is left where it is."""
+    rows = [
+        (100.0, 100.5, 99.5, 100.0),
+        (100.0, 100.5, 97.0, 100.0),
+        (100.0, 100.5, 98.0, 100.0),  # 2: signal
+        *FLAT,
+    ]
+    trades = run(rows, signal_at=[2], use_atr_stop=False, swing_lookback=3, min_bracket_dollars=300.0)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(97.0 - 0.5)
+
+
+def test_a_floored_bracket_scales_its_targets_off_the_floored_risk() -> None:
+    """R follows the floor, which is the whole R-comparability consequence in one assertion."""
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        atr=4.0,
+        atr_stop_multiple=1.0,
+        min_bracket_dollars=30.0,
+        targets=(1.0, 2.0, np.nan, np.nan),
+        quantities=(1, 1, 1, 1),
+    )
+    assert sorted(trades["target_price"].dropna().unique()) == [115.0, 130.0]
+
+
+def test_the_floor_makes_a_zero_atr_bar_tradable_again() -> None:
+    """Without it a quiet bar has no risk and is skipped -- the floor is what supplies one."""
+    assert run(FLAT, signal_at=[0], atr=0.0).empty
+    assert not run(FLAT, signal_at=[0], atr=0.0, min_bracket_dollars=30.0).empty
 
 
 # -- the signal exit -----------------------------------------------------------
@@ -425,6 +494,7 @@ def test_the_regime_boundary_matches_the_cross_it_pairs_with() -> None:
         ({"atr_period": 0}, "atr_period must be >= 1"),
         ({"swing_lookback": 0}, "swing_lookback must be >= 1"),
         ({"cross_lookback": 0}, "cross_lookback must be >= 1"),
+        ({"min_bracket_dollars": -1.0}, "min_bracket_dollars must be >= 0"),
         ({"fast_period": 21}, "identical\nx?averages never cross"),
     ],
 )

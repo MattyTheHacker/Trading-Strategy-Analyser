@@ -282,6 +282,7 @@ MA_GATES: Mapping[str, str] = {
 CROSSOVER_GATES: Mapping[str, str] = {
     "atr_period": "use_atr_stop",
     "atr_stop_multiple": "use_atr_stop",
+    "min_bracket_dollars": "use_atr_stop",
     **REGIME_GATES,
     **VOLUME_GATES,
     **TREND_GATES,

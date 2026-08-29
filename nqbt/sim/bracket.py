@@ -315,6 +315,22 @@ def entry_bracket(
     return trigger, stop, risk
 
 
+NO_BRACKET_FLOOR = 0.0
+"""The floor value that switches :func:`atr_bracket_distance` off, which every port passes."""
+
+
+@njit(cache=True)
+def atr_bracket_distance(atr_value: float, multiple: float, floor_points: float) -> float:
+    """How far an ATR multiple puts a bracket level from what it is measured against.
+
+    ``floor_points`` is a per-contract dollar floor already converted on the instrument by
+    :meth:`nqbt.instruments.Instrument.dollars_to_points`, and :data:`NO_BRACKET_FLOOR`
+    switches it off. The one ATR sizing in the codebase -- ``docs/roadmap.md`` § "ATR-multiple
+    brackets and the dollar floor".
+    """
+    return max(atr_value * multiple, floor_points)
+
+
 @njit(cache=True)
 def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     """Which raw price is adverse and which is favourable for this direction.

@@ -487,6 +487,14 @@ class EmaCrossoverParams:
     atr_stop_multiple: float = 2.0
     """Stop distance as a multiple of ATR at the signal bar -- the last *completed* bar."""
 
+    min_bracket_dollars: float = 0.0
+    """Floor on the ATR stop distance, in **dollars per contract**, off at ``0``.
+
+    In **dollars** rather than points because NQ and MNQ share a tick size and differ 10x in
+    tick value, so one point distance is two different amounts of money;
+    :meth:`nqbt.instruments.Instrument.dollars_to_points` converts it per instrument. What it
+    does to R: ``docs/roadmap.md`` § "ATR-multiple brackets and the dollar floor"."""
+
     swing_lookback: int = 3
     """Completed bars the swing stop takes its extreme from, the signal bar included."""
 
@@ -499,7 +507,8 @@ class EmaCrossoverParams:
     """Per-leg targets in R, ``nan`` marking a runner.
 
     **R is volatility-scaled here, not structure-scaled**, so these numbers are not comparable
-    to DeadCatBounce's at the same values -- ``docs/nt8-fidelity.md`` §M18."""
+    to DeadCatBounce's at the same values, and where :attr:`min_bracket_dollars` binds it is
+    dollar-scaled instead -- ``docs/nt8-fidelity.md`` §M18."""
 
     bars_required_to_trade: int = 200
 
@@ -525,6 +534,9 @@ class EmaCrossoverParams:
                 raise ValueError(msg)
         if self.cross_lookback < 1:
             msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
+            raise ValueError(msg)
+        if self.min_bracket_dollars < 0.0:
+            msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
         timeofday.validate_mask(self.phase_filter)
         regime.validate_mask(self.regime_filter)

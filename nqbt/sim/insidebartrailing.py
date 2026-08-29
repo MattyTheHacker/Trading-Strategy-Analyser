@@ -294,7 +294,14 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 bar_atr = atr[pending_bar]
                 inside_bar = pending_bar - 1
                 adverse, _ = bracket.sided(bars.low[inside_bar], bars.high[inside_bar], d)
-                fixed_stop = adverse - d * rules.atr_multiplier * bar_atr
+                # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
+                # § "ATR-multiple brackets and the dollar floor".
+                stop_distance = bracket.atr_bracket_distance(
+                    bar_atr,
+                    rules.atr_multiplier,
+                    bracket.NO_BRACKET_FLOOR,
+                )
+                fixed_stop = adverse - d * stop_distance
                 # ``SetTrailStop`` takes a **tick count**, so the distance is computed as one
                 # and converted back, exactly as the C# writes it.
                 distance = (
