@@ -1386,14 +1386,119 @@ trades about 5,800 against a null median near 8,600. **Only B is cleanly matched
 A's blanket "indistinguishable" the weakest. This is a property of pairing a *structural* stop
 with a day-randomising null, not a defect in either; it belongs on [#32]'s caveat list.
 
+##### The sweep, and why the exit geometry is not the deciding factor after all
+
+The working expectation was that the TP/SL logic would decide this archetype's profitability
+more than anything else — it is the one whose geometry inverts, and three whole schemes were
+built for it. **Measured, it is not true**, and the way it fails is more useful than the
+expectation was.
+
+**The run.** 11,808 combinations per contract over the four MNQ front-months named above:
+`band_period × entry_std × min_bars_outside × max_entry_std × band_lag` crossed with each
+scheme's own exit axes, at $1.50 round trip and one tick. 40,672 of the 47,232 rows clear 30
+trades. **6.3% of them are profitable**, and **7 of the 10,168 configurations present on all
+four contracts are profitable on all four**.
+
+**Which axis moves the profit factor**, as the share of PF variance a single axis explains
+(η², within scheme, over the ranges swept):
+
+| scheme | entry axes | exit axes | largest single axis |
+|---|---|---|---|
+| A, rotation | 0.44 | 0.08 | `entry_std` 0.25 |
+| B, ATR bracket | 0.06 | 0.09 | `atr_stop_multiple` 0.06 |
+| C, time and mean | 0.22 | 0.12 | `entry_std` 0.10 |
+
+`entry_std` is the largest single axis in every scheme. **η² is a property of the ranges swept,
+not of the strategy** — a wider `tp_multiplier` range would raise the exit column — so read the
+table as "over ranges a person would actually try", not as a law.
+
+**The surface only half replicates.** Spearman rank correlation of PF between contracts, over
+configurations present on all four: A **+0.51**, C **+0.50**, B **+0.07** (one pair negative).
+So B's geometry surface carries essentially no information that survives to another contract,
+and A's and C's carry some — most of it in the entry axes above.
+
+**Selecting on one contract is worse than not selecting.** The best 20 configurations on
+03-24 average PF 1.489 there and 1.320 on 03-25, but **0.760 and 0.832** on 09-24 and 09-25 —
+*below the median of every configuration* on those two contracts, which is 0.839 and 0.883.
+This is the multiple-comparisons trap producing exactly what the standing rubric says it
+produces, on this project's own data, and it is worth quoting whenever a sweep result is being
+read.
+
+##### The method that does answer the question: excess over the matched null
+
+A sweep can say which geometry has the highest profit factor. It cannot say **whether that
+geometry earned it**, because a bracket that suits the bars flatters a random entry just as
+much. The random-entry arm splits the two, per geometry:
+
+- **`null_median`** — what this TP/SL yields on these bars with no entry edge at all. The
+  geometry's own contribution.
+- **`observed − null_median`** — what the entry rule adds *at that geometry*. The excess.
+
+Run with the entry **fixed** at the middle of every axis, chosen before looking at any result,
+varying only the exit geometry, 200 iterations, MNQ 03-24:
+
+| scheme | observed PF spread | null PF spread | excess spread | verdicts |
+|---|---|---|---|---|
+| B, ATR bracket | 0.638 → 0.990 (0.352) | 0.640 → 0.864 (0.224) | −0.003 → +0.125 | indistinguishable from random, 9/9 |
+| C, time and mean | 0.724 → 0.825 (0.101) | 0.483 → 0.802 (0.319) | +0.023 → +0.252 | better than random, 11/12 |
+
+**Observed PF correlates +0.71 with null PF across geometries.** Most of what a geometry
+sweep is ranking is what the geometry does to *any* entry.
+
+**B is the pure case of the trap.** Widening the bracket takes observed PF from 0.638 to 0.990
+and looks like tuning; roughly two thirds of that move is present in the random arm, the excess
+never clears significance, and the highest cell is still under 1. This is `Trading-Docs`'
+"R:R and win rate are not independent knobs" measured rather than argued.
+
+**C is the finding, and it inverts the ranking.** Its observed PF barely moves across
+geometries while its null moves three times as much, so the excess is where all the information
+is — and **the excess is largest at the nearest target and smallest at the furthest**, which is
+the opposite order to the profit factor:
+
+| C geometry | observed PF | null PF | excess |
+|---|---|---|---|
+| target −0.5σ | 0.724 (worst) | 0.483 | **+0.241 (best)** |
+| target +0.0σ | 0.740 | 0.637 | +0.103 |
+| target +0.5σ | 0.755 (best) | 0.709 | +0.047 (worst) |
+
+Picking the geometry on profit factor picks the one where the entry's advantage has been given
+away. The mechanism is that a near target is a *bad* geometry for a random entry — small wins
+against an unbounded stop — and a good one for an entry that genuinely reverts, so the near
+target is where the entry's information is worth most.
+
+**The standing instruction that follows: rank exit geometries by excess over the matched null,
+never by profit factor.** The two agree on B, where neither is significant, and point in
+opposite directions on C, where one of them is — so the case that matters is the case where
+profit factor misleads, and nothing in a sweep table says so.
+`tools/geometry_contribution.py` runs the comparison and reports the two rankings side by side
+with the word DISAGREE when they part.
+
+##### Two axes that do nothing, and neither is visible to `dead_axes`
+
+- **`max_entry_std` at 4.0 is inert** — mean PF moves by about 0.002 in every scheme, because
+  the stretch rarely reaches 4 standard deviations. The ceiling from Leung and Li is a real
+  idea and this parameterisation of it is not a test of that idea; it needs a value close to
+  `entry_std` to bite at all.
+- **`exit_on_invalidation` is structurally unreachable under `STOP_EXCURSION` at
+  `stop_offset_ticks = 0`.** It changes the profit factor in **0%** of cells there, against 80%
+  at two ticks and 88% at eight: the stop sits *at* the excursion extreme, so price reaching it
+  intrabar exits the trade before any close beyond it can be observed. Two rules that look
+  independent are one rule plus an offset.
+
+Both are the same class as the ATR dollar floor collapsing `atr_stop_multiple`: whether an axis
+does anything is a property of the *data* and of another parameter, not of the grid, so
+`dead_axes` cannot see it and only a spread check on the realised numbers will.
+
 **Build that grid once, because M19 reads it too.** The bandwidth form recommended above for
 the squeeze is `(upper − lower) / basis`, which is `2 · num_std · σ / basis` off the same two
 rows — so the two archetypes share one grid rather than each inventing a Bollinger of its own,
 which is the first item on the standing rubric.
 
 **What [#170] would be checked against is already written down**: [nt8-fidelity.md](nt8-fidelity.md)
-§M26 names the NinjaScript every rule becomes. It is not earned yet — see the promotion criteria
-under "Decisions taken", which a sweep has still to be run against.
+§M26 names the NinjaScript every rule becomes. **It is not earned.** The sweep above is the one
+the promotion criteria under "Decisions taken" asked for, and the archetype fails them: nothing
+survives held-out selection, and the only scheme whose entry beats the null is unprofitable at
+every geometry tested.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 

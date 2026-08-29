@@ -545,3 +545,32 @@ def test_the_atr_is_built_only_for_the_stop_mode_that_reads_one() -> None:
     )
     assert atr_stop.required_context().atr_periods == (14,)
     assert no_atr.required_context().atr_periods == ()
+
+
+# -- the buffer guard, one case per write site ----------------------------------
+
+WIDE_STOP = {"stop_mode": STOP_CATASTROPHE, "catastrophe_stop_ticks": 400.0}
+NEAR_STOP = {"stop_mode": STOP_CATASTROPHE, "catastrophe_stop_ticks": 40.0}
+RUNNERS = {"quantities": (1, 1), "levels": (np.nan, np.nan)}
+
+OVERFLOW_CASES = {
+    "the signal exit": (FLAT, {"signal_at": [0], **RUNNERS, **WIDE_STOP, "max_hold_bars": 2}),
+    "a stop while in a position": (
+        [*[(100.0, 100.5, 99.5, 100.0)] * 2, (100.0, 100.5, 85.0, 86.0), *FLAT],
+        {"signal_at": [0], **RUNNERS, **NEAR_STOP},
+    ),
+    "the entry bar's own stop": (
+        [(100.0, 100.5, 99.5, 100.0), (100.0, 100.5, 85.0, 86.0), *FLAT],
+        {"signal_at": [0], **RUNNERS, **NEAR_STOP},
+    ),
+    "the end of the series": (FLAT, {"signal_at": [0], **RUNNERS, **WIDE_STOP}),
+}
+
+
+@pytest.mark.parametrize(("rows", "kwargs"), OVERFLOW_CASES.values(), ids=list(OVERFLOW_CASES))
+def test_a_full_buffer_is_reported_rather_than_written_past(rows, kwargs) -> None:
+    # One row of room against a two-leg trade, so the second write has nowhere to go.
+    assert simulate(rows, max_rows=1, **kwargs)[0] == -1
+    # The same scenario with room is a normal trade, which is what says the buffer size is
+    # the only thing under test here.
+    assert not run(rows, **kwargs).empty
