@@ -884,16 +884,20 @@ class InsideBarTrailingParams(InsideBarParams):
 STOP_ATR = 0
 STOP_EXCURSION = 1
 STOP_CATASTROPHE = 2
+STOP_SWING = 3
 STOP_MODES = {
     STOP_ATR: "atr",
     STOP_EXCURSION: "excursion",
     STOP_CATASTROPHE: "catastrophe",
+    STOP_SWING: "swing",
 }
 """Where the elastic band's protective stop goes, one per exit scheme -- ``docs/roadmap.md``
 §M26, "Three exit schemes". ``atr`` is a distance off the fill and the only floored one;
 ``excursion`` is the adverse extreme of the bars that were outside the band; ``catastrophe``
 is :attr:`ElasticBandParams.catastrophe_stop_ticks` and is an account rule rather than a
-strategy stop.
+strategy stop; ``swing`` is the adverse extreme of a fixed number of bars, which at
+``swing_lookback = 1`` is the signal candle alone and is the tightest stop the archetype can
+express.
 """
 
 TARGET_STRETCH = 0
@@ -995,8 +999,15 @@ class ElasticBandParams:
     see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
 
     stop_offset_ticks: int = 2
-    """Ticks beyond the excursion extreme under :data:`STOP_EXCURSION`, so the stop never sits
-    exactly on the level it protects."""
+    """Ticks beyond the extreme under :data:`STOP_EXCURSION` and :data:`STOP_SWING`, so the
+    stop never sits exactly on the level it protects."""
+
+    swing_lookback: int = 1
+    """Completed bars :data:`STOP_SWING` takes its extreme from, the signal bar included.
+
+    At ``1`` the stop is just beyond the signal candle itself: the cheapest possible attempt,
+    which is the point of it -- a move that keeps going costs a few ticks and the next bar can
+    try again."""
 
     catastrophe_stop_ticks: int = 400
     """Stop distance under :data:`STOP_CATASTROPHE`, in ticks from the fill.
@@ -1083,7 +1094,7 @@ class ElasticBandParams:
         if self.order_quantity < len(self.target_levels):
             msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_levels)} legs"
             raise ValueError(msg)
-        for name in ("atr_period", "catastrophe_stop_ticks"):
+        for name in ("atr_period", "catastrophe_stop_ticks", "swing_lookback"):
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)

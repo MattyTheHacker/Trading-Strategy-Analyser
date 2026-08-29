@@ -865,11 +865,15 @@ over one parameter class — the reasoning and the evidence are in [roadmap.md](
 | A, band rotation | adverse extreme of the excursion bars, offset by `stopOffsetTicks` | `Bollinger.Middle[0]`, then the opposite band |
 | B, volatility bracket | `Math.Max(atr * multiple, floor / pointValue)` off the fill | the R ladder, capped at `Bollinger.Middle[0]` |
 | C, time and mean | `maxRiskTicks` only, a catastrophe limit rather than a strategy stop | `Bollinger.Middle[0]`, whole position |
+| the tight stop | `Low[0] - stopOffsetTicks * TickSize` over `swingLookback` bars | any of the above |
 
-All three are `SetStopLoss` / `SetProfitTarget` against a level the script already holds, so none
+All four are `SetStopLoss` / `SetProfitTarget` against a level the script already holds, so none
 of them needs anything NT8 does not express. **Only B's stop is floored**, because only it is a
 distance rather than a level — a structural stop pushed away from its structure stops being the
-rule it is.
+rule it is. The tight stop is the same device as EmaCrossover's swing mode and shares its
+implementation, `bracket.swing_stop`; at `swingLookback = 1` it is the signal candle alone, which
+is the tightest stop the archetype can express and, measured, no better than any other
+([roadmap.md](roadmap.md) §M26).
 
 **A target that is a level is written as a price, not as an R multiple.** `Bollinger.Middle[0]`
 at the signal bar. Where legs scale out they do so at fractions of the distance back to it —

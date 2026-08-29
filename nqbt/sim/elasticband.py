@@ -19,7 +19,7 @@ from numba import njit
 from nqbt import conditions, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
-from nqbt.sim.types import STOP_ATR, STOP_EXCURSION, STOP_MIN_TICKS, TARGET_STRETCH
+from nqbt.sim.types import STOP_ATR, STOP_EXCURSION, STOP_MIN_TICKS, STOP_SWING, TARGET_STRETCH
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -58,6 +58,7 @@ class ElasticBandRules(NamedTuple):
     min_bracket_points: float
     stop_offset: float
     catastrophe_distance: float
+    swing_lookback: int
     target_mode: int
     tp_multiplier: float
     bars_required: int
@@ -99,18 +100,21 @@ def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_
 
 @njit(cache=True)
 def _protective_stop(
+    bars: bracket.Bars,
     band: BandSeries,
     signal_bar: int,
     fill: float,
     direction: float,
     rules: ElasticBandRules,
 ) -> float:
-    """Where the protective stop goes, in whichever of the three schemes is selected.
+    """Where the protective stop goes, in whichever of the four schemes is selected.
 
-    All three read the **signal** bar and the bars before it, never the bar the fill happens
+    All four read the **signal** bar and the bars before it, never the bar the fill happens
     on. Only :data:`STOP_ATR` is floored, because only it is a distance rather than a level --
     ``docs/nt8-fidelity.md`` §M26.
     """
+    if rules.stop_mode == STOP_SWING:
+        return bracket.swing_stop(bars, signal_bar, rules.swing_lookback, rules.stop_offset, direction)
     if rules.stop_mode == STOP_ATR:
         distance = bracket.atr_bracket_distance(
             float(band.atr[signal_bar]),
@@ -238,7 +242,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             if not bars.force_flat[i]:
                 d = pending_direction
                 fill = bars.open_[i] + d * slippage
-                candidate_stop = _protective_stop(band, pending_bar, fill, d, rules)
+                candidate_stop = _protective_stop(bars, band, pending_bar, fill, d, rules)
                 candidate_risk = d * (fill - candidate_stop)
                 # A stop at or through the price it protects is not a stop order --
                 # ``docs/nt8-fidelity.md`` §M18.
@@ -440,6 +444,7 @@ def elasticband_legs(
             min_bracket_points=instrument.dollars_to_points(params.min_bracket_dollars),
             stop_offset=params.stop_offset_ticks * instrument.tick_size,
             catastrophe_distance=params.catastrophe_stop_ticks * instrument.tick_size,
+            swing_lookback=params.swing_lookback,
             target_mode=params.target_mode,
             tp_multiplier=params.tp_multiplier,
             bars_required=params.bars_required_to_trade,

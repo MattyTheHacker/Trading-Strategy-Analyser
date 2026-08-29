@@ -28,6 +28,7 @@ from nqbt.sim.types import (
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_EXCURSION,
+    STOP_SWING,
     TARGET_R,
     TARGET_STRETCH,
     ElasticBandParams,
@@ -51,6 +52,7 @@ def simulate(
     quantities=(1,),
     levels=(0.0,),
     stop_mode=STOP_CATASTROPHE,
+    swing_lookback=1,
     atr_stop_multiple=1.0,
     min_bracket_dollars=0.0,
     stop_offset_ticks=2.0,
@@ -114,6 +116,7 @@ def simulate(
             min_bracket_points=instrument.dollars_to_points(min_bracket_dollars),
             stop_offset=stop_offset_ticks * TICK,
             catastrophe_distance=catastrophe_stop_ticks * TICK,
+            swing_lookback=swing_lookback,
             target_mode=target_mode,
             tp_multiplier=tp_multiplier,
             bars_required=bars_required,
@@ -209,6 +212,93 @@ def test_only_the_atr_stop_is_floored_because_only_it_is_a_distance() -> None:
 
 def test_an_entry_whose_stop_would_sit_at_its_own_fill_is_skipped() -> None:
     assert run(FLAT, signal_at=[0], stop_mode=STOP_EXCURSION, extremes=100.0, stop_offset_ticks=0.0).empty
+
+
+def test_the_swing_stop_sits_just_beyond_the_signal_candle_at_lookback_one() -> None:
+    # The tightest stop the archetype can express: a move that keeps going costs a few ticks.
+    trades = run(
+        [
+            (100.0, 100.5, 97.0, 100.0),  # 0: signal, low 97
+            (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100
+            *FLAT,
+        ],
+        signal_at=[0],
+        stop_mode=STOP_SWING,
+        swing_lookback=1,
+        stop_offset_ticks=2.0,
+        levels=(np.nan,),
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(97.0 - 2 * TICK)
+    assert trades["risk_points"].iloc[0] == pytest.approx(3.5)
+
+
+def test_a_longer_swing_lookback_reaches_further_back_for_its_extreme() -> None:
+    rows = [
+        (100.0, 100.5, 95.0, 100.0),  # 0: the deeper low
+        (100.0, 100.5, 97.0, 100.0),  # 1: signal
+        (100.0, 100.5, 99.5, 100.0),  # 2: fill
+        *FLAT,
+    ]
+    one = run(
+        rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=1, stop_offset_ticks=0.0, levels=(np.nan,)
+    )
+    two = run(
+        rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=2, stop_offset_ticks=0.0, levels=(np.nan,)
+    )
+    assert one["initial_stop"].iloc[0] == pytest.approx(97.0)
+    assert two["initial_stop"].iloc[0] == pytest.approx(95.0)
+
+
+def test_the_swing_stop_mirrors_on_the_short_side() -> None:
+    trades = run(
+        [
+            (100.0, 103.0, 99.5, 100.0),  # 0: signal, high 103
+            (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100
+            *FLAT,
+        ],
+        signal_at=[0],
+        direction=SHORT,
+        stop_mode=STOP_SWING,
+        swing_lookback=1,
+        stop_offset_ticks=2.0,
+        levels=(np.nan,),
+        basis=96.0,
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(103.0 + 2 * TICK)
+
+
+def test_the_swing_stop_is_not_floored_because_it_is_a_level() -> None:
+    trades = run(
+        [
+            (100.0, 100.5, 99.0, 100.0),
+            (100.0, 100.5, 99.5, 100.0),
+            *FLAT,
+        ],
+        signal_at=[0],
+        stop_mode=STOP_SWING,
+        swing_lookback=1,
+        stop_offset_ticks=0.0,
+        min_bracket_dollars=100.0,
+        levels=(np.nan,),
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(99.0)
+
+
+def test_a_swing_stop_the_fill_has_already_passed_skips_the_entry() -> None:
+    # The candle's low is 99 but the next bar opens at 98.5, so the stop is already behind
+    # the fill and there is no stop order to place.
+    assert run(
+        [
+            (100.0, 100.5, 99.0, 100.0),
+            (98.5, 99.0, 98.0, 98.5),
+            *FLAT,
+        ],
+        signal_at=[0],
+        stop_mode=STOP_SWING,
+        swing_lookback=1,
+        stop_offset_ticks=0.0,
+        levels=(np.nan,),
+    ).empty
 
 
 # -- the target, which is a level rather than an R multiple ---------------------
