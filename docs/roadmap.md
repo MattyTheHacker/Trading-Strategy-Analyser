@@ -1608,6 +1608,230 @@ the promotion criteria under "Decisions taken" asked for, and the archetype fail
 configuration that survives held-out selection beats a matched random entry on two contracts out
 of eight, and its profit is two quarters wide.
 
+### M27 — the registry-wide campaign: every archetype, every axis ([#195], [#196])
+
+The first sweep that treats the registry as one question rather than six. Every archetype
+across bar resolution, market regime, session phase, relative volume, trend label,
+higher-timeframe side and every moving-average axis it owns, on both roots, at the real
+commission for the root — then through the three tests a sweep table cannot pass on its own.
+
+#### In plain terms
+
+Six trading strategies were each tried with every sensible combination of their settings, on
+five different bar sizes, in every market condition the codebase can label, on both the big and
+the small Nasdaq contract, with realistic commission and slippage. That is 760,960 runs.
+
+Then the obvious trap was avoided. Trying 760,960 things and keeping the best one is how you
+find something that worked *by luck* — the more you try, the luckier the best one looks. So
+three further checks were run:
+
+1. **Would you have picked it in advance?** Choose the best settings using only the first 60%
+   of the history, then see how those same settings do on the last 40%, which the choice never
+   saw.
+2. **Is it the entry rule, or just the exit?** Re-run the same strategy with its entry replaced
+   by a coin flip that trades the same number of times at the same times of day. If the coin
+   flip does just as well, the entry rule is contributing nothing and the money is coming from
+   the stop-and-target geometry.
+3. **Could you survive trading it?** Compare the profit to the worst losing streak it went
+   through to earn that profit.
+
+**Five of the six fail one of those. One passes the first two and fails the third**, and the
+reason it fails the third is a single missing parameter rather than a broken idea.
+
+The vocabulary, once:
+
+- **Profit factor** — gross winnings divided by gross losses. Above 1.0 makes money, below 1.0
+  loses it. It says nothing about how bumpy the ride was.
+- **Bar size / resolution** — how much time one candle covers. A 5-minute bar is five 1-minute
+  bars added together.
+- **Regime** — whether the market is trending (DIRECTIONAL), chopping sideways (CONSOLIDATING)
+  or neither (UNCLASSIFIABLE), measured by the efficiency ratio (§M10.1).
+- **Stratum** — one slice of the data, such as "only trending markets". Slices are taken one at
+  a time and never crossed, so each answers its own question with a full sample behind it.
+- **The null** — the coin-flip comparison in point 2, built by `nqbt/randomentry.py` (§M7a).
+
+#### What was run
+
+760,960 combinations in about 98 minutes across four passes, on the spliced continuous series
+for both roots:
+
+- Six archetypes, each with the axes it owns — moving-average periods **and kinds**, entry
+  thresholds, stop modes, target ladders, trailing multipliers.
+- Resolutions 1, 2, 5, 10 and 15 minutes.
+- Twenty strata, **one dimension at a time and never crossed**: unfiltered, three regimes,
+  seven session phases, three relative-volume states, three trend labels and three sides of a
+  60-minute average.
+- Real costs, per root: **$1.50 round trip on MNQ and $4.50 on NQ**, both with one tick of
+  slippage. Never one figure for both — the point value differs tenfold and the commission does
+  not, so MNQ's number applied to NQ flatters it.
+
+Every figure below is re-derivable from `results/campaign/<Archetype>.duckdb` with
+`tools/campaign_report.py` and `tools/campaign_holdout.py`; nothing here is a figure that moves
+on an ordinary pull request, but all of it is a measurement of one dated run rather than a
+standing property.
+
+#### The four gates, and what each removed
+
+| gate | question | survivors |
+|---|---|---|
+| 1 · the screen | a majority of configurations profitable in at least one root × resolution cell | 4 of 6 |
+| 2 · held out | best 20 chosen on the first 60%, measured on the last 40%, above 1.0 **and** above the holdout median of everything | 3 of 6 |
+| 3 · the matched null | does the entry beat a random entry with the same count and time-of-session profile | 1 of 6 |
+| 4 · drawdown | does the median configuration make more than its own worst peak-to-trough | 1 cell, and only just |
+
+**Gate 3 is the one that matters most and the one a sweep table never shows.** Gate 4 is where
+the survivor is currently stopped.
+
+#### Gate 1 — bar size is the largest lever, and the moving averages barely matter
+
+The median configuration of every archetype loses money at 1 minute on both roots, and the
+median net P&L over the whole campaign is negative for all six. What separates them is where
+they peak:
+
+- **The two ported reversal archetypes and EmaCrossover improve monotonically with bar size**,
+  which is §M26's friction mechanism showing up outside ElasticBand for the first time: a fixed
+  commission is a shrinking share of a larger bar's range.
+- **The two inside-bar archetypes do not.** They peak at 5 minutes and fall away by 15. That is
+  a real optimum rather than a cost effect, and it is the first non-monotone resolution result
+  in the project.
+
+Share of profit-factor variance a single axis explains (η², unfiltered stratum), largest first
+per archetype: resolution 0.76 on InsideBar, 0.56 on DeadCatBounce, 0.47 on PullBackAndGo, 0.34
+on EmaCrossover; `trailing_stop_multiplier` 0.46 on InsideBarTrailing; resolution 0.14 and
+`stop_mode` 0.12 on ElasticBand.
+
+**Every moving-average axis on every archetype falls below 0.04, and most below 0.01** — beaten
+by the bar size everywhere and by the root on four of the six. All four kinds were swept on
+DeadCatBounce, PullBackAndGo and EmaCrossover, EMA and HMA on both inside-bar archetypes.
+Choosing the kind is worth roughly a fiftieth of choosing the bar size. **η² is a property of
+the ranges swept**, so read it as "over ranges a person would actually try" rather than as a
+law — but the moving-average ranges here are wide and the answer is not close.
+
+The practical consequence: **stop tuning periods.** The lever is the bar size and, after that,
+the exit geometry.
+
+#### Gate 2 — held out, and ElasticBand inverts
+
+The benchmark is not zero. It is the holdout median of *every* configuration, which is what you
+get by not selecting at all.
+
+- **InsideBar survives on both roots** — 19 of 20 shortlisted configurations still profitable
+  out of sample, above the holdout median on both.
+- **EmaCrossover survives on both roots**, 15 of 20.
+- **InsideBarTrailing is marginal**, landing barely above 1.0.
+- **DeadCatBounce and PullBackAndGo fail**, as the standing finding says they do.
+- **ElasticBand fails hard, and the shape of the failure is the useful part.** Its shortlist
+  averages a profit factor of 1.834 where it was chosen and 0.592 where it was not, with 1 of
+  20 configurations profitable on MNQ and 0 of 20 on NQ — *below* the holdout median of every
+  configuration. It also owns the single highest profit factor in the whole campaign. **The
+  archetype with the best number in a 760,960-row sweep is the one eliminated first.** That is
+  the multiple-comparisons trap the standing rubric warns about, measured again on this
+  project's own data and worth quoting whenever a sweep result is being read.
+
+**The regime filter is where InsideBar separates.** The split pass was re-run once per regime:
+in the DIRECTIONAL stratum **every one of the 20 shortlisted configurations stays profitable
+out of sample on both roots**, and the holdout median across **every** configuration in that
+stratum is above 1.0 on both — so it is the whole parameter space rather than a shortlist.
+CONSOLIDATING is the mirror image at 2 of 20. The separation is sharpest at 10 minutes, where
+99.7% of the 864 DIRECTIONAL configurations are profitable on the holdout against 6.1% of the
+CONSOLIDATING ones.
+
+That is mechanically what an inside-bar *breakout* should do, which is the reason to believe it
+rather than the reason to be suspicious of it.
+
+#### Gate 3 — only one archetype's entry contributes anything
+
+Each configuration was chosen on the selection window and placed against its matched null on
+the holdout, so the choice never sees the test data. Trade counts match the null closely in
+every row, which is what makes these comparisons clean — unlike §M26's, where two of three
+exit schemes were badly mismatched.
+
+- **InsideBar: excess of about +0.17 and +0.14 profit factor over its null, at the 96th and
+  93rd percentile of the null distribution.** Positive on both roots, and *not* significant on
+  either (p ≈ 0.08 and 0.16).
+- **EmaCrossover: essentially nothing** — about +0.03 and +0.05, near the 60th percentile. Its
+  null median profit factor is close to 1.0, meaning **a random entry inside its ATR bracket is
+  roughly break-even after real costs at 15 minutes.** Its held-out survival is the geometry,
+  not the crossover. It remains a useful known-negative control arm and is not a candidate.
+- **InsideBarTrailing: within 0.005 of its null on both roots**, on either side of it. Read
+  against InsideBar, which shares its entry, that says the trailing exit gives back exactly
+  what the fixed bracket keeps.
+- **ElasticBand: worse than random**, significantly so on win rate (p = 0.01) and mean R
+  (p = 0.04), on both roots.
+
+Per contract, which is thirty-eight samples rather than one: the InsideBar configuration beats
+its own null on 13 of 19 MNQ contracts and 12 of 19 NQ ones. Split honestly into the contracts
+the selection window covered and the ones it did not, that is **16 of 22 in sample and 9 of 16
+out of sample**, with the mean excess staying positive on both roots and roughly halving.
+
+**The honest reading is "there is probably something here", not "this is established."** No
+null test in the campaign reaches p < 0.05 on profit factor. What InsideBar has is a
+consistent sign across two roots, thirty-eight contracts and a held-out window — which is more
+than anything else in this project has produced, and less than proof.
+
+#### Gate 4 — what stops it is the bracket, not the entry
+
+InsideBar's profit factor comes from a deliberately lopsided bracket: a stop 5–20× ATR beyond
+the signal bar against a target of a bare 1× ATR from the fill. Across the holdout window that
+produces an **85–90% win rate with an average loss three to five and a half times the average
+win**, and a maximum drawdown that swallows the profit — unfiltered at 5 minutes, the median
+configuration ends the window with less than a third of its own worst peak-to-trough in profit.
+
+Only **one cell of InsideBar's holdout** has a majority of configurations finishing with more
+profit than their own drawdown: DIRECTIONAL at 10 minutes, at 60% of them, and even there the
+median ratio is about 0.9. Net-to-drawdown was measured on InsideBar because it is the only
+archetype that reached this gate; the others fail an earlier one.
+
+**A profit factor above 1.0 built from an 87% win rate and a 5:1 loss-to-win size is not an
+edge that survives a bad quarter.** Reading profit factor without the drawdown beside it is how
+this cell would have been mistaken for a result.
+
+**And the reward half of that geometry was never swept, because it does not exist.**
+`InsideBarParams` carries an `atr_multiplier` for the stop and **no multiplier at all for the
+target** — the 1× ATR target is hardcoded, following `InsideBar.cs`, which hardcodes it too. So
+the campaign moved the stop across 5×, 10× and 20× ATR and could not move the target by a tick.
+Half of what produces the asymmetry was structurally outside the grid. [#197] adds the field
+and [#198] re-sweeps against it, and it is the single highest-value change available because it
+is the only gate InsideBar fails.
+
+#### What the campaign could not test
+
+- **Sixteen of the twenty strata were never held out.** Session phase, relative volume, trend
+  label and higher-timeframe side have full-window numbers only. Several look strong there, and
+  the full window is exactly where ElasticBand's 1.834 came from — so treat them as unmeasured
+  until [#199] runs them through the split.
+- **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month
+  contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the
+  campaign. [#200] loosens the threshold to restore the sample.
+- **The held-out split is a single time cut** at 60% of the bars, so it tests one regime
+  transition rather than many. The two roots track the same index over the same dates, so the
+  thirty-eight per-contract samples are not thirty-eight independent ones.
+- **`max_hold_bars` means a different amount of time at each resolution**, exactly as a
+  moving-average period does. Nothing scales it, and no result here rests on it.
+- **Everything is Tier 1.** EmaCrossover and ElasticBand have no NinjaScript at all, which is
+  why InsideBar surviving matters more than EmaCrossover surviving would have.
+
+#### The tools, and why there are five databases
+
+`tools/campaign_sweep.py` runs the sweep — `--strata core|context|regime|phase|volume|trend|htf|all`
+so a later pass appends the dimensions an earlier one skipped, and `--split` for the selection
+and holdout windows. `tools/campaign_report.py` produces the distribution tables and the η²
+figures, `tools/campaign_holdout.py` the held-out test, and `tools/campaign_null.py` and
+`tools/campaign_contracts.py` the matched null on the continuous holdout and per contract.
+
+**One DuckDB per archetype**, under `results/campaign/`. `results._append_or_create` writes
+`combos` by name and silently drops a column the table does not have, so six parameter classes
+cannot share one table — appending an `InsideBarParams` row to a table created from
+`DeadCatParams` would store it with `error_margin`, `atr_length` and `atr_multiplier` thrown
+away and nothing would say so. `tools/rerun_sweeps.py` records the same trap and answers it by
+dropping the tables first. [#201] carries making that behaviour loud.
+
+Two things the sweep machinery still cannot see, both already recorded in
+`.claude/rules/sweep-and-context.md` and both worked around here rather than fixed: ElasticBand's
+stop and target axes are inert outside their own mode, and `volume_rolling_bars` has two
+toggles where `dead_axes` knows one. The campaign avoids both by making a stop geometry a
+*variant* — its own base parameters and its own axes — rather than an axis inside one grid.
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame.
@@ -3403,6 +3627,41 @@ the end-of-bar alignment rule, and coverage. It should still be explicit configu
 than an inferred default — a wrong zone shifts every trade by hours without erroring — but the
 default is now known to be right for this machine.
 
+**Parked is not abandoned: a failed campaign retires a *configuration space*, not an
+archetype** ([#195]). §M27 eliminates five of the six archetypes, and it is worth being precise
+about what that does and does not license, because "we tested it and it did not work" decays
+into "it does not work" within about two months.
+
+What the campaign is evidence of: the logic behind those five, **as currently written, over the
+ranges swept, on the data held today, at today's costs**, does not produce something worth
+trading. That is a real result and it should stop anyone spending another week tuning periods
+on DeadCatBounce.
+
+What it is not evidence of: that no version of them can work. Each of the following would make
+a parked archetype worth re-running, and none of them is exotic:
+
+- **A condition that does not exist yet.** The order-flow and dealer-gamma labels ([#124]) are
+  the obvious case — every archetype here was stratified against the five conditions the
+  codebase happens to have, and a sixth could separate a cell that today looks like noise.
+- **A bracket it was never given.** InsideBar's own result turns on a target multiplier that
+  does not exist yet ([#197]); PullBackAndGo has a ratchet and no ATR bracket at all, and
+  DeadCatBounce has never been run against a structural stop.
+- **A range the sweep did not reach.** η² is a property of the ranges swept and nothing else.
+- **More data, or different data.** Five years, two roots and one index. A regime the sample
+  does not contain is not a regime the sample rules out.
+
+So the tracker keeps them: an archetype that fails a campaign is **not deleted, not
+un-registered and not removed from the sweep**, because the cost of keeping it is one entry in
+`archetypes.py` and the cost of deleting it is re-deriving everything §M27 measured. Its
+`Tier2Status` and its reconciliation evidence stay exactly as they are. DeadCatBounce is already
+the model for this — it has been unprofitable since M7a and it stays registered because it is
+the fixture that proves the system works.
+
+**The rule to apply when picking one back up**: say what has changed since §M27 before
+re-running it. A re-run with no new condition, no new geometry and no new data is the same
+measurement with a new random seed, and reading it as a second opinion is the multiple-
+comparisons trap wearing a calendar.
+
 ---
 
 ## Still open
@@ -3490,6 +3749,7 @@ default is now known to be right for this machine.
 [#92]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/92
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
 [#113]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/113
+[#124]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/124
 [#126]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/126
 [#127]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/127
 [#160]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/160
@@ -3498,3 +3758,10 @@ default is now known to be right for this machine.
 [#168]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/168
 [#169]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/169
 [#170]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/170
+[#195]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/195
+[#196]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/196
+[#197]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/197
+[#198]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/198
+[#199]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/199
+[#200]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/200
+[#201]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/201

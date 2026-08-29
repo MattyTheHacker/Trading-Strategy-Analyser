@@ -192,35 +192,54 @@ combination, which otherwise multiplies runtime for byte-identical rows.
 
 ## Current finding
 
-At $1.50/RT commission and 1 tick of slippage, over the whole continuous series
-(`tools/rerun_sweeps.py`, one 96-combination grid per stratum):
+**Every registered archetype has been swept across every axis it owns** — five bar sizes, both
+roots, twenty market-context slices, every moving-average period and kind — at $1.50 round trip
+on MNQ, $4.50 on NQ, and one tick of slippage. The findings, the method and the caveats are
+[docs/roadmap.md](docs/roadmap.md) §M27; re-derive any figure with `tools/campaign_report.py`
+over `results/campaign/`.
 
-| | MNQ | NQ |
-|---|---|---|
-| profitable (PF > 1.0), unfiltered | 0 of 96 | 0 of 96 |
-| best PF, unfiltered | 0.667 | 0.816 |
-| median PF, unfiltered | 0.633 | 0.793 |
+In plain terms: trying every combination and keeping the best one finds something that worked
+by luck, so the campaign ran three further checks — would you have picked it in advance, does
+the entry beat a coin flip that trades the same number of times, and is the profit bigger than
+the worst losing streak it took to earn.
 
-Nothing in either tested space survives costs. The fill assumption is not what's causing it
-— NT8's ambiguity rule versus a blanket worst case differs by only **+0.009 PF** on
-average, with ambiguous bars at 3–4% of exits unfiltered. The losses are structural, and NQ
-failing independently on its own series is corroboration rather than a second data point.
+| | result |
+|---|---|
+| survives held-out selection | InsideBar, EmaCrossover, and InsideBarTrailing marginally |
+| beats a matched random entry | **InsideBar only**, positive on both roots and significant on neither |
+| clears its own drawdown | one cell, and only just |
+| profitable at 1-minute bars | no archetype's median configuration, on either root |
 
-**Stratifying by market regime and session phase does not rescue it.** Eleven strata per
-root — unfiltered, one per regime, one per session phase — put 21 of 2,112 rows above a
-profit factor of 1, and all 21 are one cell: NQ in the `CLOSE` phase, whose exits are
-decided by the forced flat rather than by the rules. The same trade list reads 1.390
-through the NQ spec and **1.020 through the MNQ spec** — identical geometry, identical
-commission, gross P&L ×10 — so the apparent edge is the commission-to-point-value ratio
-and not the clock. Reasoning and the rest of the numbers: [`docs/roadmap.md`](docs/roadmap.md)
-§ "Stored sweeps — dropped and re-run, stratified". Re-derive any figure here with
-`results.query` over `combos` joined to `sweeps`.
+**InsideBar is the one worth more work**, and what stops it is its bracket rather than its
+entry: a stop of 5–20× ATR against a hardcoded 1× ATR target gives an 87% win rate with an
+average loss five and a half times the average win, so the profit factor is real and the
+drawdown eats it.
+The target has no multiplier to sweep, which is [#197].
+
+**The other five are parked, not abandoned.** The campaign is evidence that their logic does
+not work *as currently written, over the ranges swept, on the data held today*. It is not
+evidence that no version of them can work, and all six stay registered and swept — a new
+condition, a different bracket, a wider range or more data would each be a reason to re-run
+one. See [docs/roadmap.md](docs/roadmap.md) § "Parked is not abandoned" for the rule that
+applies when picking one back up.
+
+**Bar size is the largest lever there is.** It explains an order of magnitude more
+profit-factor variance than any moving-average period or kind, on every archetype. Tune the bar
+size and the exit geometry; do not tune periods.
+
+**DeadCatBounce specifically** stays the reconciled test fixture. It is unprofitable across
+every combination tested, stratifying by regime or session phase does not rescue it
+([docs/roadmap.md](docs/roadmap.md) § "Stored sweeps — dropped and re-run, stratified"), and
+its entry rule is still measurably better than random (§M7a) — which is "the loss is in costs,
+hold time or bracket geometry", not "the entry rule is worthless".
 
 **Instrument scaling is exact.** Running the same NQ bars through both instrument specs
 gives byte-identical trade geometry — entry and exit bars, prices, stops, targets,
 `r_multiple`, `risk_points` — and gross P&L of exactly ×10 on *every individual leg*
 (min ratio = max ratio = 10.0000000000), while per-contract commission correctly does not
 scale. That is the check that would catch a dollar figure hardcoded to one instrument.
+
+[#197]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/197
 
 ## Known limitations
 

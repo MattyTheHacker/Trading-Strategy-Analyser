@@ -120,17 +120,29 @@ gh issue list --state open --label next-up      # what is at the front
 gh issue view <n>                               # blocked-by, blocking, sub-issues
 ```
 
-Three standing facts that are not status and do not move:
+Five standing facts that are not status and do not move:
 
-- **DeadCatBounce is unprofitable across every combination tested**, on both roots, at
-  realistic costs, and **stratifying by regime or by session phase does not rescue it** — the
-  one cell that clears a profit factor of 1 is ruled out in `docs/roadmap.md` § "Stored sweeps
-  — dropped and re-run, stratified", which is the section to quote rather than this line.
-  **Decided: not a blocker** — it is the test fixture that proves the system works.
-- **Its entry rule is nonetheless measurably better than random** (`nqbt/randomentry.py`),
-  which is "there is signal; the loss is in costs, hold time or bracket geometry", not "the
-  entry rule is worthless". Quote `docs/roadmap.md` §M7a for the numbers and the caveats that
-  must travel with them.
+- **Every registered archetype has been swept across every axis it owns** — `docs/roadmap.md`
+  §M27, the section to quote rather than any line here. **InsideBar is the only one that
+  survives held-out selection and shows a positive excess over a matched random entry**, and
+  what stops it is its bracket rather than its entry.
+- **A failed campaign parks a configuration space; it does not retire an archetype.** Five of
+  the six failed §M27 and **all six stay registered, swept and reconciled**. Before re-running
+  a parked one, say what has changed since §M27 — a new condition, bracket, range or data —
+  because a re-run with none of those is the same measurement with a new seed.
+  `docs/roadmap.md` § "Parked is not abandoned".
+- **Bar size is the largest lever and the moving averages are nearly inert.** Resolution
+  explains an order of magnitude more profit-factor variance than any period or kind on every
+  archetype, and each one's median configuration loses money at one minute. Tune the bar size
+  and the exit geometry; not periods.
+- **DeadCatBounce is unprofitable across every combination tested**, and **stratifying by
+  regime or by session phase does not rescue it** — the one cell that clears a profit factor of
+  1 is ruled out in `docs/roadmap.md` § "Stored sweeps — dropped and re-run, stratified".
+  **Decided: not a blocker** — it is the test fixture that proves the system works. Its entry
+  rule is nonetheless measurably better than random (`nqbt/randomentry.py`), which is "there is
+  signal; the loss is in costs, hold time or bracket geometry", not "the entry rule is
+  worthless". Quote `docs/roadmap.md` §M7a for the numbers and the caveats that travel with
+  them.
 - **Roll dates are data-derived and deliberately not reconciled against NT8**, which merges on
   dates configured in its Database window — a setting, not a measurement. The residual risk is
   that a spliced result cannot be reproduced bar-for-bar around a roll.

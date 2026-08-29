@@ -1,0 +1,211 @@
+"""What the registry-wide campaign's plan claims, pinned.
+
+The sweeps themselves are not exercised here -- they need ``cache/continuous`` and take about
+an hour and a half. What is testable without data is the shape of the plan, which is where a
+silent mistake would live: a stratum that filters two dimensions at once, a variant whose grid
+cannot be built, a root whose commission is the other root's, or two archetypes pointed at one
+database.
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+
+import pandas as pd
+import pytest
+
+from nqbt import archetypes, higher_timeframe, regime, timeofday, trend, volume
+from nqbt.sim.types import STOP_ATR, STOP_CATASTROPHE, STOP_SWING
+from tools.campaign_sweep import (
+    ALL_STRATA,
+    COMMISSION,
+    CONTEXT,
+    CORE,
+    ELASTIC_LADDERS,
+    RESOLUTIONS,
+    SELECTION_SHARE,
+    SLIPPAGE_TICKS,
+    STRATUM_SETS,
+    UNFILTERED,
+    VARIANTS,
+    Variant,
+    db_path,
+    grids_for,
+    planned_combinations,
+    strata,
+    windows,
+)
+
+EVERY_STATE = {
+    "regime": [f"regime={state.name}" for state in regime.Regime],
+    "phase": [f"phase={phase.name}" for phase in timeofday.SessionPhase],
+    "volume": [f"volume={state.name}" for state in volume.VolumeState],
+    "trend": [f"trend={label.name}" for label in trend.Trend],
+    "htf": [f"htf={side.name}" for side in higher_timeframe.Side],
+}
+"""Every stratum name each context dimension owes, so a dropped state fails rather than
+quietly narrowing the campaign."""
+
+
+def all_variants() -> list[Variant]:
+    """Every variant of every archetype, on both roots."""
+    return [variant for build in VARIANTS.values() for root in COMMISSION for variant in build(root)]
+
+
+# -- the stratification --------------------------------------------------------------------
+
+
+def test_every_state_of_every_dimension_gets_exactly_one_stratum() -> None:
+    names = [name for name, _ in strata(ALL_STRATA)]
+    assert names[0] == UNFILTERED
+    assert names[1:] == [name for dimension in EVERY_STATE.values() for name in dimension]
+
+
+def test_no_stratum_filters_two_dimensions_at_once() -> None:
+    """One dimension at a time is the whole design; crossing them is 190 cells, not 20."""
+    for _, extra in strata(ALL_STRATA):
+        assert len(extra) <= 1
+
+
+def test_each_filtered_stratum_admits_exactly_one_state() -> None:
+    """A mask with two bits set would be a coarser stratum wearing a single state's name."""
+    for name, extra in strata(ALL_STRATA):
+        for values in extra.values():
+            assert len(values) == 1, name
+            assert int(values[0]).bit_count() == 1, name
+
+
+def test_the_unfiltered_stratum_narrows_nothing() -> None:
+    """It is the baseline every other row is read against, so it must sweep no filter."""
+    assert dict(strata(ALL_STRATA))[UNFILTERED] == {}
+
+
+def test_core_and_context_partition_the_whole_set() -> None:
+    """The second pass appends the dimensions the first skipped; neither may repeat the other."""
+    core = [name for name, _ in strata(CORE)]
+    context = [name for name, _ in strata(CONTEXT)]
+    assert set(core).isdisjoint(context)
+    assert core + context == [name for name, _ in strata(ALL_STRATA)]
+
+
+def test_every_named_set_is_built_from_the_shared_dimensions() -> None:
+    """A set that named a dimension twice would double every combination inside it."""
+    for which in STRATUM_SETS:
+        names = [name for name, _ in strata(which)]
+        assert len(names) == len(set(names)), which
+
+
+# -- the variants --------------------------------------------------------------------------
+
+
+def test_every_variant_carries_its_own_archetypes_parameter_class() -> None:
+    for variant in all_variants():
+        assert isinstance(variant.base, variant.archetype.params_cls)
+
+
+def test_every_registered_archetype_is_swept() -> None:
+    """A registry entry with no variant would be silently absent from the campaign."""
+    assert set(VARIANTS) == set(archetypes.names())
+
+
+def test_every_grid_in_the_campaign_can_be_built() -> None:
+    """The real guard: ``Grid`` refuses dead axes and each parameter class refuses an
+    impossible combination, so constructing every one of them is what catches a grid that
+    would fail an hour into a run."""
+    for variant in all_variants():
+        for _, grid in grids_for(variant, ALL_STRATA):
+            assert len(grid) == variant.sized()
+
+
+def test_every_combination_of_every_grid_is_constructible() -> None:
+    """``combinations()`` builds the parameter objects, so a validator that refuses a corner
+    of the product -- identical crossover averages, both ElasticBand signal exits at once --
+    fails here rather than mid-sweep."""
+    for variant in all_variants():
+        _, grid = grids_for(variant, UNFILTERED)[0]
+        assert sum(1 for _ in grid.combinations()) == variant.sized()
+
+
+def test_every_base_carries_its_roots_real_costs() -> None:
+    for name, build in VARIANTS.items():
+        for root, commission in COMMISSION.items():
+            for variant in build(root):
+                assert variant.base.commission_per_contract == pytest.approx(commission), (name, root)
+                assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS), (name, root)
+
+
+def test_the_two_roots_are_not_costed_the_same() -> None:
+    """One figure for both flatters NQ: the point value differs tenfold, the commission does not."""
+    assert COMMISSION["NQ"] > COMMISSION["MNQ"]
+
+
+def test_the_crossover_variants_sweep_disjoint_stop_axes() -> None:
+    """``dead_axes`` cannot see that a swing stop ignores ``atr_stop_multiple``, so the two
+    geometries are separate variants rather than one grid -- ``docs/roadmap.md`` §M27."""
+    atr, swing = VARIANTS["EmaCrossover"]("MNQ")
+    assert atr.base.use_atr_stop and not swing.base.use_atr_stop
+    assert "atr_stop_multiple" in atr.axes and "atr_stop_multiple" not in swing.axes
+    assert "swing_lookback" in swing.axes and "swing_lookback" not in atr.axes
+
+
+def test_every_elastic_ladder_is_distinct_and_ends_in_a_runner() -> None:
+    """A tuple is not a sweepable axis, so each ladder is its own variant; two that matched
+    would run the same combinations twice under different names."""
+    assert len(set(ELASTIC_LADDERS.values())) == len(ELASTIC_LADDERS)
+    for name, levels in ELASTIC_LADDERS.items():
+        assert math.isnan(levels[-1]), name
+
+
+def test_the_elastic_variants_sweep_every_stop_mode_they_name() -> None:
+    """The stop mode is the axis the exit scheme actually turns on."""
+    for variant in VARIANTS["ElasticBand"]("MNQ"):
+        assert variant.axes["stop_mode"] == [STOP_ATR, STOP_SWING, STOP_CATASTROPHE]
+
+
+def test_every_resolution_divides_into_whole_bars_of_the_session() -> None:
+    """A bar size that does not divide the session length would straddle the close."""
+    for minutes in RESOLUTIONS:
+        assert 1380 % minutes == 0
+
+
+# -- windows and storage -------------------------------------------------------------------
+
+
+def test_the_full_window_is_the_whole_series() -> None:
+    bars = pd.DataFrame({"close": range(100)})
+    assert [name for name, _ in windows(bars, split=False)] == ["full"]
+    assert len(windows(bars, split=False)[0][1]) == len(bars)
+
+
+def test_the_split_windows_cover_every_bar_exactly_once() -> None:
+    """An overlap would leak the selection window into the test that is meant to be held out."""
+    bars = pd.DataFrame({"close": range(1000)})
+    (_, selection), (_, holdout) = windows(bars, split=True)
+    assert len(selection) + len(holdout) == len(bars)
+    assert selection.index.max() < holdout.index.min()
+    assert len(selection) == math.floor(len(bars) * SELECTION_SHARE)
+
+
+def test_each_archetype_gets_its_own_database(tmp_path, monkeypatch) -> None:
+    """``_append_or_create`` writes ``combos`` by name and drops a column the table does not
+    have, so six parameter classes sharing one table would store five of them lossily."""
+    monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
+    paths = {name: db_path(name) for name in VARIANTS}
+    assert len(set(paths.values())) == len(VARIANTS)
+    assert all(path.parent.exists() for path in paths.values())
+
+
+def test_planned_combinations_multiplies_the_axes_out() -> None:
+    args = argparse.Namespace(
+        strategies=["InsideBar"],
+        roots=["MNQ"],
+        strata=UNFILTERED,
+        resolutions=[5, 15],
+        split=False,
+    )
+    per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
+    assert planned_combinations(args) == per_stratum * 2
+
+    args.split = True
+    assert planned_combinations(args) == per_stratum * 2 * 2
