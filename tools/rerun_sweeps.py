@@ -9,9 +9,8 @@ added to -- ``docs/roadmap.md`` § "Stored sweeps -- dropped and re-run, stratif
     ./.venv/Scripts/python.exe tools/rerun_sweeps.py --n-jobs 8
 
 **This deletes ``sweeps``, ``combos`` and ``trades``.** The drop is not optional and not
-skippable: ``_append_or_create`` writes an existing table by name and silently *drops* a
-column the table does not have, so appending stratified rows to the pre-#39 schema would
-store them with ``regime_filter`` and ``phase_filter`` thrown away.
+skippable, and the reason is the one above rather than a schema one: the stored rows answer a
+different question, so they go rather than being appended to.
 
 **One dimension at a time, never crossed.** Eleven strata per root -- unfiltered, then once
 per regime, then once per session phase -- rather than the 32 cells the product would give.

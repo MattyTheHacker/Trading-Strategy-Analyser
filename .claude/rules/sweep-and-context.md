@@ -45,8 +45,13 @@ paths:
   not add a second wrapper for a new axis.** `combo_id` means the same parameters at every axis
   point but *not* across grids, which is why `strategy` is part of the log key.
 - **`results` writes both DuckDB tables by name, never by position**, which is what makes a
-  nullable column safe to add to a database that already has rows. Pin dtypes on a nullable
-  tag: an all-null `object` column infers as INTEGER in DuckDB.
+  nullable column safe to add to a database that already has rows. A column the frame carries
+  and the table does not is **added**, so one `combos` table holds several parameter classes and
+  the earlier rows read null; nothing is dropped any more. Pin dtypes on a nullable tag: an
+  all-null `object` column infers as INTEGER in DuckDB, and a column both sides carry keeps the
+  **stored** type — `_append_or_create` raises `ResultsError` rather than let DuckDB round `2.5`
+  into a BIGINT column, so a grid sweeping `[1, 2]` where an earlier one swept `[1.0, 2.0]` is a
+  loud failure and not a silent one.
 - **`keep_trades` changes what `run_combination` returns, never what it measures.**
 - **Everything expensive is precomputed once in `prepare`; the sweep loop must stay cheap.**
   Never recompute an indicator inside a combination. Moving-average grids keep only the boolean

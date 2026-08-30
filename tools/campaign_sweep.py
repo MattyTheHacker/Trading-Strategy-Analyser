@@ -12,9 +12,9 @@ the root and one tick of slippage. ``--split`` re-runs the same grids on a selec
 a held-out window instead of the whole series, which is what makes a shortlist testable rather
 than a ranking of noise -- ``docs/roadmap.md`` § "Held out, and then the test it fails".
 
-**One database per archetype**, under ``results/campaign/``. ``_append_or_create`` writes
-``combos`` by name and silently drops a column the table does not have, so six parameter
-classes cannot share one table -- ``tools/rerun_sweeps.py`` carries the same warning.
+**One database per archetype**, under ``results/campaign/``. A convention rather than a
+constraint since ``_append_or_create`` learned to widen a table instead of dropping what it
+does not recognise; the campaign's results are already there -- ``docs/roadmap.md`` §M27.
 
 **Strata are one dimension at a time, never crossed.** ``--strata core`` is unfiltered, then
 once per regime and once per session phase; ``--strata context`` adds the volume, trend and
