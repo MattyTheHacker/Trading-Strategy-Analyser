@@ -809,7 +809,7 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 #### What the campaign could not test
 
 - **Sixteen of the twenty strata were never held out.** Session phase, relative volume, trend label and higher-timeframe side have full-window numbers only. Several look strong there, and the full window is exactly where ElasticBand's 1.834 came from — so treat them as unmeasured until [#199] runs them through the split.
-- **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the campaign. [#200] loosens the threshold to restore the sample.
+- **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the campaign. [#200] carries it, and **not** by loosening the threshold to restore the sample: the cut is uncalibrated rather than merely tight (§M10.1), and choosing it by the trade count it leaves would pick the stratum's definition from the statistic the stratum is about to be tested on. The infinite profit factors seen alongside are a separate defect ([#218]).
 - **The held-out split is a single time cut** at 60% of the bars, so it tests one regime transition rather than many. The two roots track the same index over the same dates, so the thirty-eight per-contract samples are not thirty-eight independent ones.
 - **`max_hold_bars` means a different amount of time at each resolution**, exactly as a moving-average period does. Nothing scales it, and no result here rests on it.
 - **Everything is Tier 1.** EmaCrossover and ElasticBand have no NinjaScript at all, which is why InsideBar surviving matters more than EmaCrossover surviving would have.
@@ -1017,6 +1017,30 @@ The seven counts sum to the unfiltered 3,639 exactly, which is the property that
 **The signals partition exactly and the trade counts do not, which is the point worth keeping.** All three single-regime filters admit 4,889 signals between them, exactly the unfiltered count, and their union is the unfiltered signal bar-for-bar. The trade lists sum to **3,641 against 3,639**. Nothing is double-counted: the simulation holds one position at a time, so removing an entry can free a later signal the unfiltered run was still in a position for. A regime label flips bar to bar where a session phase is a contiguous block, which is why M10.4's seven phases did sum exactly and these three do not. **Stratify the signal, or accept that the trade-level decomposition is approximate** — and never conclude a filter "found" trades from a count that went up.
 
 **71% of 1-minute bars are `CONSOLIDATING` at 0.3/0.5.** The thresholds are resolution-dependent — a minute of noise has a low efficiency ratio almost by construction — so the defaults are conventional starting points to be swept, not a calibration, and they will want different values at 15 and 30 minutes. Read `ambiguous_share` before believing any of the rows: it runs 0.029 / 0.041 / 0.044 against 0.033 overall, highest in `DIRECTIONAL`, which is what a regime of larger bars should do.
+
+**Worse: 0.5 is not a fixed amount of directionality, and the two axes are confounded** ([#200]). A driftless random walk has an expected efficiency ratio of `1/√n` — reproduced to three decimal places over 200,000 trials per lookback, and robust to fat tails — so a threshold held at 0.5 while the lookback is swept runs from the 59th percentile of pure noise to the 99.6th:
+
+| lookback | mean ER under a random walk | `1/√n` | P(ER > 0.5) |
+| -------- | --------------------------- | ------ | ----------- |
+| 5        | 0.453                       | 0.447  | 0.412       |
+| 10       | 0.318                       | 0.316  | 0.215       |
+| 20       | 0.224                       | 0.224  | 0.071       |
+| 30       | 0.183                       | 0.183  | 0.025       |
+| 50       | 0.141                       | 0.141  | 0.004       |
+
+**Sweeping `regime_directional_above` and `regime_lookback` as two independent axes therefore produces cells that cannot be compared with each other.** `ER × √n` is scale-free under the null — mean 1.000 at every lookback tested — so a threshold expressed as a multiple of `1/√n`, or as a quantile of the ratio's own distribution at that resolution and lookback, is one number across the axis where a raw 0.5 is not. Note also that `consolidating_below = 0.3` sits *above* the random-walk mean at a lookback of 20, so `CONSOLIDATING` as configured means "at or below what noise does" rather than chop.
+
+**And the real series is less efficient than a shuffle of its own returns**, at every resolution and lookback tested — the same 914,700 MNQ bars, lookback 20, against a null that permutes the bar-to-bar returns and preserves nothing else:
+
+| resolution | share ER > 0.5, real | same, shuffled |
+| ---------- | -------------------- | -------------- |
+| 1 m        | 0.067                | 0.160          |
+| 5 m        | 0.079                | 0.158          |
+| 10 m       | 0.091                | 0.159          |
+| 15 m       | 0.097                | 0.158          |
+| 30 m       | 0.116                | 0.154          |
+
+Short-horizon mean reversion is the ordinary explanation and nothing here isolates it. What the table settles is narrower and enough: the real share moves with resolution where the null's does not, so a fixed threshold is a different filter at each bar size as well as at each lookback, and `DIRECTIONAL` is a top-of-distribution cut rather than an unusual amount of trend. **There is no standard value to substitute** — Kaufman introduced the ratio as KAMA's smoothing input rather than as a classifier, and the 0.3 that circulates is disclaimed by the vendors publishing it on exactly this ground. Calibrate it or state it as a quantile; do not sweep it blind.
 
 **Cost.** Requested the way VWAP is, and adds one float64 series per lookback — 7.32 MB over 914,700 bars, about a sixth of the 47 MB dataset the run above was handed. `prepare` pays 15 ms per lookback and the per-combination gate 0.23 ms, so neither is measurable against the simulation.
 
@@ -1520,6 +1544,7 @@ ______________________________________________________________________
 [#200]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/200
 [#201]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/201
 [#208]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/208
+[#218]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/218
 [#23]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/23
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
