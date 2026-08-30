@@ -804,7 +804,7 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 
 **A profit factor above 1.0 built from an 87% win rate and a 5:1 loss-to-win size is not an edge that survives a bad quarter.** Reading profit factor without the drawdown beside it is how this cell would have been mistaken for a result.
 
-**And the reward half of that geometry was never swept, because it does not exist.** `InsideBarParams` carries an `atr_multiplier` for the stop and **no multiplier at all for the target** — the 1× ATR target is hardcoded, following `InsideBar.cs`, which hardcodes it too. So the campaign moved the stop across 5×, 10× and 20× ATR and could not move the target by a tick. Half of what produces the asymmetry was structurally outside the grid. [#197] adds the field and [#198] re-sweeps against it, and it is the single highest-value change available because it is the only gate InsideBar fails.
+**And the reward half of that geometry was never swept, because at the time it did not exist.** `InsideBarParams` carried an `atr_multiplier` for the stop and **no multiplier at all for the target** — the 1× ATR target was hardcoded, following `InsideBar.cs`, which hardcoded it too. So the campaign moved the stop across 5×, 10× and 20× ATR and could not move the target by a tick, and half of what produces the asymmetry was structurally outside the grid. [#197] added `tp_multiplier`, defaulting to the 1× the campaign ran at so nothing above moves; [#198] is the re-sweep that uses it, and it is the single highest-value run available because Gate 4 is the only gate InsideBar fails.
 
 #### What the campaign could not test
 

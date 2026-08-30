@@ -36,6 +36,7 @@ def simulate(
     force_flat_at=(),
     quantities=(4,),
     atr_multiplier=1.0,
+    tp_multiplier=1.0,
     slippage=0.0,
     commission=0.0,
     instrument=MNQ,
@@ -78,6 +79,7 @@ def simulate(
         bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         insidebar.InsideBarRules(
             atr_multiplier=atr_multiplier,
+            tp_multiplier=tp_multiplier,
             bars_required=bars_required,
             block_entry_at_session_close=block_entry_at_close,
         ),
@@ -233,6 +235,58 @@ def test_the_target_is_one_atr_from_the_fill_price_not_from_the_signal_close() -
         atr_multiplier=10.0,
     )
     assert trades["target_price"].iloc[0] == pytest.approx(112.0)
+
+
+def test_the_tp_multiplier_scales_the_target_and_leaves_the_stop_alone() -> None:
+    """``target = price + TPMultiplier * atr``, the property ``InsideBar.cs`` did not have.
+
+    Its default is the bare 1x the C# hardcoded, so a stored result reproduces unchanged --
+    ``docs/nt8-fidelity.md`` §M22.
+    """
+    rows = [*FLAT, *FLAT]
+    at_one = run(rows, signal_at=[1], atr=4.0, atr_multiplier=10.0)
+    at_three = run(rows, signal_at=[1], atr=4.0, atr_multiplier=10.0, tp_multiplier=3.0)
+    at_a_quarter = run(rows, signal_at=[1], atr=4.0, atr_multiplier=10.0, tp_multiplier=0.25)
+    # Entry is bar 2's open at 100, so the target sits tp_multiplier * 4 points above it.
+    assert at_one["target_price"].iloc[0] == pytest.approx(104.0)
+    assert at_three["target_price"].iloc[0] == pytest.approx(112.0)
+    assert at_a_quarter["target_price"].iloc[0] == pytest.approx(101.0)
+    assert at_three["initial_stop"].iloc[0] == pytest.approx(at_one["initial_stop"].iloc[0])
+    assert at_a_quarter["initial_stop"].iloc[0] == pytest.approx(at_one["initial_stop"].iloc[0])
+
+
+def test_the_scaled_target_mirrors_below_the_fill_for_a_short() -> None:
+    trades = run(
+        [*FLAT, *FLAT], signal_at=[1], atr=4.0, atr_multiplier=10.0, tp_multiplier=2.0, direction=SHORT
+    )
+    assert trades["target_price"].iloc[0] == pytest.approx(92.0)
+
+
+def test_a_target_the_multiplier_pulls_inside_the_bar_is_taken_there() -> None:
+    """Scaling the target moves which bar it fills on, not only where it is written."""
+    rows = [
+        (100.0, 100.5, 99.5, 100.0),  # 0: anchor
+        (100.0, 100.5, 99.5, 100.0),  # 1: signal
+        (100.0, 101.0, 99.5, 100.0),  # 2: fills at 100 and reaches 101
+        *FLAT,
+    ]
+    assert run(rows, signal_at=[1], atr=4.0, atr_multiplier=10.0)["exit_reason"].iloc[0] == "end_of_data"
+    reachable = run(rows, signal_at=[1], atr=4.0, atr_multiplier=10.0, tp_multiplier=0.25)
+    assert reachable["exit_reason"].iloc[0] == "target"
+    assert reachable["exit_bar"].iloc[0] == 2
+
+
+def test_a_tp_multiplier_at_or_below_zero_is_refused() -> None:
+    """A target at or behind the fill is not a profit target, the way a zero stop is not one."""
+    for value in (0.0, -1.0):
+        with pytest.raises(ValueError, match="tp_multiplier must be > 0"):
+            InsideBarParams(tp_multiplier=value)
+
+
+def test_the_target_multiplier_is_a_sweepable_axis() -> None:
+    """What #197 was for: the campaign could move the stop across the grid and not the target."""
+    combinations = sweep.Grid.of(InsideBarParams(), tp_multiplier=[1.0, 2.0, 4.0]).combinations()
+    assert {p.tp_multiplier for p in combinations} == {1.0, 2.0, 4.0}
 
 
 def test_the_bracket_reads_the_signal_bars_atr_not_the_fill_bars() -> None:

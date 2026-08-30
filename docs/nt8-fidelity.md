@@ -267,7 +267,7 @@ is the `n = 1` case and not the definition. `conditions.cross_above` implements 
 ```csharp
 double atr    = ATR(ATRLength)[0];
 double stop   = Low[1] - ATRMultiplier * atr;   // long
-double target = price + atr;                    // `price` is the actual fill
+double target = price + TPMultiplier * atr;     // `price` is the actual fill
 ```
 
 Both ports place a bracket against a *trigger* the fill is defined relative to. Here the target hangs off the **fill** and the stop off a bar's adverse extreme, which is two anchors in one bracket. The stop never moves afterwards: there is no ratchet, and `SetStopLoss`'s third argument is `isSimulatedStop`, not a trailing flag.
@@ -284,13 +284,15 @@ Both ports place a bracket against a *trigger* the fill is defined relative to. 
 
 The correct reading is also the one that reads **no bar the fill could not have seen**, which removes the open question the port shipped with. It is a warning about the general case: `[0]` inside `OnExecutionUpdate` is not the execution's bar, and any future archetype that brackets from there inherits this indexing.
 
-**The geometry is lopsided by design.** `ATRLength = 3` with `ATRMultiplier = 10.0` puts the target 1x ATR(3) from the fill and the stop 10x ATR(3) beyond the inside bar — a high-win-rate, rare-large-loss profile whose R multiples cluster just above zero. `r_multiple` uses planned risk, so **these R numbers are not comparable to another archetype's at the same value**, with more force than the same caveat carries for an ATR stop generally. And 1x ATR(3) on a quiet bar is a target that can be smaller than the round-trip commission, which no ranking will announce.
+**The target takes a multiplier of its own** (#197). The C# wrote `price + atr` with nothing in front of the ATR, so a sweep could move the stop across `ATRMultiplier` and not move the target by a tick — and the target is the half `docs/roadmap.md` § "Gate 4 — what stops it is the bracket, not the entry" puts the archetype's failure on. `TPMultiplier` scales that ATR target and nothing else; the stop keeps its own multiple. **Its default is `1.0`, which is exactly what the hardcoded target was**, so this reconciliation and every stored result reproduce unchanged. **A Tier 2 run at any other value needs `TPMultiplier` in `InsideBar.cs` first**: a Strategy Analyzer run of a script with no such property measures the 1x target whatever the Python was set to, and the two tiers then disagree on a parameter one of them does not have. `InsideBarTrailing.cs` hardcodes its bracketed lot's target the same way, so §M23 carries the same condition.
+
+**The geometry is lopsided at the defaults, by design.** `ATRLength = 3` with `ATRMultiplier = 10.0` puts the target 1x ATR(3) from the fill and the stop 10x ATR(3) beyond the inside bar — a high-win-rate, rare-large-loss profile whose R multiples cluster just above zero. `r_multiple` uses planned risk, so **these R numbers are not comparable to another archetype's at the same value**, with more force than the same caveat carries for an ATR stop generally. And 1x ATR(3) on a quiet bar is a target that can be smaller than the round-trip commission, which no ranking will announce.
 
 **The stop is snapped to the tick grid, not just the target.** An ATR multiple lands off the grid where both ports' whole-tick offsets cannot — see "Targets snap to the tick grid", which this archetype is the first to reach the stop half of.
 
 **`ExitOnSessionCloseSeconds = 180` changes nothing, and the port must not act on it.** `InsideBar.cs` sets 180 where both ports set 30, which should put the flatten at 16:57:00 ET rather than on the session's last bar. It does not: NT8 flattened at 17:00 on every one of the eleven session-close exits in the reconciliation window, and honouring the 180 in the simulation *lowered* agreement from 99.64% to 98.42%. Whether the Strategy Analyzer resets the property or historical flattening is simply per-bar, a trade list cannot tell apart — the observable is that **a backtest flattens on the session's last bar**, which `exit_on_close_seconds=30` reproduces for every archetype at any bar resolution below a minute. The property was briefly carried per archetype and that was a regression; it is one default again.
 
-**Every property is initialised.** Unlike `PullBackAndGo.cs`, this `SetDefaults` sets all seven declared properties, so `InsideBarParams`'s defaults are the NinjaScript's directly rather than a reconciled configuration.
+**Every property is initialised.** Unlike `PullBackAndGo.cs`, this `SetDefaults` sets every declared property, so `InsideBarParams`'s defaults are the NinjaScript's directly rather than a reconciled configuration.
 
 **What a reconciliation of it has to hold fixed.** The no-entry window has to be off on *both* sides — `no_entry_minutes_before_close=0` here, and the Strategy Analyzer run started outside 16:00–17:00 ET so the C#'s wall-clock test cannot fire — because that is the only configuration in which the two are testing the same strategy. `tools/reconcile_nt8.py`'s `CONFIGS["InsideBar"]` is that configuration. Everything else is `SetDefaults` unchanged.
 
