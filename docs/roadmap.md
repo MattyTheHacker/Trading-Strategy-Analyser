@@ -99,7 +99,7 @@ ______________________________________________________________________
 
 Researched ahead of need, because it was the open question that made M19's design look possibly unbuildable. **It is buildable.** Recording the mechanism now means future archetypes can be designed against what the platform actually does rather than against the one behaviour DeadCatBounce happens to use.
 
-**How this was established.** NinjaTrader 8 is installed locally, so `NinjaTrader.NinjaScript.StrategyBase` in `NinjaTrader.Core.dll` was reflected over directly for method signatures, parameter names and enum members. That is primary evidence about the **API**. It is *not* evidence about **behaviour** — see "What reflection cannot settle" below, which matters more than usual here.
+**How this was established.** NinjaTrader 8 is installed locally, so `NinjaTrader.NinjaScript.StrategyBase` in `NinjaTrader.Core.dll` was reflected over directly for method signatures, parameter names and enum members. That is primary evidence about the **API**. It is *not* evidence about **behaviour** — see "What reflection could not settle, and what did" below, which matters more than usual here.
 
 ### The one-bar expiry is an unset parameter, not a platform rule
 
@@ -166,18 +166,18 @@ The earlier note said the squeeze's resting orders "may simply not be expressibl
 
 So the M19 design question is no longer "can this be built" but **"do I actually need native OCO, or is resubmission enough"** — and for a Tier-1 research backtester the answer is resubmission, with the OCO question deferred to a live port.
 
-### What reflection cannot settle
+### What reflection could not settle, and what did
 
-The API surface above is fact. **None of the following is**, and none of it may be encoded in `nqbt/sim/` until a trade list settles it — the prime directive applies here exactly as it does everywhere else. These are tracked as [#67], and each is a one-run question in Strategy Analyzer with a Trades export:
+The API surface above is fact. **None of the behaviour below was**, and it was settled by a probe rather than by a trade list — `NqbtOrderLifetimeProbe.cs`, which places no bracket and writes its own `OnOrderUpdate` log. A Trades export was the wrong instrument for three of the four: they are questions about **cancels**, and a trade list carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. That is worth keeping stated, because [#67] originally specified a Trades export for all four.
 
-- Whether Strategy Analyzer honours `isLiveUntilCancelled` identically to live execution.
-- Precisely when the cancel lands relative to the bar close, and therefore whether a resting order can fill on the same bar its cancel was issued.
-- Whether a resting entry survives a session boundary, and how it interacts with `IsExitOnSessionCloseStrategy` / `ExitOnSessionCloseSeconds`.
-- Whether the managed approach cancels a resting *opposite-direction* entry when one fills, or merely refuses the second fill. A managed strategy cannot hold both directions at once, but "cannot hold" and "cancels the resting order" are different claims and only a trade list distinguishes them.
+The findings and their evidence are in [nt8-fidelity.md](nt8-fidelity.md) § "Order lifetime and the session edge"; in short:
 
-Each is far cheaper to answer before an archetype depends on it than after.
+- **Strategy Analyzer honours `isLiveUntilCancelled`.** An unreachable LUC order rested 199,669 bars across 146 session opens with the session-close handler off.
+- **The cancel lands at the start of the next bar's pass**, so an order is live from submit+1 *through* the bar at whose close its cancel was issued. The three-argument overload reproduces `deadcat.py`'s `pending_bar == i - 1` exactly, which makes `entry_order_lifetime_bars = 1` byte-for-byte compatible.
+- **`IsExitOnSessionCloseStrategy` is what ends a resting entry, not the session boundary.** With it false, nothing cancels. That collapses "until cancelled" and "cancel at the force-flat point" into the same behaviour here, because flat-before-close is not negotiable.
+- **The managed approach refuses an opposite-direction submission outright** — the second order is never accepted, at either `EntriesPerDirection`. So route 1 cannot express a two-sided OCO at all, and M19 falls to route 3 or route 2.
 
-______________________________________________________________________
+**Two things the probe found that nobody asked it for.** Order callbacks report the bar *before* the one a fill resolved against, which shifts every reading by a bar if taken at face value; and a resting entry **can** fill on the force-flat bar, which `deadcat.py` refuses. The second is a defect rather than a rule, tracked on its own because correcting it moves trade logs.
 
 ## The standing rubric
 

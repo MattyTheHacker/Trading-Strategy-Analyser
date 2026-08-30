@@ -114,7 +114,7 @@ EnterShortStopMarket(int barsInProgressIndex, bool isLiveUntilCancelled, int qua
 
 **`TimeInForce` and `isLiveUntilCancelled` are different layers**, which is why setting `TimeInForce.Gtc` on the strategy changed nothing. `NinjaTrader.Cbi.TimeInForce` (`Day, Gtc, Ioc, Opg, Gtd`) instructs the *exchange* how long to keep a working order; `isLiveUntilCancelled` governs whether *NT8* submits a cancel of its own at bar close. One does not imply the other.
 
-The simulation reproduces the one-bar lifetime because that is what `DeadCatBounce.cs` does, and it stays that way. The generalisation to longer-lived orders — needed by future archetypes, and the three routes to it — is specified in [roadmap.md](roadmap.md) under "Order lifetime in NT8". **Note that reflection establishes the API only.** Whether Strategy Analyzer honours a resting order identically to live, when exactly the cancel lands relative to the bar close, and how a resting order interacts with the session-close flat are behavioural questions that still need a trade list, and nothing in `nqbt/sim/` may assume an answer before then.
+The simulation reproduces the one-bar lifetime because that is what `DeadCatBounce.cs` does, and it stays that way. The generalisation to longer-lived orders — needed by future archetypes, and the three routes to it — is specified in [roadmap.md](roadmap.md) under "Order lifetime in NT8". **Reflection established the API only; the behaviour was settled separately** by a probe rather than a trade list — when the cancel lands, whether Strategy Analyzer honours a resting order at all, and how one interacts with the session-close flat. See "Order lifetime and the session edge" below.
 
 ### Trigger is capped below the close
 
@@ -502,6 +502,69 @@ A parameterised window, not a boolean, and **distinct from `block_entry_at_sessi
 **`Now` is the wall clock, and that is a trap the port does not reproduce.** It resolves to `Core.Globals.Now` — `Connection.PlaybackConnection` is null in Strategy Analyzer — so the C# compares the end of *today's* session against the *real current time*, whatever bar is being processed. In a backtest that makes the rule either on for every bar or off for every bar, depending on the hour the run is started. The port implements the bar's own clock, which is what the rule means and what live trading does.
 
 **So this is the one rule the two tiers cannot agree on by construction**, and a Tier-2 reconciliation of InsideBar needs `Now` replaced by `Time[0]` in the NinjaScript before it can mean anything. Until then, running the backtest more than an hour before the session close is the only configuration in which the C# and this port are testing the same rule.
+
+## Order lifetime and the session edge (#67)
+
+Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; outputs live in `verification/nt8_order_lifetime/`, which is machine-local (#91), and every figure below is reproduced by:
+
+```bash
+./.venv/Scripts/python.exe tools/reconcile_order_lifetime.py verification/nt8_order_lifetime/<stem>_events.csv
+```
+
+### Read the bar column before anything else: order callbacks lag by one
+
+**A callback reporting a fill names the bar *before* the one it filled on.** Strategy Analyzer processes historical order fills for bar *i+1* before calling `OnBarUpdate(i+1)`, and `CurrentBar` still reads *i* during that pass. Measured by price, which is the only discriminator that settles it: across **535 fills the reported bar never reaches the trigger and the next bar always does**, with no exceptions in any run.
+
+**It is not a blanket rule about callbacks, and reading it as one is how a session-close exit comes to look like it lands in the next session.** The `Exit on session close` fill does *not* lag — it fills at the reported bar's own close, 73 of 74 exactly equal to it, the 74th being the end-of-data liquidation. The distinction is mechanical: the lag belongs to orders *resolved against the next bar's prices*, not to an exit NinjaTrader generates from a bar close. `SUBMIT` and `CANCEL_REQUEST` rows come from `OnBarUpdate` and never lag.
+
+`tools/reconcile_order_lifetime.py` re-measures both on every run rather than assuming either, and refuses the run if the entry-fill lag is not a clean +1.
+
+### `isLiveUntilCancelled` is honoured, and the session-close handler is what ends it
+
+**Strategy Analyzer keeps an LUC order resting indefinitely.** `Order.IsLiveUntilCancelled` reads true on every order the long-form overload placed, and with `IsExitOnSessionCloseStrategy` false a single unreachable buy stop rested **199,669 bars across 146 session opens** — roughly six months, weekends and holidays included — ending only when price finally reached it. Nothing cancelled it.
+
+**With `IsExitOnSessionCloseStrategy` true, the same order is cancelled at every session's last bar: 73 of 73, zero fills.** So the session *boundary* ends nothing; the session-close *handler* does. That is the rule the simulation needs, because flat-before-close is not negotiable here — which makes `entry_order_lifetime_bars = 0` ("until cancelled") and "cancel at the force-flat point" the same behaviour under this project's own account rule, and `sessions.force_flat_mask` already the right mechanism.
+
+### An order is live through the bar at whose close its cancel is issued
+
+**Live from submit+1 through the cancel bar inclusive; the cancel is processed at the start of the next bar's pass, before that bar's fills.** Both halves are measured:
+
+| overload                                          | cancel issued                   | live for              | evidence                                                                                     |
+| ------------------------------------------------- | ------------------------------- | --------------------- | -------------------------------------------------------------------------------------------- |
+| three-argument (`isLiveUntilCancelled` false)     | by NT8 at the close of submit+1 | submit+1 only         | cancelled at submit+2 on 480 of 480; every fill at submit+1                                  |
+| long-form, then `CancelOrder` at submit+2's close | by the strategy                 | submit+1 and submit+2 | 29 filled on submit+2; **of the 450 that reached their cancel, none ever filled afterwards** |
+
+The three-argument row is the control, and it reproduces `deadcat.py`'s `pending_bar == i - 1` exactly. The generalisation is therefore `entry_order_lifetime_bars = k` meaning live for bars *i+1 … i+k*, with **1 reproducing today byte-for-byte** — the shape #16 specified, now measured rather than assumed.
+
+### The managed approach refuses the opposite-direction submission outright
+
+Neither of the two readings #67 proposed. It does not cancel the resting opposite entry and it does not merely refuse the second *fill*: **the second order is never accepted at all.** A long stop and a short stop submitted together give 500 `SUBMIT` rows for the short side and **zero order updates** — NinjaTrader logs "An Enter() method to submit an entry order has been ignored", citing its internal order-handling rules.
+
+**It is about direction, not count.** Re-running at `EntriesPerDirection = 2` produced a file differing from the `= 1` run only in NinjaTrader's execution-id counter.
+
+So a two-sided managed OCO is **not expressible**, and #51's squeeze entry must use resubmission (route 3) or go unmanaged (route 2) — see [roadmap.md](roadmap.md) § "Order lifetime in NT8".
+
+### A resting entry *can* fill on the force-flat bar, and the simulation refuses it
+
+**This is a defect in `nqbt/sim/`, not a rule it implements.** `deadcat.py` gates every fill behind `if not bars.force_flat[i]`, deliberately. NinjaTrader does not: a plain three-argument buy stop resubmitted on every flat bar filled **on the session's own last bar around 40 times** over the window, every one of them exiting via `Exit on session close` at that same bar's close. Two independent classifications agree — NinjaTrader's own `Bars.IsLastBarOfSession` gives 39, `sessions.classify` gives 40, and 35 of them fall in the post-merge window where the archive and NinjaTrader are looking at identical bars.
+
+Tracked separately, because correcting it moves trade logs and needs the gate plus all four reconciliations re-run.
+
+### An entry submitted *on* the last bar never fills at the next session's open
+
+The adjacent case, and here the simulation is right. Submitting only on `Bars.IsLastBarOfSession` gives 73 trials: **all 73 were acknowledged and reached `Working`, all 73 were cancelled, none filled** — while **43 of them had the next session's opening bar reach the trigger, 26 gapping straight through it at the open**. The cancel is processed before that bar's fills are evaluated, exactly as the LUC cancels above are.
+
+`block_entry_at_session_close` reaches the same outcome by never placing the order, so trade logs agree even though the mechanism differs. Corroborated independently in the PullBackAndGo export: turning the block off produces exactly one such entry over `MNQ 06-24`, on 2024-04-23, whose trigger the next session's open gapped through by 19.75 points — and NinjaTrader's export has no fill there.
+
+### `ExitOnSessionCloseSeconds` is honoured but inert at bar granularity
+
+**NinjaTrader flattens at the session's last bar's close whatever the value is.** Runs at 30 and at 300 seconds produced files differing only in execution ids, and the probe's `_config.csv` — written at `DataLoaded`, the first bar and `Terminated` — shows `300` in force at every stage, so this is not the property being ignored, nor Strategy Analyzer's own Exit-on-close fields overriding it. On a 1-minute series at Standard fill resolution there is no sub-bar granularity for the seconds to act on.
+
+`force_flat_mask`'s `exit_on_close_seconds` parameter therefore has no NinjaTrader counterpart to match below 60 seconds on a 1-minute series; every value under one bar picks the same bar.
+
+### What the probe validated on nqbt's side
+
+`sessions.classify` agreed with NinjaTrader's own `Bars.IsLastBarOfSession` on **73 of 73** session-close bars — the first direct check of the session calendar against NinjaTrader rather than against the template it was written from.
 
 ## Indicators
 
