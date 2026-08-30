@@ -117,7 +117,7 @@ max-args = 10
 
 [tool.mypy]
 # joblib ships neither stubs nor a py.typed marker; `stubs/joblib` is the hand-written surface.
-mypy_path = "$MYPY_CONFIG_FILE_DIR/stubs"
+mypy_path = "stubs"
 check_untyped_defs = true
 disallow_any_decorated = true
 disallow_any_explicit = true
