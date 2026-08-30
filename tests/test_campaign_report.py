@@ -13,8 +13,8 @@ import pytest
 
 from nqbt import archetypes, stats
 from tools.campaign_holdout import JOIN_KEYS, TOP, rank_correlation, verdict
-from tools.campaign_null import rebuild
 from tools.campaign_report import STATISTICS, TAGS, axis_influence, eta_squared, profile, swept_axes
+from tools.campaign_shortlist import rebuild
 
 
 def combos(**columns: object) -> pd.DataFrame:

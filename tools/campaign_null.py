@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from dataclasses import fields, replace
 from pathlib import Path
 
 import pandas as pd
@@ -25,8 +24,8 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_report import load
-from tools.campaign_sweep import ELASTIC_LADDERS, windows
+from tools.campaign_shortlist import best_row, rebuild
+from tools.campaign_sweep import windows
 
 from nqbt import archetypes, logsetup, randomentry, resample, splice, sweep
 from nqbt.instruments import get_instrument
@@ -37,59 +36,6 @@ STATISTICS = ("profit_factor", "expectancy", "win_rate", "mean_r")
 """What the observation is placed against. ``profit_factor`` and ``expectancy`` are the
 verdict; ``win_rate`` is reported because a mean-reversion entry can beat the null on payoff
 while losing on frequency -- ``docs/roadmap.md`` §M26."""
-
-
-def _absent(value: object) -> bool:
-    """Whether a stored cell holds nothing.
-
-    A sequence cell never does, and ``pd.isna`` returns an array rather than a bool for one.
-    """
-    if isinstance(value, (list, tuple)):
-        return False
-    return bool(pd.isna(value))
-
-
-def _coerced(value: object, default: object) -> object:
-    """One DuckDB cell as the field's own type. A stored list becomes a tuple again."""
-    if isinstance(default, tuple):
-        return tuple(value)  # type: ignore[call-overload]  # a list by construction
-    if isinstance(default, (bool, int, float, str)):
-        return type(default)(value)
-    return value
-
-
-def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Params:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The parameter set a stored row came from, defaults filling anything not stored."""
-    params: archetypes.Params = archetype.params_cls()
-    updates: dict[str, object] = {}
-    for field in fields(params):  # type: ignore[arg-type]  # a dataclass by construction
-        if field.name not in row.index or _absent(row[field.name]):
-            continue
-        updates[field.name] = _coerced(row[field.name], getattr(params, field.name))
-    if archetype is archetypes.ELASTICBAND:
-        updates["target_stretch_levels"] = ELASTIC_LADDERS[str(row["variant"])]
-    return replace(params, **updates)
-
-
-def best_row(
-    name: str,
-    root: str,
-    windows: list[str],
-    by: str,
-    stratum: str | None = None,
-    resolution: int | None = None,
-) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The highest-ranked stored combination for one archetype, root and stratum."""
-    frame: pd.DataFrame = load(name, windows)
-    frame = frame[frame["root"] == root]
-    if stratum is not None:
-        frame = frame[frame["stratum"] == stratum]
-    if resolution is not None:
-        frame = frame[frame["resolution"] == resolution]
-    if frame.empty:
-        msg: str = f"no stored rows for {name} on {root} in windows {windows}, stratum {stratum}"
-        raise RuntimeError(msg)
-    return frame.nlargest(1, by).iloc[0]
 
 
 def main(argv: list[str]) -> int:

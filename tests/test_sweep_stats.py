@@ -718,6 +718,44 @@ def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db) -> None:
     assert rows["profit_factor"].notna().all()
 
 
+def fake_log(n=2) -> pd.DataFrame:
+    """The columns ``save_trades`` needs to see; the schema itself is pinned elsewhere."""
+    return pd.DataFrame(
+        {
+            "source": ["sim"] * n,
+            "instrument": ["MNQ"] * n,
+            "trade_id": range(n),
+            "net_pnl": [10.0, -4.0][:n],
+        },
+    )
+
+
+def test_a_trade_log_stored_twice_doubles_and_replacing_it_does_not(db) -> None:
+    """Nothing about a doubled log looks wrong -- it still validates, and every statistic
+    taken from it moves -- so the tool that re-runs a shortlist stores with ``replace``."""
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
+    assert results.query("SELECT COUNT(*) c FROM trades", db).loc[0, "c"] == 4
+
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db, replace=True)
+    assert results.query("SELECT COUNT(*) c FROM trades", db).loc[0, "c"] == 2
+
+
+def test_replacing_a_trade_log_leaves_every_other_combination_alone(db) -> None:
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
+    results.save_trades(fake_log(), sweep_id=1, combo_id=1, db_path=db)
+    results.save_trades(fake_log(), sweep_id=2, combo_id=0, db_path=db)
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db, replace=True)
+    counts = results.query("SELECT sweep_id, combo_id, COUNT(*) n FROM trades GROUP BY 1, 2", db)
+    assert list(counts["n"]) == [2, 2, 2]
+
+
+def test_replacing_into_a_database_with_no_trades_table_yet_just_stores(db) -> None:
+    """The first shortlist stored into a fresh campaign database takes this path."""
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db, replace=True)
+    assert results.query("SELECT COUNT(*) c FROM trades", db).loc[0, "c"] == 2
+
+
 # -- the axis columns (M17.5) --------------------------------------------------
 
 
