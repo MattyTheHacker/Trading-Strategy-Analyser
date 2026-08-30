@@ -155,8 +155,15 @@ def test_the_entry_fills_at_the_next_bars_open_without_touching_anything() -> No
     assert trades["entry_price"].iloc[0] == pytest.approx(92.0)
 
 
-def test_the_resting_order_is_cancelled_at_the_flatten_point() -> None:
-    assert run(FLAT, signal_at=[0], force_flat_at=[1]).empty
+def test_the_resting_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
+    """NT8 fills the resting order and only then flattens -- ``docs/nt8-fidelity.md``,
+    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    # The basis target sits out of reach so the flatten is what the exit reports.
+    trades = run(FLAT, signal_at=[0], force_flat_at=[1], levels=(1.0,))
+    assert list(trades["entry_bar"].unique()) == [1]
+    assert set(trades["exit_reason"]) == {"session_close"}
+    assert list(trades["exit_bar"].unique()) == [1]
+    assert trades["exit_price"].unique() == pytest.approx([100.0])  # bar 1's close
 
 
 def test_a_signal_below_bars_required_is_ignored() -> None:

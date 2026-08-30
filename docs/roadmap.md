@@ -84,10 +84,10 @@ The list is short because most of it has now been researched. Extend it rather t
 
 **What it means for design, which is the part worth writing down.** Maximum hold time is bounded by the session — roughly 23 hours, and in practice far less. Any archetype whose edge depends on holding overnight or across a weekend is not buildable under these rules, and that is a design constraint to apply *while* writing the Python, not a discovery to make at port time. Concretely, for planned work:
 
-- ~~**M15** ([#16])~~ — **done.** A resting entry order is cancelled at the flatten point rather than left to expire. It is the one cancellation condition that applies to every archetype regardless of its own invalidation logic, so a new archetype inherits it and must not re-implement it. Note it was **not** a no-op: `block_entry_at_session_close` only ever guarded a *new* signal on that bar, never an order resting from the one before.
+- ~~**M15** ([#16])~~ — **done, and half of it later reversed by [#208].** A resting entry order is *not* cancelled at the flatten point: NinjaTrader tests it for a fill and flattens the position it opens at that bar's close, and the simulation now does the same in all five entry loops. What survives is the distinction M15 drew — `block_entry_at_session_close` only ever guarded a *new* signal on that bar, never an order resting from the one before — and it is the half that was right. [nt8-fidelity.md](nt8-fidelity.md), "A resting entry fills on the force-flat bar, and is flattened at its close".
 - **M13** ([#30]). The forced-exit share should rise sharply with bar size. At 30-minute bars a position opened near the close has almost no bars in which to reach a target, so more of its outcomes are decided by the clock than by the rules. Worth measuring alongside the ambiguous-bar rate, and for the same reason — both are ways a coarse resolution can look different without the strategy being different.
 - ~~**M10.4**~~ ([#43]) — **done, and measured.** The final session phase has *structurally* forced exits, so a time-of-day stratification will show it as anomalous; **that is an artefact, not a finding**, and any result touching the last phase has to separate "this hour trades badly" from "this hour's trades were closed by the clock". `timeofday.FORCED_EXIT_PHASE` names the phase so a caller can exclude it. On costed MNQ from 2024 the effect is real and small — `session_close_share` reads 0.0016 on `CLOSE` against 0.0001 overall, because a 1-minute DeadCatBounce holds for minutes. Expect it to matter at 15 and 30 minutes.
-- **M18 and M19** ([#34], [#51]). The prediction here was that crossover, holding until an opposite cross, would take a large fraction of its exits from the clock. **Measured: 1.0%** on costed MNQ from 2024 at EMA(9)/EMA(21). The reasoning was sound and the premise was wrong — crosses on 1-minute bars are frequent enough (one signal every ~22 bars) that holds end long before the session does. Expect the share to climb with the MA periods and with bar size, and read it rather than predicting it. A squeeze rests orders, which must be cancelled at the flatten point.
+- **M18 and M19** ([#34], [#51]). The prediction here was that crossover, holding until an opposite cross, would take a large fraction of its exits from the clock. **Measured: 1.0%** on costed MNQ from 2024 at EMA(9)/EMA(21). The reasoning was sound and the premise was wrong — crosses on 1-minute bars are frequent enough (one signal every ~22 bars) that holds end long before the session does. Expect the share to climb with the MA periods and with bar size, and read it rather than predicting it. A squeeze rests orders, which the flatten point ends only after that bar has been tested for a fill ([#208]).
 - **Statistics.** The share of exits at `EXIT_SESSION_CLOSE` deserves to be a reported column rather than something buried in the trade log. A strategy taking 40% of its exits from the clock is not really the strategy its rules describe, and the aggregate profit factor will not say so.
 - **The prop-account simulator** ([#75]) treats the daily flat as one of the rules it replays, alongside trailing drawdown and the consistency ratio.
 
@@ -156,7 +156,7 @@ Live, they are not identical: each resubmission is a new order, so queue positio
 
 ### What the simulator would need — specification only, no code yet
 
-`deadcat.py` encodes the lifetime as a single equality, `elif pending_bar == i - 1:`. The generalisation is an expiry bar rather than a flag: hold `pending_expires_at`, keep the order live while `i <= pending_expires_at`, and add an `entry_order_lifetime_bars` parameter where **1 reproduces today's behaviour exactly** and 0 means "until cancelled". Cancellation on force-flat is required for all values; cancellation on signal invalidation is archetype-specific and belongs in the driver, not the shared bracket code.
+`deadcat.py` encodes the lifetime as a single equality, `elif pending_bar == i - 1:`. The generalisation is an expiry bar rather than a flag: hold `pending_expires_at`, keep the order live while `i <= pending_expires_at`, and add an `entry_order_lifetime_bars` parameter where **1 reproduces today's behaviour exactly** and 0 means "until cancelled". The force-flat bar is a fill opportunity rather than a cancel for all values ([#208]); cancellation on signal invalidation is archetype-specific and belongs in the driver, not the shared bracket code.
 
 Same gate as every other change to this loop: at `entry_order_lifetime_bars = 1`, every existing trade log must come back **byte-identical**. Do not build it before M19 needs it ([#16] says so explicitly).
 
@@ -174,10 +174,10 @@ The findings and their evidence are in [nt8-fidelity.md](nt8-fidelity.md) § "Or
 
 - **Strategy Analyzer honours `isLiveUntilCancelled`.** An unreachable LUC order rested 199,669 bars across 146 session opens with the session-close handler off.
 - **The cancel lands at the start of the next bar's pass**, so an order is live from submit+1 *through* the bar at whose close its cancel was issued. The three-argument overload reproduces `deadcat.py`'s `pending_bar == i - 1` exactly, which makes `entry_order_lifetime_bars = 1` byte-for-byte compatible.
-- **`IsExitOnSessionCloseStrategy` is what ends a resting entry, not the session boundary.** With it false, nothing cancels. That collapses "until cancelled" and "cancel at the force-flat point" into the same behaviour here, because flat-before-close is not negotiable.
+- **`IsExitOnSessionCloseStrategy` is what ends a resting entry, not the session boundary.** With it false, nothing cancels. That collapses "until cancelled" and "cancel at the force-flat point" into the same behaviour here, because flat-before-close is not negotiable — but the cancel lands *after* that bar's fills, not before ([#208]).
 - **The managed approach refuses an opposite-direction submission outright** — the second order is never accepted, at either `EntriesPerDirection`. So route 1 cannot express a two-sided OCO at all, and M19 falls to route 3 or route 2.
 
-**Two things the probe found that nobody asked it for.** Order callbacks report the bar *before* the one a fill resolved against, which shifts every reading by a bar if taken at face value; and a resting entry **can** fill on the force-flat bar, which `deadcat.py` refuses. The second is a defect rather than a rule, tracked on its own because correcting it moves trade logs.
+**Two things the probe found that nobody asked it for.** Order callbacks report the bar *before* the one a fill resolved against, which shifts every reading by a bar if taken at face value; and a resting entry **can** fill on the force-flat bar, which every entry loop refused. The second was a defect rather than a rule and was fixed by [#208]; the InsideBar trade list had been carrying an unjoined leg of exactly that shape the whole time.
 
 ## The standing rubric
 
@@ -1519,6 +1519,7 @@ ______________________________________________________________________
 [#199]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/199
 [#200]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/200
 [#201]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/201
+[#208]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/208
 [#23]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/23
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25

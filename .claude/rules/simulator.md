@@ -51,8 +51,11 @@ below and is what you quote; this file is the index, not the record.
   force-flat bar alone. The C#'s version reads the wall clock and so cannot be reconciled as
   written. `docs/nt8-fidelity.md`, "A no-entry window before the session close".
 - `MaxRiskPerTrade` is in **ticks**, not dollars.
-- **A resting entry order is cancelled on a `force_flat` bar**, not tested for fill.
-  `block_entry_at_session_close` guards only a *new* signal on that bar.
+- **A resting entry order is tested for a fill on a `force_flat` bar like any other**, and the
+  position it opens is flattened at that bar's close. `block_entry_at_session_close` guards only
+  a *new* signal on that bar, and is a separate rule: NT8 fills the first and refuses the
+  second. Refusing both cost the InsideBar reconciliation a leg. `docs/nt8-fidelity.md`, "A
+  resting entry fills on the force-flat bar, and is flattened at its close".
 - **The session end is the observed last bar, not the template's 17:00.** A CME half-day
   otherwise never reaches the cutoff and is never flattened at all, and the order resting from
   its last bar fills in the *next* session. `docs/nt8-fidelity.md`, "The session end is the

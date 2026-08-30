@@ -320,7 +320,7 @@ Source: **MNQ 03-24, 1-minute, an NT8 Strategy Analyzer export of 16,744 trades*
 | exit time                | 100.00%                  |
 | exit reason              | 100.00%                  |
 | net P&L                  | 100.00%                  |
-| **identical everywhere** | **968 of 968 — 100.00%** |
+| **identical everywhere** | **969 of 969 — 100.00%** |
 
 Reproduce it with the export in place:
 
@@ -331,7 +331,7 @@ Reproduce it with the export in place:
 
 **What this settled.** The `IsFillLimitOnTouch = true` branch, which nothing in the project had evidence for. The `OnExecutionUpdate` indexing, established against both terms independently and against an inference that had them one bar later. And that `ExitOnSessionCloseSeconds` does not move a backtest's flatten. `Archetype.tier2` is `RECONCILED`.
 
-**The whole residual was out-of-session stray bars, and it was not InsideBar's** (#160). The export files carry occasional prints outside session hours which NT8, building bars against the ETH template, never forms; `sessions.classify` flagged them and nothing dropped them, so they sat in the array the simulation indexes. At the first bar of a Sunday session a stray becomes `[1]`, and InsideBar's inside-bar test reads `[1]` and `[2]` directly. Dropping them in `load_contract` took this reconciliation from **943/947 — 99.58%** to **968/968 — 100.00%**, NT8-only entries from 22 to 1 and nqbt-only from 7 to 0, and left the DeadCatBounce and PullBackAndGo reconciliations **bit-for-bit unchanged**, because neither reads two bars back through a strict geometric test. The rule is general and the sensitivity is not: any future archetype reading two bars back inherits the same exposure.
+**The whole residual was out-of-session stray bars, and it was not InsideBar's** (#160). The export files carry occasional prints outside session hours which NT8, building bars against the ETH template, never forms; `sessions.classify` flagged them and nothing dropped them, so they sat in the array the simulation indexes. At the first bar of a Sunday session a stray becomes `[1]`, and InsideBar's inside-bar test reads `[1]` and `[2]` directly. Dropping them in `load_contract` took this reconciliation from **943/947 — 99.58%** to **968/968 — 100.00%**, NT8-only entries from 22 to 1 and nqbt-only from 7 to 0, and left the DeadCatBounce and PullBackAndGo reconciliations **bit-for-bit unchanged**, because neither reads two bars back through a strict geometric test. The rule is general and the sensitivity is not: any future archetype reading two bars back inherits the same exposure. **The last NT8-only leg went with #208** — see "A resting entry fills on the force-flat bar, and is flattened at its close" — which is what makes this reconciliation 969 of 969 with nothing unjoined on either side.
 
 **The Presidents' Day disagreement is the one #68 fixed**, and it was the last one standing before the strays went. A trade entered at 13:00 ET on 2024-02-19, an exchange early close, which `force_flat_mask` measured against the template's fixed 17:00 and so never flattened. Deriving the session end from the observed last bar took this reconciliation from 942/947 to 943/947 and left the DeadCatBounce and PullBackAndGo reconciliations above bit-for-bit unchanged — see "The session end is the observed last bar, not the template's".
 
@@ -544,11 +544,15 @@ Neither of the two readings #67 proposed. It does not cancel the resting opposit
 
 So a two-sided managed OCO is **not expressible**, and #51's squeeze entry must use resubmission (route 3) or go unmanaged (route 2) — see [roadmap.md](roadmap.md) § "Order lifetime in NT8".
 
-### A resting entry *can* fill on the force-flat bar, and the simulation refuses it
+### A resting entry fills on the force-flat bar, and is flattened at its close
 
-**This is a defect in `nqbt/sim/`, not a rule it implements.** `deadcat.py` gates every fill behind `if not bars.force_flat[i]`, deliberately. NinjaTrader does not: a plain three-argument buy stop resubmitted on every flat bar filled **on the session's own last bar around 40 times** over the window, every one of them exiting via `Exit on session close` at that same bar's close. Two independent classifications agree — NinjaTrader's own `Bars.IsLastBarOfSession` gives 39, `sessions.classify` gives 40, and 35 of them fall in the post-merge window where the archive and NinjaTrader are looking at identical bars.
+**Fills are evaluated before the session-close handler runs**, so an order resting into the session's last bar gets its chance there and the position it opens is flattened at that bar's close. A plain three-argument buy stop resubmitted on every flat bar filled **on the session's own last bar around 40 times** over the probe window, every one of them exiting via `Exit on session close` at that same bar's close. Two independent classifications agree — NinjaTrader's own `Bars.IsLastBarOfSession` gives 39, `sessions.classify` gives 40, and 35 of them fall in the post-merge window where the archive and NinjaTrader are looking at identical bars.
 
-Tracked separately, because correcting it moves trade logs and needs the gate plus all four reconciliations re-run.
+Until #208 the simulation refused those fills, gating every one behind `if not bars.force_flat[i]`. The gate is gone from all five entry loops; the bar is now tested for a fill like any other, and `resolve_brackets` flattens whatever it opened at `EXIT_SESSION_CLOSE`. **The flatten is last in `resolve_brackets`, so a leg that reached its stop or target on that same bar still records that** rather than the close.
+
+**What it was worth on the trade-log gate.** The four single-contract files are unchanged and the ten sweep files gain legs; joined on `(entry_time, leg)` every pre-existing leg is identical on every field, so the change is purely additive. Most of the added legs leave at the stop rather than at the close, which is the ordering above: the last bar of a session is wide enough to reach a bracket level before it ends. Re-measure it with `tools/capture_trade_logs.py` rather than quoting a count from here.
+
+**A trade list corroborates the probe.** The single NT8-only leg in the InsideBar reconciliation was one of these: 2024-02-01 22:00 UTC, entered at 17632.75 and exited by `Exit on session close` at 17628.50 for −$34.00. nqbt now produces it identically, taking that reconciliation to 969 of 969 with nothing on either side unjoined.
 
 ### An entry submitted *on* the last bar never fills at the next session's open
 

@@ -284,93 +284,92 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
 
         # ---- both entry orders fill at this bar's open, unconditionally ------------------
         if not in_position and pending_bar >= 1 and pending_bar == i - 1:
-            # A bar at or past the flatten cutoff cancels the orders rather than filling them.
-            if not bars.force_flat[i]:
-                d = pending_direction
-                fill = bars.open_[i] + d * slippage
-                # ``OnExecutionUpdate`` runs with the **signal** bar still current, so ATR[0]
-                # is the signal bar's and [1] is the inside bar -- ``docs/nt8-fidelity.md``
-                # §M22, established leg-for-leg against InsideBar's trade list.
-                bar_atr = atr[pending_bar]
-                inside_bar = pending_bar - 1
-                adverse, _ = bracket.sided(bars.low[inside_bar], bars.high[inside_bar], d)
-                # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
-                # § "ATR-multiple brackets and the dollar floor".
-                stop_distance = bracket.atr_bracket_distance(
-                    bar_atr,
-                    rules.atr_multiplier,
-                    bracket.NO_BRACKET_FLOOR,
+            # A force-flat bar is filled like any other; the session-close handler runs
+            # after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
+            # bar, and is flattened at its close".
+            d = pending_direction
+            fill = bars.open_[i] + d * slippage
+            # ``OnExecutionUpdate`` runs with the **signal** bar still current, so ATR[0]
+            # is the signal bar's and [1] is the inside bar -- ``docs/nt8-fidelity.md``
+            # §M22, established leg-for-leg against InsideBar's trade list.
+            bar_atr = atr[pending_bar]
+            inside_bar = pending_bar - 1
+            adverse, _ = bracket.sided(bars.low[inside_bar], bars.high[inside_bar], d)
+            # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
+            # § "ATR-multiple brackets and the dollar floor".
+            stop_distance = bracket.atr_bracket_distance(
+                bar_atr,
+                rules.atr_multiplier,
+                bracket.NO_BRACKET_FLOOR,
+            )
+            fixed_stop = adverse - d * stop_distance
+            # ``SetTrailStop`` takes a **tick count**, so the distance is computed as one
+            # and converted back, exactly as the C# writes it.
+            distance = (
+                (bars.high[inside_bar] - bars.low[inside_bar])
+                / costs.tick_size
+                * rules.trailing_stop_multiplier
+            )
+            trail_distance = distance * costs.tick_size
+            trail_stop = fill - d * trail_distance
+            if fills.round_targets:
+                # An ATR multiple lands off the grid, and an exchange takes a stop no more
+                # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
+                # the tick grid". Snapped before the risk, which every R multiple is
+                # measured from.
+                fixed_stop = bracket.round_to_tick(fixed_stop, costs.tick_size)
+                trail_stop = bracket.round_to_tick(trail_stop, costs.tick_size)
+            fixed_risk = d * (fill - fixed_stop)
+            trail_risk = d * (fill - trail_stop)
+            # A stop at or through the price it protects is not a stop order, and neither
+            # lot may be left running without one -- ``docs/nt8-fidelity.md`` §M23.
+            if fixed_risk >= min_risk and trail_risk >= min_risk:
+                trade_id += 1
+                trade = bracket.OpenTrade(
+                    trade_id=trade_id,
+                    entry_bar=i,
+                    entry_price=fill,
+                    # Per-lot; lot_trade substitutes each lot's own before a leg is written.
+                    initial_stop=fixed_stop,
+                    risk=fixed_risk,
+                    direction=d,
+                    filled_at_open=True,
                 )
-                fixed_stop = adverse - d * stop_distance
-                # ``SetTrailStop`` takes a **tick count**, so the distance is computed as one
-                # and converted back, exactly as the C# writes it.
-                distance = (
-                    (bars.high[inside_bar] - bars.low[inside_bar])
-                    / costs.tick_size
-                    * rules.trailing_stop_multiplier
+                excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                raw_target = fill + d * bar_atr
+                legs.is_open[BRACKETED_LOT] = True
+                legs.is_open[TRAILING_LOT] = True
+                lots.stop[BRACKETED_LOT] = fixed_stop
+                lots.stop[TRAILING_LOT] = trail_stop
+                lots.initial_stop[BRACKETED_LOT] = fixed_stop
+                lots.initial_stop[TRAILING_LOT] = trail_stop
+                lots.risk[BRACKETED_LOT] = fixed_risk
+                lots.risk[TRAILING_LOT] = trail_risk
+                legs.target[BRACKETED_LOT] = (
+                    bracket.round_to_tick(raw_target, costs.tick_size) if fills.round_targets else raw_target
                 )
-                trail_distance = distance * costs.tick_size
-                trail_stop = fill - d * trail_distance
-                if fills.round_targets:
-                    # An ATR multiple lands off the grid, and an exchange takes a stop no more
-                    # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
-                    # the tick grid". Snapped before the risk, which every R multiple is
-                    # measured from.
-                    fixed_stop = bracket.round_to_tick(fixed_stop, costs.tick_size)
-                    trail_stop = bracket.round_to_tick(trail_stop, costs.tick_size)
-                fixed_risk = d * (fill - fixed_stop)
-                trail_risk = d * (fill - trail_stop)
-                # A stop at or through the price it protects is not a stop order, and neither
-                # lot may be left running without one -- ``docs/nt8-fidelity.md`` §M23.
-                if fixed_risk >= min_risk and trail_risk >= min_risk:
-                    trade_id += 1
-                    trade = bracket.OpenTrade(
-                        trade_id=trade_id,
-                        entry_bar=i,
-                        entry_price=fill,
-                        # Per-lot; lot_trade substitutes each lot's own before a leg is written.
-                        initial_stop=fixed_stop,
-                        risk=fixed_risk,
-                        direction=d,
-                        filled_at_open=True,
-                    )
-                    excursion = bracket.Excursion(bars.high[i], bars.low[i])
-                    raw_target = fill + d * bar_atr
-                    legs.is_open[BRACKETED_LOT] = True
-                    legs.is_open[TRAILING_LOT] = True
-                    lots.stop[BRACKETED_LOT] = fixed_stop
-                    lots.stop[TRAILING_LOT] = trail_stop
-                    lots.initial_stop[BRACKETED_LOT] = fixed_stop
-                    lots.initial_stop[TRAILING_LOT] = trail_stop
-                    lots.risk[BRACKETED_LOT] = fixed_risk
-                    lots.risk[TRAILING_LOT] = trail_risk
-                    legs.target[BRACKETED_LOT] = (
-                        bracket.round_to_tick(raw_target, costs.tick_size)
-                        if fills.round_targets
-                        else raw_target
-                    )
-                    # The runner has no target: ``SetProfitTarget`` is never called for it.
-                    legs.target[TRAILING_LOT] = np.nan
-                    # `SetTrailStop` is submitted *during* this bar rather than resting from
-                    # its open, so on the entry bar alone it follows the bar's own extreme
-                    # before being tested. Measured -- ``docs/nt8-fidelity.md`` §M23.
-                    lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
-                    position_changed = True
-                    written, trigger_fill = resolve_lots(
-                        out,
-                        written,
-                        trade,
-                        lots,
-                        legs,
-                        excursion,
-                        bars,
-                        i,
-                        costs,
-                        fills,
-                    )
-                    if written < 0:
-                        return -1
-                    in_position = open_lots(legs) > 0
+                # The runner has no target: ``SetProfitTarget`` is never called for it.
+                legs.target[TRAILING_LOT] = np.nan
+                # `SetTrailStop` is submitted *during* this bar rather than resting from
+                # its open, so on the entry bar alone it follows the bar's own extreme
+                # before being tested. Measured -- ``docs/nt8-fidelity.md`` §M23.
+                lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
+                position_changed = True
+                written, trigger_fill = resolve_lots(
+                    out,
+                    written,
+                    trade,
+                    lots,
+                    legs,
+                    excursion,
+                    bars,
+                    i,
+                    costs,
+                    fills,
+                )
+                if written < 0:
+                    return -1
+                in_position = open_lots(legs) > 0
             pending_bar = -1
 
         # ---- close of bar i: trail the runner's stop ------------------------------------

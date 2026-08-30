@@ -114,17 +114,17 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
         elif pending_bar >= 0 and pending_bar == i - 1:
             filled = False
             fill = 0.0
-            # bars.force_flat[i], not block_entry_at_session_close: that flag only stops a
-            # *new* signal on a force-flat bar, never an order resting from the bar before.
-            if not bars.force_flat[i]:
-                if direction * bars.open_[i] >= direction * pending_trigger:
-                    fill = bars.open_[i] + direction * slippage  # gapped through the trigger
+            # A force-flat bar is tested for a fill like any other; the session-close handler
+            # runs after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
+            # bar, and is flattened at its close".
+            if direction * bars.open_[i] >= direction * pending_trigger:
+                fill = bars.open_[i] + direction * slippage  # gapped through the trigger
+                filled = True
+            else:
+                _, touch = bracket.sided(bars.low[i], bars.high[i], direction)
+                if direction * touch >= direction * pending_trigger:
+                    fill = pending_trigger + direction * slippage
                     filled = True
-                else:
-                    _, touch = bracket.sided(bars.low[i], bars.high[i], direction)
-                    if direction * touch >= direction * pending_trigger:
-                        fill = pending_trigger + direction * slippage
-                        filled = True
 
             if filled:
                 trade_id += 1
@@ -167,7 +167,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                 if written < 0:
                     return -1
 
-            pending_bar = -1  # filled, cancelled at the flatten point, or just missed -- gone
+            pending_bar = -1  # filled or missed, and either way it does not rest a second bar
 
         # ---- close of bar i: ratchet, or look for a new signal ----------------------
         if in_position:

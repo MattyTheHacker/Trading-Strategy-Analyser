@@ -122,16 +122,21 @@ def test_unfilled_order_is_cancelled_after_one_bar() -> None:
     assert trades.empty
 
 
-def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point() -> None:
+def test_a_resting_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
+    """NT8 fills the resting order and only then flattens -- ``docs/nt8-fidelity.md``,
+    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
     trades = run(
         [
             (100, 101.5, 97, 101),  # 0: signal, trigger 101.5
-            (103, 104, 102, 103),  # 1: force-flat; would gap through the trigger
+            (103, 104, 102, 103),  # 1: force-flat; gaps through the trigger
         ],
         signal_at=[0],
         force_flat_at=[1],
     )
-    assert trades.empty
+    assert list(trades["entry_bar"].unique()) == [1]
+    assert trades["entry_price"].unique() == pytest.approx([103.0])
+    assert set(trades["exit_reason"]) == {"session_close"}
+    assert trades["exit_price"].unique() == pytest.approx([103.0])  # bar 1's close
 
 
 # -- the ratchet: bare Low[1], not High[0] + offset -----------------------------
