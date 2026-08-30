@@ -962,17 +962,92 @@ def test_best_can_be_narrowed_to_one_sweep(db) -> None:
     assert set(just_one["sweep_id"]) == {1}
 
 
-def test_axis_columns_are_not_dropped_the_way_an_unknown_statistic_is(db) -> None:
-    """The distinction ``AXIS_COLUMNS`` exists to make.
+def test_the_axis_columns_arrive_at_connect_and_every_other_column_at_its_first_insert(db) -> None:
+    """The distinction ``AXIS_COLUMNS`` still makes now that nothing is dropped.
 
-    A legacy ``combos`` table drops a column it does not know -- deliberate, and right for a
-    statistic. These four are migrated instead, because a dropped ``contract`` does not read
-    as a gap, it reads as a different run.
+    Both kinds of column reach a legacy table, but only these four are there before a frame
+    carrying them is written -- so a query against an untouched old database can group by
+    ``contract`` and read nulls, rather than failing on a column that does not exist yet.
     """
     legacy_database(db)
+    results.connect(db).close()
+    migrated = results.query("DESCRIBE combos", db)
+    assert set(results.AXIS_COLUMNS) <= set(migrated["column_name"])
+    assert "brand_new_stat" not in set(migrated["column_name"])
+
     frame = fake_results()
     frame["brand_new_stat"] = [1.0, 2.0, 3.0]
     save(db, results_frame=frame, contract="MNQ 03-24")
     stored = results.query("SELECT * FROM combos WHERE sweep_id = 2", db)
-    assert "brand_new_stat" not in stored.columns, "premise: unknown statistics are dropped"
     assert set(stored["contract"]) == {"MNQ 03-24"}
+    assert list(stored["brand_new_stat"]) == [1.0, 2.0, 3.0]
+
+
+# -- widening rather than dropping (#201) --------------------------------------
+
+
+def insidebar_shaped() -> pd.DataFrame:
+    """A frame from a different parameter class: three columns the first sweep never had."""
+    frame = fake_results()
+    frame["error_margin"] = [0.01, 0.05, 0.1]
+    frame["atr_length"] = [3, 14, 14]
+    frame["atr_multiplier"] = [5.0, 10.0, 20.0]
+    return frame
+
+
+def test_a_second_parameter_class_widens_the_table_rather_than_losing_its_columns(db) -> None:
+    """The trap this exists to close: one ``combos`` table holding two parameter classes.
+
+    Appending an InsideBar-shaped frame to a table created from a DeadCat-shaped one used to
+    store it with ``error_margin``, ``atr_length`` and ``atr_multiplier`` thrown away.
+    """
+    save(db, strategy="DeadCatBounce")
+    save(db, results_frame=insidebar_shaped(), strategy="InsideBar")
+    stored = results.query("SELECT * FROM combos WHERE strategy = 'InsideBar' ORDER BY combo_id", db)
+    assert list(stored["error_margin"]) == [0.01, 0.05, 0.1]
+    assert list(stored["atr_length"]) == [3, 14, 14]
+    assert list(stored["atr_multiplier"]) == [5.0, 10.0, 20.0]
+
+
+def test_the_rows_written_before_a_column_existed_read_null_rather_than_moving(db) -> None:
+    """Widening is what the old rows see, and it must not disturb what they already hold."""
+    save(db, strategy="DeadCatBounce")
+    save(db, results_frame=insidebar_shaped(), strategy="InsideBar")
+    earlier = results.query("SELECT * FROM combos WHERE strategy = 'DeadCatBounce' ORDER BY combo_id", db)
+    assert earlier["atr_multiplier"].isna().all()
+    assert list(earlier["ema_period"]) == [9, 21, 30]
+    assert list(earlier["net_pnl"]) == [500.0, 900.0, 40.0]
+
+
+def test_a_column_the_stored_type_cannot_give_back_is_refused(db) -> None:
+    """The loud path: a value silently rounded into the stored type reads as a result."""
+    integral = fake_results()
+    integral["atr_multiplier"] = [5, 10, 20]  # BIGINT, because this grid swept whole numbers
+    save(db, results_frame=integral)
+    fractional = fake_results()
+    fractional["atr_multiplier"] = [2.5, 3.5, 20.0]
+    with pytest.raises(results.ResultsError, match="atr_multiplier"):
+        save(db, results_frame=fractional)
+    assert len(results.query("SELECT * FROM combos", db)) == 3
+
+
+def test_a_type_that_does_give_the_value_back_still_inserts(db) -> None:
+    """Measured loss, not a rule about casts: 5.0 into a BIGINT column loses nothing."""
+    integral = fake_results()
+    integral["atr_multiplier"] = [5, 10, 20]
+    save(db, results_frame=integral)
+    whole = fake_results()
+    whole["atr_multiplier"] = [5.0, 10.0, 20.0]
+    save(db, results_frame=whole)
+    stored = results.query("SELECT atr_multiplier FROM combos ORDER BY sweep_id, combo_id", db)
+    assert list(stored["atr_multiplier"]) == [5, 10, 20, 5, 10, 20]
+
+
+def test_a_column_named_like_a_sql_keyword_survives_the_widening(db) -> None:
+    """``window`` is one of the campaign's own columns, and it is a reserved word."""
+    save(db)
+    windowed = fake_results()
+    windowed["window"] = ["selection", "holdout", "holdout"]
+    save(db, results_frame=windowed)
+    stored = results.query('SELECT "window" FROM combos WHERE sweep_id = 2 ORDER BY combo_id', db)
+    assert list(stored["window"]) == ["selection", "holdout", "holdout"]

@@ -79,7 +79,7 @@ def test_the_regime_strata_ask_for_the_efficiency_ratio_and_the_phase_strata_do_
 
 
 def test_drop_tables_removes_the_stale_schema(tmp_path) -> None:
-    """The drop is what stops ``_append_or_create`` silently discarding the new columns."""
+    """Rows computed against different roll dates and a different commission have to go."""
     db = tmp_path / "sweeps.duckdb"
     con = duckdb.connect(str(db))
     for table in TABLES:

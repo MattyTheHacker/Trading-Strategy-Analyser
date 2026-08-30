@@ -188,8 +188,8 @@ def test_the_split_windows_cover_every_bar_exactly_once() -> None:
 
 
 def test_each_archetype_gets_its_own_database(tmp_path, monkeypatch) -> None:
-    """``_append_or_create`` writes ``combos`` by name and drops a column the table does not
-    have, so six parameter classes sharing one table would store five of them lossily."""
+    """A convention since ``_append_or_create`` learned to widen, and still what the campaign
+    ran on, so the report and holdout tools go on finding one file per archetype."""
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
     paths = {name: db_path(name) for name in VARIANTS}
     assert len(set(paths.values())) == len(VARIANTS)

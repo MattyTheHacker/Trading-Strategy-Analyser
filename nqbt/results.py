@@ -6,14 +6,16 @@ tagged with that id.
 
 **One ``sweeps`` row is one dataset** -- one strategy, one resolution, one contract -- because
 ``bars``/``first_bar``/``last_bar`` are properties of a dataset; ``batch_id`` says which rows
-were one experiment. Schemas are created from whatever columns the summary frame carries, so a
-new statistic needs no migration; the axis columns are the exception. Reasoning:
+were one experiment. A table grows to fit whatever columns the frame carries, so a new
+statistic, a new parameter and a second parameter class all need no migration; the axis columns
+are the exception, migrated up front so they exist before an insert. Reasoning:
 ``docs/roadmap.md`` §M17.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import platform
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -27,6 +29,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+class ResultsError(ValueError):
+    """Raised when a frame cannot be stored without losing something it carries."""
+
 
 AXIS_COLUMNS: dict[str, str] = {
     "strategy": "VARCHAR",
@@ -228,26 +237,80 @@ def _tag_axes(
     return tagged
 
 
-def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.DataFrame) -> None:
-    """Insert ``frame`` into ``table``, creating it from the frame's own columns if new.
+def _quoted(name: str) -> str:
+    """A column name as a SQL identifier, so a statistic named like a keyword still inserts."""
+    escaped: str = name.replace('"', '""')
+    return f'"{escaped}"'
 
-    An existing table is written **by name, not by position**, and a column the frame carries
-    but the table does not is dropped -- ``docs/roadmap.md`` §M17. :data:`AXIS_COLUMNS` are
-    exempt from that and migrated up front by :func:`_migrate_axis_columns`.
+
+def _describe(con: duckdb.DuckDBPyConnection, relation: str) -> dict[str, str]:
+    """Column name to DuckDB type, for a stored table or for the registered frame."""
+    return {str(row[0]): str(row[1]) for row in con.execute(f"DESCRIBE {relation}").fetchall()}
+
+
+def _lossy_columns(
+    con: duckdb.DuckDBPyConnection,
+    stored: Mapping[str, str],
+    incoming: Mapping[str, str],
+) -> list[str]:
+    """Which shared columns hold a value the stored column's type would not give back.
+
+    A round trip through both types, so this reports *measured* loss rather than a rule about
+    which casts are safe: ``5.0`` into a BIGINT column is fine and ``2.5`` is not.
     """
-    exists: int = _count(con, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [table])
-    if not exists:
-        con.register("incoming", frame)
+    lossy: list[str] = []
+    for name, incoming_type in incoming.items():
+        stored_type: str | None = stored.get(name)
+        if stored_type is None or stored_type == incoming_type:
+            continue
+        column: str = _quoted(name)
+        changed: int = _count(
+            con,
+            f"SELECT COUNT(*) FROM incoming WHERE {column} IS NOT NULL AND "  # noqa: S608 - identifiers, quoted
+            f"TRY_CAST(TRY_CAST({column} AS {stored_type}) AS {incoming_type}) IS DISTINCT FROM {column}",
+        )
+        if changed:
+            lossy.append(f"{name} ({incoming_type} into {stored_type}, {changed} rows)")
+    return lossy
+
+
+def _widen(
+    con: duckdb.DuckDBPyConnection,
+    table: str,
+    stored: Mapping[str, str],
+    incoming: Mapping[str, str],
+) -> None:
+    """Add the columns the frame carries and the table does not, leaving stored rows null."""
+    for name, sql_type in incoming.items():
+        if name in stored:
+            continue
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {_quoted(name)} {sql_type}")
+        logger.info("%s: added column %s %s", table, name, sql_type)
+
+
+def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.DataFrame) -> None:
+    """Insert ``frame`` into ``table``, creating or widening it to fit the frame's columns.
+
+    An existing table is written **by name, not by position**; a column the frame carries and
+    the table does not is *added*, and a column the table carries and the frame does not is
+    null on these rows -- ``docs/roadmap.md`` §M17. A shared column keeps the stored type, and
+    a value that type would not give back raises :class:`ResultsError` rather than rounding in.
+    """
+    con.register("incoming", frame)
+    if not _table_exists(con, table):
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM incoming")  # noqa: S608 - a literal at both callers
         return
 
-    stored: list[str] = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
-    aligned: pd.DataFrame = frame.copy()
-    for name in stored:
-        if name not in aligned.columns:
-            aligned[name] = None
-    con.register("incoming", aligned[stored])
-    con.execute(f"INSERT INTO {table} SELECT * FROM incoming")  # noqa: S608 - a literal at both callers
+    stored: dict[str, str] = _describe(con, table)
+    incoming: dict[str, str] = _describe(con, "SELECT * FROM incoming")
+    lossy: list[str] = _lossy_columns(con, stored, incoming)
+    if lossy:
+        msg: str = f"{table} cannot store these columns without losing values: {'; '.join(lossy)}"
+        raise ResultsError(msg)
+
+    _widen(con, table, stored, incoming)
+    columns: str = ", ".join(_quoted(name) for name in incoming)
+    con.execute(f"INSERT INTO {table} ({columns}) SELECT {columns} FROM incoming")  # noqa: S608 - as above
 
 
 def _jsonable(value: Any) -> Any:  # type: ignore[explicit-any]  # noqa: ANN401 - see the docstring
