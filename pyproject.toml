@@ -33,7 +33,6 @@ dev = [
     "mypy==2.3.1",
     "pandas-stubs==3.0.5.260730",
     "pymarkdownlnt==0.9.39",
-    "mdformat==1.0.0",
     "mdformat-gfm==1.0.0",
 ]
 
