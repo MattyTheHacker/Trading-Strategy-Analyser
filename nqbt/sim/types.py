@@ -625,12 +625,12 @@ class InsideBarParams:
     """Rule set for the InsideBar archetype -- an inside-bar breakout with an ATR bracket.
 
     Ported from ``ninjatrader-scripts/Strategies/InsideBar.cs``, whose ``SetDefaults``
-    initialises **all seven** declared properties, so these defaults are the NinjaScript's
-    directly. Every rule and every open question: ``docs/nt8-fidelity.md`` §M22.
+    initialises every declared property, so these defaults are the NinjaScript's directly.
+    Every rule and every open question: ``docs/nt8-fidelity.md`` §M22.
 
-    **The geometry is deliberately lopsided** -- a target 1x ATR(3) from the fill against a
-    stop 10x ATR(3) beyond the signal bar, so R multiples cluster just above zero and are not
-    comparable to another archetype's at the same value.
+    **The default geometry is deliberately lopsided** -- a target 1x ATR(3) from the fill
+    against a stop 10x ATR(3) beyond the signal bar, so R multiples cluster just above zero
+    and are not comparable to another archetype's at the same value.
     """
 
     order_quantity: int = 4
@@ -655,8 +655,11 @@ class InsideBarParams:
 
     atr_length: int = 3
     atr_multiplier: float = 10.0
-    """ATR period, and how many of them the stop sits beyond the signal bar's extreme. The
-    target is a bare 1x ATR from the fill, which the NinjaScript hardcodes."""
+    """ATR period, and how many of them the stop sits beyond the signal bar's extreme."""
+
+    tp_multiplier: float = 1.0
+    """How many ATRs the target sits from the fill. ``TPMultiplier`` in the NinjaScript, whose
+    default is the bare 1x the target was hardcoded at -- ``docs/nt8-fidelity.md`` §M22."""
 
     bars_required_to_trade: int = 5
     """``CurrentBars[0] <= BarsRequiredToTrade`` returns, so the first tradable bar is one
@@ -746,6 +749,9 @@ class InsideBarParams:
             raise ValueError(msg)
         if self.atr_multiplier <= 0.0:
             msg = f"atr_multiplier must be > 0, got {self.atr_multiplier}"
+            raise ValueError(msg)
+        if self.tp_multiplier <= 0.0:
+            msg = f"tp_multiplier must be > 0, got {self.tp_multiplier}"
             raise ValueError(msg)
         if self.no_entry_minutes_before_close < 0:
             msg = f"no_entry_minutes_before_close must be >= 0, got {self.no_entry_minutes_before_close}"

@@ -69,6 +69,7 @@ class InsideBarTrailingRules(NamedTuple):
     """
 
     atr_multiplier: float
+    tp_multiplier: float
     trailing_stop_multiplier: float
     position_update_loss_gate: float
     bars_required: int
@@ -222,10 +223,10 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     ``signal`` and ``direction_at`` are InsideBar's, unchanged.
 
     Both lots fill together at the next bar's open and are bracketed off the same fill: the
-    bracketed lot takes an ATR stop beyond the inside bar and a target one ATR from the fill,
-    the trailing lot takes a stop ``trailing_stop_multiplier`` inside-bar ranges behind the
-    high-water mark and no target. Returns the number of rows written, or ``-1`` if ``out``
-    overflowed.
+    bracketed lot takes an ATR stop beyond the inside bar and a target ``tp_multiplier`` ATRs
+    from the fill, the trailing lot takes a stop ``trailing_stop_multiplier`` inside-bar ranges
+    behind the high-water mark and no target. Returns the number of rows written, or ``-1`` if
+    ``out`` overflowed.
     """
     n = bars.close.size
     n_lots = leg_quantities.size
@@ -336,7 +337,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                     filled_at_open=True,
                 )
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
-                raw_target = fill + d * bar_atr
+                raw_target = fill + d * bar_atr * rules.tp_multiplier
                 legs.is_open[BRACKETED_LOT] = True
                 legs.is_open[TRAILING_LOT] = True
                 lots.stop[BRACKETED_LOT] = fixed_stop
@@ -485,6 +486,7 @@ def insidebartrailing_legs(
         ),
         InsideBarTrailingRules(
             atr_multiplier=params.atr_multiplier,
+            tp_multiplier=params.tp_multiplier,
             trailing_stop_multiplier=params.trailing_stop_multiplier,
             position_update_loss_gate=params.position_update_loss_gate,
             bars_required=params.bars_required_to_trade,

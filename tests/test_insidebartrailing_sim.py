@@ -41,6 +41,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
     force_flat_at=(),
     quantities=(4, 2),
     atr_multiplier=1.0,
+    tp_multiplier=1.0,
     trail_multiplier=FAR_TRAIL,
     loss_gate=0.0,
     slippage=0.0,
@@ -90,6 +91,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
         bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         insidebartrailing.InsideBarTrailingRules(
             atr_multiplier=atr_multiplier,
+            tp_multiplier=tp_multiplier,
             trailing_stop_multiplier=trail_multiplier,
             position_update_loss_gate=loss_gate,
             bars_required=bars_required,
@@ -161,6 +163,14 @@ def test_the_two_lots_carry_their_own_stops_and_their_own_planned_risk() -> None
     assert trades["initial_stop"].iloc[1] == pytest.approx(100.0 - 2.0)
     assert trades["risk_points"].iloc[0] == pytest.approx(8.5)
     assert trades["risk_points"].iloc[1] == pytest.approx(2.0)
+
+
+def test_the_tp_multiplier_scales_the_bracketed_lots_target_only() -> None:
+    """The field is inherited from :class:`InsideBarParams`, and the runner has no target
+    for it to reach -- ``docs/nt8-fidelity.md`` §M22."""
+    trades = run(QUIET, signal_at=[1], tp_multiplier=2.5)
+    assert trades["target_price"].iloc[0] == pytest.approx(100.0 + 2.5 * FAR_ATR)
+    assert pd.isna(trades["target_price"].iloc[1])
 
 
 def test_the_split_rounds_the_bracketed_lot_up() -> None:

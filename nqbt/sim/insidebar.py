@@ -40,6 +40,7 @@ class InsideBarRules(NamedTuple):
     """The scalar rule set :func:`simulate_insidebar` reads, one field per NT8 property."""
 
     atr_multiplier: float
+    tp_multiplier: float
     bars_required: int
     block_entry_at_session_close: bool
 
@@ -62,10 +63,10 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     ``direction_at`` says which side each bar is on, separated for the reason
     :func:`nqbt.sim.crossover.simulate_crossover` separates them.
 
-    The bracket is built at the **fill**, not at the signal: the target is one ATR from the
-    fill price and the stop ``atr_multiplier`` ATRs beyond the signal bar's adverse extreme,
-    both reading the ATR of the bar the fill lands on. Returns the number of rows written, or
-    ``-1`` if ``out`` overflowed.
+    The bracket is built at the **fill**, not at the signal: the target is ``tp_multiplier``
+    ATRs from the fill price and the stop ``atr_multiplier`` ATRs beyond the signal bar's
+    adverse extreme, both reading the ATR of the bar the fill lands on. Returns the number of
+    rows written, or ``-1`` if ``out`` overflowed.
     """
     n = bars.close.size
     n_legs = leg_quantities.size
@@ -151,7 +152,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                 )
                 stop = candidate_stop
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
-                raw_target = fill + d * bar_atr
+                raw_target = fill + d * bar_atr * rules.tp_multiplier
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     legs.target[leg] = (
@@ -298,6 +299,7 @@ def insidebar_legs(
         ),
         InsideBarRules(
             atr_multiplier=params.atr_multiplier,
+            tp_multiplier=params.tp_multiplier,
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
         ),
