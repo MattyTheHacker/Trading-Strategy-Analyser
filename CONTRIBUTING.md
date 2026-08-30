@@ -22,10 +22,10 @@ Code should be readable on its own terms. Prefer a clearer name, a smaller funct
 
 Two homes, and they are not interchangeable:
 
-| goes in | what it holds |
-|---|---|
-| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it |
-| [`docs/roadmap.md`](docs/roadmap.md) | planned work in dependency order, the reasoning behind it, and the standing traps |
+| goes in                                        | what it holds                                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it    |
+| [`docs/roadmap.md`](docs/roadmap.md)           | planned work in dependency order, the reasoning behind it, and the standing traps |
 
 A pointer must name a section that exists, in the form the source already uses:
 
@@ -170,18 +170,18 @@ Points that have each cost time:
 
 ### The ten verbs
 
-| verb | for |
-|---|---|
-| `Add` | a new capability, file, test or guard — also what `implement`, `introduce`, `create`, `store` and `support` become |
-| `Fix` | a defect corrected, including one found against NT8 |
-| `Update` | an existing thing changed — `change`, `modify`, `set` |
-| `Remove` | a deletion — `drop`, `delete` |
-| `Refactor` | structure changed, behaviour held — `simplify`, `clean up`, `reduce` |
-| `Move` | relocated or renamed — `migrate`, `rename` |
-| `Document` | docs, README, roadmap, decision records — `record`, `plan`, `note` |
-| `Bump` | a dependency version, which is mostly Dependabot's |
-| `Port` | NinjaScript translated into Python — a Tier 1/Tier 2 term, not a synonym for `Add` |
-| `Reconcile` | checked against a real NT8 trade list — also `pin`, as in pinning an indicator against NT8 |
+| verb        | for                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `Add`       | a new capability, file, test or guard — also what `implement`, `introduce`, `create`, `store` and `support` become |
+| `Fix`       | a defect corrected, including one found against NT8                                                                |
+| `Update`    | an existing thing changed — `change`, `modify`, `set`                                                              |
+| `Remove`    | a deletion — `drop`, `delete`                                                                                      |
+| `Refactor`  | structure changed, behaviour held — `simplify`, `clean up`, `reduce`                                               |
+| `Move`      | relocated or renamed — `migrate`, `rename`                                                                         |
+| `Document`  | docs, README, roadmap, decision records — `record`, `plan`, `note`                                                 |
+| `Bump`      | a dependency version, which is mostly Dependabot's                                                                 |
+| `Port`      | NinjaScript translated into Python — a Tier 1/Tier 2 term, not a synonym for `Add`                                 |
+| `Reconcile` | checked against a real NT8 trade list — also `pin`, as in pinning an indicator against NT8                         |
 
 `Port` and `Reconcile` are here because the prime directive needs them: "Port InsideBar.cs as the third C#-backed archetype" is not `Add`, and "Reconcile InsideBar against its NT8 trade list" is not `Fix`. The other eight are generic.
 
@@ -239,5 +239,5 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 - **Say what a statistic was computed over.** Per trade or per leg, whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
 - **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse resolution.
 
-[#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
+[#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91

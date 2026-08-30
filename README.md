@@ -16,10 +16,10 @@ gh issue view <n>                            # blocked-by, blocking, sub-issues
 
 Where the live numbers are produced:
 
-| number | source |
-|---|---|
-| agreement rates against NT8 | [docs/nt8-fidelity.md](docs/nt8-fidelity.md) |
-| test count and coverage | `./.venv/Scripts/python.exe -m pytest` |
+| number                        | source                                        |
+| ----------------------------- | --------------------------------------------- |
+| agreement rates against NT8   | [docs/nt8-fidelity.md](docs/nt8-fidelity.md)  |
+| test count and coverage       | `./.venv/Scripts/python.exe -m pytest`        |
 | bar, contract and roll counts | `nqbt contracts`, `nqbt splice --diagnostics` |
 
 [docs/roadmap.md](docs/roadmap.md) carries the reasoning behind the order, the findings each milestone produced, and the decision record — not the plan itself.
@@ -126,14 +126,14 @@ nqbt/
 
 **Why it's fast.** Everything expensive is hoisted out of the sweep loop into `context.prepare`: candlestick geometry, session VWAP, and a `[n_periods, n_bars]` boolean matrix per moving-average gate covering every period in the grid. A combination then costs a boolean AND plus one simulation pass.
 
-| operation | cost |
-|---|---|
-| ingest 33 contracts / 4.09M bars, forced reparse | 26.5 s |
-| ingest, nothing changed (rebuilds the archive, reparses nothing) | 10.4 s |
-| prepare (1.65M bars) | 0.71 s |
-| one combination | 30 ms |
-| 1,536-combination sweep, serial | 45.4 s |
-| 1,536-combination sweep, `n_jobs=8` | 10.4 s (4.4×) |
+| operation                                                        | cost          |
+| ---------------------------------------------------------------- | ------------- |
+| ingest 33 contracts / 4.09M bars, forced reparse                 | 26.5 s        |
+| ingest, nothing changed (rebuilds the archive, reparses nothing) | 10.4 s        |
+| prepare (1.65M bars)                                             | 0.71 s        |
+| one combination                                                  | 30 ms         |
+| 1,536-combination sweep, serial                                  | 45.4 s        |
+| 1,536-combination sweep, `n_jobs=8`                              | 10.4 s (4.4×) |
 
 **Parallelism tops out near 5×, and that is the hardware.** Per-core throughput drops 1.5× once all 8 physical cores are busy — 30.8 ms/combination alone against 46.1 ms with eight running — so ~5.3× is the ceiling and the harness gets 4.4× of it. `n_jobs=16` is SMT: it adds 10% for twice the memory. Worker startup is ~1.5 s, so serial is the right default below a few hundred combinations.
 
@@ -149,12 +149,12 @@ Two memory notes: moving-average grids keep only the boolean gate by default (`k
 
 In plain terms: trying every combination and keeping the best one finds something that worked by luck, so the campaign ran three further checks — would you have picked it in advance, does the entry beat a coin flip that trades the same number of times, and is the profit bigger than the worst losing streak it took to earn.
 
-| | result |
-|---|---|
-| survives held-out selection | InsideBar, EmaCrossover, and InsideBarTrailing marginally |
+|                              | result                                                                |
+| ---------------------------- | --------------------------------------------------------------------- |
+| survives held-out selection  | InsideBar, EmaCrossover, and InsideBarTrailing marginally             |
 | beats a matched random entry | **InsideBar only**, positive on both roots and significant on neither |
-| clears its own drawdown | one cell, and only just |
-| profitable at 1-minute bars | no archetype's median configuration, on either root |
+| clears its own drawdown      | one cell, and only just                                               |
+| profitable at 1-minute bars  | no archetype's median configuration, on either root                   |
 
 **InsideBar is the one worth more work**, and what stops it is its bracket rather than its entry: a stop of 5–20× ATR against a hardcoded 1× ATR target gives an 87% win rate with an average loss five and a half times the average win, so the profit factor is real and the drawdown eats it. The target has no multiplier to sweep, which is [#197].
 
@@ -166,8 +166,6 @@ In plain terms: trying every combination and keeping the best one finds somethin
 
 **Instrument scaling is exact.** Running the same NQ bars through both instrument specs gives byte-identical trade geometry — entry and exit bars, prices, stops, targets,`r_multiple`, `risk_points` — and gross P&L of exactly ×10 on *every individual leg* (min ratio = max ratio = 10.0000000000), while per-contract commission correctly does not scale. That is the check that would catch a dollar figure hardcoded to one instrument.
 
-[#197]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/197
-
 ## Known limitations
 
 - **Thin sessions are visible rather than papered over.** NT8's data holds only the Sunday 18:00–19:00 ET hour for one trading day before most rolls, and a correct roll date makes the front contract supply that day. 18 such sessions in NQ (1,779 bars) and a comparable set in MNQ. The gaps are real and were previously hidden behind the wrong contract, not absent — filling them from the neighbour would splice two different prices into one session.
@@ -175,3 +173,5 @@ In plain terms: trying every combination and keeping the best one finds somethin
 - **`r_multiple` uses planned risk** (`stop − trigger`), which is how the NinjaScript places its targets. Consequence: target exits land just under their nominal multiples, and stop exits can print below −1R when slippage or a gap made the risk actually taken exceed the planned risk.
 
 - **MAE/MFE differ from NT8's definition** — mine measure to the exit bar's extreme, NT8's cap at the exit. Reporting only; no effect on P&L.
+
+[#197]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/197
