@@ -238,60 +238,61 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
 
         # ---- the entry order fills at this bar's open, unconditionally ---------------
         if not in_position and pending_bar >= 0 and pending_bar == i - 1:
-            # A bar at or past the flatten cutoff cancels the order rather than filling it.
-            if not bars.force_flat[i]:
-                d = pending_direction
-                fill = bars.open_[i] + d * slippage
-                candidate_stop = _protective_stop(bars, band, pending_bar, fill, d, rules)
-                candidate_risk = d * (fill - candidate_stop)
-                # A stop at or through the price it protects is not a stop order --
-                # ``docs/nt8-fidelity.md`` §M18.
-                if candidate_risk >= min_risk:
-                    trade_id += 1
-                    trade = bracket.OpenTrade(
-                        trade_id=trade_id,
-                        entry_bar=i,
-                        entry_price=fill,
-                        initial_stop=candidate_stop,
-                        risk=candidate_risk,
-                        direction=d,
-                        filled_at_open=True,
-                    )
-                    stop = candidate_stop
-                    entry_extreme = band.excursion_extreme[pending_bar]
-                    excursion = bracket.Excursion(bars.high[i], bars.low[i])
-                    for leg in range(n_legs):
-                        legs.is_open[leg] = True
-                        if np.isnan(target_levels[leg]):
-                            legs.target[leg] = np.nan
-                        else:
-                            # Both the basis and the dispersion are the signal bar's.
-                            raw = _leg_target(
-                                target_levels[leg],
-                                band.basis[pending_bar],
-                                band.stddev[pending_bar],
-                                fill,
-                                candidate_risk,
-                                d,
-                                rules,
-                            )
-                            legs.target[leg] = (
-                                bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
-                            )
-                    written, in_position = bracket.resolve_brackets(
-                        out,
-                        written,
-                        trade,
-                        stop,
-                        legs,
-                        excursion,
-                        bars,
-                        i,
-                        costs,
-                        fills,
-                    )
-                    if written < 0:
-                        return -1
+            # A force-flat bar is filled like any other; the session-close handler runs
+            # after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
+            # bar, and is flattened at its close".
+            d = pending_direction
+            fill = bars.open_[i] + d * slippage
+            candidate_stop = _protective_stop(bars, band, pending_bar, fill, d, rules)
+            candidate_risk = d * (fill - candidate_stop)
+            # A stop at or through the price it protects is not a stop order --
+            # ``docs/nt8-fidelity.md`` §M18.
+            if candidate_risk >= min_risk:
+                trade_id += 1
+                trade = bracket.OpenTrade(
+                    trade_id=trade_id,
+                    entry_bar=i,
+                    entry_price=fill,
+                    initial_stop=candidate_stop,
+                    risk=candidate_risk,
+                    direction=d,
+                    filled_at_open=True,
+                )
+                stop = candidate_stop
+                entry_extreme = band.excursion_extreme[pending_bar]
+                excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                for leg in range(n_legs):
+                    legs.is_open[leg] = True
+                    if np.isnan(target_levels[leg]):
+                        legs.target[leg] = np.nan
+                    else:
+                        # Both the basis and the dispersion are the signal bar's.
+                        raw = _leg_target(
+                            target_levels[leg],
+                            band.basis[pending_bar],
+                            band.stddev[pending_bar],
+                            fill,
+                            candidate_risk,
+                            d,
+                            rules,
+                        )
+                        legs.target[leg] = (
+                            bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
+                        )
+                written, in_position = bracket.resolve_brackets(
+                    out,
+                    written,
+                    trade,
+                    stop,
+                    legs,
+                    excursion,
+                    bars,
+                    i,
+                    costs,
+                    fills,
+                )
+                if written < 0:
+                    return -1
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's orders --------------------------

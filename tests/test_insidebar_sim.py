@@ -133,8 +133,14 @@ def test_slippage_on_the_entry_takes_the_direction_sign() -> None:
     assert short_side["entry_price"].iloc[0] == pytest.approx(100.0 - 2 * TICK)
 
 
-def test_the_order_is_cancelled_at_the_flatten_point() -> None:
-    assert run(FLAT, signal_at=[1], force_flat_at=[2], atr=40.0).empty
+def test_the_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
+    """NT8 fills the resting order and only then flattens -- ``docs/nt8-fidelity.md``,
+    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    trades = run(FLAT, signal_at=[1], force_flat_at=[2], atr=40.0)
+    assert list(trades["entry_bar"].unique()) == [2]
+    assert set(trades["exit_reason"]) == {"session_close"}
+    assert list(trades["exit_bar"].unique()) == [2]
+    assert trades["exit_price"].unique() == pytest.approx([100.0])  # bar 2's close
 
 
 def test_a_signal_on_a_force_flat_bar_is_blocked_when_asked() -> None:

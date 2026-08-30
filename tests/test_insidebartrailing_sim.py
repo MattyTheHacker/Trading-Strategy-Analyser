@@ -450,8 +450,14 @@ def test_a_position_open_at_the_last_bar_liquidates_every_lot_there() -> None:
     assert list(trades["exit_bar"]) == [len(QUIET) - 1] * 2
 
 
-def test_the_entry_orders_are_cancelled_at_the_flatten_point() -> None:
-    assert run(QUIET, signal_at=[1], force_flat_at=[2]).empty
+def test_the_entry_orders_fill_at_the_flatten_point_and_both_lots_are_flattened() -> None:
+    """NT8 fills the resting orders and only then flattens -- ``docs/nt8-fidelity.md``,
+    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    trades = run(QUIET, signal_at=[1], force_flat_at=[2])
+    assert list(trades["entry_bar"]) == [2, 2]
+    assert list(trades["exit_reason"]) == ["session_close", "session_close"]
+    assert list(trades["exit_bar"]) == [2, 2]
+    assert trades["exit_price"].unique() == pytest.approx([100.0])  # bar 2's close
 
 
 def test_a_signal_on_a_force_flat_bar_is_blocked_when_asked() -> None:

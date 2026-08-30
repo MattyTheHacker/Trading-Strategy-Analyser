@@ -367,21 +367,41 @@ def test_no_entry_is_taken_on_a_force_flat_bar() -> None:
     assert trades.empty
 
 
-def test_a_resting_order_is_cancelled_rather_than_filled_at_the_flatten_point() -> None:
+def test_a_resting_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
     # block_entry_at_session_close only stops a *new* signal being accepted on a
-    # force-flat bar (see test_no_entry_is_taken_on_a_force_flat_bar); it does not reach
-    # an order that rested from the bar before. Bar 1 here is the same gap-through-trigger
-    # shape as test_gap_through_the_trigger_fills_at_the_open, so without cancellation this
-    # would fill -- the account rules forbid a new position once flat is required.
+    # force-flat bar (see test_no_entry_is_taken_on_a_force_flat_bar); an order resting
+    # from the bar before still fills, and the session-close handler then flattens it at
+    # this bar's close -- ``docs/nt8-fidelity.md``, "A resting entry fills on the
+    # force-flat bar, and is flattened at its close".
     trades = run(
         [
             (102, 104, 100, 101),  # 0: signal, trigger 100
-            (98, 99, 97, 98),  # 1: force-flat; would gap through the trigger
+            (98, 99, 97, 98),  # 1: force-flat; gaps through the trigger
         ],
         signal_at=[0],
         force_flat_at=[1],
     )
-    assert trades.empty
+    assert list(trades["entry_bar"].unique()) == [1]
+    assert trades["entry_price"].unique() == pytest.approx([98.0])
+    assert set(trades["exit_reason"]) == {"session_close"}
+    assert trades["exit_price"].unique() == pytest.approx([98.0])  # bar 1's close
+
+
+def test_an_entry_on_the_force_flat_bar_still_resolves_its_bracket_first() -> None:
+    # The flatten is last in resolve_brackets, so a leg that reached its target on the
+    # entry bar records that and only the remainder leaves at the close.
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5, 1R target 95.5
+            (99, 100, 95, 96),  # 1: force-flat; gaps in at 99 and reaches 95.5
+        ],
+        signal_at=[0],
+        force_flat_at=[1],
+    )
+    by_reason = trades.groupby("exit_reason").size()
+    assert by_reason["target"] == 1
+    assert by_reason["session_close"] == 3
+    assert trades.loc[trades["exit_reason"] == "target", "exit_price"].iloc[0] == pytest.approx(95.5)
 
 
 # -- ratcheting stop ----------------------------------------------------------

@@ -110,68 +110,69 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
         # ---- the entry order fills at this bar's open, unconditionally -------------------
         if not in_position and pending_bar >= 1 and pending_bar == i - 1:
-            # A bar at or past the flatten cutoff cancels the order rather than filling it.
-            if not bars.force_flat[i]:
-                d = pending_direction
-                fill = bars.open_[i] + d * slippage
-                # ``OnExecutionUpdate`` runs with the **signal** bar still current, so its
-                # ATR[0] is the signal bar's and its Low[1] is the inside bar's -- the bar
-                # before it. Both established leg-for-leg against a trade list, against an
-                # inference that had them one bar later -- ``docs/nt8-fidelity.md`` §M22.
-                bar_atr = atr[pending_bar]
-                adverse, _ = bracket.sided(bars.low[pending_bar - 1], bars.high[pending_bar - 1], d)
-                # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
-                # § "ATR-multiple brackets and the dollar floor".
-                stop_distance = bracket.atr_bracket_distance(
-                    bar_atr,
-                    rules.atr_multiplier,
-                    bracket.NO_BRACKET_FLOOR,
+            # A force-flat bar is filled like any other; the session-close handler runs
+            # after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
+            # bar, and is flattened at its close".
+            d = pending_direction
+            fill = bars.open_[i] + d * slippage
+            # ``OnExecutionUpdate`` runs with the **signal** bar still current, so its
+            # ATR[0] is the signal bar's and its Low[1] is the inside bar's -- the bar
+            # before it. Both established leg-for-leg against a trade list, against an
+            # inference that had them one bar later -- ``docs/nt8-fidelity.md`` §M22.
+            bar_atr = atr[pending_bar]
+            adverse, _ = bracket.sided(bars.low[pending_bar - 1], bars.high[pending_bar - 1], d)
+            # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
+            # § "ATR-multiple brackets and the dollar floor".
+            stop_distance = bracket.atr_bracket_distance(
+                bar_atr,
+                rules.atr_multiplier,
+                bracket.NO_BRACKET_FLOOR,
+            )
+            candidate_stop = adverse - d * stop_distance
+            if fills.round_targets:
+                # An ATR multiple lands off the grid, and an exchange takes a stop no more
+                # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
+                # the tick grid". Snapped before the risk, which the submittability test
+                # and every R multiple are measured from.
+                candidate_stop = bracket.round_to_tick(candidate_stop, costs.tick_size)
+            candidate_risk = d * (fill - candidate_stop)
+            # A stop at or through the price it protects is not a stop order --
+            # ``docs/nt8-fidelity.md`` §M18.
+            if candidate_risk >= min_risk:
+                trade_id += 1
+                trade = bracket.OpenTrade(
+                    trade_id=trade_id,
+                    entry_bar=i,
+                    entry_price=fill,
+                    initial_stop=candidate_stop,
+                    risk=candidate_risk,
+                    direction=d,
+                    filled_at_open=True,
                 )
-                candidate_stop = adverse - d * stop_distance
-                if fills.round_targets:
-                    # An ATR multiple lands off the grid, and an exchange takes a stop no more
-                    # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
-                    # the tick grid". Snapped before the risk, which the submittability test
-                    # and every R multiple are measured from.
-                    candidate_stop = bracket.round_to_tick(candidate_stop, costs.tick_size)
-                candidate_risk = d * (fill - candidate_stop)
-                # A stop at or through the price it protects is not a stop order --
-                # ``docs/nt8-fidelity.md`` §M18.
-                if candidate_risk >= min_risk:
-                    trade_id += 1
-                    trade = bracket.OpenTrade(
-                        trade_id=trade_id,
-                        entry_bar=i,
-                        entry_price=fill,
-                        initial_stop=candidate_stop,
-                        risk=candidate_risk,
-                        direction=d,
-                        filled_at_open=True,
+                stop = candidate_stop
+                excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                raw_target = fill + d * bar_atr
+                for leg in range(n_legs):
+                    legs.is_open[leg] = True
+                    legs.target[leg] = (
+                        bracket.round_to_tick(raw_target, costs.tick_size)
+                        if fills.round_targets
+                        else raw_target
                     )
-                    stop = candidate_stop
-                    excursion = bracket.Excursion(bars.high[i], bars.low[i])
-                    raw_target = fill + d * bar_atr
-                    for leg in range(n_legs):
-                        legs.is_open[leg] = True
-                        legs.target[leg] = (
-                            bracket.round_to_tick(raw_target, costs.tick_size)
-                            if fills.round_targets
-                            else raw_target
-                        )
-                    written, in_position = bracket.resolve_brackets(
-                        out,
-                        written,
-                        trade,
-                        stop,
-                        legs,
-                        excursion,
-                        bars,
-                        i,
-                        costs,
-                        fills,
-                    )
-                    if written < 0:
-                        return -1
+                written, in_position = bracket.resolve_brackets(
+                    out,
+                    written,
+                    trade,
+                    stop,
+                    legs,
+                    excursion,
+                    bars,
+                    i,
+                    costs,
+                    fills,
+                )
+                if written < 0:
+                    return -1
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's entry -------------------------------
