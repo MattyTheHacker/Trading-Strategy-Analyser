@@ -24,8 +24,8 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_null import rebuild
 from tools.campaign_report import load
+from tools.campaign_shortlist import rebuild
 
 from nqbt import archetypes, dispersion, logsetup, randomentry, resample, stats, sweep
 from nqbt.instruments import get_instrument

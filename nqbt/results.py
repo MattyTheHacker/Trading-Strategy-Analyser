@@ -328,14 +328,22 @@ def save_trades(
     sweep_id: int,
     combo_id: int,
     db_path: Path = paths.SWEEPS_DB,
+    *,
+    replace: bool = False,
 ) -> None:
     """Store one combination's trade log, for a shortlisted candidate worth inspecting.
 
     The frame carries its own ``source`` and ``instrument`` tags, so simulated and imported
-    trades share this table.
+    trades share this table. ``replace`` drops whatever is stored under the same
+    ``(sweep_id, combo_id)`` first, so storing a log twice replaces it rather than doubling it.
     """
     con: duckdb.DuckDBPyConnection = connect(db_path)
     try:
+        if replace and _table_exists(con, "trades"):
+            con.execute(
+                "DELETE FROM trades WHERE sweep_id = ? AND combo_id = ?",
+                [sweep_id, combo_id],
+            )
         tagged: pd.DataFrame = trades.copy()
         tagged.insert(0, "combo_id", combo_id)
         tagged.insert(0, "sweep_id", sweep_id)
