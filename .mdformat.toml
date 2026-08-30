@@ -1,0 +1,15 @@
+# Both defaults are wrong for this repository, and CI enforces the corrected pair.
+# `wrap = "no"` is the house style; `number = true` keeps ordered lists at 1./2./3.
+# rather than flattening every item to 1.
+number = true
+wrap = "no"
+
+# `.claude/rules/*.md` carry `paths:` front matter and mdformat has no front-matter
+# plugin installed, so formatting them rewrites the delimiters and the rules stop
+# loading. The other three are the venv and the two submodules.
+exclude = [
+    ".claude/**",
+    ".venv/**",
+    "Trading-Docs/**",
+    "ninjatrader-scripts/**",
+]

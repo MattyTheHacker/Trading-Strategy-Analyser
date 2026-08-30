@@ -164,7 +164,7 @@ In plain terms: trying every combination and keeping the best one finds somethin
 
 **DeadCatBounce specifically** stays the reconciled test fixture. It is unprofitable across every combination tested, stratifying by regime or session phase does not rescue it ([docs/roadmap.md](docs/roadmap.md) § "Stored sweeps — dropped and re-run, stratified"), and its entry rule is still measurably better than random (§M7a) — which is "the loss is in costs, hold time or bracket geometry", not "the entry rule is worthless".
 
-**Instrument scaling is exact.** Running the same NQ bars through both instrument specs gives byte-identical trade geometry — entry and exit bars, prices, stops, targets,`r_multiple`, `risk_points` — and gross P&L of exactly ×10 on *every individual leg* (min ratio = max ratio = 10.0000000000), while per-contract commission correctly does not scale. That is the check that would catch a dollar figure hardcoded to one instrument.
+**Instrument scaling is exact.** Running the same NQ bars through both instrument specs gives byte-identical trade geometry — entry and exit bars, prices, stops, targets, `r_multiple`, `risk_points` — and gross P&L of exactly ×10 on *every individual leg* (min ratio = max ratio = 10.0000000000), while per-contract commission correctly does not scale. That is the check that would catch a dollar figure hardcoded to one instrument.
 
 ## Known limitations
 

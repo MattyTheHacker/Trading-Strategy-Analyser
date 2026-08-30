@@ -136,3 +136,8 @@ jobs:
 
       - name: Run PyMarkdown scan
         run: pymarkdown scan --recurse .
+
+      # The job name is a required status check in the ruleset, so it stays as it is
+      # even though this step is not PyMarkdown. Exclusions live in .mdformat.toml.
+      - name: Run mdformat check
+        run: mdformat --check .
