@@ -22,10 +22,10 @@ Code should be readable on its own terms. Prefer a clearer name, a smaller funct
 
 Two homes, and they are not interchangeable:
 
-| goes in | what it holds |
-|---|---|
-| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it |
-| [`docs/roadmap.md`](docs/roadmap.md) | planned work in dependency order, the reasoning behind it, and the standing traps |
+| goes in                                        | what it holds                                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it    |
+| [`docs/roadmap.md`](docs/roadmap.md)           | planned work in dependency order, the reasoning behind it, and the standing traps |
 
 A pointer must name a section that exists, in the form the source already uses:
 
@@ -110,9 +110,10 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 ./.venv/Scripts/ruff format --check .
 ./.venv/Scripts/mypy nqbt
 ./.venv/Scripts/pymarkdown scan $(git ls-files '*.md')
+./.venv/Scripts/python.exe -m mdformat --check .
 ```
 
-CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead.
+CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead. `mdformat` takes a bare `.` in both places because its exclusions live in [`.mdformat.toml`](.mdformat.toml) rather than on the command line.
 
 **`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt`, `ruff format --check .` and `mypy nqbt`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated; running them over the whole tree is still worth doing, but only the package's count has to stay at zero.
 
@@ -139,6 +140,22 @@ Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves
 A "ruff auto-fix" pull request once reached into an `@njit` loop and rewrote `simulate_deadcat`'s MAE/MFE tracking, and inverted the branch in `archive.py` implementing "the newest bar may insert but never overwrite". Both were equivalent on inspection — and inspection is not the gate.
 
 **Read what an auto-fixer touched under `nqbt/sim/` before merging, not after**, and run the trade-log gate over it. A lint pull request is the last place anyone looks for a simulator change.
+
+### Markdown
+
+**Two tools run over the Markdown and they do different jobs.** `pymarkdown` is the linter — duplicate headings, bare URLs, a fence with no language, an empty link. `mdformat` is the formatter: it reparses each file and re-emits it canonically, which covers paragraph reflow, table padding, list markers and link-reference ordering. Neither substitutes for the other. `pymarkdown` **cannot** be configured to do `mdformat`'s job, because no rule exists for most of it — it has no table rules at all, and `MD013` measures line length without being able to fix it.
+
+**When the Markdown job fails, run this and commit the result:**
+
+```bash
+./.venv/Scripts/python.exe -m mdformat .
+```
+
+**Do not override either setting on the command line.** Both live in [`.mdformat.toml`](.mdformat.toml), which `mdformat` discovers from the repository root, and both replace a default that would rewrite every file: `wrap = "no"` is the house style — **prose is not hard-wrapped; one line per paragraph, blank line between** — where the default, `keep`, reflows nothing, and `number = true` keeps ordered lists at `1./2./3.` where the default flattens every item to `1.`. A flag beats the file, so one run with `--wrap keep` undoes the style for everything it touches.
+
+`MD029` is set to `ordered` to catch that second case from the other side. Its default, `one_or_ordered`, accepts both numbering styles, so `pymarkdown` alone would pass a file whose ordered lists had all been flattened to `1.`.
+
+**`.claude/rules/*.md` are excluded and must stay excluded.** They carry `paths:` front matter, no front-matter plugin is installed, and formatting them rewrites the delimiters into a thematic break and a bullet list — after which the rules stop loading for the files they cover, and nothing reports it. That exclusion is why those files are still hard-wrapped while everything else is not.
 
 ## The trade-log regression gate
 
@@ -170,18 +187,18 @@ Points that have each cost time:
 
 ### The ten verbs
 
-| verb | for |
-|---|---|
-| `Add` | a new capability, file, test or guard — also what `implement`, `introduce`, `create`, `store` and `support` become |
-| `Fix` | a defect corrected, including one found against NT8 |
-| `Update` | an existing thing changed — `change`, `modify`, `set` |
-| `Remove` | a deletion — `drop`, `delete` |
-| `Refactor` | structure changed, behaviour held — `simplify`, `clean up`, `reduce` |
-| `Move` | relocated or renamed — `migrate`, `rename` |
-| `Document` | docs, README, roadmap, decision records — `record`, `plan`, `note` |
-| `Bump` | a dependency version, which is mostly Dependabot's |
-| `Port` | NinjaScript translated into Python — a Tier 1/Tier 2 term, not a synonym for `Add` |
-| `Reconcile` | checked against a real NT8 trade list — also `pin`, as in pinning an indicator against NT8 |
+| verb        | for                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `Add`       | a new capability, file, test or guard — also what `implement`, `introduce`, `create`, `store` and `support` become |
+| `Fix`       | a defect corrected, including one found against NT8                                                                |
+| `Update`    | an existing thing changed — `change`, `modify`, `set`                                                              |
+| `Remove`    | a deletion — `drop`, `delete`                                                                                      |
+| `Refactor`  | structure changed, behaviour held — `simplify`, `clean up`, `reduce`                                               |
+| `Move`      | relocated or renamed — `migrate`, `rename`                                                                         |
+| `Document`  | docs, README, roadmap, decision records — `record`, `plan`, `note`                                                 |
+| `Bump`      | a dependency version, which is mostly Dependabot's                                                                 |
+| `Port`      | NinjaScript translated into Python — a Tier 1/Tier 2 term, not a synonym for `Add`                                 |
+| `Reconcile` | checked against a real NT8 trade list — also `pin`, as in pinning an indicator against NT8                         |
 
 `Port` and `Reconcile` are here because the prime directive needs them: "Port InsideBar.cs as the third C#-backed archetype" is not `Add`, and "Reconcile InsideBar against its NT8 trade list" is not `Fix`. The other eight are generic.
 
@@ -239,5 +256,5 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 - **Say what a statistic was computed over.** Per trade or per leg, whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
 - **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse resolution.
 
-[#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
+[#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91

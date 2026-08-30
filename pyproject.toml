@@ -33,6 +33,7 @@ dev = [
     "mypy==2.3.1",
     "pandas-stubs==3.0.5.260730",
     "pymarkdownlnt==0.9.39",
+    "mdformat-gfm==1.0.0",
 ]
 
 
@@ -58,6 +59,12 @@ enabled = true
 
 [tool.pymarkdown.plugins.MD013]
 enabled = false
+
+
+# The default, one_or_ordered, accepts both 1./2./3. and 1./1./1., so it cannot
+# tell a bare mdformat run from a configured one. This is what catches it.
+[tool.pymarkdown.plugins.MD029]
+style = "ordered"
 
 
 [tool.coverage.report]
