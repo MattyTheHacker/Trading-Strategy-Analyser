@@ -375,7 +375,6 @@ def run_point(
     window: str,
     batch_id: int,
     which: str,
-   
     n_jobs: int,
 ) -> None:
     """Sweep every variant x stratum at one (root, archetype, resolution, window) point.
