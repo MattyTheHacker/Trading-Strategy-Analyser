@@ -8,6 +8,9 @@ while every contract agreeing on the sign is not -- ``docs/roadmap.md`` §M26.
 
 Per contract rather than spliced because ATR and the moving averages both step at a roll seam,
 and because a spliced series hides whether an edge is two good quarters wide.
+
+The tally is a sign count over contracts on ``expectancy``, which is bounded where a profit
+factor is not -- ``docs/roadmap.md`` § "Reading the per-contract tally".
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ import logging
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 # Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
@@ -31,9 +33,6 @@ from nqbt import archetypes, dispersion, logsetup, randomentry, resample, stats,
 from nqbt.instruments import get_instrument
 
 logger = logging.getLogger(__name__)
-
-MIN_TRADES = 30
-"""Contracts producing fewer trades than this are reported but not counted in the tally."""
 
 
 def chosen(
@@ -75,7 +74,15 @@ def one_contract(
         data.day_codes,
     )
     if observed.trades == 0:
-        return {"trades": 0, "profit_factor": float("nan"), "null_pf": float("nan")}
+        return {
+            "trades": 0,
+            "profit_factor": float("nan"),
+            "expectancy": float("nan"),
+            "net_pnl": float("nan"),
+            "null_expectancy": float("nan"),
+            "null_trades": float("nan"),
+            "excess": float("nan"),
+        }
     null: pd.DataFrame = randomentry.null_summaries(
         data,
         params,
@@ -84,14 +91,15 @@ def one_contract(
         iterations=iterations,
         n_jobs=n_jobs,
     )
-    finite: pd.Series = null["profit_factor"][np.isfinite(null["profit_factor"])]  # type: ignore[type-arg]  # a float column
+    null_expectancy: float = float(null["expectancy"].median())
     return {
         "trades": observed.trades,
         "profit_factor": observed.profit_factor,
+        "expectancy": observed.expectancy,
         "net_pnl": observed.net_pnl,
-        "null_pf": float(finite.median()) if len(finite) else float("nan"),
+        "null_expectancy": null_expectancy,
         "null_trades": float(null["trades"].median()),
-        "excess": observed.profit_factor - (float(finite.median()) if len(finite) else float("nan")),
+        "excess": observed.expectancy - null_expectancy,
     }
 
 
@@ -124,31 +132,38 @@ def run_root(
         )
         rows.append({"root": root, "contract": contract, **result})
         logger.info(
-            "  %-10s trades %6s  PF %6s  null %6s  excess %+7s",
+            "  %-10s trades %6s  PF %6s  expectancy %8s  null %8s  excess %8s",
             contract,
             f"{int(result['trades']):,}",
             f"{result['profit_factor']:.3f}",
-            f"{result['null_pf']:.3f}",
-            f"{result.get('excess', float('nan')):.3f}",
+            f"{result['expectancy']:.2f}",
+            f"{result['null_expectancy']:.2f}",
+            f"{result['excess']:+.2f}",
         )
     return pd.DataFrame(rows)
 
 
 def tally(frame: pd.DataFrame) -> pd.DataFrame:
-    """How many contracts beat their own null, and how many simply made money."""
+    """How many contracts beat their own null, and how many simply made money.
+
+    The verdict is the sign tally; the medians beside it describe the spread and never carry it.
+    ``docs/roadmap.md`` § "Reading the per-contract tally".
+    """
     rows: list[dict[str, object]] = []
     for root, block in frame.groupby("root"):
-        viable: pd.DataFrame = block[block["trades"] >= MIN_TRADES]
+        traded: pd.DataFrame = block[block["trades"] > 0]
         rows.append(
             {
                 "root": root,
-                "contracts": len(viable),
-                "beats_null": int((viable["excess"] > 0).sum()),
-                "profitable": int((viable["profit_factor"] > 1.0).sum()),
-                "mean_pf": viable["profit_factor"].mean(),
-                "mean_null_pf": viable["null_pf"].mean(),
-                "mean_excess": viable["excess"].mean(),
-                "total_net": viable["net_pnl"].sum(),
+                "contracts": len(traded),
+                "median_trades": traded["trades"].median(),
+                "fewest_trades": traded["trades"].min(),
+                "beats_null": int((traded["excess"] > 0).sum()),
+                "profitable": int((traded["expectancy"] > 0).sum()),
+                "median_expectancy": traded["expectancy"].median(),
+                "median_null_expectancy": traded["null_expectancy"].median(),
+                "median_excess": traded["excess"].median(),
+                "total_net": traded["net_pnl"].sum(),
             },
         )
     return pd.DataFrame(rows)
