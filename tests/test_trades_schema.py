@@ -358,9 +358,7 @@ def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -
     could no longer annotate real trades with it.
     """
     for lower in ("context.py", "trades.py", "stats.py", "conditions.py", "indicators.py"):
-        assert "nqbt.archetypes" not in imports_of(lower), (
-            f"nqbt/{lower} must not import the archetype registry"
-        )
+        assert "nqbt.archetypes" not in imports_of(lower), f"nqbt/{lower} must not import the archetype registry"
     # And the premise: it really does reach down, so the rule above is a rule and not a
     # description of a module that happens to import nothing.
     assert "nqbt.sim" in imports_of("archetypes.py")

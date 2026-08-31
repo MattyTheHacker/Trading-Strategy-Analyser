@@ -214,9 +214,7 @@ def test_needs_ma_values_keeps_the_raw_averages() -> None:
     with pytest.raises(ValueError, match="keep_values=True"):
         gates_only.ma_values("ema", 9)
 
-    with_values = context.prepare(
-        bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(9, 21)), needs_ma_values=True)
-    )
+    with_values = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(9, 21)), needs_ma_values=True))
     assert with_values.ma_values("ema", 9).shape == (len(with_values),)
 
 
@@ -246,9 +244,7 @@ def test_the_session_clock_gate_admits_a_bar_strictly_outside_the_window() -> No
         pd.to_datetime(["2024-01-16 20:59:00", "2024-01-16 21:00:00", "2024-01-16 22:00:00"], utc=True),
     )
     frame = bars(len(idx)).set_index(idx)
-    data = context.prepare(
-        frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True)
-    )
+    data = context.prepare(frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True))
 
     assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
     assert list(data.session_end_gate(60)) == [True, False, False]
@@ -262,9 +258,7 @@ def test_the_no_entry_window_follows_a_holiday_early_close_too() -> None:
         pd.to_datetime(["2024-01-15 16:59:00", "2024-01-15 17:00:00", "2024-01-15 18:00:00"], utc=True),
     )
     frame = bars(len(idx)).set_index(idx)
-    data = context.prepare(
-        frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True)
-    )
+    data = context.prepare(frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True))
 
     assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
     assert list(data.session_end_gate(60)) == [True, False, False]
@@ -304,7 +298,5 @@ def test_the_union_of_two_specs_carries_the_band_periods() -> None:
 
 def test_the_band_grid_counts_towards_what_a_worker_is_handed() -> None:
     without = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
-    with_band = context.prepare(
-        bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), band_periods=(20,))
-    )
+    with_band = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), band_periods=(20,)))
     assert with_band.nbytes == without.nbytes + with_band.band.nbytes

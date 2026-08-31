@@ -237,9 +237,7 @@ MCL = Instrument(
     exchange="NYMEX",
 )
 
-INSTRUMENTS: dict[str, Instrument] = {
-    inst.symbol: inst for inst in (NQ, MNQ, ES, MES, GC, MGC, SI, SIL, CL, MCL)
-}
+INSTRUMENTS: dict[str, Instrument] = {inst.symbol: inst for inst in (NQ, MNQ, ES, MES, GC, MGC, SI, SIL, CL, MCL)}
 
 
 def get_instrument(symbol: str) -> Instrument:
@@ -285,10 +283,7 @@ class ContractId:
             raise ValueError(msg) from None
         if self.month not in instrument.contract_months:
             listed: str = "".join(MONTH_CODES[m] for m in sorted(instrument.contract_months))
-            msg = (
-                f"{self}: {self.root} lists {sorted(instrument.contract_months)} "
-                f"({listed}), not month {self.month}"
-            )
+            msg = f"{self}: {self.root} lists {sorted(instrument.contract_months)} ({listed}), not month {self.month}"
             raise ValueError(msg)
 
     @classmethod

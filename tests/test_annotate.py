@@ -722,9 +722,7 @@ def test_a_dataset_with_no_bars_is_refused() -> None:
         ],
     )
     with pytest.raises(AnnotationError, match="no bars"):
-        annotate.annotate_trades(
-            log, context.prepare(empty, ContextSpec(ma_keys=conditions.ma_keys(ema=(3,))))
-        )
+        annotate.annotate_trades(log, context.prepare(empty, ContextSpec(ma_keys=conditions.ma_keys(ema=(3,)))))
 
 
 def test_an_empty_log_annotates_to_an_empty_frame_carrying_the_same_columns() -> None:

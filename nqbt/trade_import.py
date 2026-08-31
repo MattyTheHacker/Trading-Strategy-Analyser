@@ -332,9 +332,7 @@ def _timestamps(column: pd.Series[str], source: str) -> pd.Series[pd.Timestamp]:
 
 def _localise(times: pd.Series[pd.Timestamp], timezone: str) -> pd.Series[pd.Timestamp]:
     """Attach the export's display zone and convert to UTC, which the bar cache is in."""
-    localised: pd.Series[pd.Timestamp] = times.dt.tz_localize(
-        timezone, ambiguous="infer", nonexistent="shift_forward"
-    )
+    localised: pd.Series[pd.Timestamp] = times.dt.tz_localize(timezone, ambiguous="infer", nonexistent="shift_forward")
     return localised.dt.tz_convert("UTC")
 
 
@@ -435,9 +433,7 @@ def _check_declared_directions(fills: pd.DataFrame, column: pd.Series[str], sour
     """Cross-check ``E/X`` against the position walk, the only independent test of the parse."""
     declared: BoolArray = column.str.strip().eq(EXIT).to_numpy()[::-1]
     positions: IntArray = fills["position"].to_numpy(np.int64)
-    previous: IntArray = np.concatenate(
-        ([_opening_position(positions, fills["signed"].to_numpy())], positions[:-1])
-    )
+    previous: IntArray = np.concatenate(([_opening_position(positions, fills["signed"].to_numpy())], positions[:-1]))
     # A fill that crosses zero both closes and opens, so only the unambiguous ones are checked.
     crosses: BoolArray = np.sign(positions) * np.sign(previous) < 0
     walked: BoolArray = np.abs(positions) < np.abs(previous)

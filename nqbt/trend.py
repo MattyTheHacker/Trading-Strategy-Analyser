@@ -377,9 +377,7 @@ def trend_grid(close: FloatArray, keys: Iterable[TrendKey]) -> TrendGrid:
     costs a fraction of the shared grid's, and nothing outside this function ever sees it --
     ``docs/roadmap.md`` §M10.3.
     """
-    ordered: tuple[TrendKey, ...] = tuple(
-        sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys})
-    )
+    ordered: tuple[TrendKey, ...] = tuple(sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys}))
     if not ordered:
         msg: str = "no trend labels supplied"
         raise TrendError(msg)

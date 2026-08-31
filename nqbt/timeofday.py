@@ -51,20 +51,13 @@ class SessionPhase(IntEnum):
     Why seven and why these: ``docs/roadmap.md`` §M10.4.
     """
 
-    OVERNIGHT = 0
-    """18:00-03:00 ET. The session open through the Asian hours."""
-    LONDON = 1
-    """03:00-07:00 ET, the European cash session."""
-    PRE_OPEN = 2
-    """07:00-09:30 ET. US pre-market, and where the day's economic releases land."""
-    CASH_OPEN = 3
-    """09:30-10:30 ET, the first hour of US cash trading."""
-    MIDDAY = 4
-    """10:30-14:00 ET, the midday lull."""
-    AFTERNOON = 5
-    """14:00-16:00 ET, through the cash close."""
-    CLOSE = 6
-    """16:00-17:00 ET. **Structurally anomalous**: it contains the forced flat."""
+    OVERNIGHT = 0  # 18:00-03:00 ET. The session open through the Asian hours.
+    LONDON = 1  # 03:00-07:00 ET, the European cash session.
+    PRE_OPEN = 2  # 07:00-09:30 ET. US pre-market, and where the day's economic releases land.
+    CASH_OPEN = 3  # 09:30-10:30 ET, the first hour of US cash trading.
+    MIDDAY = 4  # 10:30-14:00 ET, the midday lull.
+    AFTERNOON = 5  # 14:00-16:00 ET, through the cash close.
+    CLOSE = 6  # 16:00-17:00 ET. **Structurally anomalous**: it contains the forced flat.
 
     @property
     def bit(self) -> int:
@@ -110,9 +103,7 @@ def phases_in(mask: int) -> tuple[SessionPhase, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no phase owns."""
     if mask < 0 or mask & ~ALL_PHASES:
-        msg: str = (
-            f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
-        )
+        msg: str = f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
         raise TimeOfDayError(msg)
     if mask == 0:
         msg = "phase mask 0 admits no phase, so every combination along it would trade nothing"
@@ -216,12 +207,9 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
 class TimeOfDay:
     """Both forms of the clock for one series, aligned to its index."""
 
-    phase: LabelArray
-    """``int8`` :class:`SessionPhase` per bar, :data:`OUT_OF_SESSION` outside a session."""
-    phase_bits: BitsArray
-    """``uint8`` ``1 << phase``, ``0`` out of session -- see :func:`bits_from_phase`."""
-    bar_of_session: IndexArray
-    """``int32`` zero-based bar index from the session open, :data:`OUT_OF_SESSION` outside."""
+    phase: LabelArray  # ``int8`` :class:`SessionPhase` per bar, :data:`OUT_OF_SESSION` outside a session.
+    phase_bits: BitsArray  # ``uint8`` ``1 << phase``, ``0`` out of session -- see :func:`bits_from_phase`.
+    bar_of_session: IndexArray  # ``int32`` zero-based bar index from the session open, :data:`OUT_OF_SESSION` outside.
     bar_minutes: int
     """The bar size :attr:`bar_of_session` was computed at."""
 

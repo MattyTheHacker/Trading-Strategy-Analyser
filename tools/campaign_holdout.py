@@ -59,9 +59,7 @@ def paired(name: str) -> pd.DataFrame:
     if selection.empty or holdout.empty:
         return pd.DataFrame()
 
-    parameters: list[str] = [
-        column for column in selection.columns if column not in TAGS and column not in STATISTICS
-    ]
+    parameters: list[str] = [column for column in selection.columns if column not in TAGS and column not in STATISTICS]
     merged: pd.DataFrame = selection.merge(
         holdout,
         on=JOIN_KEYS,

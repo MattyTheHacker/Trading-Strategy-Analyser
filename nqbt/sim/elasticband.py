@@ -276,9 +276,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                             d,
                             rules,
                         )
-                        legs.target[leg] = (
-                            bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
-                        )
+                        legs.target[leg] = bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
                 written, in_position = bracket.resolve_brackets(
                     out,
                     written,

@@ -300,9 +300,7 @@ def infer_periods(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> dict[str, 
             continue
         for period in range(1, 401):
             ours = indicators.nt8_ema(closes, period)
-            if np.allclose(
-                ours[usable.to_numpy()], theirs[usable].to_numpy(np.float64), rtol=0, atol=MA_TOLERANCE
-            ):
+            if np.allclose(ours[usable.to_numpy()], theirs[usable].to_numpy(np.float64), rtol=0, atol=MA_TOLERANCE):
                 found[label] = period
                 break
     return found

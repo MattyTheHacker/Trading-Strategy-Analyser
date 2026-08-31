@@ -286,9 +286,7 @@ def test_reading_time_of_day_nobody_declared_names_the_spec_field_to_set() -> No
 
 def test_time_of_day_is_present_and_counted_when_the_spec_asks() -> None:
     plain = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
-    asked = context.prepare(
-        bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_time_of_day=True)
-    )
+    asked = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_time_of_day=True))
     assert asked.phase_values().shape == (len(asked),)
     assert asked.bar_of_session().shape == (len(asked),)
     assert asked.phase_gate(CASH_OPEN.bit).dtype == np.bool_
@@ -459,9 +457,6 @@ def test_the_seven_single_phase_filters_partition_the_unfiltered_signal() -> Non
         ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), needs_time_of_day=True),
     )
     whole = deadcat_signal(data, DeadCatParams(bars_required_to_trade=20))
-    parts = [
-        deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, phase_filter=p.bit))
-        for p in SessionPhase
-    ]
+    parts = [deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, phase_filter=p.bit)) for p in SessionPhase]
     assert sum(int(part.sum()) for part in parts) == int(whole.sum())
     assert np.array_equal(np.logical_or.reduce(parts), whole)

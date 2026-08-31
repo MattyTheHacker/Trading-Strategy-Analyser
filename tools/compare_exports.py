@@ -150,9 +150,7 @@ def main(argv: list[str]) -> int:
         logger.info("*** The exporter's timezone conversion is wrong; do not ingest this folder.")
         logger.info("%s", shifted[["shift_h", "shifted_match"]].to_string())
         logger.info("")
-        logger.info(
-            "*** Once the shift is undone the bars agree on %s of shared timestamps.", f"{agreement:.1%}"
-        )
+        logger.info("*** Once the shift is undone the bars agree on %s of shared timestamps.", f"{agreement:.1%}")
         logger.info("*** %s", verdict)
         return 2
 
@@ -171,9 +169,7 @@ def main(argv: list[str]) -> int:
         "contracts where the baseline has bars the candidate lacks: %d",
         int((table["only_baseline"] > 0).sum()),
     )
-    logger.info(
-        "contracts with differing values on shared timestamps: %d", int((table["differing"] > 0).sum())
-    )
+    logger.info("contracts with differing values on shared timestamps: %d", int((table["differing"] > 0).sum()))
 
     for result in details:
         logger.info("")

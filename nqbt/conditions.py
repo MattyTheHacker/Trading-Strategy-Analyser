@@ -356,10 +356,8 @@ class MovingAverageGrid:
 
     kind: str
     periods: IntArray
-    below: BoolArray
-    """``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`."""
-    above: BoolArray
-    """``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`."""
+    below: BoolArray  # ``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`.
+    above: BoolArray  # ``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`.
     values: FloatArray | None = None
     """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept.
 

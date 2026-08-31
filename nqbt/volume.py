@@ -158,9 +158,7 @@ def states_in(mask: int) -> tuple[VolumeState, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no state owns."""
     if mask < 0 or mask & ~ALL_STATES:
-        msg: str = (
-            f"volume mask {mask} sets bits outside 0..{ALL_STATES}; use VolumeState.bit or states_mask()"
-        )
+        msg: str = f"volume mask {mask} sets bits outside 0..{ALL_STATES}; use VolumeState.bit or states_mask()"
         raise VolumeError(msg)
     if mask == 0:
         msg = "volume mask 0 admits no state, so every combination along it would trade nothing"
@@ -215,10 +213,7 @@ def validate_thresholds(thin_below: float, heavy_above: float) -> None:
         msg = f"heavy_above must be >= 0, got {heavy_above}"
         raise VolumeError(msg)
     if thin_below > heavy_above:
-        msg = (
-            f"thin_below {thin_below} exceeds heavy_above {heavy_above}, "
-            "which would put a bar in both states at once"
-        )
+        msg = f"thin_below {thin_below} exceeds heavy_above {heavy_above}, which would put a bar in both states at once"
         raise VolumeError(msg)
 
 
@@ -578,9 +573,7 @@ def volume_grid(
     would never form them, so they are not session volume. Sixteen bytes per bar per key, and
     the baseline is the expensive pass -- ``docs/roadmap.md`` §M10.2.
     """
-    ordered: tuple[VolumeKey, ...] = tuple(
-        sorted({key(k.form, k.rolling_bars, k.baseline_sessions) for k in keys})
-    )
+    ordered: tuple[VolumeKey, ...] = tuple(sorted({key(k.form, k.rolling_bars, k.baseline_sessions) for k in keys}))
     if not ordered:
         msg: str = "no volume series supplied"
         raise VolumeError(msg)

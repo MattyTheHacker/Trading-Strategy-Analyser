@@ -129,9 +129,7 @@ def sides_in(mask: int) -> tuple[Side, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no side owns."""
     if mask < 0 or mask & ~ALL_SIDES:
-        msg: str = (
-            f"higher-timeframe mask {mask} sets bits outside 0..{ALL_SIDES}; use Side.bit or sides_mask()"
-        )
+        msg: str = f"higher-timeframe mask {mask} sets bits outside 0..{ALL_SIDES}; use Side.bit or sides_mask()"
         raise HigherTimeframeError(msg)
     if mask == 0:
         msg = "higher-timeframe mask 0 admits no side, so every combination along it would trade nothing"

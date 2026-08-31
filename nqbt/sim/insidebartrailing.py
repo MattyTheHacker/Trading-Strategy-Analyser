@@ -306,11 +306,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             fixed_stop = adverse - d * stop_distance
             # ``SetTrailStop`` takes a **tick count**, so the distance is computed as one
             # and converted back, exactly as the C# writes it.
-            distance = (
-                (bars.high[inside_bar] - bars.low[inside_bar])
-                / costs.tick_size
-                * rules.trailing_stop_multiplier
-            )
+            distance = (bars.high[inside_bar] - bars.low[inside_bar]) / costs.tick_size * rules.trailing_stop_multiplier
             trail_distance = distance * costs.tick_size
             trail_stop = fill - d * trail_distance
             if fills.round_targets:

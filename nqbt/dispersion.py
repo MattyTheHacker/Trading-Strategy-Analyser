@@ -20,30 +20,21 @@ from nqbt import ingest, paths, sessions, splice, stats, sweep
 from nqbt.instruments import MNQ, ContractId, Instrument
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from nqbt.arrays import FloatArray, IntArray
     from nqbt.sessions import SessionInfo
 
-MIN_CONTRACTS = 2
-"""Fewest contracts a spread can be measured across."""
-
-MIN_TRADES = 30
-"""Below this a per-contract statistic is reported but excluded from dispersion.
-
-Noise has the widest spread -- ``docs/roadmap.md`` §M14.
-"""
+MIN_CONTRACTS: int = 2  # Fewest contracts a spread can be measured across.
+MIN_TRADES: int = 30  # Below this a per-contract stat is reported but excluded from dispersion.
 
 
 class DispersionError(RuntimeError):
     """Raised when a per-contract sweep cannot be assembled."""
 
 
-def front_month_windows(
-    root: str,
-    back_adjust: bool = True,
-    cache_dir: Path = paths.CACHE_DIR,
-) -> pd.DataFrame:
+def front_month_windows(root: str, back_adjust: bool = True, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
     """Each contract's front-month window, read off the continuous series' ``contract`` column.
 
     The windows are therefore the splicer's decisions rather than a second opinion about where
@@ -149,11 +140,7 @@ def sweep_contracts(
     return results.merge(cover.drop(columns=["start", "end"]), on="contract"), cover, logs
 
 
-def dispersion(
-    results: pd.DataFrame,
-    by: str = "profit_factor",
-    min_trades: int = MIN_TRADES,
-) -> pd.DataFrame:
+def dispersion(results: pd.DataFrame, by: str = "profit_factor", min_trades: int = MIN_TRADES) -> pd.DataFrame:
     """How much ``by`` varies across contracts, per combination.
 
     **Rows come back in ``combo_id`` order, never sorted by performance** -- ``docs/roadmap.md``
@@ -178,9 +165,7 @@ def dispersion(
                 f"{by}_median": np.median(finite) if finite.size else np.nan,
                 f"{by}_min": finite.min() if finite.size else np.nan,
                 f"{by}_max": finite.max() if finite.size else np.nan,
-                f"{by}_iqr": (
-                    float(np.subtract(*np.percentile(finite, [75, 25]))) if finite.size else np.nan
-                ),
+                f"{by}_iqr": (float(np.subtract(*np.percentile(finite, [75, 25]))) if finite.size else np.nan),
                 f"{by}_range": float(finite.max() - finite.min()) if finite.size else np.nan,
             },
         )
@@ -195,12 +180,7 @@ def _range(values: FloatArray) -> float:
     return float(values.max() - values.min())
 
 
-SPREAD_MEASURES = {"iqr": _iqr, "range": _range}
-"""Both are reported, because they answer different questions.
-
-``iqr`` is robust and asks whether the bulk of contracts differ; ``range`` asks whether any one
-contract is extreme, which is the data-integrity question the IQR is blind to by construction.
-"""
+SPREAD_MEASURES: dict[str, Callable[[FloatArray], float]] = {"iqr": _iqr, "range": _range}
 
 
 def spread_vs_resampling(
@@ -229,9 +209,7 @@ def spread_vs_resampling(
             msg,
         )
 
-    grouped: dict[str, FloatArray] = {
-        c: stats.per_trade(log)["net_pnl"].to_numpy(float) for c, log in logs.items()
-    }
+    grouped: dict[str, FloatArray] = {c: stats.per_trade(log)["net_pnl"].to_numpy(float) for c, log in logs.items()}
     usable: dict[str, FloatArray] = {c: pnl for c, pnl in grouped.items() if pnl.size >= min_trades}
     if len(usable) < MIN_CONTRACTS:
         msg = f"need at least {MIN_CONTRACTS} contracts with >= {min_trades} trades; got {len(usable)}"

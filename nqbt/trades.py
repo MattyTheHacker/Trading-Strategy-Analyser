@@ -161,9 +161,7 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     """
     matrix, count = legs
     if matrix.ndim != LEG_MATRIX_NDIM or matrix.shape[1] != N_COLUMNS:
-        msg: str = (
-            f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
-        )
+        msg: str = f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
         raise TradeSchemaError(msg)
     if count > matrix.shape[0]:
         msg = f"count {count} exceeds the {matrix.shape[0]} rows allocated"
@@ -180,15 +178,11 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
 
     direction: FloatArray = rows[:, C_DIRECTION]
     if not ((direction == LONG) | (direction == SHORT)).all():
-        msg = (
-            f"direction must be {LONG} (long) or {SHORT} (short); found "
-            f"{sorted(set(direction) - {LONG, SHORT})}"
-        )
+        msg = f"direction must be {LONG} (long) or {SHORT} (short); found {sorted(set(direction) - {LONG, SHORT})}"
         raise TradeSchemaError(msg)
     if (rows[:, C_QUANTITY] <= 0).any():
         msg = (
-            "quantity must be positive on every row; a short position is expressed by "
-            "direction, not by a negative size"
+            "quantity must be positive on every row; a short position is expressed by direction, not by a negative size"
         )
         raise TradeSchemaError(msg)
     if (rows[:, C_LEG] < 1).any():
@@ -269,10 +263,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
 
     direction: IntArray = frame["direction"].to_numpy()
     if not ((direction == LONG) | (direction == SHORT)).all():
-        msg = (
-            f"direction must be {LONG} (long) or {SHORT} (short); found "
-            f"{sorted(set(direction) - {LONG, SHORT})}"
-        )
+        msg = f"direction must be {LONG} (long) or {SHORT} (short); found {sorted(set(direction) - {LONG, SHORT})}"
         raise TradeSchemaError(
             msg,
         )
@@ -282,8 +273,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(msg)
     if (frame["quantity"].to_numpy() <= 0).any():
         msg = (
-            "quantity must be positive on every row; a short position is expressed by "
-            "direction, not by a negative size"
+            "quantity must be positive on every row; a short position is expressed by direction, not by a negative size"
         )
         raise TradeSchemaError(
             msg,

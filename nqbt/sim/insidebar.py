@@ -156,9 +156,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     legs.target[leg] = (
-                        bracket.round_to_tick(raw_target, costs.tick_size)
-                        if fills.round_targets
-                        else raw_target
+                        bracket.round_to_tick(raw_target, costs.tick_size) if fills.round_targets else raw_target
                     )
                 written, in_position = bracket.resolve_brackets(
                     out,

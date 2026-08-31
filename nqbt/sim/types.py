@@ -853,8 +853,7 @@ class InsideBarTrailingParams(InsideBarParams):
             raise ValueError(msg)
         if self.position_update_loss_gate < 0.0:
             msg = (
-                f"position_update_loss_gate is a loss magnitude and must be >= 0, got "
-                f"{self.position_update_loss_gate}"
+                f"position_update_loss_gate is a loss magnitude and must be >= 0, got {self.position_update_loss_gate}"
             )
             raise ValueError(msg)
         if self.trailing_stop_multiplier < 1.0:

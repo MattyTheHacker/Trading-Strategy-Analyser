@@ -415,12 +415,9 @@ def _null(  # type: ignore[explicit-any]  # a condition's dtype is its own
 
     at, complete, dropped = _complete(pnl, labels)
     kept: FloatArray = np.asarray(pnl, dtype=np.float64)[at]
-    groupings: dict[str, _Grouping] = {
-        name: _group(complete[name], min_trades=min_trades) for name in complete.columns
-    }
+    groupings: dict[str, _Grouping] = {name: _group(complete[name], min_trades=min_trades) for name in complete.columns}
     observed: dict[str, Separation] = {
-        name: separate(kept, complete[name], statistic=statistic, min_trades=min_trades)
-        for name in complete.columns
+        name: separate(kept, complete[name], statistic=statistic, min_trades=min_trades) for name in complete.columns
     }
 
     rng: np.random.Generator = np.random.default_rng(seed)
@@ -673,9 +670,7 @@ def guard(
     """
     _check_statistic(by, argument="by")
     pnl, labels = _trades(log, annotation, conditions)
-    screened: pd.DataFrame = screen(
-        pnl, labels, statistic=by, min_trades=min_trades, iterations=iterations, seed=seed
-    )
+    screened: pd.DataFrame = screen(pnl, labels, statistic=by, min_trades=min_trades, iterations=iterations, seed=seed)
     held: list[Holdout] = [
         holdout_test(
             pnl,
@@ -727,9 +722,7 @@ def _trades(  # type: ignore[explicit-any]  # a condition's dtype is its own
     ordered: pd.DataFrame = per_trade.sort_values("entry_time", kind="stable")
     aligned: pd.DataFrame = reviewable.loc[ordered.index]
     chosen: tuple[str, ...] = _chosen(reviewable, annotation, conditions)
-    return ordered["net_pnl"].to_numpy(np.float64), {
-        name: aligned[name].reset_index(drop=True) for name in chosen
-    }
+    return ordered["net_pnl"].to_numpy(np.float64), {name: aligned[name].reset_index(drop=True) for name in chosen}
 
 
 def _chosen(

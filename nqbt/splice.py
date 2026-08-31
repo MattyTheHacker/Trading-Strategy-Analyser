@@ -125,8 +125,7 @@ class SpliceReport:
             "",
             "Segments:",
             *(
-                f"  {r.contract:<12} {r.start:%Y-%m-%d} -> {r.end:%Y-%m-%d}  {r.bars:>7,} bars"
-                f"  shift {r.shift:+.2f}"
+                f"  {r.contract:<12} {r.start:%Y-%m-%d} -> {r.end:%Y-%m-%d}  {r.bars:>7,} bars  shift {r.shift:+.2f}"
                 for r in self.segments.itertuples()
             ),
         ]
@@ -189,10 +188,7 @@ def detect_roll(
     notes: list[str] = []
 
     if table.empty:
-        msg: str = (
-            f"{front_id.nt8_name} and {back_id.nt8_name} share no in-session bars; "
-            "cannot determine a roll date"
-        )
+        msg: str = f"{front_id.nt8_name} and {back_id.nt8_name} share no in-session bars; cannot determine a roll date"
         raise SpliceError(
             msg,
         )
@@ -370,8 +366,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
             seg = seg[seg["trading_day"] < end]
         if seg.empty:
             warnings.append(
-                f"{contract.nt8_name} contributes no bars; its window was fully "
-                "consumed by the surrounding rolls",
+                f"{contract.nt8_name} contributes no bars; its window was fully consumed by the surrounding rolls",
             )
             continue
 
@@ -405,8 +400,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
 
     if back_adjust and float(series[["open", "high", "low", "close"]].min().min()) <= 0:
         warnings.append(
-            "back-adjustment drove prices to or below zero; the raw series is the only "
-            "usable one over this window",
+            "back-adjustment drove prices to or below zero; the raw series is the only usable one over this window",
         )
 
     # A coverage-boundary roll is the expected path for NT8 data and is not itself worth

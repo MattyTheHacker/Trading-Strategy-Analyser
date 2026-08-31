@@ -245,9 +245,7 @@ def trade_log() -> pd.DataFrame:
             "ambiguous_bar": [False, False, True],
             "exit_reason": ["target", "target", "stop"],
             "entry_time": pd.to_datetime(["2024-01-02 15:00"] * 3, utc=True),
-            "exit_time": pd.to_datetime(
-                ["2024-01-02 15:04", "2024-01-02 15:09", "2024-01-03 15:03"], utc=True
-            ),
+            "exit_time": pd.to_datetime(["2024-01-02 15:04", "2024-01-02 15:09", "2024-01-03 15:03"], utc=True),
         }
     )
 
@@ -367,9 +365,7 @@ def test_cmd_run_names_every_file_it_wrote(monkeypatch, base_args, stub_run, con
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
     detail = pd.DataFrame({"trade_id": [1, 2]})
     monkeypatch.setattr("nqbt.sim.explain.explain_trades", MagicMock(return_value=detail))
-    monkeypatch.setattr(
-        "nqbt.sim.explain.ratchet_history", MagicMock(return_value=pd.DataFrame({"bar": [1]}))
-    )
+    monkeypatch.setattr("nqbt.sim.explain.ratchet_history", MagicMock(return_value=pd.DataFrame({"bar": [1]})))
 
     args = run_args(
         base_args,

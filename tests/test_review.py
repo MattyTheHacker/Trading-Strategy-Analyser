@@ -51,9 +51,7 @@ def bars(days: int = DAYS, minutes: int = MINUTES, first_day: str = FIRST_DAY) -
     regime label with nothing to stratify.
     """
     days_index = pd.bdate_range(first_day, periods=days)
-    stamps = [
-        pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=minutes, freq="min", tz="UTC") for day in days_index
-    ]
+    stamps = [pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=minutes, freq="min", tz="UTC") for day in days_index]
     index = stamps[0].append(stamps[1:])
 
     count = len(index)

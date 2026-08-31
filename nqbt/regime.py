@@ -264,10 +264,7 @@ class EfficiencyRatioGrid:
         """Find the row holding ``lookback``, or say what the grid was built for."""
         idx: int = int(np.searchsorted(self.lookbacks, lookback))
         if idx >= self.lookbacks.size or self.lookbacks[idx] != lookback:
-            msg: str = (
-                f"efficiency ratio over {lookback} bars is not in this grid; "
-                f"built for {self.lookbacks.tolist()}"
-            )
+            msg: str = f"efficiency ratio over {lookback} bars is not in this grid; built for {self.lookbacks.tolist()}"
             raise KeyError(msg)
         return idx
 

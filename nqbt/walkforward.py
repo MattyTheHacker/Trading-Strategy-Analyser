@@ -87,10 +87,7 @@ def splits(
         msg = f"step must be >= 1; got {step}"
         raise WalkForwardError(msg)
     if n_bars < train_bars + test_bars:
-        msg = (
-            f"need at least train_bars + test_bars = {train_bars + test_bars} bars for one "
-            f"split; got {n_bars}"
-        )
+        msg = f"need at least train_bars + test_bars = {train_bars + test_bars} bars for one split; got {n_bars}"
         raise WalkForwardError(msg)
 
     out: list[Split] = []
@@ -319,11 +316,7 @@ def walk_forward(  # noqa: PLR0913, PLR0917 - each argument is a distinct axis; 
 
     return WalkForwardResult(
         table=pd.DataFrame(rows),
-        trades=(
-            pd.concat(logs, ignore_index=True)
-            if logs
-            else pd.DataFrame(columns=["trade_id", "net_pnl", "split"])
-        ),
+        trades=(pd.concat(logs, ignore_index=True) if logs else pd.DataFrame(columns=["trade_id", "net_pnl", "split"])),
         statistic=select_by,
         costs=costs,
     )

@@ -255,9 +255,7 @@ def test_the_tp_multiplier_scales_the_target_and_leaves_the_stop_alone() -> None
 
 
 def test_the_scaled_target_mirrors_below_the_fill_for_a_short() -> None:
-    trades = run(
-        [*FLAT, *FLAT], signal_at=[1], atr=4.0, atr_multiplier=10.0, tp_multiplier=2.0, direction=SHORT
-    )
+    trades = run([*FLAT, *FLAT], signal_at=[1], atr=4.0, atr_multiplier=10.0, tp_multiplier=2.0, direction=SHORT)
     assert trades["target_price"].iloc[0] == pytest.approx(92.0)
 
 

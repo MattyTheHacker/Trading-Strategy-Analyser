@@ -118,9 +118,7 @@ def read(path: Path | str) -> Notes:
     raw: pd.DataFrame = pd.read_csv(path, dtype="string")
     missing: list[str] = [name for name in COLUMNS if name not in raw.columns]
     if missing:
-        msg: str = (
-            f"{path}: not a notes sidecar -- missing column(s) {missing}. The shape is nqbt.notes.COLUMNS."
-        )
+        msg: str = f"{path}: not a notes sidecar -- missing column(s) {missing}. The shape is nqbt.notes.COLUMNS."
         raise NotesError(msg)
     unknown: list[str] = [name for name in raw.columns if name not in COLUMNS]
     if unknown:
@@ -185,9 +183,7 @@ def _keyed(raw: pd.DataFrame, source: str) -> pd.DataFrame:
     unreadable: pd.Series[bool] = ids.isna() | (ids % 1 != 0)
     if unreadable.any():
         row: int = int(unreadable.to_numpy().argmax())
-        msg: str = (
-            f"{source}: {KEY} must be a whole number on every row; row {row} carries {raw[KEY].iloc[row]!r}"
-        )
+        msg: str = f"{source}: {KEY} must be a whole number on every row; row {row} carries {raw[KEY].iloc[row]!r}"
         raise NotesError(msg)
     frame: pd.DataFrame = raw[list(TEXT_COLUMNS)].copy()
     frame.index = pd.Index(ids.astype("int64"), name=KEY)

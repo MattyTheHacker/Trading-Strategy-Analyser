@@ -304,10 +304,7 @@ def test_commission_comes_from_the_project_not_from_the_files_zero(tmp_path):
 
 def test_net_pnl_is_gross_less_commission_on_every_leg(tmp_path):
     imported = trade_import.import_executions(grid(tmp_path, SAMPLE, header=FULL_HEADER), timezone=TZ)
-    assert (
-        imported.frame["net_pnl"].tolist()
-        == (imported.frame["gross_pnl"] - imported.frame["commission"]).tolist()
-    )
+    assert imported.frame["net_pnl"].tolist() == (imported.frame["gross_pnl"] - imported.frame["commission"]).tolist()
 
 
 def test_dollars_come_from_the_instrument_so_nq_is_ten_times_mnq(tmp_path):
@@ -473,10 +470,7 @@ def test_an_export_with_no_rows_at_all_is_an_empty_log(tmp_path):
 
 def test_columns_beyond_the_required_set_are_ignored(tmp_path):
     """The grid's columns are configurable; a second export off one machine had six more."""
-    header = (
-        "Instrument,Action,Quantity,Price,Time,ID,E/X,Position,Order ID,"
-        "Name,Commission,Rate,Account,Connection,"
-    )
+    header = "Instrument,Action,Quantity,Price,Time,ID,E/X,Position,Order ID,Name,Commission,Rate,Account,Connection,"
     rows = [
         "MNQ 09-26,Buy,1,99.00,06/08/2026 1:01:00 PM,NT-1,Exit,-,NT-2,Stop loss,$0.00,1,Sim101,,",
         "MNQ 09-26,Sell,1,100.00,06/08/2026 1:00:00 PM,NT-3,Entry,1 S,NT-4,Entry,$0.00,1,Sim101,,",

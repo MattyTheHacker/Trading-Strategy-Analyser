@@ -153,9 +153,7 @@ class Grid:
         The whole parameter set rather than just ``axes``, because a period that is never
         swept still has to have its grid built.
         """
-        return {
-            name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable
-        }
+        return {name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable}
 
     def required_context(self) -> ContextSpec:
         """Every precomputed series any combination in this grid will read."""
@@ -277,8 +275,7 @@ def _sweep_parallel(
     bounds: list[tuple[int, int]] = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
     payload: Dataset = data.slim()
     batches = Parallel(n_jobs=n_jobs, verbose=10 if progress_every else 0)(
-        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades=keep_trades)
-        for start, stop in bounds
+        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades=keep_trades) for start, stop in bounds
     )
 
     rows: list[dict[str, object]] = []

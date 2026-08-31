@@ -434,9 +434,7 @@ def trade_statistic(pnl: FloatArray, name: str) -> float:
     agreement on real logs. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
-        msg: str = (
-            f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
-        )
+        msg: str = f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         raise ValueError(msg)
     if pnl.size == 0:
         return 0.0

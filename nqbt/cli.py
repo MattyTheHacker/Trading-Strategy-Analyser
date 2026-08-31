@@ -240,13 +240,9 @@ def build_parser() -> argparse.ArgumentParser:
         "for inspecting a single export, not the normal path",
     )
     parser.add_argument("--cache-dir", type=paths.Path, default=paths.CACHE_DIR)
-    sub: argparse._SubParsersAction[argparse.ArgumentParser] = parser.add_subparsers(
-        dest="command", required=True
-    )
+    sub: argparse._SubParsersAction[argparse.ArgumentParser] = parser.add_subparsers(dest="command", required=True)
 
-    p_ingest: argparse.ArgumentParser = sub.add_parser(
-        "ingest", help="parse NT8 exports into the Parquet cache"
-    )
+    p_ingest: argparse.ArgumentParser = sub.add_parser("ingest", help="parse NT8 exports into the Parquet cache")
     p_ingest.add_argument("--root", help="limit to one instrument root, e.g. MNQ")
     p_ingest.add_argument(
         "--force",
@@ -258,9 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_list: argparse.ArgumentParser = sub.add_parser("contracts", help="show what is currently cached")
     p_list.set_defaults(func=_cmd_contracts)
 
-    p_splice: argparse.ArgumentParser = sub.add_parser(
-        "splice", help="build the continuous series for a root"
-    )
+    p_splice: argparse.ArgumentParser = sub.add_parser("splice", help="build the continuous series for a root")
     p_splice.add_argument("--root", default="MNQ")
     p_splice.add_argument(
         "--back-adjust",

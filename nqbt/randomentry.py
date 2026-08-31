@@ -24,14 +24,9 @@ if TYPE_CHECKING:
     from nqbt.context import Dataset
     from nqbt.trades import LegMatrix
 
-MIN_FINITE_DRAWS = 2
-"""Fewest finite null draws that make a distribution to place an observation in."""
-
-DEFAULT_ITERATIONS = 200
-"""Null realisations drawn by default. Sized in ``docs/roadmap.md`` §M7a."""
-
-DEFAULT_ALPHA = 0.05
-"""Two-sided significance threshold behind :attr:`NullResult.verdict`."""
+MIN_FINITE_DRAWS = 2  # Fewest finite null draws that make a distribution to place an observation in.
+DEFAULT_ITERATIONS = 200  # Null realisations drawn by default. Sized in ``docs/roadmap.md`` §M7a.
+DEFAULT_ALPHA = 0.05  # Two-sided significance threshold behind :attr:`NullResult.verdict`.
 
 WORSE = "worse than random"
 INDISTINGUISHABLE = "indistinguishable from random"
@@ -317,10 +312,7 @@ def _place(
     p_value: float = min(1.0, 2.0 * (at_least_as_extreme + 1) / (draws.size + 1))
 
     verdict: str
-    if p_value > alpha:
-        verdict = INDISTINGUISHABLE
-    else:
-        verdict = BETTER if observed > float(np.median(draws)) else WORSE
+    verdict = INDISTINGUISHABLE if p_value > alpha else BETTER if observed > float(np.median(draws)) else WORSE
 
     return NullResult(
         statistic=name,

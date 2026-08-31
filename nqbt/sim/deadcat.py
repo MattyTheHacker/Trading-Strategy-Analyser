@@ -147,9 +147,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                         legs.target[leg] = np.nan
                     else:
                         raw = pending_trigger + direction * risk * target_r[leg] * rules.tp_multiplier
-                        legs.target[leg] = (
-                            bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
-                        )
+                        legs.target[leg] = bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
 
                 # The entry bar can reach the stop as well, and resolves like any other.
                 written, in_position = bracket.resolve_brackets(
@@ -177,11 +175,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                 new_stop = adverse_ref - direction * ratchet_offset
                 if direction * new_stop > direction * stop:
                     stop = new_stop
-        elif (
-            i >= rules.bars_required
-            and signal[i]
-            and not (rules.block_entry_at_session_close and bars.force_flat[i])
-        ):
+        elif i >= rules.bars_required and signal[i] and not (rules.block_entry_at_session_close and bars.force_flat[i]):
             trigger, candidate_stop, candidate_risk = bracket.entry_bracket(
                 bars.high[i],
                 bars.low[i],

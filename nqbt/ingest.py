@@ -113,8 +113,7 @@ class IngestResult:
     @override
     def __str__(self) -> str:
         return (
-            f"{self.contract.nt8_name:<12} {self.action:<11} "
-            f"+{self.rows_added:>7,} rows  ({self.rows_total:,} total)"
+            f"{self.contract.nt8_name:<12} {self.action:<11} +{self.rows_added:>7,} rows  ({self.rows_total:,} total)"
         )
 
 
@@ -227,9 +226,7 @@ def parse_export(data: bytes, source_name: str = "<bytes>") -> pd.DataFrame:
         engine="c",
     )
 
-    ts: pd.Series[pd.Timestamp] = pd.to_datetime(
-        frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce"
-    )
+    ts: pd.Series[pd.Timestamp] = pd.to_datetime(frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce")
     bad: pd.Series[bool] = ts.isna()
     if bad.all():
         msg: str = f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'"

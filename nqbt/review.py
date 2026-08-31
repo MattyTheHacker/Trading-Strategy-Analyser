@@ -512,9 +512,7 @@ def _time_of_day(
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:
     """Assemble the phase strata in session order, with the volume medians and the clock's share."""
-    frame: pd.DataFrame = _strata(
-        legs, reviewable[PHASE_COLUMN], PHASE_COLUMN, min_trades=min_trades, omitted=omitted
-    )
+    frame: pd.DataFrame = _strata(legs, reviewable[PHASE_COLUMN], PHASE_COLUMN, min_trades=min_trades, omitted=omitted)
     ordered: pd.DataFrame = frame.drop(columns="condition").set_index("value")
     ordered = ordered.reindex([value for value in _PHASE_ORDER if value in ordered.index])
     ordered.index.name = PHASE_COLUMN

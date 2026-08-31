@@ -519,9 +519,7 @@ def test_the_three_trend_filters_partition_every_measured_signal() -> None:
     """Stratification, not selection -- over the bars a slope could be measured for."""
     data = prepared(trend_keys=(KEY,))
     whole = deadcat_signal(data, DeadCatParams(bars_required_to_trade=20))
-    parts = [
-        deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, trend_filter=t.bit)) for t in Trend
-    ]
+    parts = [deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, trend_filter=t.bit)) for t in Trend]
     labels = data.trend_labels(KEY, UNANIMOUS)
     measured = whole & (labels != UNDEFINED)
 
