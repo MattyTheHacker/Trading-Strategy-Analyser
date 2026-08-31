@@ -31,6 +31,7 @@ from nqbt import (
     trend,
     volume,
 )
+from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IndexArray, LabelArray
@@ -537,9 +538,11 @@ def prepare(
     be sure it does. ``bar_minutes`` sizes the bar-of-session index and is inferred from the
     index when not given -- pass it wherever the resolution is already known.
     """
-    close: FloatArray = bars["close"].to_numpy(np.float64)
-    high: FloatArray = bars["high"].to_numpy(np.float64)
-    low: FloatArray = bars["low"].to_numpy(np.float64)
+    open_: FloatArray
+    high: FloatArray
+    low: FloatArray
+    close: FloatArray
+    open_, high, low, close = ohlc(bars)
     info: SessionInfo = sessions.classify(pd.DatetimeIndex(bars.index))
 
     # Relative volume is defined per bar of session, so asking for it builds the clock too.
@@ -559,7 +562,7 @@ def prepare(
     )
     volumes: VolumeGrid | None = (
         volume.volume_grid(
-            bars["volume"].to_numpy(np.float64),
+            float_column(bars, "volume"),
             info.trading_day,
             info.in_session,
             tod.bar_of_session,  # type: ignore[union-attr]  # built above whenever keys exist
@@ -574,7 +577,7 @@ def prepare(
         typical: FloatArray = indicators.typical_price(high, low, close)
         vwap = indicators.session_vwap(
             typical,
-            bars["volume"].to_numpy(np.float64),
+            float_column(bars, "volume"),
             indicators.new_session_flags(bars["trading_day"].to_numpy()),
         )
         below_vwap = conditions.below_series(close, vwap)
@@ -582,7 +585,7 @@ def prepare(
 
     return Dataset(
         bars=bars,
-        open=bars["open"].to_numpy(np.float64),
+        open=open_,
         high=high,
         low=low,
         close=close,

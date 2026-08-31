@@ -27,6 +27,7 @@ import pandas as pd
 from numba import njit
 
 from nqbt import indicators, resample, timeofday
+from nqbt.arrays import float_column
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH
 
 if TYPE_CHECKING:
@@ -317,14 +318,14 @@ def higher_timeframe_grid(
             )
             raise HigherTimeframeError(msg)
 
-    close: FloatArray = bars["close"].to_numpy(np.float64)
+    close: FloatArray = float_column(bars, "close")
     values: FloatArray = np.empty((len(ordered), close.size), dtype=np.float64)
     labels: LabelArray = np.empty((len(ordered), close.size), dtype=np.int8)
 
     row = 0
     for minutes, group in groupby(ordered, key=lambda k: k.minutes):
         coarse: pd.DataFrame = resample.resample(bars[["close"]], minutes, template=template)
-        coarse_close: FloatArray = coarse["close"].to_numpy(np.float64)
+        coarse_close: FloatArray = float_column(coarse, "close")
         coarse_stamps: pd.DatetimeIndex = pd.DatetimeIndex(coarse.index)
         for wanted in group:
             values[row] = project(coarse_stamps, indicators.nt8_ema(coarse_close, wanted.period), stamps)
