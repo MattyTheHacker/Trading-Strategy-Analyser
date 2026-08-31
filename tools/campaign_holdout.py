@@ -9,6 +9,9 @@ picking the best 20 on the first 60% of the series beat not picking at all on th
 On this project's own data that has come out *below* the median of every configuration --
 ``docs/roadmap.md`` § "Selecting on one contract is worse than not selecting".
 
+**One row per root and stratum**, because a stratum is its own question and its own sample --
+see :data:`GROUP_KEYS`. A stratum the split never ran simply has no row.
+
 Reads what ``tools/campaign_sweep.py --split`` wrote, one database per archetype.
 """
 
@@ -41,6 +44,12 @@ trusted -- see :func:`paired`."""
 
 TOP = 20
 """How many the shortlist takes. The roadmap's own held-out test used twenty."""
+
+GROUP_KEYS = ["root", "stratum"]
+"""What a shortlist is chosen within. **A stratum is its own held-out test**, never pooled with
+the others: pooling lets the selection window pick the stratum as well as the parameters, and
+the twenty largest profit factors then come from whichever stratum has the fattest tail rather
+than from the one being asked about -- ``docs/roadmap.md`` §M27.4."""
 
 
 def paired(name: str) -> pd.DataFrame:
@@ -79,21 +88,25 @@ def rank_correlation(block: pd.DataFrame) -> float:
 
 
 def verdict(name: str, merged: pd.DataFrame) -> pd.DataFrame:
-    """The held-out test, per root: the shortlist against not shortlisting at all."""
+    """The held-out test, per root and stratum: the shortlist against not shortlisting at all."""
     rows: list[dict[str, object]] = []
-    for root, block in merged.groupby("root"):
+    for (root, stratum), block in merged.groupby(GROUP_KEYS):
         top: pd.DataFrame = block.nlargest(TOP, "profit_factor_sel")
+        shortlist_pf: float = float(top["profit_factor_hold"].mean())
+        unselected_pf: float = float(block["profit_factor_hold"].median())
         rows.append(
             {
                 "strategy": name,
                 "root": root,
+                "stratum": stratum,
                 "paired": len(block),
                 "sel_top20_pf": top["profit_factor_sel"].mean(),
-                "hold_top20_pf": top["profit_factor_hold"].mean(),
-                "hold_all_median_pf": block["profit_factor_hold"].median(),
+                "hold_top20_pf": shortlist_pf,
+                "hold_all_median_pf": unselected_pf,
                 "top20_profitable": int((top["profit_factor_hold"] > 1.0).sum()),
                 "hold_top20_net": top["net_pnl_hold"].mean(),
                 "rank_corr": rank_correlation(block),
+                "passes": shortlist_pf > 1.0 and shortlist_pf > unselected_pf,
             },
         )
     return pd.DataFrame(rows)
@@ -132,6 +145,7 @@ def main(argv: list[str]) -> int:
             top.head(5)[
                 [
                     "root",
+                    "stratum",
                     "resolution",
                     "variant",
                     "trades_sel",

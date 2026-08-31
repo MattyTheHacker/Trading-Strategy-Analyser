@@ -781,7 +781,7 @@ The benchmark is not zero. It is the holdout median of *every* configuration, wh
 
 **The regime filter is where InsideBar separates.** The split pass was re-run once per regime: in the DIRECTIONAL stratum **every one of the 20 shortlisted configurations stays profitable out of sample on both roots**, and the holdout median across **every** configuration in that stratum is above 1.0 on both — so it is the whole parameter space rather than a shortlist. CONSOLIDATING is the mirror image at 2 of 20. The separation is sharpest at 10 minutes, where 99.7% of the 864 DIRECTIONAL configurations are profitable on the holdout against 6.1% of the CONSOLIDATING ones.
 
-That is mechanically what an inside-bar *breakout* should do, which is the reason to believe it rather than the reason to be suspicious of it.
+That is mechanically what an inside-bar *breakout* should do, which is the reason to believe it rather than the reason to be suspicious of it. **Read it with §M27.4 beside it**, which held out the other sixteen strata and found the same separation under two other names, on a much larger sample.
 
 #### Gate 3 — only one archetype's entry contributes anything
 
@@ -808,7 +808,7 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 
 #### What the campaign could not test
 
-- **Sixteen of the twenty strata were never held out.** Session phase, relative volume, trend label and higher-timeframe side have full-window numbers only. Several look strong there, and the full window is exactly where ElasticBand's 1.834 came from — so treat them as unmeasured until [#199] runs them through the split.
+- **Sixteen of the twenty strata were never held out.** Session phase, relative volume, trend label and higher-timeframe side had full-window numbers only. [#199] has since run them through the split — §M27.4, which is where those cells' numbers now live.
 - **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the campaign. [#200] carries it, and **not** by loosening the threshold to restore the sample: the cut is uncalibrated rather than merely tight (§M10.1), and choosing it by the trade count it leaves would pick the stratum's definition from the statistic the stratum is about to be tested on. The infinite profit factors seen alongside are a separate defect ([#218]).
 - **The held-out split is a single time cut** at 60% of the bars, so it tests one regime transition rather than many. The two roots track the same index over the same dates, so the thirty-eight per-contract samples are not thirty-eight independent ones.
 - **`max_hold_bars` means a different amount of time at each resolution**, exactly as a moving-average period does. Nothing scales it, and no result here rests on it.
@@ -821,6 +821,61 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 **One DuckDB per archetype**, under `results/campaign/`. At the time, `results._append_or_create` wrote `combos` by name and silently dropped a column the table did not have, so six parameter classes could not share one table — appending an `InsideBarParams` row to a table created from `DeadCatParams` would have stored it with `error_margin`, `atr_length` and `atr_multiplier` thrown away and nothing would have said so. [#201] closed that: the table widens instead, so the split is now a convention rather than a constraint, and the campaign keeps it because its results are already there.
 
 Two things the sweep machinery still cannot see, both already recorded in `.claude/rules/sweep-and-context.md` and both worked around here rather than fixed: ElasticBand's stop and target axes are inert outside their own mode, and `volume_rolling_bars` has two toggles where `dead_axes` knows one. The campaign avoids both by making a stop geometry a *variant* — its own base parameters and its own axes — rather than an axis inside one grid.
+
+### M27.4 — the sixteen strata that were never held out ([#199])
+
+§M27 ran twenty context strata over the full series and only four of them — unfiltered and the three regimes, and those only on the two inside-bar archetypes and EmaCrossover — through the selection/holdout split. Session phase, relative volume, trend label and higher-timeframe side had full-window numbers and no out-of-sample test at all. This is that test: **1,005,440 combinations in 73 minutes across five passes**, after which every archetype has all twenty strata on both split windows.
+
+#### Two defects came first, and the second one mattered more
+
+- **`--strata volume|trend|htf` did not exist.** The paragraph above advertised them and `STRATUM_SETS` carried only `unfiltered`, `regime`, `phase`, `core`, `context` and `all`, so a dimension could be added only in threes. The sets are now built from `STRATUM_GROUPS`, which makes the documented command line true and cannot drift from it again.
+- **`campaign_holdout.verdict` pooled every stratum into one shortlist.** It grouped by root alone, so `nlargest(20, profit_factor_sel)` drew from all strata at once and the fattest-tailed one supplied the shortlist that every other stratum was then reported as having. With four strata in the split that already misattributed InsideBar's DIRECTIONAL result to its unfiltered row; with twenty it would have been the dominant effect, and the tool would have answered [#199] with the opposite of the truth. **A shortlist is now chosen within one root and one stratum**, because choosing the stratum is a comparison too. The per-regime figures under Gate 2 above were derived per stratum by hand and are unaffected.
+
+#### The shortlist decays by about the same amount everywhere
+
+Mean profit factor of the best twenty, selection window against holdout, per dimension:
+
+| dimension  | cells | selection | holdout | decay | mean rank corr |
+| ---------- | ----- | --------- | ------- | ----- | -------------- |
+| unfiltered | 12    | 1.27      | 0.94    | 0.33  | 0.46           |
+| trend      | 34    | 1.37      | 1.03    | 0.34  | 0.30           |
+| volume     | 36    | 1.42      | 1.04    | 0.38  | 0.32           |
+| htf        | 24    | 1.34      | 0.93    | 0.41  | 0.28           |
+| regime     | 36    | 1.46      | 1.04    | 0.42  | 0.32           |
+| phase      | 82    | 1.45      | 0.96    | 0.49  | 0.22           |
+
+**The decay is a property of selecting, not of the strata that had never been tested.** The whole spread is 0.17, the smallest decay belongs to a dimension §M27 had already held out and the largest to one it had not. The fear that motivated [#199] — that the untested strata were hiding ElasticBand's 1.834-to-0.592 collapse — is not what the split found.
+
+#### It is also not noise, and that needed a null
+
+99 of the 224 testable cells clear Gate 2 — holdout shortlist above 1.0 **and** above the stratum's own holdout median. On its own that number says nothing, because a shortlist drawn at random from the same stratum passes the same gate some of the time. **Drawn at random, 400 times per cell: 20.1%. Chosen on the selection window: 44.2%**, with the real shortlist at the 93rd percentile of its own null in the median cell. The selection-window ranking carries real information about the holdout; it carries much less than the selection window's own numbers suggest.
+
+**Twenty-six percent of cells still invert outright** — selection above 1.3, holdout below 1.0 — and **ElasticBand owns eight of the twelve worst**. Its §M27 elimination was measured on three strata and now holds across seventeen. Stratifying does not rescue it in any dimension.
+
+#### `htf=AT` is not a stratum
+
+It clears the thirty-trade floor for no archetype on either root, on the full window or on either split window — price sitting exactly on the 60-minute average is too rare to trade. **The higher-timeframe dimension has two states, not three**, and §M27's twenty strata are really nineteen.
+
+#### What changes: DIRECTIONAL has two larger siblings
+
+InsideBar's separation under `regime=DIRECTIONAL`, §M27's strongest cell, reappears under two strata that were never held out, on six to nine times the sample:
+
+| stratum              | holdout shortlist PF, MNQ / NQ | stratum's holdout median | of 20 profitable | median holdout trades |
+| -------------------- | ------------------------------ | ------------------------ | ---------------- | --------------------- |
+| `regime=DIRECTIONAL` | 1.38 / 1.85                    | 1.12 / 1.07              | 20 / 20          | 122 / 115             |
+| `trend=UP`           | 1.31 / 1.23                    | 1.13 / 1.13              | 20 / 20          | 857 / 784             |
+| `htf=ABOVE`          | 1.15 / 1.09                    | 1.11 / 1.08              | 20 / 20          | 1013 / 1117           |
+
+All three have a holdout median above 1.0 on both roots, which is the whole parameter space rather than a shortlist, and all three are one mechanism wearing three labels — an inside-bar breakout with the larger trend behind it. **They are one finding, not three.** What they add is sample: [#200] exists because DIRECTIONAL leaves about thirty trades per front-month contract and the per-contract null cannot run on it, and `trend=UP` and `htf=ABOVE` do not have that problem.
+
+`InsideBar phase=LONDON` is the other cell worth naming, for the opposite reason: its shortlist *rises* out of sample, 1.22 to 1.87 on MNQ and 1.47 on NQ, on 168 and 183 trades. Its stratum median is 0.91 and 0.94, so the stratum loses money and the selection picks well inside it — the reverse of the pattern everywhere else, and unexplained.
+
+#### What this does not license
+
+- **None of it has been through Gate 3.** Gate 2 is the weakest of the four, and the matched null is what eliminated two of the three that survived it last time. Nothing above is a candidate until `tools/campaign_null.py` has run on it.
+- **224 cells is a heavier multiple-comparisons load than §M27 carried**, and the best of 224 is the expected output of noise. The three strata named above are quoted because they agree with each other and with a mechanism, not because they are the largest numbers in the table — `PullBackAndGo trend=MIXED` is the largest at 2.02 on NQ and rests on 39 holdout trades.
+- **Passing on one root is a coin flip.** 38 of the 112 testable archetype × stratum pairs pass on both, and every claim above is a both-roots claim.
+- **The strata are not independent of each other.** `regime=DIRECTIONAL`, `trend=UP` and `htf=ABOVE` overlap heavily by construction, which is why they agree and why their agreement is not three confirmations.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 
