@@ -228,7 +228,8 @@ def trades_to_frame(
     NQ and MNQ differ 10x in tick value.
     """
     if not instrument:
-        raise TypeError("instrument must be a non-empty string")
+        type_error_message: str = "instrument must be a non-empty string"
+        raise TypeError(type_error_message)
     frame: pd.DataFrame = pd.DataFrame(matrix[:count], columns=COLUMNS)
     for name in ("trade_id", "leg", "entry_bar", "exit_bar", "quantity", "bars_held"):
         frame[name] = frame[name].astype("int64")

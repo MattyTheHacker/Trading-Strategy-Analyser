@@ -212,7 +212,7 @@ def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
     return stats.trade_statistic(pnl, name), int(pnl.size)
 
 
-def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config bag would hide a swap
+def walk_forward(  # noqa: PLR0913, PLR0917 - each argument is a distinct axis; a config bag would hide a swap
     bars: pd.DataFrame,
     grid: sweep.Grid,
     costs: TradingCosts,

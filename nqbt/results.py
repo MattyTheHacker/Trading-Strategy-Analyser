@@ -139,7 +139,7 @@ def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
         con.close()
 
 
-def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has to state
+def save_sweep(  # noqa: PLR0913, PLR0917 - each keyword is a column the stored row has to state
     results: pd.DataFrame,
     root: str,
     instrument: str,
