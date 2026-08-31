@@ -101,7 +101,7 @@ max-args = 10
 
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "D103"]
 "nqbt/cli.py" = ["PLC0415"]  # Each subcommand only imports the specific modules it needs for performance
 
 
