@@ -266,7 +266,6 @@ def insidebar_legs(
     data: Dataset,
     params: InsideBarParams,
     instrument: Instrument = MNQ,
-   
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -316,7 +315,6 @@ def run_insidebar(
     data: Dataset,
     params: InsideBarParams,
     instrument: Instrument = MNQ,
-   
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:

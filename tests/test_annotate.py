@@ -80,7 +80,6 @@ def leg(
     trade_id: int,
     entry_time: str,
     exit_time: str,
-   
     entry_price: float,
     exit_price: float,
 ) -> dict[str, object]:

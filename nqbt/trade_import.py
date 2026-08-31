@@ -528,7 +528,6 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
 
 def _to_schema(
     rows: list[dict[str, object]],
-   
     commission_per_contract: float,
     timezone: str,
 ) -> pd.DataFrame:

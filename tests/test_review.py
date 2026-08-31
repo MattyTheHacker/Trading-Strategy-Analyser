@@ -82,7 +82,6 @@ def bars_in(
     data: context.Dataset,
     phase: timeofday.SessionPhase,
     count: int,
-   
     session: int = -1,
 ) -> list[int]:
     """``count`` bar indices in ``phase`` of one session -- the last, which alone has baselines.
@@ -99,7 +98,6 @@ def bars_in(
 def sim_log(
     entries: list[int],
     data: context.Dataset,
-   
     pnl: list[float],
     hold: int = 2,
     exit_reasons: list[str] | None = None,

@@ -343,7 +343,6 @@ def _spread(values: Floats) -> float:
 def separate(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
-   
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
 ) -> Separation:
@@ -399,7 +398,6 @@ class _Null:
 def _null(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Mapping[str, Labels],
-   
     statistic: str,
     min_trades: int,
     iterations: int,
@@ -451,7 +449,6 @@ def _p_value(null: Floats, observed: float) -> tuple[float, int]:
 def screen(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Mapping[str, Labels],
-   
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
     iterations: int = DEFAULT_ITERATIONS,
@@ -518,7 +515,6 @@ def _screen_frame(drawn: _Null) -> pd.DataFrame:
 def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
-   
     condition: str = "condition",
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
@@ -563,7 +559,6 @@ def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is it
 def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
-   
     condition: str = "condition",
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
@@ -639,7 +634,6 @@ def _nothing_to_hold_out(
     condition: str,
     statistic: str,
     chosen: Separation,
-   
     in_sample_trades: int,
 ) -> Holdout:
     """Report a condition with no split to hold out: uncuttable in sample, or every stratum tied."""
@@ -663,7 +657,6 @@ def _nothing_to_hold_out(
 def guard(
     log: pd.DataFrame,
     annotation: Annotation,
-   
     by: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
     conditions: Sequence[str] | None = None,

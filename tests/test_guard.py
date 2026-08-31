@@ -30,7 +30,6 @@ NOISE_CONDITIONS = 12
 
 def labelled(
     count: int = TRADES,
-   
     effect: float = 0.0,
     seed: int = 0,
     spread: float = 50.0,
@@ -45,7 +44,6 @@ def labelled(
 
 def noise(
     count: int = TRADES,
-   
     conditions: int = NOISE_CONDITIONS,
     seed: int = 7,
 ) -> dict[str, np.ndarray]:

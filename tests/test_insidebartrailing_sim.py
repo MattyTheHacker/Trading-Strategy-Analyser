@@ -32,7 +32,6 @@ FAR_TRAIL = 10.0
 def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 property
     rows,
     signal_at=(),
-   
     max_rows=None,
     direction=LONG,
     atr=FAR_ATR,

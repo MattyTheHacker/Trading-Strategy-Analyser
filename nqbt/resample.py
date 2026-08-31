@@ -77,7 +77,6 @@ def bucket_index(
 def resample(
     bars: pd.DataFrame,
     minutes: int,
-   
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> pd.DataFrame:
     """Aggregate 1-minute ``bars`` to ``minutes``-minute bars, anchored to the session open.

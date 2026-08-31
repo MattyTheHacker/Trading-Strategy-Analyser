@@ -331,7 +331,6 @@ def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd
 def ingest_contract(
     contract: ContractId,
     source: Path,
-   
     cache_dir: Path = paths.CACHE_DIR,
     manifest: dict[str, ContractManifest] | None = None,
     force: bool = False,
@@ -444,7 +443,6 @@ def _trim_partial_line(data: bytes) -> tuple[int, bytes]:
 
 
 def ingest_all(
-   
     sources: Sequence[Path] = paths.SOURCE_DIRS,
     archive_dir: Path = paths.ARCHIVE_DIR,
     data_dir: Path | None = None,

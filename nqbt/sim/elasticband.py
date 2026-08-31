@@ -399,7 +399,6 @@ def elasticband_legs(
     data: Dataset,
     params: ElasticBandParams,
     instrument: Instrument = MNQ,
-   
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -466,7 +465,6 @@ def run_elasticband(
     data: Dataset,
     params: ElasticBandParams,
     instrument: Instrument = MNQ,
-   
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:

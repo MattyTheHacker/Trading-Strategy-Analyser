@@ -152,7 +152,6 @@ def sweep_contracts(
 def dispersion(
     results: pd.DataFrame,
     by: str = "profit_factor",
-   
     min_trades: int = MIN_TRADES,
 ) -> pd.DataFrame:
     """How much ``by`` varies across contracts, per combination.
@@ -207,7 +206,6 @@ contract is extreme, which is the data-integrity question the IQR is blind to by
 def spread_vs_resampling(
     logs: dict[str, pd.DataFrame],
     by: str = "profit_factor",
-   
     iterations: int = 1000,
     seed: int = 0,
     min_trades: int = MIN_TRADES,

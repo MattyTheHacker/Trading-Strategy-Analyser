@@ -27,7 +27,6 @@ TICK = 0.25
 def run(
     rows,
     signal_at=(),
-   
     force_flat_at=(),
     quantities=(1, 1, 1, 1),
     targets=(1.0, 1.5, 2.0, np.nan),

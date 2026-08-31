@@ -206,7 +206,6 @@ class Review:
 def review(
     log: pd.DataFrame,
     annotation: Annotation,
-   
     by: str = "expectancy",
     min_trades: int = MIN_TRADES,
     conditions: Sequence[str] | None = None,
@@ -256,7 +255,6 @@ def stratify(
     log: pd.DataFrame,
     annotation: Annotation,
     condition: str,
-   
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
@@ -269,7 +267,6 @@ def stratify(
 def time_of_day(
     log: pd.DataFrame,
     annotation: Annotation,
-   
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
@@ -456,7 +453,6 @@ def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
     legs: pd.DataFrame,
     values: pd.Series,
     condition: str,
-   
     min_trades: int,
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:
@@ -512,7 +508,6 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
 def _time_of_day(
     legs: pd.DataFrame,
     reviewable: pd.DataFrame,
-   
     min_trades: int,
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:

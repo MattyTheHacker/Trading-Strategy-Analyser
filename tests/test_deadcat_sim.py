@@ -19,7 +19,6 @@ OFFSET = 2 * TICK  # stop sits 2 ticks beyond the reference high
 def run(
     rows,
     signal_at=(),
-   
     force_flat_at=(),
     quantities=(1, 1, 1, 1),
     targets=(1.0, 1.5, 2.0, np.nan),

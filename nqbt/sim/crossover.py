@@ -300,7 +300,6 @@ def crossover_legs(
     data: Dataset,
     params: EmaCrossoverParams,
     instrument: Instrument = MNQ,
-   
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -358,7 +357,6 @@ def run_crossover(
     data: Dataset,
     params: EmaCrossoverParams,
     instrument: Instrument = MNQ,
-   
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
