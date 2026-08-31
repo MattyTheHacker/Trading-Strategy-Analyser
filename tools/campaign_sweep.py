@@ -344,7 +344,7 @@ def grids_for(variant: Variant, which: str) -> list[tuple[str, sweep.Grid]]:
     ]
 
 
-def windows(bars: pd.DataFrame, *, split: bool) -> list[tuple[str, pd.DataFrame]]:
+def windows(bars: pd.DataFrame, split: bool) -> list[tuple[str, pd.DataFrame]]:
     """The bar ranges to run: the whole series, or a selection window and a held-out one."""
     if not split:
         return [("full", bars)]
@@ -375,7 +375,7 @@ def run_point(
     window: str,
     batch_id: int,
     which: str,
-    *,
+   
     n_jobs: int,
 ) -> None:
     """Sweep every variant x stratum at one (root, archetype, resolution, window) point.

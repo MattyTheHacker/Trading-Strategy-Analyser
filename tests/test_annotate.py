@@ -64,7 +64,7 @@ def close_of(bar: int) -> float:
     return BASE + bar * 0.25
 
 
-def manual_log(legs: list[dict[str, object]], *, contract: str = "MNQ 09-26") -> pd.DataFrame:
+def manual_log(legs: list[dict[str, object]], contract: str = "MNQ 09-26") -> pd.DataFrame:
     """Build a log the way an importer leaves one: fill times, and no bar index anywhere."""
     frame = pd.DataFrame(legs)
     frame["leg"] = frame.groupby("trade_id").cumcount() + 1
@@ -80,7 +80,7 @@ def leg(
     trade_id: int,
     entry_time: str,
     exit_time: str,
-    *,
+   
     entry_price: float,
     exit_price: float,
 ) -> dict[str, object]:

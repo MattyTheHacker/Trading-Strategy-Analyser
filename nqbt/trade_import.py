@@ -245,7 +245,7 @@ class ImportedTrades:
         return f"{len(self.frame)} legs, {self.coverage}\n  {self.incomplete}"
 
 
-def read_executions(path: Path | str, *, timezone: str) -> pd.DataFrame:
+def read_executions(path: Path | str, timezone: str) -> pd.DataFrame:
     """Parse an NT8 executions-grid CSV into chronologically ordered, position-checked fills.
 
     ``timezone`` is the exporting machine's NT8 display zone and is required rather than
@@ -286,7 +286,6 @@ def read_executions(path: Path | str, *, timezone: str) -> pd.DataFrame:
 
 def import_executions(
     path: Path | str,
-    *,
     timezone: str,
     commission_per_contract: float = costs.LIVE.commission_per_contract,
     cache_dir: Path = paths.CACHE_DIR,
@@ -316,7 +315,7 @@ def import_executions(
 # -- parsing ------------------------------------------------------------------
 
 
-def _timestamps(column: pd.Series[str], *, source: str) -> pd.Series[pd.Timestamp]:
+def _timestamps(column: pd.Series[str], source: str) -> pd.Series[pd.Timestamp]:
     """Parse the row timestamps under the first accepted format that fits the whole column."""
     text: pd.Series[str] = column.str.strip()
     for fmt in TIME_FORMATS:
@@ -331,7 +330,7 @@ def _timestamps(column: pd.Series[str], *, source: str) -> pd.Series[pd.Timestam
     raise TradeImportError(msg)
 
 
-def _localise(times: pd.Series[pd.Timestamp], *, timezone: str) -> pd.Series[pd.Timestamp]:
+def _localise(times: pd.Series[pd.Timestamp], timezone: str) -> pd.Series[pd.Timestamp]:
     """Attach the export's display zone and convert to UTC, which the bar cache is in."""
     localised: pd.Series[pd.Timestamp] = times.dt.tz_localize(
         timezone, ambiguous="infer", nonexistent="shift_forward"
@@ -375,7 +374,7 @@ def _positions(column: pd.Series[str]) -> IntArray:
     return np.asarray(text.map(parsed), dtype=np.int64)
 
 
-def _check_ascending(times: pd.Series[pd.Timestamp], *, source: str) -> None:
+def _check_ascending(times: pd.Series[pd.Timestamp], source: str) -> None:
     """Reversed file order must be non-decreasing in time, or the export was not newest-first."""
     if times.is_monotonic_increasing:
         return
@@ -432,7 +431,7 @@ def _raise_broken_chain(fills: pd.DataFrame, running: int, pending: Sequence[int
     raise TradeImportError(msg)
 
 
-def _check_declared_directions(fills: pd.DataFrame, column: pd.Series[str], *, source: str) -> None:
+def _check_declared_directions(fills: pd.DataFrame, column: pd.Series[str], source: str) -> None:
     """Cross-check ``E/X`` against the position walk, the only independent test of the parse."""
     declared: BoolArray = column.str.strip().eq(EXIT).to_numpy()[::-1]
     positions: IntArray = fills["position"].to_numpy(np.int64)
@@ -529,7 +528,7 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
 
 def _to_schema(
     rows: list[dict[str, object]],
-    *,
+   
     commission_per_contract: float,
     timezone: str,
 ) -> pd.DataFrame:
@@ -565,7 +564,7 @@ def _to_schema(
 # -- coverage -----------------------------------------------------------------
 
 
-def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
+def _mark_coverage(frame: pd.DataFrame, cache_dir: Path) -> CoverageReport:
     """Add the ``covered`` column and report how many trades have bars behind them.
 
     Whole trades, never individual legs: a trade split across the edge of the cache would have
@@ -593,7 +592,7 @@ def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
     return CoverageReport(contracts=contracts, trades=len(spans), covered=int(covered.sum()))
 
 
-def _cached_range(contract: ContractId, *, cache_dir: Path) -> ContractCoverage:
+def _cached_range(contract: ContractId, cache_dir: Path) -> ContractCoverage:
     """Read one contract's first and last cached bar, or an empty range if it is not cached."""
     path: Path = ingest.contract_cache_path(contract, cache_dir)
     if not path.exists():

@@ -139,7 +139,7 @@ def matched_random_signal(
     data: Dataset,
     signal: BoolArray,
     rng: np.random.Generator,
-    *,
+   
     pool: SessionMinutePool | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> BoolArray:
@@ -196,7 +196,7 @@ def null_summaries(
     params: Params,
     archetype: Archetype | None = None,
     instrument: Instrument = MNQ,
-    *,
+   
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
     n_jobs: int = 1,
@@ -231,7 +231,7 @@ def compare(
     params: Params,
     archetype: Archetype | None = None,
     instrument: Instrument = MNQ,
-    *,
+   
     statistics: tuple[str, ...] = RATE_STATISTICS,
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
@@ -307,7 +307,7 @@ def _place(
     draws: FloatArray,
     alpha: float,
     iterations: int,
-    *,
+   
     observed_trades: int,
     null_median_trades: float,
 ) -> NullResult:

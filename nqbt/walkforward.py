@@ -67,7 +67,7 @@ class Split:
 
 def splits(
     n_bars: int,
-    *,
+   
     train_bars: int,
     test_bars: int,
     step: int | None = None,
@@ -217,7 +217,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
     bars: pd.DataFrame,
     grid: sweep.Grid,
     costs: TradingCosts,
-    *,
+   
     train_bars: int,
     test_bars: int,
     instrument: Instrument = MNQ,

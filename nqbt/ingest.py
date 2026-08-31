@@ -211,7 +211,7 @@ def _reject_tick_export(data: bytes, source_name: str) -> None:
         )
 
 
-def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
+def parse_export(data: bytes, source_name: str = "<bytes>") -> pd.DataFrame:
     """Parse raw export bytes into a validated bar frame indexed by UTC timestamp."""
     if not data.strip():
         return _empty_frame()
@@ -249,7 +249,7 @@ def _empty_frame() -> pd.DataFrame:
     return frame
 
 
-def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
+def _finalise(frame: pd.DataFrame, source_name: str) -> pd.DataFrame:
     """Sort, deduplicate, validate OHLC sanity and attach session classification."""
     frame = frame.sort_index(kind="stable")
     frame = frame[~frame.index.duplicated(keep="last")]
@@ -302,7 +302,7 @@ def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR)
     return cache_dir / "bars" / contract.root / f"{contract.cache_key}.parquet"
 
 
-def drop_out_of_session(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
+def drop_out_of_session(frame: pd.DataFrame, source_name: str) -> pd.DataFrame:
     """Drop the stray prints NT8 would never have formed into bars.
 
     Raises :class:`IngestError` above :data:`STRAY_SHARE_LIMIT`, where the export is telling us
@@ -331,7 +331,7 @@ def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd
 def ingest_contract(
     contract: ContractId,
     source: Path,
-    *,
+   
     cache_dir: Path = paths.CACHE_DIR,
     manifest: dict[str, ContractManifest] | None = None,
     force: bool = False,
@@ -444,7 +444,7 @@ def _trim_partial_line(data: bytes) -> tuple[int, bytes]:
 
 
 def ingest_all(
-    *,
+   
     sources: Sequence[Path] = paths.SOURCE_DIRS,
     archive_dir: Path = paths.ARCHIVE_DIR,
     data_dir: Path | None = None,

@@ -135,7 +135,6 @@ def _contracts(source_dirs: Iterable[Path], root: str | None) -> dict[str, list[
 def build_archive(
     source_dirs: Sequence[Path] = paths.SOURCE_DIRS,
     archive_dir: Path = paths.ARCHIVE_DIR,
-    *,
     root: str | None = None,
 ) -> list[MergeResult]:
     """Merge every source folder into the archive and report what changed.

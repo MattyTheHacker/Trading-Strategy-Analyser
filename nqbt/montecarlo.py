@@ -90,7 +90,7 @@ def _value(pnl: FloatArray, name: str) -> float:
 def permutation_test(
     pnl: FloatArray,
     statistic: str = "max_drawdown",
-    *,
+   
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
 ) -> PermutationResult:
@@ -136,7 +136,7 @@ def permutation_test(
 def bootstrap(
     pnl: FloatArray,
     statistics: tuple[str, ...] = ("net_pnl", "profit_factor", "max_drawdown"),
-    *,
+   
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
 ) -> pd.DataFrame:

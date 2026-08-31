@@ -218,8 +218,7 @@ def trades_to_frame(
     matrix: FloatArray,
     count: int,
     index: pd.DatetimeIndex | None = None,
-    *,
-    instrument: str,
+    instrument: str = "",
     source: str = "sim",
 ) -> pd.DataFrame:
     """Turn the raw simulation output into a labelled frame.
@@ -228,6 +227,8 @@ def trades_to_frame(
     bound and the tail is undefined. ``instrument`` is required rather than defaulted, since
     NQ and MNQ differ 10x in tick value.
     """
+    if not instrument:
+        raise TypeError("instrument must be a non-empty string")
     frame: pd.DataFrame = pd.DataFrame(matrix[:count], columns=COLUMNS)
     for name in ("trade_id", "leg", "entry_bar", "exit_bar", "quantity", "bars_held"):
         frame[name] = frame[name].astype("int64")

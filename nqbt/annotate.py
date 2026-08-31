@@ -198,7 +198,6 @@ class Annotation:
 def bars_for_fills(
     index: pd.DatetimeIndex,
     times: pd.DatetimeIndex,
-    *,
     bar_minutes: int | None = None,
 ) -> IntArray:
     """Index of the bar each fill happened in, :data:`UNMATCHED` where no bar covers it.
@@ -231,7 +230,7 @@ def bars_for_fills(
     return np.where(covered, positions, UNMATCHED).astype(np.int64)
 
 
-def contract_bars(log: pd.DataFrame, *, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
+def contract_bars(log: pd.DataFrame, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
     """Read the per-contract bars a log must be annotated against.
 
     Neither continuous series is an option here: the back-adjusted one shifts every historical
@@ -254,7 +253,6 @@ def contract_bars(log: pd.DataFrame, *, cache_dir: Path = paths.CACHE_DIR) -> pd
 def annotate_trades(
     log: pd.DataFrame,
     data: Dataset,
-    *,
     thresholds: LabelThresholds = NO_LABELS,
     at_exit: bool = False,
     price_tolerance: float = 0.0,
@@ -406,7 +404,6 @@ def _check_prices(
     log: pd.DataFrame,
     data: Dataset,
     bars: IntArray,
-    *,
     side: str,
     tolerance: float,
 ) -> None:

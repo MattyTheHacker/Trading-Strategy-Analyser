@@ -120,7 +120,7 @@ class Grid:
     def of(
         cls,
         base: Params | None = None,
-        *,
+       
         archetype: Archetype | None = None,
         **axes: Iterable[AxisValue],
     ) -> Grid:
@@ -173,7 +173,7 @@ def run_combination(
     params: Params,
     instrument: Instrument = MNQ,
     archetype: Archetype = archetypes.DEFAULT,
-    *,
+   
     keep_trades: bool = True,
 ) -> tuple[dict[str, object], pd.DataFrame | None]:
     """Simulate one combination, returning its summary row and its trade log.
@@ -220,7 +220,7 @@ def _run_chunk(
     instrument: Instrument,
     start: int,
     stop: int,
-    *,
+   
     keep_trades: bool,
 ) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
     """Run combinations ``[start, stop)``. Module level so loky can pickle it.
@@ -244,7 +244,7 @@ def _sweep_serial(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
-    *,
+   
     keep_trades: bool,
     progress_every: int,
 ) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
@@ -267,7 +267,6 @@ def _sweep_parallel(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
-    *,
     keep_trades: bool,
     n_jobs: int,
     chunk_size: int | None,
@@ -301,7 +300,6 @@ def sweep(
     bars: pd.DataFrame,
     grid: Grid,
     instrument: Instrument = MNQ,
-    *,
     data: Dataset | None = None,
     keep_trades: bool = False,
     progress_every: int = 0,
@@ -365,7 +363,6 @@ def sweep_axes(
     bars: pd.DataFrame | Mapping[str, pd.DataFrame],
     grids: Grid | Sequence[Grid],
     instrument: Instrument = MNQ,
-    *,
     resolutions: Sequence[int] = (1,),
     keep_trades: bool = False,
     n_jobs: int = 1,

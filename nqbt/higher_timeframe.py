@@ -292,7 +292,7 @@ class HigherTimeframeGrid:
 def higher_timeframe_grid(
     bars: pd.DataFrame,
     keys: Iterable[HigherTimeframeKey],
-    *,
+   
     bar_minutes: int | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> HigherTimeframeGrid:

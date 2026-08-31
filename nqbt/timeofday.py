@@ -244,7 +244,6 @@ class TimeOfDay:
 
 def classify(
     index: pd.DatetimeIndex,
-    *,
     bar_minutes: int | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
     info: sessions.SessionInfo | None = None,

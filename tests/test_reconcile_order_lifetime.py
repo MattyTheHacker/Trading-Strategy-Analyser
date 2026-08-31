@@ -85,7 +85,7 @@ def event(kind: str, trial: int, bar: int, signal: str, **overrides: object) -> 
 
 
 def bar(
-    index: int, high: float, *, low: float = 90.0, close: float = 95.0, **overrides: object
+    index: int, high: float, low: float = 90.0, close: float = 95.0, **overrides: object
 ) -> dict[str, object]:
     row: dict[str, object] = dict.fromkeys(BAR_COLUMNS, "")
     row.update(

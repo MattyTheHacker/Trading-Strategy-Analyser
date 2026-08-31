@@ -224,7 +224,7 @@ def emit(text: str) -> None:
     sys.stdout.write(f"{text}\n")
 
 
-def report(subject: str, findings: list[Finding], *, github: bool) -> None:
+def report(subject: str, findings: list[Finding], github: bool) -> None:
     """Print one message's findings, as text and optionally as workflow annotations."""
     if not findings:
         emit(f"  ok  {subject}")

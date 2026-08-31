@@ -29,7 +29,7 @@ TICK = 0.25
 def simulate(
     rows,
     signal_at=(),
-    *,
+   
     max_rows=None,
     direction=LONG,
     atr=4.0,

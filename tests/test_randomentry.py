@@ -437,13 +437,13 @@ def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared
     """
     data, params, signal = prepared
 
-    def all_wins_when_real(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def all_wins_when_real(data_, params_, instrument=NQ, signal=None, **kwargs):
         # Observed run: no losses at all, so profit factor is infinite. Null draws keep a
         # loser, so the null distribution itself stays finite and the refusal is about the
         # observation rather than about an empty comparison.
         return stub_log([5.0] * 8) if signal is None else stub_log([5.0] * 6 + [-4.0] * 2)
 
-    def all_wins_legs(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def all_wins_legs(data_, params_, instrument=NQ, signal=None, **kwargs):
         return stub_legs([5.0] * 8) if signal is None else stub_legs([5.0] * 6 + [-4.0] * 2)
 
     probe = archetypes.Archetype(
@@ -467,10 +467,10 @@ def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(prepared
     """
     data, params, signal = prepared
 
-    def wins_only_in_the_null(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def wins_only_in_the_null(data_, params_, instrument=NQ, signal=None, **kwargs):
         return stub_log([5.0, -4.0]) if signal is None else stub_log([5.0] * 4)
 
-    def wins_only_in_the_null_legs(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def wins_only_in_the_null_legs(data_, params_, instrument=NQ, signal=None, **kwargs):
         return stub_legs([5.0, -4.0]) if signal is None else stub_legs([5.0] * 4)
 
     probe = archetypes.Archetype(

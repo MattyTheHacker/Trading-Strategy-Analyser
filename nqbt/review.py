@@ -206,7 +206,7 @@ class Review:
 def review(
     log: pd.DataFrame,
     annotation: Annotation,
-    *,
+   
     by: str = "expectancy",
     min_trades: int = MIN_TRADES,
     conditions: Sequence[str] | None = None,
@@ -256,7 +256,7 @@ def stratify(
     log: pd.DataFrame,
     annotation: Annotation,
     condition: str,
-    *,
+   
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
@@ -269,7 +269,7 @@ def stratify(
 def time_of_day(
     log: pd.DataFrame,
     annotation: Annotation,
-    *,
+   
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
@@ -300,7 +300,7 @@ def stratifiable(frame: pd.DataFrame, conditions: Sequence[str]) -> tuple[str, .
     return tuple(name for name in conditions if _is_stratifiable(frame[name]))
 
 
-def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataFrame:
+def rank_conditions(strata: pd.DataFrame, by: str = "expectancy") -> pd.DataFrame:
     """Order the conditions by how far ``by`` separates the strata that met the minimum.
 
     The separation is the range across ranked strata: the widest gap the condition produced, and
@@ -456,7 +456,7 @@ def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
     legs: pd.DataFrame,
     values: pd.Series,
     condition: str,
-    *,
+   
     min_trades: int,
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:
@@ -512,7 +512,7 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
 def _time_of_day(
     legs: pd.DataFrame,
     reviewable: pd.DataFrame,
-    *,
+   
     min_trades: int,
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:

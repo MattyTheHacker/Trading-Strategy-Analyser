@@ -17,7 +17,7 @@ from nqbt.walkforward import Split, WalkForwardError
 BAR = pd.Timedelta(minutes=1)
 
 
-def bars(n: int, *, seed: int = 0) -> pd.DataFrame:
+def bars(n: int, seed: int = 0) -> pd.DataFrame:
     """Build a synthetic minute series with enough movement to produce trades."""
     rng = np.random.default_rng(seed)
     close = 18000 + np.cumsum(rng.normal(0.0, 2.0, size=n))

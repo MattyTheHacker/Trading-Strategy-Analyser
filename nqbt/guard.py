@@ -293,7 +293,7 @@ def _positional(labels: Labels) -> Column:  # type: ignore[explicit-any]  # a co
     return pd.Series(labels).reset_index(drop=True)
 
 
-def _group(labels: Column, *, min_trades: int) -> _Grouping:  # type: ignore[explicit-any]  # a condition's dtype is its own
+def _group(labels: Column, min_trades: int) -> _Grouping:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Sort the trades into the strata a separation is measured across, floor applied.
 
     Null labels are dropped, which is what :func:`nqbt.review.stratify` does with them.
@@ -343,7 +343,7 @@ def _spread(values: Floats) -> float:
 def separate(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
-    *,
+   
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
 ) -> Separation:
@@ -399,7 +399,7 @@ class _Null:
 def _null(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Mapping[str, Labels],
-    *,
+   
     statistic: str,
     min_trades: int,
     iterations: int,
@@ -451,7 +451,7 @@ def _p_value(null: Floats, observed: float) -> tuple[float, int]:
 def screen(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Mapping[str, Labels],
-    *,
+   
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
     iterations: int = DEFAULT_ITERATIONS,
@@ -518,7 +518,7 @@ def _screen_frame(drawn: _Null) -> pd.DataFrame:
 def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
-    *,
+   
     condition: str = "condition",
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
@@ -563,7 +563,7 @@ def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is it
 def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
-    *,
+   
     condition: str = "condition",
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
@@ -619,7 +619,7 @@ def _gap(best: Floats, worst: Floats, statistic: str) -> float:
     return float(gap) if np.isfinite(gap) else np.nan
 
 
-def _cut(trades: int, *, share: float, held_out: int | None) -> int:
+def _cut(trades: int, share: float, held_out: int | None) -> int:
     """Where the recent trades begin, refusing a split that would leave one side empty."""
     if held_out is None:
         if not 0.0 < share < 1.0:
@@ -639,7 +639,7 @@ def _nothing_to_hold_out(
     condition: str,
     statistic: str,
     chosen: Separation,
-    *,
+   
     in_sample_trades: int,
 ) -> Holdout:
     """Report a condition with no split to hold out: uncuttable in sample, or every stratum tied."""
@@ -663,7 +663,7 @@ def _nothing_to_hold_out(
 def guard(
     log: pd.DataFrame,
     annotation: Annotation,
-    *,
+   
     by: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
     conditions: Sequence[str] | None = None,
@@ -757,7 +757,7 @@ def _chosen(
 # -- shared checks ------------------------------------------------------------
 
 
-def _check_statistic(statistic: str, *, argument: str = "statistic") -> None:
+def _check_statistic(statistic: str, argument: str = "statistic") -> None:
     """Refuse a statistic a separation cannot honestly be measured in."""
     if statistic in STATISTICS:
         return

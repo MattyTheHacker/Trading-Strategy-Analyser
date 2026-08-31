@@ -69,7 +69,7 @@ def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return primary.set_index("utc"), coarse.set_index("utc")
 
 
-def report(name: str, *, agreed: bool, detail: str) -> bool:
+def report(name: str, agreed: bool, detail: str) -> bool:
     """One question's verdict, in the form the other reconciliation tools print."""
     logger.info("  %-12s %-9s %s", name, "AGREES" if agreed else "DIFFERS", detail)
     return agreed

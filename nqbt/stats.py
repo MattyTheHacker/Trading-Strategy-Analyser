@@ -250,7 +250,7 @@ def _finite(values: FloatArray) -> FloatArray:
 
 
 def _summarise_arrays(
-    *,
+   
     pnl: FloatArray,
     bars_held: FloatArray,
     mae: FloatArray,

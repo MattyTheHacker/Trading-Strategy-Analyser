@@ -200,7 +200,7 @@ class Dataset:
             )
         return self.mas[kind]
 
-    def ma_gate(self, kind: str, period: int, *, above: bool) -> BoolArray:
+    def ma_gate(self, kind: str, period: int, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) ``kind(period)``?
 
         Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
@@ -247,7 +247,7 @@ class Dataset:
         """One period's signed extension in standard deviations, for gating and stratifying."""
         return self._band().stretch_for(period)
 
-    def vwap_gate(self, *, above: bool) -> BoolArray:
+    def vwap_gate(self, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) the session VWAP?"""
         if self.below_vwap is None or self.above_vwap is None:
             msg: str = (
@@ -526,7 +526,6 @@ class PrepareOptions(TypedDict, total=False):
 def prepare(
     bars: pd.DataFrame,
     spec: ContextSpec = DEFAULT_SPEC,
-    *,
     exit_on_close_seconds: int = 30,
     keep_ma_values: bool = False,
     bar_minutes: int | None = None,

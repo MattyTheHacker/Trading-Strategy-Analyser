@@ -48,7 +48,7 @@ def dataset() -> context.Dataset:
     return context.prepare(bars(), SPEC)
 
 
-def sim_log(data: context.Dataset, *, count: int = 30, first: int = 20, hold: int = 2) -> pd.DataFrame:
+def sim_log(data: context.Dataset, count: int = 30, first: int = 20, hold: int = 2) -> pd.DataFrame:
     """Build a simulated log carrying every column ``summarise`` reads, one leg per trade."""
     at = np.arange(first, first + count, dtype=np.int64)
     out = at + hold

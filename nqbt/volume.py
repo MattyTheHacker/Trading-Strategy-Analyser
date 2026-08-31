@@ -462,7 +462,7 @@ def relative_to_bar_of_session(
     session_id: IntArray,
     bar_of_session: IntArray,
     baseline_sessions: int,
-    *,
+   
     min_observations: int = MIN_BASELINE_SESSIONS,
 ) -> FloatArray:
     """Divide out what is normal for this bar of session over the preceding sessions.

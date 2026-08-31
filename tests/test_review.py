@@ -82,7 +82,7 @@ def bars_in(
     data: context.Dataset,
     phase: timeofday.SessionPhase,
     count: int,
-    *,
+   
     session: int = -1,
 ) -> list[int]:
     """``count`` bar indices in ``phase`` of one session -- the last, which alone has baselines.
@@ -99,7 +99,7 @@ def bars_in(
 def sim_log(
     entries: list[int],
     data: context.Dataset,
-    *,
+   
     pnl: list[float],
     hold: int = 2,
     exit_reasons: list[str] | None = None,
@@ -162,7 +162,7 @@ def by_time_only(log: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def alternating(count: int, *, win: float = 100.0, loss: float = -50.0) -> list[float]:
+def alternating(count: int, win: float = 100.0, loss: float = -50.0) -> list[float]:
     """P&L that gives a stratum both winners and losers, so a win rate is not 0 or 1."""
     return [win if i % 2 else loss for i in range(count)]
 

@@ -405,7 +405,6 @@ def moving_average_grid(
     close: FloatArray,
     periods: Iterable[int],
     kind: str = "ema",
-    *,
     keep_values: bool = False,
 ) -> MovingAverageGrid:
     """Compute every distinct period one kind of average is needed at, once.

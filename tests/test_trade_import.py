@@ -40,7 +40,7 @@ SAMPLE_GROSS = -173.50
 SAMPLE_TRADE_GROSS = {1: -86.50, 2: -87.00}
 
 
-def grid(tmp_path, rows, *, header=HEADER, name="grid.csv"):
+def grid(tmp_path, rows, header=HEADER, name="grid.csv"):
     """Write ``rows`` as an executions grid: newest first, CRLF, trailing comma intact."""
     path = tmp_path / name
     path.write_text("\r\n".join([header, *rows, ""]), encoding="utf-8")

@@ -141,7 +141,7 @@ def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
 
 def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has to state
     results: pd.DataFrame,
-    *,
+   
     root: str,
     instrument: str,
     bars: pd.DataFrame,
@@ -212,7 +212,7 @@ def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has t
 
 def _tag_axes(
     results: pd.DataFrame,
-    *,
+   
     strategy: str | None,
     resolution: int | None,
     contract: str | None,
@@ -328,7 +328,7 @@ def save_trades(
     sweep_id: int,
     combo_id: int,
     db_path: Path = paths.SWEEPS_DB,
-    *,
+   
     replace: bool = False,
 ) -> None:
     """Store one combination's trade log, for a shortlisted candidate worth inspecting.

@@ -181,7 +181,7 @@ def detect_roll(
     back_id: ContractId,
     front: pd.DataFrame,
     back: pd.DataFrame,
-    *,
+   
     confirm_sessions: int = 1,
     allow_coverage_boundary: bool = True,
 ) -> RollDecision:
@@ -318,7 +318,7 @@ def _boundary_offset(
 def build_continuous(  # noqa: C901 - the roll rules it applies are each a branch
     contracts: list[ContractId],
     frames: dict[ContractId, pd.DataFrame],
-    *,
+   
     back_adjust: bool = False,
     confirm_sessions: int = 1,
     allow_coverage_boundary: bool = True,
@@ -492,7 +492,7 @@ def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
+def continuous_path(root: str, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
     """Where one root's spliced continuous series is cached."""
     suffix: str = "backadj" if back_adjust else "raw"
     return cache_dir / "continuous" / f"{root}_{suffix}.parquet"
@@ -500,7 +500,7 @@ def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CAC
 
 def splice_root(
     root: str,
-    *,
+   
     data_dir: Path = paths.ARCHIVE_DIR,
     cache_dir: Path = paths.CACHE_DIR,
     back_adjust: bool = False,
@@ -535,7 +535,7 @@ def splice_root(
 
 def load_continuous(
     root: str,
-    *,
+   
     back_adjust: bool = False,
     cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:

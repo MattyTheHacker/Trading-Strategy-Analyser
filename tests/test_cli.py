@@ -134,7 +134,7 @@ def test_cmd_contracts_tabulates_every_cached_contract(monkeypatch, base_args, c
 # --- splice ------------------------------------------------------------------
 
 
-def splice_args(base_args, *, diagnostics: bool):
+def splice_args(base_args, diagnostics: bool):
     base_args.root = "MNQ"
     base_args.back_adjust = False
     base_args.confirm_sessions = 1
@@ -143,7 +143,7 @@ def splice_args(base_args, *, diagnostics: bool):
     return base_args
 
 
-def spliced(monkeypatch, *, early_rolls, rolls=()):
+def spliced(monkeypatch, early_rolls, rolls=()):
     series = pd.DataFrame(
         {"close": [1.0, 2.0]},
         index=pd.to_datetime(["2024-03-01", "2024-03-02"], utc=True),

@@ -96,7 +96,7 @@ def empty() -> Notes:
     return Notes(frame=pd.DataFrame(columns, index=index))
 
 
-def record(notes: Notes, trade_id: int, note: str, *, screenshot: str | None = None) -> Notes:
+def record(notes: Notes, trade_id: int, note: str, screenshot: str | None = None) -> Notes:
     """Return ``notes`` with one trade's context written, replacing anything already on it."""
     text: str = note.strip()
     if not text:
@@ -160,7 +160,7 @@ def alongside(frame: pd.DataFrame, notes: Notes) -> pd.DataFrame:
     return attached
 
 
-def check_excluded(frame: pd.DataFrame, *, what: str) -> None:
+def check_excluded(frame: pd.DataFrame, what: str) -> None:
     """Refuse a frame carrying free text into anything that evaluates a trade.
 
     Called at each door into the evaluation path rather than left to a convention, because a
@@ -179,7 +179,7 @@ def check_excluded(frame: pd.DataFrame, *, what: str) -> None:
     raise NotesError(msg)
 
 
-def _keyed(raw: pd.DataFrame, *, source: str) -> pd.DataFrame:
+def _keyed(raw: pd.DataFrame, source: str) -> pd.DataFrame:
     """Key the parsed rows by ``trade_id``, refusing one that is not a whole number."""
     ids: pd.Series[float] = pd.to_numeric(raw[KEY], errors="coerce")
     unreadable: pd.Series[bool] = ids.isna() | (ids % 1 != 0)
