@@ -87,20 +87,30 @@ def test_they_agree_on_a_combination_that_never_trades(bars) -> None:
     assert dataclasses.asdict(fast) == dataclasses.asdict(reference)
 
 
-def test_they_agree_when_no_times_were_attached(bars) -> None:
+def test_neither_path_will_compute_sharpe_without_times(bars) -> None:
     """``day_codes=None`` is the numpy spelling of a log with no ``exit_time`` column.
 
-    Both then compute Sharpe and Sortino per trade rather than per day, which is #81's
-    silent branch -- pinned here so the two paths at least agree about it.
+    Both used to annualise a **per-trade** ratio as though it were daily, and both now
+    refuse. Agreeing about the refusal is the same invariant as agreeing about a number:
+    two Sharpes with different denominators would sit in one results column (#81).
     """
     archetype, params = CASES[0]
     data = sweep.prepare_for(bars, sweep.Grid.of(params, archetype=archetype))
-    reference = stats.summarise(archetype.run(data, params, NQ, with_times=False))
-    fast = stats.summarise_legs(archetype.legs(data, params, NQ), None)
-    assert dataclasses.asdict(fast) == dataclasses.asdict(reference)
+    undated = archetype.run(data, params, NQ, with_times=False)
+    assert not undated.empty, "fixture produced no trades; this would pass vacuously"
+
+    with pytest.raises(stats.MissingTimesError, match="exit_time"):
+        stats.summarise(undated)
+    with pytest.raises(stats.MissingTimesError, match="day codes"):
+        stats.summarise_legs(archetype.legs(data, params, NQ), None)
 
 
 # -- the grouping itself ------------------------------------------------------
+
+
+def minute_index(bars: int) -> pd.DatetimeIndex:
+    """An index long enough to carry the leg matrices below, all on one calendar day."""
+    return pd.date_range("2024-01-02 00:00", periods=bars, freq="min", tz="UTC")
 
 
 def leg_matrix(trade_ids, net_pnl, exit_bars=None) -> trades.LegMatrix:
@@ -137,9 +147,10 @@ def test_a_running_sum_would_not_reproduce_pandas() -> None:
 def test_the_grouped_sum_is_compensated_like_pandas() -> None:
     """Guards the Kahan loop in ``_grouped_sum`` against being "simplified" away."""
     legs = leg_matrix([1, 1, 1, 1], CANCELLING)
-    assert stats.summarise_legs(legs).net_pnl == 2.0
+    index = minute_index(legs.count)
+    assert stats.summarise_legs(legs, context.day_codes(index)).net_pnl == 2.0
 
-    frame = trades.trades_to_frame(legs.matrix, legs.count, instrument="NQ")
+    frame = trades.trades_to_frame(legs.matrix, legs.count, index, instrument="NQ")
     assert stats.summarise(frame).net_pnl == 2.0
 
 
@@ -151,7 +162,7 @@ def test_legs_written_out_of_trade_order_are_refused() -> None:
     """
     legs = leg_matrix([1, 2, 1], [1.0, 2.0, 3.0])
     with pytest.raises(stats.GroupingError, match="non-decreasing"):
-        stats.summarise_legs(legs)
+        stats.summarise_legs(legs, context.day_codes(minute_index(legs.count)))
 
 
 def test_trades_are_grouped_by_the_day_they_closed_on() -> None:

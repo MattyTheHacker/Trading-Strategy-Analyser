@@ -117,13 +117,19 @@ _NEEDED = (
     "net_pnl",
     "commission",
     "exit_reason",
+    "exit_time",
     "bars_held",
     "mae_points",
     "mfe_points",
     "r_multiple",
     "ambiguous_bar",
 )
-"""Columns ``summarise`` reads, which a log must carry even where it leaves them null."""
+"""Columns ``summarise`` reads, which a log must carry even where it leaves them null.
+
+``exit_time`` is the exception it may not leave null: ``summarise`` refuses a log that cannot
+say which day each trade closed on, so a review refuses it here rather than at the first
+stratum -- ``docs/roadmap.md`` § "Sharpe and Sortino are refused rather than approximated".
+"""
 
 _ABSOLUTE_VOLUME = "entry_volume_"
 _RELATIVE_VOLUME = "entry_relative_volume_"
