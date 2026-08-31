@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import conditions, context, regime, sessions, timeofday, trend, volume
+from nqbt import arrays, conditions, context, regime, sessions, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams
@@ -130,3 +130,32 @@ def test_positions_into_an_array_are_intp_however_they_are_produced() -> None:
 def test_day_codes_stay_narrow(data: context.Dataset) -> None:
     assert data.day_codes is not None
     assert data.day_codes.dtype == np.int32
+
+
+# -- the one place a bar column's dtype is chosen -----------------------------
+
+
+def test_ohlc_returns_the_four_columns_in_name_order_not_frame_order() -> None:
+    """The tuple is positional, so a frame holding the columns in another order must not reorder it."""
+    frame = pd.DataFrame({"close": [4.0], "low": [3.0], "high": [2.0], "open": [1.0]})
+    assert [column[0] for column in arrays.ohlc(frame)] == [1.0, 2.0, 3.0, 4.0]
+
+
+def test_a_bar_column_is_float64_whatever_the_frame_stores() -> None:
+    """The dtype is the helper's rather than the frame's -- volume is int64 as ingested."""
+    frame = pd.DataFrame(
+        {
+            "open": np.array([1], dtype=np.int64),
+            "high": np.array([2], dtype=np.float32),
+            "low": np.array([3], dtype=np.int32),
+            "close": np.array([4], dtype=np.float64),
+            "volume": np.array([5], dtype=np.int64),
+        }
+    )
+    assert arrays.float_column(frame, "volume").dtype == np.float64
+    assert [column.dtype for column in arrays.ohlc(frame)] == [np.float64] * 4
+
+
+def test_a_column_the_frame_does_not_carry_raises() -> None:
+    with pytest.raises(KeyError):
+        arrays.float_column(pd.DataFrame({"close": [1.0]}), "high")

@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from nqbt import indicators, ingest, paths
+from nqbt.arrays import ohlc
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -473,7 +474,7 @@ def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
 
     contracts = series["contract"].to_numpy()
     at: OffsetArray = np.flatnonzero(contracts[1:] != contracts[:-1]) + 1
-    high, low, close = (series[column].to_numpy(np.float64) for column in ("high", "low", "close"))
+    open_, high, low, close = ohlc(series)
     true_range: FloatArray = indicators.nt8_true_range(high, low, close)
     stamps: pd.DatetimeIndex = pd.DatetimeIndex(series.index)
 
@@ -483,7 +484,7 @@ def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
             "contract": contracts[at],
             "previous_bar": stamps[at - 1],
             "gap_minutes": (stamps[at] - stamps[at - 1]).total_seconds() / 60.0,
-            "carry_over": series["open"].to_numpy(np.float64)[at] - close[at - 1],
+            "carry_over": open_[at] - close[at - 1],
             "true_range": true_range[at],
         },
         index=stamps[at],

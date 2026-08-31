@@ -18,6 +18,7 @@ import numpy as np
 from numba import njit
 
 from nqbt import indicators
+from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -150,47 +151,37 @@ def _prior_bar_inside(high: FloatArray, low: FloatArray) -> BoolArray:
 
 def inverted_hammer(bars: pd.DataFrame) -> BoolArray:
     """:func:`_inverted_hammer` over a bar frame's OHLC columns."""
-    return _inverted_hammer(
-        bars["open"].to_numpy(np.float64),
-        bars["high"].to_numpy(np.float64),
-        bars["low"].to_numpy(np.float64),
-        bars["close"].to_numpy(np.float64),
-    )
+    return _inverted_hammer(*ohlc(bars))
 
 
 def hammer(bars: pd.DataFrame) -> BoolArray:
     """:func:`_hammer` over a bar frame's OHLC columns."""
-    return _hammer(
-        bars["open"].to_numpy(np.float64),
-        bars["high"].to_numpy(np.float64),
-        bars["low"].to_numpy(np.float64),
-        bars["close"].to_numpy(np.float64),
-    )
+    return _hammer(*ohlc(bars))
 
 
 def made_new_high(bars: pd.DataFrame) -> BoolArray:
     """:func:`_made_new_high` over a bar frame's highs."""
-    return _made_new_high(bars["high"].to_numpy(np.float64))
+    return _made_new_high(float_column(bars, "high"))
 
 
 def made_new_low(bars: pd.DataFrame) -> BoolArray:
     """:func:`_made_new_low` over a bar frame's lows."""
-    return _made_new_low(bars["low"].to_numpy(np.float64))
+    return _made_new_low(float_column(bars, "low"))
 
 
 def previous_bar_green(bars: pd.DataFrame) -> BoolArray:
     """:func:`_previous_bar_green` over a bar frame's opens and closes."""
-    return _previous_bar_green(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
+    return _previous_bar_green(float_column(bars, "open"), float_column(bars, "close"))
 
 
 def previous_bar_red(bars: pd.DataFrame) -> BoolArray:
     """:func:`_previous_bar_red` over a bar frame's opens and closes."""
-    return _previous_bar_red(bars["open"].to_numpy(np.float64), bars["close"].to_numpy(np.float64))
+    return _previous_bar_red(float_column(bars, "open"), float_column(bars, "close"))
 
 
 def prior_bar_inside(bars: pd.DataFrame) -> BoolArray:
     """:func:`_prior_bar_inside` over a bar frame's highs and lows."""
-    return _prior_bar_inside(bars["high"].to_numpy(np.float64), bars["low"].to_numpy(np.float64))
+    return _prior_bar_inside(float_column(bars, "high"), float_column(bars, "low"))
 
 
 def below_series(close: FloatArray, series: FloatArray) -> BoolArray:
