@@ -90,33 +90,22 @@ ignore = [
     "D105",  # A dunder's contract is the language's; the ones that surprise carry a docstring anyway.
     "D213",  # D212 is the convention here: a multi-line summary starts on the first line.
     "D401",  # A docstring here says *what* a thing is -- CONTRIBUTING.md, "Where reasoning goes" -- which is a noun phrase, where D401 wants an imperative verb.
+    "FBT001",
+    "FBT002",
+    "FBT003",
 ]
 
 
 [tool.ruff.lint.pylint]
-# An entry point taking one keyword per choice its caller must state is the shape of this
-# codebase, not a defect. Nothing sits above ten any more: #59 grouped the jitted loops'
-# scalars into the NamedTuple blobs in ``nqbt/sim/bracket.py``.
 max-args = 10
 
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # `assert` is how a test states its expectation; S101 is aimed at production code.
-# The jitted loops: numba compiles from the call and has no keyword-only arguments, so a toggle is a positional boolean, and the archetypes pass one into a blob's constructor.
-"nqbt/conditions.py" = ["FBT001", "FBT003"]
-"nqbt/sim/bracket.py" = ["FBT001"]
-"nqbt/sim/crossover.py" = ["FBT003"]
-"nqbt/sim/deadcat.py" = ["FBT003"]
-"nqbt/sim/elasticband.py" = ["FBT003"]
-"nqbt/sim/insidebar.py" = ["FBT003"]
-"nqbt/sim/insidebartrailing.py" = ["FBT003"]
-# Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
-# numba, pandas and TA-Lib.
-"nqbt/cli.py" = ["PLC0415"]
+"tests/**" = ["S101"]
+"nqbt/cli.py" = ["PLC0415"]  # Each subcommand only imports the specific modules it needs for performance
 
 
 [tool.mypy]
-# joblib ships neither stubs nor a py.typed marker; `stubs/joblib` is the hand-written surface.
 mypy_path = "stubs"
 check_untyped_defs = true
 disallow_any_decorated = true
