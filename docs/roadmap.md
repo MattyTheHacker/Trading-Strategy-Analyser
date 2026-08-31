@@ -794,6 +794,8 @@ Each configuration was chosen on the selection window and placed against its mat
 
 Per contract, which is thirty-eight samples rather than one: the InsideBar configuration beats its own null on 13 of 19 MNQ contracts and 12 of 19 NQ ones. Split honestly into the contracts the selection window covered and the ones it did not, that is **16 of 22 in sample and 9 of 16 out of sample**, with the mean excess staying positive on both roots and roughly halving.
 
+**Those signs were counted on profit-factor excess, and the tool no longer reports it that way** — § "Reading the per-contract tally" below. A re-run reports a different excess column, and may count different signs, because the two estimators separate a contract's winners from its losers by size rather than only by number.
+
 **The honest reading is "there is probably something here", not "this is established."** No null test in the campaign reaches p < 0.05 on profit factor. What InsideBar has is a consistent sign across two roots, thirty-eight contracts and a held-out window — which is more than anything else in this project has produced, and less than proof.
 
 #### Gate 4 — what stops it is the bracket, not the entry
@@ -809,7 +811,7 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 #### What the campaign could not test
 
 - **Sixteen of the twenty strata were never held out.** Session phase, relative volume, trend label and higher-timeframe side had full-window numbers only. [#199] has since run them through the split — §M27.4, which is where those cells' numbers now live.
-- **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the campaign. [#200] carries it, and **not** by loosening the threshold to restore the sample: the cut is uncalibrated rather than merely tight (§M10.1), and choosing it by the trade count it leaves would pick the stratum's definition from the statistic the stratum is about to be tested on. The infinite profit factors seen alongside are a separate defect ([#218]).
+- **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the campaign. [#200] carries it, and **not** by loosening the threshold to restore the sample: the cut is uncalibrated rather than merely tight (§M10.1), and choosing it by the trade count it leaves would pick the stratum's definition from the statistic the stratum is about to be tested on. The infinite profit factors seen alongside were a separate defect ([#218]), fixed in § "Reading the per-contract tally".
 - **The held-out split is a single time cut** at 60% of the bars, so it tests one regime transition rather than many. The two roots track the same index over the same dates, so the thirty-eight per-contract samples are not thirty-eight independent ones.
 - **`max_hold_bars` means a different amount of time at each resolution**, exactly as a moving-average period does. Nothing scales it, and no result here rests on it.
 - **Everything is Tier 1.** EmaCrossover and ElasticBand have no NinjaScript at all, which is why InsideBar surviving matters more than EmaCrossover surviving would have.
@@ -821,6 +823,16 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 **One DuckDB per archetype**, under `results/campaign/`. At the time, `results._append_or_create` wrote `combos` by name and silently dropped a column the table did not have, so six parameter classes could not share one table — appending an `InsideBarParams` row to a table created from `DeadCatParams` would have stored it with `error_margin`, `atr_length` and `atr_multiplier` thrown away and nothing would have said so. [#201] closed that: the table widens instead, so the split is now a convention rather than a constraint, and the campaign keeps it because its results are already there.
 
 Two things the sweep machinery still cannot see, both already recorded in `.claude/rules/sweep-and-context.md` and both worked around here rather than fixed: ElasticBand's stop and target axes are inert outside their own mode, and `volume_rolling_bars` has two toggles where `dead_axes` knows one. The campaign avoids both by making a stop geometry a *variant* — its own base parameters and its own axes — rather than an axis inside one grid.
+
+#### Reading the per-contract tally
+
+**A profit factor is unbounded above, so it cannot be averaged over contracts** ([#218]). A contract with no losing trade has a gross loss of zero and an infinite profit factor, and one such contract sent `tools/campaign_contracts.py`'s `mean_pf` and `mean_excess` to infinity for its whole root — silently, because an infinity in a table of ratios reads as an extreme contract rather than as a destroyed row. The excess column made it worse by construction: the non-finite draws were filtered out of the *null's* profit factor and never out of the observed one, so the two sides of the subtraction did not have the same domain.
+
+**The tally is taken on `expectancy` instead**, which `stats.Summary` already carries. Mean P&L per trade is bounded by the largest win, defined when gross loss is zero, and sits in the same units as `net_pnl`, which the row already reports. `mean_r` is the other bounded candidate and was not chosen because it is zero rather than undefined on a log with no finite planned risk, which reads as "no edge" instead of "no measurement". Profit factor is still reported *per contract*, where an infinity is visible and belongs to one contract; nothing aggregates it.
+
+**The verdict is the sign count, not the average** — `beats_null` and `profitable` over the contracts, which is what the module docstring already told the reader to do and what §M26 and Gate 3 above actually quote. The medians beside them describe the spread and can never carry it: no single contract moves a median of nineteen, however extreme it is.
+
+**There is no minimum trade count**, and removing it is the same finding rather than a second one. `MIN_TRADES = 30` was doing statistical work nothing stated — the justification in §M14 is specifically that *a profit factor* from a handful of trades dominates the quantity being measured, which is true there and does not transfer to a bounded statistic under a sign count. Every contract that traded is counted, and `median_trades` and `fewest_trades` are reported beside the signs so that a verdict resting on thin contracts says so. The one cut left is `trades > 0`, which is not a threshold: there is no statistic to count.
 
 ### M27.4 — the sixteen strata that were never held out ([#199])
 
