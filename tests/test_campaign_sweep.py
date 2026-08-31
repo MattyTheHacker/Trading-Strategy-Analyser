@@ -89,6 +89,14 @@ def test_core_and_context_partition_the_whole_set() -> None:
     assert core + context == [name for name, _ in strata(ALL_STRATA)]
 
 
+def test_every_dimension_is_selectable_on_its_own() -> None:
+    """A held-out pass takes one dimension at a time, so each needs its own name -- a set that
+    only reached a dimension through ``context`` could not be run without the other two."""
+    for group, names in EVERY_STATE.items():
+        assert [name for name, _ in strata(group)] == names, group
+    assert [name for name, _ in strata(UNFILTERED)] == [UNFILTERED]
+
+
 def test_every_named_set_is_built_from_the_shared_dimensions() -> None:
     """A set that named a dimension twice would double every combination inside it."""
     for which in STRATUM_SETS:

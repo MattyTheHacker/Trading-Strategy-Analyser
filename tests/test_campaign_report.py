@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from nqbt import archetypes, stats
-from tools.campaign_holdout import JOIN_KEYS, TOP, rank_correlation, verdict
+from tools.campaign_holdout import GROUP_KEYS, JOIN_KEYS, TOP, rank_correlation, verdict
 from tools.campaign_report import STATISTICS, TAGS, axis_influence, eta_squared, profile, swept_axes
 from tools.campaign_shortlist import rebuild
 
@@ -122,22 +122,63 @@ def test_rank_correlation_is_one_for_an_order_that_survives_and_minus_one_for_a_
     assert rank_correlation(reversed_order) == pytest.approx(-1.0)
 
 
-def test_the_verdict_compares_the_shortlist_against_not_shortlisting() -> None:
-    """The benchmark is the holdout median of every configuration, not zero."""
-    size = TOP + 10
-    merged = pd.DataFrame(
+def paired_rows(stratum: str, holdout: np.ndarray, size: int = TOP + 10) -> pd.DataFrame:
+    """One stratum's paired window, ranked so the shortlist is the last ``TOP`` rows."""
+    return pd.DataFrame(
         {
             "root": "MNQ",
+            "stratum": stratum,
             "profit_factor_sel": np.arange(size, dtype=float),
-            "profit_factor_hold": np.linspace(0.4, 0.6, size),
+            "profit_factor_hold": holdout,
             "net_pnl_hold": np.zeros(size),
         },
     )
-    row = verdict("InsideBar", merged).iloc[0]
+
+
+def test_the_verdict_compares_the_shortlist_against_not_shortlisting() -> None:
+    """The benchmark is the holdout median of every configuration, not zero."""
+    size = TOP + 10
+    row = verdict("InsideBar", paired_rows("unfiltered", np.linspace(0.4, 0.6, size))).iloc[0]
     assert row["paired"] == size
     assert row["hold_all_median_pf"] == pytest.approx(0.5)
     assert row["hold_top20_pf"] < 1.0
     assert row["top20_profitable"] == 0
+    assert not row["passes"]
+
+
+def test_a_shortlist_that_beats_1_but_not_the_unselected_median_does_not_pass() -> None:
+    """Gate 2 is two conditions and the second is the one a profit factor alone hides:
+    selecting can be profitable and still be worse than not selecting at all."""
+    size = 5 * TOP
+    holdout = np.full(size, 3.0)
+    holdout[-TOP:] = 1.5
+    row = verdict("InsideBar", paired_rows("unfiltered", holdout, size)).iloc[0]
+    assert row["hold_top20_pf"] == pytest.approx(1.5)
+    assert row["hold_all_median_pf"] == pytest.approx(3.0)
+    assert row["top20_profitable"] == TOP
+    assert not row["passes"]
+
+
+def test_a_stratum_is_shortlisted_within_itself_and_never_pooled() -> None:
+    """The hazard §M27.4 exists to avoid: pooling lets the twenty largest selection-window
+    profit factors come from the fattest-tailed stratum, so a weak stratum inherits a
+    shortlist it never produced and reads as having been tested."""
+    size = TOP + 10
+    unselected = np.full(size - TOP, 1.0)
+    fat = paired_rows("regime=DIRECTIONAL", np.r_[unselected, np.full(TOP, 2.0)])
+    fat["profit_factor_sel"] += 1000.0
+    thin = paired_rows("regime=CONSOLIDATING", np.r_[unselected, np.full(TOP, 0.5)])
+
+    rows = verdict("InsideBar", pd.concat([fat, thin], ignore_index=True)).set_index("stratum")
+    assert len(rows) == 2
+    assert rows.loc["regime=DIRECTIONAL", "hold_top20_pf"] == pytest.approx(2.0)
+    assert rows.loc["regime=CONSOLIDATING", "hold_top20_pf"] == pytest.approx(0.5)
+    assert rows.loc["regime=CONSOLIDATING", "paired"] == size
+
+
+def test_a_shortlist_is_chosen_within_one_root_and_one_stratum() -> None:
+    """Both are choices the selection window would otherwise get to make for free."""
+    assert GROUP_KEYS == ["root", "stratum"]
 
 
 def test_the_windows_are_paired_on_a_key_that_identifies_one_configuration() -> None:

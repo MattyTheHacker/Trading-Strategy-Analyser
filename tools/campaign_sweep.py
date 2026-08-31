@@ -6,6 +6,7 @@ than six incomparable runs:
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --n-jobs 8
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --strata context --n-jobs 8
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --n-jobs 8
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --strata phase --n-jobs 8
 
 Both roots, the spliced continuous series, resolutions 1/2/5/10/15, at the real commission for
 the root and one tick of slippage. ``--split`` re-runs the same grids on a selection window and
@@ -18,7 +19,9 @@ does not recognise; the campaign's results are already there -- ``docs/roadmap.m
 
 **Strata are one dimension at a time, never crossed.** ``--strata core`` is unfiltered, then
 once per regime and once per session phase; ``--strata context`` adds the volume, trend and
-higher-timeframe cuts and appends to the same databases.
+higher-timeframe cuts and appends to the same databases. Each dimension is also nameable on its
+own -- ``unfiltered``, ``regime``, ``phase``, ``volume``, ``trend``, ``htf`` -- which is how a
+held-out pass adds one at a time.
 """
 
 from __future__ import annotations
@@ -143,15 +146,14 @@ STRATUM_GROUPS = {
 tells "no edge anywhere" from "edge in one stratum, drowned by the others"."""
 
 STRATUM_SETS: dict[str, tuple[str, ...]] = {
-    UNFILTERED: (UNFILTERED,),
-    "regime": ("regime",),
-    "phase": ("phase",),
+    **{group: (group,) for group in STRATUM_GROUPS},
     CORE: (UNFILTERED, "regime", "phase"),
     CONTEXT: ("volume", "trend", "htf"),
-    ALL_STRATA: (UNFILTERED, "regime", "phase", "volume", "trend", "htf"),
+    ALL_STRATA: tuple(STRATUM_GROUPS),
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
-skipped rather than re-running it."""
+skipped rather than re-running it. Every dimension is also selectable on its own, which is what
+lets a held-out pass take them one at a time -- ``docs/roadmap.md`` §M27.4."""
 
 
 def strata(which: str) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -457,7 +459,7 @@ def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Sweep every archetype across resolution and context.")
     parser.add_argument("--n-jobs", type=int, default=8, help="joblib workers; 1 stays in-process")
-    parser.add_argument("--split", action="store_true", help="selection/holdout windows, unfiltered only")
+    parser.add_argument("--split", action="store_true", help="selection and held-out windows")
     parser.add_argument("--roots", nargs="+", default=list(ROOTS))
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))
     parser.add_argument("--resolutions", nargs="+", type=int, default=list(RESOLUTIONS))
