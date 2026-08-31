@@ -28,11 +28,18 @@ from nqbt.trades import SHORT
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
-    """Random-walk minute bars with wicks wide enough to throw inverted hammers."""
+    """Random-walk minute bars with wicks wide enough to throw inverted hammers.
+
+    A share of bars open away from the previous close rather than exactly on it. Without
+    that the entry bar can never gap through the trigger, because the trigger is capped at
+    ``Close[0] - 2 ticks`` and the open would *be* that close -- so ``fill_type`` would read
+    ``trigger_touched`` on every trade and any test of it would pass without checking it.
+    """
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
     open_ = np.concatenate([[close[0]], close[:-1]])
+    open_ = open_ + np.where(rng.random(n) < 0.15, rng.normal(0, 6.0, n), 0.0)
     high = np.maximum(open_, close) + np.abs(rng.normal(0, 2.0, n))
     low = np.minimum(open_, close) - np.abs(rng.normal(0, 0.5, n))
     frame = pd.DataFrame(
@@ -106,6 +113,20 @@ def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited) -
     assert (detail.loc[gapped, "entry_price"] == detail.loc[gapped, "entry_open"]).all()
     touched = ~gapped
     assert (detail.loc[touched, "entry_price"] == detail.loc[touched, "trigger"]).all()
+
+
+def test_both_fill_types_actually_occur_in_this_fixture(audited) -> None:
+    """Guards the test above from passing vacuously.
+
+    Each half of it asserts over one branch's rows, so a fixture holding only one fill type
+    leaves the other asserting over an empty frame -- and the classification could then be
+    inverted, or hard-coded, without a test failing. It was: every trade read
+    ``trigger_touched`` until the fixture learned to gap.
+    """
+    _log, detail = audited
+    counts = detail["fill_type"].value_counts()
+    assert counts.get("gap_at_open", 0) > 0, "no entry gapped; the gapped branch proves nothing"
+    assert counts.get("trigger_touched", 0) > 0, "every entry gapped; the touched branch proves nothing"
 
 
 def test_entry_bracket_caps_the_trigger_at_two_ticks_below_the_close() -> None:

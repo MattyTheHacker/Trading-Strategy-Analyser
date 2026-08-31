@@ -227,11 +227,16 @@ def stub_run(monkeypatch):
 
 
 def trade_log() -> pd.DataFrame:
-    """A two-leg winner and a one-leg loser, carrying every column ``summarise`` reads."""
+    """A two-leg winner and a one-leg loser, carrying every column ``summarise`` reads.
+
+    The figures are deliberately all different from each other -- net $15.00, drawdown
+    $25.00, expectancy $7.50, profit factor 1.600. They were not: net P&L and max drawdown
+    were both $20.00, so the drawdown assertion passed against the net P&L line.
+    """
     return pd.DataFrame(
         {
             "trade_id": [1, 1, 2],
-            "net_pnl": [30.0, 10.0, -20.0],
+            "net_pnl": [30.0, 10.0, -25.0],
             "commission": [1.5, 1.5, 1.5],
             "bars_held": [4, 9, 3],
             "mae_points": [2.0, 2.0, 5.0],
@@ -294,6 +299,28 @@ def test_cmd_run_asks_for_the_kind_each_gate_was_given(
     assert spec.ma_keys == conditions.ma_keys(hma=(21,), wma=(60,), sma=(175,))
 
 
+@pytest.mark.parametrize(("explain", "kept"), [(None, False), (20, True)])
+def test_cmd_run_keeps_the_indicator_values_exactly_when_explain_asked_for_them(
+    monkeypatch,
+    base_args,
+    stub_run,
+    explain,
+    kept,
+) -> None:
+    """``explain_trades`` raises without them, so this coupling is what makes --explain work.
+
+    Both halves of it are stubbed in the tests that read the audit trail, which is what let
+    ``keep_ma_values`` be set to a constant without a test failing -- and ``nqbt run
+    --explain`` would then have died on the ValueError ``explain_trades`` raises.
+    """
+    prepare = MagicMock()
+    monkeypatch.setattr("nqbt.context.prepare", prepare)
+    monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=pd.DataFrame()))
+
+    assert cli._cmd_run(run_args(base_args, explain=explain)) == 0
+    assert prepare.call_args.kwargs["keep_ma_values"] is kept
+
+
 def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub_run, console) -> None:
     """The profit factor and drawdown were computed and dropped on the floor once."""
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
@@ -304,8 +331,10 @@ def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub
     assert "MNQ 2024-01-02 -> 2024-03-01  2 bars" in text
     assert "params        EMA(21), SMA(60)/SMA(175)" in text
     assert "trades        2  (3 leg exits)" in text  # a two-leg winner and a one-leg loser
-    assert "profit factor 2.000" in text  # +40 against -20
-    assert "max drawdown  $20.00" in text
+    assert "profit factor 1.600" in text  # +40 against -25
+    assert "net P&L       $15.00" in text
+    assert "expectancy    $7.50 / trade" in text
+    assert "max drawdown  $25.00" in text
     assert "win rate      50.00%" in text
     assert "mean R        +0.333" in text
     assert "ambiguous     33.33% of leg exits" in text
