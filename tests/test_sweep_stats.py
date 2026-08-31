@@ -134,12 +134,65 @@ def test_session_close_share_reads_the_label_the_simulator_actually_writes() -> 
 def test_a_log_without_an_exit_reason_raises_rather_than_reporting_zero() -> None:
     """A missing column is a wiring bug, and 0.0 would read as a finding about the market.
 
-    The same shape as #81's silent Sharpe branch, which is why this is indexed rather than
+    The same shape as #81's Sharpe branch below, which is why this is indexed rather than
     defaulted -- ``trades.validate`` requires the column of every producer.
     """
     log = trade_log([(1, 1, 5.0, 1, False)]).drop(columns=["exit_reason"])
     with pytest.raises(KeyError, match="exit_reason"):
         stats.summarise(log)
+
+
+# -- Sharpe and Sortino are refused rather than approximated (#81) -------------
+
+
+def test_a_log_without_exit_times_is_refused_rather_than_summarised_per_trade() -> None:
+    """A per-trade ratio annualised as though it were daily is a plausible wrong number.
+
+    Refusing is the loud half of the choice #11 made for the empty log: the branch this
+    replaces returned one, and two Sharpes with different denominators would have sat in
+    the same results column with nothing distinguishing them.
+    """
+    log = trade_log([(1, 1, 5.0, 1, False), (2, 1, -5.0, 1, False)]).drop(columns=["exit_time"])
+    with pytest.raises(stats.MissingTimesError, match="exit_time"):
+        stats.summarise(log)
+
+
+def test_a_log_whose_exit_times_are_null_is_refused_too() -> None:
+    """The same defect by another route: those trades would leave the daily totals silently.
+
+    Every other statistic still counts them, so the Sharpe denominator alone would shrink.
+    """
+    log = trade_log([(1, 1, 5.0, 1, False), (2, 1, -5.0, 1, False)])
+    log.loc[0, "exit_time"] = pd.NaT
+    with pytest.raises(stats.MissingTimesError, match="null on 1 of 2 legs"):
+        stats.summarise(log)
+
+
+def test_the_times_are_checked_before_the_log_is_found_to_be_empty() -> None:
+    """Schema first, then emptiness -- the order ``trades.validate`` already uses.
+
+    A producer that attaches no times is a wiring bug whether or not it happened to trade,
+    and an empty frame is the case where the mistake is cheapest to make.
+    """
+    with pytest.raises(stats.MissingTimesError, match="exit_time"):
+        stats.summarise(pd.DataFrame())
+
+
+def test_sharpe_is_denominated_in_days_not_trades() -> None:
+    """The property the refusal exists to protect: same trades, different closing days.
+
+    Six identical P&Ls, once two to a day and once one to a day. Every other statistic is
+    the same across the pair, and a per-trade denominator could not tell them apart either.
+    """
+    pnl = [10.0, -5.0, 25.0, 10.0, -5.0, 25.0]
+    log = trade_log([(i + 1, 1, p, 1, False) for i, p in enumerate(pnl)])
+    day = pd.Timestamp("2024-01-02 20:00", tz="UTC")
+
+    paired = log.assign(exit_time=[day + pd.Timedelta(days=i // 2) for i in range(len(pnl))])
+    spread = log.assign(exit_time=[day + pd.Timedelta(days=i) for i in range(len(pnl))])
+
+    assert stats.summarise(paired).net_pnl == stats.summarise(spread).net_pnl
+    assert stats.summarise(paired).sharpe != stats.summarise(spread).sharpe
 
 
 def test_leg_summary_matches_nt8s_way_of_counting() -> None:

@@ -134,6 +134,10 @@ def _ratio(numerator: float, denominator: float) -> float:
     return numerator / denominator
 
 
+class MissingTimesError(ValueError):
+    """Raised when a trade log cannot say which day each trade closed on."""
+
+
 def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
     """Annualised Sharpe and Sortino from daily P&L.
 
@@ -178,6 +182,7 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
     }
     if "entry_time" in trades.columns:
         agg["entry_time"] = ("entry_time", "first")
+    if "exit_time" in trades.columns:
         agg["exit_time"] = ("exit_time", "max")
     return trades.groupby("trade_id").agg(**agg)
 
@@ -188,24 +193,19 @@ def summarise(trades: pd.DataFrame) -> Summary:
     The reference implementation. :func:`summarise_legs` is the fast path and must agree
     with this exactly; where they ever disagree, this one is right.
     """
+    _require_exit_times(trades)
     if trades.empty:
         return Summary.empty()
 
     t: pd.DataFrame = per_trade(trades)
     pnl: FloatArray = t["net_pnl"].to_numpy(np.float64)
 
-    daily: FloatArray
-    if "exit_time" in t.columns:  # noqa: SIM108 - the else branch carries a coverage pragma
-        daily = _daily_totals(pnl, pd.DatetimeIndex(t["exit_time"]))
-    else:  # pragma: no cover - only when times were not attached
-        daily = pnl
-
     return _summarise_arrays(
         pnl=pnl,
         bars_held=t["bars_held"].to_numpy(np.float64),
         mae=t["mae_points"].to_numpy(np.float64),
         mfe=t["mfe_points"].to_numpy(np.float64),
-        daily=daily,
+        daily=_daily_totals(pnl, pd.DatetimeIndex(t["exit_time"])),
         r=_finite(trades["r_multiple"].to_numpy(np.float64)),
         legs=len(trades),
         commission_paid=float(trades["commission"].sum()),
@@ -214,6 +214,29 @@ def summarise(trades: pd.DataFrame) -> Summary:
         # reporting 0.0 would read as "this strategy never runs into the close" (#81).
         session_close_share=float((trades["exit_reason"] == SESSION_CLOSE).mean()),
     )
+
+
+def _require_exit_times(trades: pd.DataFrame) -> None:
+    """Refuse a log that cannot say which day each trade closed on.
+
+    ``docs/roadmap.md`` § "Sharpe and Sortino are refused rather than approximated".
+    """
+    if "exit_time" not in trades.columns:
+        msg: str = (
+            "trade log has no exit_time column. Sharpe and Sortino are annualised from daily "
+            "totals, so a log with no times cannot produce them, and a per-trade ratio scaled "
+            "by the same factor is a different statistic (#81). Attach times with "
+            "trades.trades_to_frame(..., index)."
+        )
+        raise MissingTimesError(msg)
+    nulls: int = int(trades["exit_time"].isna().sum())
+    if nulls:
+        msg = (
+            f"exit_time is null on {nulls} of {len(trades)} legs, which would leave those "
+            "trades out of the daily totals Sharpe and Sortino are computed over while every "
+            "other statistic still counted them (#81)."
+        )
+        raise MissingTimesError(msg)
 
 
 def _daily_totals(pnl: FloatArray, exit_times: pd.DatetimeIndex) -> FloatArray:
@@ -353,13 +376,21 @@ def _ordered_starts(keys: FloatArray | IndexArray, what: str) -> IntArray:
     return _run_starts(keys)
 
 
-def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None = None) -> Summary:
+def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None) -> Summary:
     """Summarise the raw leg matrix, giving exactly what :func:`summarise` gives.
 
-    Feed it :attr:`nqbt.context.Dataset.day_codes` so the Sharpe and Sortino denominators are
-    days rather than trades. :func:`summarise` remains the reference, and
-    ``tests/test_numpy_summary.py`` is what says the two agree.
+    ``day_codes`` is :attr:`nqbt.context.Dataset.day_codes`, the Sharpe and Sortino
+    denominator; ``None`` is refused rather than counted per trade, matching
+    :func:`summarise`'s refusal of a log carrying no times. :func:`summarise` remains the
+    reference, and ``tests/test_numpy_summary.py`` is what says the two agree.
     """
+    if day_codes is None:
+        msg: str = (
+            "no day codes, so Sharpe and Sortino could only be computed per trade rather than "
+            "per day, which is a different statistic (#81). Pass Dataset.day_codes, which is "
+            "None only for a non-datetime index."
+        )
+        raise MissingTimesError(msg)
     matrix, count = legs
     if count == 0:
         return Summary.empty()
@@ -368,12 +399,8 @@ def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None = None) -> Summ
     starts: IntArray = _ordered_starts(rows[:, C_TRADE_ID], "trade_id")
     pnl: FloatArray = _grouped_sum(rows[:, C_NET_PNL], starts)
 
-    daily: FloatArray
-    if day_codes is None:
-        daily = pnl
-    else:
-        exit_bar: IntArray = _grouped_max(rows[:, C_EXIT_BAR], starts).astype(np.int64)
-        daily = _grouped_sum(pnl, _ordered_starts(day_codes[exit_bar], "exit day"))
+    exit_bar: IntArray = _grouped_max(rows[:, C_EXIT_BAR], starts).astype(np.int64)
+    daily: FloatArray = _grouped_sum(pnl, _ordered_starts(day_codes[exit_bar], "exit day"))
 
     ambiguous: FloatArray = rows[:, C_AMBIGUOUS]
     return _summarise_arrays(

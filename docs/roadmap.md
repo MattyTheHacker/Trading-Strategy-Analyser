@@ -923,6 +923,18 @@ All three have a holdout median above 1.0 on both roots, which is the whole para
 
 **Where the next win is, if anyone wants it.** `sweep.sweep` end to end is 12.3 ms per combination against `summarise_legs`' 9.0 — the 3.3 ms difference is `dataclasses.replace` per combination, `params.as_dict()` and `Summary.as_dict()`'s `asdict` deep copy. Small in absolute terms, but it is now a quarter of a combination rather than a tenth, and M18's wide grids multiply it. Not worth doing before there is a workload that needs it.
 
+### ~~Sharpe and Sortino are refused rather than approximated~~ — done ([#81])
+
+Both summary paths carried a branch for a trade log with no times: `summarise` when the frame had no `exit_time` column, `summarise_legs` when `day_codes` was `None`. Each fell back to the **per-trade** P&L vector and then annualised it by `sqrt(252)` anyway, so the output was a per-trade ratio scaled as though it were daily. The parameter `_risk_adjusted` receives is called `daily`, and its docstring says why per trade is the wrong denominator.
+
+**Refusing was chosen over returning `nan`, and `0.0` was never an option.** `_risk_adjusted` already returns `0.0` for a log with fewer than two days in it, so a `0.0` from the no-times path would have been indistinguishable from a real answer. `nan` would have been visible, but the branch is not a statistic anyone asked for and cannot be computed correctly at all, so `MissingTimesError` says so at the point the log arrives. That is the same choice [#11] made for the empty-log constructor, one step louder: an empty log is a valid input with a defined answer, and a timeless one is a producer that has not wired its index through.
+
+**Both paths refuse, because agreeing about a refusal is the same invariant as agreeing about a number.** Fixing only the pandas one would have left a sweep quietly producing the old figure into the same DuckDB column. `summarise_legs`' `day_codes` lost its `= None` default at the same time: the default made the wrong denominator the path of least resistance, and every caller already passed `Dataset.day_codes`. The type stays `IndexArray | None`, since `context.day_codes` returns `None` for a non-datetime index and that call site should read as passing it on rather than as suppressing a check.
+
+**A null `exit_time` is refused for the same reason as a missing one.** `groupby` drops null keys, so a log with times on some rows would have produced a Sharpe over a denominator quietly smaller than the trade count while every other statistic still counted every trade — the same failure with a subtler surface.
+
+**It moved no number**, which was the condition of doing it at all: no producer in the repository reaches either branch. `trades_to_frame` attaches times whenever it is given an index, `trade_import` always parses them, and `Dataset.day_codes` is `None` only for a non-datetime index, which `context.prepare` does not survive anyway. The one caller that reached it was a test asserting the two paths agreed about the wrong answer.
+
 ### ~~M7a~~ — the random-entry control arm: done ([#32])
 
 `nqbt/randomentry.py`. This section is the methodology, the reasoning behind it and the first result; the module carries a pointer here rather than a copy ([#105]).
@@ -1403,7 +1415,7 @@ The original reasoning follows, and still holds.
 
 **`Summary.empty()`** replaces a splat that put 26 arguments into a 28-field dataclass and raised on every call, which went unnoticed because the only caller had grown a second, divergent empty-log policy of its own. `sweep.run_combination` no longer keeps one.
 
-Two things M20a deliberately did **not** change, because M20 may not move a number: `stats.py`'s silent branch computing Sharpe and Sortino per trade rather than per day for a log with no times ([#81]) — unreachable today, same shape as the empty-log defect — and `verification/explain_2024Q1.csv`, annotated rather than regenerated, because it is the record of what the audit trail said while it was being trusted.
+Two things M20a deliberately did **not** change, because M20 may not move a number: `stats.py`'s silent branch computing Sharpe and Sortino per trade rather than per day for a log with no times ([#81]) — unreachable today, same shape as the empty-log defect, and since closed by § "Sharpe and Sortino are refused rather than approximated" — and `verification/explain_2024Q1.csv`, annotated rather than regenerated, because it is the record of what the audit trail said while it was being trusted.
 
 ### M8 — bar-major restructuring: measured, and not scheduled
 

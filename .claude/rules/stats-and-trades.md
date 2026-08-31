@@ -31,6 +31,11 @@ paths:
 - **`Dataset.day_codes` is local, not UTC.** `summarise` groups daily P&L by
   `DatetimeIndex.date`, which is the index's timezone — a UTC-only version passes every test on
   the UTC archive and is an hour out on a `Europe/London` index.
+- **Sharpe and Sortino are refused, never approximated.** Both are annualised from daily
+  totals, so a log with no `exit_time` and a leg matrix with no `day_codes` each raise
+  `MissingTimesError` rather than returning the per-trade ratio the old branches scaled by
+  `sqrt(252)` regardless. `docs/roadmap.md` § "Sharpe and Sortino are refused rather than
+  approximated".
 - **`validate_legs` is the producer boundary a sweep crosses**, since a sweep never calls
   `validate`. Same invariants plus one: `exit_reason` must be in `EXIT_REASONS`, because only
   the simulator can have written it.
