@@ -28,6 +28,8 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nqbt.arrays import BoolArray, DateArray, FloatArray, IntArray, OffsetArray
 
 EASTERN: str = "America/New_York"
@@ -56,7 +58,7 @@ class SessionTemplate:
 
 CME_US_INDEX_FUTURES_ETH = SessionTemplate(name="CME US Index Futures ETH")
 
-TEMPLATES: dict[str, SessionTemplate] = {
+TEMPLATES: Mapping[str, SessionTemplate] = {
     CME_US_INDEX_FUTURES_ETH.name: CME_US_INDEX_FUTURES_ETH,
 }
 

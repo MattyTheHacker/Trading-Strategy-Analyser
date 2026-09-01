@@ -28,18 +28,17 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from logging import Logger
     from pathlib import Path
-    from typing import Final
 
     import pandas as pd
 
-logger: Final[Logger] = logging.getLogger(__name__)
+logger: Logger = logging.getLogger(__name__)
 
 
 class ResultsError(ValueError):
     """Raised when a frame cannot be stored without losing something it carries."""
 
 
-AXIS_COLUMNS: dict[str, str] = {
+AXIS_COLUMNS: Mapping[str, str] = {
     "strategy": "VARCHAR",
     "resolution": "BIGINT",
     "contract": "VARCHAR",
@@ -51,7 +50,7 @@ On **both** tables: on ``sweeps`` to describe the run, on ``combos`` so a query 
 group without a join. Migrated explicitly, unlike a new statistic -- ``docs/roadmap.md`` §M17.
 """
 
-NULL_MEANS: dict[str, str] = {
+NULL_MEANS: Mapping[str, str] = {
     "strategy": "unrecorded -- written before the axis columns existed",
     "resolution": "unrecorded -- written before the axis columns existed",
     "contract": "the spliced continuous series, which is not any one contract",
@@ -100,7 +99,7 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
     frame rather than declared. Here rather than in :func:`_append_or_create` so there is one
     migration in one place.
     """
-    columns: dict[str, dict[str, str]] = {
+    columns: dict[str, Mapping[str, str]] = {
         "sweeps": {**AXIS_COLUMNS, "batch_id": "BIGINT"},
         "combos": AXIS_COLUMNS,
     }

@@ -259,7 +259,7 @@ def test_trades_to_frame_tags_every_row() -> None:
     matrix[:, trades.C_LEG] = 0  # written as leg + 1 by the loop
     matrix[:, trades.C_DIRECTION] = trades.SHORT
     frame = trades.trades_to_frame(matrix, 2, instrument="NQ")
-    assert list(frame.columns[:2]) == trades.TAGS
+    assert tuple(frame.columns[:2]) == trades.TAGS
     assert (frame["instrument"] == "NQ").all()
     assert (frame["source"] == "sim").all()
 

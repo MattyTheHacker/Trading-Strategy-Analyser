@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nqbt.arrays import FloatArray, IntArray
 
 EXIT_STOP: float = 0.0
@@ -32,7 +34,7 @@ rather than mistake it for a real exit.
 EXIT_SIGNAL: float = 4.0
 """A rule-driven exit with no bracket level of its own. Produced only by EmaCrossover."""
 
-EXIT_REASONS: dict[float, str] = {
+EXIT_REASONS: Mapping[float, str] = {
     EXIT_STOP: "stop",
     EXIT_TARGET: "target",
     EXIT_SESSION_CLOSE: "session_close",
@@ -53,7 +55,7 @@ SHORT: float = -1.0
 SOURCES: tuple[str, str] = ("sim", "manual")
 """Where a row came from. Real and simulated trades share one DuckDB table."""
 
-COLUMNS: list[str] = [
+COLUMNS: tuple[str, ...] = (
     "trade_id",
     "leg",
     "entry_bar",
@@ -74,7 +76,7 @@ COLUMNS: list[str] = [
     "mfe_points",
     "bars_held",
     "ambiguous_bar",
-]
+)
 
 N_COLUMNS: int = len(COLUMNS)
 
@@ -106,12 +108,12 @@ LEG_MATRIX_NDIM: int = 2
 ) = range(N_COLUMNS)
 
 
-TAGS = ["source", "instrument"]
+TAGS: tuple[str, ...] = ("source", "instrument")
 """Per-row strings that cannot live in a ``float64`` matrix, prepended by
 :func:`trades_to_frame`. Constant for one simulated run; genuinely varying for an imported
 history that spans both roots."""
 
-SCHEMA: list[str] = TAGS + COLUMNS
+SCHEMA: tuple[str, ...] = TAGS + COLUMNS
 
 NULLABLE = frozenset(
     {
@@ -131,7 +133,7 @@ NULLABLE = frozenset(
 §M9. Everything else is required on every row from every producer.
 """
 
-REQUIRED: list[str] = [c for c in SCHEMA if c not in NULLABLE]
+REQUIRED: tuple[str, ...] = tuple(c for c in SCHEMA if c not in NULLABLE)
 
 REQUIRED_INDICES: tuple[int, ...] = tuple(COLUMNS.index(c) for c in COLUMNS if c not in NULLABLE)
 """:data:`REQUIRED` minus the two :data:`TAGS`, which cannot be in a ``float64`` matrix."""
@@ -292,7 +294,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
 
 def _raise_nulls(frame: pd.DataFrame) -> None:
     """Count the nulls properly now that we know there is at least one."""
-    counts: pd.Series[int] = frame[REQUIRED].isna().sum()
+    counts: pd.Series[int] = frame[list(REQUIRED)].isna().sum()
     offenders: pd.Series[int] = counts[counts > 0]
     raise TradeSchemaError(
         "null values in non-nullable column(s): "

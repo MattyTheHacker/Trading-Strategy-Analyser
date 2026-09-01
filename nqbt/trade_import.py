@@ -76,7 +76,7 @@ FLAT = "-"
 SOURCE = "manual"
 """The :data:`nqbt.trades.SOURCES` tag every row imported here carries."""
 
-UNPOPULATED = {
+UNPOPULATED: Mapping[str, str] = {
     "entry_bar": "a fill has a timestamp, not a bar index",
     "exit_bar": "a fill has a timestamp, not a bar index",
     "bars_held": "needs a bar index at both ends",
@@ -99,7 +99,7 @@ POPULATED = frozenset(trades.SCHEMA) - set(UNPOPULATED)
 
 _POSITION_RE = re.compile(r"^(?:(?P<flat>-)|(?P<quantity>\d+)\s+(?P<side>[LS]))$")
 
-_NULLABLE_DTYPES: dict[str, str] = {
+_NULLABLE_DTYPES: Mapping[str, str] = {
     "entry_bar": "Int64",
     "exit_bar": "Int64",
     "bars_held": "Int64",
@@ -111,7 +111,7 @@ Held as a nullable dtype rather than filled with NaN so that a statistic taken o
 column raises instead of returning a number -- ``docs/roadmap.md`` §M11.1.
 """
 
-_LEG_FIELDS: list[str] = [
+_LEG_FIELDS: tuple[str, ...] = (
     "trade_id",
     "leg",
     "entry_time",
@@ -122,9 +122,9 @@ _LEG_FIELDS: list[str] = [
     "direction",
     "exit_reason",
     "contract",
-]
+)
 
-_FRAME_COLUMNS: list[str] = [
+_FRAME_COLUMNS: tuple[str, ...] = (
     "source",
     "instrument",
     "trade_id",
@@ -134,7 +134,7 @@ _FRAME_COLUMNS: list[str] = [
     *trades.COLUMNS[2:],
     "contract",
     "timezone",
-]
+)
 """The simulator's own layout -- :func:`nqbt.trades.trades_to_frame`'s -- plus two of our own.
 
 The **contract** and not merely the root, because a real trade must be annotated against its own
@@ -554,7 +554,7 @@ def _to_schema(rows: list[dict[str, object]], commission_per_contract: float, ti
         blank = np.nan if dtype == "float64" else pd.NA
         frame[name] = pd.Series(blank, index=frame.index, dtype=dtype)
 
-    return frame[_FRAME_COLUMNS]
+    return frame[list(_FRAME_COLUMNS)]
 
 
 def _mark_coverage(frame: pd.DataFrame, cache_dir: Path) -> CoverageReport:

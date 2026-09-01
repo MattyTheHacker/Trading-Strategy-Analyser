@@ -72,7 +72,7 @@ Above it the split is a list of trades rather than a comparison, and no stratum 
 REPORTED: tuple[str, ...] = ("trades", "win_rate", "expectancy", "profit_factor", "mean_r")
 """The :class:`nqbt.stats.Summary` fields a stratum is reported by, in column order."""
 
-STATISTICS_FROM: dict[str, tuple[str, ...]] = {
+STATISTICS_FROM: Mapping[str, tuple[str, ...]] = {
     "bars_held": ("avg_bars_held",),
     "mae_points": ("avg_mae_points",),
     "mfe_points": ("avg_mfe_points",),
@@ -103,7 +103,7 @@ FORCED_EXIT_NOTE: str = (
 )
 """What has to travel with any time-of-day result touching the final phase."""
 
-_PLACEHOLDERS: dict[str, int | bool] = {"bars_held": 0, "ambiguous_bar": False}
+_PLACEHOLDERS: Mapping[str, int | bool] = {"bars_held": 0, "ambiguous_bar": False}
 """What an absent column holds while :func:`nqbt.stats.summarise` runs over it.
 
 ``summarise`` refuses a nullable column rather than reporting a figure nobody measured, which is

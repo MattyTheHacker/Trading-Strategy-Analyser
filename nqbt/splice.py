@@ -436,14 +436,14 @@ def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
             )
 
 
-SEAM_COLUMNS: list[str] = [
+SEAM_COLUMNS: tuple[str, ...] = (
     "previous_contract",
     "contract",
     "previous_bar",
     "gap_minutes",
     "carry_over",
     "true_range",
-]
+)
 """Columns of :func:`roll_seams`, in order."""
 
 

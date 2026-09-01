@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, fields
-from typing import Protocol, override
+from typing import TYPE_CHECKING, Protocol, override
 
 from nqbt import bands, conditions, higher_timeframe, regime, timeofday, trend, volume
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class ContextFilterParams(Protocol):
@@ -890,7 +893,7 @@ STOP_ATR = 0
 STOP_EXCURSION = 1
 STOP_CATASTROPHE = 2
 STOP_SWING = 3
-STOP_MODES = {
+STOP_MODES: Mapping[int, str] = {
     STOP_ATR: "atr",
     STOP_EXCURSION: "excursion",
     STOP_CATASTROPHE: "catastrophe",
@@ -907,7 +910,7 @@ express.
 
 TARGET_STRETCH = 0
 TARGET_R = 1
-TARGET_MODES = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
+TARGET_MODES: Mapping[int, str] = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
 """Which per-leg target tuple is read. ``stretch`` places every leg on a band level and is the
 mean-reversion geometry; ``r`` uses the shared R ladder and is comparable with EmaCrossover.
 """

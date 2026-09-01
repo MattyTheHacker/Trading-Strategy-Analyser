@@ -11,7 +11,6 @@ from nqbt import ingest, logsetup, paths, splice
 if TYPE_CHECKING:
     from logging import Logger
     from pathlib import Path
-    from typing import Final
 
     import pandas as pd
 
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
     from nqbt.sim.types import DeadCatParams
     from nqbt.stats import Summary
 
-logger: Final[Logger] = logging.getLogger(__name__)
+logger: Logger = logging.getLogger(__name__)
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:

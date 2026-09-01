@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 
     from nqbt.sessions import SessionInfo
 
-RAW_COLUMNS: list[str] = ["timestamp", "open", "high", "low", "close", "volume"]
-BAR_DTYPES: dict[str, str] = {
+RAW_COLUMNS: tuple[str, ...] = ("timestamp", "open", "high", "low", "close", "volume")
+BAR_DTYPES: Mapping[str, str] = {
     "open": "float64",
     "high": "float64",
     "low": "float64",

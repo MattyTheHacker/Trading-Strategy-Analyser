@@ -33,13 +33,12 @@ from nqbt.instruments import MNQ, Instrument
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
     from logging import Logger
-    from typing import Final
 
     from nqbt.archetypes import Archetype, AxisValue, Params
     from nqbt.trades import LegMatrix
 
 
-logger: Final[Logger] = logging.getLogger(__name__)
+logger: Logger = logging.getLogger(__name__)
 
 
 class SweepError(RuntimeError):
@@ -203,7 +202,7 @@ def run_combination(
     return {**row, **summary}, log
 
 
-CHUNKS_PER_WORKER: Final[int] = 4
+CHUNKS_PER_WORKER: int = 4
 """Chunks handed to each worker rather than one big slice, since combinations differ in cost."""
 
 

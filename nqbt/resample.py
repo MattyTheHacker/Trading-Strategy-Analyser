@@ -19,12 +19,14 @@ from nqbt import sessions
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nqbt.arrays import BoolArray, DateArray, IntArray, OffsetArray
     from nqbt.sessions import SessionInfo
 
 SECONDS_PER_DAY: int = 86_400
 
-AGGREGATIONS: dict[str, str] = {
+AGGREGATIONS: Mapping[str, str] = {
     "open": "first",
     "high": "max",
     "low": "min",

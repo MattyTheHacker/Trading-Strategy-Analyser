@@ -12,11 +12,14 @@ import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal, override
+from typing import TYPE_CHECKING, Literal, override
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 # The CME futures month codes, in calendar order. Every root uses these letters; which
 # months a root actually lists is per-instrument -- ``Instrument.contract_months``.
-MONTH_CODES: dict[int, str] = {
+MONTH_CODES: Mapping[int, str] = {
     1: "F",
     2: "G",
     3: "H",
@@ -30,7 +33,7 @@ MONTH_CODES: dict[int, str] = {
     11: "X",
     12: "Z",
 }
-CODE_MONTHS: dict[str, int] = {v: k for k, v in MONTH_CODES.items()}
+CODE_MONTHS: Mapping[str, int] = {v: k for k, v in MONTH_CODES.items()}
 
 
 def months_from_codes(codes: str) -> frozenset[int]:
@@ -224,7 +227,7 @@ MCL = Instrument(
     exchange="NYMEX",
 )
 
-INSTRUMENTS: dict[str, Instrument] = {inst.symbol: inst for inst in (NQ, MNQ, ES, MES, GC, MGC, SI, SIL, CL, MCL)}
+INSTRUMENTS: Mapping[str, Instrument] = {inst.symbol: inst for inst in (NQ, MNQ, ES, MES, GC, MGC, SI, SIL, CL, MCL)}
 
 
 def get_instrument(symbol: str) -> Instrument:

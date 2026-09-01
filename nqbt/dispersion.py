@@ -20,7 +20,7 @@ from nqbt import ingest, paths, sessions, splice, stats, sweep
 from nqbt.instruments import MNQ, ContractId, Instrument
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from nqbt.arrays import FloatArray, IntArray
@@ -180,7 +180,7 @@ def _range(values: FloatArray) -> float:
     return float(values.max() - values.min())
 
 
-SPREAD_MEASURES: dict[str, Callable[[FloatArray], float]] = {"iqr": _iqr, "range": _range}
+SPREAD_MEASURES: Mapping[str, Callable[[FloatArray], float]] = {"iqr": _iqr, "range": _range}
 
 
 def spread_vs_resampling(

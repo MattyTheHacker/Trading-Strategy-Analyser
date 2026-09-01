@@ -263,7 +263,7 @@ def test_a_single_contract_series_has_no_seams() -> None:
     seams = splice.roll_seams(series)
 
     assert seams.empty
-    assert list(seams.columns) == splice.SEAM_COLUMNS
+    assert tuple(seams.columns) == splice.SEAM_COLUMNS
 
 
 def test_roll_seams_rejects_a_series_that_was_never_spliced() -> None:
