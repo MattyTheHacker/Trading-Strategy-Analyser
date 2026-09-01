@@ -29,6 +29,7 @@ dev = [
     "pandas-stubs==3.0.5.260730",
     "pymarkdownlnt==0.9.39",
     "mdformat-gfm==1.0.0",
+    "joblib-stubs==1.5.3.1.20260117",
 ]
 
 
