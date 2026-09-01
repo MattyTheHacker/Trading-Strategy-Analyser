@@ -193,10 +193,10 @@ def run_combination(
     if keep_trades:
         log = trades.validate(
             trades.trades_to_frame(
-                legs.matrix,
-                legs.count,
-                data.index,
+                matrix=legs.matrix,
+                count=legs.count,
                 instrument=instrument.symbol,
+                index=data.index,
                 source="sim",
             ),
         )

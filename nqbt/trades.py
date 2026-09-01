@@ -216,8 +216,8 @@ def _raise_matrix_nulls(rows: FloatArray) -> None:
 def trades_to_frame(
     matrix: FloatArray,
     count: int,
+    instrument: str,
     index: pd.DatetimeIndex | None = None,
-    instrument: str = "",
     source: str = "sim",
 ) -> pd.DataFrame:
     """Turn the raw simulation output into a labelled frame.
@@ -226,10 +226,6 @@ def trades_to_frame(
     bound and the tail is undefined. ``instrument`` is required rather than defaulted, since
     NQ and MNQ differ 10x in tick value.
     """
-    if not instrument:
-        type_error_message: str = "instrument must be a non-empty string"
-        raise TypeError(type_error_message)
-
     frame: pd.DataFrame = pd.DataFrame(matrix[:count], columns=COLUMNS)
     for name in ("trade_id", "leg", "entry_bar", "exit_bar", "quantity", "bars_held"):
         frame[name] = frame[name].astype("int64")

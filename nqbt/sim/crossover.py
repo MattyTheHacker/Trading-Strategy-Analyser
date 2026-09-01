@@ -364,10 +364,10 @@ def run_crossover(
     legs: LegMatrix = crossover_legs(data, params, instrument, signal=signal)
     return trades.validate(
         trades.trades_to_frame(
-            legs.matrix,
-            legs.count,
-            data.index if with_times else None,
+            matrix=legs.matrix,
+            count=legs.count,
             instrument=instrument.symbol,
+            index=data.index if with_times else None,
             source="sim",
         ),
     )
