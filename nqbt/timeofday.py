@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from nqbt.arrays import BitsArray, BoolArray, IndexArray, IntArray, LabelArray
 
 SECONDS_PER_DAY: int = 86_400
-MIN_STAMPS_FOR_A_GAP: int = 2  # Stamps needed before :func:`infer_bar_minutes` has a gap to measure."""
-OUT_OF_SESSION: int = -1  # Label for a bar outside any session. Negative, not an eighth phase §M10.4.
+MIN_STAMPS_FOR_A_GAP: int = 2  # Stamps needed before :func:`infer_bar_minutes` has a gap to measure.
+OUT_OF_SESSION: int = -1  # Label for a bar outside any session. Negative, not an eighth phase.
 
 
 class TimeOfDayError(ValueError):
