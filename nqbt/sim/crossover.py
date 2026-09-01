@@ -289,8 +289,10 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
         signal |= conditions.cross_above(fast, slow, params.cross_lookback) & (direction == trades.LONG)
+
     if params.trade_short:
         signal |= conditions.cross_below(fast, slow, params.cross_lookback) & (direction == trades.SHORT)
+
     return filters.apply_context_filters(signal, data, params)
 
 

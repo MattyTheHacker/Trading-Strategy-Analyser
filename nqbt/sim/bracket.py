@@ -218,6 +218,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
         return written, False
 
@@ -237,6 +238,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
 
     if targets_first:
@@ -257,6 +259,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
 
     still_open = False
@@ -281,6 +284,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
         still_open = False
 
@@ -312,11 +316,11 @@ def entry_bracket(
         trigger = close_based
     stop = adverse - direction * stop_offset
     risk = direction * (trigger - stop)
+
     return trigger, stop, risk
 
 
-NO_BRACKET_FLOOR = 0.0
-"""The floor value that switches :func:`atr_bracket_distance` off, which every port passes."""
+NO_BRACKET_FLOOR: float = 0.0  # The floor value that turns :func:`atr_bracket_distance` off, which every port passes.
 
 
 @njit(cache=True)
@@ -332,13 +336,7 @@ def atr_bracket_distance(atr_value: float, multiple: float, floor_points: float)
 
 
 @njit(cache=True)
-def swing_stop(
-    bars: Bars,
-    signal_bar: int,
-    lookback: int,
-    offset: float,
-    direction: float,
-) -> float:
+def swing_stop(bars: Bars, signal_bar: int, lookback: int, offset: float, direction: float) -> float:
     """A structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
 
     The window ends at ``signal_bar`` and includes it, and never reads the bar the fill happens
@@ -356,6 +354,7 @@ def swing_stop(
         adverse, _ = sided(bars.low[j], bars.high[j], direction)
         if j == start or direction * adverse < direction * extreme:
             extreme = adverse
+
     return extreme - direction * offset
 
 
@@ -368,11 +367,12 @@ def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     """
     if direction > 0.0:
         return low, high
+
     return high, low
 
 
-AMBIGUITY_WORST_CASE = 0
-AMBIGUITY_NEAREST_TO_OPEN = 1
+AMBIGUITY_WORST_CASE: int = 0
+AMBIGUITY_NEAREST_TO_OPEN: int = 1
 
 
 @njit(cache=True)
@@ -386,6 +386,7 @@ def targets_reached_first(open_px: float, stop_px: float, target_px: float, poli
     """
     if policy == AMBIGUITY_NEAREST_TO_OPEN:
         return abs(open_px - target_px) < abs(stop_px - open_px)
+
     return False
 
 
@@ -399,6 +400,7 @@ def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: 
     """
     if on_touch:
         return direction * favourable_px >= direction * limit
+
     return direction * favourable_px > direction * limit
 
 
@@ -417,10 +419,12 @@ def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
     """
     if minimum <= 0.0:
         return True
+
     best = 0.0
     for k in range(target_r.size):
         if not np.isnan(target_r[k]) and target_r[k] > best:
             best = target_r[k]
+
     return best >= minimum
 
 

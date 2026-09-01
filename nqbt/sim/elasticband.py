@@ -46,8 +46,7 @@ class BandSeries(NamedTuple):
     basis: FloatArray
     stddev: FloatArray
     excursion_extreme: FloatArray
-    atr: FloatArray
-    """Empty outside :data:`STOP_ATR`, where the loop never indexes it."""
+    atr: FloatArray  # Empty outside :data:`STOP_ATR`, where the loop never indexes it.
 
 
 class ElasticBandRules(NamedTuple):
@@ -115,6 +114,7 @@ def _protective_stop(
     """
     if rules.stop_mode == STOP_SWING:
         return bracket.swing_stop(bars, signal_bar, rules.swing_lookback, rules.stop_offset, direction)
+
     if rules.stop_mode == STOP_ATR:
         distance = bracket.atr_bracket_distance(
             float(band.atr[signal_bar]),
@@ -122,8 +122,10 @@ def _protective_stop(
             rules.min_bracket_points,
         )
         return fill - direction * distance
+
     if rules.stop_mode == STOP_EXCURSION:
         return float(band.excursion_extreme[signal_bar]) - direction * rules.stop_offset
+
     return fill - direction * rules.catastrophe_distance
 
 
@@ -145,9 +147,11 @@ def _leg_target(
     """
     if rules.target_mode == TARGET_STRETCH:
         return basis + direction * level * stddev
+
     raw = fill + direction * risk * level * rules.tp_multiplier
     if direction * (raw - basis) > 0.0:
         return basis
+
     return raw
 
 
@@ -339,9 +343,11 @@ def lagged(series: FloatArray, lag: int) -> FloatArray:
     """
     if lag == 0:
         return series
+
     out: FloatArray = np.full(series.size, np.nan, dtype=np.float64)
     if lag < series.size:
         out[lag:] = series[:-lag]
+
     return out
 
 
@@ -386,10 +392,13 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
         signal |= conditions.consecutive_true(long_run) >= params.min_bars_outside
+
     if params.trade_short:
         signal |= conditions.consecutive_true(short_run) >= params.min_bars_outside
+
     if params.max_entry_std > 0.0:
         signal &= np.abs(stretch) <= params.max_entry_std
+
     return filters.apply_context_filters(signal, data, params)
 
 

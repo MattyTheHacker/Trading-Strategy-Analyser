@@ -1072,18 +1072,22 @@ class ElasticBandParams:
         if self.entry_std <= 0.0:
             msg: str = f"entry_std must be > 0, got {self.entry_std}"
             raise ValueError(msg)
+
         if self.max_entry_std != 0.0 and self.max_entry_std <= self.entry_std:
             msg = (
                 f"max_entry_std {self.max_entry_std} must exceed entry_std {self.entry_std} "
                 "or be 0 to switch the ceiling off; otherwise no bar can pass both"
             )
             raise ValueError(msg)
+
         if self.min_bars_outside < 1:
             msg = f"min_bars_outside must be >= 1, got {self.min_bars_outside}"
             raise ValueError(msg)
+
         if self.band_lag < 0:
             msg = f"band_lag must be >= 0, got {self.band_lag}"
             raise ValueError(msg)
+
         if not (self.trade_long or self.trade_short):
             msg = "trade_long and trade_short are both off, so nothing can ever be entered"
             raise ValueError(msg)
@@ -1093,22 +1097,28 @@ class ElasticBandParams:
         if self.stop_mode not in STOP_MODES:
             msg: str = f"unknown stop_mode {self.stop_mode}; use one of {sorted(STOP_MODES)}"
             raise ValueError(msg)
+
         if self.target_mode not in TARGET_MODES:
             msg = f"unknown target_mode {self.target_mode}; use one of {sorted(TARGET_MODES)}"
             raise ValueError(msg)
+
         if self.order_quantity < len(self.target_levels):
             msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_levels)} legs"
             raise ValueError(msg)
+
         for name in ("atr_period", "catastrophe_stop_ticks", "swing_lookback"):
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
+
         if self.min_bracket_dollars < 0.0:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
+
         if self.max_hold_bars < 0:
             msg = f"max_hold_bars must be >= 0, got {self.max_hold_bars}"
             raise ValueError(msg)
+
         # Both write EXIT_SIGNAL, so a log carrying both cannot say which fired --
         # ``docs/nt8-fidelity.md`` §M26.
         if self.exit_on_invalidation and self.max_hold_bars > 0:
@@ -1123,6 +1133,7 @@ class ElasticBandParams:
         """The per-leg target tuple this combination reads, whichever mode selected it."""
         if self.target_mode == TARGET_STRETCH:
             return self.target_stretch_levels
+
         return self.target_r_multiples
 
     @property
@@ -1154,4 +1165,5 @@ class ElasticBandParams:
         for f in fields(self):
             value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
+
         return out

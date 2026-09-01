@@ -257,6 +257,7 @@ def insidebar_signal(data: Dataset, params: InsideBarParams) -> BoolArray:
     signal: BoolArray = data.geometry.prior_bar_inside & ((up_break & up_trend) | (down_break & down_trend))
     if params.no_entry_minutes_before_close > 0:
         signal &= data.session_end_gate(params.no_entry_minutes_before_close)
+
     return filters.apply_context_filters(signal, data, params)
 
 

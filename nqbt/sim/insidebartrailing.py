@@ -34,11 +34,8 @@ if TYPE_CHECKING:
     from nqbt.sim.types import InsideBarTrailingParams
     from nqbt.trades import LegMatrix
 
-BRACKETED_LOT = 0
-"""``entry1``: a fixed stop and a profit target."""
-
-TRAILING_LOT = 1
-"""``entry2``: a trailing stop and no target at all."""
+BRACKETED_LOT: int = 0  # ``entry1``: a fixed stop and a profit target.
+TRAILING_LOT: int = 1  # ``entry2``: a trailing stop and no target at all.
 
 
 class Lots(NamedTuple):
@@ -104,8 +101,10 @@ def resolve_lots(
     for lot in range(n_lots):
         if not legs.is_open[lot]:
             continue
+
         for other in range(n_lots):
             lots.mask[other] = other == lot
+
         written, _ = bracket.resolve_brackets(
             out,
             written,
@@ -120,8 +119,10 @@ def resolve_lots(
         )
         if written < 0:
             return -1, np.nan
+
         if legs.is_open[lot] and not lots.mask[lot]:
             last_fill = out[written - 1, C_EXIT_PRICE]
+
         legs.is_open[lot] = lots.mask[lot]
     return written, last_fill
 
@@ -145,6 +146,7 @@ def flatten_lots(
     for lot in range(legs.is_open.size):
         if not legs.is_open[lot]:
             continue
+
         written = bracket.write_leg(
             out,
             written,
@@ -157,7 +159,9 @@ def flatten_lots(
         )
         if written < 0:
             return -1
+
         legs.is_open[lot] = False
+
     return written
 
 
@@ -189,9 +193,11 @@ def trailed_stop(
     candidate = favourable - direction * trail_distance
     if fills.round_targets:
         candidate = bracket.round_to_tick(candidate, costs.tick_size)
+
     standing = float(lots.stop[TRAILING_LOT])
     if direction * candidate > direction * standing:
         return candidate
+
     return standing
 
 
@@ -202,6 +208,7 @@ def open_lots(legs: bracket.Legs) -> int:
     for lot in range(legs.is_open.size):
         if legs.is_open[lot]:
             total += 1
+
     return total
 
 
@@ -414,12 +421,15 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 )
                 if written < 0:
                     return -1
+
                 in_position = False
 
         if in_position or i <= rules.bars_required or not signal[i]:
             continue
+
         if rules.block_entry_at_session_close and bars.force_flat[i]:
             continue
+
         pending_bar = i
         pending_direction = direction_at[i]
 

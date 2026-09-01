@@ -21,9 +21,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from pathlib import Path
 
-__all__ = ["MergeResult", "build_archive", "merge_contract"]
 
-FIELDS = 6
+__all__: Sequence[str] = ["MergeResult", "build_archive", "merge_contract"]
+
+
+FIELDS: int = 6
 """``timestamp;open;high;low;close;volume``."""
 
 

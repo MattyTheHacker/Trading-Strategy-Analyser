@@ -30,16 +30,22 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> BoolArray:
     signal: BoolArray = data.geometry.hammer.copy()
     if params.require_new_low:
         signal &= data.geometry.made_new_low
+
     if params.require_previous_red:
         signal &= data.geometry.previous_bar_red
+
     if params.use_ema:
         signal &= data.ma_gate(params.ema_kind, params.ema_period, above=True)
+
     if params.use_fast_sma:
         signal &= data.ma_gate(params.fast_sma_kind, params.fast_sma_period, above=True)
+
     if params.use_slow_sma:
         signal &= data.ma_gate(params.slow_sma_kind, params.slow_sma_period, above=True)
+
     if params.use_vwap:
         signal &= data.vwap_gate(above=True)
+
     return filters.apply_context_filters(signal, data, params)
 
 

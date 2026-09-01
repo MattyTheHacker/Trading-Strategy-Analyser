@@ -1,6 +1,6 @@
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 
-__all__ = ["Parallel", "delayed", "effective_n_jobs"]
+__all__: Sequence[str] = ["Parallel", "delayed", "effective_n_jobs"]
 
 # The (function, args, kwargs) tuple `delayed` captures. Opaque by design: it carries the
 # call's return type to `Parallel.__call__` and is never unpacked by a caller.
