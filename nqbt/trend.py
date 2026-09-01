@@ -30,12 +30,12 @@ from numba import njit
 from nqbt import conditions
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from nqbt.arrays import BoolArray, FloatArray, LabelArray
     from nqbt.conditions import MovingAverageGrid
 
-__all__ = [
+__all__: Sequence[str] = [
     "ALL_TRENDS",
     "KIND",
     "MIN_SLOPE_LOOKBACK",
@@ -60,23 +60,14 @@ __all__ = [
     "validate_slope_lookback",
 ]
 
-UNDEFINED = -1
-"""Label for a bar whose slope the lookback cannot reach back from. Negative, not a fourth
-trend -- ``docs/roadmap.md`` §M10.3.
-"""
-
-KIND = "ema"
-"""The moving average the label is built on. Fixed rather than swept -- ``docs/roadmap.md``
-§M10.3.
-"""
-
-MIN_SLOPE_LOOKBACK = 1
+UNDEFINED: int = -1  # Label for a bar whose slope the lookback cannot reach back from. Negative, not a fourth trend.
+KIND: str = "ema"  # The moving average the label is built on. Fixed rather than swept -- ``docs/roadmap.md`` §M10.3.
+MIN_SLOPE_LOOKBACK: int = 1
 """A zero-bar slope compares a value with itself, so every bar would read flat and neither
 outer band would ever be reached. Refused rather than labelled MIXED everywhere.
 """
 
-N_COMPONENTS = 3
-"""How many facts vote, and therefore the largest agreement a bar can reach."""
+N_COMPONENTS: int = 3  # How many facts vote, and therefore the largest agreement a bar can reach.
 
 
 class TrendError(ValueError):
@@ -89,12 +80,9 @@ class Trend(IntEnum):
     The integer values ascend with the score, and are also the bit positions in a filter mask.
     """
 
-    DOWN = 0
-    """Enough components bearish: price under the slow average, it falling, fast beneath it."""
-    MIXED = 1
-    """Too few components agreeing either way. The deliberate no-trade state."""
-    UP = 2
-    """Enough components bullish -- :attr:`DOWN` with every test mirrored."""
+    DOWN = 0  # Enough components bearish: price under the slow average, it falling, fast beneath it.
+    MIXED = 1  # Too few components agreeing either way. The deliberate no-trade state.
+    UP = 2  # Enough components bullish -- :attr:`DOWN` with every test mirrored.
 
     @property
     def bit(self) -> int:
@@ -109,16 +97,12 @@ class TrendComponent(IntEnum):
     collapsed to a single number cannot.
     """
 
-    PRICE_VS_SLOW = 0
-    """Close against the slow average."""
-    SLOW_SLOPE = 1
-    """The slow average against itself ``slope_lookback`` bars ago."""
-    STACK = 2
-    """The fast average against the slow one."""
+    PRICE_VS_SLOW = 0  # Close against the slow average.
+    SLOW_SLOPE = 1  # The slow average against itself ``slope_lookback`` bars ago.
+    STACK = 2  # The fast average against the slow one.
 
 
-ALL_TRENDS = (1 << len(Trend)) - 1
-"""Every trend: the mask that filters nothing, and the default for every archetype."""
+ALL_TRENDS = (1 << len(Trend)) - 1  # Every trend: the mask that filters nothing, and the default for every archetype.
 
 
 class TrendKey(NamedTuple):
@@ -134,6 +118,7 @@ def trends_mask(trends: Iterable[Trend]) -> int:
     mask: int = 0
     for state in trends:
         mask |= Trend(state).bit
+
     return mask
 
 
@@ -148,9 +133,11 @@ def validate_mask(mask: int) -> int:
     if mask < 0 or mask & ~ALL_TRENDS:
         msg: str = f"trend mask {mask} sets bits outside 0..{ALL_TRENDS}; use Trend.bit or trends_mask()"
         raise TrendError(msg)
+
     if mask == 0:
         msg = "trend mask 0 admits no trend, so every combination along it would trade nothing"
         raise TrendError(msg)
+
     return mask
 
 
@@ -168,6 +155,7 @@ def validate_periods(fast_period: int, slow_period: int) -> None:
     if fast_period < 1:
         msg: str = f"trend_fast_period must be >= 1, got {fast_period}"
         raise TrendError(msg)
+
     if fast_period >= slow_period:
         msg = (
             f"trend_fast_period {fast_period} is not shorter than trend_slow_period "
@@ -181,6 +169,7 @@ def validate_slope_lookback(slope_lookback: int) -> int:
     if slope_lookback < MIN_SLOPE_LOOKBACK:
         msg: str = f"trend slope lookback must be >= {MIN_SLOPE_LOOKBACK}, got {slope_lookback}"
         raise TrendError(msg)
+
     return slope_lookback
 
 
@@ -193,6 +182,7 @@ def validate_min_agreement(min_agreement: int) -> int:
     if not 1 <= min_agreement <= N_COMPONENTS:
         msg: str = f"trend_min_agreement must lie in 1..{N_COMPONENTS}, got {min_agreement}"
         raise TrendError(msg)
+
     return min_agreement
 
 
@@ -207,8 +197,10 @@ def _vote(value: float, reference: float) -> int:
     """``+1`` above, ``-1`` below, ``0`` on exact equality -- one definition for all three."""
     if value > reference:
         return 1
+
     if value < reference:
         return -1
+
     return 0
 
 
@@ -233,10 +225,12 @@ def _components(
         stack = _vote(fast[i], slow[i])
         votes[0, i] = price
         votes[2, i] = stack
+
         if i >= slope_lookback:
             slope = _vote(slow[i], slow[i - slope_lookback])
             votes[1, i] = slope
             agreement[i] = price + slope + stack
+
     return votes, agreement
 
 
@@ -245,10 +239,13 @@ def _trend_of(score: float, min_agreement: int) -> int:
     """Classify one score -- the only place this rule lives, shared by ``label`` and ``gate``."""
     if np.isnan(score):
         return UNDEFINED
+
     if score <= -min_agreement:
         return Trend.DOWN
+
     if score >= min_agreement:
         return Trend.UP
+
     return Trend.MIXED
 
 

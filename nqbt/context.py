@@ -191,12 +191,12 @@ class Dataset:
     def grid(self, kind: str) -> MovingAverageGrid:
         """The grid for one moving-average kind, or a pointed error."""
         if kind not in self.mas:
-            msg: str = (
+            context_error_message: str = (
                 f"no {kind} grid in this dataset; prepare() was asked for "
                 f"{sorted(self.mas)}. Add it to the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.mas[kind]
 
@@ -205,8 +205,8 @@ class Dataset:
 
         Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
         """
-        g: MovingAverageGrid = self.grid(kind)
-        return g.above_for(period) if above else g.below_for(period)
+        ma_grid: MovingAverageGrid = self.grid(kind)
+        return ma_grid.above_for(period) if above else ma_grid.below_for(period)
 
     def ma_values(self, kind: str, period: int) -> FloatArray:
         """Raw moving-average values, for the audit trail and the MA trailing stop."""
@@ -215,23 +215,23 @@ class Dataset:
     def atr_values(self, period: int) -> FloatArray:
         """NT8-seeded ATR for one period, or a pointed error."""
         if period not in self.atrs:
-            msg: str = (
+            context_error_message: str = (
                 f"no ATR({period}) in this dataset; prepare() was asked for "
                 f"{sorted(self.atrs)}. Add it to the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.atrs[period]
 
     def _band(self) -> BandGrid:
         if self.band is None:
-            msg: str = (
+            context_error_message: str = (
                 "no band grid in this dataset; prepare() was not asked for one. "
                 "Add the period to band_periods on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.band
 
@@ -250,35 +250,35 @@ class Dataset:
     def vwap_gate(self, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) the session VWAP?"""
         if self.below_vwap is None or self.above_vwap is None:
-            msg: str = (
+            context_error_message: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.above_vwap if above else self.below_vwap
 
     def vwap_values(self) -> FloatArray:
         """Session VWAP per bar, or a pointed error."""
         if self.vwap is None:
-            msg: str = (
+            context_error_message: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.vwap
 
     def _time_of_day(self) -> timeofday.TimeOfDay:
         if self.time_of_day is None:
-            msg: str = (
+            context_error_message: str = (
                 "no time-of-day labels in this dataset; prepare() was not asked for them. "
                 "Set needs_time_of_day on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.time_of_day
 
@@ -300,22 +300,16 @@ class Dataset:
 
     def _regimes(self) -> regime.EfficiencyRatioGrid:
         if self.regimes is None:
-            msg: str = (
+            context_error_message: str = (
                 "no efficiency ratios in this dataset; prepare() was not asked for them. "
                 "Add the lookback to regime_lookbacks on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.regimes
 
-    def regime_gate(
-        self,
-        lookback: int,
-        mask: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> BoolArray:
+    def regime_gate(self, lookback: int, mask: int, consolidating_below: float, directional_above: float) -> BoolArray:
         """Per-bar boolean: does this bar's regime pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.regime.ALL_REGIMES` -- see
@@ -327,33 +321,22 @@ class Dataset:
         """Per-bar efficiency ratio, the raw quantity behind the labels."""
         return self._regimes().values_for(lookback)
 
-    def regime_labels(
-        self,
-        lookback: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> LabelArray:
+    def regime_labels(self, lookback: int, consolidating_below: float, directional_above: float) -> LabelArray:
         """Per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
         return self._regimes().labels_for(lookback, consolidating_below, directional_above)
 
     def _volumes(self) -> volume.VolumeGrid:
         if self.volumes is None:
-            msg: str = (
+            context_error_message: str = (
                 "no volume series in this dataset; prepare() was not asked for them. "
                 "Add the series to volume_keys on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.volumes
 
-    def volume_gate(
-        self,
-        key: volume.VolumeKey,
-        mask: int,
-        thin_below: float,
-        heavy_above: float,
-    ) -> BoolArray:
+    def volume_gate(self, key: volume.VolumeKey, mask: int, thin_below: float, heavy_above: float) -> BoolArray:
         """Per-bar boolean: whether this bar's volume state passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.volume.ALL_STATES` -- see
@@ -369,23 +352,18 @@ class Dataset:
         """Per-bar volume over its bar-of-session baseline -- the quantity behind the labels."""
         return self._volumes().relative_for(key)
 
-    def volume_labels(
-        self,
-        key: volume.VolumeKey,
-        thin_below: float,
-        heavy_above: float,
-    ) -> LabelArray:
+    def volume_labels(self, key: volume.VolumeKey, thin_below: float, heavy_above: float) -> LabelArray:
         """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
         return self._volumes().labels_for(key, thin_below, heavy_above)
 
     def _trends(self) -> trend.TrendGrid:
         if self.trends is None:
-            msg: str = (
+            context_error_message: str = (
                 "no trend labels in this dataset; prepare() was not asked for them. "
                 "Add the label to trend_keys on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.trends
 
@@ -411,12 +389,12 @@ class Dataset:
 
     def _higher_timeframes(self) -> higher_timeframe.HigherTimeframeGrid:
         if self.higher_timeframes is None:
-            msg: str = (
+            context_error_message: str = (
                 "no higher-timeframe averages in this dataset; prepare() was not asked for "
                 "them. Add the average to higher_timeframe_keys on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.higher_timeframes
 
@@ -444,12 +422,12 @@ class Dataset:
         it entirely at a window of zero.
         """
         if self.seconds_to_session_end is None:
-            msg: str = (
+            context_error_message: str = (
                 "no session clock in this dataset; prepare() was not asked for it. "
                 "Set needs_session_clock on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
         return self.seconds_to_session_end > minutes * 60.0
 
@@ -464,17 +442,14 @@ class Dataset:
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
         total += sum(a.nbytes for a in self.atrs.values())
+
         if self.band is not None:
             total += self.band.nbytes
-        for a in (
-            self.vwap,
-            self.below_vwap,
-            self.above_vwap,
-            self.seconds_to_session_end,
-            self.day_codes,
-        ):
+
+        for a in (self.vwap, self.below_vwap, self.above_vwap, self.seconds_to_session_end, self.day_codes):
             if a is not None:
                 total += a.nbytes
+
         if self.time_of_day is not None:
             total += self.time_of_day.nbytes
         if self.regimes is not None:

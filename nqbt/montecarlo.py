@@ -23,9 +23,11 @@ import pandas as pd
 from nqbt import stats
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from nqbt.arrays import FloatArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "MonteCarloError",
     "PermutationResult",
     "bootstrap",
@@ -33,15 +35,9 @@ __all__ = [
     "trade_pnl",
 ]
 
-DEFAULT_ITERATIONS = 1000
-MIN_RESAMPLE_TRADES = 2
-"""Fewer than two trades has no ordering to permute and nothing to resample."""
-
-MIN_TRADES = 30
-"""Below this a resampling result is reported but should not be read as a measurement.
-
-The same floor :mod:`nqbt.dispersion` applies, for the same reason.
-"""
+DEFAULT_ITERATIONS: int = 1000
+MIN_RESAMPLE_TRADES: int = 2  # Fewer than two trades has no ordering to permute and nothing to resample.
+MIN_TRADES: int = 30  # Below this a resampling result is reported but should not be read as a measurement.
 
 
 class MonteCarloError(ValueError):
@@ -108,6 +104,7 @@ def permutation_test(
             f"move it and the test would always pass; choose from {list(stats.PATH_STATISTICS)}"
         )
         raise MonteCarloError(msg)
+
     if pnl.size < MIN_RESAMPLE_TRADES:
         msg = f"need at least {MIN_RESAMPLE_TRADES} trades to permute an ordering; got {pnl.size}"
         raise MonteCarloError(msg)
@@ -119,6 +116,7 @@ def permutation_test(
         dtype=float,
         count=iterations,
     )
+
     return PermutationResult(
         statistic=statistic,
         observed=observed,
@@ -149,11 +147,12 @@ def bootstrap(
         msg: str = f"need at least {MIN_RESAMPLE_TRADES} trades to resample; got {pnl.size}"
         raise MonteCarloError(msg)
 
-    known: tuple[str, str, str, str, str, str] = (*stats.TRADE_PNL_STATISTICS, *stats.PATH_STATISTICS)
+    known: tuple[str, ...] = (*stats.TRADE_PNL_STATISTICS, *stats.PATH_STATISTICS)
     unknown: list[str] = [s for s in statistics if s not in known]
     if unknown:
         msg = f"unknown statistic(s) {unknown}; choose from {list(known)}"
         raise MonteCarloError(msg)
+
     if not statistics:
         msg = "no statistics requested"
         raise MonteCarloError(msg)

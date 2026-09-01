@@ -24,15 +24,15 @@ if TYPE_CHECKING:
     from nqbt.context import Dataset
     from nqbt.trades import LegMatrix
 
-MIN_FINITE_DRAWS = 2  # Fewest finite null draws that make a distribution to place an observation in.
-DEFAULT_ITERATIONS = 200  # Null realisations drawn by default. Sized in ``docs/roadmap.md`` §M7a.
-DEFAULT_ALPHA = 0.05  # Two-sided significance threshold behind :attr:`NullResult.verdict`.
+MIN_FINITE_DRAWS: int = 2  # Fewest finite null draws that make a distribution to place an observation in.
+DEFAULT_ITERATIONS: int = 200  # Null realisations drawn by default. Sized in ``docs/roadmap.md`` §M7a.
+DEFAULT_ALPHA: float = 0.05  # Two-sided significance threshold behind :attr:`NullResult.verdict`.
 
-WORSE = "worse than random"
-INDISTINGUISHABLE = "indistinguishable from random"
-BETTER = "better than random"
+WORSE: str = "worse than random"
+INDISTINGUISHABLE: str = "indistinguishable from random"
+BETTER: str = "better than random"
 
-RATE_STATISTICS = ("profit_factor", "expectancy", "win_rate")
+RATE_STATISTICS: tuple[str, ...] = ("profit_factor", "expectancy", "win_rate")
 """Per-trade rates, so trade count divides out.
 
 The default comparison, because the arms match on entry *signals* and diverge on fills.
@@ -73,27 +73,20 @@ class NullResult:
     null_median: float
     null_p05: float
     null_p95: float
-    percentile: float
-    """Share of null draws below the observed value, as a percentage."""
-    p_value: float
-    """Two-sided, so it answers "different from random" in either direction."""
+    percentile: float  # Share of null draws below the observed value, as a percentage.
+    p_value: float  # Two-sided, so it answers "different from random" in either direction.
     verdict: str
     iterations: int
     observed_trades: int
-    null_median_trades: float
-    """Reported on every row, not only the count-sensitive ones."""
-    count_sensitive: bool
-    """True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`."""
+    null_median_trades: float  # Reported on every row, not only the count-sensitive ones.
+    count_sensitive: bool  # True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`.
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
-def minute_of_session(
-    index: pd.DatetimeIndex,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> IntArray:
+def minute_of_session(index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> IntArray:
     """How far each bar sits past its session open, in minutes."""
     return resample.minutes_since_open(index, template)
 
@@ -106,19 +99,12 @@ class SessionMinutePool:
     ``docs/roadmap.md`` §M7a.
     """
 
-    minutes: IntArray
-    """Minute-of-session per bar, aligned to the index."""
-    bars_by_minute: IntArray
-    """Bar indices, sorted by minute-of-session, so one minute's pool is a contiguous slice."""
-    starts: IntArray
-    """Where each minute's slice begins in :attr:`bars_by_minute`; ``starts[m + 1]`` ends it."""
+    minutes: IntArray  # Minute-of-session per bar, aligned to the index.
+    bars_by_minute: IntArray  # Bar indices, sorted by minute-of-session, so one minute's pool is a contiguous slice.
+    starts: IntArray  # Where each minute's slice begins in :attr:`bars_by_minute`; ``starts[m + 1]`` ends it.
 
     @classmethod
-    def build(
-        cls,
-        index: pd.DatetimeIndex,
-        template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-    ) -> SessionMinutePool:
+    def build(cls, index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> SessionMinutePool:
         """Group every bar of ``index`` by its minute-of-session, once."""
         minutes: IntArray = minute_of_session(index, template)
         order: OffsetArray = np.argsort(minutes, kind="stable")
@@ -146,6 +132,7 @@ def matched_random_signal(
     if signal.shape != (len(data),):
         msg: str = f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
         raise RandomEntryError(msg)
+
     live: int = int(signal.sum())
     if not live:
         msg = (
@@ -162,6 +149,7 @@ def matched_random_signal(
     wanted_minutes, wanted_counts = np.unique(grouped.minutes[signal], return_counts=True)
     for minute, count in zip(wanted_minutes, wanted_counts, strict=True):
         out[rng.choice(grouped.pool_for(minute), size=count, replace=False)] = True
+
     return out
 
 
@@ -216,6 +204,7 @@ def null_summaries(
         rows = Parallel(n_jobs=n_jobs)(
             delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool) for s in seeds
         )
+
     return pd.DataFrame(rows)
 
 
@@ -249,6 +238,7 @@ def compare(
     observed: dict[str, float] = stats.summarise_legs(
         archetype.legs(data, params, instrument), data.day_codes
     ).as_dict()
+
     null: pd.DataFrame = null_summaries(
         data,
         params,
@@ -273,6 +263,7 @@ def compare(
             raise RandomEntryError(
                 msg,
             )
+
         if draws.size < MIN_FINITE_DRAWS:
             msg = (
                 f"only {draws.size} of {iterations} null draws produced a finite {name}; "

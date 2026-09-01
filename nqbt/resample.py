@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, DateArray, IntArray, OffsetArray
     from nqbt.sessions import SessionInfo
 
-SECONDS_PER_DAY = 86_400
+SECONDS_PER_DAY: int = 86_400
 
 AGGREGATIONS: dict[str, str] = {
     "open": "first",
@@ -34,18 +34,14 @@ AGGREGATIONS: dict[str, str] = {
 }
 """How each known column collapses. Associative, which is what makes this exact."""
 
-PASSTHROUGH = "last"
-"""How an unrecognised column collapses: a bucket takes the label of the bar that closed it."""
+PASSTHROUGH: str = "last"  # How an unrecognised column collapses: a bucket takes the label of the bar that closed it.
 
 
 class ResampleError(ValueError):
     """Raised when bars cannot be aggregated to the requested resolution."""
 
 
-def minutes_since_open(
-    index: pd.DatetimeIndex,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> IntArray:
+def minutes_since_open(index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> IntArray:
     """How far each end-of-bar timestamp sits past its session's open, in minutes.
 
     Runs 1 to 1,380 over a full 18:00 -> 17:00 ET session. No DST bookkeeping is needed: US
@@ -71,6 +67,7 @@ def bucket_index(
     occupies: IntArray = end_minute - 1
     bucket: IntArray = occupies // minutes
     to_bucket_close: IntArray = (bucket + 1) * minutes - end_minute
+
     return bucket, to_bucket_close
 
 
@@ -87,8 +84,10 @@ def resample(
     if minutes < 1:
         msg: str = f"minutes must be >= 1, got {minutes}"
         raise ResampleError(msg)
+
     if minutes == 1:
         return bars
+
     if bars.empty:
         return bars
 

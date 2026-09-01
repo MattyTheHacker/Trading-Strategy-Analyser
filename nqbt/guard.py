@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from nqbt.annotate import Annotation
     from nqbt.arrays import FloatArray, IntArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "DEFAULT_HOLDOUT_SHARE",
     "DEFAULT_ITERATIONS",
     "FAMILY_COLUMN",
@@ -263,9 +263,6 @@ class Guard:
         )
 
 
-# -- the separation, reached the fast way -------------------------------------
-
-
 @dataclass(frozen=True, slots=True)
 class _Grouping:
     """One condition's trades sorted into contiguous strata, so a shuffle is a split.
@@ -378,9 +375,6 @@ def separate(  # type: ignore[explicit-any]  # a condition's dtype is its own
         strata_ranked=int(usable.size),
         trades_ranked=int(grouping.sizes[finite].sum()),
     )
-
-
-# -- the null -----------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -550,9 +544,6 @@ def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is it
     )
 
 
-# -- the holdout --------------------------------------------------------------
-
-
 def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its own
     pnl: Floats,
     labels: Labels,
@@ -627,12 +618,7 @@ def _cut(trades: int, share: float, held_out: int | None) -> int:
     return trades - held_out
 
 
-def _nothing_to_hold_out(
-    condition: str,
-    statistic: str,
-    chosen: Separation,
-    in_sample_trades: int,
-) -> Holdout:
+def _nothing_to_hold_out(condition: str, statistic: str, chosen: Separation, in_sample_trades: int) -> Holdout:
     """Report a condition with no split to hold out: uncuttable in sample, or every stratum tied."""
     return Holdout(
         condition=condition,
@@ -646,9 +632,6 @@ def _nothing_to_hold_out(
         direction_held=False,
         reported=False,
     )
-
-
-# -- one review's conditions, guarded -----------------------------------------
 
 
 def guard(
@@ -705,19 +688,19 @@ def _trades(  # type: ignore[explicit-any]  # a condition's dtype is its own
     notes.check_excluded(annotation.frame, what="an annotation being guarded")
     reviewable: pd.DataFrame = annotation.reviewable
     if reviewable.empty:
-        msg: str = (
+        guard_error_message: str = (
             f"no trade of this annotation matched the dataset ({annotation}), so there is "
             f"nothing to guard. Annotate against the bars these trades happened on."
         )
-        raise GuardError(msg)
+        raise GuardError(guard_error_message)
 
     per_trade: pd.DataFrame = stats.per_trade(log[log["trade_id"].isin(reviewable.index)])
     if "entry_time" not in per_trade.columns:
-        msg = (
+        guard_error_message = (
             "this log carries no entry_time, so its trades cannot be put in the order they "
             "happened and 'the most recent N' has no meaning over them"
         )
-        raise GuardError(msg)
+        raise GuardError(guard_error_message)
 
     ordered: pd.DataFrame = per_trade.sort_values("entry_time", kind="stable")
     aligned: pd.DataFrame = reviewable.loc[ordered.index]
@@ -725,41 +708,34 @@ def _trades(  # type: ignore[explicit-any]  # a condition's dtype is its own
     return ordered["net_pnl"].to_numpy(np.float64), {name: aligned[name].reset_index(drop=True) for name in chosen}
 
 
-def _chosen(
-    reviewable: pd.DataFrame,
-    annotation: Annotation,
-    conditions: Sequence[str] | None,
-) -> tuple[str, ...]:
+def _chosen(reviewable: pd.DataFrame, annotation: Annotation, conditions: Sequence[str] | None) -> tuple[str, ...]:
     """Pick the conditions to guard: the caller's, checked, or every one a review could cut by."""
     if conditions is None:
         return review.stratifiable(reviewable, annotation.conditions)
     unknown: list[str] = [name for name in conditions if name not in reviewable.columns]
     if unknown:
-        msg: str = f"no condition(s) {unknown} in this annotation; it holds {sorted(reviewable.columns)}"
-        raise GuardError(msg)
+        guard_error_msg: str = f"no condition(s) {unknown} in this annotation; it holds {sorted(reviewable.columns)}"
+        raise GuardError(guard_error_msg)
     return tuple(conditions)
-
-
-# -- shared checks ------------------------------------------------------------
 
 
 def _check_statistic(statistic: str, argument: str = "statistic") -> None:
     """Refuse a statistic a separation cannot honestly be measured in."""
     if statistic in STATISTICS:
         return
-    msg: str = (
+    guard_error_message: str = (
         f"cannot separate strata by {argument}={statistic!r}; a guard measures a separation in "
         f"{list(STATISTICS)}, which is what a review reports and a shuffle can move"
     )
-    raise GuardError(msg)
+    raise GuardError(guard_error_message)
 
 
 def _check_length(pnl: Floats, given: int, what: str) -> None:
     """Refuse a label per anything but a trade, which would silently mis-stratify every one."""
     if given == pnl.size:
         return
-    msg: str = f"{given} {what} for {pnl.size} trades; a guard takes one label per trade"
-    raise GuardError(msg)
+    guard_error_message: str = f"{given} {what} for {pnl.size} trades; a guard takes one label per trade"
+    raise GuardError(guard_error_message)
 
 
 def _complete(pnl: Floats, labels: Mapping[str, Labels]) -> tuple[Counts, pd.DataFrame, int]:  # type: ignore[explicit-any]  # a condition's dtype is its own
@@ -772,12 +748,15 @@ def _complete(pnl: Floats, labels: Mapping[str, Labels]) -> tuple[Counts, pd.Dat
     """
     if not labels:
         return np.arange(pnl.size, dtype=np.int64), pd.DataFrame(index=pd.RangeIndex(pnl.size)), 0
+
     columns = {}
     for name, values in labels.items():
         column = _positional(values)
         _check_length(pnl, len(column), f"{name} labels")
         columns[name] = column
+
     frame: pd.DataFrame = pd.DataFrame(columns)
     complete: pd.DataFrame = frame.dropna()
     at: IntArray = complete.index.to_numpy(np.int64)
+
     return at, complete.reset_index(drop=True), int(len(frame) - len(complete))

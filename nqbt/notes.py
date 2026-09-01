@@ -17,11 +17,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import override
+from typing import TYPE_CHECKING, override
 
 import pandas as pd
 
-__all__ = [
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
+__all__: Sequence[str] = [
     "COLUMNS",
     "KEY",
     "TEXT_COLUMNS",
@@ -35,18 +39,9 @@ __all__ = [
     "write",
 ]
 
-KEY = "trade_id"
-"""What a sidecar is keyed by: the same trade id every producer writes."""
-
-TEXT_COLUMNS = ("note", "screenshot")
-"""The free-text fields, named once so that keeping them out of a frame is a lookup.
-
-``screenshot`` is a reference the reader resolves rather than an image, and it is free text for
-the same reason ``note`` is: nothing here parses either.
-"""
-
-COLUMNS = (KEY, *TEXT_COLUMNS)
-"""A sidecar's columns as they are stored, in file order."""
+KEY: str = "trade_id"  # What a sidecar is keyed by: the same trade id every producer writes.
+TEXT_COLUMNS: tuple[str, ...] = ("note", "screenshot")
+COLUMNS: tuple[str, ...] = (KEY, *TEXT_COLUMNS)  # A sidecar's columns as they are stored, in file order.
 
 
 class NotesError(ValueError):
@@ -66,9 +61,11 @@ class Notes:
         if missing:
             msg: str = f"a sidecar is missing column(s) {missing}; the shape is nqbt.notes.COLUMNS"
             raise NotesError(msg)
+
         if self.frame.index.name != KEY:
             msg = f"a sidecar is keyed by {KEY}; this frame's index is named {self.frame.index.name!r}"
             raise NotesError(msg)
+
         if not self.frame.index.is_unique:
             repeated: list[int] = sorted(self.frame.index[self.frame.index.duplicated()].unique().tolist())
             msg = (
@@ -120,6 +117,7 @@ def read(path: Path | str) -> Notes:
     if missing:
         msg: str = f"{path}: not a notes sidecar -- missing column(s) {missing}. The shape is nqbt.notes.COLUMNS."
         raise NotesError(msg)
+
     unknown: list[str] = [name for name in raw.columns if name not in COLUMNS]
     if unknown:
         msg = (
@@ -127,6 +125,7 @@ def read(path: Path | str) -> Notes:
             f"mistyped header is refused rather than read as a note nobody wrote."
         )
         raise NotesError(msg)
+
     return Notes(frame=_keyed(raw, source=str(path)))
 
 
@@ -151,10 +150,13 @@ def alongside(frame: pd.DataFrame, notes: Notes) -> pd.DataFrame:
             f"saying which note belongs to which row"
         )
         raise NotesError(msg)
+
     ids: pd.Series[int] = frame[KEY] if KEY in frame.columns else frame.index.to_series()
     attached: pd.DataFrame = frame.copy()
+
     for name in TEXT_COLUMNS:
         attached[name] = ids.map(notes.frame[name]).astype("string")
+
     return attached
 
 
@@ -168,6 +170,7 @@ def check_excluded(frame: pd.DataFrame, what: str) -> None:
     found: list[str] = [name for name in TEXT_COLUMNS if name in frame.columns]
     if not found:
         return
+
     msg: str = (
         f"{what} carries the free-text column(s) {found}, which nothing evaluating a trade may "
         f"see: a note is written knowing the outcome, so a stratification by one would "

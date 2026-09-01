@@ -38,13 +38,12 @@ if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, OffsetArray
     from nqbt.instruments import ContractId
 
-FULL_SESSION_FRACTION = 0.5
-"""Share of a contract's median session length below which a session counts as partial."""
+FULL_SESSION_FRACTION: float = 0.5  # Share of a contract's median length below which a session counts as partial.
 
-METHOD_VOLUME = "volume_crossover"
-METHOD_COVERAGE = "coverage_boundary"
+METHOD_VOLUME: str = "volume_crossover"
+METHOD_COVERAGE: str = "coverage_boundary"
 
-EARLY_ROLL_RATIO = 0.4
+EARLY_ROLL_RATIO: float = 0.4
 """Handover volume ratio below which a coverage-boundary roll looks premature.
 
 At a healthy handover the back contract is already closing on the front -- observed
@@ -63,11 +62,9 @@ class RollDecision:
 
     front: ContractId
     back: ContractId
-    roll_day: pd.Timestamp
-    """First trading day served by the *back* contract."""
+    roll_day: pd.Timestamp  # First trading day served by the *back* contract.
     method: str
-    offset: float
-    """``front_close - back_close`` at the last shared bar before the roll."""
+    offset: float  # ``front_close - back_close`` at the last shared bar before the roll.
     handover_ratio: float
     """Back/front volume over shared bars on the roll session. Above 1.0 means the
     crossover was directly observed; well below :data:`EARLY_ROLL_RATIO` means the roll
@@ -132,9 +129,6 @@ class SpliceReport:
         if self.warnings:
             lines += ["", "Warnings:", *(f"  [!] {w}" for w in self.warnings)]
         return "\n".join(lines)
-
-
-# -- roll detection -----------------------------------------------------------
 
 
 def _in_session(frame: pd.DataFrame) -> pd.DataFrame:
@@ -202,6 +196,7 @@ def detect_roll(
             f"no volume crossover across {len(table)} shared sessions (peak ratio "
             f"{peak:.2f}); expected with NT8 data, which stops ~4 days before expiry",
         )
+
         if not allow_coverage_boundary:
             msg = (
                 f"{front_id.nt8_name} -> {back_id.nt8_name}: {notes[-1]}. "
@@ -211,6 +206,7 @@ def detect_roll(
             raise SpliceError(
                 msg,
             )
+
         roll_day = _coverage_boundary_roll(front, back)
         method = METHOD_COVERAGE
         if roll_day is None:
@@ -222,6 +218,7 @@ def detect_roll(
             raise SpliceError(
                 msg,
             )
+
         notes.append(
             f"rolled at {roll_day.date()}, where the front contract's data ends and the "
             "back contract's takes over -- the same handover NT8 itself makes",
@@ -307,9 +304,6 @@ def _boundary_offset(
     return float(fa.loc[ts, "close"] - ba.loc[ts, "close"])
 
 
-# -- continuous series --------------------------------------------------------
-
-
 def build_continuous(  # noqa: C901 - the roll rules it applies are each a branch
     contracts: list[ContractId],
     frames: dict[ContractId, pd.DataFrame],
@@ -324,6 +318,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
     if len(contracts) < 1:
         msg: str = "need at least one contract to build a series"
         raise SpliceError(msg)
+
     contracts = sorted(contracts)
     root: str = contracts[0].root
 
@@ -362,8 +357,10 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
         seg: pd.DataFrame = _in_session(frames[contract])
         if start is not None:
             seg = seg[seg["trading_day"] >= start]
+
         if end is not None:
             seg = seg[seg["trading_day"] < end]
+
         if seg.empty:
             warnings.append(
                 f"{contract.nt8_name} contributes no bars; its window was fully consumed by the surrounding rolls",
@@ -373,6 +370,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
         seg = seg.copy()
         if shifts[i]:
             seg[["open", "high", "low", "close"]] += shifts[i]
+
         seg["contract"] = contract.nt8_name
 
         pieces.append(seg)
@@ -438,10 +436,7 @@ def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
             )
 
 
-# -- roll seams ---------------------------------------------------------------
-
-
-SEAM_COLUMNS = [
+SEAM_COLUMNS: list[str] = [
     "previous_contract",
     "contract",
     "previous_bar",
@@ -505,6 +500,7 @@ def splice_root(
     if not contracts:
         msg: str = f"no contracts found for {root} in {data_dir}"
         raise SpliceError(msg)
+
     frames: dict[ContractId, pd.DataFrame] = {c: ingest.load_contract(c, cache_dir) for c in contracts}
 
     series, report = build_continuous(
@@ -524,11 +520,7 @@ def splice_root(
     return series, report
 
 
-def load_continuous(
-    root: str,
-    back_adjust: bool = False,
-    cache_dir: Path = paths.CACHE_DIR,
-) -> pd.DataFrame:
+def load_continuous(root: str, back_adjust: bool = False, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
     """Read a spliced continuous series back from the cache."""
     path: Path = continuous_path(root, back_adjust=back_adjust, cache_dir=cache_dir)
     if not path.exists():
@@ -539,4 +531,5 @@ def load_continuous(
         raise FileNotFoundError(
             msg,
         )
+
     return pd.read_parquet(path)

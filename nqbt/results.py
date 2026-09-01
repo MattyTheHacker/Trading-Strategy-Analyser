@@ -26,11 +26,13 @@ from nqbt import paths
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from logging import Logger
     from pathlib import Path
+    from typing import Final
 
     import pandas as pd
 
-logger = logging.getLogger(__name__)
+logger: Final[Logger] = logging.getLogger(__name__)
 
 
 class ResultsError(ValueError):
@@ -246,11 +248,7 @@ def _describe(con: duckdb.DuckDBPyConnection, relation: str) -> dict[str, str]:
     return {str(row[0]): str(row[1]) for row in con.execute(f"DESCRIBE {relation}").fetchall()}
 
 
-def _lossy_columns(
-    con: duckdb.DuckDBPyConnection,
-    stored: Mapping[str, str],
-    incoming: Mapping[str, str],
-) -> list[str]:
+def _lossy_columns(con: duckdb.DuckDBPyConnection, stored: Mapping[str, str], incoming: Mapping[str, str]) -> list[str]:
     """Which shared columns hold a value the stored column's type would not give back.
 
     A round trip through both types, so this reports *measured* loss rather than a rule about
@@ -272,16 +270,12 @@ def _lossy_columns(
     return lossy
 
 
-def _widen(
-    con: duckdb.DuckDBPyConnection,
-    table: str,
-    stored: Mapping[str, str],
-    incoming: Mapping[str, str],
-) -> None:
+def _widen(con: duckdb.DuckDBPyConnection, table: str, stored: Mapping[str, str], incoming: Mapping[str, str]) -> None:
     """Add the columns the frame carries and the table does not, leaving stored rows null."""
     for name, sql_type in incoming.items():
         if name in stored:
             continue
+
         con.execute(f"ALTER TABLE {table} ADD COLUMN {_quoted(name)} {sql_type}")
         logger.info("%s: added column %s %s", table, name, sql_type)
 

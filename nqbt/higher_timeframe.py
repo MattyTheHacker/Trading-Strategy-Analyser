@@ -31,12 +31,12 @@ from nqbt.arrays import float_column
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray, OffsetArray
     from nqbt.sessions import SessionTemplate
 
-__all__ = [
+__all__: Sequence[str] = [
     "ALL_SIDES",
     "KIND",
     "MIN_MINUTES",
@@ -58,17 +58,17 @@ __all__ = [
     "validate_period",
 ]
 
-UNDEFINED = -1
+UNDEFINED: int = -1
 """Label for a bar no coarse bar has closed before. Negative, not a fourth side, so it cannot
 be swept into a filter by accident -- ``docs/roadmap.md`` § "Multi-timeframe moving averages".
 """
 
-KIND = "ema"
+KIND: str = "ema"
 """The moving average the side is measured against. Fixed rather than swept, for the reason
 :data:`nqbt.trend.KIND` is.
 """
 
-MIN_MINUTES = 2
+MIN_MINUTES: int = 2
 """Fewest minutes a higher timeframe may span. A one-minute one is the existing moving-average
 gate under another name, and :func:`higher_timeframe_grid` refuses more than this: the coarse
 period must also be a proper multiple of the bars it is aggregated from.
@@ -85,13 +85,9 @@ class Side(IntEnum):
     The integer values ascend with the close, and are also the bit positions in a filter mask.
     """
 
-    BELOW = 0
-    """Under the higher-timeframe average: the side a short-only archetype wants."""
-    AT = 1
-    """Exactly on it. Essentially never reached by two float64 values, and cheaper to give a
-    state than to argue about which side it belongs on."""
-    ABOVE = 2
-    """Over it -- :attr:`BELOW` with the test mirrored."""
+    BELOW = 0  # Under the higher-timeframe average: the side a short-only archetype wants.
+    AT = 1  # Exactly on it. Unlikely to be triggered but still valid and possible.
+    ABOVE = 2  # Over it -- :attr:`BELOW` with the test mirrored.
 
     @property
     def bit(self) -> int:
@@ -106,10 +102,8 @@ ALL_SIDES = (1 << len(Side)) - 1
 class HigherTimeframeKey(NamedTuple):
     """What one higher-timeframe average is determined by, and the grid's lookup key."""
 
-    minutes: int
-    """Minutes one coarse bar spans, anchored to the session open -- :mod:`nqbt.resample`."""
-    period: int
-    """Bars of *that* resolution the average is taken over, never bars of the fine series."""
+    minutes: int  # Minutes one coarse bar spans, anchored to the session open -- :mod:`nqbt.resample`.
+    period: int  # Bars of *that* resolution the average is taken over, never bars of the fine series.
 
 
 def sides_mask(sides: Iterable[Side]) -> int:
@@ -140,19 +134,19 @@ def validate_mask(mask: int) -> int:
 def validate_minutes(minutes: int) -> int:
     """Reject a resolution that is not coarser than the series it would be read on."""
     if minutes < MIN_MINUTES:
-        msg: str = (
+        timeframe_error_message: str = (
             f"higher_timeframe_minutes must be >= {MIN_MINUTES}, got {minutes}; "
             "a 1-minute higher timeframe is the existing moving-average gate"
         )
-        raise HigherTimeframeError(msg)
+        raise HigherTimeframeError(timeframe_error_message)
     return minutes
 
 
 def validate_period(period: int) -> int:
     """Reject a moving-average period no coarse bar could be averaged over."""
     if period < 1:
-        msg: str = f"higher_timeframe_period must be >= 1, got {period}"
-        raise HigherTimeframeError(msg)
+        timeframe_error_message: str = f"higher_timeframe_period must be >= 1, got {period}"
+        raise HigherTimeframeError(timeframe_error_message)
     return period
 
 
@@ -182,8 +176,8 @@ def project(coarse_stamps: pd.DatetimeIndex, values: FloatArray, stamps: pd.Date
     """
     coarse: FloatArray = np.ascontiguousarray(values, dtype=np.float64)
     if coarse.size != coarse_stamps.size:
-        msg: str = f"{coarse.size} values against {coarse_stamps.size} coarse stamps"
-        raise HigherTimeframeError(msg)
+        timeframe_error_message: str = f"{coarse.size} values against {coarse_stamps.size} coarse stamps"
+        raise HigherTimeframeError(timeframe_error_message)
 
     # side="right" is what makes the bar closing alongside a coarse bar read it, and every
     # bar inside an unfinished one read the bar before.
@@ -252,10 +246,8 @@ class HigherTimeframeGrid:
     """
 
     keys: tuple[HigherTimeframeKey, ...]
-    values: FloatArray
-    """The projected average, ``[n_keys, n_bars]`` float64, ``nan`` before the first close."""
-    labels: LabelArray
-    """Price against it, ``[n_keys, n_bars]`` int8 -- see :class:`Side` and :data:`UNDEFINED`."""
+    values: FloatArray  # The projected average, ``[n_keys, n_bars]`` float64, ``nan`` before the first close.
+    labels: LabelArray  # Price against it, ``[n_keys, n_bars]`` int8 -- see :class:`Side` and :data:`UNDEFINED`.
 
     def __len__(self) -> int:
         """Count the bars, not the keys."""
@@ -266,8 +258,8 @@ class HigherTimeframeGrid:
         try:
             return self.keys.index(wanted)
         except ValueError:
-            msg: str = f"higher-timeframe average {wanted} is not in this grid; built for {list(self.keys)}"
-            raise KeyError(msg) from None
+            error_msg: str = f"higher-timeframe average {wanted} is not in this grid; built for {list(self.keys)}"
+            raise KeyError(error_msg) from None
 
     def values_for(self, wanted: HigherTimeframeKey) -> FloatArray:
         """Read one average as the fine series sees it, the raw quantity behind the labels."""
@@ -319,7 +311,7 @@ def higher_timeframe_grid(
     values: FloatArray = np.empty((len(ordered), close.size), dtype=np.float64)
     labels: LabelArray = np.empty((len(ordered), close.size), dtype=np.int8)
 
-    row = 0
+    row: int = 0
     for minutes, group in groupby(ordered, key=lambda k: k.minutes):
         coarse: pd.DataFrame = resample.resample(bars[["close"]], minutes, template=template)
         coarse_close: FloatArray = float_column(coarse, "close")

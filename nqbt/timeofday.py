@@ -29,15 +29,9 @@ if TYPE_CHECKING:
 
     from nqbt.arrays import BitsArray, BoolArray, IndexArray, IntArray, LabelArray
 
-SECONDS_PER_DAY = 86_400
-
-MIN_STAMPS_FOR_A_GAP = 2
-"""Stamps needed before :func:`infer_bar_minutes` has a gap to measure."""
-
-OUT_OF_SESSION = -1
-"""Label for a bar outside any session. Negative, not an eighth phase -- ``docs/roadmap.md``
-§M10.4.
-"""
+SECONDS_PER_DAY: int = 86_400
+MIN_STAMPS_FOR_A_GAP: int = 2  # Stamps needed before :func:`infer_bar_minutes` has a gap to measure."""
+OUT_OF_SESSION: int = -1  # Label for a bar outside any session. Negative, not an eighth phase §M10.4.
 
 
 class TimeOfDayError(ValueError):
@@ -65,8 +59,7 @@ class SessionPhase(IntEnum):
         return 1 << int(self)
 
 
-FORCED_EXIT_PHASE = SessionPhase.CLOSE
-"""The phase the session-close flatten falls in, named so a caller can exclude it."""
+FORCED_EXIT_PHASE = SessionPhase.CLOSE  # The phase the session-close flatten is in, named so a caller can exclude it.
 
 PHASE_STARTS: tuple[tuple[SessionPhase, time], ...] = (
     (SessionPhase.OVERNIGHT, time(18, 0)),
@@ -91,6 +84,7 @@ def phases_mask(phases: Iterable[SessionPhase]) -> int:
     mask: int = 0
     for phase in phases:
         mask |= SessionPhase(phase).bit
+
     return mask
 
 
@@ -105,9 +99,11 @@ def validate_mask(mask: int) -> int:
     if mask < 0 or mask & ~ALL_PHASES:
         msg: str = f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
         raise TimeOfDayError(msg)
+
     if mask == 0:
         msg = "phase mask 0 admits no phase, so every combination along it would trade nothing"
         raise TimeOfDayError(msg)
+
     return mask
 
 
@@ -138,19 +134,19 @@ def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) ->
     if starts[0] != 0:
         msg: str = f"the first phase must begin at the session open; got {starts[0]} minutes past it"
         raise TimeOfDayError(msg)
+
     if np.any(np.diff(starts) <= 0):
         msg = f"phase starts must ascend within the session; got {starts.tolist()} minutes past the open"
         raise TimeOfDayError(msg)
+
     if starts[-1] >= length:
         msg = f"phase start {starts[-1]} falls at or past the {length}-minute close"
         raise TimeOfDayError(msg)
+
     return starts
 
 
-def phase_from_minutes(
-    minutes: IntArray,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> LabelArray:
+def phase_from_minutes(minutes: IntArray, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> LabelArray:
     """Label each bar from its minute-of-session, as ``int8`` :class:`SessionPhase` values.
 
     ``minutes`` is :func:`nqbt.resample.minutes_since_open`, so the minute a bar *occupies* is
@@ -182,6 +178,7 @@ def bar_index_from_minutes(minutes: IntArray, bar_minutes: int) -> IndexArray:
     if bar_minutes < 1:
         msg: str = f"bar_minutes must be >= 1, got {bar_minutes}"
         raise TimeOfDayError(msg)
+
     return ((np.asarray(minutes, dtype=np.int64) - 1) // bar_minutes).astype(np.int32)
 
 
@@ -194,11 +191,13 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
     stamps: pd.DatetimeIndex = pd.DatetimeIndex(index)
     if stamps.size < MIN_STAMPS_FOR_A_GAP:
         return 1
+
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
     deltas = np.diff(naive.to_numpy().astype("datetime64[m]").astype(np.int64))
     positive = deltas[deltas > 0]
     if positive.size == 0:
         return 1
+
     values, counts = np.unique(positive, return_counts=True)
     return int(values[counts.argmax()])
 
@@ -210,8 +209,7 @@ class TimeOfDay:
     phase: LabelArray  # ``int8`` :class:`SessionPhase` per bar, :data:`OUT_OF_SESSION` outside a session.
     phase_bits: BitsArray  # ``uint8`` ``1 << phase``, ``0`` out of session -- see :func:`bits_from_phase`.
     bar_of_session: IndexArray  # ``int32`` zero-based bar index from the session open, :data:`OUT_OF_SESSION` outside.
-    bar_minutes: int
-    """The bar size :attr:`bar_of_session` was computed at."""
+    bar_minutes: int  # The bar size :attr:`bar_of_session` was computed at.
 
     def __len__(self) -> int:
         return self.phase.size

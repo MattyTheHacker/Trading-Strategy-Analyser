@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 
     from nqbt.sessions import SessionInfo
 
-RAW_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
-BAR_DTYPES = {
+RAW_COLUMNS: list[str] = ["timestamp", "open", "high", "low", "close", "volume"]
+BAR_DTYPES: dict[str, str] = {
     "open": "float64",
     "high": "float64",
     "low": "float64",
@@ -50,20 +50,11 @@ BAR_DTYPES = {
     "volume": "int64",
 }
 
-TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
-
-TICK_EXPORT_FIELDS = 5
-"""Semicolon-separated fields in a tick export: timestamp;last;bid;ask;volume."""
-
-TICK_STAMP_PARTS = 3
-"""Whitespace-separated parts of a tick export's timestamp, the third sub-second."""
-HASH_CHUNK_BYTES = 1 << 20
-"""Read size when hashing. Hashing is I/O bound and cheap next to parsing."""
-
-STRAY_SHARE_LIMIT = 0.01
-"""Out-of-session share above which a cached contract is a broken export, not stray prints.
-
-Comfortably above every rate measured here -- ``docs/nt8-fidelity.md``, "Sessions"."""
+TIMESTAMP_FORMAT: str = "%Y%m%d %H%M%S"
+TICK_EXPORT_FIELDS: int = 5  # Semicolon-separated fields in a tick export: timestamp;last;bid;ask;volume.
+TICK_STAMP_PARTS: int = 3  # Whitespace-separated parts of a tick export's timestamp, the third sub-second.
+HASH_CHUNK_BYTES: int = 1 << 20  # Read size when hashing. Hashing is I/O bound and cheap next to parsing.
+STRAY_SHARE_LIMIT: float = 0.01  # Threshold above which a cached contract is considered broken.
 
 
 @dataclass(slots=True)
@@ -141,9 +132,6 @@ class IngestError(RuntimeError):
     """Raised when a raw export cannot be parsed into usable bars."""
 
 
-# -- manifest -----------------------------------------------------------------
-
-
 def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifest]:
     """Every manifest entry on disk, dropping any an older version wrote differently."""
     if not path.exists():
@@ -183,9 +171,6 @@ def _hash_range(source: Path, length: int) -> str:
             remaining -= len(chunk)
             digest.update(chunk)
     return digest.hexdigest()
-
-
-# -- parsing ------------------------------------------------------------------
 
 
 def _reject_tick_export(data: bytes, source_name: str) -> None:
@@ -256,21 +241,16 @@ def _finalise(frame: pd.DataFrame, source_name: str) -> pd.DataFrame:
     body_min: pd.Series[float] = frame[["open", "close"]].min(axis=1)
     invalid: pd.Series[bool] = (highs < lows) | (highs < body_max) | (lows > body_min)
     if invalid.any():
-        msg: str = (
+        ingest_error_message: str = (
             f"{source_name}: {int(invalid.sum())} bars violate OHLC ordering, "
             f"first at {frame.index[int(invalid.argmax())]}"
         )
-        raise IngestError(
-            msg,
-        )
+        raise IngestError(ingest_error_message)
 
     info: SessionInfo = sessions.classify(pd.DatetimeIndex(frame.index))
     frame["trading_day"] = info.trading_day
     frame["in_session"] = info.in_session
     return frame
-
-
-# -- ingestion ----------------------------------------------------------------
 
 
 def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None) -> ExportScan:

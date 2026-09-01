@@ -20,11 +20,11 @@ import numpy as np
 from nqbt import indicators
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from nqbt.arrays import FloatArray, IntArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "MIN_BAND_PERIOD",
     "BandError",
     "BandGrid",

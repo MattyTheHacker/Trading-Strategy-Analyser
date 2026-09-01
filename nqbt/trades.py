@@ -20,19 +20,19 @@ import pandas as pd
 if TYPE_CHECKING:
     from nqbt.arrays import FloatArray, IntArray
 
-EXIT_STOP = 0.0
-EXIT_TARGET = 1.0
-EXIT_SESSION_CLOSE = 2.0
-EXIT_END_OF_DATA = 3.0
+EXIT_STOP: float = 0.0
+EXIT_TARGET: float = 1.0
+EXIT_SESSION_CLOSE: float = 2.0
+EXIT_END_OF_DATA: float = 3.0
 """Position still open when the series ran out.
 
 Liquidated at the final bar's close and labelled distinctly, so the stats layer can exclude it
 rather than mistake it for a real exit.
 """
-EXIT_SIGNAL = 4.0
+EXIT_SIGNAL: float = 4.0
 """A rule-driven exit with no bracket level of its own. Produced only by EmaCrossover."""
 
-EXIT_REASONS = {
+EXIT_REASONS: dict[float, str] = {
     EXIT_STOP: "stop",
     EXIT_TARGET: "target",
     EXIT_SESSION_CLOSE: "session_close",
@@ -46,14 +46,14 @@ EXIT_REASONS = {
 EXIT_CODES = np.array(sorted(EXIT_REASONS), dtype=np.float64)
 """The same codes as an array, so :func:`validate_legs` can test a column against them."""
 
-LONG = 1.0
-SHORT = -1.0
+LONG: float = 1.0
+SHORT: float = -1.0
 """Sign of the position, carried per row rather than per run."""
 
-SOURCES = ("sim", "manual")
+SOURCES: tuple[str, str] = ("sim", "manual")
 """Where a row came from. Real and simulated trades share one DuckDB table."""
 
-COLUMNS = [
+COLUMNS: list[str] = [
     "trade_id",
     "leg",
     "entry_bar",
@@ -76,9 +76,9 @@ COLUMNS = [
     "ambiguous_bar",
 ]
 
-N_COLUMNS = len(COLUMNS)
+N_COLUMNS: int = len(COLUMNS)
 
-LEG_MATRIX_NDIM = 2
+LEG_MATRIX_NDIM: int = 2
 """A leg matrix is ``(rows, N_COLUMNS)`` -- rectangular, never ragged or stacked."""
 
 # Column indices, used inside the jitted loop where names are not available.
@@ -111,7 +111,7 @@ TAGS = ["source", "instrument"]
 :func:`trades_to_frame`. Constant for one simulated run; genuinely varying for an imported
 history that spans both roots."""
 
-SCHEMA = TAGS + COLUMNS
+SCHEMA: list[str] = TAGS + COLUMNS
 
 NULLABLE = frozenset(
     {
@@ -131,9 +131,9 @@ NULLABLE = frozenset(
 §M9. Everything else is required on every row from every producer.
 """
 
-REQUIRED = [c for c in SCHEMA if c not in NULLABLE]
+REQUIRED: list[str] = [c for c in SCHEMA if c not in NULLABLE]
 
-REQUIRED_INDICES = tuple(COLUMNS.index(c) for c in COLUMNS if c not in NULLABLE)
+REQUIRED_INDICES: tuple[int, ...] = tuple(COLUMNS.index(c) for c in COLUMNS if c not in NULLABLE)
 """:data:`REQUIRED` minus the two :data:`TAGS`, which cannot be in a ``float64`` matrix."""
 
 
@@ -163,9 +163,11 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     if matrix.ndim != LEG_MATRIX_NDIM or matrix.shape[1] != N_COLUMNS:
         msg: str = f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
         raise TradeSchemaError(msg)
+
     if count > matrix.shape[0]:
         msg = f"count {count} exceeds the {matrix.shape[0]} rows allocated"
         raise TradeSchemaError(msg)
+
     if count == 0:
         return legs
 
@@ -180,14 +182,17 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
     if not ((direction == LONG) | (direction == SHORT)).all():
         msg = f"direction must be {LONG} (long) or {SHORT} (short); found {sorted(set(direction) - {LONG, SHORT})}"
         raise TradeSchemaError(msg)
+
     if (rows[:, C_QUANTITY] <= 0).any():
         msg = (
             "quantity must be positive on every row; a short position is expressed by direction, not by a negative size"
         )
         raise TradeSchemaError(msg)
+
     if (rows[:, C_LEG] < 1).any():
         msg = "leg numbering starts at 1"
         raise TradeSchemaError(msg)
+
     reasons: FloatArray = rows[:, C_EXIT_REASON]
     if not np.isin(reasons, EXIT_CODES).all():
         unknown: list[float] = sorted(set(np.unique(reasons)) - set(EXIT_REASONS))
@@ -224,6 +229,7 @@ def trades_to_frame(
     if not instrument:
         type_error_message: str = "instrument must be a non-empty string"
         raise TypeError(type_error_message)
+
     frame: pd.DataFrame = pd.DataFrame(matrix[:count], columns=COLUMNS)
     for name in ("trade_id", "leg", "entry_bar", "exit_bar", "quantity", "bars_held"):
         frame[name] = frame[name].astype("int64")
@@ -267,10 +273,12 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(
             msg,
         )
+
     unknown: set[str] = set(frame["source"].unique()) - set(SOURCES)
     if unknown:
         msg = f"unknown source(s) {sorted(unknown)}; expected one of {SOURCES}"
         raise TradeSchemaError(msg)
+
     if (frame["quantity"].to_numpy() <= 0).any():
         msg = (
             "quantity must be positive on every row; a short position is expressed by direction, not by a negative size"
@@ -278,9 +286,11 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(
             msg,
         )
+
     if (frame["leg"].to_numpy() < 1).any():
         msg = "leg numbering starts at 1"
         raise TradeSchemaError(msg)
+
     return frame
 
 

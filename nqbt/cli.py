@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 from nqbt import ingest, logsetup, paths, splice
 
 if TYPE_CHECKING:
+    from logging import Logger
     from pathlib import Path
+    from typing import Final
 
     import pandas as pd
 
@@ -20,7 +22,7 @@ if TYPE_CHECKING:
     from nqbt.sim.types import DeadCatParams
     from nqbt.stats import Summary
 
-logger = logging.getLogger(__name__)
+logger: Final[Logger] = logging.getLogger(__name__)
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
@@ -324,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return int(args.func(args))
     except (ingest.IngestError, splice.SpliceError, FileNotFoundError) as exc:
-        logger.error("%s", exc)  # noqa: TRY400 - an expected failure, not an unhandled one
+        logger.error("%s", exc)  # noqa: TRY400 - an expected failure, not an unhandled one, so no traceback needed
         return 1
 
 

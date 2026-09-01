@@ -21,13 +21,13 @@ from nqbt import indicators
 from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     import pandas as pd
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "MA_KINDS",
     "BarGeometry",
     "MovingAverageError",

@@ -32,11 +32,14 @@ from nqbt.instruments import MNQ, Instrument
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from logging import Logger
+    from typing import Final
 
     from nqbt.archetypes import Archetype, AxisValue, Params
     from nqbt.trades import LegMatrix
 
-logger = logging.getLogger(__name__)
+
+logger: Final[Logger] = logging.getLogger(__name__)
 
 
 class SweepError(RuntimeError):
@@ -80,10 +83,12 @@ class Grid:
             raise SweepError(
                 msg,
             )
+
         for name, values in self.axes.items():
             if not values:
                 msg = f"axis {name!r} has no values"
                 raise SweepError(msg)
+
         dead: dict[str, str] = self.dead_axes()
         if dead:
             detail: str = "; ".join(
@@ -110,22 +115,20 @@ class Grid:
         for axis, toggle in self.archetype.gated_by.items():
             if axis not in self.axes:
                 continue
+
             inert: object = archetypes.INERT_AT.get(toggle, False)
             values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
             if all(value == inert for value in values):
                 dead[axis] = toggle
+
         return dead
 
     @classmethod
-    def of(
-        cls,
-        base: Params | None = None,
-        archetype: Archetype | None = None,
-        **axes: Iterable[AxisValue],
-    ) -> Grid:
+    def of(cls, base: Params | None = None, archetype: Archetype | None = None, **axes: Iterable[AxisValue]) -> Grid:
         """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
         if archetype is None:
             archetype = archetypes.for_params(base) if base is not None else archetypes.DEFAULT
+
         return cls(
             axes={k: list(v) for k, v in axes.items()},
             base=base if base is not None else archetype.params_cls(),
@@ -143,6 +146,7 @@ class Grid:
         if not self.axes:
             yield self.base
             return
+
         names: list[str] = list(self.axes)
         for values in itertools.product(*(self.axes[n] for n in names)):
             yield replace(self.base, **dict(zip(names, values, strict=True)))
@@ -179,8 +183,10 @@ def run_combination(
     """
     legs: LegMatrix = archetype.legs(data, params, instrument)
     row: dict[str, object] = params.as_dict()
+
     for name in archetype.not_sweepable:
         row.pop(name, None)
+
     # No empty-log branch here: one policy for an empty summary, and it lives in ``stats``.
     summary: dict[str, float] = stats.summarise_legs(legs, data.day_codes).as_dict()
     log: pd.DataFrame | None = None
@@ -197,7 +203,7 @@ def run_combination(
     return {**row, **summary}, log
 
 
-CHUNKS_PER_WORKER = 4
+CHUNKS_PER_WORKER: Final[int] = 4
 """Chunks handed to each worker rather than one big slice, since combinations differ in cost."""
 
 
@@ -205,8 +211,10 @@ def chunk_bounds(total: int, n_workers: int, chunk_size: int | None = None) -> l
     """Half-open ``[start, stop)`` ranges covering ``total`` combinations exactly once."""
     if total <= 0:
         return []
+
     if chunk_size is None:
         chunk_size = max(1, math.ceil(total / max(1, n_workers * CHUNKS_PER_WORKER)))
+
     return [(s, min(s + chunk_size, total)) for s in range(0, total, chunk_size)]
 
 
@@ -230,8 +238,10 @@ def _run_chunk(
         row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = combo_id
         rows.append(row)
+
         if log is not None:
             logs[combo_id] = log
+
     return rows, logs
 
 
@@ -249,11 +259,14 @@ def _sweep_serial(
         row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = i
         rows.append(row)
+
         if log is not None:
             logs[i] = log
+
         if progress_every and (i + 1) % progress_every == 0:
             rate: float = (i + 1) / (time.perf_counter() - started)
             logger.info("  %s/%s combos  %s/s", f"{i + 1:,}", f"{len(grid):,}", f"{rate:,.0f}")
+
     return rows, logs
 
 
@@ -334,6 +347,7 @@ def sweep(
     if not frame.empty:
         cols: list[str] = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
         frame = frame[cols]
+
     return frame, logs
 
 
@@ -347,8 +361,7 @@ class AxisPoint(NamedTuple):
 
     strategy: str
     resolution: int
-    contract: str | None
-    """``None`` means the spliced continuous series, which is not any one contract."""
+    contract: str | None  # ``None`` means the spliced continuous series, which is not any one contract.
     tier2: str
 
 
@@ -381,6 +394,7 @@ def sweep_axes(
     if not grid_list:
         msg: str = "sweep_axes needs at least one grid"
         raise SweepError(msg)
+
     if not resolutions:
         msg = "resolutions is empty; pass (1,) for plain 1-minute bars"
         raise SweepError(msg)
@@ -390,6 +404,7 @@ def sweep_axes(
         sources[None] = bars
     else:
         sources.update(bars)
+
     if not sources:
         msg = "no bars to sweep: the contract mapping is empty"
         raise SweepError(msg)
@@ -438,12 +453,7 @@ def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
     return tagged
 
 
-def rank(
-    results: pd.DataFrame,
-    by: str = "profit_factor",
-    top: int = 20,
-    min_trades: int = 30,
-) -> pd.DataFrame:
+def rank(results: pd.DataFrame, by: str = "profit_factor", top: int = 20, min_trades: int = 30) -> pd.DataFrame:
     """Shortlist candidates, ignoring combinations with fewer than ``min_trades`` trades.
 
     The floor is not optional: the smallest samples produce the most extreme statistics, so
@@ -451,7 +461,9 @@ def rank(
     """
     if results.empty:
         return results
+
     viable: pd.DataFrame = results[results["trades"] >= min_trades]
     if viable.empty:
         return viable
+
     return viable.sort_values(by, ascending=False).head(top)

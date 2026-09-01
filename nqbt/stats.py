@@ -39,12 +39,12 @@ from nqbt.trades import (
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, OffsetArray
 
-TRADING_DAYS_PER_YEAR = 252
+TRADING_DAYS_PER_YEAR: int = 252
 
-MIN_DAYS_FOR_RISK_ADJUSTED = 2
+MIN_DAYS_FOR_RISK_ADJUSTED: int = 2
 """Days needed before a Sharpe or Sortino means anything: ``std(ddof=1)`` needs two."""
 
-SESSION_CLOSE = EXIT_REASONS[EXIT_SESSION_CLOSE]
+SESSION_CLOSE: str = EXIT_REASONS[EXIT_SESSION_CLOSE]
 """The ``exit_reason`` string for a position closed by the clock.
 
 Read out of :data:`nqbt.trades.EXIT_REASONS` so the label and its code cannot drift apart.
@@ -145,6 +145,7 @@ def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
     """
     if daily.size < MIN_DAYS_FOR_RISK_ADJUSTED:
         return 0.0, 0.0
+
     mean: float = daily.mean()
     sd: float = daily.std(ddof=1)
     downside: FloatArray = daily[daily < 0]
@@ -180,10 +181,13 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
         "r_multiple": ("r_multiple", "mean"),
         "ambiguous_bar": ("ambiguous_bar", "any"),
     }
+
     if "entry_time" in trades.columns:
         agg["entry_time"] = ("entry_time", "first")
+
     if "exit_time" in trades.columns:
         agg["exit_time"] = ("exit_time", "max")
+
     return trades.groupby("trade_id").agg(**agg)
 
 
@@ -229,6 +233,7 @@ def _require_exit_times(trades: pd.DataFrame) -> None:
             "trades.trades_to_frame(..., index)."
         )
         raise MissingTimesError(msg)
+
     nulls: int = int(trades["exit_time"].isna().sum())
     if nulls:
         msg = (
@@ -390,6 +395,7 @@ def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None) -> Summary:
             "None only for a non-datetime index."
         )
         raise MissingTimesError(msg)
+
     matrix, count = legs
     if count == 0:
         return Summary.empty()
@@ -418,7 +424,7 @@ def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None) -> Summary:
     )
 
 
-TRADE_PNL_STATISTICS = ("profit_factor", "net_pnl", "expectancy", "win_rate")
+TRADE_PNL_STATISTICS: tuple[str, ...] = ("profit_factor", "net_pnl", "expectancy", "win_rate")
 """Statistics that depend on nothing but the per-trade P&L vector.
 
 Which makes them the only ones a resampling test may permute -- ``docs/roadmap.md`` §M14.
@@ -436,19 +442,24 @@ def trade_statistic(pnl: FloatArray, name: str) -> float:
     if name not in TRADE_PNL_STATISTICS:
         msg: str = f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         raise ValueError(msg)
+
     if pnl.size == 0:
         return 0.0
+
     wins: BoolArray = pnl > 0
     if name == "profit_factor":
         return _ratio(float(pnl[wins].sum()), float(-pnl[pnl < 0].sum()))
+
     if name == "net_pnl":
         return float(pnl.sum())
+
     if name == "expectancy":
         return float(pnl.mean())
+
     return float(wins.mean())
 
 
-PATH_STATISTICS = ("max_drawdown", "max_consecutive_losses")
+PATH_STATISTICS: tuple[str, ...] = ("max_drawdown", "max_consecutive_losses")
 """Statistics that depend on the order trades arrived in, not only on their values.
 
 Which makes them the only ones a *sequence* permutation can move, and the exact complement of
@@ -466,10 +477,13 @@ def path_statistic(pnl: FloatArray, name: str) -> float:
     if name not in PATH_STATISTICS:
         msg: str = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
         raise ValueError(msg)
+
     if pnl.size == 0:
         return 0.0
+
     if name == "max_drawdown":
         return _max_drawdown(pnl.cumsum())
+
     return float(_max_consecutive(pnl < 0))
 
 

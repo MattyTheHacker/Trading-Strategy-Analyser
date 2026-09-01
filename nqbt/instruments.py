@@ -43,16 +43,12 @@ def months_from_codes(codes: str) -> frozenset[int]:
     return frozenset(CODE_MONTHS[code] for code in codes)
 
 
-QUARTERLY_MONTHS = months_from_codes("HMUZ")
-"""The March cycle, which is what the equity index futures list."""
+QUARTERLY_MONTHS = months_from_codes("HMUZ")  # The March cycle, which is what the equity index futures list.
+ALL_MONTHS = frozenset(MONTH_CODES)  # Every calendar month, which is what the energy futures list.
 
-ALL_MONTHS = frozenset(MONTH_CODES)
-"""Every calendar month, which is what the energy futures list."""
+RoundMode = Literal["nearest", "up", "down"]  # For alignment to the tick grid
 
-RoundMode = Literal["nearest", "up", "down"]
-
-ON_TICK_TOLERANCE = 1e-9
-"""How far off the tick grid a price may sit and still count as on it."""
+ON_TICK_TOLERANCE = 1e-9  # How far off the tick grid a price may sit and still count as on it.
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,10 +58,8 @@ class Instrument:
     symbol: str
     name: str
     tick_size: float
-    point_value: float
-    """Dollars per 1.00 of price movement, per contract."""
-    contract_months: frozenset[int] = QUARTERLY_MONTHS
-    """The months this root lists contracts in, as :data:`MONTH_CODES` keys."""
+    point_value: float  # Dollars per 1.00 of price movement, per contract.
+    contract_months: frozenset[int] = QUARTERLY_MONTHS  # The months this root lists contracts in
     exchange: str = "CME"
     currency: str = "USD"
     session_template: str = "CME US Index Futures ETH"
@@ -86,8 +80,6 @@ class Instrument:
         exponent = Decimal(str(self.tick_size)).normalize().as_tuple().exponent
         return max(0, -int(exponent))
 
-    # -- conversions -----------------------------------------------------------
-
     def ticks_to_dollars(self, ticks: float, quantity: int = 1) -> float:
         """Value of ``ticks`` on this instrument, for ``quantity`` contracts."""
         return ticks * self.tick_value * quantity
@@ -107,8 +99,6 @@ class Instrument:
     def ticks_to_points(self, ticks: float) -> float:
         """``ticks`` expressed in points."""
         return ticks * self.tick_size
-
-    # -- price alignment -------------------------------------------------------
 
     def round_to_tick(self, price: float, mode: RoundMode = "nearest") -> float:
         """Snap ``price`` onto the instrument's tick grid.
@@ -134,8 +124,6 @@ class Instrument:
     def is_on_tick(self, price: float) -> bool:
         """Whether ``price`` sits exactly on this instrument's tick grid."""
         return abs(price - self.round_to_tick(price)) < ON_TICK_TOLERANCE
-
-    # -- risk ------------------------------------------------------------------
 
     def position_size_for_risk(self, risk_dollars: float, stop_distance_points: float) -> int:
         """Largest whole contract count whose worst case stays within ``risk_dollars``.
@@ -218,7 +206,6 @@ MGC = Instrument(
     exchange="COMEX",
 )
 
-# Micro silver is SIL, not MSI, and is a fifth of SI rather than a tenth.
 SIL = Instrument(
     symbol="SIL",
     name="Micro Silver",
@@ -289,14 +276,14 @@ class ContractId:
     @classmethod
     def parse(cls, text: str) -> ContractId:
         """Parse an NT8-style contract name such as ``"MNQ 03-24"``."""
-        m: re.Match[str] | None = _CONTRACT_RE.match(text)
-        if not m:
+        contract_match: re.Match[str] | None = _CONTRACT_RE.match(text)
+        if not contract_match:
             msg: str = f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
             raise ValueError(msg)
         return cls(
-            root=m["root"].upper(),
-            month=int(m["month"]),
-            year=2000 + int(m["year"]),
+            root=contract_match["root"].upper(),
+            month=int(contract_match["month"]),
+            year=2000 + int(contract_match["year"]),
         )
 
     @property
