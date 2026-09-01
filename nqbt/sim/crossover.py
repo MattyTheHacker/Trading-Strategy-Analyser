@@ -74,22 +74,22 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
-    n = bars.close.size
-    n_legs = leg_quantities.size
-    slippage = bracket.slippage_points(costs)
-    min_risk = STOP_MIN_TICKS * costs.tick_size
+    n: int = bars.close.size
+    n_legs: int = leg_quantities.size
+    slippage: float = bracket.slippage_points(costs)
+    min_risk: float = STOP_MIN_TICKS * costs.tick_size
 
-    written = 0
-    trade_id = 0
+    written: int = 0
+    trade_id: int = 0
 
-    in_position = False
-    pending_exit = False
-    pending_bar = -1
-    pending_direction = 0.0
+    in_position: bool = False
+    pending_exit: bool = False
+    pending_bar: int = -1
+    pending_direction: float = 0.0
 
-    d = 0.0
-    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, True)
-    stop = 0.0
+    direction: float = 0.0
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, direction, True)
+    stop: float = 0.0
     excursion = bracket.Excursion(0.0, 0.0)
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
@@ -102,7 +102,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
         if in_position and pending_exit:
             # The exit was submitted at the close of bar i-1 and fills at this bar's first
             # price, so the excursion stays where it was.
-            fill = bars.open_[i] - d * slippage
+            fill: float = bars.open_[i] - direction * slippage
             for leg in range(n_legs):
                 if legs.is_open[leg]:
                     written = bracket.write_leg(
@@ -135,6 +135,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             )
             if written < 0:
                 return -1
+
         pending_exit = False
 
         # ---- the entry order fills at this bar's open, unconditionally ---------------
@@ -142,10 +143,10 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             # A force-flat bar is filled like any other; the session-close handler runs
             # after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
             # bar, and is flattened at its close".
-            d = pending_direction
-            fill = bars.open_[i] + d * slippage
-            candidate_stop = _protective_stop(bars, atr, pending_bar, fill, d, rules, costs)
-            candidate_risk = d * (fill - candidate_stop)
+            direction: float = pending_direction
+            fill: float = bars.open_[i] + direction * slippage
+            candidate_stop = _protective_stop(bars, atr, pending_bar, fill, direction, rules, costs)
+            candidate_risk = direction * (fill - candidate_stop)
             # A stop at or through the price it protects is not a stop order --
             # ``docs/nt8-fidelity.md`` §M18.
             if candidate_risk >= min_risk:
@@ -156,7 +157,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                     entry_price=fill,
                     initial_stop=candidate_stop,
                     risk=candidate_risk,
-                    direction=d,
+                    direction=direction,
                     filled_at_open=True,
                 )
                 stop = candidate_stop
@@ -167,7 +168,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                         legs.target[leg] = np.nan
                     else:
                         # Measured from the fill: there is no trigger price.
-                        raw = fill + d * candidate_risk * target_r[leg] * rules.tp_multiplier
+                        raw = fill + direction * candidate_risk * target_r[leg] * rules.tp_multiplier
                         legs.target[leg] = bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
                 written, in_position = bracket.resolve_brackets(
                     out,
@@ -186,7 +187,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's orders --------------------------
-        if in_position and rules.exit_on_opposite_cross and direction_at[i] != d:
+        if in_position and rules.exit_on_opposite_cross and direction_at[i] != direction:
             pending_exit = True
         if (
             i >= rules.bars_required
@@ -202,7 +203,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
     # Anything still open when the series runs out is liquidated at the last bar.
     if in_position:
         last = n - 1
-        exit_fill = bars.close[last] - d * slippage
+        exit_fill = bars.close[last] - direction * slippage
         for leg in range(n_legs):
             if legs.is_open[leg]:
                 written = bracket.write_leg(
@@ -245,6 +246,7 @@ def _protective_stop(
             rules.atr_stop_multiple,
             rules.min_bracket_points,
         )
+
         return fill - direction * distance
 
     return bracket.swing_stop(
@@ -362,6 +364,7 @@ def run_crossover(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = crossover_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             matrix=legs.matrix,
