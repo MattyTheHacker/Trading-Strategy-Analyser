@@ -83,10 +83,12 @@ def splits(
     if train_bars < 1 or test_bars < 1:
         msg: str = f"train_bars and test_bars must both be >= 1; got {train_bars} and {test_bars}"
         raise WalkForwardError(msg)
+
     step = test_bars if step is None else step
     if step < 1:
         msg = f"step must be >= 1; got {step}"
         raise WalkForwardError(msg)
+
     if n_bars < train_bars + test_bars:
         msg = (
             f"need at least train_bars + test_bars = {train_bars + test_bars} bars for one "
@@ -107,6 +109,7 @@ def splits(
             ),
         )
         train_end += step
+
     return out
 
 
@@ -154,16 +157,19 @@ class WalkForwardResult:
         """
         if self.trades.empty:
             return np.empty(0, dtype=float)
+
         parts: list[AnyArray] = [
             stats.per_trade(window)["net_pnl"].to_numpy(dtype=float)
             for _, window in self.trades.groupby("split", sort=True)
         ]
+
         return np.concatenate(parts)
 
     def summary(self) -> WalkForwardSummary:
         """Aggregate in-sample against out-of-sample, over splits that selected anything."""
         chosen: pd.DataFrame = self.table[self.table["combo_id"].notna()]
         pooled: FloatArray = self.pooled_pnl()
+
         return WalkForwardSummary(
             statistic=self.statistic,
             splits=len(self.table),
@@ -200,8 +206,10 @@ def _window_log(
     )
     if log is None or log.empty:
         return pd.DataFrame() if log is None else log
+
     # ``entry_bar`` is a position into ``slice_``, which is what the prefix is measured in.
     keep: BoolArray = log["entry_bar"].to_numpy() >= (start - lead)
+
     return log[keep].reset_index(drop=True)
 
 
@@ -209,7 +217,9 @@ def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
     """``name`` and the trade count behind it, from a leg-level log."""
     if log.empty:
         return np.nan, 0
+
     pnl: FloatArray = stats.per_trade(log)["net_pnl"].to_numpy(float)
+
     return stats.trade_statistic(pnl, name), int(pnl.size)
 
 
@@ -244,12 +254,14 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             f"the opposite comparison. Choose from {list(stats.TRADE_PNL_STATISTICS)}."
         )
         raise WalkForwardError(msg)
+
     if costs.is_free:
         msg = (
             "costs are zero, so this would rank gross results. Pass nqbt.costs.LIVE, or "
             "nqbt.costs.FREE explicitly if an uncosted walk-forward is genuinely wanted."
         )
         raise WalkForwardError(msg)
+
     if warmup_bars < 0:
         msg = f"warmup_bars must be >= 0; got {warmup_bars}"
         raise WalkForwardError(msg)
@@ -308,6 +320,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
         test_stat, test_trades = _statistic(test_log, select_by)
         if not test_log.empty:
             logs.append(test_log.assign(split=split.index))
+
         rows.append(
             {
                 **row,

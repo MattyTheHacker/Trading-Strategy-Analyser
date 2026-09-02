@@ -70,6 +70,7 @@ def _inverted_hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close
         upper = high[i] - top
         lower = bottom - low[i]
         out[i] = (upper >= body * 2.0) and (lower <= body) and (body > 0.0)
+
     return out
 
 
@@ -88,6 +89,7 @@ def _hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close: FloatAr
         upper = high[i] - top
         lower = bottom - low[i]
         out[i] = (lower >= body * 2.0) and (upper <= body) and (body > 0.0)
+
     return out
 
 
@@ -98,6 +100,7 @@ def _made_new_high(high: FloatArray) -> BoolArray:
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
         out[i] = high[i] > high[i - 1]
+
     return out
 
 
@@ -108,6 +111,7 @@ def _made_new_low(low: FloatArray) -> BoolArray:
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
         out[i] = low[i] < low[i - 1]
+
     return out
 
 
@@ -118,6 +122,7 @@ def _previous_bar_green(open_: FloatArray, close: FloatArray) -> BoolArray:
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
         out[i] = close[i - 1] >= open_[i - 1]
+
     return out
 
 
@@ -132,6 +137,7 @@ def _previous_bar_red(open_: FloatArray, close: FloatArray) -> BoolArray:
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
         out[i] = close[i - 1] < open_[i - 1]
+
     return out
 
 
@@ -146,6 +152,7 @@ def _prior_bar_inside(high: FloatArray, low: FloatArray) -> BoolArray:
     out = np.zeros(n, dtype=np.bool_)
     for i in range(2, n):
         out[i] = high[i - 1] < high[i - 2] and low[i - 1] > low[i - 2]
+
     return out
 
 
@@ -212,10 +219,13 @@ def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> 
             crossed = fast[i] > slow[i] and fast[i - 1] <= slow[i - 1]
         else:
             crossed = fast[i] < slow[i] and fast[i - 1] >= slow[i - 1]
+
         if crossed:
             last = i
+
         if last >= 0 and i - last < lookback:
             out[i] = True
+
     return out
 
 
@@ -229,6 +239,7 @@ def cross_above(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolAr
     if lookback < 1:
         msg: str = f"lookback must be >= 1, got {lookback}"
         raise ValueError(msg)
+
     return _crossed(
         np.ascontiguousarray(fast, dtype=np.float64),
         np.ascontiguousarray(slow, dtype=np.float64),
@@ -245,6 +256,7 @@ def cross_below(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolAr
     if lookback < 1:
         msg: str = f"lookback must be >= 1, got {lookback}"
         raise ValueError(msg)
+
     return _crossed(
         np.ascontiguousarray(fast, dtype=np.float64),
         np.ascontiguousarray(slow, dtype=np.float64),
@@ -319,10 +331,12 @@ def ma_key(kind: str, period: int) -> MovingAverageKey:
     if kind not in MA_KINDS:
         msg: str = f"unknown moving average kind {kind!r}; use one of {sorted(MA_KINDS)}"
         raise MovingAverageError(msg)
+
     minimum: int = MA_KINDS[kind].min_period
     if period < minimum:
         msg = f"{kind}({period}) is too short; {kind} needs period >= {minimum}"
         raise MovingAverageError(msg)
+
     return MovingAverageKey(kind, int(period))
 
 
@@ -373,6 +387,7 @@ class MovingAverageGrid:
         if idx >= self.periods.size or self.periods[idx] != period:
             msg: str = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
             raise KeyError(msg)
+
         return idx
 
     def below_for(self, period: int) -> BoolArray:
@@ -393,6 +408,7 @@ class MovingAverageGrid:
             raise ValueError(
                 msg,
             )
+
         return np.asarray(self.values[self.row(period)])
 
     @property
@@ -417,6 +433,7 @@ def moving_average_grid(
     if unique.size == 0:
         msg: str = "no periods supplied"
         raise MovingAverageError(msg)
+
     for period in unique:
         ma_key(kind, int(period))
     fn: Callable[[FloatArray, int], FloatArray] = MA_KINDS[kind].compute
@@ -449,6 +466,7 @@ def consecutive_true(mask: BoolArray) -> IntArray:
     for i in range(n):
         run = run + 1 if mask[i] else 0
         out[i] = run
+
     return out
 
 
@@ -464,4 +482,5 @@ def count_true(stack: BoolArray) -> IntArray:
         for i in range(n_bars):
             if stack[c, i]:
                 out[i] += 1
+
     return out

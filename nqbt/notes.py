@@ -66,9 +66,11 @@ class Notes:
         if missing:
             msg: str = f"a sidecar is missing column(s) {missing}; the shape is nqbt.notes.COLUMNS"
             raise NotesError(msg)
+
         if self.frame.index.name != KEY:
             msg = f"a sidecar is keyed by {KEY}; this frame's index is named {self.frame.index.name!r}"
             raise NotesError(msg)
+
         if not self.frame.index.is_unique:
             repeated: list[int] = sorted(self.frame.index[self.frame.index.duplicated()].unique().tolist())
             msg = (
@@ -86,6 +88,7 @@ class Notes:
     def __str__(self) -> str:
         """Say how many trades carry a note, and how many of those name a screenshot."""
         shots: int = int(self.frame["screenshot"].notna().sum()) if self.trades else 0
+
         return f"{self.trades} trade(s) noted, {shots} naming a screenshot"
 
 
@@ -93,6 +96,7 @@ def empty() -> Notes:
     """Build an empty sidecar, in the dtypes a populated one carries."""
     index: pd.MultiIndex = pd.Index([], name=KEY, dtype="int64")
     columns = {name: pd.array([], dtype="string") for name in TEXT_COLUMNS}
+
     return Notes(frame=pd.DataFrame(columns, index=index))
 
 
@@ -102,6 +106,7 @@ def record(notes: Notes, trade_id: int, note: str, *, screenshot: str | None = N
     if not text:
         msg: str = f"trade {trade_id}'s note is empty; a trade with nothing to say carries no row"
         raise NotesError(msg)
+
     written: pd.DataFrame = pd.DataFrame(
         {
             "note": pd.array([text], dtype="string"),
@@ -110,6 +115,7 @@ def record(notes: Notes, trade_id: int, note: str, *, screenshot: str | None = N
         index=pd.Index([int(trade_id)], name=KEY, dtype="int64"),
     )
     kept: pd.DataFrame = notes.frame.drop(index=int(trade_id), errors="ignore")
+
     return Notes(frame=pd.concat([kept, written]).sort_index())
 
 
@@ -122,6 +128,7 @@ def read(path: Path | str) -> Notes:
             f"{path}: not a notes sidecar -- missing column(s) {missing}. The shape is nqbt.notes.COLUMNS."
         )
         raise NotesError(msg)
+
     unknown: list[str] = [name for name in raw.columns if name not in COLUMNS]
     if unknown:
         msg = (
@@ -129,6 +136,7 @@ def read(path: Path | str) -> Notes:
             f"mistyped header is refused rather than read as a note nobody wrote."
         )
         raise NotesError(msg)
+
     return Notes(frame=_keyed(raw, source=str(path)))
 
 
@@ -153,10 +161,12 @@ def alongside(frame: pd.DataFrame, notes: Notes) -> pd.DataFrame:
             f"saying which note belongs to which row"
         )
         raise NotesError(msg)
+
     ids: pd.Series[int] = frame[KEY] if KEY in frame.columns else frame.index.to_series()
     attached: pd.DataFrame = frame.copy()
     for name in TEXT_COLUMNS:
         attached[name] = ids.map(notes.frame[name]).astype("string")
+
     return attached
 
 
@@ -170,6 +180,7 @@ def check_excluded(frame: pd.DataFrame, *, what: str) -> None:
     found: list[str] = [name for name in TEXT_COLUMNS if name in frame.columns]
     if not found:
         return
+
     msg: str = (
         f"{what} carries the free-text column(s) {found}, which nothing evaluating a trade may "
         f"see: a note is written knowing the outcome, so a stratification by one would "
@@ -189,6 +200,8 @@ def _keyed(raw: pd.DataFrame, *, source: str) -> pd.DataFrame:
             f"{source}: {KEY} must be a whole number on every row; row {row} carries {raw[KEY].iloc[row]!r}"
         )
         raise NotesError(msg)
+
     frame: pd.DataFrame = raw[list(TEXT_COLUMNS)].copy()
     frame.index = pd.Index(ids.astype("int64"), name=KEY)
+
     return frame

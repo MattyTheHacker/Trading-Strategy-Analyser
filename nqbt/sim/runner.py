@@ -32,16 +32,22 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
     signal: BoolArray = data.geometry.inverted_hammer.copy()
     if params.require_new_high:
         signal &= data.geometry.made_new_high
+
     if params.require_previous_green:
         signal &= data.geometry.previous_bar_green
+
     if params.use_ema:
         signal &= data.ma_gate(params.ema_kind, params.ema_period, above=False)
+
     if params.use_slow_sma:
         signal &= data.ma_gate(params.slow_sma_kind, params.slow_sma_period, above=False)
+
     if params.use_fast_sma:
         signal &= data.ma_gate(params.fast_sma_kind, params.fast_sma_period, above=False)
+
     if params.use_vwap:
         signal &= data.vwap_gate(above=False)
+
     return filters.apply_context_filters(signal, data, params)
 
 
@@ -113,6 +119,7 @@ def run_deadcat(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = deadcat_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             legs.matrix,

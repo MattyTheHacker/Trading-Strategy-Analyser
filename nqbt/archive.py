@@ -43,6 +43,7 @@ class MergeResult:
         detail: str = f"+{self.added:,} new" if self.added else "no new bars"
         if self.revised:
             detail += f", {self.revised:,} revised"
+
         return f"{self.contract:<12} {self.bars:>9,} bars  ({detail}, {self.sources} source(s))"
 
 
@@ -57,10 +58,13 @@ def _read(path: Path) -> dict[bytes, bytes]:
         line: bytes = raw.rstrip(b"\r")
         if not line:
             continue
+
         key, separator, rest = line.partition(b";")
         if not separator or rest.count(b";") != FIELDS - 2:
             continue
+
         rows[key] = line
+
     return rows
 
 
@@ -73,12 +77,14 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
         rows: dict[bytes, bytes] = _read(path)
         if not rows:
             continue
+
         # The newest bar in a file may have been caught mid-formation, so it may fill a
         # gap but must never overwrite something already recorded.
         newest: bytes = max(rows)
         for key, line in rows.items():
             if key == newest and key in merged:
                 continue
+
             merged[key] = line
 
     # Counted against the archive as it was, not as each source touched it: sources
@@ -91,9 +97,11 @@ def merge_contract(source_paths: Sequence[Path], archive_path: Path) -> MergeRes
         raise RuntimeError(  # pragma: no cover - the merge cannot delete keys
             msg,
         )
+
     archive: dict[bytes, bytes] = merged
 
     _write(archive_path, archive)
+
     return MergeResult(
         contract=archive_path.name.removesuffix(".Last.txt"),
         bars=len(archive),
@@ -113,6 +121,7 @@ def _write(path: Path, rows: dict[bytes, bytes]) -> None:
     body: bytes = b"\n".join(rows[key] for key in sorted(rows))
     if body:
         body += b"\n"
+
     temp: Path = path.with_name(path.name + ".tmp")
     temp.write_bytes(body)
     temp.replace(path)
@@ -124,11 +133,14 @@ def _contracts(source_dirs: Iterable[Path], root: str | None) -> dict[str, list[
     for directory in source_dirs:
         if not directory.exists():
             continue
+
         for path in sorted(directory.glob("*.Last.txt")):
             name: str = path.name.removesuffix(".Last.txt")
             if root is not None and not name.upper().startswith(root.upper() + " "):
                 continue
+
             found.setdefault(name, []).append(path)
+
     return found
 
 
@@ -146,4 +158,5 @@ def build_archive(
     results: list[MergeResult] = []
     for name, source_paths in sorted(_contracts(source_dirs, root).items()):
         results.append(merge_contract(source_paths, archive_dir / f"{name}.Last.txt"))
+
     return results

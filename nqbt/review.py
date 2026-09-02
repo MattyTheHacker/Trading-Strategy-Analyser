@@ -191,15 +191,18 @@ class Review:
         ]
         if self.omitted:
             parts += ["", "Omitted:", *(f"  {name} -- {why}" for name, why in sorted(self.omitted.items()))]
+
         return "\n".join(parts)
 
     def _time_of_day_lines(self) -> list[str]:
         """Render the headline section, or say why there is none."""
         if self.time_of_day.empty:
             return [f"No {PHASE_COLUMN}: this annotation was built over a dataset with no clock."]
+
         lines: list[str] = [f"Time of day ({PHASE_COLUMN})", self.time_of_day.to_string()]
         if _FORCED_EXIT_VALUE in self.time_of_day.index:
             lines.append(f"  {FORCED_EXIT_NOTE}")
+
         return lines
 
 
@@ -263,6 +266,7 @@ def stratify(
     """One condition's strata: a row per value it took, summarising the trades that carried it."""
     legs, reviewable, omitted = _prepare(log, annotation, unpopulated)
     _check_stratifiable(reviewable, condition)
+
     return _strata(legs, reviewable[condition], condition, min_trades=min_trades, omitted=omitted)
 
 
@@ -287,6 +291,7 @@ def time_of_day(
             f"prepare() the dataset with needs_time_of_day=True."
         )
         raise ReviewError(msg)
+
     return _time_of_day(legs, reviewable, min_trades=min_trades, omitted=omitted)
 
 
@@ -310,6 +315,7 @@ def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataF
     """
     if strata.empty:
         return pd.DataFrame(columns=list(RANKING_COLUMNS))
+
     if by not in strata.columns:
         msg: str = f"no {by!r} column in these strata; it was omitted when they were built"
         raise ReviewError(msg)
@@ -331,6 +337,7 @@ def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataF
             },
         )
     ordered: pd.DataFrame = pd.DataFrame(rows).sort_values("separation", ascending=False, na_position="last")
+
     return ordered.reset_index(drop=True)
 
 
@@ -356,6 +363,7 @@ def _prepare(
 
     legs: pd.DataFrame = log[log["trade_id"].isin(reviewable.index)]
     absent: tuple[str, ...] = _absent_columns(legs)
+
     return _summarisable(legs, absent), reviewable, _reasons(absent, legs, unpopulated or {})
 
 
@@ -396,6 +404,7 @@ def _reasons(absent: Sequence[str], legs: pd.DataFrame, unpopulated: Mapping[str
             "this log's exit reasons are its source's own rather than the simulator's, so a "
             "position closed by the clock cannot be told from one closed by a rule"
         )
+
     return reasons
 
 
@@ -413,9 +422,11 @@ def _summarisable(legs: pd.DataFrame, absent: Sequence[str]) -> pd.DataFrame:
     fills: list[str] = [name for name in absent if name in _PLACEHOLDERS]
     if not fills:
         return legs
+
     filled: pd.DataFrame = legs.copy()
     for name in fills:
         filled[name] = _PLACEHOLDERS[name]
+
     return filled
 
 
@@ -426,6 +437,7 @@ def _is_stratifiable(column: pd.Series) -> bool:  # type: ignore[explicit-any]  
     """Whether one condition takes few enough values, and is not a raw series."""
     if pd.api.types.is_float_dtype(column.dtype):
         return False
+
     return MIN_STRATA <= column.dropna().nunique() <= MAX_STRATA
 
 
@@ -433,6 +445,7 @@ def _requested(reviewable: pd.DataFrame, conditions: Sequence[str]) -> tuple[str
     """Check every condition the caller named, rather than silently dropping one."""
     for name in conditions:
         _check_stratifiable(reviewable, name)
+
     return tuple(conditions)
 
 
@@ -441,8 +454,10 @@ def _check_stratifiable(reviewable: pd.DataFrame, condition: str) -> None:
     if condition not in reviewable.columns:
         msg: str = f"no condition {condition!r} in this annotation; it holds {sorted(reviewable.columns)}"
         raise ReviewError(msg)
+
     if _is_stratifiable(reviewable[condition]):
         return
+
     values: int = reviewable[condition].dropna().nunique()
     msg = (
         f"{condition!r} takes {values} distinct value(s) over these trades, which is not a "
@@ -472,12 +487,14 @@ def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
                 "reported": summary.trades >= min_trades,
             },
         )
+
     return pd.DataFrame(rows, columns=["condition", "value", *_columns(omitted), "reported"])
 
 
 def _groups(values: pd.Series) -> list[tuple[object, pd.Index]]:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Each distinct value of one condition and the trade ids carrying it, nulls excluded."""
     present = values.dropna()
+
     return list(present.groupby(present, sort=True, observed=True).groups.items())
 
 
@@ -500,6 +517,7 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
     """Measure the widest gap in ``by`` across a condition's strata, and name both its ends."""
     if len(usable) < MIN_STRATA:
         return np.nan, pd.NA, pd.NA
+
     best = usable.loc[usable[by].idxmax()]
     worst = usable.loc[usable[by].idxmin()]
     # A row of a numeric column; pandas types every cell as the frame's widest possible value.
@@ -526,6 +544,7 @@ def _time_of_day(
     beside: pd.DataFrame = _volume_medians(reviewable, ordered.index)
     if "session_close_share" not in omitted:
         beside["session_close_share"] = _forced_exit_share(legs, reviewable, ordered.index)
+
     return ordered.join(beside)
 
 
@@ -538,8 +557,10 @@ def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.DataF
     columns: list[str] = _volume_columns(reviewable)
     if not columns:
         return pd.DataFrame(index=phases)
+
     grouped: pd.DataFrame = reviewable.groupby(reviewable[PHASE_COLUMN], observed=True)[columns].median()
     named: pd.DataFrame = grouped.rename(columns={name: f"median_{name}" for name in columns})
+
     return named.reindex(phases)
 
 
@@ -564,4 +585,5 @@ def _forced_exit_share(
     """
     per_leg: pd.Series[float] = legs["trade_id"].map(reviewable[PHASE_COLUMN])
     closed: pd.Series[bool] = legs["exit_reason"] == stats.SESSION_CLOSE
+
     return closed.groupby(per_leg, observed=True).mean().reindex(phases)  # type: ignore[return-value]  # a mean of booleans is a float

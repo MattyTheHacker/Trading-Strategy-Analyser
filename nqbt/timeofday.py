@@ -98,12 +98,14 @@ def phases_mask(phases: Iterable[SessionPhase]) -> int:
     mask: int = 0
     for phase in phases:
         mask |= SessionPhase(phase).bit
+
     return mask
 
 
 def phases_in(mask: int) -> tuple[SessionPhase, ...]:
     """The phases a mask admits, in session order."""
     validate_mask(mask)
+
     return tuple(p for p in SessionPhase if mask & p.bit)
 
 
@@ -114,9 +116,11 @@ def validate_mask(mask: int) -> int:
             f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
         )
         raise TimeOfDayError(msg)
+
     if mask == 0:
         msg = "phase mask 0 admits no phase, so every combination along it would trade nothing"
         raise TimeOfDayError(msg)
+
     return mask
 
 
@@ -147,12 +151,15 @@ def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) ->
     if starts[0] != 0:
         msg: str = f"the first phase must begin at the session open; got {starts[0]} minutes past it"
         raise TimeOfDayError(msg)
+
     if np.any(np.diff(starts) <= 0):
         msg = f"phase starts must ascend within the session; got {starts.tolist()} minutes past the open"
         raise TimeOfDayError(msg)
+
     if starts[-1] >= length:
         msg = f"phase start {starts[-1]} falls at or past the {length}-minute close"
         raise TimeOfDayError(msg)
+
     return starts
 
 
@@ -167,6 +174,7 @@ def phase_from_minutes(
     """
     occupied: IntArray = np.asarray(minutes, dtype=np.int64) - 1
     starts: IntArray = phase_start_minutes(template)
+
     return (np.searchsorted(starts, occupied, side="right") - 1).astype(np.int8)
 
 
@@ -179,6 +187,7 @@ def bits_from_phase(phase: LabelArray) -> BitsArray:
     bits: BitsArray = np.zeros(phase.size, dtype=np.uint8)
     inside: BoolArray = phase >= 0
     bits[inside] = (1 << phase[inside].astype(np.int64)).astype(np.uint8)
+
     return bits
 
 
@@ -191,6 +200,7 @@ def bar_index_from_minutes(minutes: IntArray, bar_minutes: int) -> IndexArray:
     if bar_minutes < 1:
         msg: str = f"bar_minutes must be >= 1, got {bar_minutes}"
         raise TimeOfDayError(msg)
+
     return ((np.asarray(minutes, dtype=np.int64) - 1) // bar_minutes).astype(np.int32)
 
 
@@ -203,12 +213,15 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
     stamps: pd.DatetimeIndex = pd.DatetimeIndex(index)
     if stamps.size < MIN_STAMPS_FOR_A_GAP:
         return 1
+
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
     deltas = np.diff(naive.to_numpy().astype("datetime64[m]").astype(np.int64))
     positive = deltas[deltas > 0]
     if positive.size == 0:
         return 1
+
     values, counts = np.unique(positive, return_counts=True)
+
     return int(values[counts.argmax()])
 
 
@@ -258,6 +271,7 @@ def classify(
     stamps: pd.DatetimeIndex = pd.DatetimeIndex(index)
     if info is None:
         info = sessions.classify(stamps, template)
+
     size: int = bar_minutes if bar_minutes is not None else infer_bar_minutes(stamps)
 
     minutes: IntArray = resample.minutes_since_open(stamps, template)

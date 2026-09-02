@@ -165,6 +165,7 @@ class ContractCoverage:
         """Report whether ``first..last`` lies wholly inside the cached range."""
         if self.first_bar is None or self.last_bar is None:
             return False
+
         return bool(self.first_bar <= first and last <= self.last_bar)
 
     @override
@@ -172,6 +173,7 @@ class ContractCoverage:
         """One line naming the contract and the range, or saying there is none."""
         if not self.cached:
             return f"{self.contract.nt8_name:<12} not cached"
+
         return f"{self.contract.nt8_name:<12} {self.first_bar} .. {self.last_bar}"
 
 
@@ -197,6 +199,7 @@ class CoverageReport:
     def __str__(self) -> str:
         """Render the reviewable share, then one line per contract."""
         head: str = f"{self.covered}/{self.trades} trades reviewable ({self.share:.1%})"
+
         return "\n".join([head, *(f"  {c}" for c in self.contracts)])
 
 
@@ -280,7 +283,9 @@ def read_executions(path: Path | str, *, timezone: str) -> pd.DataFrame:
     fills = _order_ties_by_position(fills)
     if DIRECTION_FIELD in raw.columns:
         _check_declared_directions(fills, raw[DIRECTION_FIELD], source=str(path))
+
     fills["time"] = _localise(fills["time"], timezone=timezone)
+
     return fills
 
 
@@ -304,6 +309,7 @@ def import_executions(
         timezone=timezone,
     )
     coverage: CoverageReport = _mark_coverage(frame, cache_dir=cache_dir)
+
     return ImportedTrades(
         frame=trades.validate(frame),
         populated=POPULATED,
@@ -336,6 +342,7 @@ def _localise(times: pd.Series[pd.Timestamp], *, timezone: str) -> pd.Series[pd.
     localised: pd.Series[pd.Timestamp] = times.dt.tz_localize(
         timezone, ambiguous="infer", nonexistent="shift_forward"
     )
+
     return localised.dt.tz_convert("UTC")
 
 
@@ -345,6 +352,7 @@ def _quantities(column: pd.Series[str]) -> IntArray:
     if (quantities <= 0).any():
         msg: str = "every fill must have a positive Quantity; the side is carried by Action"
         raise TradeImportError(msg)
+
     return quantities
 
 
@@ -355,6 +363,7 @@ def _signed(column: pd.Series[str], quantities: IntArray) -> IntArray:
     if unknown:
         msg: str = f"unknown Action value(s) {unknown}; expected {BUY!r} or {SELL!r}"
         raise TradeImportError(msg)
+
     return np.where(action.eq(BUY).to_numpy(), quantities, -quantities)
 
 
@@ -364,14 +373,17 @@ def _positions(column: pd.Series[str]) -> IntArray:
     if text.hasnans:
         msg: str = "every fill must carry a Position; it is the only trade boundary this source has"
         raise TradeImportError(msg)
+
     parsed: dict[str, int] = {}
     for value in text.unique():
         match: re.Match[str] | None = _POSITION_RE.match(value)
         if match is None:
             msg = f"cannot parse Position {value!r}; expected {FLAT!r}, '<n> L' or '<n> S'"
             raise TradeImportError(msg)
+
         quantity: int = 0 if match["flat"] else int(match["quantity"])
         parsed[value] = quantity if match["side"] == "L" else -quantity
+
     return np.asarray(text.map(parsed), dtype=np.int64)
 
 
@@ -379,6 +391,7 @@ def _check_ascending(times: pd.Series[pd.Timestamp], *, source: str) -> None:
     """Reversed file order must be non-decreasing in time, or the export was not newest-first."""
     if times.is_monotonic_increasing:
         return
+
     backwards: int = int(np.flatnonzero(times.diff().dt.total_seconds().to_numpy() < 0)[0])
     msg: str = (
         f"{source}: reversing the file does not give chronological order -- row {backwards} "
@@ -407,10 +420,12 @@ def _order_ties_by_position(fills: pd.DataFrame) -> pd.DataFrame:
             nxt: int | None = next((i for i in pending if running + signed[i] == positions[i]), None)
             if nxt is None:
                 _raise_broken_chain(fills, running, pending)
+
             order.append(nxt)
             running = int(positions[nxt])
             pending.remove(nxt)
         start = stop
+
     return fills.iloc[order].reset_index(drop=True)
 
 
@@ -418,6 +433,7 @@ def _opening_position(positions: IntArray, signed: IntArray) -> int:
     """Infer the position held before the first fill: flat, unless the export begins mid-trade."""
     if len(positions) == 0 or positions[0] == signed[0]:
         return 0
+
     return int(positions[0] - signed[0])
 
 
@@ -460,12 +476,14 @@ def _complete_trades(fills: pd.DataFrame) -> tuple[pd.DataFrame, IncompleteTrade
     """Drop the partial trades at either end, counting them rather than swallowing them."""
     if fills.empty:
         return fills, IncompleteTrades(leading_fills=0, trailing_fills=0)
+
     positions: IntArray = fills["position"].to_numpy(np.int64)
     signed: IntArray = fills["signed"].to_numpy(np.int64)
     flat: OffsetArray = np.flatnonzero(positions == 0)
 
     first: int = 0 if positions[0] == signed[0] else (int(flat[0]) + 1 if flat.size else len(fills))
     last: int = int(flat[-1]) + 1 if flat.size and flat[-1] >= first else first
+
     return fills.iloc[first:last].reset_index(drop=True), IncompleteTrades(
         leading_fills=first,
         trailing_fills=len(fills) - last,
@@ -523,7 +541,9 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
                 trade_id += 1
                 leg = 0
                 direction = opening
+
             lots.append(_Lot(price=fill.price, time=fill.time, remaining=remaining))  # type: ignore[arg-type]  # the same widening
+
     return rows
 
 
@@ -559,6 +579,7 @@ def _to_schema(
         dtype: str = _NULLABLE_DTYPES.get(name, "float64")
         blank = np.nan if dtype == "float64" else pd.NA
         frame[name] = pd.Series(blank, index=frame.index, dtype=dtype)
+
     return frame[_FRAME_COLUMNS]
 
 
@@ -590,6 +611,7 @@ def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
         axis=1,
     ).astype(bool)
     frame["covered"] = frame["trade_id"].map(covered).astype(bool)
+
     return CoverageReport(contracts=contracts, trades=len(spans), covered=int(covered.sum()))
 
 
@@ -598,9 +620,11 @@ def _cached_range(contract: ContractId, *, cache_dir: Path) -> ContractCoverage:
     path: Path = ingest.contract_cache_path(contract, cache_dir)
     if not path.exists():
         return ContractCoverage(contract=contract)
+
     index = pd.read_parquet(path, columns=[]).index
     if index.empty:
         return ContractCoverage(contract=contract)
+
     return ContractCoverage(
         contract=contract,
         first_bar=pd.Timestamp(index[0]),

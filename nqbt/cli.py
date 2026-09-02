@@ -55,6 +55,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         total += result.rows_total
     logger.info("")
     logger.info("%d contracts, %s bars cached in %s", len(results), f"{total:,}", args.cache_dir)
+
     return 0
 
 
@@ -63,9 +64,11 @@ def _cmd_contracts(args: argparse.Namespace) -> int:
     if not manifest:
         logger.info("nothing ingested yet; run `nqbt ingest`")
         return 1
+
     logger.info("%-12s %9s  last bar (UTC)", "contract", "rows")
     for key, entry in sorted(manifest.items()):
         logger.info("%-12s %9s  %s", key, f"{entry.rows:,}", entry.last_timestamp)
+
     return 0
 
 
@@ -122,6 +125,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     )
     if args.start:
         bars = bars[bars.index >= args.start]
+
     if args.end:
         bars = bars[bars.index <= args.end]
 
@@ -149,6 +153,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     _log_run(args.root, bars, params, stats.summarise(trades), trades["exit_reason"].value_counts())
     _write_run_outputs(args, data, params, trades, instrument)
+
     return 0
 
 
@@ -331,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     except (ingest.IngestError, splice.SpliceError, FileNotFoundError) as exc:
         logger.error("%s", exc)  # noqa: TRY400 - an expected failure, not an unhandled one
+
         return 1
 
 

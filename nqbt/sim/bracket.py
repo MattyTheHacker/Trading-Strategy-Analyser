@@ -197,6 +197,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
             if limit_filled(favourable_px, legs.target[leg], fills.fill_limit_on_touch, direction):
                 if not any_target_hit or abs(legs.target[leg] - open_px) < abs(nearest_target - open_px):
                     nearest_target = legs.target[leg]
+
                 any_target_hit = True
     ambiguous = stop_hit and any_target_hit
     targets_first = ambiguous and targets_reached_first(open_px, stop, nearest_target, fills.ambiguity_policy)
@@ -218,6 +219,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
         return written, False
 
@@ -237,6 +239,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
 
     if targets_first:
@@ -257,6 +260,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
 
     still_open = False
@@ -281,6 +285,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 )
                 if written < 0:
                     return -1, False
+
                 legs.is_open[leg] = False
         still_open = False
 
@@ -310,8 +315,10 @@ def entry_bracket(
     trigger = favourable
     if direction * close_based > direction * trigger:
         trigger = close_based
+
     stop = adverse - direction * stop_offset
     risk = direction * (trigger - stop)
+
     return trigger, stop, risk
 
 
@@ -356,6 +363,7 @@ def swing_stop(
         adverse, _ = sided(bars.low[j], bars.high[j], direction)
         if j == start or direction * adverse < direction * extreme:
             extreme = adverse
+
     return extreme - direction * offset
 
 
@@ -368,6 +376,7 @@ def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     """
     if direction > 0.0:
         return low, high
+
     return high, low
 
 
@@ -386,6 +395,7 @@ def targets_reached_first(open_px: float, stop_px: float, target_px: float, poli
     """
     if policy == AMBIGUITY_NEAREST_TO_OPEN:
         return abs(open_px - target_px) < abs(stop_px - open_px)
+
     return False
 
 
@@ -399,6 +409,7 @@ def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: 
     """
     if on_touch:
         return direction * favourable_px >= direction * limit
+
     return direction * favourable_px > direction * limit
 
 
@@ -417,10 +428,12 @@ def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
     """
     if minimum <= 0.0:
         return True
+
     best = 0.0
     for k in range(target_r.size):
         if not np.isnan(target_r[k]) and target_r[k] > best:
             best = target_r[k]
+
     return best >= minimum
 
 
@@ -475,6 +488,7 @@ def write_leg(
     )
     out[written, C_BARS_HELD] = leg_exit.bar - trade.entry_bar
     out[written, C_AMBIGUOUS] = 1.0 if leg_exit.ambiguous else 0.0
+
     return written + 1
 
 

@@ -136,6 +136,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                 # the tick grid". Snapped before the risk, which the submittability test
                 # and every R multiple are measured from.
                 candidate_stop = bracket.round_to_tick(candidate_stop, costs.tick_size)
+
             candidate_risk = d * (fill - candidate_stop)
             # A stop at or through the price it protects is not a stop order --
             # ``docs/nt8-fidelity.md`` §M18.
@@ -174,13 +175,16 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                 )
                 if written < 0:
                     return -1
+
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's entry -------------------------------
         if in_position or i <= rules.bars_required or not signal[i]:
             continue
+
         if rules.block_entry_at_session_close and bars.force_flat[i]:
             continue
+
         pending_bar = i
         pending_direction = direction_at[i]
 
@@ -218,6 +222,7 @@ def insidebar_trends(data: Dataset, params: InsideBarParams) -> tuple[BoolArray,
     slow: FloatArray = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
     up: BoolArray = (data.close > ema) & (data.close > fast) & (data.close > slow)
     down: BoolArray = (data.close < ema) & (data.close < fast) & (data.close < slow)
+
     return up, down
 
 
@@ -234,6 +239,7 @@ def insidebar_breakouts(data: Dataset, params: InsideBarParams) -> tuple[BoolArr
     margin: FloatArray = (mother_high - mother_low) * params.error_margin
     up[MOTHER_BAR_LAG:] = data.close[MOTHER_BAR_LAG:] > mother_high + margin
     down[MOTHER_BAR_LAG:] = data.close[MOTHER_BAR_LAG:] < mother_low - margin
+
     return up, down
 
 
@@ -245,6 +251,7 @@ def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
     ``SHORT`` -- unreachable through :func:`insidebar_signal`, which requires one of them.
     """
     up, _ = insidebar_trends(data, params)
+
     return np.where(up, trades.LONG, trades.SHORT).astype(np.float64)
 
 
@@ -259,6 +266,7 @@ def insidebar_signal(data: Dataset, params: InsideBarParams) -> BoolArray:
     signal: BoolArray = data.geometry.prior_bar_inside & ((up_break & up_trend) | (down_break & down_trend))
     if params.no_entry_minutes_before_close > 0:
         signal &= data.session_end_gate(params.no_entry_minutes_before_close)
+
     return filters.apply_context_filters(signal, data, params)
 
 
@@ -322,6 +330,7 @@ def run_insidebar(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = insidebar_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             legs.matrix,

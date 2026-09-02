@@ -85,6 +85,7 @@ def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_
             side = 0.0
             out[i] = np.nan
             continue
+
         d = direction_at[i]
         if side != d:
             # A new run, or the same run reading the other side of the basis.
@@ -94,7 +95,9 @@ def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_
             extreme = min(extreme, low[i])
         else:
             extreme = max(extreme, high[i])
+
         out[i] = extreme
+
     return out
 
 
@@ -115,6 +118,7 @@ def _protective_stop(
     """
     if rules.stop_mode == STOP_SWING:
         return bracket.swing_stop(bars, signal_bar, rules.swing_lookback, rules.stop_offset, direction)
+
     if rules.stop_mode == STOP_ATR:
         distance = bracket.atr_bracket_distance(
             float(band.atr[signal_bar]),
@@ -122,8 +126,10 @@ def _protective_stop(
             rules.min_bracket_points,
         )
         return fill - direction * distance
+
     if rules.stop_mode == STOP_EXCURSION:
         return float(band.excursion_extreme[signal_bar]) - direction * rules.stop_offset
+
     return fill - direction * rules.catastrophe_distance
 
 
@@ -145,9 +151,11 @@ def _leg_target(
     """
     if rules.target_mode == TARGET_STRETCH:
         return basis + direction * level * stddev
+
     raw = fill + direction * risk * level * rules.tp_multiplier
     if direction * (raw - basis) > 0.0:
         return basis
+
     return raw
 
 
@@ -216,6 +224,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                     )
                     if written < 0:
                         return -1
+
                     legs.is_open[leg] = False
             in_position = False
         elif in_position:
@@ -234,6 +243,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             )
             if written < 0:
                 return -1
+
         pending_exit = False
 
         # ---- the entry order fills at this bar's open, unconditionally ---------------
@@ -293,6 +303,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                 )
                 if written < 0:
                     return -1
+
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's orders --------------------------
@@ -300,8 +311,10 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             # The close went further than the excursion the trade faded: the range broke and
             # held, which is the mean-reversion definition of being wrong.
             pending_exit = True
+
         if in_position and rules.max_hold_bars > 0 and i - trade.entry_bar >= rules.max_hold_bars:
             pending_exit = True
+
         if (
             i >= rules.bars_required
             and signal[i]
@@ -341,9 +354,11 @@ def lagged(series: FloatArray, lag: int) -> FloatArray:
     """
     if lag == 0:
         return series
+
     out: FloatArray = np.full(series.size, np.nan, dtype=np.float64)
     if lag < series.size:
         out[lag:] = series[:-lag]
+
     return out
 
 
@@ -351,6 +366,7 @@ def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, F
     """The basis, dispersion and extension this combination reads, at its band lag."""
     period: int = params.band_period
     lag: int = params.band_lag
+
     return (
         lagged(data.band_basis(period), lag),
         lagged(data.band_stddev(period), lag),
@@ -388,10 +404,13 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
         signal |= conditions.consecutive_true(long_run) >= params.min_bars_outside
+
     if params.trade_short:
         signal |= conditions.consecutive_true(short_run) >= params.min_bars_outside
+
     if params.max_entry_std > 0.0:
         signal &= np.abs(stretch) <= params.max_entry_std
+
     return filters.apply_context_filters(signal, data, params)
 
 
@@ -472,6 +491,7 @@ def run_elasticband(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = elasticband_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             legs.matrix,

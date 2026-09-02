@@ -116,6 +116,7 @@ class LabelThresholds:
                 float(self.regime_consolidating_below),  # type: ignore[arg-type]  # the property checked
                 float(self.regime_directional_above),  # type: ignore[arg-type]  # the property checked
             )
+
         _check_pair(
             "volume_thin_below",
             self.volume_thin_below,
@@ -127,6 +128,7 @@ class LabelThresholds:
                 float(self.volume_thin_below),  # type: ignore[arg-type]  # the property checked
                 float(self.volume_heavy_above),  # type: ignore[arg-type]  # the property checked
             )
+
         if self.trend_min_agreement is not None:
             trend.validate_min_agreement(self.trend_min_agreement)
 
@@ -228,6 +230,7 @@ def bars_for_fills(
     inside: BoolArray = positions < edges.size
     covered: BoolArray = np.zeros(wanted.size, dtype=np.bool_)
     covered[inside] = wanted[inside] >= edges[positions[inside]] - np.timedelta64(size, "m")
+
     return np.where(covered, positions, UNMATCHED).astype(np.int64)
 
 
@@ -244,10 +247,12 @@ def contract_bars(log: pd.DataFrame, *, cache_dir: Path = paths.CACHE_DIR) -> pd
             "it; build the dataset yourself. Only an imported log carries the contract."
         )
         raise AnnotationError(msg)
+
     named: list[str] = sorted(log["contract"].dropna().unique())
     if len(named) != 1:
         msg = f"expected one contract, got {named}; annotate one contract at a time"
         raise AnnotationError(msg)
+
     return ingest.load_contract(ContractId.parse(str(named[0])), cache_dir)
 
 
@@ -268,6 +273,7 @@ def annotate_trades(
     if len(data) == 0:
         msg: str = "cannot annotate against a dataset holding no bars"
         raise AnnotationError(msg)
+
     _check_one_contract(log)
     _check_columns(log)
     notes.check_excluded(log, what="a trade log being annotated")
@@ -283,6 +289,7 @@ def annotate_trades(
     for side in _SIDES:
         if side == "exit" and not at_exit:
             continue
+
         bars = per_trade[side]
         at: IntArray = np.where(matched, bars, 0)
         columns.update(_bar_columns(data, bars, at, side))
@@ -300,6 +307,7 @@ def annotate_trades(
 def _utc_naive(stamps: pd.DatetimeIndex) -> DateArray:
     """Timestamps as naive UTC ``datetime64``, the one form two indices compare in."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
+
     return naive.to_numpy().astype("datetime64[ns]")
 
 
@@ -308,6 +316,7 @@ def _check_one_contract(log: pd.DataFrame) -> None:
     for name in ("contract", "instrument"):
         if name not in log.columns:
             continue
+
         found: list[object] = sorted(log[name].dropna().unique())
         if len(found) > 1:
             msg: str = (
@@ -316,6 +325,7 @@ def _check_one_contract(log: pd.DataFrame) -> None:
                 f"nothing downstream would catch the mixture."
             )
             raise AnnotationError(msg)
+
         return
 
 
@@ -346,19 +356,23 @@ def _resolve_bars(log: pd.DataFrame, data: Dataset, side: str) -> IntArray:
         _check_bar_range(bars, data, side)
         if time_column in log.columns:
             _check_bar_times(log[time_column], bars, data, side)
+
         return bars
+
     if known.any():
         msg: str = (
             f"{int(known.sum())} of {len(log)} rows carry a {bar_column} and the rest do not; a "
             f"log must carry one on every row or on none."
         )
         raise AnnotationError(msg)
+
     if time_column not in log.columns:
         msg = (
             f"this log carries neither {bar_column} nor {time_column}, so there is no way to say "
             f"which bar a leg {side}ed on."
         )
         raise AnnotationError(msg)
+
     return bars_for_fills(data.index, pd.DatetimeIndex(log[time_column]), bar_minutes=_bar_minutes(data))
 
 
@@ -392,6 +406,7 @@ def _check_bar_times(times: pd.Series[pd.Timestamp], bars: IntArray, data: Datas
             f"dataset's index is not; one of the two is not the series it is thought to be."
         )
         raise AnnotationError(msg)
+
     disagree: BoolArray = _utc_naive(index[bars]) != _utc_naive(stamps)
     if disagree.any():
         first: int = int(np.flatnonzero(disagree)[0])
@@ -414,6 +429,7 @@ def _check_prices(
     matched: BoolArray = bars != UNMATCHED
     if not matched.any():
         return
+
     prices: FloatArray = log[f"{side}_price"].to_numpy(np.float64)
     at: IntArray = bars[matched]
     outside: BoolArray = (prices[matched] > data.high[at] + tolerance) | (
@@ -464,6 +480,7 @@ def _per_trade_bars(
     per_trade: dict[str, IntArray] = {
         side: np.where(matched, aggregated[side].to_numpy(np.int64), UNMATCHED) for side in _SIDES
     }
+
     return aggregated.index.to_numpy(np.int64), per_trade, matched
 
 
@@ -500,15 +517,20 @@ def _conditions_at(data: Dataset, at: IntArray, thresholds: LabelThresholds) -> 
     if data.time_of_day is not None:
         out["phase"] = _named(data.phase_values()[at], _PHASE_NAMES, OUT_OF_SESSION_LABEL)
         out["bar_of_session"] = data.bar_of_session()[at]
+
     out.update(_indicator_conditions(data, at))
     if data.regimes is not None:
         out.update(_regime_conditions(data.regimes, at, thresholds))
+
     if data.volumes is not None:
         out.update(_volume_conditions(data.volumes, at, thresholds))
+
     if data.trends is not None:
         out.update(_trend_conditions(data.trends, at, thresholds))
+
     if data.higher_timeframes is not None:
         out.update(_higher_timeframe_conditions(data.higher_timeframes, at))
+
     return out
 
 
@@ -525,6 +547,7 @@ def _indicator_conditions(data: Dataset, at: IntArray) -> dict[str, Column]:
     if data.vwap is not None:
         out["vwap"] = data.vwap_values()[at]
         out["above_vwap"] = data.vwap_gate(above=True)[at]
+
     return out
 
 
@@ -545,6 +568,7 @@ def _regime_conditions(
                 float(thresholds.regime_directional_above),  # type: ignore[arg-type]  # the property checked
             )
             out[f"regime_{lookback}"] = _named(labels, _REGIME_NAMES, UNDEFINED_LABEL)
+
     return out
 
 
@@ -567,6 +591,7 @@ def _volume_conditions(
                 float(thresholds.volume_heavy_above),  # type: ignore[arg-type]  # the property checked
             )
             out[f"volume_state_{suffix}"] = _named(labels, _VOLUME_NAMES, UNDEFINED_LABEL)
+
     return out
 
 
@@ -587,6 +612,7 @@ def _trend_conditions(
         if thresholds.labels_trend:
             labels: LabelArray = trend.label(agreement, int(thresholds.trend_min_agreement))  # type: ignore[arg-type]  # checked
             out[f"trend_{suffix}"] = _named(labels, _TREND_NAMES, UNDEFINED_LABEL)
+
     return out
 
 
@@ -604,6 +630,7 @@ def _higher_timeframe_conditions(
             _SIDE_NAMES,
             UNDEFINED_LABEL,
         )
+
     return out
 
 
@@ -611,6 +638,7 @@ def _volume_suffix(key: volume.VolumeKey) -> str:
     """Name one relative-volume series, carrying the rolling window only where it has one."""
     form: VolumeForm = volume.VolumeForm(key.form)
     window: str = f"_{key.rolling_bars}" if form is volume.VolumeForm.ROLLING else ""
+
     return f"{form.name.lower()}{window}_{key.baseline_sessions}"
 
 
@@ -622,6 +650,7 @@ def _trend_suffix(key: trend.TrendKey) -> str:
 def _named(codes: LabelArray, names: Sequence[str], undefined: str) -> AnyArray:
     """Turn label codes into their names, ``-1`` becoming ``undefined``."""
     lookup: AnyArray = np.array([undefined, *names], dtype=object)
+
     return lookup[np.asarray(codes, dtype=np.int64) + 1]
 
 
@@ -640,4 +669,5 @@ def _to_frame(columns: dict[str, Column], trade_ids: IntArray, matched: BoolArra
     for name, values in columns.items():
         column = pd.Series(pd.array(values), index=index)
         frame[name] = column if name == "matched" else column.mask(absent)
+
     return frame

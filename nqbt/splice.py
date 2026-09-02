@@ -88,6 +88,7 @@ class RollDecision:
     @override
     def __str__(self) -> str:
         flag: str = "  [!] " if self.looks_early else ""
+
         return (
             f"{flag}{self.front.nt8_name} -> {self.back.nt8_name}  "
             f"roll {self.roll_day.date()}  via {self.method}  "
@@ -132,6 +133,7 @@ class SpliceReport:
         ]
         if self.warnings:
             lines += ["", "Warnings:", *(f"  [!] {w}" for w in self.warnings)]
+
         return "\n".join(lines)
 
 
@@ -173,6 +175,7 @@ def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
     # near-empty session a few days before most rolls -- typically the Sunday 18:00-19:00
     # ET hour and nothing else -- which lands squarely where the crossover is decided.
     table["conclusive"] = table["shared_bars"] >= (table["shared_bars"].median() * FULL_SESSION_FRACTION)
+
     return table
 
 
@@ -216,6 +219,7 @@ def detect_roll(
             raise SpliceError(
                 msg,
             )
+
         roll_day = _coverage_boundary_roll(front, back)
         method = METHOD_COVERAGE
         if roll_day is None:
@@ -227,6 +231,7 @@ def detect_roll(
             raise SpliceError(
                 msg,
             )
+
         notes.append(
             f"rolled at {roll_day.date()}, where the front contract's data ends and the "
             "back contract's takes over -- the same handover NT8 itself makes",
@@ -260,10 +265,12 @@ def _first_confirmed_crossover(table: pd.DataFrame, confirm_sessions: int) -> pd
     for i in range(n):
         if not (wins[i] and conclusive[i]):
             continue
+
         window: BoolArray = wins[i : i + confirm_sessions]
         # Near the end of the overlap, accept a short window rather than miss the roll.
         if window.all():
             return pd.Timestamp(table.index[i])
+
     return None
 
 
@@ -285,6 +292,7 @@ def _coverage_boundary_roll(front: pd.DataFrame, back: pd.DataFrame) -> pd.Times
     # No shared partial day: hand over the first session the back contract covers
     # beyond the front contract's data.
     beyond = bcount.index[bcount.index > fcount.index.max()]
+
     return pd.Timestamp(beyond[0]) if len(beyond) else None
 
 
@@ -308,7 +316,9 @@ def _boundary_offset(
         raise SpliceError(
             msg,
         )
+
     ts = common[-1]
+
     return float(fa.loc[ts, "close"] - ba.loc[ts, "close"])
 
 
@@ -330,6 +340,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
     if len(contracts) < 1:
         msg: str = "need at least one contract to build a series"
         raise SpliceError(msg)
+
     contracts = sorted(contracts)
     root: str = contracts[0].root
 
@@ -368,8 +379,10 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
         seg: pd.DataFrame = _in_session(frames[contract])
         if start is not None:
             seg = seg[seg["trading_day"] >= start]
+
         if end is not None:
             seg = seg[seg["trading_day"] < end]
+
         if seg.empty:
             warnings.append(
                 f"{contract.nt8_name} contributes no bars; its window was fully "
@@ -380,6 +393,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
         seg = seg.copy()
         if shifts[i]:
             seg[["open", "high", "low", "close"]] += shifts[i]
+
         seg["contract"] = contract.nt8_name
 
         pieces.append(seg)
@@ -429,6 +443,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
         back_adjusted=back_adjust,
         warnings=warnings,
     )
+
     return series, report
 
 
@@ -495,6 +510,7 @@ def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
 def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
     """Where one root's spliced continuous series is cached."""
     suffix: str = "backadj" if back_adjust else "raw"
+
     return cache_dir / "continuous" / f"{root}_{suffix}.parquet"
 
 
@@ -514,6 +530,7 @@ def splice_root(
     if not contracts:
         msg: str = f"no contracts found for {root} in {data_dir}"
         raise SpliceError(msg)
+
     frames: dict[ContractId, pd.DataFrame] = {c: ingest.load_contract(c, cache_dir) for c in contracts}
 
     series, report = build_continuous(
@@ -549,4 +566,5 @@ def load_continuous(
         raise FileNotFoundError(
             msg,
         )
+
     return pd.read_parquet(path)
