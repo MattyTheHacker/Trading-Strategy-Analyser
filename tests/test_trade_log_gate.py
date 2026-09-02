@@ -27,6 +27,7 @@ def load_tool():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+
     return module
 
 
@@ -50,6 +51,7 @@ def capture(tmp_path):
     for d in (before, after):
         d.mkdir()
         frame.to_csv(d / "live_mnq.csv", index=False, float_format="%.17g")
+
     return before, after
 
 
@@ -71,6 +73,7 @@ def edit_field(path: Path, column: str, row: int, value: str) -> int:
     # The two differ in length by design, so this pairs the common prefix and adds the tail.
     edited = path.read_bytes()
     common = sum(a != b for a, b in zip(original, edited, strict=False))
+
     return common + abs(len(original) - len(edited))
 
 

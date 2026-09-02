@@ -33,6 +33,7 @@ def load_tool():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+
     return module
 
 
@@ -47,6 +48,7 @@ def export(tmp_path, entry_name, exit_name="Profit target", profit="$80.00"):
         HEADER + ROW.format(strategy="X", entry_name=entry_name, exit_name=exit_name, profit=profit),
         encoding="utf-8",
     )
+
     return path
 
 

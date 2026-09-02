@@ -24,6 +24,7 @@ def console(caplog):
     handlers -- the stdout/stderr split -- go through ``main`` and read ``capsys`` instead.
     """
     caplog.set_level(logging.INFO, logger="nqbt")
+
     return caplog
 
 
@@ -76,6 +77,7 @@ def test_main_writes_results_to_stdout_so_they_can_be_piped(monkeypatch, capsys)
 
 def _log_and_succeed() -> int:
     cli.logger.info("a result")
+
     return 0
 
 
@@ -140,6 +142,7 @@ def splice_args(base_args, *, diagnostics: bool):
     base_args.confirm_sessions = 1
     base_args.strict = False
     base_args.diagnostics = diagnostics
+
     return base_args
 
 
@@ -151,6 +154,7 @@ def spliced(monkeypatch, *, early_rolls, rolls=()):
     report = MagicMock(early_rolls=list(early_rolls), rolls=list(rolls))
     report.summary.return_value = "MNQ continuous series (raw prices)"
     monkeypatch.setattr(cli.splice, "splice_root", MagicMock(return_value=(series, report)))
+
     return series
 
 
@@ -210,6 +214,7 @@ def run_args(base_args, **overrides):
     base_args.ratchet_out = "ratchet_out.csv"
     for name, value in overrides.items():
         setattr(base_args, name, value)
+
     return base_args
 
 
@@ -223,6 +228,7 @@ def stub_run(monkeypatch):
     monkeypatch.setattr(cli.splice, "load_continuous", MagicMock(return_value=bars))
     monkeypatch.setattr("nqbt.instruments.get_instrument", MagicMock())
     monkeypatch.setattr("nqbt.context.prepare", MagicMock())
+
     return bars
 
 

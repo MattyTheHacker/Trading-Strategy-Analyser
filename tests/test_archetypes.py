@@ -263,6 +263,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 

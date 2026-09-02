@@ -520,6 +520,7 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
 
     best = usable.loc[usable[by].idxmax()]
     worst = usable.loc[usable[by].idxmin()]
+
     # A row of a numeric column; pandas types every cell as the frame's widest possible value.
     return float(best[by] - worst[by]), best["value"], worst["value"]  # type: ignore[arg-type]
 

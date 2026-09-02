@@ -89,7 +89,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run ruff check
-        run: ruff check --output-format=github nqbt
+        run: ruff check --output-format=github nqbt formatting
 
       - name: Run ruff format
         run: ruff format --output-format=github --check .
@@ -112,9 +112,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      # The package only. tests/ and tools/ are not at zero yet.
+      # The package and the formatter that rewrites it. tests/ and tools/ are not at zero yet.
       - name: Run mypy
-        run: mypy nqbt
+        run: mypy nqbt formatting
 
   pymarkdown:
     name: Lint Markdown files using PyMarkdown

@@ -221,6 +221,7 @@ def test_a_key_carries_the_three_things_a_label_is_determined_by() -> None:
 
 def walk(n: int = 4000, seed: int = 3) -> np.ndarray:
     rng = np.random.default_rng(seed)
+
     return 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
 
 
@@ -331,6 +332,7 @@ def bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 

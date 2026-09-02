@@ -88,7 +88,9 @@ def drop_tables(db_path: paths.Path) -> None:
     """Remove every results table, leaving the database file itself in place."""
     if not db_path.exists():
         logger.info("no database at %s; nothing to drop", db_path)
+
         return
+
     con: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
     try:
         for table in TABLES:
@@ -101,6 +103,7 @@ def drop_tables(db_path: paths.Path) -> None:
 def grids() -> list[tuple[str, sweep.Grid]]:
     """One named grid per stratum, all over the same base parameters."""
     base = DeadCatParams(commission_per_contract=COMMISSION, slippage_ticks=SLIPPAGE_TICKS)
+
     return [
         (name, sweep.Grid(axes=GRID_AXES | extra, base=base, archetype=archetypes.DEADCATBOUNCE))
         for name, extra in strata()
@@ -173,6 +176,7 @@ def main(argv: list[str]) -> int:
         run_root(root, batch_id, n_jobs=args.n_jobs, db_path=args.db)
     logger.info("")
     logger.info("batch %d: %d roots x %d strata", batch_id, len(ROOTS), len(list(strata())))
+
     return 0
 
 

@@ -61,6 +61,7 @@ VALUE_DIGESTS = {
 def _digest(values) -> str:
     """Hash one column as float64, reading ``-0.0`` as ``0.0``."""
     clean = np.ascontiguousarray(np.asarray(values, dtype=np.float64) + 0.0)
+
     return hashlib.sha256(clean.tobytes()).hexdigest()
 
 

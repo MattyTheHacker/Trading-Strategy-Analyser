@@ -48,12 +48,16 @@ def chosen(
     frame = frame[frame["root"] == root]
     if stratum is not None:
         frame = frame[frame["stratum"] == stratum]
+
     if resolution is not None:
         frame = frame[frame["resolution"] == resolution]
+
     if frame.empty:
         msg: str = f"no stored rows for {name} on {root} in {window}, stratum {stratum}"
         raise RuntimeError(msg)
+
     row: pd.Series = frame.nlargest(1, by).iloc[0]  # type: ignore[type-arg]  # duckdb's dtypes
+
     return rebuild(row, archetypes.get(name)), int(row["resolution"])
 
 
@@ -83,6 +87,7 @@ def one_contract(
             "null_trades": float("nan"),
             "excess": float("nan"),
         }
+
     null: pd.DataFrame = randomentry.null_summaries(
         data,
         params,
@@ -92,6 +97,7 @@ def one_contract(
         n_jobs=n_jobs,
     )
     null_expectancy: float = float(null["expectancy"].median())
+
     return {
         "trades": observed.trades,
         "profit_factor": observed.profit_factor,
@@ -140,6 +146,7 @@ def run_root(
             f"{result['null_expectancy']:.2f}",
             f"{result['excess']:+.2f}",
         )
+
     return pd.DataFrame(rows)
 
 
@@ -166,6 +173,7 @@ def tally(frame: pd.DataFrame) -> pd.DataFrame:
                 "total_net": traded["net_pnl"].sum(),
             },
         )
+
     return pd.DataFrame(rows)
 
 
@@ -200,6 +208,7 @@ def main(argv: list[str]) -> int:
     logger.info("--- per-contract tally ---")
     with pd.option_context("display.width", 220, "display.max_columns", 60):
         logger.info("%s", tally(combined).to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+
     return 0
 
 

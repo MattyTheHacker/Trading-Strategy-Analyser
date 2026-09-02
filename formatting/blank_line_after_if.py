@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, override
 
 import libcst as cst
 
+from ._leading import has_blank_line_above
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -42,9 +44,7 @@ class EnsureBlankLineAfterIf(cst.CSTTransformer):
                 i > 0
                 and isinstance(body[i - 1], cst.If)
                 and hasattr(stmt, "leading_lines")
-                and not any(
-                    isinstance(line, cst.EmptyLine) and line.comment is None for line in stmt.leading_lines
-                )
+                and not has_blank_line_above(stmt.leading_lines)
             ):
                 new_stmt = stmt.with_changes(
                     leading_lines=[cst.EmptyLine(indent=False), *list(stmt.leading_lines)]

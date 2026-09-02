@@ -79,6 +79,7 @@ def main(argv: list[str]) -> int:
     bars: pd.DataFrame = splice.load_continuous(args.root)
     if args.test_window != "full":
         bars = dict(windows(bars, split=True))[args.test_window]
+
     frame: pd.DataFrame = resample.resample(bars, minutes)
     grid: sweep.Grid = sweep.Grid(base=params, archetype=archetype)
     data = sweep.prepare_for(frame, grid)
@@ -94,6 +95,7 @@ def main(argv: list[str]) -> int:
     logger.info("")
     with pd.option_context("display.width", 220, "display.max_columns", 60):
         logger.info("%s", randomentry.report(placed).to_string(index=False))
+
     return 0
 
 

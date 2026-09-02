@@ -6,10 +6,22 @@ from typing import TYPE_CHECKING, override
 
 import libcst as cst
 
+from ._leading import has_blank_line_above
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 __all__: Sequence[str] = ["EnsureBlankLineBeforeLastReturn"]
+
+
+def _is_docstring(stmt: cst.BaseStatement) -> bool:
+    """Whether a statement is a bare string expression, as a docstring is."""
+    if not isinstance(stmt, cst.SimpleStatementLine) or len(stmt.body) != 1:
+        return False
+
+    expr = stmt.body[0]
+
+    return isinstance(expr, cst.Expr) and isinstance(expr.value, cst.SimpleString)
 
 
 class ReturnCollector(cst.CSTVisitor):
@@ -59,28 +71,19 @@ class ReturnModifier(cst.CSTTransformer):
         new_body = list(updated_node.body)
         stmt = new_body[target_index]
 
-        has_blank_line: bool = any(line.comment is None for line in stmt.leading_lines)
+        # 3. Leave it alone if it opens the block, already has its blank line, or would be
+        #    separated from the docstring it belongs to
+        if target_index == 0 or not isinstance(stmt, cst.SimpleStatementLine):
+            return updated_node
 
-        has_comment_above: bool = stmt.leading_lines[-1].comment is not None if stmt.leading_lines else False
+        if has_blank_line_above(stmt.leading_lines) or _is_docstring(new_body[target_index - 1]):
+            return updated_node
 
-        prev_stmt = new_body[target_index - 1] if target_index > 0 else None
-        has_docstring_above: bool = (
-            prev_stmt is not None
-            and isinstance(prev_stmt, cst.SimpleStatementLine)
-            and len(prev_stmt.body) == 1
-            and isinstance(prev_stmt.body[0], cst.Expr)
-            and isinstance(prev_stmt.body[0].value, cst.SimpleString)
+        new_body[target_index] = stmt.with_changes(
+            leading_lines=[cst.EmptyLine(indent=False), *list(stmt.leading_lines)]
         )
 
-        # 3. Apply changes if it isn't the first statement in the block
-        if target_index > 0 and not has_blank_line and not has_comment_above and not has_docstring_above:
-            new_stmt = stmt.with_changes(
-                leading_lines=[cst.EmptyLine(indent=False), *list(stmt.leading_lines)]
-            )
-            new_body[target_index] = new_stmt
-            return updated_node.with_changes(body=new_body)
-
-        return updated_node
+        return updated_node.with_changes(body=new_body)
 
 
 class EnsureBlankLineBeforeLastReturn(cst.CSTTransformer):
@@ -104,4 +107,5 @@ class EnsureBlankLineBeforeLastReturn(cst.CSTTransformer):
 
         # 3. Apply the modifier specifically for that exact node and satisfy mypy
         modifier = ReturnModifier(last_return)
+
         return cst.ensure_type(updated_node.visit(modifier), cst.FunctionDef)

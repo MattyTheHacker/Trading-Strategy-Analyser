@@ -66,6 +66,7 @@ def load(name: str, windows: list[str]) -> pd.DataFrame:
         SUMMARY_SQL.format(min_trades=MIN_TRADES),
         db_path=db_path(name),
     )
+
     return frame[frame["window"].isin(windows)]
 
 
@@ -81,6 +82,7 @@ def swept_axes(frame: pd.DataFrame) -> list[str]:
 def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     """Combination count, profitable share and the profit-factor distribution, per group."""
     grouped = frame.groupby(by, dropna=False)
+
     return pd.DataFrame(
         {
             "combos": grouped.size(),
@@ -101,8 +103,10 @@ def eta_squared(frame: pd.DataFrame, axis: str, statistic: str = "profit_factor"
     total: float = float(((values - grand) ** 2).sum())
     if total <= 0.0:
         return 0.0
+
     groups = frame.groupby(axis, dropna=False)[statistic].agg(["count", "mean"])
     between: float = float((groups["count"] * (groups["mean"] - grand) ** 2).sum())
+
     return between / total
 
 
@@ -112,6 +116,7 @@ def axis_influence(frame: pd.DataFrame, axes: list[str]) -> pd.DataFrame:
     A property of the ranges swept rather than of the strategy -- ``docs/roadmap.md`` §M26.
     """
     rows: list[dict[str, object]] = [{"axis": axis, "eta2": eta_squared(frame, axis)} for axis in axes]
+
     return pd.DataFrame(rows).sort_values("eta2", ascending=False).reset_index(drop=True)
 
 
@@ -121,7 +126,9 @@ def show(title: str, frame: pd.DataFrame) -> None:
     logger.info("--- %s ---", title)
     if frame.empty:
         logger.info("(nothing)")
+
         return
+
     with pd.option_context("display.width", 220, "display.max_columns", 60):
         logger.info("%s", frame.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
@@ -142,6 +149,7 @@ def report_strategy(name: str, windows: list[str]) -> pd.DataFrame:
     unfiltered: pd.DataFrame = frame[frame["stratum"] == "unfiltered"]
     if frame["variant"].nunique() > 1:
         show("by variant, unfiltered only", profile(unfiltered, ["variant"]))
+
     show(
         "axis influence on profit factor, unfiltered, eta^2",
         axis_influence(unfiltered, [*swept_axes(unfiltered), "resolution", "root"]),
@@ -154,6 +162,7 @@ def report_strategy(name: str, windows: list[str]) -> pd.DataFrame:
     )
 
     by_resolution: pd.DataFrame = profile(frame, ["resolution"])
+
     return pd.DataFrame(
         [
             {
@@ -182,6 +191,7 @@ def main(argv: list[str]) -> int:
         if not db_path(name).exists():
             logger.warning("no database for %s; skipping", name)
             continue
+
         headline: pd.DataFrame = report_strategy(name, args.window)
         if not headline.empty:
             headlines.append(headline)
@@ -190,6 +200,7 @@ def main(argv: list[str]) -> int:
         logger.info("")
         logger.info("=" * 110)
         show("HEADLINE -- every archetype side by side", pd.concat(headlines, ignore_index=True))
+
     return 0
 
 

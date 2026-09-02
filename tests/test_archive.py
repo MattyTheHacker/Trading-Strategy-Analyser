@@ -14,6 +14,7 @@ BASE = [
 def write(path, lines):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     return path
 
 
@@ -22,6 +23,7 @@ def dirs(tmp_path):
     manual, addon, arch = tmp_path / "minute", tmp_path / "addon", tmp_path / "archive"
     for d in (manual, addon):
         d.mkdir()
+
     return manual, addon, arch
 
 

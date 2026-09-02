@@ -64,6 +64,7 @@ def minute_bars(sessions_wanted: int = 3, seed: int = 11) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 
@@ -74,6 +75,7 @@ def groups_from_output(source: pd.DataFrame, out: pd.DataFrame) -> list[pd.DataF
     """
     edges = out.index.to_numpy(dtype="datetime64[ns]")
     pos = np.searchsorted(edges, source.index.to_numpy(dtype="datetime64[ns]"), side="left")
+
     return [source[pos == i] for i in range(len(out))]
 
 
@@ -201,6 +203,7 @@ def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
     grouped = src.resample(f"{minutes}min", label="right", closed="right").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"},
     )
+
     return grouped.dropna(subset=["open"]).index
 
 
