@@ -161,4 +161,4 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run custom formatter check
-        run: python -m formatting.cli --check nqbt
+        run: python -m formatting.cli --check .
