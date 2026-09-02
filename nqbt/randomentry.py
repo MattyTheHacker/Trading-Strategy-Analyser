@@ -128,6 +128,7 @@ class SessionMinutePool:
         minutes: IntArray = minute_of_session(index, template)
         order: OffsetArray = np.argsort(minutes, kind="stable")
         starts: OffsetArray = np.searchsorted(minutes[order], np.arange(minutes.max() + 2), side="left")
+
         return cls(minutes=minutes, bars_by_minute=order, starts=starts)
 
     def pool_for(self, minute: int) -> IntArray:
@@ -152,6 +153,7 @@ def matched_random_signal(
     if signal.shape != (len(data),):
         msg: str = f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
         raise RandomEntryError(msg)
+
     live: int = int(signal.sum())
     if not live:
         msg = (
@@ -168,6 +170,7 @@ def matched_random_signal(
     wanted_minutes, wanted_counts = np.unique(grouped.minutes[signal], return_counts=True)
     for minute, count in zip(wanted_minutes, wanted_counts, strict=True):
         out[rng.choice(grouped.pool_for(minute), size=count, replace=False)] = True
+
     return out
 
 
@@ -188,6 +191,7 @@ def _null_summary(
     rng: np.random.Generator = np.random.default_rng(seed)
     drawn: BoolArray = matched_random_signal(data, signal, rng, pool=pool)
     legs: LegMatrix = archetype.legs(data, params, instrument, signal=drawn)
+
     return stats.summarise_legs(legs, data.day_codes).as_dict()
 
 
@@ -210,6 +214,7 @@ def null_summaries(
     if iterations < 1:
         msg: str = "iterations must be at least 1"
         raise RandomEntryError(msg)
+
     archetype = archetype if archetype is not None else archetypes.for_params(params)
     signal: BoolArray = archetype.signal(data, params)
     pool: SessionMinutePool = SessionMinutePool.build(data.index, template)
@@ -223,6 +228,7 @@ def null_summaries(
         rows = Parallel(n_jobs=n_jobs)(
             delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool) for s in seeds
         )
+
     return pd.DataFrame(rows)
 
 
@@ -281,6 +287,7 @@ def compare(
             raise RandomEntryError(
                 msg,
             )
+
         if draws.size < MIN_FINITE_DRAWS:
             msg = (
                 f"only {draws.size} of {iterations} null draws produced a finite {name}; "
@@ -289,6 +296,7 @@ def compare(
             raise RandomEntryError(
                 msg,
             )
+
         results[name] = _place(
             name,
             value,
@@ -298,6 +306,7 @@ def compare(
             observed_trades=int(observed["trades"]),
             null_median_trades=float(null["trades"].median()),
         )
+
     return results
 
 

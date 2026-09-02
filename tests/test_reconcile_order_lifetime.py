@@ -81,6 +81,7 @@ def event(kind: str, trial: int, bar: int, signal: str, **overrides: object) -> 
         is_last_bar_of_session=0,
     )
     row.update(overrides)
+
     return row
 
 
@@ -103,6 +104,7 @@ def bar(
         is_last_bar_of_session=0,
     )
     row.update(overrides)
+
     return row
 
 
@@ -119,6 +121,7 @@ def write_run(
     pd.DataFrame(bars, columns=BAR_COLUMNS).to_csv(tmp_path / f"{stem}_bars.csv", sep=";", index=False)
     if config is not None:
         pd.DataFrame(config).to_csv(tmp_path / f"{stem}_config.csv", sep=";", index=False)
+
     return events_path
 
 

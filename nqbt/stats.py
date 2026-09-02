@@ -110,12 +110,14 @@ class Summary:
         arguments into a 28-field dataclass and raised on every call.
         """
         hints = get_type_hints(cls)
+
         return cls(**{f.name: 0 if hints[f.name] is int else 0.0 for f in fields(cls)})  # type: ignore[arg-type]  # keyed by field name
 
 
 def _max_drawdown(equity: FloatArray) -> float:
     if equity.size == 0:
         return 0.0
+
     return float((np.maximum.accumulate(equity) - equity).max())
 
 
@@ -123,7 +125,9 @@ def _max_consecutive(mask: BoolArray) -> int:
     """Longest run of True values."""
     if mask.size == 0 or not mask.any():
         return 0
+
     edges: OffsetArray = np.flatnonzero(np.diff(np.concatenate(([False], mask, [False]))))
+
     return int((edges[1::2] - edges[::2]).max())
 
 
@@ -131,6 +135,7 @@ def _ratio(numerator: float, denominator: float) -> float:
     """Guarded division that reports a run with no losses as infinite rather than crashing."""
     if denominator == 0:
         return float("inf") if numerator > 0 else 0.0
+
     return numerator / denominator
 
 
@@ -145,6 +150,7 @@ def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
     """
     if daily.size < MIN_DAYS_FOR_RISK_ADJUSTED:
         return 0.0, 0.0
+
     mean: float = daily.mean()
     sd: float = daily.std(ddof=1)
     downside: FloatArray = daily[daily < 0]
@@ -152,6 +158,7 @@ def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
     scale: float = np.sqrt(TRADING_DAYS_PER_YEAR)
     sharpe: float = float(mean / sd * scale) if sd > 0 else 0.0
     sortino: float = float(mean / dsd * scale) if dsd and dsd > 0 else 0.0
+
     return sharpe, sortino
 
 
@@ -171,6 +178,7 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
                 "exit_time",
             ],
         )
+
     agg: dict[str, tuple[str, str]] = {
         "net_pnl": ("net_pnl", "sum"),
         "commission": ("commission", "sum"),
@@ -182,8 +190,10 @@ def per_trade(trades: pd.DataFrame) -> pd.DataFrame:
     }
     if "entry_time" in trades.columns:
         agg["entry_time"] = ("entry_time", "first")
+
     if "exit_time" in trades.columns:
         agg["exit_time"] = ("exit_time", "max")
+
     return trades.groupby("trade_id").agg(**agg)
 
 
@@ -229,6 +239,7 @@ def _require_exit_times(trades: pd.DataFrame) -> None:
             "trades.trades_to_frame(..., index)."
         )
         raise MissingTimesError(msg)
+
     nulls: int = int(trades["exit_time"].isna().sum())
     if nulls:
         msg = (
@@ -321,6 +332,7 @@ def _run_starts(keys: FloatArray | IndexArray) -> IntArray:
             starts[groups] = i
             groups += 1
     starts[groups] = n
+
     return starts[: groups + 1]
 
 
@@ -344,6 +356,7 @@ def _grouped_sum(values: FloatArray, starts: IntArray) -> FloatArray:
                 compensation = (t - total) - y
                 total = t
         out[g] = total
+
     return out
 
 
@@ -358,6 +371,7 @@ def _grouped_max(values: FloatArray, starts: IntArray) -> FloatArray:
             if value == value and (best != best or value > best):  # noqa: PLR0124 - the same NaN test as above
                 best = value
         out[g] = best
+
     return out
 
 
@@ -373,6 +387,7 @@ def _ordered_starts(keys: FloatArray | IndexArray, what: str) -> IntArray:
             "frame instead, or fix the producer to emit legs in trade order."
         )
         raise GroupingError(msg)
+
     return _run_starts(keys)
 
 
@@ -391,6 +406,7 @@ def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None) -> Summary:
             "None only for a non-datetime index."
         )
         raise MissingTimesError(msg)
+
     matrix, count = legs
     if count == 0:
         return Summary.empty()
@@ -403,6 +419,7 @@ def summarise_legs(legs: LegMatrix, day_codes: IndexArray | None) -> Summary:
     daily: FloatArray = _grouped_sum(pnl, _ordered_starts(day_codes[exit_bar], "exit day"))
 
     ambiguous: FloatArray = rows[:, C_AMBIGUOUS]
+
     return _summarise_arrays(
         pnl=pnl,
         bars_held=_grouped_max(rows[:, C_BARS_HELD], starts),
@@ -439,15 +456,20 @@ def trade_statistic(pnl: FloatArray, name: str) -> float:
             f"{name!r} cannot be computed from per-trade P&L alone; choose from {list(TRADE_PNL_STATISTICS)}"
         )
         raise ValueError(msg)
+
     if pnl.size == 0:
         return 0.0
+
     wins: BoolArray = pnl > 0
     if name == "profit_factor":
         return _ratio(float(pnl[wins].sum()), float(-pnl[pnl < 0].sum()))
+
     if name == "net_pnl":
         return float(pnl.sum())
+
     if name == "expectancy":
         return float(pnl.mean())
+
     return float(wins.mean())
 
 
@@ -469,10 +491,13 @@ def path_statistic(pnl: FloatArray, name: str) -> float:
     if name not in PATH_STATISTICS:
         msg: str = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
         raise ValueError(msg)
+
     if pnl.size == 0:
         return 0.0
+
     if name == "max_drawdown":
         return _max_drawdown(pnl.cumsum())
+
     return float(_max_consecutive(pnl < 0))
 
 
@@ -484,6 +509,7 @@ def leg_summary(trades: pd.DataFrame) -> dict[str, float]:
     pnl = trades["net_pnl"]
     wins, losses = pnl > 0, pnl < 0
     equity = pnl.cumsum()
+
     return {
         "legs": len(trades),
         "wins": int(wins.sum()),

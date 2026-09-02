@@ -149,6 +149,7 @@ def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifes
     """Every manifest entry on disk, dropping any an older version wrote differently."""
     if not path.exists():
         return {}
+
     raw = json.loads(path.read_text(encoding="utf-8"))
     entries: dict[str, ContractManifest] = {}
     for key, value in raw.items():
@@ -158,6 +159,7 @@ def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifes
             # Written by an older version carrying different integrity fields. Dropping
             # the entry costs one full reparse, which is the only safe reading of it.
             continue
+
     return entries
 
 
@@ -181,8 +183,10 @@ def _hash_range(source: Path, length: int) -> str:
             chunk: bytes = fh.read(min(HASH_CHUNK_BYTES, remaining))
             if not chunk:
                 break
+
             remaining -= len(chunk)
             digest.update(chunk)
+
     return digest.hexdigest()
 
 
@@ -198,6 +202,7 @@ def _reject_tick_export(data: bytes, source_name: str) -> None:
     head: bytes = data[:512].split(b"\n", 1)[0]
     if not head:
         return
+
     fields: list[bytes] = head.split(b";")
     stamp: list[bytes] = fields[0].split()
     if len(fields) == TICK_EXPORT_FIELDS and len(stamp) == TICK_STAMP_PARTS:
@@ -234,6 +239,7 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
     if bad.all():
         msg: str = f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'"
         raise IngestError(msg)
+
     frame = frame.loc[~bad].copy()
     frame.index = pd.DatetimeIndex(ts.loc[~bad], name="ts_utc")
     frame = frame.drop(columns=["timestamp"])
@@ -246,6 +252,7 @@ def _empty_frame() -> pd.DataFrame:
     frame.index = pd.DatetimeIndex([], tz="UTC", name="ts_utc")
     frame["trading_day"] = pd.Series(dtype="datetime64[s]")
     frame["in_session"] = pd.Series(dtype="bool")
+
     return frame
 
 
@@ -270,6 +277,7 @@ def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
     info: SessionInfo = sessions.classify(pd.DatetimeIndex(frame.index))
     frame["trading_day"] = info.trading_day
     frame["in_session"] = info.in_session
+
     return frame
 
 
@@ -293,7 +301,9 @@ def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None)
             continue
         if root is not None and contract.root != root.upper():
             continue
+
         found[contract] = path
+
     return ExportScan(found, skipped)
 
 
@@ -316,6 +326,7 @@ def drop_out_of_session(frame: pd.DataFrame, *, source_name: str) -> pd.DataFram
             f"the session template is wrong rather than the bars being strays"
         )
         raise IngestError(msg)
+
     return frame[frame["in_session"]]
 
 
@@ -325,6 +336,7 @@ def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd
     if not path.exists():
         msg: str = f"no cached bars for {contract.nt8_name}; run `nqbt ingest` first"
         raise FileNotFoundError(msg)
+
     return drop_out_of_session(pd.read_parquet(path), source_name=contract.nt8_name)
 
 
@@ -437,9 +449,11 @@ def _trim_partial_line(data: bytes) -> tuple[int, bytes]:
     """
     if not data:
         return 0, data
+
     cut: int = data.rfind(b"\n")
     if cut == -1:
         return 0, b""
+
     return cut + 1, data[: cut + 1]
 
 
@@ -473,6 +487,7 @@ def ingest_all(
         msg: str = f"no NT8 exports{target} found in {data_dir}"
         if scan.skipped:
             msg += "; skipped " + ", ".join(str(skip) for skip in scan.skipped)
+
         raise IngestError(msg)
 
     results: list[IngestResult] = []
@@ -481,4 +496,5 @@ def ingest_all(
         results.append(result)
 
     save_manifest(manifest, manifest_path)
+
     return merges, results, scan.skipped

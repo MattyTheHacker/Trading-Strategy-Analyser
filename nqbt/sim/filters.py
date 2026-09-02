@@ -63,6 +63,7 @@ def apply_context_filters(signal: BoolArray, data: Dataset, params: ContextFilte
     """Narrow an archetype's own signal to the market context its parameters admit."""
     if params.phase_filter != timeofday.ALL_PHASES:
         signal &= data.phase_gate(params.phase_filter)
+
     if params.regime_filter != regime.ALL_REGIMES:
         signal &= data.regime_gate(
             params.regime_lookback,
@@ -70,6 +71,7 @@ def apply_context_filters(signal: BoolArray, data: Dataset, params: ContextFilte
             params.regime_consolidating_below,
             params.regime_directional_above,
         )
+
     if params.volume_filter != volume.ALL_STATES:
         signal &= data.volume_gate(
             params.volume_key,
@@ -77,8 +79,11 @@ def apply_context_filters(signal: BoolArray, data: Dataset, params: ContextFilte
             params.volume_thin_below,
             params.volume_heavy_above,
         )
+
     if params.trend_filter != trend.ALL_TRENDS:
         signal &= data.trend_gate(params.trend_key, params.trend_filter, params.trend_min_agreement)
+
     if params.higher_timeframe_filter != higher_timeframe.ALL_SIDES:
         signal &= data.higher_timeframe_gate(params.higher_timeframe_key, params.higher_timeframe_filter)
+
     return signal

@@ -117,6 +117,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                     )
                     if written < 0:
                         return -1
+
                     legs.is_open[leg] = False
             in_position = False
         elif in_position:
@@ -135,6 +136,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             )
             if written < 0:
                 return -1
+
         pending_exit = False
 
         # ---- the entry order fills at this bar's open, unconditionally ---------------
@@ -185,11 +187,13 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                 )
                 if written < 0:
                     return -1
+
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's orders --------------------------
         if in_position and rules.exit_on_opposite_cross and direction_at[i] != d:
             pending_exit = True
+
         if (
             i >= rules.bars_required
             and signal[i]
@@ -291,8 +295,10 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
         signal |= conditions.cross_above(fast, slow, params.cross_lookback) & (direction == trades.LONG)
+
     if params.trade_short:
         signal |= conditions.cross_below(fast, slow, params.cross_lookback) & (direction == trades.SHORT)
+
     return filters.apply_context_filters(signal, data, params)
 
 
@@ -364,6 +370,7 @@ def run_crossover(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = crossover_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             legs.matrix,

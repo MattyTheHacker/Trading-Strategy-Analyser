@@ -41,6 +41,7 @@ def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.Da
                     "exit_time": base + pd.Timedelta(days=trade_id, minutes=5),
                 },
             )
+
     return pd.DataFrame(rows)
 
 
@@ -249,6 +250,7 @@ def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFr
     info = sessions.classify(idx)
     frame["trading_day"] = info.trading_day
     frame["in_session"] = info.in_session
+
     return frame
 
 
@@ -284,6 +286,7 @@ def cache(tmp_path):
     out = splice.continuous_path("MNQ", back_adjust=True, cache_dir=tmp_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     series.to_parquet(out, engine="pyarrow", index=True)
+
     return tmp_path, frames, series
 
 
@@ -408,6 +411,7 @@ def swept(cache):
 
     tmp_path, _, _ = cache
     grid = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
+
     return dispersion.sweep_contracts("MNQ", grid, NQ, cache_dir=tmp_path, keep_trades=True)
 
 

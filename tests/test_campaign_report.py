@@ -34,6 +34,7 @@ def combos(**columns: object) -> pd.DataFrame:
         "trades": [100, 200, 300, 400],
         "net_pnl": [-10.0, -5.0, 5.0, 10.0],
     }
+
     return pd.DataFrame({**base, **columns})
 
 

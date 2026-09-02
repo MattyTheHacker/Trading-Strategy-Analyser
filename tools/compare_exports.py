@@ -47,10 +47,12 @@ def timezone_offset_hours(baseline: pd.DataFrame, candidate: pd.DataFrame) -> in
     for hours in range(-12, 13):
         if hours == 0:
             continue
+
         shifted = candidate.index + pd.Timedelta(hours=hours)
         overlap = len(baseline.index.intersection(shifted))
         if overlap > best_overlap:
             best_offset, best_overlap = hours, overlap
+
     return best_offset
 
 
@@ -59,8 +61,10 @@ def identical_share(baseline: pd.DataFrame, candidate: pd.DataFrame) -> float:
     common = baseline.index.intersection(candidate.index)
     if not len(common):
         return 0.0
+
     left = baseline.loc[common, VALUE_COLUMNS]
     right = candidate.loc[common, VALUE_COLUMNS]
+
     return float((left == right).all(axis=1).mean())
 
 
@@ -104,6 +108,7 @@ def sessions_of(index: pd.DatetimeIndex) -> pd.Series:
     """Bars per trading day for a set of timestamps, for locating whole-session changes."""
     if not len(index):
         return pd.Series(dtype="int64")
+
     return pd.Series(1, index=index).groupby(index.tz_convert("UTC").date).size()
 
 
@@ -185,6 +190,7 @@ def main(argv: list[str]) -> int:
             counts = sessions_of(idx)
             if not len(counts):
                 continue
+
             whole = counts[counts > WHOLE_SESSION_BARS]
             logger.info("  %s: %s bars across %d day(s)", label, f"{len(idx):,}", len(counts))
             if len(whole):
@@ -192,6 +198,7 @@ def main(argv: list[str]) -> int:
                     "    substantial days: %s",
                     ", ".join(f"{d} ({n:,})" for d, n in whole.items()),
                 )
+
     return 0
 
 

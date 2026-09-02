@@ -40,6 +40,7 @@ def session_bars(days: int = 40, seed: int = 5) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -63,6 +64,7 @@ def both_summaries(bars, archetype, params, instrument=NQ):
     data = sweep.prepare_for(bars, sweep.Grid.of(params, archetype=archetype))
     legs = archetype.legs(data, params, instrument)
     frame = archetype.run(data, params, instrument)
+
     return stats.summarise(frame), stats.summarise_legs(legs, data.day_codes), legs
 
 
@@ -124,6 +126,7 @@ def leg_matrix(trade_ids, net_pnl, exit_bars=None) -> trades.LegMatrix:
     matrix[:, trades.C_EXIT_REASON] = trades.EXIT_TARGET
     matrix[:, trades.C_NET_PNL] = net_pnl
     matrix[:, trades.C_EXIT_BAR] = np.arange(n) if exit_bars is None else exit_bars
+
     return trades.validate_legs(trades.LegMatrix(matrix, n))
 
 

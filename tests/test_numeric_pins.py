@@ -50,6 +50,7 @@ def _lcg_states(count: int, seed: int) -> list[int]:
     for _ in range(count):
         state = (state * 1103515245 + 12345) % 2**31
         states.append(state)
+
     return states
 
 
@@ -84,6 +85,7 @@ def deterministic_bars(count: int = BARS) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -112,6 +114,7 @@ def _digest(values: np.ndarray) -> str:
     ``CONTRIBUTING.md`` § "The trade-log regression gate".
     """
     clean = np.where(np.isnan(values), NAN_SENTINEL, values) + 0.0
+
     return hashlib.sha256(np.ascontiguousarray(clean, dtype=np.float64).tobytes()).hexdigest()
 
 

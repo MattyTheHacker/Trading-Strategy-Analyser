@@ -52,6 +52,7 @@ def _absent(value: object) -> bool:
     """
     if isinstance(value, (list, tuple)):
         return False
+
     return bool(pd.isna(value))
 
 
@@ -59,8 +60,10 @@ def _coerced(value: object, default: object) -> object:
     """One DuckDB cell as the field's own type. A stored list becomes a tuple again."""
     if isinstance(default, tuple):
         return tuple(value)  # type: ignore[call-overload]  # a list by construction
+
     if isinstance(default, (bool, int, float, str)):
         return type(default)(value)
+
     return value
 
 
@@ -71,9 +74,11 @@ def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Param
     for field in fields(params):  # type: ignore[arg-type]  # a dataclass by construction
         if field.name not in row.index or _absent(row[field.name]):
             continue
+
         updates[field.name] = _coerced(row[field.name], getattr(params, field.name))
     if archetype is archetypes.ELASTICBAND:
         updates["target_stretch_levels"] = ELASTIC_LADDERS[str(row["variant"])]
+
     return replace(params, **updates)
 
 
@@ -91,11 +96,14 @@ def shortlist(
     frame = frame[frame["root"] == root]
     if stratum is not None:
         frame = frame[frame["stratum"] == stratum]
+
     if resolution is not None:
         frame = frame[frame["resolution"] == resolution]
+
     if frame.empty:
         msg: str = f"no stored rows for {name} on {root} in windows {window}, stratum {stratum}"
         raise RuntimeError(msg)
+
     return frame.nlargest(top, by)
 
 
@@ -115,6 +123,7 @@ def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
     """The bar range a stored row's ``window`` names."""
     if window == "full":
         return bars
+
     return dict(windows(bars, split=True))[window]
 
 
@@ -129,6 +138,7 @@ def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[
     if int(summary["trades"]) != trades:
         msg: str = f"{where} re-ran to {int(summary['trades'])} trades, not the {trades} stored"
         raise RuntimeError(msg)
+
     net_pnl: float = float(row["net_pnl"])
     rerun_pnl: float = float(summary["net_pnl"])
     if not math.isclose(rerun_pnl, net_pnl, rel_tol=NET_PNL_TOLERANCE):
@@ -169,6 +179,7 @@ def store_group(
         if log is None:  # pragma: no cover - keep_trades always returns a log
             msg: str = "run_combination kept no log with keep_trades set"
             raise RuntimeError(msg)
+
         results.save_trades(log, int(row["sweep_id"]), int(row["combo_id"]), path, replace=True)
         logger.info(
             "  sweep %-4d combo %-6d %2dm %-9s %-24s %5d legs  PF %.3f",
@@ -180,6 +191,7 @@ def store_group(
             len(log),
             float(row["profit_factor"]),
         )
+
     return len(rebuilt)
 
 
@@ -197,6 +209,7 @@ def store_logs(name: str, rows: pd.DataFrame, root: str) -> int:
     for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
         frame: pd.DataFrame = resample.resample(source(bars, str(window)), int(minutes))
         stored += store_group(block, frame, archetype, root, int(minutes), path)
+
     return stored
 
 
@@ -232,6 +245,7 @@ def main(argv: list[str]) -> int:
     stored: int = store_logs(args.strategy, rows, args.root)
     logger.info("")
     logger.info("stored %d trade logs in %s", stored, db_path(args.strategy))
+
     return 0
 
 

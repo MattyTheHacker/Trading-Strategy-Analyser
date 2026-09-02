@@ -86,6 +86,7 @@ def to_eastern(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """Convert a UTC (or naive-assumed-UTC) index to US/Eastern."""
     if index.tz is None:
         index = index.tz_localize("UTC")
+
     return index.tz_convert(EASTERN)
 
 
@@ -213,4 +214,5 @@ def _session_end_seconds(info: SessionInfo, template: SessionTemplate) -> IntArr
     has_close: BoolArray = closing_day[slot] == info.trading_day
 
     end[has_close] = _epoch_seconds(info.eastern)[closes][slot[has_close]]
+
     return end

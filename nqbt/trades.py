@@ -165,9 +165,11 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
             f"a leg matrix is (rows, {N_COLUMNS}); got {matrix.shape}. The order is nqbt.trades.COLUMNS."
         )
         raise TradeSchemaError(msg)
+
     if count > matrix.shape[0]:
         msg = f"count {count} exceeds the {matrix.shape[0]} rows allocated"
         raise TradeSchemaError(msg)
+
     if count == 0:
         return legs
 
@@ -185,20 +187,24 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
             f"{sorted(set(direction) - {LONG, SHORT})}"
         )
         raise TradeSchemaError(msg)
+
     if (rows[:, C_QUANTITY] <= 0).any():
         msg = (
             "quantity must be positive on every row; a short position is expressed by "
             "direction, not by a negative size"
         )
         raise TradeSchemaError(msg)
+
     if (rows[:, C_LEG] < 1).any():
         msg = "leg numbering starts at 1"
         raise TradeSchemaError(msg)
+
     reasons: FloatArray = rows[:, C_EXIT_REASON]
     if not np.isin(reasons, EXIT_CODES).all():
         unknown: list[float] = sorted(set(np.unique(reasons)) - set(EXIT_REASONS))
         msg = f"unknown exit_reason code(s) {unknown}; expected one of {sorted(EXIT_REASONS)}"
         raise TradeSchemaError(msg)
+
     return legs
 
 
@@ -240,6 +246,7 @@ def trades_to_frame(
 
     frame.insert(0, "instrument", pd.array([instrument] * count, dtype="string"))  # type: ignore[arg-type]  # pandas-stubs omits BaseStringArray
     frame.insert(0, "source", pd.array([source] * count, dtype="string"))  # type: ignore[arg-type]  # pandas-stubs omits BaseStringArray
+
     return frame
 
 
@@ -256,6 +263,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(
             msg,
         )
+
     if frame.empty:
         return frame
 
@@ -274,10 +282,12 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(
             msg,
         )
+
     unknown: set[str] = set(frame["source"].unique()) - set(SOURCES)
     if unknown:
         msg = f"unknown source(s) {sorted(unknown)}; expected one of {SOURCES}"
         raise TradeSchemaError(msg)
+
     if (frame["quantity"].to_numpy() <= 0).any():
         msg = (
             "quantity must be positive on every row; a short position is expressed by "
@@ -286,9 +296,11 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(
             msg,
         )
+
     if (frame["leg"].to_numpy() < 1).any():
         msg = "leg numbering starts at 1"
         raise TradeSchemaError(msg)
+
     return frame
 
 

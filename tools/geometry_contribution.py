@@ -91,6 +91,7 @@ def geometries() -> list[tuple[str, str, ElasticBandParams]]:
                     ),
                 ),
             )
+
     return out
 
 
@@ -121,6 +122,7 @@ def measure(contract: str, iterations: int, n_jobs: int) -> pd.DataFrame:
         row["null_trades"] = results[STATISTICS[0]].null_median_trades
         rows.append(row)
         logger.info("%s  %s", scheme, label)
+
     return pd.DataFrame(rows)
 
 
@@ -135,6 +137,7 @@ def report(table: pd.DataFrame, statistic: str = "profit_factor") -> str:
         lines.append(f"  best by excess:      {by_excess.geometry}")
         agree = "agree" if by_observed.geometry == by_excess.geometry else "DISAGREE"
         lines.append(f"  the two rankings {agree}")
+
     return "\n".join(lines)
 
 
@@ -151,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     table.to_csv(args.out, index=False)
     logger.info("wrote %d geometries to %s", len(table), args.out)
     logger.info("\n%s", report(table))
+
     return 0
 
 

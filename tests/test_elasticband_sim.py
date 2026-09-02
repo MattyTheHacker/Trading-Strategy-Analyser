@@ -126,6 +126,7 @@ def simulate(
         ),
         out,
     )
+
     return count, out
 
 
@@ -133,6 +134,7 @@ def run(rows, signal_at=(), **kwargs):
     """:func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
+
     return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
 
 
@@ -472,6 +474,7 @@ def frame(close):
     """A one-column bar frame at a fixed geometry, enough for the signal path."""
     close = np.asarray(close, dtype=np.float64)
     index = pd.date_range("2024-01-02 19:00", periods=close.size, freq="1min", tz="UTC")
+
     return pd.DataFrame(
         {
             "open": close,
@@ -487,6 +490,7 @@ def frame(close):
 
 def dataset(close, params):
     grid = sweep.Grid.of(params, archetype=archetypes.ELASTICBAND)
+
     return sweep.prepare_for(frame(close), grid)
 
 

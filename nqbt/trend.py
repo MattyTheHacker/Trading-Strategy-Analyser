@@ -134,12 +134,14 @@ def trends_mask(trends: Iterable[Trend]) -> int:
     mask: int = 0
     for state in trends:
         mask |= Trend(state).bit
+
     return mask
 
 
 def trends_in(mask: int) -> tuple[Trend, ...]:
     """Unpack a mask into the trends it admits, in ascending-score order."""
     validate_mask(mask)
+
     return tuple(t for t in Trend if mask & t.bit)
 
 
@@ -148,9 +150,11 @@ def validate_mask(mask: int) -> int:
     if mask < 0 or mask & ~ALL_TRENDS:
         msg: str = f"trend mask {mask} sets bits outside 0..{ALL_TRENDS}; use Trend.bit or trends_mask()"
         raise TrendError(msg)
+
     if mask == 0:
         msg = "trend mask 0 admits no trend, so every combination along it would trade nothing"
         raise TrendError(msg)
+
     return mask
 
 
@@ -168,6 +172,7 @@ def validate_periods(fast_period: int, slow_period: int) -> None:
     if fast_period < 1:
         msg: str = f"trend_fast_period must be >= 1, got {fast_period}"
         raise TrendError(msg)
+
     if fast_period >= slow_period:
         msg = (
             f"trend_fast_period {fast_period} is not shorter than trend_slow_period "
@@ -181,6 +186,7 @@ def validate_slope_lookback(slope_lookback: int) -> int:
     if slope_lookback < MIN_SLOPE_LOOKBACK:
         msg: str = f"trend slope lookback must be >= {MIN_SLOPE_LOOKBACK}, got {slope_lookback}"
         raise TrendError(msg)
+
     return slope_lookback
 
 
@@ -193,12 +199,14 @@ def validate_min_agreement(min_agreement: int) -> int:
     if not 1 <= min_agreement <= N_COMPONENTS:
         msg: str = f"trend_min_agreement must lie in 1..{N_COMPONENTS}, got {min_agreement}"
         raise TrendError(msg)
+
     return min_agreement
 
 
 def key(fast_period: int, slow_period: int, slope_lookback: int) -> TrendKey:
     """Build a grid key, validating the pair and the slope it will be measured over."""
     validate_periods(int(fast_period), int(slow_period))
+
     return TrendKey(int(fast_period), int(slow_period), validate_slope_lookback(int(slope_lookback)))
 
 
@@ -207,8 +215,10 @@ def _vote(value: float, reference: float) -> int:
     """``+1`` above, ``-1`` below, ``0`` on exact equality -- one definition for all three."""
     if value > reference:
         return 1
+
     if value < reference:
         return -1
+
     return 0
 
 
@@ -237,6 +247,7 @@ def _components(
             slope = _vote(slow[i], slow[i - slope_lookback])
             votes[1, i] = slope
             agreement[i] = price + slope + stack
+
     return votes, agreement
 
 
@@ -245,10 +256,13 @@ def _trend_of(score: float, min_agreement: int) -> int:
     """Classify one score -- the only place this rule lives, shared by ``label`` and ``gate``."""
     if np.isnan(score):
         return UNDEFINED
+
     if score <= -min_agreement:
         return Trend.DOWN
+
     if score >= min_agreement:
         return Trend.UP
+
     return Trend.MIXED
 
 
@@ -258,6 +272,7 @@ def _label(agreement: FloatArray, min_agreement: int) -> LabelArray:
     out = np.empty(n, dtype=np.int8)
     for i in range(n):
         out[i] = _trend_of(agreement[i], min_agreement)
+
     return out
 
 
@@ -270,6 +285,7 @@ def _gate(agreement: FloatArray, min_agreement: int, mask: int) -> BoolArray:
         found = _trend_of(agreement[i], min_agreement)
         if found != UNDEFINED:
             out[i] = (mask & (1 << found)) != 0
+
     return out
 
 
@@ -286,6 +302,7 @@ def components(
     bar 0 and this module adds no warm-up of its own -- ``docs/roadmap.md`` §M10.3.
     """
     validate_slope_lookback(slope_lookback)
+
     return _components(
         np.ascontiguousarray(close, dtype=np.float64),
         np.ascontiguousarray(fast, dtype=np.float64),
@@ -302,6 +319,7 @@ def label(agreement: FloatArray, min_agreement: int) -> LabelArray:
     cutting a continuum: exactly ``min_agreement`` agreeing is the case the parameter names.
     """
     validate_min_agreement(min_agreement)
+
     return _label(np.ascontiguousarray(agreement, dtype=np.float64), int(min_agreement))
 
 
@@ -313,6 +331,7 @@ def gate(agreement: FloatArray, mask: int, min_agreement: int) -> BoolArray:
     """
     validate_mask(mask)
     validate_min_agreement(min_agreement)
+
     return _gate(np.ascontiguousarray(agreement, dtype=np.float64), int(min_agreement), int(mask))
 
 
@@ -397,4 +416,5 @@ def trend_grid(close: FloatArray, keys: Iterable[TrendKey]) -> TrendGrid:
             averages.values_for(wanted.slow_period),
             wanted.slope_lookback,
         )
+
     return TrendGrid(keys=ordered, agreement=agreement, votes=votes)

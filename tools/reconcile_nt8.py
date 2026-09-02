@@ -97,10 +97,12 @@ def parse_nt8(path: Path) -> pd.DataFrame:
         """
         negative = column.str.strip().str.startswith("(")
         bare = column.str.replace(r"[$,()]", "", regex=True).astype(float)
+
         return bare.where(~negative, -bare.abs())
 
     def when(column: str) -> pd.Series:
         naive = pd.to_datetime(raw[column], format="%d/%m/%Y %I:%M:%S %p")
+
         return naive.dt.tz_localize(EXPORT_TZ, ambiguous="infer", nonexistent="shift_forward").dt.tz_convert(
             "UTC",
         )
@@ -125,6 +127,7 @@ def parse_nt8(path: Path) -> pd.DataFrame:
         unknown = sorted(raw.loc[out["exit_reason"].isna(), "Exit name"].unique())
         msg = f"unmapped NT8 exit name(s): {unknown}"
         raise SystemExit(msg)
+
     return out.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 
 
@@ -135,6 +138,7 @@ def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
     instrument = NQ if contract.startswith("NQ") else MNQ
     data = context.prepare(bars, archetype.context_for({k: [v] for k, v in params.as_dict().items()}))
     log = archetype.run(data, params, instrument)
+
     return log.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 
 
@@ -145,6 +149,7 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
     if cut.any():
         logger.info("  reversals         %s cut short by an NT8 reversal, held out", f"{int(cut.sum()):,}")
         nt8 = nt8[~cut]
+
     lo, hi = nt8["entry_time"].min(), nt8["entry_time"].max()
     inner = mine[(mine["entry_time"] > lo) & (mine["entry_time"] < hi)]
     nt8_inner = nt8[(nt8["entry_time"] > lo) & (nt8["entry_time"] < hi)]
@@ -209,6 +214,7 @@ def main(argv: list[str]) -> int:
     if len(argv) not in EXPECTED_ARGV:
         logger.info("%s", __doc__)
         return 2
+
     export, archetype_name, contract = argv[1], argv[2], argv[3]
     logger.info("== %s on %s ==", archetype_name, contract)
     nt8 = parse_nt8(Path(export))
@@ -216,8 +222,10 @@ def main(argv: list[str]) -> int:
         start = pd.Timestamp(argv[4], tz="UTC")
         logger.info("  trimmed to        %s onwards", f"{start:%Y-%m-%d}")
         nt8 = nt8[nt8["entry_time"] >= start]
+
     mine = run_nqbt(archetype_name, contract)
     reconcile(nt8, mine)
+
     return 0
 
 

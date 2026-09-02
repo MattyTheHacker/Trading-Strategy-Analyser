@@ -52,6 +52,7 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
         if unexpected:
             logger.info("FAIL %s: unexpected new column(s) %s", name, unexpected)
             failures += 1
+
         dropped = [c for c in old.columns if c not in new.columns]
         if dropped:
             logger.info("FAIL %s: column(s) disappeared %s", name, dropped)
@@ -76,6 +77,7 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
         logger.info("ALL PRE-EXISTING COLUMNS IDENTICAL")
     else:
         logger.info("BYTE-FOR-BYTE IDENTICAL")
+
     return failures
 
 
@@ -91,6 +93,7 @@ def main(argv: list[str]) -> int:
         help="columns the change is expected to add; all others must match exactly",
     )
     args = parser.parse_args(argv[1:])
+
     return 1 if compare(args.before, args.after, set(args.added)) else 0
 
 

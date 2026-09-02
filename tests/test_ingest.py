@@ -18,12 +18,14 @@ LINES = [
 def session_lines(count, start="2024-03-08 18:00"):
     """``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
     stamps = pd.date_range(start, periods=count, freq="min")
+
     return [f"{ts:%Y%m%d %H%M%S};18000.25;18002.00;17999.50;18001.00;120" for ts in stamps]
 
 
 def write(path, lines, *, trailing_newline=True):
     text = "\n".join(lines) + ("\n" if trailing_newline else "")
     path.write_text(text, encoding="utf-8")
+
     return path
 
 
@@ -31,6 +33,7 @@ def write(path, lines, *, trailing_newline=True):
 def export(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
+
     return write(data_dir / "MNQ 03-24.Last.txt", LINES)
 
 
@@ -43,6 +46,7 @@ def run(export, cache, **kw):
     manifest = ingest.load_manifest(cache / "manifest.json")
     result, entry = ingest.ingest_contract(CONTRACT, export, cache_dir=cache, manifest=manifest, **kw)
     ingest.save_manifest(manifest, cache / "manifest.json")
+
     return result, entry
 
 
@@ -249,6 +253,7 @@ def test_out_of_session_prints_are_cached_but_not_handed_out(cache, tmp_path) ->
 def cached_frame(flags: list[bool]) -> pd.DataFrame:
     """A frame shaped like the parquet cache, flagged as ``flags`` says rather than by clock."""
     prices = np.arange(len(flags), dtype=np.float64)
+
     return pd.DataFrame(
         {
             "open": prices,

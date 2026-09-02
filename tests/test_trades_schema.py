@@ -49,6 +49,7 @@ def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
     )
     for name, value in overrides.items():
         frame[name] = value
+
     return frame
 
 
@@ -184,6 +185,7 @@ def leg_matrix(n: int = 3, **overrides) -> trades.LegMatrix:
     matrix[:n, trades.C_TARGET_PRICE] = np.nan  # nullable, and the loop really writes this
     for name, value in overrides.items():
         matrix[:n, getattr(trades, name)] = value
+
     return trades.LegMatrix(matrix, n)
 
 
@@ -289,6 +291,7 @@ def imports_of(module: str) -> set[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             found.add(node.module)
             found.update(f"{node.module}.{alias.name}" for alias in node.names)
+
     return found
 
 
@@ -300,6 +303,7 @@ def names_used_in(module: str) -> set[str]:
     uses rather than the imports.
     """
     tree = ast.parse((PACKAGE / module).read_text(encoding="utf-8"))
+
     return {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
 
 

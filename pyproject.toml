@@ -29,6 +29,7 @@ dev = [
     "pandas-stubs==3.0.5.260730",
     "pymarkdownlnt==0.9.39",
     "mdformat-gfm==1.0.0",
+    "libcst==1.9.0",
 ]
 
 
@@ -113,6 +114,7 @@ max-args = 10
 # Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
 # numba, pandas and TA-Lib.
 "nqbt/cli.py" = ["PLC0415"]
+"formatting/**" = ["T201", "D102", "D103"]
 
 
 [tool.mypy]

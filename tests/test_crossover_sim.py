@@ -97,6 +97,7 @@ def simulate(
         ),
         out,
     )
+
     return count, out
 
 
@@ -104,6 +105,7 @@ def run(rows, signal_at=(), **kwargs):
     """:func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
+
     return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
 
 
@@ -444,6 +446,7 @@ def bars(n: int = 1200, seed: int = 11) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 

@@ -61,6 +61,7 @@ class Grid:
     def __post_init__(self) -> None:
         if self.base is None:  # type: ignore[comparison-overlap]  # the None default above
             self.base = self.archetype.params_cls()  # type: ignore[unreachable]  # __post_init__ fills it
+
         if not isinstance(self.base, self.archetype.params_cls):
             msg: str = (
                 f"archetype {self.archetype.name!r} takes "
@@ -70,6 +71,7 @@ class Grid:
             raise SweepError(
                 msg,
             )
+
         sweepable: frozenset[str] = self.archetype.sweepable
         unknown: set[str] = set(self.axes) - sweepable
         if unknown:
@@ -80,6 +82,7 @@ class Grid:
             raise SweepError(
                 msg,
             )
+
         for name, values in self.axes.items():
             if not values:
                 msg = f"axis {name!r} has no values"
@@ -110,10 +113,12 @@ class Grid:
         for axis, toggle in self.archetype.gated_by.items():
             if axis not in self.axes:
                 continue
+
             inert: object = archetypes.INERT_AT.get(toggle, False)
             values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
             if all(value == inert for value in values):
                 dead[axis] = toggle
+
         return dead
 
     @classmethod
@@ -127,6 +132,7 @@ class Grid:
         """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
         if archetype is None:
             archetype = archetypes.for_params(base) if base is not None else archetypes.DEFAULT
+
         return cls(
             axes={k: list(v) for k, v in axes.items()},
             base=base if base is not None else archetype.params_cls(),
@@ -137,13 +143,16 @@ class Grid:
         n: int = 1
         for values in self.axes.values():
             n *= len(values)
+
         return n
 
     def combinations(self) -> Iterator[Params]:
         """Yield one parameter instance per point in the grid."""
         if not self.axes:
             yield self.base
+
             return
+
         names: list[str] = list(self.axes)
         for values in itertools.product(*(self.axes[n] for n in names)):
             yield replace(self.base, **dict(zip(names, values, strict=True)))
@@ -198,6 +207,7 @@ def run_combination(
                 source="sim",
             ),
         )
+
     return {**row, **summary}, log
 
 
@@ -209,8 +219,10 @@ def chunk_bounds(total: int, n_workers: int, chunk_size: int | None = None) -> l
     """Half-open ``[start, stop)`` ranges covering ``total`` combinations exactly once."""
     if total <= 0:
         return []
+
     if chunk_size is None:
         chunk_size = max(1, math.ceil(total / max(1, n_workers * CHUNKS_PER_WORKER)))
+
     return [(s, min(s + chunk_size, total)) for s in range(0, total, chunk_size)]
 
 
@@ -237,6 +249,7 @@ def _run_chunk(
         rows.append(row)
         if log is not None:
             logs[combo_id] = log
+
     return rows, logs
 
 
@@ -257,9 +270,11 @@ def _sweep_serial(
         rows.append(row)
         if log is not None:
             logs[i] = log
+
         if progress_every and (i + 1) % progress_every == 0:
             rate: float = (i + 1) / (time.perf_counter() - started)
             logger.info("  %s/%s combos  %s/s", f"{i + 1:,}", f"{len(grid):,}", f"{rate:,.0f}")
+
     return rows, logs
 
 
@@ -294,6 +309,7 @@ def _sweep_parallel(
     # Chunks come back in submission order; sorting states the guarantee rather than
     # relying on it.
     rows.sort(key=lambda r: cast("int", r["combo_id"]))
+
     return rows, logs
 
 
@@ -343,6 +359,7 @@ def sweep(
     if not frame.empty:
         cols: list[str] = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
         frame = frame[cols]
+
     return frame, logs
 
 
@@ -391,6 +408,7 @@ def sweep_axes(
     if not grid_list:
         msg: str = "sweep_axes needs at least one grid"
         raise SweepError(msg)
+
     if not resolutions:
         msg = "resolutions is empty; pass (1,) for plain 1-minute bars"
         raise SweepError(msg)
@@ -400,6 +418,7 @@ def sweep_axes(
         sources[None] = bars
     else:
         sources.update(bars)
+
     if not sources:
         msg = "no bars to sweep: the contract mapping is empty"
         raise SweepError(msg)
@@ -445,6 +464,7 @@ def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
     tagged: pd.DataFrame = table.copy()
     for position, name in enumerate(AxisPoint._fields):
         tagged.insert(position, name, getattr(point, name))
+
     return tagged
 
 
@@ -461,7 +481,9 @@ def rank(
     """
     if results.empty:
         return results
+
     viable: pd.DataFrame = results[results["trades"] >= min_trades]
     if viable.empty:
         return viable
+
     return viable.sort_values(by, ascending=False).head(top)

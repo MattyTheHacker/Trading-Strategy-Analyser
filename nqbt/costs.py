@@ -57,6 +57,7 @@ class TradingCosts:
         if missing:
             msg: str = f"{type(params).__name__} has no {', '.join(missing)}; it cannot carry costs"
             raise CostError(msg)
+
         return dataclasses.replace(
             params,
             commission_per_contract=self.commission_per_contract,

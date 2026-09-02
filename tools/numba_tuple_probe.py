@@ -40,6 +40,7 @@ def with_tuple(x, c):
     total = 0.0
     for i in range(x.size):
         total += x[i] * c.tick_size * c.point_value - c.commission_per_contract - c.slippage_ticks
+
     return total
 
 
@@ -48,6 +49,7 @@ def with_scalars(x, tick_size, point_value, commission, slippage):
     total = 0.0
     for i in range(x.size):
         total += x[i] * tick_size * point_value - commission - slippage
+
     return total
 
 
@@ -56,6 +58,7 @@ def with_local_tuple(x, c):
     total = 0.0
     for i in range(x.size):
         total += x[i] * c.tick_size * c.point_value - c.commission_per_contract - c.slippage_ticks
+
     return total
 
 
@@ -65,7 +68,9 @@ def with_arrays(bars, c):
     for i in range(bars.close.size):
         if bars.force_flat[i]:
             continue
+
         total += (bars.high[i] - bars.low[i] + bars.close[i] - bars.open_[i]) * c.tick_size
+
     return total
 
 
@@ -74,6 +79,7 @@ def bench(fn, *args, n=7):
     start = time.perf_counter()
     for _ in range(n):
         fn(*args)
+
     return (time.perf_counter() - start) / n * 1000
 
 
@@ -81,6 +87,7 @@ def cache_line(fn):
     hits = sum(fn.stats.cache_hits.values())
     misses = sum(fn.stats.cache_misses.values())
     verdict = "REUSED" if hits and not misses else "recompiled"
+
     return f"{fn.py_func.__name__:16s} hits={hits} misses={misses}  {verdict}"
 
 

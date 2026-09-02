@@ -55,6 +55,7 @@ def minutes_since_open(
     seconds: IntArray = (naive.hour * 3600 + naive.minute * 60 + naive.second).to_numpy()
     open_s: int = template.open_seconds
     past_open: IntArray = np.where(seconds > open_s, seconds - open_s, seconds + SECONDS_PER_DAY - open_s)
+
     return (past_open // 60).astype(np.int64)
 
 
@@ -71,6 +72,7 @@ def bucket_index(
     occupies: IntArray = end_minute - 1
     bucket: IntArray = occupies // minutes
     to_bucket_close: IntArray = (bucket + 1) * minutes - end_minute
+
     return bucket, to_bucket_close
 
 
@@ -88,8 +90,10 @@ def resample(
     if minutes < 1:
         msg: str = f"minutes must be >= 1, got {minutes}"
         raise ResampleError(msg)
+
     if minutes == 1:
         return bars
+
     if bars.empty:
         return bars
 
@@ -127,4 +131,5 @@ def resample(
         tz="UTC",
         name=bars.index.name,
     )
+
     return out[list(bars.columns)]

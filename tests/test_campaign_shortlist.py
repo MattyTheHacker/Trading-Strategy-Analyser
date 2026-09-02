@@ -32,6 +32,7 @@ def stored_rows(**columns: object) -> pd.DataFrame:
         "profit_factor": [0.8, 1.4, 1.1, 1.2],
         "trades": [100, 200, 300, 400],
     }
+
     return pd.DataFrame({**base, **columns})
 
 
@@ -134,6 +135,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 
@@ -153,6 +155,7 @@ def store_point(db, bars: pd.DataFrame, minutes: int, window: str) -> int:
     table.insert(1, "stratum", "unfiltered")
     table.insert(2, "window", window)
     table["combo_id"] = range(len(table))
+
     return results.save_sweep(
         table,
         root=ROOT,
