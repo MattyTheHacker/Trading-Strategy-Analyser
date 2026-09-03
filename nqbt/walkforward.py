@@ -246,6 +246,9 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
 
     ``warmup_bars`` prefixes every window so indicators are warm at its first tradeable bar;
     trades entered in the prefix are discarded. A grid reading an SMA(200) needs at least 200.
+
+    ``grid`` may be a product of axes or a :meth:`~nqbt.sweep.Grid.of_combinations` shortlist;
+    the candidate set is whatever it enumerates, and the costs reach every member of it.
     """
     if select_by not in stats.TRADE_PNL_STATISTICS:
         msg: str = (
@@ -270,6 +273,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
         axes=dict(grid.axes),
         base=costs.apply(grid.base),
         archetype=grid.archetype,
+        combos=None if grid.combos is None else [costs.apply(params) for params in grid.combos],
     )
     combos: list[Params] = list(costed.combinations())
     windows: list[Split] = splits(

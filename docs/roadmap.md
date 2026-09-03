@@ -888,10 +888,11 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 - **The held-out split is a single time cut** at 60% of the bars, so it tests one regime transition rather than many. The two roots track the same index over the same dates, so the thirty-eight per-contract samples are not thirty-eight independent ones.
 - **`max_hold_bars` means a different amount of time at each resolution**, exactly as a moving-average period does. Nothing scales it, and no result here rests on it.
 - **Everything is Tier 1.** EmaCrossover and ElasticBand have no NinjaScript at all, which is why InsideBar surviving matters more than EmaCrossover surviving would have.
+- **Neither `nqbt/walkforward.py` nor `nqbt/montecarlo.py` was run at all** ([#203]). The four gates are the screen, one time cut, the matched null and the drawdown check; a multi-fold walk-forward and a resampling of the trade sequence are two further questions and neither was asked. Walk-forward is a named promotion criterion — § "Decisions taken" — so the survivor has the random-entry arm and the per-contract read and not that one. §M27.6 is the wiring; the run is still owed.
 
 #### The tools, and why there are five databases
 
-`tools/campaign_sweep.py` runs the sweep — `--strata core|context|regime|phase|volume|trend|htf|all` so a later pass appends the dimensions an earlier one skipped, and `--split` for the selection and holdout windows. `tools/campaign_report.py` produces the distribution tables and the η² figures, `tools/campaign_holdout.py` the held-out test, and `tools/campaign_null.py` and `tools/campaign_contracts.py` the matched null on the continuous holdout and per contract. `tools/campaign_shortlist.py` is the trade-log path: the sweep stores summary rows only, so a bootstrap, a permutation test or a time-of-day review gets its per-trade vector by re-running a shortlisted row with `keep_trades=True` and storing the log under the same `(sweep_id, combo_id)` the summary carries.
+`tools/campaign_sweep.py` runs the sweep — `--strata core|context|regime|phase|volume|trend|htf|all` so a later pass appends the dimensions an earlier one skipped, and `--split` for the selection and holdout windows. `tools/campaign_report.py` produces the distribution tables and the η² figures, `tools/campaign_holdout.py` the held-out test, and `tools/campaign_null.py` and `tools/campaign_contracts.py` the matched null on the continuous holdout and per contract. `tools/campaign_shortlist.py` is the trade-log path: the sweep stores summary rows only, so a bootstrap, a permutation test or a time-of-day review gets its per-trade vector by re-running a shortlisted row with `keep_trades=True` and storing the log under the same `(sweep_id, combo_id)` the summary carries. `tools/campaign_walkforward.py` and `tools/campaign_montecarlo.py` are the fifth gate — §M27.6.
 
 **One DuckDB per archetype**, under `results/campaign/`. At the time, `results._append_or_create` wrote `combos` by name and silently dropped a column the table did not have, so six parameter classes could not share one table — appending an `InsideBarParams` row to a table created from `DeadCatParams` would have stored it with `error_margin`, `atr_length` and `atr_multiplier` thrown away and nothing would have said so. [#201] closed that: the table widens instead, so the split is now a convention rather than a constraint, and the campaign keeps it because its results are already there.
 
@@ -1024,6 +1025,30 @@ InsideBar, `DIRECTIONAL` only, under the configuration §M27's selection window 
 - **A lower threshold is still a lower threshold**, and what makes this not the circular rule [#200] rejected is the order and the input rather than the direction of travel: the cell size was stated before the sweep, chosen for sample rather than for separation, and fitted where the holdout could not reach it. **It does not buy a cut clear of noise, and nothing here claims one** — the fitted quintile sits within a few percent of a random walk's own quintile at every fine-bar cell, and the raw 0.5 was not clear of noise either, at 1.12× the anchor over five bars against 2.24× over twenty. What the change of units buys is one cell size across the grid, and nothing else.
 - **Nothing in §M10.1's stratification table survives the change of units**, because all three cells are redefined. It is not a like-for-like comparison and neither is any other stored regime row; the calibrated cells are stored under their own names for that reason.
 - **The sweep is [#198]'s.** What is here is the reparameterisation, the calibration and the cell size; no ranking has been run on it.
+
+### M27.6 — walk-forward and Monte Carlo, wired into the campaign ([#203])
+
+Both modules have existed since [#50] and §M27 used neither, which is how a gap becomes invisible: a step someone remembers to run by hand is a step that does not get run. This makes them the campaign's fifth gate, between the matched null and the drawdown check — `tools/campaign_walkforward.py` and `tools/campaign_montecarlo.py`, selected the same way every other campaign tool selects.
+
+**Two tools rather than one, because they take different inputs.** Walk-forward needs bars and re-simulates; Monte Carlo needs a stored trade log and re-samples one. Gate 3 already has two tools for the same reason.
+
+#### The shortlist is the candidate pool, and `Grid` had no way to say so
+
+Walk-forward selects on each training window, so it needs a set to select *from*. The whole grid through several folds is unaffordable and the shortlist is what any claim rests on — but a shortlist is an arbitrary subset of the product that produced it, and `sweep.Grid` could only express a product. Twenty rows of five parameters stated as axes is not twenty candidates, it is thousands, and the run would still report a clean number.
+
+So `Grid` takes the combinations outright: `Grid.of_combinations` sets `combos` instead of `axes`, and the two are refused together. Everything downstream is unchanged — `combo_id` is the position in the list, the parallel workers regenerate it from the grid as before, and `axis_values` becomes the union over the list so `required_context` still covers every member. `walk_forward` carries the list through its costed rebuild; dropping it there would leave the base alone, and every fold would "select" the one combination left to it while reporting five folds of selection.
+
+**The pool is itself a selection, and that is the honest limit of the result.** Rows ranked on the full window and then walked forward over the full series have seen the folds. Ranking on `selection`, or widening `--top` until the pool stops being a selection, is what makes a fold result clean; the tool defaults to the first and says so.
+
+**The fold geometry is stated in shares, not bar counts**, because a bar count means a different amount of time at each resolution — the same defect §M27 records for `max_hold_bars`. Half the series to train on and a tenth to test gives five sliding folds at any bar size. **The warm-up is derived from the shortlist's own `ContextSpec` rather than guessed**, since each fold is prepared independently and would otherwise measure its own cold start; relative volume is the gap, because its baseline is counted in sessions and not in bars.
+
+#### What the resampling arm asks, and what it cannot
+
+`permutation_test` reorders the same trades, which moves only the path statistics, and answers whether a drawdown was the ordering's doing. `bootstrap` resamples with replacement, which moves the values too, and puts percentiles beside the observed profit factor and drawdown — the spread Gate 4 read the shape of and could not size.
+
+**`randomentry.py` looks like this machinery and is not**, which is the confusion worth pre-empting: it draws hundreds of samples per comparison, but it replaces the *entry* and holds the geometry and the ordering fixed. These two take the entries as given and can therefore never separate "worse than random" from "no better than random". The two arms are complementary and a run needs both; a figure quoted from here without the null beside it is half an argument.
+
+A configuration with no stored log is named and skipped rather than dropped, because a report resampling four of twenty rows reads exactly like one resampling all twenty.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 
@@ -1760,6 +1785,7 @@ ______________________________________________________________________
 [#199]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/199
 [#200]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/200
 [#201]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/201
+[#203]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/203
 [#208]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/208
 [#218]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/218
 [#221]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/221

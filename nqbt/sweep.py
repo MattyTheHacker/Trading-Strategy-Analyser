@@ -52,25 +52,38 @@ class Grid:
 
     The archetype belongs to the grid rather than to :func:`sweep`, because it decides what
     ``base`` and ``axes`` mean.
+
+    A shortlist is not a product, so :meth:`of_combinations` takes the combinations outright
+    instead -- ``docs/roadmap.md`` §M27.6.
     """
 
     axes: dict[str, list[AxisValue]] = field(default_factory=dict)
     base: Params = None  # type: ignore[assignment]  # __post_init__ fills it
     archetype: Archetype = archetypes.DEFAULT
+    combos: list[Params] | None = None
+    """The combinations outright, instead of the axes to cross. :meth:`of_combinations`."""
 
     def __post_init__(self) -> None:
         if self.base is None:  # type: ignore[comparison-overlap]  # the None default above
-            self.base = self.archetype.params_cls()  # type: ignore[unreachable]  # __post_init__ fills it
+            self.base = self._default_base()  # type: ignore[unreachable]  # __post_init__ fills it
 
-        if not isinstance(self.base, self.archetype.params_cls):
+        for name, params in [("base", self.base), *[("combination", c) for c in self.combos or []]]:
+            if isinstance(params, self.archetype.params_cls):
+                continue
+
             msg: str = (
                 f"archetype {self.archetype.name!r} takes "
-                f"{self.archetype.params_cls.__name__}, but base is a "
-                f"{type(self.base).__name__}"
+                f"{self.archetype.params_cls.__name__}, but {name} is a "
+                f"{type(params).__name__}"
             )
             raise SweepError(
                 msg,
             )
+
+        if self.combos is not None:
+            self._check_combos()
+
+            return
 
         sweepable: frozenset[str] = self.archetype.sweepable
         unknown: set[str] = set(self.axes) - sweepable
@@ -101,6 +114,27 @@ class Grid:
             raise SweepError(
                 msg,
             )
+
+    def _default_base(self) -> Params:
+        """What ``base`` means when the caller gave none: the first combination, or defaults."""
+        if self.combos:
+            return self.combos[0]
+
+        return self.archetype.params_cls()
+
+    def _check_combos(self) -> None:
+        """Refuse a combination list that is empty or crossed with axes."""
+        if not self.combos:
+            msg: str = "an explicit combination list has nothing to run; pass at least one"
+            raise SweepError(msg)
+
+        if self.axes:
+            msg = (
+                f"grid for {self.archetype.name!r} carries both axes {sorted(self.axes)} and an "
+                f"explicit combination list. A shortlist is not a product, so it is one or the "
+                f"other -- crossing them would run each listed combination once per axis point."
+            )
+            raise SweepError(msg)
 
     def dead_axes(self) -> dict[str, str]:
         """Swept periods whose filter is off for every combination.
@@ -139,7 +173,34 @@ class Grid:
             archetype=archetype,
         )
 
+    @classmethod
+    def of_combinations(
+        cls,
+        combos: Iterable[Params],
+        *,
+        archetype: Archetype | None = None,
+    ) -> Grid:
+        """Build a grid from the combinations themselves, for a set no product describes.
+
+        A shortlist is an arbitrary subset of the product that produced it, so it cannot be
+        stated as axes. Everything downstream is unchanged: ``combo_id`` is the position in
+        this list, and :meth:`required_context` covers every one of them.
+        """
+        listed: list[Params] = list(combos)
+        if not listed:
+            msg: str = "an explicit combination list has nothing to run; pass at least one"
+            raise SweepError(msg)
+
+        return cls(
+            base=listed[0],
+            archetype=archetype if archetype is not None else archetypes.for_params(listed[0]),
+            combos=listed,
+        )
+
     def __len__(self) -> int:
+        if self.combos is not None:
+            return len(self.combos)
+
         n: int = 1
         for values in self.axes.values():
             n *= len(values)
@@ -148,6 +209,11 @@ class Grid:
 
     def combinations(self) -> Iterator[Params]:
         """Yield one parameter instance per point in the grid."""
+        if self.combos is not None:
+            yield from self.combos
+
+            return
+
         if not self.axes:
             yield self.base
 
@@ -163,6 +229,12 @@ class Grid:
         The whole parameter set rather than just ``axes``, because a period that is never
         swept still has to have its grid built.
         """
+        if self.combos is not None:
+            return {
+                name: list(dict.fromkeys(getattr(params, name) for params in self.combos))
+                for name in self.archetype.sweepable
+            }
+
         return {
             name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable
         }

@@ -6,6 +6,8 @@ data the measurement also sees. And an uncosted run selects for trade frequency,
 the one thing costs punish, so it must be refused rather than defaulted.
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -137,6 +139,35 @@ def test_costs_reach_every_combination_rather_than_only_the_base() -> None:
         assert params.commission_per_contract == costs.LIVE.commission_per_contract
         assert params.slippage_ticks == costs.LIVE.slippage_ticks
     assert {p.tp_multiplier for p in costed.combinations()} == {1.5, 2.0, 2.5}
+
+
+def test_a_shortlist_grid_walks_forward_exactly_as_the_axis_that_would_produce_it() -> None:
+    """Where a list and a product happen to coincide, the two have to be the same run.
+
+    That is what says the list survives the costed rebuild: drop it there and the grid falls
+    back to its base alone, so every fold would "select" the one combination left to it.
+    """
+    base = DeadCatParams()
+    multiples = [1.5, 2.0, 2.5]
+    swept = walkforward.walk_forward(
+        bars(3000),
+        sweep.Grid.of(base, tp_multiplier=multiples),
+        costs.LIVE,
+        train_bars=2000,
+        test_bars=500,
+        min_trades=1,
+    )
+    listed = walkforward.walk_forward(
+        bars(3000),
+        sweep.Grid.of_combinations([replace(base, tp_multiplier=m) for m in multiples]),
+        costs.LIVE,
+        train_bars=2000,
+        test_bars=500,
+        min_trades=1,
+    )
+    assert swept.table["combos_viable"].max() > 1, "fixture selected from one; the test proves nothing"
+    pd.testing.assert_frame_equal(swept.table, listed.table)
+    pd.testing.assert_frame_equal(swept.trades, listed.trades)
 
 
 # -- selection -----------------------------------------------------------------
