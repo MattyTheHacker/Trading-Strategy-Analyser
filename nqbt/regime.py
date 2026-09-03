@@ -12,10 +12,16 @@ than a special case. Warm-up bars, which the lookback cannot reach back from, ar
 A regime set is carried as a bitmask integer so that it is a legal sweep axis, exactly as
 :mod:`nqbt.timeofday` carries a phase set. Thresholds, equality boundaries and why the window
 sum is recomputed rather than rolled: ``docs/roadmap.md`` §M10.1.
+
+**A raw threshold is not one cut across a sweep.** It is a different percentile of a random
+walk at each lookback and a different share of bars at each resolution, so
+:func:`thresholds_from_quantiles` and :func:`thresholds_from_multiples` state the cut in units
+that survive both axes -- ``docs/roadmap.md`` §M27.5.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import TYPE_CHECKING
@@ -39,10 +45,15 @@ __all__ = [
     "efficiency_ratio_grid",
     "gate",
     "label",
+    "random_walk_ratio",
     "regimes_in",
     "regimes_mask",
+    "thresholds_from_multiples",
+    "thresholds_from_quantiles",
     "validate_lookback",
     "validate_mask",
+    "validate_multiples",
+    "validate_quantiles",
     "validate_thresholds",
 ]
 
@@ -146,6 +157,96 @@ def validate_thresholds(consolidating_below: float, directional_above: float) ->
             f"{directional_above}, which would put a bar in both regimes at once"
         )
         raise RegimeError(msg)
+
+
+def validate_quantiles(consolidating_quantile: float, directional_quantile: float) -> None:
+    """Reject quantiles that fall outside 0-1, or that would put a bar in two regimes at once."""
+    if not 0.0 <= consolidating_quantile <= 1.0:
+        msg: str = f"consolidating_quantile must lie in 0..1, got {consolidating_quantile}"
+        raise RegimeError(msg)
+
+    if not 0.0 <= directional_quantile <= 1.0:
+        msg = f"directional_quantile must lie in 0..1, got {directional_quantile}"
+        raise RegimeError(msg)
+
+    if consolidating_quantile > directional_quantile:
+        msg = (
+            f"consolidating_quantile {consolidating_quantile} exceeds directional_quantile "
+            f"{directional_quantile}, which would cross the thresholds they fit"
+        )
+        raise RegimeError(msg)
+
+
+def validate_multiples(consolidating_multiple: float, directional_multiple: float) -> None:
+    """Reject multiples of the random-walk anchor that are negative, or that cross."""
+    if consolidating_multiple < 0.0:
+        msg: str = f"consolidating_multiple must not be negative, got {consolidating_multiple}"
+        raise RegimeError(msg)
+
+    if directional_multiple < 0.0:
+        msg = f"directional_multiple must not be negative, got {directional_multiple}"
+        raise RegimeError(msg)
+
+    if consolidating_multiple > directional_multiple:
+        msg = (
+            f"consolidating_multiple {consolidating_multiple} exceeds directional_multiple "
+            f"{directional_multiple}, which would put a bar in both regimes at once"
+        )
+        raise RegimeError(msg)
+
+
+def random_walk_ratio(lookback: int) -> float:
+    """The efficiency ratio a driftless random walk averages over ``lookback`` bars: ``1/sqrt(n)``.
+
+    The anchor a raw threshold is otherwise read against by eye -- ``docs/roadmap.md`` §M27.5.
+    """
+    validate_lookback(lookback)
+
+    return 1.0 / math.sqrt(lookback)
+
+
+def thresholds_from_multiples(
+    lookback: int,
+    consolidating_multiple: float,
+    directional_multiple: float,
+) -> tuple[float, float]:
+    """Both thresholds as multiples of :func:`random_walk_ratio`, one cut across the lookback axis.
+
+    ``ER x sqrt(n)`` is scale-free under the null, so the same pair of multiples means the same
+    amount of directionality at every lookback where a raw pair does not.
+    """
+    validate_multiples(consolidating_multiple, directional_multiple)
+    anchor: float = random_walk_ratio(lookback)
+    directional_above: float = directional_multiple * anchor
+    if directional_above > 1.0:
+        msg: str = (
+            f"directional_multiple {directional_multiple} puts the threshold at "
+            f"{directional_above} over {lookback} bars, above the ratio's maximum of 1.0"
+        )
+        raise RegimeError(msg)
+
+    return consolidating_multiple * anchor, directional_above
+
+
+def thresholds_from_quantiles(
+    values: FloatArray,
+    consolidating_quantile: float,
+    directional_quantile: float,
+) -> tuple[float, float]:
+    """Both thresholds as quantiles of the ratios in ``values``, warm-up bars excluded.
+
+    Fit on the selection window alone: fitting on the whole series leaks the holdout.
+    """
+    validate_quantiles(consolidating_quantile, directional_quantile)
+    measured: FloatArray = np.asarray(values, dtype=np.float64)
+    measured = measured[np.isfinite(measured)]
+    if measured.size == 0:
+        msg: str = "no measured efficiency ratio to take a quantile of; every bar is warm-up"
+        raise RegimeError(msg)
+
+    cuts: FloatArray = np.quantile(measured, [consolidating_quantile, directional_quantile])
+
+    return float(cuts[0]), float(cuts[1])
 
 
 @njit(cache=True)
@@ -291,6 +392,22 @@ class EfficiencyRatioGrid:
     def values_for(self, lookback: int) -> FloatArray:
         """Read one lookback's efficiency ratios."""
         return np.asarray(self.values[self.row(lookback)])
+
+    def thresholds_for(
+        self,
+        lookback: int,
+        consolidating_quantile: float,
+        directional_quantile: float,
+    ) -> tuple[float, float]:
+        """Fit both thresholds to one lookback's own distribution of ratios.
+
+        See :func:`thresholds_from_quantiles` for what a fit must be fitted on.
+        """
+        return thresholds_from_quantiles(
+            self.values_for(lookback),
+            consolidating_quantile,
+            directional_quantile,
+        )
 
     def labels_for(
         self,

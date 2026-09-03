@@ -64,6 +64,14 @@ paths:
   each pass *no* mask, so ANDing at the default would quietly drop them. A mask is therefore
   off at its everything value, not at zero, which is what `archetypes.INERT_AT` tells
   `dead_axes`.
+- **A raw regime threshold is not one cut, and sweeping it against `regime_lookback` is the
+  confound rather than the measurement.** `0.5` is the 59th percentile of a driftless random
+  walk at a lookback of 5 and the 99.6th at 50, and the share of bars it admits moves with the
+  bar size too, so cells cut by it cannot be read against each other. State the cut with
+  `regime.thresholds_from_quantiles` — fitted on the selection window alone — or with
+  `regime.thresholds_from_multiples` against `random_walk_ratio`, and carry the lookback in the
+  stratum's name rather than crossing it with the thresholds as a second axis.
+  `docs/roadmap.md` §M27.5.
 - **A higher-timeframe average is stamped from the last *completed* coarse bar, and that is the
   one thing in this module that fails silently.** A fine bar reads the coarse bar closing
   alongside it and never one closing after; anything else manufactures an edge no summary

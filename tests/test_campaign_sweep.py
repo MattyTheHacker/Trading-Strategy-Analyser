@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -23,6 +24,9 @@ from tools.campaign_sweep import (
     CONTEXT,
     CORE,
     ELASTIC_LADDERS,
+    REGIME,
+    REGIME_LOOKBACKS,
+    REGIME_QUANTILES,
     RESOLUTIONS,
     SELECTION_SHARE,
     SLIPPAGE_TICKS,
@@ -30,9 +34,12 @@ from tools.campaign_sweep import (
     UNFILTERED,
     VARIANTS,
     Variant,
+    calibrate,
     db_path,
+    fit_regime,
     grids_for,
     planned_combinations,
+    quantile_pair,
     strata,
     windows,
 )
@@ -211,9 +218,116 @@ def test_planned_combinations_multiplies_the_axes_out() -> None:
         strata=UNFILTERED,
         resolutions=[5, 15],
         split=False,
+        regime_quantiles=None,
+        regime_lookbacks=list(REGIME_LOOKBACKS),
     )
     per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
     assert planned_combinations(args) == per_stratum * 2
 
     args.split = True
     assert planned_combinations(args) == per_stratum * 2 * 2
+
+
+# -- the calibrated regime stratum ---------------------------------------------------------
+
+FITTED = {5: (0.10, 0.70), 20: (0.05, 0.40)}
+"""A calibration with two lookbacks, so a cell that ignored its own row would be visible."""
+
+
+def calibration_bars(n: int = 4000, seed: int = 4) -> pd.DataFrame:
+    """A one-minute frame whose held-out half is a straight line, which scores 1.0 everywhere.
+
+    A fit that reached past the selection window would put the upper threshold at 1.0 and say so.
+    """
+    rng = np.random.default_rng(seed)
+    close = 16000.0 + np.cumsum(rng.normal(0.0, 5.0, n))
+    cut = math.floor(n * SELECTION_SHARE)
+    close[cut:] = close[cut - 1] + np.arange(1, n - cut + 1, dtype=np.float64)
+
+    return pd.DataFrame({"close": close})
+
+
+def calibrated_args(**overrides: object) -> argparse.Namespace:
+    """The arguments ``fit_regime`` reads, at one resolution so ``resample`` is a pass-through."""
+    return argparse.Namespace(
+        **{
+            "resolutions": [1],
+            "regime_quantiles": REGIME_QUANTILES,
+            "regime_lookbacks": [20],
+            **overrides,
+        },
+    )
+
+
+def test_a_calibrated_regime_stratum_is_one_cell_per_lookback() -> None:
+    """A cell rather than an axis: the thresholds move with the lookback, and a sweep crosses
+    its axes, so pairing them any other way runs cells that are not comparable."""
+    names = [name for name, _ in strata(REGIME, FITTED)]
+    assert names == [f"regime={state.name}@n={n}" for state in regime.Regime for n in FITTED]
+
+
+def test_a_calibrated_cell_carries_the_thresholds_fitted_at_its_own_lookback() -> None:
+    for name, extra in strata(REGIME, FITTED):
+        lookback = int(name.split("@n=")[1])
+        consolidating, directional = FITTED[lookback]
+        assert extra["regime_lookback"] == [lookback]
+        assert extra["regime_consolidating_below"] == [consolidating]
+        assert extra["regime_directional_above"] == [directional]
+
+
+def test_a_calibration_changes_the_regime_dimension_and_no_other() -> None:
+    """Every other stratum is one filter and stays one filter; only the cut is reparameterised."""
+    others = [(name, extra) for name, extra in strata(ALL_STRATA) if not name.startswith("regime=")]
+    calibrated = [
+        (name, extra) for name, extra in strata(ALL_STRATA, FITTED) if not name.startswith("regime=")
+    ]
+    assert others == calibrated
+
+
+def test_an_uncalibrated_run_keeps_the_stratum_names_the_stored_databases_carry() -> None:
+    assert [name for name, _ in strata(ALL_STRATA, None)] == [name for name, _ in strata(ALL_STRATA)]
+
+
+def test_every_calibrated_grid_in_the_campaign_can_be_built() -> None:
+    """The fitted thresholds reach a real parameter class, which validates them on construction."""
+    fitted = calibrate(calibration_bars(), [5, 20], REGIME_QUANTILES)
+    for variant in all_variants():
+        for _, grid in grids_for(variant, REGIME, fitted):
+            assert len(grid) == variant.sized()
+
+
+def test_the_fit_reads_the_selection_window_and_never_the_holdout() -> None:
+    """Fitting on the whole series would leak the holdout into the definition of the stratum."""
+    bars = calibration_bars()
+    fitted = fit_regime(bars, calibrated_args())
+    assert fitted[1][20][1] < 1.0
+    assert calibrate(bars, [20], REGIME_QUANTILES)[20][1] == pytest.approx(1.0)
+
+
+def test_no_fit_is_taken_when_the_thresholds_are_left_raw() -> None:
+    assert fit_regime(calibration_bars(), calibrated_args(regime_quantiles=None)) == {}
+
+
+def test_a_bare_quantile_flag_takes_the_pair_the_campaign_states() -> None:
+    assert quantile_pair([]) == REGIME_QUANTILES
+    assert quantile_pair([0.1, 0.9]) == (0.1, 0.9)
+    assert quantile_pair(None) is None
+
+
+def test_one_quantile_is_refused_rather_than_paired_with_a_default() -> None:
+    with pytest.raises(SystemExit, match="consolidating and a directional"):
+        quantile_pair([0.8])
+
+
+def test_planned_combinations_counts_the_calibrated_cells() -> None:
+    args = argparse.Namespace(
+        strategies=["InsideBar"],
+        roots=["MNQ"],
+        strata=REGIME,
+        resolutions=[5],
+        split=False,
+        regime_quantiles=REGIME_QUANTILES,
+        regime_lookbacks=[5, 20],
+    )
+    per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
+    assert planned_combinations(args) == per_stratum * len(regime.Regime) * 2
