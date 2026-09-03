@@ -17,11 +17,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import override
+from typing import TYPE_CHECKING, override
 
 import pandas as pd
 
-__all__ = [
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
+__all__: Sequence[str] = [
     "COLUMNS",
     "KEY",
     "TEXT_COLUMNS",
@@ -35,18 +39,9 @@ __all__ = [
     "write",
 ]
 
-KEY = "trade_id"
-"""What a sidecar is keyed by: the same trade id every producer writes."""
-
-TEXT_COLUMNS = ("note", "screenshot")
-"""The free-text fields, named once so that keeping them out of a frame is a lookup.
-
-``screenshot`` is a reference the reader resolves rather than an image, and it is free text for
-the same reason ``note`` is: nothing here parses either.
-"""
-
-COLUMNS = (KEY, *TEXT_COLUMNS)
-"""A sidecar's columns as they are stored, in file order."""
+KEY: str = "trade_id"  # What a sidecar is keyed by: the same trade id every producer writes.
+TEXT_COLUMNS: tuple[str, ...] = ("note", "screenshot")
+COLUMNS: tuple[str, ...] = (KEY, *TEXT_COLUMNS)  # A sidecar's columns as they are stored, in file order.
 
 
 class NotesError(ValueError):
@@ -100,7 +95,7 @@ def empty() -> Notes:
     return Notes(frame=pd.DataFrame(columns, index=index))
 
 
-def record(notes: Notes, trade_id: int, note: str, *, screenshot: str | None = None) -> Notes:
+def record(notes: Notes, trade_id: int, note: str, screenshot: str | None = None) -> Notes:
     """Return ``notes`` with one trade's context written, replacing anything already on it."""
     text: str = note.strip()
     if not text:
@@ -124,9 +119,7 @@ def read(path: Path | str) -> Notes:
     raw: pd.DataFrame = pd.read_csv(path, dtype="string")
     missing: list[str] = [name for name in COLUMNS if name not in raw.columns]
     if missing:
-        msg: str = (
-            f"{path}: not a notes sidecar -- missing column(s) {missing}. The shape is nqbt.notes.COLUMNS."
-        )
+        msg: str = f"{path}: not a notes sidecar -- missing column(s) {missing}. The shape is nqbt.notes.COLUMNS."
         raise NotesError(msg)
 
     unknown: list[str] = [name for name in raw.columns if name not in COLUMNS]
@@ -164,13 +157,14 @@ def alongside(frame: pd.DataFrame, notes: Notes) -> pd.DataFrame:
 
     ids: pd.Series[int] = frame[KEY] if KEY in frame.columns else frame.index.to_series()
     attached: pd.DataFrame = frame.copy()
+
     for name in TEXT_COLUMNS:
         attached[name] = ids.map(notes.frame[name]).astype("string")
 
     return attached
 
 
-def check_excluded(frame: pd.DataFrame, *, what: str) -> None:
+def check_excluded(frame: pd.DataFrame, what: str) -> None:
     """Refuse a frame carrying free text into anything that evaluates a trade.
 
     Called at each door into the evaluation path rather than left to a convention, because a
@@ -190,15 +184,13 @@ def check_excluded(frame: pd.DataFrame, *, what: str) -> None:
     raise NotesError(msg)
 
 
-def _keyed(raw: pd.DataFrame, *, source: str) -> pd.DataFrame:
+def _keyed(raw: pd.DataFrame, source: str) -> pd.DataFrame:
     """Key the parsed rows by ``trade_id``, refusing one that is not a whole number."""
     ids: pd.Series[float] = pd.to_numeric(raw[KEY], errors="coerce")
     unreadable: pd.Series[bool] = ids.isna() | (ids % 1 != 0)
     if unreadable.any():
         row: int = int(unreadable.to_numpy().argmax())
-        msg: str = (
-            f"{source}: {KEY} must be a whole number on every row; row {row} carries {raw[KEY].iloc[row]!r}"
-        )
+        msg: str = f"{source}: {KEY} must be a whole number on every row; row {row} carries {raw[KEY].iloc[row]!r}"
         raise NotesError(msg)
 
     frame: pd.DataFrame = raw[list(TEXT_COLUMNS)].copy()

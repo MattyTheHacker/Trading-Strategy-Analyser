@@ -23,6 +23,8 @@ from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import MNQ
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from nqbt.archetypes import Params
     from nqbt.arrays import AnyArray, BoolArray, FloatArray
     from nqbt.context import Dataset
@@ -30,7 +32,8 @@ if TYPE_CHECKING:
     from nqbt.instruments import Instrument
     from nqbt.sweep import Grid
 
-__all__ = [
+
+__all__: Sequence[str] = [
     "Split",
     "WalkForwardError",
     "WalkForwardResult",
@@ -67,7 +70,6 @@ class Split:
 
 def splits(
     n_bars: int,
-    *,
     train_bars: int,
     test_bars: int,
     step: int | None = None,
@@ -90,10 +92,7 @@ def splits(
         raise WalkForwardError(msg)
 
     if n_bars < train_bars + test_bars:
-        msg = (
-            f"need at least train_bars + test_bars = {train_bars + test_bars} bars for one "
-            f"split; got {n_bars}"
-        )
+        msg = f"need at least train_bars + test_bars = {train_bars + test_bars} bars for one split; got {n_bars}"
         raise WalkForwardError(msg)
 
     out: list[Split] = []
@@ -120,14 +119,10 @@ class WalkForwardSummary:
     statistic: str
     splits: int
     splits_selected: int
-    combos_distinct: int
-    """How many different combinations won a training window; 1 means a stable choice."""
-
+    combos_distinct: int  # How many different combinations won a training window; 1 means a stable choice.
     train_median: float
     test_median: float
-    test_pooled: float
-    """The statistic over every out-of-sample trade at once, not a median of medians."""
-
+    test_pooled: float  # The statistic over every out-of-sample trade at once, not a median of medians.
     test_trades: int
     splits_test_better: int
 
@@ -140,12 +135,8 @@ class WalkForwardSummary:
 class WalkForwardResult:
     """Per-split selections and their out-of-sample outcome."""
 
-    table: pd.DataFrame
-    """One row per split: what was chosen in sample and what it did out of sample."""
-
-    trades: pd.DataFrame
-    """Every out-of-sample trade, concatenated in time order, tagged with ``split``."""
-
+    table: pd.DataFrame  # One row per split: what was chosen in sample and what it did out of sample.
+    trades: pd.DataFrame  # Every out-of-sample trade, concatenated in time order, tagged with ``split``.
     statistic: str
     costs: TradingCosts
 
@@ -223,11 +214,10 @@ def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
     return stats.trade_statistic(pnl, name), int(pnl.size)
 
 
-def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config bag would hide a swap
+def walk_forward(  # noqa: PLR0913, PLR0917 - each argument is a distinct axis; a config bag would hide a swap
     bars: pd.DataFrame,
     grid: sweep.Grid,
     costs: TradingCosts,
-    *,
     train_bars: int,
     test_bars: int,
     instrument: Instrument = MNQ,
@@ -334,11 +324,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
 
     return WalkForwardResult(
         table=pd.DataFrame(rows),
-        trades=(
-            pd.concat(logs, ignore_index=True)
-            if logs
-            else pd.DataFrame(columns=["trade_id", "net_pnl", "split"])
-        ),
+        trades=(pd.concat(logs, ignore_index=True) if logs else pd.DataFrame(columns=["trade_id", "net_pnl", "split"])),
         statistic=select_by,
         costs=costs,
     )

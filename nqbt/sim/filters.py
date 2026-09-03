@@ -18,10 +18,13 @@ from typing import TYPE_CHECKING, Protocol
 from nqbt import higher_timeframe, regime, timeofday, trend, volume
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from nqbt.arrays import BoolArray
     from nqbt.context import Dataset
 
-__all__ = ["ContextFiltered", "apply_context_filters"]
+
+__all__: Sequence[str] = ["ContextFiltered", "apply_context_filters"]
 
 
 class ContextFiltered(Protocol):

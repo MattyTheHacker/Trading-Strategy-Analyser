@@ -32,11 +32,13 @@ from nqbt.instruments import MNQ, Instrument
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from logging import Logger
 
     from nqbt.archetypes import Archetype, AxisValue, Params
     from nqbt.trades import LegMatrix
 
-logger = logging.getLogger(__name__)
+
+logger: Logger = logging.getLogger(__name__)
 
 
 class SweepError(RuntimeError):
@@ -87,6 +89,7 @@ class Grid:
             if not values:
                 msg = f"axis {name!r} has no values"
                 raise SweepError(msg)
+
         dead: dict[str, str] = self.dead_axes()
         if dead:
             detail: str = "; ".join(
@@ -122,13 +125,7 @@ class Grid:
         return dead
 
     @classmethod
-    def of(
-        cls,
-        base: Params | None = None,
-        *,
-        archetype: Archetype | None = None,
-        **axes: Iterable[AxisValue],
-    ) -> Grid:
+    def of(cls, base: Params | None = None, archetype: Archetype | None = None, **axes: Iterable[AxisValue]) -> Grid:
         """Build a grid, inferring the archetype from ``base`` when it is unambiguous."""
         if archetype is None:
             archetype = archetypes.for_params(base) if base is not None else archetypes.DEFAULT
@@ -163,9 +160,7 @@ class Grid:
         The whole parameter set rather than just ``axes``, because a period that is never
         swept still has to have its grid built.
         """
-        return {
-            name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable
-        }
+        return {name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable}
 
     def required_context(self) -> ContextSpec:
         """Every precomputed series any combination in this grid will read."""
@@ -182,7 +177,6 @@ def run_combination(
     params: Params,
     instrument: Instrument = MNQ,
     archetype: Archetype = archetypes.DEFAULT,
-    *,
     keep_trades: bool = True,
 ) -> tuple[dict[str, object], pd.DataFrame | None]:
     """Simulate one combination, returning its summary row and its trade log.
@@ -192,18 +186,20 @@ def run_combination(
     """
     legs: LegMatrix = archetype.legs(data, params, instrument)
     row: dict[str, object] = params.as_dict()
+
     for name in archetype.not_sweepable:
         row.pop(name, None)
+
     # No empty-log branch here: one policy for an empty summary, and it lives in ``stats``.
     summary: dict[str, float] = stats.summarise_legs(legs, data.day_codes).as_dict()
     log: pd.DataFrame | None = None
     if keep_trades:
         log = trades.validate(
             trades.trades_to_frame(
-                legs.matrix,
-                legs.count,
-                data.index,
+                matrix=legs.matrix,
+                count=legs.count,
                 instrument=instrument.symbol,
+                index=data.index,
                 source="sim",
             ),
         )
@@ -211,7 +207,7 @@ def run_combination(
     return {**row, **summary}, log
 
 
-CHUNKS_PER_WORKER = 4
+CHUNKS_PER_WORKER: int = 4
 """Chunks handed to each worker rather than one big slice, since combinations differ in cost."""
 
 
@@ -232,7 +228,6 @@ def _run_chunk(
     instrument: Instrument,
     start: int,
     stop: int,
-    *,
     keep_trades: bool,
 ) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
     """Run combinations ``[start, stop)``. Module level so loky can pickle it.
@@ -247,6 +242,7 @@ def _run_chunk(
         row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = combo_id
         rows.append(row)
+
         if log is not None:
             logs[combo_id] = log
 
@@ -257,7 +253,6 @@ def _sweep_serial(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
-    *,
     keep_trades: bool,
     progress_every: int,
 ) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
@@ -268,6 +263,7 @@ def _sweep_serial(
         row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = i
         rows.append(row)
+
         if log is not None:
             logs[i] = log
 
@@ -282,7 +278,6 @@ def _sweep_parallel(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
-    *,
     keep_trades: bool,
     n_jobs: int,
     chunk_size: int | None,
@@ -297,8 +292,7 @@ def _sweep_parallel(
     bounds: list[tuple[int, int]] = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
     payload: Dataset = data.slim()
     batches = Parallel(n_jobs=n_jobs, verbose=10 if progress_every else 0)(
-        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades=keep_trades)
-        for start, stop in bounds
+        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades=keep_trades) for start, stop in bounds
     )
 
     rows: list[dict[str, object]] = []
@@ -317,7 +311,6 @@ def sweep(
     bars: pd.DataFrame,
     grid: Grid,
     instrument: Instrument = MNQ,
-    *,
     data: Dataset | None = None,
     keep_trades: bool = False,
     progress_every: int = 0,
@@ -373,8 +366,7 @@ class AxisPoint(NamedTuple):
 
     strategy: str
     resolution: int
-    contract: str | None
-    """``None`` means the spliced continuous series, which is not any one contract."""
+    contract: str | None  # ``None`` means the spliced continuous series, which is not any one contract.
     tier2: str
 
 
@@ -382,7 +374,6 @@ def sweep_axes(
     bars: pd.DataFrame | Mapping[str, pd.DataFrame],
     grids: Grid | Sequence[Grid],
     instrument: Instrument = MNQ,
-    *,
     resolutions: Sequence[int] = (1,),
     keep_trades: bool = False,
     n_jobs: int = 1,
@@ -468,12 +459,7 @@ def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
     return tagged
 
 
-def rank(
-    results: pd.DataFrame,
-    by: str = "profit_factor",
-    top: int = 20,
-    min_trades: int = 30,
-) -> pd.DataFrame:
+def rank(results: pd.DataFrame, by: str = "profit_factor", top: int = 20, min_trades: int = 30) -> pd.DataFrame:
     """Shortlist candidates, ignoring combinations with fewer than ``min_trades`` trades.
 
     The floor is not optional: the smallest samples produce the most extreme statistics, so

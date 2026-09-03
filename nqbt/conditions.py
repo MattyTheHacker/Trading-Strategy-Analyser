@@ -21,13 +21,13 @@ from nqbt import indicators
 from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     import pandas as pd
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "MA_KINDS",
     "BarGeometry",
     "MovingAverageError",
@@ -370,10 +370,8 @@ class MovingAverageGrid:
 
     kind: str
     periods: IntArray
-    below: BoolArray
-    """``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`."""
-    above: BoolArray
-    """``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`."""
+    below: BoolArray  # ``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`.
+    above: BoolArray  # ``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`.
     values: FloatArray | None = None
     """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept.
 
@@ -421,7 +419,6 @@ def moving_average_grid(
     close: FloatArray,
     periods: Iterable[int],
     kind: str = "ema",
-    *,
     keep_values: bool = False,
 ) -> MovingAverageGrid:
     """Compute every distinct period one kind of average is needed at, once.

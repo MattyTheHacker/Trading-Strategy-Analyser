@@ -866,9 +866,7 @@ def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db)
     every later per-contract sweep would fail to insert into it.
     """
     save(db)  # contract is null throughout: the case that sets the column's type
-    described = {
-        name: sql_type for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)
-    }
+    described = {name: sql_type for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)}
     assert described["contract"] == "VARCHAR"
     assert described["resolution"] == "BIGINT"
     # And the type holds: a real contract name inserts into the column the null one made.
@@ -928,8 +926,7 @@ def legacy_database(db) -> None:
         "axes VARCHAR, notes VARCHAR, host VARCHAR)",
     )
     con.execute(
-        "INSERT INTO sweeps VALUES (1, NOW(), 'MNQ', 'MNQ', true, 10, NOW(), NOW(), "
-        "1, 0.5, '{}', 'old', 'box')",
+        "INSERT INTO sweeps VALUES (1, NOW(), 'MNQ', 'MNQ', true, 10, NOW(), NOW(), 1, 0.5, '{}', 'old', 'box')",
     )
     con.execute("CREATE TABLE combos (sweep_id BIGINT, combo_id BIGINT, profit_factor DOUBLE)")
     con.execute("INSERT INTO combos VALUES (1, 0, 1.23)")

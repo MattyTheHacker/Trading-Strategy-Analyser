@@ -214,7 +214,7 @@ def test_a_missing_coarse_half_is_refused_rather_than_half_checked(tmp_path, exp
         rht.read_probe(path)
 
 
-def write_probe_csv(frame: pd.DataFrame, path: Path, *, coarse_columns: bool) -> None:
+def write_probe_csv(frame: pd.DataFrame, path: Path, coarse_columns: bool) -> None:
     """Write a frame in the probe's own format: semicolons, and NT8's compact timestamps."""
     out = frame.copy()
     out.insert(0, "utc", pd.DatetimeIndex(out.index).strftime("%Y%m%d %H%M%S"))

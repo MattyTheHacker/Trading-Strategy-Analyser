@@ -41,7 +41,6 @@ TICK = 0.25
 def simulate(
     rows,
     signal_at=(),
-    *,
     max_rows=None,
     direction=LONG,
     basis=100.0,
@@ -248,12 +247,8 @@ def test_a_longer_swing_lookback_reaches_further_back_for_its_extreme() -> None:
         (100.0, 100.5, 99.5, 100.0),  # 2: fill
         *FLAT,
     ]
-    one = run(
-        rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=1, stop_offset_ticks=0.0, levels=(np.nan,)
-    )
-    two = run(
-        rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=2, stop_offset_ticks=0.0, levels=(np.nan,)
-    )
+    one = run(rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=1, stop_offset_ticks=0.0, levels=(np.nan,))
+    two = run(rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=2, stop_offset_ticks=0.0, levels=(np.nan,))
     assert one["initial_stop"].iloc[0] == pytest.approx(97.0)
     assert two["initial_stop"].iloc[0] == pytest.approx(95.0)
 

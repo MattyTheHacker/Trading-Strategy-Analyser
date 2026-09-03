@@ -153,7 +153,7 @@ def test_the_grouped_sum_is_compensated_like_pandas() -> None:
     index = minute_index(legs.count)
     assert stats.summarise_legs(legs, context.day_codes(index)).net_pnl == 2.0
 
-    frame = trades.trades_to_frame(legs.matrix, legs.count, index, instrument="NQ")
+    frame = trades.trades_to_frame(matrix=legs.matrix, count=legs.count, index=index, instrument="NQ")
     assert stats.summarise(frame).net_pnl == 2.0
 
 
@@ -175,7 +175,7 @@ def test_trades_are_grouped_by_the_day_they_closed_on() -> None:
     legs = leg_matrix([1, 2, 3], [10.0, -4.0, 7.0], exit_bars=[10, 20, 1500])
 
     fast = stats.summarise_legs(legs, codes)
-    frame = trades.trades_to_frame(legs.matrix, legs.count, index, instrument="NQ")
+    frame = trades.trades_to_frame(matrix=legs.matrix, count=legs.count, index=index, instrument="NQ")
     assert frame["exit_time"].dt.date.nunique() == 2, "fixture must straddle a day boundary"
     assert dataclasses.asdict(fast) == dataclasses.asdict(stats.summarise(frame))
 

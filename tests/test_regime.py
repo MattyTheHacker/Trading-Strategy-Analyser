@@ -378,9 +378,7 @@ def test_the_three_regime_filters_partition_every_measured_signal() -> None:
     """
     data = prepared(regime_lookbacks=(20,))
     whole = deadcat_signal(data, DeadCatParams(bars_required_to_trade=20))
-    parts = [
-        deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, regime_filter=r.bit)) for r in Regime
-    ]
+    parts = [deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, regime_filter=r.bit)) for r in Regime]
     labels = data.regime_labels(20, LOWER, UPPER)
     measured = whole & (labels != UNDEFINED)
 

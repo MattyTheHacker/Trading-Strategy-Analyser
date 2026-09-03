@@ -65,7 +65,7 @@ def close_of(bar: int) -> float:
     return BASE + bar * 0.25
 
 
-def manual_log(legs: list[dict[str, object]], *, contract: str = "MNQ 09-26") -> pd.DataFrame:
+def manual_log(legs: list[dict[str, object]], contract: str = "MNQ 09-26") -> pd.DataFrame:
     """Build a log the way an importer leaves one: fill times, and no bar index anywhere."""
     frame = pd.DataFrame(legs)
     frame["leg"] = frame.groupby("trade_id").cumcount() + 1
@@ -82,7 +82,6 @@ def leg(
     trade_id: int,
     entry_time: str,
     exit_time: str,
-    *,
     entry_price: float,
     exit_price: float,
 ) -> dict[str, object]:
@@ -726,9 +725,7 @@ def test_a_dataset_with_no_bars_is_refused() -> None:
         ],
     )
     with pytest.raises(AnnotationError, match="no bars"):
-        annotate.annotate_trades(
-            log, context.prepare(empty, ContextSpec(ma_keys=conditions.ma_keys(ema=(3,))))
-        )
+        annotate.annotate_trades(log, context.prepare(empty, ContextSpec(ma_keys=conditions.ma_keys(ema=(3,)))))
 
 
 def test_an_empty_log_annotates_to_an_empty_frame_carrying_the_same_columns() -> None:

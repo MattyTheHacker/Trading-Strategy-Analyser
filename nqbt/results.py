@@ -26,18 +26,19 @@ from nqbt import paths
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from logging import Logger
     from pathlib import Path
 
     import pandas as pd
 
-logger = logging.getLogger(__name__)
+logger: Logger = logging.getLogger(__name__)
 
 
 class ResultsError(ValueError):
     """Raised when a frame cannot be stored without losing something it carries."""
 
 
-AXIS_COLUMNS: dict[str, str] = {
+AXIS_COLUMNS: Mapping[str, str] = {
     "strategy": "VARCHAR",
     "resolution": "BIGINT",
     "contract": "VARCHAR",
@@ -49,7 +50,7 @@ On **both** tables: on ``sweeps`` to describe the run, on ``combos`` so a query 
 group without a join. Migrated explicitly, unlike a new statistic -- ``docs/roadmap.md`` §M17.
 """
 
-NULL_MEANS: dict[str, str] = {
+NULL_MEANS: Mapping[str, str] = {
     "strategy": "unrecorded -- written before the axis columns existed",
     "resolution": "unrecorded -- written before the axis columns existed",
     "contract": "the spliced continuous series, which is not any one contract",
@@ -99,7 +100,7 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
     frame rather than declared. Here rather than in :func:`_append_or_create` so there is one
     migration in one place.
     """
-    columns: dict[str, dict[str, str]] = {
+    columns: dict[str, Mapping[str, str]] = {
         "sweeps": {**AXIS_COLUMNS, "batch_id": "BIGINT"},
         "combos": AXIS_COLUMNS,
     }
@@ -142,9 +143,8 @@ def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
         con.close()
 
 
-def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has to state
+def save_sweep(  # noqa: PLR0913, PLR0917 - each keyword is a column the stored row has to state
     results: pd.DataFrame,
-    *,
     root: str,
     instrument: str,
     bars: pd.DataFrame,
@@ -216,7 +216,6 @@ def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has t
 
 def _tag_axes(
     results: pd.DataFrame,
-    *,
     strategy: str | None,
     resolution: int | None,
     contract: str | None,
@@ -255,11 +254,7 @@ def _describe(con: duckdb.DuckDBPyConnection, relation: str) -> dict[str, str]:
     return {str(row[0]): str(row[1]) for row in con.execute(f"DESCRIBE {relation}").fetchall()}
 
 
-def _lossy_columns(
-    con: duckdb.DuckDBPyConnection,
-    stored: Mapping[str, str],
-    incoming: Mapping[str, str],
-) -> list[str]:
+def _lossy_columns(con: duckdb.DuckDBPyConnection, stored: Mapping[str, str], incoming: Mapping[str, str]) -> list[str]:
     """Which shared columns hold a value the stored column's type would not give back.
 
     A round trip through both types, so this reports *measured* loss rather than a rule about
@@ -283,12 +278,7 @@ def _lossy_columns(
     return lossy
 
 
-def _widen(
-    con: duckdb.DuckDBPyConnection,
-    table: str,
-    stored: Mapping[str, str],
-    incoming: Mapping[str, str],
-) -> None:
+def _widen(con: duckdb.DuckDBPyConnection, table: str, stored: Mapping[str, str], incoming: Mapping[str, str]) -> None:
     """Add the columns the frame carries and the table does not, leaving stored rows null."""
     for name, sql_type in incoming.items():
         if name in stored:
@@ -340,7 +330,6 @@ def save_trades(
     sweep_id: int,
     combo_id: int,
     db_path: Path = paths.SWEEPS_DB,
-    *,
     replace: bool = False,
 ) -> None:
     """Store one combination's trade log, for a shortlisted candidate worth inspecting.

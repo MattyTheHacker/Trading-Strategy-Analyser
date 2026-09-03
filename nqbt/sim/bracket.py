@@ -176,22 +176,24 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
 
     Called by both the in-position path and the entry-bar path; **do not fork it again**.
     """
-    n_legs = legs.is_open.size
-    direction = trade.direction
-    open_px = bars.open_[i]
+    n_legs: int = legs.is_open.size
+    direction: float = trade.direction
+    open_px: float = bars.open_[i]
+    adverse_px: float
+    favourable_px: float
     adverse_px, favourable_px = sided(bars.low[i], bars.high[i], direction)
-    slippage = slippage_points(costs)
+    slippage: float = slippage_points(costs)
     # The position was held from this bar's open unless it filled intrabar on this very bar.
-    held_from_bar_open = i > trade.entry_bar or trade.filled_at_open
+    held_from_bar_open: bool = i > trade.entry_bar or trade.filled_at_open
 
     # The stop fills at the open when the bar gapped through it, otherwise at its own price.
-    stop_fill = stop
+    stop_fill: float = stop
     if held_from_bar_open and direction * open_px < direction * stop:
         stop_fill = open_px
 
-    stop_hit = direction * adverse_px <= direction * stop
-    any_target_hit = False
-    nearest_target = 0.0
+    stop_hit: bool = direction * adverse_px <= direction * stop
+    any_target_hit: bool = False
+    nearest_target: float = 0.0
     for leg in range(n_legs):
         if legs.is_open[leg] and not np.isnan(legs.target[leg]):  # noqa: SIM102 - needs a continue guard; #146
             if limit_filled(favourable_px, legs.target[leg], fills.fill_limit_on_touch, direction):
@@ -199,8 +201,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                     nearest_target = legs.target[leg]
 
                 any_target_hit = True
-    ambiguous = stop_hit and any_target_hit
-    targets_first = ambiguous and targets_reached_first(open_px, stop, nearest_target, fills.ambiguity_policy)
+
+    ambiguous: bool = stop_hit and any_target_hit
+    targets_first: bool = ambiguous and targets_reached_first(open_px, stop, nearest_target, fills.ambiguity_policy)
 
     if stop_hit and not targets_first:
         # The whole position leaves at the stop, adverse slippage meaning a worse fill.
@@ -263,7 +266,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
 
                 legs.is_open[leg] = False
 
-    still_open = False
+    still_open: bool = False
     for leg in range(n_legs):
         if legs.is_open[leg]:
             still_open = True
@@ -310,20 +313,21 @@ def entry_bracket(
     Shared by the jitted loop and by ``explain.py``, so the audit trail is by construction the
     arithmetic under audit. **Do not inline either copy back** -- ``docs/roadmap.md`` §M20a.
     """
+    adverse: float
+    favourable: float
     adverse, favourable = sided(low, high, direction)
-    close_based = close + direction * entry_offset
-    trigger = favourable
+    close_based: float = close + direction * entry_offset
+    trigger: float = favourable
     if direction * close_based > direction * trigger:
         trigger = close_based
 
-    stop = adverse - direction * stop_offset
-    risk = direction * (trigger - stop)
+    stop: float = adverse - direction * stop_offset
+    risk: float = direction * (trigger - stop)
 
     return trigger, stop, risk
 
 
-NO_BRACKET_FLOOR = 0.0
-"""The floor value that switches :func:`atr_bracket_distance` off, which every port passes."""
+NO_BRACKET_FLOOR: float = 0.0  # The floor value that turns :func:`atr_bracket_distance` off, which every port passes.
 
 
 @njit(cache=True)
@@ -339,13 +343,7 @@ def atr_bracket_distance(atr_value: float, multiple: float, floor_points: float)
 
 
 @njit(cache=True)
-def swing_stop(
-    bars: Bars,
-    signal_bar: int,
-    lookback: int,
-    offset: float,
-    direction: float,
-) -> float:
+def swing_stop(bars: Bars, signal_bar: int, lookback: int, offset: float, direction: float) -> float:
     """A structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
 
     The window ends at ``signal_bar`` and includes it, and never reads the bar the fill happens
@@ -356,9 +354,9 @@ def swing_stop(
     Shared by EmaCrossover's swing mode and ElasticBand's :data:`~nqbt.sim.types.STOP_SWING`.
     **Do not fork it.**
     """
-    start = signal_bar - lookback + 1
+    start: int = signal_bar - lookback + 1
     start = max(start, 0)
-    extreme = 0.0
+    extreme: float = 0.0
     for j in range(start, signal_bar + 1):
         adverse, _ = sided(bars.low[j], bars.high[j], direction)
         if j == start or direction * adverse < direction * extreme:
@@ -380,8 +378,8 @@ def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     return high, low
 
 
-AMBIGUITY_WORST_CASE = 0
-AMBIGUITY_NEAREST_TO_OPEN = 1
+AMBIGUITY_WORST_CASE: int = 0
+AMBIGUITY_NEAREST_TO_OPEN: int = 1
 
 
 @njit(cache=True)
@@ -429,7 +427,7 @@ def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
     if minimum <= 0.0:
         return True
 
-    best = 0.0
+    best: float = 0.0
     for k in range(target_r.size):
         if not np.isnan(target_r[k]) and target_r[k] > best:
             best = target_r[k]
@@ -452,13 +450,12 @@ def write_leg(
     if written >= out.shape[0]:
         return -1
 
-    direction = trade.direction
-    quantity = legs.quantity[leg]
-    # Positive when the trade made money, whichever side it was on.
-    pnl_per_unit = (leg_exit.price - trade.entry_price) * direction
-    gross = pnl_per_unit * quantity * costs.point_value
-    commission = costs.commission_per_contract * quantity
-    net = gross - commission
+    direction: float = trade.direction
+    quantity: int = legs.quantity[leg]
+    pnl_per_unit: float = (leg_exit.price - trade.entry_price) * direction  # always positive for a winning trade
+    gross: float = pnl_per_unit * quantity * costs.point_value
+    commission: float = costs.commission_per_contract * quantity
+    net: float = gross - commission
 
     out[written, C_TRADE_ID] = trade.trade_id
     out[written, C_LEG] = leg + 1

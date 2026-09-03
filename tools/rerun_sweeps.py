@@ -110,7 +110,7 @@ def grids() -> list[tuple[str, sweep.Grid]]:
     ]
 
 
-def run_root(root: str, batch_id: int, *, n_jobs: int, db_path: paths.Path) -> None:
+def run_root(root: str, batch_id: int, n_jobs: int, db_path: paths.Path) -> None:
     """Sweep every stratum of one root, storing each as its own ``sweeps`` row.
 
     The eleven grids share one dataset built from the union of their specs, so the

@@ -24,11 +24,11 @@ import numpy as np
 from numba import njit
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "ALL_REGIMES",
     "UNDEFINED",
     "EfficiencyRatioGrid",
@@ -67,12 +67,9 @@ class Regime(IntEnum):
     The integer values ascend with the ratio, and are also the bit positions in a filter mask.
     """
 
-    CONSOLIDATING = 0
-    """Below the lower threshold: the window's net move is small against its path length."""
-    UNCLASSIFIABLE = 1
-    """Between the thresholds, both boundaries included. The deliberate no-trade state."""
-    DIRECTIONAL = 2
-    """Above the upper threshold: the window went somewhere rather than wandering."""
+    CONSOLIDATING = 0  # Below the lower threshold: the window's net move is small against its path length.
+    UNCLASSIFIABLE = 1  # Between the thresholds, both boundaries included. The deliberate no-trade state.
+    DIRECTIONAL = 2  # Above the upper threshold: the window went somewhere rather than wandering.
 
     @property
     def bit(self) -> int:
@@ -145,6 +142,7 @@ def validate_thresholds(consolidating_below: float, directional_above: float) ->
             f"consolidating_below {consolidating_below} exceeds directional_above "
             f"{directional_above}, which would put a bar in both regimes at once"
         )
+
         raise RegimeError(msg)
 
 
@@ -195,12 +193,7 @@ def _label(values: FloatArray, consolidating_below: float, directional_above: fl
 
 
 @njit(cache=True)
-def _gate(
-    values: FloatArray,
-    consolidating_below: float,
-    directional_above: float,
-    mask: int,
-) -> BoolArray:
+def _gate(values: FloatArray, consolidating_below: float, directional_above: float, mask: int) -> BoolArray:
     """One pass from ratio to boolean, so a sweep combination never builds a label array."""
     n = values.size
     out = np.zeros(n, dtype=np.bool_)
@@ -230,19 +223,10 @@ def label(values: FloatArray, consolidating_below: float, directional_above: flo
     """
     validate_thresholds(consolidating_below, directional_above)
 
-    return _label(
-        np.ascontiguousarray(values, dtype=np.float64),
-        float(consolidating_below),
-        float(directional_above),
-    )
+    return _label(np.ascontiguousarray(values, dtype=np.float64), float(consolidating_below), float(directional_above))
 
 
-def gate(
-    values: FloatArray,
-    mask: int,
-    consolidating_below: float,
-    directional_above: float,
-) -> BoolArray:
+def gate(values: FloatArray, mask: int, consolidating_below: float, directional_above: float) -> BoolArray:
     """Test every bar's regime against ``mask``, one boolean per bar.
 
     An :data:`UNDEFINED` bar passes nothing, :data:`ALL_REGIMES` included, which is why an
@@ -280,10 +264,7 @@ class EfficiencyRatioGrid:
         """Find the row holding ``lookback``, or say what the grid was built for."""
         idx: int = int(np.searchsorted(self.lookbacks, lookback))
         if idx >= self.lookbacks.size or self.lookbacks[idx] != lookback:
-            msg: str = (
-                f"efficiency ratio over {lookback} bars is not in this grid; "
-                f"built for {self.lookbacks.tolist()}"
-            )
+            msg: str = f"efficiency ratio over {lookback} bars is not in this grid; built for {self.lookbacks.tolist()}"
             raise KeyError(msg)
 
         return idx
@@ -292,22 +273,11 @@ class EfficiencyRatioGrid:
         """Read one lookback's efficiency ratios."""
         return np.asarray(self.values[self.row(lookback)])
 
-    def labels_for(
-        self,
-        lookback: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> LabelArray:
+    def labels_for(self, lookback: int, consolidating_below: float, directional_above: float) -> LabelArray:
         """Label every bar at one lookback, the stratification key -- see :func:`label`."""
         return label(self.values_for(lookback), consolidating_below, directional_above)
 
-    def gate_for(
-        self,
-        lookback: int,
-        mask: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> BoolArray:
+    def gate_for(self, lookback: int, mask: int, consolidating_below: float, directional_above: float) -> BoolArray:
         """Test every bar at one lookback against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.values_for(lookback), mask, consolidating_below, directional_above)
 

@@ -221,9 +221,9 @@ def test_a_row_the_rerun_does_not_reproduce_stores_no_log(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="trades, not the"):
         store_group(block, resample.resample(bars, 5), archetypes.INSIDEBAR, ROOT, 5, db)
-    assert not results.query(
-        "SELECT COUNT(*) c FROM information_schema.tables WHERE table_name = 'trades'", db
-    ).loc[0, "c"]
+    assert not results.query("SELECT COUNT(*) c FROM information_schema.tables WHERE table_name = 'trades'", db).loc[
+        0, "c"
+    ]
 
 
 def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_from(

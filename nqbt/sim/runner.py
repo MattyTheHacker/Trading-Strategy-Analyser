@@ -55,7 +55,6 @@ def deadcat_legs(
     data: Dataset,
     params: DeadCatParams,
     instrument: Instrument = MNQ,
-    *,
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -113,7 +112,6 @@ def run_deadcat(
     data: Dataset,
     params: DeadCatParams,
     instrument: Instrument = MNQ,
-    *,
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
@@ -122,10 +120,10 @@ def run_deadcat(
 
     return trades.validate(
         trades.trades_to_frame(
-            legs.matrix,
-            legs.count,
-            data.index if with_times else None,
+            matrix=legs.matrix,
+            count=legs.count,
             instrument=instrument.symbol,
+            index=data.index if with_times else None,
             source="sim",
         ),
     )

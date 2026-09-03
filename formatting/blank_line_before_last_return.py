@@ -53,9 +53,7 @@ class ReturnModifier(cst.CSTTransformer):
 
     @override
     def leave_IndentedBlock(
-        self,
-        original_node: cst.IndentedBlock,
-        updated_node: cst.IndentedBlock,
+        self, original_node: cst.IndentedBlock, updated_node: cst.IndentedBlock
     ) -> cst.IndentedBlock:
         # 1. Match object identity using the original, unaltered node tree
         target_index = -1
@@ -90,11 +88,7 @@ class EnsureBlankLineBeforeLastReturn(cst.CSTTransformer):
     """Class to ensure there is a blank line before the very last return statement in a method/function."""
 
     @override
-    def leave_FunctionDef(
-        self,
-        original_node: cst.FunctionDef,
-        updated_node: cst.FunctionDef,
-    ) -> cst.FunctionDef:
+    def leave_FunctionDef(self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef) -> cst.FunctionDef:
         # 1. Collect all returns in this function's scope
         collector = ReturnCollector()
         updated_node.body.visit(collector)

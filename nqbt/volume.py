@@ -30,7 +30,7 @@ import numpy as np
 from numba import njit
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from nqbt.arrays import (
         BoolArray,
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
         OffsetArray,
     )
 
-__all__ = [
+__all__: Sequence[str] = [
     "ALL_STATES",
     "MIN_BASELINE_SESSIONS",
     "MIN_ROLLING_BARS",
@@ -70,23 +70,23 @@ __all__ = [
     "volume_grid",
 ]
 
-UNDEFINED = -1
+UNDEFINED: int = -1
 """Label for a bar with no baseline to be relative to: out of session, inside a warm-up, or in
 a bar of session whose prior sessions traded nothing. Negative, not a fourth state --
 ``docs/roadmap.md`` §M10.2.
 """
 
-MIN_ROLLING_BARS = 2
+MIN_ROLLING_BARS: int = 2
 """A one-bar rolling window is :attr:`VolumeForm.PER_BAR` under another name. Refused rather
 than silently duplicating a form.
 """
 
-MIN_BASELINE_SESSIONS = 5
+MIN_BASELINE_SESSIONS: int = 5
 """Fewest prior sessions a baseline may be taken over, and the number of observations the
 window must actually hold before a bar is labelled at all.
 """
 
-NO_ROLLING = 0
+NO_ROLLING: int = 0
 """The rolling window a form that does not read one carries in its :class:`VolumeKey`."""
 
 
@@ -100,12 +100,9 @@ class VolumeState(IntEnum):
     The integer values ascend with the ratio, and are also the bit positions in a filter mask.
     """
 
-    THIN = 0
-    """Below the lower threshold: quieter than this bar of session usually is."""
-    NORMAL = 1
-    """Between the thresholds, both boundaries included."""
-    HEAVY = 2
-    """Above the upper threshold: busier than this bar of session usually is."""
+    THIN = 0  # Below the lower threshold: quieter than this bar of session usually is.
+    NORMAL = 1  # Between the thresholds, both boundaries included.
+    HEAVY = 2  # Above the upper threshold: busier than this bar of session usually is.
 
     @property
     def bit(self) -> int:
@@ -120,12 +117,9 @@ class VolumeForm(IntEnum):
     choice made once: an unusually busy bar is not an unusually busy session so far.
     """
 
-    PER_BAR = 0
-    """Contracts traded in this bar alone."""
-    ROLLING = 1
-    """Contracts traded over the trailing ``rolling_bars`` bars, this one included."""
-    SESSION_TO_DATE = 2
-    """Contracts traded since this bar's session opened. Pairs with the bar-of-session index."""
+    PER_BAR = 0  # Contracts traded in this bar alone.
+    ROLLING = 1  # Contracts traded over the trailing ``rolling_bars`` bars, this one included.
+    SESSION_TO_DATE = 2  # Contracts traded since this bar's session opened. Pairs with the bar-of-session index.
 
 
 ALL_STATES = (1 << len(VolumeState)) - 1
@@ -136,8 +130,7 @@ class VolumeKey(NamedTuple):
     """What one relative-volume series is determined by, and the grid's lookup key."""
 
     form: VolumeForm
-    rolling_bars: int
-    """:data:`NO_ROLLING` for every form but :attr:`VolumeForm.ROLLING` -- see :func:`key`."""
+    rolling_bars: int  # :data:`NO_ROLLING` for every form but :attr:`VolumeForm.ROLLING` -- see :func:`key`.
     baseline_sessions: int
 
 
@@ -160,9 +153,7 @@ def states_in(mask: int) -> tuple[VolumeState, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no state owns."""
     if mask < 0 or mask & ~ALL_STATES:
-        msg: str = (
-            f"volume mask {mask} sets bits outside 0..{ALL_STATES}; use VolumeState.bit or states_mask()"
-        )
+        msg: str = f"volume mask {mask} sets bits outside 0..{ALL_STATES}; use VolumeState.bit or states_mask()"
         raise VolumeError(msg)
 
     if mask == 0:
@@ -223,10 +214,7 @@ def validate_thresholds(thin_below: float, heavy_above: float) -> None:
         raise VolumeError(msg)
 
     if thin_below > heavy_above:
-        msg = (
-            f"thin_below {thin_below} exceeds heavy_above {heavy_above}, "
-            "which would put a bar in both states at once"
-        )
+        msg = f"thin_below {thin_below} exceeds heavy_above {heavy_above}, which would put a bar in both states at once"
         raise VolumeError(msg)
 
 
@@ -251,6 +239,7 @@ def session_ids(trading_day: DateArray, in_session: BoolArray) -> IntArray:
     days: DateArray = np.asarray(trading_day)
     ids: IntArray = np.full(days.size, UNDEFINED, dtype=np.int64)
     inside: OffsetArray = np.flatnonzero(np.asarray(in_session))
+
     if inside.size == 0:
         return ids
 
@@ -364,6 +353,7 @@ def _session_grid(
     for i in range(values.size):
         session = session_id[i]
         index = bar_of_session[i]
+
         if session >= 0 and 0 <= index < n_indices:
             grid[session, index] = values[i]
 
@@ -494,7 +484,6 @@ def relative_to_bar_of_session(
     session_id: IntArray,
     bar_of_session: IntArray,
     baseline_sessions: int,
-    *,
     min_observations: int = MIN_BASELINE_SESSIONS,
 ) -> FloatArray:
     """Divide out what is normal for this bar of session over the preceding sessions.
@@ -558,8 +547,7 @@ class VolumeGrid:
     absolute: FloatArray
     """Contracts traded, ``[n_keys, n_bars]`` float64. Read, never filtered on -- an absolute
     threshold is comparable neither across time nor across roots."""
-    relative: FloatArray
-    """The same, divided by its bar-of-session baseline, ``nan`` where there is none."""
+    relative: FloatArray  # The same, divided by its bar-of-session baseline, ``nan`` where there is none.
 
     def __len__(self) -> int:
         """Count the bars, not the keys."""
@@ -585,13 +573,7 @@ class VolumeGrid:
         """Label every bar of one series, the stratification key -- see :func:`label`."""
         return label(self.relative_for(wanted), thin_below, heavy_above)
 
-    def gate_for(
-        self,
-        wanted: VolumeKey,
-        mask: int,
-        thin_below: float,
-        heavy_above: float,
-    ) -> BoolArray:
+    def gate_for(self, wanted: VolumeKey, mask: int, thin_below: float, heavy_above: float) -> BoolArray:
         """Test every bar of one series against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.relative_for(wanted), mask, thin_below, heavy_above)
 
@@ -614,9 +596,7 @@ def volume_grid(
     would never form them, so they are not session volume. Sixteen bytes per bar per key, and
     the baseline is the expensive pass -- ``docs/roadmap.md`` §M10.2.
     """
-    ordered: tuple[VolumeKey, ...] = tuple(
-        sorted({key(k.form, k.rolling_bars, k.baseline_sessions) for k in keys})
-    )
+    ordered: tuple[VolumeKey, ...] = tuple(sorted({key(k.form, k.rolling_bars, k.baseline_sessions) for k in keys}))
     if not ordered:
         msg: str = "no volume series supplied"
         raise VolumeError(msg)

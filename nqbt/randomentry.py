@@ -24,20 +24,15 @@ if TYPE_CHECKING:
     from nqbt.context import Dataset
     from nqbt.trades import LegMatrix
 
-MIN_FINITE_DRAWS = 2
-"""Fewest finite null draws that make a distribution to place an observation in."""
+MIN_FINITE_DRAWS: int = 2  # Fewest finite null draws that make a distribution to place an observation in.
+DEFAULT_ITERATIONS: int = 200  # Null realisations drawn by default. Sized in ``docs/roadmap.md`` §M7a.
+DEFAULT_ALPHA: float = 0.05  # Two-sided significance threshold behind :attr:`NullResult.verdict`.
 
-DEFAULT_ITERATIONS = 200
-"""Null realisations drawn by default. Sized in ``docs/roadmap.md`` §M7a."""
+WORSE: str = "worse than random"
+INDISTINGUISHABLE: str = "indistinguishable from random"
+BETTER: str = "better than random"
 
-DEFAULT_ALPHA = 0.05
-"""Two-sided significance threshold behind :attr:`NullResult.verdict`."""
-
-WORSE = "worse than random"
-INDISTINGUISHABLE = "indistinguishable from random"
-BETTER = "better than random"
-
-RATE_STATISTICS = ("profit_factor", "expectancy", "win_rate")
+RATE_STATISTICS: tuple[str, ...] = ("profit_factor", "expectancy", "win_rate")
 """Per-trade rates, so trade count divides out.
 
 The default comparison, because the arms match on entry *signals* and diverge on fills.
@@ -78,27 +73,20 @@ class NullResult:
     null_median: float
     null_p05: float
     null_p95: float
-    percentile: float
-    """Share of null draws below the observed value, as a percentage."""
-    p_value: float
-    """Two-sided, so it answers "different from random" in either direction."""
+    percentile: float  # Share of null draws below the observed value, as a percentage.
+    p_value: float  # Two-sided, so it answers "different from random" in either direction.
     verdict: str
     iterations: int
     observed_trades: int
-    null_median_trades: float
-    """Reported on every row, not only the count-sensitive ones."""
-    count_sensitive: bool
-    """True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`."""
+    null_median_trades: float  # Reported on every row, not only the count-sensitive ones.
+    count_sensitive: bool  # True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`.
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
-def minute_of_session(
-    index: pd.DatetimeIndex,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> IntArray:
+def minute_of_session(index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> IntArray:
     """How far each bar sits past its session open, in minutes."""
     return resample.minutes_since_open(index, template)
 
@@ -111,19 +99,12 @@ class SessionMinutePool:
     ``docs/roadmap.md`` §M7a.
     """
 
-    minutes: IntArray
-    """Minute-of-session per bar, aligned to the index."""
-    bars_by_minute: IntArray
-    """Bar indices, sorted by minute-of-session, so one minute's pool is a contiguous slice."""
-    starts: IntArray
-    """Where each minute's slice begins in :attr:`bars_by_minute`; ``starts[m + 1]`` ends it."""
+    minutes: IntArray  # Minute-of-session per bar, aligned to the index.
+    bars_by_minute: IntArray  # Bar indices, sorted by minute-of-session, so one minute's pool is a contiguous slice.
+    starts: IntArray  # Where each minute's slice begins in :attr:`bars_by_minute`; ``starts[m + 1]`` ends it.
 
     @classmethod
-    def build(
-        cls,
-        index: pd.DatetimeIndex,
-        template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-    ) -> SessionMinutePool:
+    def build(cls, index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> SessionMinutePool:
         """Group every bar of ``index`` by its minute-of-session, once."""
         minutes: IntArray = minute_of_session(index, template)
         order: OffsetArray = np.argsort(minutes, kind="stable")
@@ -140,7 +121,6 @@ def matched_random_signal(
     data: Dataset,
     signal: BoolArray,
     rng: np.random.Generator,
-    *,
     pool: SessionMinutePool | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> BoolArray:
@@ -200,7 +180,6 @@ def null_summaries(
     params: Params,
     archetype: Archetype | None = None,
     instrument: Instrument = MNQ,
-    *,
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
     n_jobs: int = 1,
@@ -237,7 +216,6 @@ def compare(
     params: Params,
     archetype: Archetype | None = None,
     instrument: Instrument = MNQ,
-    *,
     statistics: tuple[str, ...] = RATE_STATISTICS,
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
@@ -263,6 +241,7 @@ def compare(
     observed: dict[str, float] = stats.summarise_legs(
         archetype.legs(data, params, instrument), data.day_codes
     ).as_dict()
+
     null: pd.DataFrame = null_summaries(
         data,
         params,
@@ -316,7 +295,6 @@ def _place(
     draws: FloatArray,
     alpha: float,
     iterations: int,
-    *,
     observed_trades: int,
     null_median_trades: float,
 ) -> NullResult:
@@ -330,10 +308,7 @@ def _place(
     p_value: float = min(1.0, 2.0 * (at_least_as_extreme + 1) / (draws.size + 1))
 
     verdict: str
-    if p_value > alpha:
-        verdict = INDISTINGUISHABLE
-    else:
-        verdict = BETTER if observed > float(np.median(draws)) else WORSE
+    verdict = INDISTINGUISHABLE if p_value > alpha else BETTER if observed > float(np.median(draws)) else WORSE
 
     return NullResult(
         statistic=name,

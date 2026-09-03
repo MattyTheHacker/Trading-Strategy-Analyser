@@ -34,11 +34,8 @@ if TYPE_CHECKING:
     from nqbt.sim.types import InsideBarTrailingParams
     from nqbt.trades import LegMatrix
 
-BRACKETED_LOT = 0
-"""``entry1``: a fixed stop and a profit target."""
-
-TRAILING_LOT = 1
-"""``entry2``: a trailing stop and no target at all."""
+BRACKETED_LOT: int = 0  # ``entry1``: a fixed stop and a profit target.
+TRAILING_LOT: int = 1  # ``entry2``: a trailing stop and no target at all.
 
 
 class Lots(NamedTuple):
@@ -107,6 +104,7 @@ def resolve_lots(
 
         for other in range(n_lots):
             lots.mask[other] = other == lot
+
         written, _ = bracket.resolve_brackets(
             out,
             written,
@@ -317,11 +315,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             fixed_stop = adverse - d * stop_distance
             # ``SetTrailStop`` takes a **tick count**, so the distance is computed as one
             # and converted back, exactly as the C# writes it.
-            distance = (
-                (bars.high[inside_bar] - bars.low[inside_bar])
-                / costs.tick_size
-                * rules.trailing_stop_multiplier
-            )
+            distance = (bars.high[inside_bar] - bars.low[inside_bar]) / costs.tick_size * rules.trailing_stop_multiplier
             trail_distance = distance * costs.tick_size
             trail_stop = fill - d * trail_distance
             if fills.round_targets:
@@ -467,7 +461,6 @@ def insidebartrailing_legs(
     data: Dataset,
     params: InsideBarTrailingParams,
     instrument: Instrument = MNQ,
-    *,
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -522,7 +515,6 @@ def run_insidebartrailing(
     data: Dataset,
     params: InsideBarTrailingParams,
     instrument: Instrument = MNQ,
-    *,
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
@@ -531,10 +523,10 @@ def run_insidebartrailing(
 
     return trades.validate(
         trades.trades_to_frame(
-            legs.matrix,
-            legs.count,
-            data.index if with_times else None,
+            matrix=legs.matrix,
+            count=legs.count,
             instrument=instrument.symbol,
+            index=data.index if with_times else None,
             source="sim",
         ),
     )

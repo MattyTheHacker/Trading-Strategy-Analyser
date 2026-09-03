@@ -76,10 +76,7 @@ class Tier2Status(StrEnum):
     """No reconciliation attempted and none planned yet."""
 
 
-MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
-"""The three moving-average gates the ported archetypes share, as the prefix each pair of
-``<gate>_period`` and ``<gate>_kind`` fields is named after.
-"""
+MA_GATE_PREFIXES: tuple[str, ...] = ("ema", "fast_sma", "slow_sma")
 
 
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
@@ -205,9 +202,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
     ``docs/roadmap.md`` §M17.
     """
-    atr: set[int] = (
-        {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
-    )
+    atr: set[int] = {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
 
     return ContextSpec(
         ma_keys=_ma_keys(values, ("fast", "slow")),
@@ -539,8 +534,7 @@ def for_params(params: Params) -> Archetype:
     matches: list[Archetype] = [a for a in all_archetypes() if a.params_cls is type(params)]
     if not matches:
         msg: str = (
-            f"no registered archetype takes {type(params).__name__}; "
-            f"pass archetype= explicitly. Known: {names()}"
+            f"no registered archetype takes {type(params).__name__}; pass archetype= explicitly. Known: {names()}"
         )
         raise ArchetypeError(
             msg,

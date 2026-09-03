@@ -51,9 +51,7 @@ def bars(days: int = DAYS, minutes: int = MINUTES, first_day: str = FIRST_DAY) -
     regime label with nothing to stratify.
     """
     days_index = pd.bdate_range(first_day, periods=days)
-    stamps = [
-        pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=minutes, freq="min", tz="UTC") for day in days_index
-    ]
+    stamps = [pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=minutes, freq="min", tz="UTC") for day in days_index]
     index = stamps[0].append(stamps[1:])
 
     count = len(index)
@@ -83,7 +81,6 @@ def bars_in(
     data: context.Dataset,
     phase: timeofday.SessionPhase,
     count: int,
-    *,
     session: int = -1,
 ) -> list[int]:
     """``count`` bar indices in ``phase`` of one session -- the last, which alone has baselines.
@@ -101,7 +98,6 @@ def bars_in(
 def sim_log(
     entries: list[int],
     data: context.Dataset,
-    *,
     pnl: list[float],
     hold: int = 2,
     exit_reasons: list[str] | None = None,
@@ -167,7 +163,7 @@ def by_time_only(log: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def alternating(count: int, *, win: float = 100.0, loss: float = -50.0) -> list[float]:
+def alternating(count: int, win: float = 100.0, loss: float = -50.0) -> list[float]:
     """P&L that gives a stratum both winners and losers, so a win rate is not 0 or 1."""
     return [win if i % 2 else loss for i in range(count)]
 

@@ -18,9 +18,11 @@ import numpy as np
 from numba import njit
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from nqbt.arrays import BoolArray, DateArray, FloatArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "MIN_HMA_PERIOD",
     "band_stretch",
     "new_session_flags",
@@ -37,7 +39,7 @@ __all__ = [
     "typical_price",
 ]
 
-MIN_HMA_PERIOD = 2
+MIN_HMA_PERIOD: int = 2
 """Shortest period an HMA takes -- NT8's ``Range(2, int.MaxValue)``. At ``1`` its inner
 ``WMA(period // 2)`` would have no bars to average.
 """
@@ -203,11 +205,7 @@ def nt8_stddev(values: FloatArray, period: int) -> FloatArray:
     return out
 
 
-def nt8_bollinger(
-    values: FloatArray,
-    period: int,
-    num_std: float,
-) -> tuple[FloatArray, FloatArray, FloatArray]:
+def nt8_bollinger(values: FloatArray, period: int, num_std: float) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Bollinger Bands as ``(upper, middle, lower)``: ``SMA +/- k * StdDev``."""
     middle: FloatArray = nt8_sma(values, period)
     spread: FloatArray = num_std * nt8_stddev(values, period)

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from nqbt.annotate import Annotation
     from nqbt.stats import Summary
 
-__all__ = [
+__all__: Sequence[str] = [
     "FORCED_EXIT_NOTE",
     "MAX_STRATA",
     "MIN_STRATA",
@@ -52,27 +52,27 @@ __all__ = [
     "time_of_day",
 ]
 
-MIN_TRADES = 30
+MIN_TRADES: int = 30
 """Fewest trades a stratum needs before it is ranked, the floor ``sweep.rank`` already enforces.
 
 The smallest samples produce the most extreme statistics, so without a floor they lead every
 ranking. A stratum under it is still reported, and marked.
 """
 
-MIN_STRATA = 2
+MIN_STRATA: int = 2
 """Fewest values a condition must take to be a comparison. One value separates nothing."""
 
-MAX_STRATA = 12
+MAX_STRATA: int = 12
 """Most distinct values a condition may take and still be a stratification.
 
 Above it the split is a list of trades rather than a comparison, and no stratum would survive
 :data:`MIN_TRADES` anyway.
 """
 
-REPORTED = ("trades", "win_rate", "expectancy", "profit_factor", "mean_r")
+REPORTED: tuple[str, ...] = ("trades", "win_rate", "expectancy", "profit_factor", "mean_r")
 """The :class:`nqbt.stats.Summary` fields a stratum is reported by, in column order."""
 
-STATISTICS_FROM = {
+STATISTICS_FROM: Mapping[str, tuple[str, ...]] = {
     "bars_held": ("avg_bars_held",),
     "mae_points": ("avg_mae_points",),
     "mfe_points": ("avg_mfe_points",),
@@ -84,10 +84,10 @@ those and no more. A :data:`nqbt.trades.NULLABLE` column absent from here feeds 
 The wording of each omission comes from the producer -- :data:`nqbt.trade_import.UNPOPULATED`.
 """
 
-PHASE_COLUMN = "entry_phase"
+PHASE_COLUMN: str = "entry_phase"
 """:mod:`nqbt.timeofday`'s coarse label at the entry bar: the headline stratification."""
 
-STATUS = (
+STATUS: str = (
     "HYPOTHESIS-GENERATING, NOT CONFIRMATORY -- a few hundred trades against a few dozen "
     "conditions is a multiple-comparisons machine, and the minimum stratum below is one third of "
     "the guard. Run nqbt.guard over these trades for the other two, and take a separation from "
@@ -97,13 +97,13 @@ STATUS = (
 
 _FORCED_EXIT_VALUE = timeofday.FORCED_EXIT_PHASE.name.lower()
 
-FORCED_EXIT_NOTE = (
+FORCED_EXIT_NOTE: str = (
     f"{_FORCED_EXIT_VALUE} contains the session-close flatten, so a poor result there may be "
     "the clock rather than the hour; read session_close_share beside it."
 )
 """What has to travel with any time-of-day result touching the final phase."""
 
-_PLACEHOLDERS = {"bars_held": 0, "ambiguous_bar": False}
+_PLACEHOLDERS: Mapping[str, int | bool] = {"bars_held": 0, "ambiguous_bar": False}
 """What an absent column holds while :func:`nqbt.stats.summarise` runs over it.
 
 ``summarise`` refuses a nullable column rather than reporting a figure nobody measured, which is
@@ -112,7 +112,7 @@ absent column does feed is dropped by name before a row is built, so **no placeh
 reaches a reported number** -- ``docs/roadmap.md`` §M11.3.
 """
 
-_NEEDED = (
+_NEEDED: tuple[str, ...] = (
     "trade_id",
     "net_pnl",
     "commission",
@@ -131,9 +131,9 @@ say which day each trade closed on, so a review refuses it here rather than at t
 stratum -- ``docs/roadmap.md`` § "Sharpe and Sortino are refused rather than approximated".
 """
 
-_ABSOLUTE_VOLUME = "entry_volume_"
-_RELATIVE_VOLUME = "entry_relative_volume_"
-_VOLUME_STATE = "entry_volume_state_"
+_ABSOLUTE_VOLUME: str = "entry_volume_"
+_RELATIVE_VOLUME: str = "entry_relative_volume_"
+_VOLUME_STATE: str = "entry_volume_state_"
 
 _PHASE_ORDER = (
     *(phase.name.lower() for phase in timeofday.SessionPhase),
@@ -142,7 +142,15 @@ _PHASE_ORDER = (
 )
 """Session order, which is the order phases are reported in -- never alphabetical."""
 
-RANKING_COLUMNS = ("condition", "strata", "strata_ranked", "trades_ranked", "separation", "best", "worst")
+RANKING_COLUMNS: tuple[str, ...] = (
+    "condition",
+    "strata",
+    "strata_ranked",
+    "trades_ranked",
+    "separation",
+    "best",
+    "worst",
+)
 """One ranked condition's columns. :mod:`nqbt.guard` builds on them, so they are not private."""
 
 
@@ -154,22 +162,14 @@ class ReviewError(ValueError):
 class Review:
     """One trade log's realised P&L, cut by every condition its annotation can be cut by."""
 
-    strata: pd.DataFrame
-    """A row per ``(condition, value)``: the stratum's sample and its :data:`REPORTED` statistics."""
-    ranking: pd.DataFrame
-    """One row per condition, widest separation first. **Candidates, not findings.**"""
-    time_of_day: pd.DataFrame
-    """The headline, in session order. Empty if the dataset carried no clock."""
-    omitted: Mapping[str, str]
-    """Statistic -> why this log cannot support it, in the producer's own words."""
-    conditions: tuple[str, ...]
-    """The conditions stratified."""
-    skipped: tuple[str, ...]
-    """The conditions that are raw series or take too many values -- :func:`stratifiable`."""
-    trades: int
-    """Trades the annotation covered, matched or not."""
-    reviewed: int
-    """Trades actually stratified: the matched subset."""
+    strata: pd.DataFrame  # A row per ``(condition, value)``: the stratum's sample and its :data:`REPORTED` statistics.
+    ranking: pd.DataFrame  # One row per condition, widest separation first. **Candidates, not findings.**
+    time_of_day: pd.DataFrame  # The headline, in session order. Empty if the dataset carried no clock.
+    omitted: Mapping[str, str]  # Statistic -> why this log cannot support it, in the producer's own words.
+    conditions: tuple[str, ...]  # The conditions stratified.
+    skipped: tuple[str, ...]  # The conditions that are raw series or take too many values -- :func:`stratifiable`.
+    trades: int  # Trades the annotation covered, matched or not.
+    reviewed: int  # Trades actually stratified: the matched subset.
     min_trades: int
     by: str
 
@@ -209,7 +209,6 @@ class Review:
 def review(
     log: pd.DataFrame,
     annotation: Annotation,
-    *,
     by: str = "expectancy",
     min_trades: int = MIN_TRADES,
     conditions: Sequence[str] | None = None,
@@ -259,7 +258,6 @@ def stratify(
     log: pd.DataFrame,
     annotation: Annotation,
     condition: str,
-    *,
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
@@ -273,7 +271,6 @@ def stratify(
 def time_of_day(
     log: pd.DataFrame,
     annotation: Annotation,
-    *,
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
@@ -305,7 +302,7 @@ def stratifiable(frame: pd.DataFrame, conditions: Sequence[str]) -> tuple[str, .
     return tuple(name for name in conditions if _is_stratifiable(frame[name]))
 
 
-def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataFrame:
+def rank_conditions(strata: pd.DataFrame, by: str = "expectancy") -> pd.DataFrame:
     """Order the conditions by how far ``by`` separates the strata that met the minimum.
 
     The separation is the range across ranked strata: the widest gap the condition produced, and
@@ -339,9 +336,6 @@ def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataF
     ordered: pd.DataFrame = pd.DataFrame(rows).sort_values("separation", ascending=False, na_position="last")
 
     return ordered.reset_index(drop=True)
-
-
-# -- the trades a review runs over --------------------------------------------
 
 
 def _prepare(
@@ -396,9 +390,10 @@ def _reasons(absent: Sequence[str], legs: pd.DataFrame, unpopulated: Mapping[str
     """Every statistic this log cannot support, and the reason for each in the producer's words."""
     reasons: dict[str, str] = {}
     for column in absent:
-        why: str = unpopulated.get(column, f"this log leaves {column} null on every row")
+        reason: str = unpopulated.get(column, f"this log leaves {column} null on every row")
         for name in STATISTICS_FROM[column]:
-            reasons[name] = why
+            reasons[name] = reason
+
     if not _simulator_exit_reasons(legs):
         reasons["session_close_share"] = (
             "this log's exit reasons are its source's own rather than the simulator's, so a "
@@ -428,9 +423,6 @@ def _summarisable(legs: pd.DataFrame, absent: Sequence[str]) -> pd.DataFrame:
         filled[name] = _PLACEHOLDERS[name]
 
     return filled
-
-
-# -- the strata ---------------------------------------------------------------
 
 
 def _is_stratifiable(column: pd.Series) -> bool:  # type: ignore[explicit-any]  # a condition's dtype is its own
@@ -464,6 +456,7 @@ def _check_stratifiable(reviewable: pd.DataFrame, condition: str) -> None:
         f"stratification. A raw series has to be cut before it is a condition, and where to cut "
         f"it is a choice a review states: annotate with LabelThresholds."
     )
+
     raise ReviewError(msg)
 
 
@@ -471,7 +464,6 @@ def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
     legs: pd.DataFrame,
     values: pd.Series,
     condition: str,
-    *,
     min_trades: int,
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:
@@ -525,24 +517,19 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
     return float(best[by] - worst[by]), best["value"], worst["value"]  # type: ignore[arg-type]
 
 
-# -- the headline -------------------------------------------------------------
-
-
 def _time_of_day(
     legs: pd.DataFrame,
     reviewable: pd.DataFrame,
-    *,
     min_trades: int,
     omitted: Mapping[str, str],
 ) -> pd.DataFrame:
     """Assemble the phase strata in session order, with the volume medians and the clock's share."""
-    frame: pd.DataFrame = _strata(
-        legs, reviewable[PHASE_COLUMN], PHASE_COLUMN, min_trades=min_trades, omitted=omitted
-    )
+    frame: pd.DataFrame = _strata(legs, reviewable[PHASE_COLUMN], PHASE_COLUMN, min_trades=min_trades, omitted=omitted)
     ordered: pd.DataFrame = frame.drop(columns="condition").set_index("value")
     ordered = ordered.reindex([value for value in _PHASE_ORDER if value in ordered.index])
     ordered.index.name = PHASE_COLUMN
     beside: pd.DataFrame = _volume_medians(reviewable, ordered.index)
+
     if "session_close_share" not in omitted:
         beside["session_close_share"] = _forced_exit_share(legs, reviewable, ordered.index)
 
@@ -574,11 +561,7 @@ def _volume_columns(reviewable: pd.DataFrame) -> list[str]:
     ]
 
 
-def _forced_exit_share(
-    legs: pd.DataFrame,
-    reviewable: pd.DataFrame,
-    phases: pd.Index[int],
-) -> pd.Series[float]:
+def _forced_exit_share(legs: pd.DataFrame, reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.Series[float]:
     """Share of each phase's leg exits taken by the clock rather than by the strategy's own rules.
 
     What separates "this hour trades badly" from "this hour's trades were closed by the clock",

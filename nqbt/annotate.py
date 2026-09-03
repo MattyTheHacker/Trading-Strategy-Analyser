@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from nqbt.context import Dataset
     from nqbt.volume import VolumeForm
 
-__all__ = [
+__all__: Sequence[str] = [
     "NO_LABELS",
     "OUT_OF_SESSION_LABEL",
     "UNDEFINED_LABEL",
@@ -51,18 +51,17 @@ __all__ = [
     "contract_bars",
 ]
 
-UNMATCHED = -1
+UNMATCHED: int = -1
 """Bar index for a fill no bar of the dataset covers. Negative rather than zero, so an unmatched
 fill cannot be read as the first bar.
 """
 
-UNDEFINED_LABEL = "undefined"
+UNDEFINED_LABEL: str = "undefined"
 """What a bar inside a warm-up, or with no baseline, is called. One name for all three label
 kinds, each of which spells it :data:`nqbt.regime.UNDEFINED` in its own module.
 """
 
-OUT_OF_SESSION_LABEL = "out_of_session"
-"""What a bar in no session is called, a different statement from :data:`UNDEFINED_LABEL`."""
+OUT_OF_SESSION_LABEL: str = "out_of_session"
 
 type Column = AnyArray | pd.DatetimeIndex
 
@@ -156,12 +155,10 @@ NO_LABELS = LabelThresholds()
 class Annotation:
     """Every trade of a log, against the market context at its bars."""
 
-    frame: pd.DataFrame
-    """One row per trade, indexed by ``trade_id``. Conditions are null on an unmatched trade,
-    and the dtypes do not depend on whether there is one."""
+    frame: pd.DataFrame  # One row per trade, indexed by ``trade_id``.
+    # Conditions are null on an unmatched trade, and the dtypes do not depend on whether there is one.
 
-    conditions: tuple[str, ...]
-    """The columns a review may stratify by, which is every column but the bookkeeping ones."""
+    conditions: tuple[str, ...]  # The columns a review may stratify by, which is every column but the bookkeeping ones.
 
     @property
     def trades(self) -> int:
@@ -191,16 +188,12 @@ class Annotation:
     @override
     def __str__(self) -> str:
         """Render the matched share and how many conditions each row carries."""
-        return (
-            f"{self.matched}/{self.trades} trades annotated ({self.share:.1%}), "
-            f"{len(self.conditions)} conditions"
-        )
+        return f"{self.matched}/{self.trades} trades annotated ({self.share:.1%}), {len(self.conditions)} conditions"
 
 
 def bars_for_fills(
     index: pd.DatetimeIndex,
     times: pd.DatetimeIndex,
-    *,
     bar_minutes: int | None = None,
 ) -> IntArray:
     """Index of the bar each fill happened in, :data:`UNMATCHED` where no bar covers it.
@@ -234,7 +227,7 @@ def bars_for_fills(
     return np.where(covered, positions, UNMATCHED).astype(np.int64)
 
 
-def contract_bars(log: pd.DataFrame, *, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
+def contract_bars(log: pd.DataFrame, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
     """Read the per-contract bars a log must be annotated against.
 
     Neither continuous series is an option here: the back-adjusted one shifts every historical
@@ -259,7 +252,6 @@ def contract_bars(log: pd.DataFrame, *, cache_dir: Path = paths.CACHE_DIR) -> pd
 def annotate_trades(
     log: pd.DataFrame,
     data: Dataset,
-    *,
     thresholds: LabelThresholds = NO_LABELS,
     at_exit: bool = False,
     price_tolerance: float = 0.0,
@@ -301,9 +293,6 @@ def annotate_trades(
     return Annotation(frame=_to_frame(columns, trade_ids, matched), conditions=tuple(conditions))
 
 
-# -- resolving bars -----------------------------------------------------------
-
-
 def _utc_naive(stamps: pd.DatetimeIndex) -> DateArray:
     """Timestamps as naive UTC ``datetime64``, the one form two indices compare in."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
@@ -331,9 +320,7 @@ def _check_one_contract(log: pd.DataFrame) -> None:
 
 def _check_columns(log: pd.DataFrame) -> None:
     """Refuse a frame that is not a trade log before anything reads a column of it."""
-    missing: list[str] = [
-        name for name in ("trade_id", "entry_price", "exit_price") if name not in log.columns
-    ]
+    missing: list[str] = [name for name in ("trade_id", "entry_price", "exit_price") if name not in log.columns]
     if missing:
         msg: str = f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
         raise AnnotationError(msg)
@@ -347,9 +334,7 @@ def _resolve_bars(log: pd.DataFrame, data: Dataset, side: str) -> IntArray:
     """
     bar_column, time_column = f"{side}_bar", f"{side}_time"
     known: BoolArray = (
-        log[bar_column].notna().to_numpy(np.bool_)
-        if bar_column in log.columns
-        else np.zeros(len(log), dtype=np.bool_)
+        log[bar_column].notna().to_numpy(np.bool_) if bar_column in log.columns else np.zeros(len(log), dtype=np.bool_)
     )
     if len(log) and known.all():
         bars: IntArray = log[bar_column].to_numpy(np.int64)
@@ -417,14 +402,7 @@ def _check_bar_times(times: pd.Series[pd.Timestamp], bars: IntArray, data: Datas
         raise AnnotationError(msg)
 
 
-def _check_prices(
-    log: pd.DataFrame,
-    data: Dataset,
-    bars: IntArray,
-    *,
-    side: str,
-    tolerance: float,
-) -> None:
+def _check_prices(log: pd.DataFrame, data: Dataset, bars: IntArray, side: str, tolerance: float) -> None:
     """Refuse a fill outside the bar it matched, which is what a back-adjusted series produces."""
     matched: BoolArray = bars != UNMATCHED
     if not matched.any():
@@ -432,9 +410,7 @@ def _check_prices(
 
     prices: FloatArray = log[f"{side}_price"].to_numpy(np.float64)
     at: IntArray = bars[matched]
-    outside: BoolArray = (prices[matched] > data.high[at] + tolerance) | (
-        prices[matched] < data.low[at] - tolerance
-    )
+    outside: BoolArray = (prices[matched] > data.high[at] + tolerance) | (prices[matched] < data.low[at] - tolerance)
     if not outside.any():
         return
 
@@ -453,10 +429,7 @@ def _check_prices(
     raise AnnotationError(msg)
 
 
-def _per_trade_bars(
-    log: pd.DataFrame,
-    legs: dict[str, IntArray],
-) -> tuple[IntArray, dict[str, IntArray], BoolArray]:
+def _per_trade_bars(log: pd.DataFrame, legs: dict[str, IntArray]) -> tuple[IntArray, dict[str, IntArray], BoolArray]:
     """Collapse leg bars into one entry and one exit bar per trade, and say which trades matched.
 
     A trade enters on its earliest leg and leaves on its latest. It matches only when every leg
@@ -482,9 +455,6 @@ def _per_trade_bars(
     }
 
     return aggregated.index.to_numpy(np.int64), per_trade, matched
-
-
-# -- the conditions -----------------------------------------------------------
 
 
 def _bar_columns(data: Dataset, bars: IntArray, at: IntArray, side: str) -> dict[str, Column]:
@@ -572,11 +542,7 @@ def _regime_conditions(
     return out
 
 
-def _volume_conditions(
-    grid: volume.VolumeGrid,
-    at: IntArray,
-    thresholds: LabelThresholds,
-) -> dict[str, Column]:
+def _volume_conditions(grid: volume.VolumeGrid, at: IntArray, thresholds: LabelThresholds) -> dict[str, Column]:
     """Gather absolute and relative volume for every series built, and the state where asked."""
     out: dict[str, Column] = {}
     for key in grid.keys:
@@ -595,11 +561,7 @@ def _volume_conditions(
     return out
 
 
-def _trend_conditions(
-    grid: trend.TrendGrid,
-    at: IntArray,
-    thresholds: LabelThresholds,
-) -> dict[str, Column]:
+def _trend_conditions(grid: trend.TrendGrid, at: IntArray, thresholds: LabelThresholds) -> dict[str, Column]:
     """Gather the agreement score and its three votes for every label built, and the label."""
     out: dict[str, Column] = {}
     for key in grid.keys:
@@ -616,10 +578,7 @@ def _trend_conditions(
     return out
 
 
-def _higher_timeframe_conditions(
-    grid: higher_timeframe.HigherTimeframeGrid,
-    at: IntArray,
-) -> dict[str, Column]:
+def _higher_timeframe_conditions(grid: higher_timeframe.HigherTimeframeGrid, at: IntArray) -> dict[str, Column]:
     """Gather every coarse average built and the side price sits on, which takes no threshold."""
     out: dict[str, Column] = {}
     for key in grid.keys:
@@ -652,9 +611,6 @@ def _named(codes: LabelArray, names: Sequence[str], undefined: str) -> AnyArray:
     lookup: AnyArray = np.array([undefined, *names], dtype=object)
 
     return lookup[np.asarray(codes, dtype=np.int64) + 1]
-
-
-# -- the frame ----------------------------------------------------------------
 
 
 def _to_frame(columns: dict[str, Column], trade_ids: IntArray, matched: BoolArray) -> pd.DataFrame:

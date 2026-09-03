@@ -649,10 +649,7 @@ def test_the_three_volume_filters_partition_every_measured_signal() -> None:
     """
     data = prepared(volume_keys=(PER_BAR,))
     whole = deadcat_signal(data, DeadCatParams(bars_required_to_trade=20))
-    parts = [
-        deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, volume_filter=s.bit))
-        for s in VolumeState
-    ]
+    parts = [deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, volume_filter=s.bit)) for s in VolumeState]
     labels = data.volume_labels(PER_BAR, THIN, HEAVY)
     measured = whole & (labels != UNDEFINED)
 

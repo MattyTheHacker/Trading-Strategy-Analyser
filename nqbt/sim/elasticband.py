@@ -46,8 +46,7 @@ class BandSeries(NamedTuple):
     basis: FloatArray
     stddev: FloatArray
     excursion_extreme: FloatArray
-    atr: FloatArray
-    """Empty outside :data:`STOP_ATR`, where the loop never indexes it."""
+    atr: FloatArray  # Empty outside :data:`STOP_ATR`, where the loop never indexes it.
 
 
 class ElasticBandRules(NamedTuple):
@@ -286,9 +285,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                             d,
                             rules,
                         )
-                        legs.target[leg] = (
-                            bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
-                        )
+                        legs.target[leg] = bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
                 written, in_position = bracket.resolve_brackets(
                     out,
                     written,
@@ -418,7 +415,6 @@ def elasticband_legs(
     data: Dataset,
     params: ElasticBandParams,
     instrument: Instrument = MNQ,
-    *,
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -485,7 +481,6 @@ def run_elasticband(
     data: Dataset,
     params: ElasticBandParams,
     instrument: Instrument = MNQ,
-    *,
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
@@ -494,10 +489,10 @@ def run_elasticband(
 
     return trades.validate(
         trades.trades_to_frame(
-            legs.matrix,
-            legs.count,
-            data.index if with_times else None,
+            matrix=legs.matrix,
+            count=legs.count,
             instrument=instrument.symbol,
+            index=data.index if with_times else None,
             source="sim",
         ),
     )

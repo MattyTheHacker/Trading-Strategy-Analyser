@@ -42,9 +42,7 @@ def test_a_payload_with_no_entries_raises_rather_than_writing_an_empty_tree() ->
         tree_payload("basesha", [])
 
 
-def test_the_command_writes_the_payload_the_api_expects(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_the_command_writes_the_payload_the_api_expects(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     moved = tmp_path / "moved.txt"
     moved.write_text("Trading-Docs 1111111\n", encoding="utf-8")
 

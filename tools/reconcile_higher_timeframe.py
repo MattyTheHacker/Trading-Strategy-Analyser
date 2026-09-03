@@ -70,7 +70,7 @@ def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return primary.set_index("utc"), coarse.set_index("utc")
 
 
-def report(name: str, *, agreed: bool, detail: str) -> bool:
+def report(name: str, agreed: bool, detail: str) -> bool:
     """One question's verdict, in the form the other reconciliation tools print."""
     logger.info("  %-12s %-9s %s", name, "AGREES" if agreed else "DIFFERS", detail)
 
@@ -320,9 +320,7 @@ def infer_periods(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> dict[str, 
 
         for period in range(1, 401):
             ours = indicators.nt8_ema(closes, period)
-            if np.allclose(
-                ours[usable.to_numpy()], theirs[usable].to_numpy(np.float64), rtol=0, atol=MA_TOLERANCE
-            ):
+            if np.allclose(ours[usable.to_numpy()], theirs[usable].to_numpy(np.float64), rtol=0, atol=MA_TOLERANCE):
                 found[label] = period
                 break
 

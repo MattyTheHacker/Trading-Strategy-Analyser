@@ -38,13 +38,12 @@ if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, OffsetArray
     from nqbt.instruments import ContractId
 
-FULL_SESSION_FRACTION = 0.5
-"""Share of a contract's median session length below which a session counts as partial."""
+FULL_SESSION_FRACTION: float = 0.5  # Share of a contract's median length below which a session counts as partial.
 
-METHOD_VOLUME = "volume_crossover"
-METHOD_COVERAGE = "coverage_boundary"
+METHOD_VOLUME: str = "volume_crossover"
+METHOD_COVERAGE: str = "coverage_boundary"
 
-EARLY_ROLL_RATIO = 0.4
+EARLY_ROLL_RATIO: float = 0.4
 """Handover volume ratio below which a coverage-boundary roll looks premature.
 
 At a healthy handover the back contract is already closing on the front -- observed
@@ -63,11 +62,9 @@ class RollDecision:
 
     front: ContractId
     back: ContractId
-    roll_day: pd.Timestamp
-    """First trading day served by the *back* contract."""
+    roll_day: pd.Timestamp  # First trading day served by the *back* contract.
     method: str
-    offset: float
-    """``front_close - back_close`` at the last shared bar before the roll."""
+    offset: float  # ``front_close - back_close`` at the last shared bar before the roll.
     handover_ratio: float
     """Back/front volume over shared bars on the roll session. Above 1.0 means the
     crossover was directly observed; well below :data:`EARLY_ROLL_RATIO` means the roll
@@ -126,8 +123,7 @@ class SpliceReport:
             "",
             "Segments:",
             *(
-                f"  {r.contract:<12} {r.start:%Y-%m-%d} -> {r.end:%Y-%m-%d}  {r.bars:>7,} bars"
-                f"  shift {r.shift:+.2f}"
+                f"  {r.contract:<12} {r.start:%Y-%m-%d} -> {r.end:%Y-%m-%d}  {r.bars:>7,} bars  shift {r.shift:+.2f}"
                 for r in self.segments.itertuples()
             ),
         ]
@@ -135,9 +131,6 @@ class SpliceReport:
             lines += ["", "Warnings:", *(f"  [!] {w}" for w in self.warnings)]
 
         return "\n".join(lines)
-
-
-# -- roll detection -----------------------------------------------------------
 
 
 def _in_session(frame: pd.DataFrame) -> pd.DataFrame:
@@ -184,7 +177,6 @@ def detect_roll(
     back_id: ContractId,
     front: pd.DataFrame,
     back: pd.DataFrame,
-    *,
     confirm_sessions: int = 1,
     allow_coverage_boundary: bool = True,
 ) -> RollDecision:
@@ -193,10 +185,7 @@ def detect_roll(
     notes: list[str] = []
 
     if table.empty:
-        msg: str = (
-            f"{front_id.nt8_name} and {back_id.nt8_name} share no in-session bars; "
-            "cannot determine a roll date"
-        )
+        msg: str = f"{front_id.nt8_name} and {back_id.nt8_name} share no in-session bars; cannot determine a roll date"
         raise SpliceError(
             msg,
         )
@@ -210,6 +199,7 @@ def detect_roll(
             f"no volume crossover across {len(table)} shared sessions (peak ratio "
             f"{peak:.2f}); expected with NT8 data, which stops ~4 days before expiry",
         )
+
         if not allow_coverage_boundary:
             msg = (
                 f"{front_id.nt8_name} -> {back_id.nt8_name}: {notes[-1]}. "
@@ -322,13 +312,9 @@ def _boundary_offset(
     return float(fa.loc[ts, "close"] - ba.loc[ts, "close"])
 
 
-# -- continuous series --------------------------------------------------------
-
-
 def build_continuous(  # noqa: C901 - the roll rules it applies are each a branch
     contracts: list[ContractId],
     frames: dict[ContractId, pd.DataFrame],
-    *,
     back_adjust: bool = False,
     confirm_sessions: int = 1,
     allow_coverage_boundary: bool = True,
@@ -385,8 +371,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
 
         if seg.empty:
             warnings.append(
-                f"{contract.nt8_name} contributes no bars; its window was fully "
-                "consumed by the surrounding rolls",
+                f"{contract.nt8_name} contributes no bars; its window was fully consumed by the surrounding rolls",
             )
             continue
 
@@ -421,8 +406,7 @@ def build_continuous(  # noqa: C901 - the roll rules it applies are each a branc
 
     if back_adjust and float(series[["open", "high", "low", "close"]].min().min()) <= 0:
         warnings.append(
-            "back-adjustment drove prices to or below zero; the raw series is the only "
-            "usable one over this window",
+            "back-adjustment drove prices to or below zero; the raw series is the only usable one over this window",
         )
 
     # A coverage-boundary roll is the expected path for NT8 data and is not itself worth
@@ -461,17 +445,14 @@ def _check_roll_monotonicity(rolls: list[RollDecision]) -> None:
             )
 
 
-# -- roll seams ---------------------------------------------------------------
-
-
-SEAM_COLUMNS = [
+SEAM_COLUMNS: tuple[str, ...] = (
     "previous_contract",
     "contract",
     "previous_bar",
     "gap_minutes",
     "carry_over",
     "true_range",
-]
+)
 """Columns of :func:`roll_seams`, in order."""
 
 
@@ -507,7 +488,7 @@ def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
+def continuous_path(root: str, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
     """Where one root's spliced continuous series is cached."""
     suffix: str = "backadj" if back_adjust else "raw"
 
@@ -516,7 +497,6 @@ def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CAC
 
 def splice_root(
     root: str,
-    *,
     data_dir: Path = paths.ARCHIVE_DIR,
     cache_dir: Path = paths.CACHE_DIR,
     back_adjust: bool = False,
@@ -550,12 +530,7 @@ def splice_root(
     return series, report
 
 
-def load_continuous(
-    root: str,
-    *,
-    back_adjust: bool = False,
-    cache_dir: Path = paths.CACHE_DIR,
-) -> pd.DataFrame:
+def load_continuous(root: str, back_adjust: bool = False, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
     """Read a spliced continuous series back from the cache."""
     path: Path = continuous_path(root, back_adjust=back_adjust, cache_dir=cache_dir)
     if not path.exists():

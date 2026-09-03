@@ -30,12 +30,12 @@ from numba import njit
 from nqbt import conditions
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from nqbt.arrays import BoolArray, FloatArray, LabelArray
     from nqbt.conditions import MovingAverageGrid
 
-__all__ = [
+__all__: Sequence[str] = [
     "ALL_TRENDS",
     "KIND",
     "MIN_SLOPE_LOOKBACK",
@@ -60,23 +60,14 @@ __all__ = [
     "validate_slope_lookback",
 ]
 
-UNDEFINED = -1
-"""Label for a bar whose slope the lookback cannot reach back from. Negative, not a fourth
-trend -- ``docs/roadmap.md`` §M10.3.
-"""
-
-KIND = "ema"
-"""The moving average the label is built on. Fixed rather than swept -- ``docs/roadmap.md``
-§M10.3.
-"""
-
-MIN_SLOPE_LOOKBACK = 1
+UNDEFINED: int = -1  # Label for a bar whose slope the lookback cannot reach back from. Negative, not a fourth trend.
+KIND: str = "ema"  # The moving average the label is built on. Fixed rather than swept -- ``docs/roadmap.md`` §M10.3.
+MIN_SLOPE_LOOKBACK: int = 1
 """A zero-bar slope compares a value with itself, so every bar would read flat and neither
 outer band would ever be reached. Refused rather than labelled MIXED everywhere.
 """
 
-N_COMPONENTS = 3
-"""How many facts vote, and therefore the largest agreement a bar can reach."""
+N_COMPONENTS: int = 3  # How many facts vote, and therefore the largest agreement a bar can reach.
 
 
 class TrendError(ValueError):
@@ -89,12 +80,9 @@ class Trend(IntEnum):
     The integer values ascend with the score, and are also the bit positions in a filter mask.
     """
 
-    DOWN = 0
-    """Enough components bearish: price under the slow average, it falling, fast beneath it."""
-    MIXED = 1
-    """Too few components agreeing either way. The deliberate no-trade state."""
-    UP = 2
-    """Enough components bullish -- :attr:`DOWN` with every test mirrored."""
+    DOWN = 0  # Enough components bearish: price under the slow average, it falling, fast beneath it.
+    MIXED = 1  # Too few components agreeing either way. The deliberate no-trade state.
+    UP = 2  # Enough components bullish -- :attr:`DOWN` with every test mirrored.
 
     @property
     def bit(self) -> int:
@@ -109,16 +97,12 @@ class TrendComponent(IntEnum):
     collapsed to a single number cannot.
     """
 
-    PRICE_VS_SLOW = 0
-    """Close against the slow average."""
-    SLOW_SLOPE = 1
-    """The slow average against itself ``slope_lookback`` bars ago."""
-    STACK = 2
-    """The fast average against the slow one."""
+    PRICE_VS_SLOW = 0  # Close against the slow average.
+    SLOW_SLOPE = 1  # The slow average against itself ``slope_lookback`` bars ago.
+    STACK = 2  # The fast average against the slow one.
 
 
-ALL_TRENDS = (1 << len(Trend)) - 1
-"""Every trend: the mask that filters nothing, and the default for every archetype."""
+ALL_TRENDS = (1 << len(Trend)) - 1  # Every trend: the mask that filters nothing, and the default for every archetype.
 
 
 class TrendKey(NamedTuple):
@@ -243,6 +227,7 @@ def _components(
         stack = _vote(fast[i], slow[i])
         votes[0, i] = price
         votes[2, i] = stack
+
         if i >= slope_lookback:
             slope = _vote(slow[i], slow[i - slope_lookback])
             votes[1, i] = slope
@@ -396,9 +381,7 @@ def trend_grid(close: FloatArray, keys: Iterable[TrendKey]) -> TrendGrid:
     costs a fraction of the shared grid's, and nothing outside this function ever sees it --
     ``docs/roadmap.md`` §M10.3.
     """
-    ordered: tuple[TrendKey, ...] = tuple(
-        sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys})
-    )
+    ordered: tuple[TrendKey, ...] = tuple(sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys}))
     if not ordered:
         msg: str = "no trend labels supplied"
         raise TrendError(msg)

@@ -30,7 +30,6 @@ NOISE_CONDITIONS = 12
 
 def labelled(
     count: int = TRADES,
-    *,
     effect: float = 0.0,
     seed: int = 0,
     spread: float = 50.0,
@@ -46,7 +45,6 @@ def labelled(
 
 def noise(
     count: int = TRADES,
-    *,
     conditions: int = NOISE_CONDITIONS,
     seed: int = 7,
 ) -> dict[str, np.ndarray]:
@@ -240,7 +238,7 @@ def test_a_trade_some_condition_leaves_null_is_dropped_from_all_of_them_and_coun
 # -- the holdout --------------------------------------------------------------
 
 
-def reversing(count: int = 400, *, seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
+def reversing(count: int = 400, seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
     """Build a split that works over the first three quarters and inverts over the last one."""
     rng = np.random.default_rng(seed)
     labels = np.where(np.arange(count) % 2 == 0, "a", "b")
@@ -264,7 +262,7 @@ def test_the_holdout_reads_the_split_the_earlier_trades_chose_rather_than_re_cho
     assert held.reported, "both held-out strata clear the floor here"
 
 
-def late(count: int = 400, *, seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
+def late(count: int = 400, seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
     """Build a split worth two points early and two hundred over the most recent quarter."""
     rng = np.random.default_rng(seed)
     labels = np.where(np.arange(count) % 2 == 0, "a", "b")

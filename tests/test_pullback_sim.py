@@ -27,7 +27,6 @@ TICK = 0.25
 def run(
     rows,
     signal_at=(),
-    *,
     force_flat_at=(),
     quantities=(1, 1, 1, 1),
     targets=(1.0, 1.5, 2.0, np.nan),
@@ -260,9 +259,7 @@ def test_pullback_signal_and_run_wire_together_end_to_end() -> None:
     data = context.prepare(
         bars,
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
-            ),
+            ma_keys=conditions.ma_keys(ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)),
             needs_vwap=True,
         ),
     )
@@ -284,9 +281,7 @@ def test_every_entry_condition_actually_binds() -> None:
     data = context.prepare(
         synthetic_bars(),
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
-            ),
+            ma_keys=conditions.ma_keys(ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)),
             needs_vwap=True,
         ),
     )

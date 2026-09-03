@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from nqbt.arrays import BoolArray, IntArray, OffsetArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "ACCOUNT_FIELDS",
     "DIRECTION_FIELD",
     "POPULATED",
@@ -48,20 +48,20 @@ __all__ = [
     "read_executions",
 ]
 
-REQUIRED_FIELDS = ("Instrument", "Action", "Quantity", "Price", "Time", "Position", "Name")
+REQUIRED_FIELDS: tuple[str, ...] = ("Instrument", "Action", "Quantity", "Price", "Time", "Position", "Name")
 """Grid columns the adapter cannot work without.
 
 The Executions grid's column set is configurable, so every other column is ignored rather than
 required -- two real exports off the same machine differ by six columns.
 """
 
-DIRECTION_FIELD = "E/X"
+DIRECTION_FIELD: str = "E/X"
 """Optional column, cross-checked against the position walk rather than trusted."""
 
-ACCOUNT_FIELDS = ("Account display name", "Account")
+ACCOUNT_FIELDS: tuple[str, str] = ("Account display name", "Account")
 """The names the account column goes by. Read by nothing here; the grid is exported per account."""
 
-TIME_FORMATS = ("%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y %H:%M:%S")
+TIME_FORMATS: tuple[str, str] = ("%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y %H:%M:%S")
 """Accepted row-timestamp formats, each tried over the whole column.
 
 Both are ``DD/MM``: NT8's clock is a display setting, but the date order is never inferred from
@@ -76,7 +76,7 @@ FLAT = "-"
 SOURCE = "manual"
 """The :data:`nqbt.trades.SOURCES` tag every row imported here carries."""
 
-UNPOPULATED = {
+UNPOPULATED: Mapping[str, str] = {
     "entry_bar": "a fill has a timestamp, not a bar index",
     "exit_bar": "a fill has a timestamp, not a bar index",
     "bars_held": "needs a bar index at both ends",
@@ -99,7 +99,7 @@ POPULATED = frozenset(trades.SCHEMA) - set(UNPOPULATED)
 
 _POSITION_RE = re.compile(r"^(?:(?P<flat>-)|(?P<quantity>\d+)\s+(?P<side>[LS]))$")
 
-_NULLABLE_DTYPES = {
+_NULLABLE_DTYPES: Mapping[str, str] = {
     "entry_bar": "Int64",
     "exit_bar": "Int64",
     "bars_held": "Int64",
@@ -111,7 +111,7 @@ Held as a nullable dtype rather than filled with NaN so that a statistic taken o
 column raises instead of returning a number -- ``docs/roadmap.md`` §M11.1.
 """
 
-_LEG_FIELDS = [
+_LEG_FIELDS: tuple[str, ...] = (
     "trade_id",
     "leg",
     "entry_time",
@@ -122,9 +122,9 @@ _LEG_FIELDS = [
     "direction",
     "exit_reason",
     "contract",
-]
+)
 
-_FRAME_COLUMNS = [
+_FRAME_COLUMNS: tuple[str, ...] = (
     "source",
     "instrument",
     "trade_id",
@@ -134,7 +134,7 @@ _FRAME_COLUMNS = [
     *trades.COLUMNS[2:],
     "contract",
     "timezone",
-]
+)
 """The simulator's own layout -- :func:`nqbt.trades.trades_to_frame`'s -- plus two of our own.
 
 The **contract** and not merely the root, because a real trade must be annotated against its own
@@ -207,8 +207,7 @@ class CoverageReport:
 class IncompleteTrades:
     """Fills at either end of the export that no complete trade could be built from."""
 
-    leading_fills: int
-    """Fills before the first flat position: the export begins part-way through a trade."""
+    leading_fills: int  # Fills before the first flat position: the export begins part-way through a trade.
     trailing_fills: int
     """Fills after the last flat position: a position was still open when it was taken.
 
@@ -230,8 +229,7 @@ class IncompleteTrades:
 class ImportedTrades:
     """A canonical trade log, beside everything the adapter could not recover from the source."""
 
-    frame: pd.DataFrame
-    """Every complete trade, schema-validated. One row per FIFO leg exit."""
+    frame: pd.DataFrame  # Every complete trade, schema-validated. One row per FIFO leg exit.
     populated: frozenset[str]
     unpopulated: Mapping[str, str]
     coverage: CoverageReport
@@ -248,7 +246,7 @@ class ImportedTrades:
         return f"{len(self.frame)} legs, {self.coverage}\n  {self.incomplete}"
 
 
-def read_executions(path: Path | str, *, timezone: str) -> pd.DataFrame:
+def read_executions(path: Path | str, timezone: str) -> pd.DataFrame:
     """Parse an NT8 executions-grid CSV into chronologically ordered, position-checked fills.
 
     ``timezone`` is the exporting machine's NT8 display zone and is required rather than
@@ -281,6 +279,7 @@ def read_executions(path: Path | str, *, timezone: str) -> pd.DataFrame:
     fills = fills.iloc[::-1].reset_index(drop=True)
     _check_ascending(fills["time"], source=str(path))
     fills = _order_ties_by_position(fills)
+
     if DIRECTION_FIELD in raw.columns:
         _check_declared_directions(fills, raw[DIRECTION_FIELD], source=str(path))
 
@@ -291,7 +290,6 @@ def read_executions(path: Path | str, *, timezone: str) -> pd.DataFrame:
 
 def import_executions(
     path: Path | str,
-    *,
     timezone: str,
     commission_per_contract: float = costs.LIVE.commission_per_contract,
     cache_dir: Path = paths.CACHE_DIR,
@@ -319,10 +317,7 @@ def import_executions(
     )
 
 
-# -- parsing ------------------------------------------------------------------
-
-
-def _timestamps(column: pd.Series[str], *, source: str) -> pd.Series[pd.Timestamp]:
+def _timestamps(column: pd.Series[str], source: str) -> pd.Series[pd.Timestamp]:
     """Parse the row timestamps under the first accepted format that fits the whole column."""
     text: pd.Series[str] = column.str.strip()
     for fmt in TIME_FORMATS:
@@ -337,11 +332,9 @@ def _timestamps(column: pd.Series[str], *, source: str) -> pd.Series[pd.Timestam
     raise TradeImportError(msg)
 
 
-def _localise(times: pd.Series[pd.Timestamp], *, timezone: str) -> pd.Series[pd.Timestamp]:
+def _localise(times: pd.Series[pd.Timestamp], timezone: str) -> pd.Series[pd.Timestamp]:
     """Attach the export's display zone and convert to UTC, which the bar cache is in."""
-    localised: pd.Series[pd.Timestamp] = times.dt.tz_localize(
-        timezone, ambiguous="infer", nonexistent="shift_forward"
-    )
+    localised: pd.Series[pd.Timestamp] = times.dt.tz_localize(timezone, ambiguous="infer", nonexistent="shift_forward")
 
     return localised.dt.tz_convert("UTC")
 
@@ -387,7 +380,7 @@ def _positions(column: pd.Series[str]) -> IntArray:
     return np.asarray(text.map(parsed), dtype=np.int64)
 
 
-def _check_ascending(times: pd.Series[pd.Timestamp], *, source: str) -> None:
+def _check_ascending(times: pd.Series[pd.Timestamp], source: str) -> None:
     """Reversed file order must be non-decreasing in time, or the export was not newest-first."""
     if times.is_monotonic_increasing:
         return
@@ -448,13 +441,11 @@ def _raise_broken_chain(fills: pd.DataFrame, running: int, pending: Sequence[int
     raise TradeImportError(msg)
 
 
-def _check_declared_directions(fills: pd.DataFrame, column: pd.Series[str], *, source: str) -> None:
+def _check_declared_directions(fills: pd.DataFrame, column: pd.Series[str], source: str) -> None:
     """Cross-check ``E/X`` against the position walk, the only independent test of the parse."""
     declared: BoolArray = column.str.strip().eq(EXIT).to_numpy()[::-1]
     positions: IntArray = fills["position"].to_numpy(np.int64)
-    previous: IntArray = np.concatenate(
-        ([_opening_position(positions, fills["signed"].to_numpy())], positions[:-1])
-    )
+    previous: IntArray = np.concatenate(([_opening_position(positions, fills["signed"].to_numpy())], positions[:-1]))
     # A fill that crosses zero both closes and opens, so only the unambiguous ones are checked.
     crosses: BoolArray = np.sign(positions) * np.sign(previous) < 0
     walked: BoolArray = np.abs(positions) < np.abs(previous)
@@ -467,9 +458,6 @@ def _check_declared_directions(fills: pd.DataFrame, column: pd.Series[str], *, s
             f"The columns are probably not the ones this adapter thinks they are."
         )
         raise TradeImportError(msg)
-
-
-# -- trades -------------------------------------------------------------------
 
 
 def _complete_trades(fills: pd.DataFrame) -> tuple[pd.DataFrame, IncompleteTrades]:
@@ -547,20 +535,18 @@ def _match_fifo(fills: pd.DataFrame) -> list[dict[str, object]]:
     return rows
 
 
-def _to_schema(
-    rows: list[dict[str, object]],
-    *,
-    commission_per_contract: float,
-    timezone: str,
-) -> pd.DataFrame:
+def _to_schema(rows: list[dict[str, object]], commission_per_contract: float, timezone: str) -> pd.DataFrame:
     """Turn matched legs into the shared trade-log schema, nulls and all."""
     frame: pd.DataFrame = pd.DataFrame(rows, columns=_LEG_FIELDS)
     for name in ("trade_id", "leg", "quantity"):
         frame[name] = frame[name].astype("int64")
+
     for name in ("direction", "entry_price", "exit_price"):
         frame[name] = frame[name].astype("float64")
+
     for name in ("exit_reason", "contract"):
         frame[name] = frame[name].astype("string")
+
     for name in ("entry_time", "exit_time"):
         frame[name] = pd.to_datetime(frame[name], utc=True)
 
@@ -580,13 +566,10 @@ def _to_schema(
         blank = np.nan if dtype == "float64" else pd.NA
         frame[name] = pd.Series(blank, index=frame.index, dtype=dtype)
 
-    return frame[_FRAME_COLUMNS]
+    return frame[list(_FRAME_COLUMNS)]
 
 
-# -- coverage -----------------------------------------------------------------
-
-
-def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
+def _mark_coverage(frame: pd.DataFrame, cache_dir: Path) -> CoverageReport:
     """Add the ``covered`` column and report how many trades have bars behind them.
 
     Whole trades, never individual legs: a trade split across the edge of the cache would have
@@ -615,7 +598,7 @@ def _mark_coverage(frame: pd.DataFrame, *, cache_dir: Path) -> CoverageReport:
     return CoverageReport(contracts=contracts, trades=len(spans), covered=int(covered.sum()))
 
 
-def _cached_range(contract: ContractId, *, cache_dir: Path) -> ContractCoverage:
+def _cached_range(contract: ContractId, cache_dir: Path) -> ContractCoverage:
     """Read one contract's first and last cached bar, or an empty range if it is not cached."""
     path: Path = ingest.contract_cache_path(contract, cache_dir)
     if not path.exists():
