@@ -53,6 +53,14 @@ paths:
   into a BIGINT column, so a grid sweeping `[1, 2]` where an earlier one swept `[1.0, 2.0]` is a
   loud failure and not a silent one.
 - **`keep_trades` changes what `run_combination` returns, never what it measures.**
+- **A `Grid` is axes or an explicit combination list, never both.** `Grid.of_combinations`
+  exists for a shortlist, which is an arbitrary subset of the product that produced it and
+  cannot be stated as axes — twenty stored rows crossed is thousands of combinations rather
+  than twenty, and the run still reports a clean number. `combo_id` stays the position in the
+  list, and `axis_values` becomes the union over it so `required_context` covers every member.
+  **Anything that rebuilds a grid must carry `combos` across**: `walk_forward`'s costed rebuild
+  does, and dropping it there leaves the base alone while still reporting a fold of selection.
+  `docs/roadmap.md` §M27.6.
 - **Everything expensive is precomputed once in `prepare`; the sweep loop must stay cheap.**
   Never recompute an indicator inside a combination. Moving-average grids keep only the boolean
   gate unless `keep_values=True` — an order-of-magnitude difference in memory.

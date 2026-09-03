@@ -10,7 +10,8 @@ here instead -- rebuild a stored ``combos`` row, run that one configuration agai
 kept, and save it under the ``(sweep_id, combo_id)`` the summary row already carries.
 
 Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every campaign
-tool that starts from a stored row needs.
+tool that starts from a stored row needs, and of :func:`load_trades`, which reads back what
+:func:`store_logs` wrote.
 """
 
 from __future__ import annotations
@@ -211,6 +212,28 @@ def store_logs(name: str, rows: pd.DataFrame, root: str) -> int:
         stored += store_group(block, frame, archetype, root, int(minutes), path)
 
     return stored
+
+
+def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
+    """The stored log of one combination, empty when this tool has not been run for it.
+
+    Empty rather than raising, so a caller reading a whole shortlist can name the rows that
+    have no log instead of stopping at the first one.
+    """
+    if not path.exists():
+        return pd.DataFrame()
+
+    present: pd.DataFrame = results.query(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'trades'",
+        path,
+    )
+    if present.empty:
+        return pd.DataFrame()
+
+    return results.query(
+        f"SELECT * FROM trades WHERE sweep_id = {int(sweep_id)} AND combo_id = {int(combo_id)}",  # noqa: S608 - both are ints
+        path,
+    )
 
 
 def main(argv: list[str]) -> int:

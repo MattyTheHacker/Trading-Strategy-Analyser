@@ -17,7 +17,15 @@ from nqbt import archetypes, resample, results, sessions, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import InsideBarParams
 from tools import campaign_shortlist
-from tools.campaign_shortlist import best_row, shortlist, source, store_group, store_logs, verify
+from tools.campaign_shortlist import (
+    best_row,
+    load_trades,
+    shortlist,
+    source,
+    store_group,
+    store_logs,
+    verify,
+)
 
 ROOT = "MNQ"
 STRATEGY = "InsideBar"
@@ -246,3 +254,46 @@ def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_
     assert set(zip(stored["sweep_id"], stored["combo_id"], strict=True)) == set(
         zip(block["sweep_id"], block["combo_id"], strict=True),
     )
+
+
+# -- reading the logs back -----------------------------------------------------------------
+
+
+def test_a_stored_log_reads_back_as_the_log_that_was_stored(tmp_path) -> None:
+    """The read half of the same key. A bootstrap takes its per-trade vector from here, so
+    reading a neighbouring combination's rows would resample the wrong configuration."""
+    db = tmp_path / "InsideBar.duckdb"
+    bars = synthetic_bars()
+    store_point(db, bars, 5, "full")
+    block = combos(db)
+    store_group(block, resample.resample(bars, 5), archetypes.INSIDEBAR, ROOT, 5, db)
+
+    for _, row in block.iterrows():
+        mine = load_trades(int(row["sweep_id"]), int(row["combo_id"]), db)
+        assert len(mine) > 0
+        assert set(mine["combo_id"]) == {row["combo_id"]}
+        assert mine["net_pnl"].sum() == pytest.approx(row["net_pnl"])
+
+
+def test_a_combination_with_no_stored_log_reads_back_empty(tmp_path) -> None:
+    db = tmp_path / "InsideBar.duckdb"
+    bars = synthetic_bars()
+    store_point(db, bars, 5, "full")
+    store_group(combos(db).head(1), resample.resample(bars, 5), archetypes.INSIDEBAR, ROOT, 5, db)
+    assert load_trades(1, 999, db).empty
+
+
+def test_a_database_with_no_trades_table_reads_back_empty_rather_than_raising(tmp_path) -> None:
+    """``trades`` is created lazily by the first ``save_trades``, so every campaign database
+    is in this state until this tool has been run against it."""
+    db = tmp_path / "InsideBar.duckdb"
+    store_point(db, synthetic_bars(), 5, "full")
+    assert load_trades(1, 0, db).empty
+
+
+def test_a_database_that_does_not_exist_reads_back_empty_rather_than_creating_one(tmp_path) -> None:
+    """``results.connect`` creates what it opens, so a typo in the path would otherwise leave a
+    new empty database behind and report no logs."""
+    missing = tmp_path / "NoSuchArchetype.duckdb"
+    assert load_trades(1, 0, missing).empty
+    assert not missing.exists()
