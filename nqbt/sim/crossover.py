@@ -144,8 +144,8 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             # A force-flat bar is filled like any other; the session-close handler runs
             # after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
             # bar, and is flattened at its close".
-            direction: float = pending_direction
-            fill: float = bars.open_[i] + direction * slippage
+            direction = pending_direction
+            fill = bars.open_[i] + direction * slippage
             candidate_stop = _protective_stop(bars, atr, pending_bar, fill, direction, rules, costs)
             candidate_risk = direction * (fill - candidate_stop)
             # A stop at or through the price it protects is not a stop order --
