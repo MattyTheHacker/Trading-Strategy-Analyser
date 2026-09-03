@@ -40,6 +40,7 @@ def bars(count: int = BARS) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -53,6 +54,7 @@ def sim_log(data: context.Dataset, count: int = 30, first: int = 20, hold: int =
     at = np.arange(first, first + count, dtype=np.int64)
     out = at + hold
     net = np.where(np.arange(count) % 2 == 0, -50.0, 100.0)
+
     return pd.DataFrame(
         {
             "source": pd.array(["sim"] * count, dtype="string"),
@@ -85,6 +87,7 @@ def noted(*pairs: tuple[int, str]) -> notes.Notes:
     written = notes.empty()
     for trade_id, text in pairs:
         written = notes.record(written, trade_id, text)
+
     return written
 
 
@@ -92,6 +95,7 @@ def with_note_column(annotation: annotate.Annotation) -> annotate.Annotation:
     """Merge a note onto an annotation, which is what the three doors have to refuse."""
     frame = annotation.frame.copy()
     frame["note"] = pd.array(["chased it"] * len(frame), dtype="string")
+
     return annotate.Annotation(frame=frame, conditions=(*annotation.conditions, "note"))
 
 

@@ -68,6 +68,7 @@ def bars(days: int = DAYS, minutes: int = MINUTES, first_day: str = FIRST_DAY) -
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -90,6 +91,7 @@ def bars_in(
     day = np.unique(data.bars["trading_day"].to_numpy())[session]
     in_session = data.bars["trading_day"].to_numpy() == day
     found = np.flatnonzero((data.phase_values() == int(phase)) & in_session)
+
     return found[:count].tolist()
 
 
@@ -108,6 +110,7 @@ def sim_log(
     out = at + hold
     count = len(at)
     net = np.asarray(pnl, dtype=np.float64)
+
     return pd.DataFrame(
         {
             "source": pd.array(["sim"] * count, dtype="string"),
@@ -143,6 +146,7 @@ def blanked(log: pd.DataFrame) -> pd.DataFrame:
     frame["ambiguous_bar"] = pd.Series(pd.NA, index=frame.index, dtype="boolean")
     for name in ("mae_points", "mfe_points", "r_multiple"):
         frame[name] = pd.Series(np.nan, index=frame.index, dtype="float64")
+
     return frame
 
 
@@ -155,6 +159,7 @@ def by_time_only(log: pd.DataFrame) -> pd.DataFrame:
     frame = log.copy()
     for name in ("entry_bar", "exit_bar"):
         frame[name] = pd.Series(pd.NA, index=frame.index, dtype="Int64")
+
     return frame
 
 
@@ -177,6 +182,7 @@ def two_phase_case(
     entries = bars_in(data, timeofday.SessionPhase.CASH_OPEN, per_phase)
     entries += bars_in(data, timeofday.SessionPhase.MIDDAY, per_phase)
     log = sim_log(entries, data, pnl=alternating(len(entries)))
+
     return log, annotated(log, data), data
 
 
@@ -575,6 +581,7 @@ def sample_bars() -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 

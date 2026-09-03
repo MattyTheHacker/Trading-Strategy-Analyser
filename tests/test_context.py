@@ -31,6 +31,7 @@ def bars(n: int = 800, seed: int = 3) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 

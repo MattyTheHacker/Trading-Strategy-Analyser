@@ -98,6 +98,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
         ),
         out,
     )
+
     return count, out
 
 
@@ -105,6 +106,7 @@ def run(rows, signal_at=(), **kwargs):
     """:func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
+
     return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
 
 
@@ -576,6 +578,7 @@ def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
         index=idx,
     )
     out["trading_day"] = sessions.classify(idx).trading_day
+
     return out
 
 
@@ -593,6 +596,7 @@ def signalling(**overrides) -> InsideBarTrailingParams:
         "atr_length": 2,
         "bars_required_to_trade": 0,
     }
+
     return InsideBarTrailingParams(**{**defaults, **overrides})
 
 

@@ -53,6 +53,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 
@@ -71,6 +72,7 @@ def audited():
     log = run_deadcat(data, params, MNQ)
     assert len(log), "fixture produced no trades; the tests below would prove nothing"
     detail = explain.explain_trades(data, params, log, MNQ, limit=len(log))
+
     return log, detail
 
 
@@ -222,6 +224,7 @@ def ratchet():
     log = run_deadcat(data, params, MNQ)
     history = explain.ratchet_history(data, params, log, log["trade_id"].iloc[0], MNQ)
     assert not history.empty
+
     return data, params, history
 
 

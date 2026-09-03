@@ -117,6 +117,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                     )
                     if written < 0:
                         return -1
+
                     legs.is_open[leg] = False
             in_position = False
         elif in_position:
@@ -184,11 +185,13 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                 )
                 if written < 0:
                     return -1
+
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's orders --------------------------
         if in_position and rules.exit_on_opposite_cross and direction_at[i] != direction:
             pending_exit = True
+
         if (
             i >= rules.bars_required
             and signal[i]

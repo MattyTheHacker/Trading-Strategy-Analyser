@@ -200,6 +200,7 @@ def validate_legs(legs: LegMatrix) -> LegMatrix:
         unknown: list[float] = sorted(set(np.unique(reasons)) - set(EXIT_REASONS))
         msg = f"unknown exit_reason code(s) {unknown}; expected one of {sorted(EXIT_REASONS)}"
         raise TradeSchemaError(msg)
+
     return legs
 
 
@@ -240,6 +241,7 @@ def trades_to_frame(
 
     frame.insert(0, "instrument", pd.array([instrument] * count, dtype="string"))  # type: ignore[arg-type]  # pandas-stubs omits BaseStringArray
     frame.insert(0, "source", pd.array([source] * count, dtype="string"))  # type: ignore[arg-type]  # pandas-stubs omits BaseStringArray
+
     return frame
 
 
@@ -256,6 +258,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
         raise TradeSchemaError(
             msg,
         )
+
     if frame.empty:
         return frame
 

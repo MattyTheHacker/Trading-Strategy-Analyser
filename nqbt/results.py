@@ -89,6 +89,7 @@ def connect(db_path: Path = paths.SWEEPS_DB) -> duckdb.DuckDBPyConnection:
         """,
     )
     _migrate_axis_columns(con)
+
     return con
 
 
@@ -106,6 +107,7 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
     for table, wanted in columns.items():
         if not _table_exists(con, table):
             continue
+
         for name, sql_type in wanted.items():
             con.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {sql_type}")
 
@@ -116,6 +118,7 @@ def _count(con: duckdb.DuckDBPyConnection, sql: str, parameters: Sequence[object
     if row is None:  # pragma: no cover - an aggregate always returns exactly one row
         msg: str = f"no row from {sql!r}"
         raise RuntimeError(msg)
+
     return int(row[0])
 
 
@@ -205,6 +208,7 @@ def save_sweep(  # noqa: PLR0913, PLR0917 - each keyword is a column the stored 
         )
         tagged.insert(0, "sweep_id", sweep_id)
         _append_or_create(con, "combos", tagged)
+
         return sweep_id
     finally:
         con.close()
@@ -232,13 +236,16 @@ def _tag_axes(
     for name, (value, dtype) in supplied.items():
         if name not in tagged.columns:
             tagged[name] = value
+
         tagged[name] = tagged[name].astype(dtype)
+
     return tagged
 
 
 def _quoted(name: str) -> str:
     """A column name as a SQL identifier, so a statistic named like a keyword still inserts."""
     escaped: str = name.replace('"', '""')
+
     return f'"{escaped}"'
 
 
@@ -258,6 +265,7 @@ def _lossy_columns(con: duckdb.DuckDBPyConnection, stored: Mapping[str, str], in
         stored_type: str | None = stored.get(name)
         if stored_type is None or stored_type == incoming_type:
             continue
+
         column: str = _quoted(name)
         changed: int = _count(
             con,
@@ -266,6 +274,7 @@ def _lossy_columns(con: duckdb.DuckDBPyConnection, stored: Mapping[str, str], in
         )
         if changed:
             lossy.append(f"{name} ({incoming_type} into {stored_type}, {changed} rows)")
+
     return lossy
 
 
@@ -290,6 +299,7 @@ def _append_or_create(con: duckdb.DuckDBPyConnection, table: str, frame: pd.Data
     con.register("incoming", frame)
     if not _table_exists(con, table):
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM incoming")  # noqa: S608 - a literal at both callers
+
         return
 
     stored: dict[str, str] = _describe(con, table)
@@ -311,6 +321,7 @@ def _jsonable(value: Any) -> Any:  # type: ignore[explicit-any]  # noqa: ANN401 
     """
     if hasattr(value, "item"):
         return value.item()
+
     return value
 
 
@@ -334,6 +345,7 @@ def save_trades(
                 "DELETE FROM trades WHERE sweep_id = ? AND combo_id = ?",
                 [sweep_id, combo_id],
             )
+
         tagged: pd.DataFrame = trades.copy()
         tagged.insert(0, "combo_id", combo_id)
         tagged.insert(0, "sweep_id", sweep_id)
@@ -372,6 +384,7 @@ def best(
     where: str = f"WHERE trades >= {int(min_trades)}"
     if sweep_id is not None:
         where += f" AND sweep_id = {int(sweep_id)}"
+
     return query(
         f"SELECT * FROM combos {where} ORDER BY {by} DESC LIMIT {int(top)}",  # noqa: S608 - the ORDER BY; #61
         db_path,

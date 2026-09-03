@@ -54,6 +54,7 @@ def front_month_windows(root: str, back_adjust: bool = True, cache_dir: Path = p
         },
     )
     windows.index.name = "contract"
+
     return windows.sort_values("start")
 
 
@@ -75,11 +76,13 @@ def contract_frames(
         bars: pd.DataFrame = ingest.load_contract(ContractId.parse(str(name)), cache_dir)
         if not full_life:
             bars = bars[(bars.index >= window.start) & (bars.index <= window.end)]
+
         if len(bars):
             frames[str(name)] = bars
     if not frames:
         msg: str = f"no cached per-contract bars for {root}"
         raise DispersionError(msg)
+
     return frames
 
 
@@ -103,6 +106,7 @@ def coverage(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
                 "end": bars.index.max(),
             },
         )
+
     return pd.DataFrame(rows).sort_values("start").reset_index(drop=True)
 
 
@@ -169,6 +173,7 @@ def dispersion(results: pd.DataFrame, by: str = "profit_factor", min_trades: int
                 f"{by}_range": float(finite.max() - finite.min()) if finite.size else np.nan,
             },
         )
+
     return pd.DataFrame(rows)
 
 

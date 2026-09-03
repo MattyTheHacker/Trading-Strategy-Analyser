@@ -29,6 +29,7 @@ def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
     frame["entry_time"] = base + pd.to_timedelta(frame["trade_id"], unit="D")
     frame["exit_time"] = frame["entry_time"] + pd.Timedelta(minutes=5)
+
     return frame
 
 
@@ -376,6 +377,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 
@@ -387,6 +389,7 @@ def prepared():
         ema_period=[9, 21],
         fast_sma_period=[40, 60],
     )
+
     return bars, grid, sweep.prepare_for(bars, grid)
 
 
@@ -518,6 +521,7 @@ def test_the_one_minute_path_is_the_untouched_frame(axis_bars) -> None:
 def contract_frames(bars) -> dict:
     """Two disjoint halves standing in for two front-month windows."""
     midpoint = len(bars) // 2
+
     return {"MNQ 03-24": bars.iloc[:midpoint], "MNQ 06-24": bars.iloc[midpoint:]}
 
 
@@ -611,6 +615,7 @@ def test_every_grid_at_one_axis_point_shares_a_single_dataset(axis_bars, monkeyp
 
     def counting(bars, spec=context.DEFAULT_SPEC, **kwargs):
         calls.append(spec)
+
         return real(bars, spec, **kwargs)
 
     monkeypatch.setattr(context, "prepare", counting)
@@ -714,6 +719,7 @@ def fake_results(n=3) -> pd.DataFrame:
 
 def fake_bars() -> pd.DataFrame:
     idx = pd.date_range("2024-01-02", periods=10, freq="min", tz="UTC")
+
     return pd.DataFrame({"close": np.arange(10.0)}, index=idx)
 
 
@@ -815,6 +821,7 @@ def test_replacing_into_a_database_with_no_trades_table_yet_just_stores(db) -> N
 def save(db, results_frame=None, **kwargs) -> int:
     """``save_sweep`` with the arguments that are noise for these tests filled in."""
     defaults = {"root": "MNQ", "instrument": "MNQ", "bars": fake_bars(), "axes": {}}
+
     return results.save_sweep(
         fake_results() if results_frame is None else results_frame,
         db_path=db,
@@ -1080,6 +1087,7 @@ def insidebar_shaped() -> pd.DataFrame:
     frame["error_margin"] = [0.01, 0.05, 0.1]
     frame["atr_length"] = [3, 14, 14]
     frame["atr_multiplier"] = [5.0, 10.0, 20.0]
+
     return frame
 
 

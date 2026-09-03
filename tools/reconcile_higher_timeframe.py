@@ -66,12 +66,14 @@ def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         utc=True,
         errors="coerce",
     )
+
     return primary.set_index("utc"), coarse.set_index("utc")
 
 
 def report(name: str, agreed: bool, detail: str) -> bool:
     """One question's verdict, in the form the other reconciliation tools print."""
     logger.info("  %-12s %-9s %s", name, "AGREES" if agreed else "DIFFERS", detail)
+
     return agreed
 
 
@@ -89,6 +91,7 @@ def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) 
     for column in OHLCV:
         if column not in nt8_coarse.columns:
             continue
+
         differs = ~np.isclose(
             nt8_coarse.loc[shared, column].to_numpy(np.float64),
             ours.loc[shared, column].to_numpy(np.float64),
@@ -102,10 +105,13 @@ def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) 
     detail: str = f"{len(shared):,} shared {minutes}-minute bars"
     if only_nt8 or only_ours:
         detail += f"; {only_nt8:,} only in NT8, {only_ours:,} only in nqbt"
+
     if mismatched:
         detail += "; " + ", ".join(f"{c} on {n:,}" for c, n in mismatched.items())
+
     if not agreed:
         detail += settled_from(nt8_coarse, ours, shared)
+
     return report("anchoring", agreed=agreed, detail=detail)
 
 
@@ -120,8 +126,10 @@ def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.Dateti
     differs = nt8_coarse.loc[shared, "close"].to_numpy() != ours.loc[shared, "close"].to_numpy()
     if not differs.any():
         return ""
+
     last_bad = shared[differs].max()
     after = shared[shared > last_bad]
+
     return f"; agrees on all {len(after):,} bars after {last_bad}"
 
 
@@ -139,6 +147,7 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
             column: str = f"coarse_{kind}_{label}"
             if column not in primary.columns:
                 continue
+
             ours: pd.Series = pd.Series(function(closes, period), index=nt8_coarse.index)
             theirs: pd.Series = primary[column].reindex(ours.index)
             usable = theirs.notna()
@@ -154,6 +163,7 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
                 agreed=not differs.any(),
                 detail=f"{int(usable.sum()):,} coarse closes compared, {int(differs.sum()):,} differ",
             )
+
     return agreed
 
 
@@ -171,12 +181,14 @@ def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.
     """
     seconds: np.ndarray = epoch_seconds(coarse_stamps)
     read: np.ndarray = higher_timeframe.project(coarse_stamps, seconds.astype(np.float64), stamps)
+
     return pd.Series(pd.to_datetime(read, unit="s", utc=True), index=stamps)
 
 
 def epoch_seconds(stamps: pd.DatetimeIndex) -> np.ndarray:
     """UTC seconds since the epoch, whatever resolution the index happens to carry."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz else stamps
+
     return naive.to_numpy(dtype="datetime64[s]").astype("int64")
 
 
@@ -198,12 +210,14 @@ def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
     if not agreed:
         for stamp in stamps[differs][:FIRST_DISAGREEMENTS]:
             logger.info("      %s: nqbt reads %s, NT8 reads %s", stamp, ours[stamp], theirs[stamp])
+
     if not closing.any():
         logger.warning(
             "      no bar closes alongside a coarse bar, so this run cannot discriminate "
             "the two candidate rules -- check the coarse resolution divides the primary one",
         )
         agreed = False
+
     return report("projection", agreed=agreed, detail=detail)
 
 
@@ -219,6 +233,7 @@ def check_warmup(primary: pd.DataFrame, key: higher_timeframe.HigherTimeframeKey
     bars["trading_day"] = sessions.classify(pd.DatetimeIndex(bars.index)).trading_day
     grid = higher_timeframe.higher_timeframe_grid(bars, [key], bar_minutes=1)
     ours: int = int((grid.labels_for(key) == higher_timeframe.UNDEFINED).sum())
+
     return report(
         "warm-up",
         agreed=theirs == ours,
@@ -269,6 +284,7 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
     agreed: bool = all(results)
     logger.info("")
     logger.info("%s", "RECONCILED" if agreed else "DIFFERENCES FOUND -- see above")
+
     return agreed
 
 
@@ -277,8 +293,10 @@ def infer_coarse_minutes(coarse_stamps: pd.DatetimeIndex) -> int:
     if coarse_stamps.size < 2:
         msg: str = "the coarse export holds fewer than two bars; nothing to infer a resolution from"
         raise ValueError(msg)
+
     gaps = np.diff(epoch_seconds(coarse_stamps)) // 60
     values, counts = np.unique(gaps[gaps > 0], return_counts=True)
+
     return int(values[counts.argmax()])
 
 
@@ -294,15 +312,18 @@ def infer_periods(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> dict[str, 
         column: str = f"coarse_ema_{label}"
         if column not in primary.columns:
             continue
+
         theirs: pd.Series = primary[column].reindex(nt8_coarse.index)
         usable = theirs.notna()
         if not usable.any():
             continue
+
         for period in range(1, 401):
             ours = indicators.nt8_ema(closes, period)
             if np.allclose(ours[usable.to_numpy()], theirs[usable].to_numpy(np.float64), rtol=0, atol=MA_TOLERANCE):
                 found[label] = period
                 break
+
     return found
 
 
@@ -311,6 +332,7 @@ def main(argv: list[str]) -> int:
     if len(argv) not in EXPECTED_ARGV:
         logger.info("%s", __doc__)
         return 2
+
     return 0 if reconcile(Path(argv[1]), argv[2], argv[3] if len(argv) == 4 else None) else 1
 
 

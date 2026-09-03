@@ -74,12 +74,14 @@ def read_run(events_path: Path) -> Run:
 
     events = pd.read_csv(events_path, sep=";", float_precision="round_trip", low_memory=False)
     bars = pd.read_csv(bars_path, sep=";", float_precision="round_trip").set_index("bar")
+
     return Run(stem=name[: -len("_events.csv")], events=events, bars=bars, config=config)
 
 
 def entry_fills(run: Run) -> pd.DataFrame:
     """Execution rows for the probe's own entry orders, which are the price-triggered ones."""
     events = run.events
+
     return events[(events["kind"] == EXECUTION) & events["signal_name"].isin(PROBE_SIGNALS)]
 
 
@@ -87,6 +89,7 @@ def reaches(bar: pd.Series, trigger: float, action: str) -> bool:
     """Whether a bar's range reaches a stop trigger, on the side the order sits."""
     if action == "Buy":
         return bool(bar["high"] >= trigger)
+
     return bool(bar["low"] <= trigger)
 
 
@@ -104,11 +107,13 @@ def measure_entry_lag(run: Run) -> dict[str, int]:
             bar = fill["bar"] + offset
             if bar not in run.bars.index:
                 continue
+
             resolved = True
             if reaches(run.bars.loc[bar], fill["stop_price"], fill["order_action"]):
                 counts[key] += 1
         if not resolved:
             counts["unresolved"] += 1
+
     return counts
 
 
@@ -126,10 +131,12 @@ def measure_session_close_exit_lag(run: Run) -> dict[str, int]:
         if row["bar"] not in run.bars.index:
             counts["unresolved"] += 1
             continue
+
         bar = run.bars.loc[row["bar"]]
         price = row["average_fill_price"]
         counts["at_reported_close"] += int(price == bar["close"])
         counts["inside_reported"] += int(bar["low"] <= price <= bar["high"])
+
     return counts
 
 
@@ -150,6 +157,7 @@ def lifetimes(run: Run, signal: str, lag: int = 1) -> pd.DataFrame:
 
     requests = rows[rows["kind"] == CANCEL_REQUEST].groupby("trial")["bar"].min()
     out["cancel_requested"] = requests
+
     return out
 
 
@@ -162,6 +170,7 @@ def offsets_from_submit(frame: pd.DataFrame, column: str) -> dict[int, int]:
     delta = (frame[column] - frame["submit_bar"]).dropna()
     if delta.empty:
         return {}
+
     return {int(k): int(v) for k, v in delta.astype(int).value_counts().sort_index().items()}
 
 
@@ -175,10 +184,12 @@ def describe_offsets(frame: pd.DataFrame, column: str) -> str:
     counts = offsets_from_submit(frame, column)
     if not counts:
         return "none"
+
     if len(counts) <= MAX_DISTINCT_OFFSETS:
         return str(counts)
 
     delta = (frame[column] - frame["submit_bar"]).dropna()
+
     return (
         f"{int(delta.size)} over {len(counts)} distinct offsets, "
         f"min {int(delta.min())} median {int(delta.median())} max {int(delta.max())}"
@@ -203,6 +214,7 @@ def last_bar_fills(run: Run, lag: int = 1) -> dict[str, int]:
     fills = entry_fills(run)
     corrected = fills["bar"] + lag
     submits = events[(events["kind"] == SUBMIT) & events["signal_name"].isin(PROBE_SIGNALS)]
+
     return {
         "bars_flagged_last": len(last_bars),
         "entry_fills": len(fills),
@@ -224,8 +236,10 @@ def refused_submissions(run: Run) -> dict[str, int]:
         submits = rows[rows["kind"] == SUBMIT]
         if submits.empty:
             continue
+
         acknowledged = rows[rows["kind"] == ORDER_UPDATE]["trial"].unique()
         out[signal] = int((~submits["trial"].isin(acknowledged)).sum())
+
     return out
 
 
@@ -233,6 +247,7 @@ def fills_after_cancel(run: Run, lag: int = 1) -> dict[str, int]:
     """Whether any order filled on or after the bar whose close issued its cancel."""
     frame = lifetimes(run, "probe1", lag)
     both = frame.dropna(subset=["filled", "cancel_requested"])
+
     return {
         "cancel_requested": int(frame["cancel_requested"].notna().sum()),
         "filled_on_the_request_bar": int((both["filled"] == both["cancel_requested"]).sum()),
@@ -267,6 +282,7 @@ def report(run: Run) -> bool:
         frame = lifetimes(run, signal)
         if frame.empty:
             continue
+
         logger.info(
             "%s: %d trials, acknowledged %d, filled at submit+%s, cancelled at submit+%s",
             signal,
@@ -296,6 +312,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != EXPECTED_ARGV:
         logger.info("%s", __doc__)
         return 2
+
     return 0 if report(read_run(Path(argv[1]))) else 1
 
 

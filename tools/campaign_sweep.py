@@ -180,6 +180,7 @@ class Variant:
         total: int = 1
         for values in self.axes.values():
             total *= len(values)
+
         return total
 
 
@@ -237,6 +238,7 @@ def crossover_variants(root: str) -> list[Variant]:
         "tp_multiplier": [1.0, 2.0],
         "exit_on_opposite_cross": [True, False],
     }
+
     return [
         Variant(
             name="stop=atr",
@@ -311,6 +313,7 @@ def elasticband_variants(root: str) -> list[Variant]:
         "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
         "max_hold_bars": [0, 30],
     }
+
     return [
         Variant(
             name=name,
@@ -348,13 +351,16 @@ def windows(bars: pd.DataFrame, split: bool) -> list[tuple[str, pd.DataFrame]]:
     """The bar ranges to run: the whole series, or a selection window and a held-out one."""
     if not split:
         return [("full", bars)]
+
     cut: int = math.floor(len(bars) * SELECTION_SHARE)
+
     return [("selection", bars.iloc[:cut]), ("holdout", bars.iloc[cut:])]
 
 
 def db_path(name: str) -> paths.Path:
     """Where one archetype's results live. Separate files, not separate tables -- see above."""
     CAMPAIGN_DIR.mkdir(parents=True, exist_ok=True)
+
     return CAMPAIGN_DIR / f"{name}.duckdb"
 
 
@@ -364,6 +370,7 @@ def _merged_axes(grids: list[sweep.Grid]) -> dict[str, list[AxisValue]]:
     for grid in grids:
         for axis, values in grid.axes.items():
             merged[axis] = sorted({*merged.get(axis, []), *values}, key=str)
+
     return merged
 
 
@@ -451,6 +458,7 @@ def planned_combinations(argv: argparse.Namespace) -> int:
             per_stratum: int = sum(variant.sized() for variant in VARIANTS[name](root))
             cells: int = len(list(strata(argv.strata)))
             per_window += per_stratum * cells * len(argv.resolutions)
+
     return per_window * (2 if argv.split else 1)
 
 
@@ -492,6 +500,7 @@ def main(argv: list[str]) -> int:
                     )
     logger.info("")
     logger.info("done in %.1f min", (time.perf_counter() - started) / 60.0)
+
     return 0
 
 

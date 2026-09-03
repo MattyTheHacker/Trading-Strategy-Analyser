@@ -187,4 +187,5 @@ def ratchet_history(
         )
         if tightened:
             stop = candidate
+
     return pd.DataFrame(rows)

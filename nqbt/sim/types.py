@@ -237,10 +237,12 @@ class DeadCatParams:
             raise ValueError(
                 msg,
             )
+
         for gate in ("ema", "slow_sma", "fast_sma"):
             if getattr(self, f"{gate}_period") < 1:
                 msg = f"{gate}_period must be >= 1"
                 raise ValueError(msg)
+
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         validate_context_filters(self)
 
@@ -265,6 +267,7 @@ class DeadCatParams:
         n: int = len(self.target_r_multiples)
         base: int = self.order_quantity // n
         remainder: int = self.order_quantity % n
+
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
@@ -273,6 +276,7 @@ class DeadCatParams:
         for f in fields(self):
             value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
+
         return out
 
 
@@ -396,10 +400,12 @@ class PullBackAndGoParams:
             raise ValueError(
                 msg,
             )
+
         for gate in ("ema", "slow_sma", "fast_sma"):
             if getattr(self, f"{gate}_period") < 1:
                 msg = f"{gate}_period must be >= 1"
                 raise ValueError(msg)
+
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         validate_context_filters(self)
 
@@ -424,6 +430,7 @@ class PullBackAndGoParams:
         n: int = len(self.target_r_multiples)
         base: int = self.order_quantity // n
         remainder: int = self.order_quantity % n
+
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
@@ -432,6 +439,7 @@ class PullBackAndGoParams:
         for f in fields(self):
             value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
+
         return out
 
 
@@ -571,6 +579,7 @@ class EmaCrossoverParams:
         if self.order_quantity < len(self.target_r_multiples):
             msg: str = f"order_quantity {self.order_quantity} cannot fill {len(self.target_r_multiples)} legs"
             raise ValueError(msg)
+
         for name in ("fast_period", "slow_period", "atr_period", "swing_lookback"):
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
@@ -580,9 +589,11 @@ class EmaCrossoverParams:
         if self.cross_lookback < 1:
             msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
             raise ValueError(msg)
+
         if self.min_bracket_dollars < 0.0:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
+
         validate_context_filters(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
             msg = (
@@ -612,6 +623,7 @@ class EmaCrossoverParams:
         n: int = len(self.target_r_multiples)
         base: int = self.order_quantity // n
         remainder: int = self.order_quantity % n
+
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
@@ -620,6 +632,7 @@ class EmaCrossoverParams:
         for f in fields(self):
             value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
+
         return out
 
 
@@ -750,15 +763,19 @@ class InsideBarParams:
         if not 0.0 <= self.error_margin <= 1.0:
             msg = f"error_margin must be in [0, 1], got {self.error_margin}; NT8 caps it with Range(0, 1)"
             raise ValueError(msg)
+
         if self.atr_multiplier <= 0.0:
             msg = f"atr_multiplier must be > 0, got {self.atr_multiplier}"
             raise ValueError(msg)
+
         if self.tp_multiplier <= 0.0:
             msg = f"tp_multiplier must be > 0, got {self.tp_multiplier}"
             raise ValueError(msg)
+
         if self.no_entry_minutes_before_close < 0:
             msg = f"no_entry_minutes_before_close must be >= 0, got {self.no_entry_minutes_before_close}"
             raise ValueError(msg)
+
         validate_context_filters(self)
 
     @property
@@ -787,6 +804,7 @@ class InsideBarParams:
         for f in fields(self):
             value: object = getattr(self, f.name)
             out[f.name] = list(value) if isinstance(value, tuple) else value
+
         return out
 
 
@@ -848,29 +866,34 @@ class InsideBarTrailingParams(InsideBarParams):
                 f"NT8 caps it with Range({MIN_SPLIT_QUANTITY}, int.MaxValue)"
             )
             raise ValueError(msg)
+
         if not 0.0 <= self.partial_take_profit_percentage <= MAX_PARTIAL_SHARE:
             msg = (
                 f"partial_take_profit_percentage must be in [0, {MAX_PARTIAL_SHARE}], got "
                 f"{self.partial_take_profit_percentage}; NT8 caps it with Range(0, {MAX_PARTIAL_SHARE})"
             )
             raise ValueError(msg)
+
         if self.position_update_loss_gate < 0.0:
             msg = (
                 f"position_update_loss_gate is a loss magnitude and must be >= 0, got {self.position_update_loss_gate}"
             )
             raise ValueError(msg)
+
         if self.trailing_stop_multiplier < 1.0:
             msg = (
                 f"trailing_stop_multiplier must be >= 1, got {self.trailing_stop_multiplier}; "
                 f"NT8 caps it with Range(1, double.MaxValue)"
             )
             raise ValueError(msg)
+
         if min(self.leg_quantities) < 1:
             msg = (
                 f"the split leaves a lot of zero contracts: {self.leg_quantities} from "
                 f"order_quantity={self.order_quantity} at {self.partial_take_profit_percentage}"
             )
             raise ValueError(msg)
+
         if self.maximum_loss_per_trade != 0.0:
             msg = (
                 "maximum_loss_per_trade is unreachable in the NinjaScript and unimplemented here; "
@@ -886,6 +909,7 @@ class InsideBarTrailingParams(InsideBarParams):
         ``(int) Math.Ceiling(OrderQuantity * PartialTakeProfitPercentage)`` and the remainder.
         """
         first: int = math.ceil(self.order_quantity * self.partial_take_profit_percentage)
+
         return (first, self.order_quantity - first)
 
 
@@ -1160,6 +1184,7 @@ class ElasticBandParams:
         n: int = len(self.target_levels)
         base: int = self.order_quantity // n
         remainder: int = self.order_quantity % n
+
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:

@@ -125,6 +125,7 @@ class ContextSpec:
         grouped: dict[str, set[int]] = {}
         for kind, period in self.ma_keys:
             grouped.setdefault(kind, set()).add(period)
+
         return {kind: tuple(sorted(periods)) for kind, periods in grouped.items()}
 
 
@@ -198,6 +199,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.mas[kind]
 
     def ma_gate(self, kind: str, period: int, above: bool) -> BoolArray:
@@ -206,6 +208,7 @@ class Dataset:
         Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
         """
         ma_grid: MovingAverageGrid = self.grid(kind)
+
         return ma_grid.above_for(period) if above else ma_grid.below_for(period)
 
     def ma_values(self, kind: str, period: int) -> FloatArray:
@@ -222,6 +225,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.atrs[period]
 
     def _band(self) -> BandGrid:
@@ -233,6 +237,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.band
 
     def band_basis(self, period: int) -> FloatArray:
@@ -257,6 +262,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.above_vwap if above else self.below_vwap
 
     def vwap_values(self) -> FloatArray:
@@ -269,6 +275,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.vwap
 
     def _time_of_day(self) -> timeofday.TimeOfDay:
@@ -280,6 +287,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.time_of_day
 
     def phase_gate(self, mask: int) -> BoolArray:
@@ -307,6 +315,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.regimes
 
     def regime_gate(self, lookback: int, mask: int, consolidating_below: float, directional_above: float) -> BoolArray:
@@ -334,6 +343,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.volumes
 
     def volume_gate(self, key: volume.VolumeKey, mask: int, thin_below: float, heavy_above: float) -> BoolArray:
@@ -365,6 +375,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.trends
 
     def trend_gate(self, key: trend.TrendKey, mask: int, min_agreement: int) -> BoolArray:
@@ -396,6 +407,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.higher_timeframes
 
     def higher_timeframe_gate(self, key: higher_timeframe.HigherTimeframeKey, mask: int) -> BoolArray:
@@ -429,6 +441,7 @@ class Dataset:
             raise ContextError(
                 context_error_message,
             )
+
         return self.seconds_to_session_end > minutes * 60.0
 
     @property
@@ -452,14 +465,19 @@ class Dataset:
 
         if self.time_of_day is not None:
             total += self.time_of_day.nbytes
+
         if self.regimes is not None:
             total += self.regimes.nbytes
+
         if self.volumes is not None:
             total += self.volumes.nbytes
+
         if self.trends is not None:
             total += self.trends.nbytes
+
         if self.higher_timeframes is not None:
             total += self.higher_timeframes.nbytes
+
         return total
 
     def slim(self) -> Dataset:
@@ -479,7 +497,9 @@ def day_codes(index: pd.Index) -> IndexArray | None:  # type: ignore[explicit-an
     """
     if not isinstance(index, pd.DatetimeIndex):
         return None
+
     local: pd.DatetimeIndex = index.tz_localize(None) if index.tz is not None else index
+
     return local.to_numpy().astype("datetime64[D]").astype(np.int32)
 
 

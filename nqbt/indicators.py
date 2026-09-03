@@ -61,6 +61,7 @@ def nt8_ema(values: FloatArray, period: int) -> FloatArray:
     out[0] = values[0]
     for i in range(1, n):
         out[i] = values[i] * k + inv * out[i - 1]
+
     return out
 
 
@@ -84,6 +85,7 @@ def nt8_sma(values: FloatArray, period: int) -> FloatArray:
         else:
             total = out[i - 1] * i
             out[i] = (total + values[i]) / (i + 1)
+
     return out
 
 
@@ -106,6 +108,7 @@ def nt8_wma(values: FloatArray, period: int) -> FloatArray:
             total += (span - j) * values[i - j]
             weight += span - j
         out[i] = total / weight
+
     return out
 
 
@@ -118,8 +121,10 @@ def nt8_hma(values: FloatArray, period: int) -> FloatArray:
     if period < MIN_HMA_PERIOD:
         msg: str = f"nt8_hma needs period >= {MIN_HMA_PERIOD}, got {period}; NT8 caps it with Range(2, ...)"
         raise ValueError(msg)
+
     half: FloatArray = nt8_wma(values, period // 2)
     full: FloatArray = nt8_wma(values, period)
+
     return nt8_wma(2.0 * half - full, int(np.sqrt(period)))
 
 
@@ -142,6 +147,7 @@ def nt8_true_range(high: FloatArray, low: FloatArray, close: FloatArray) -> Floa
         up = abs(high[i] - prev)
         down = abs(low[i] - prev)
         out[i] = max(span, up, down)
+
     return out
 
 
@@ -166,6 +172,7 @@ def nt8_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -
             out[i] = running / (i + 1)
         else:
             out[i] = (out[i - 1] * (period - 1) + tr[i]) / period
+
     return out
 
 
@@ -194,6 +201,7 @@ def nt8_stddev(values: FloatArray, period: int) -> FloatArray:
             diff = values[j] - mean
             acc += diff * diff
         out[i] = np.sqrt(acc / count)
+
     return out
 
 
@@ -201,6 +209,7 @@ def nt8_bollinger(values: FloatArray, period: int, num_std: float) -> tuple[Floa
     """Bollinger Bands as ``(upper, middle, lower)``: ``SMA +/- k * StdDev``."""
     middle: FloatArray = nt8_sma(values, period)
     spread: FloatArray = num_std * nt8_stddev(values, period)
+
     return middle + spread, middle, middle - spread
 
 
@@ -219,6 +228,7 @@ def band_stretch(values: FloatArray, basis: FloatArray, stddev: FloatArray) -> F
             out[i] = (values[i] - basis[i]) / stddev[i]
         else:
             out[i] = 0.0
+
     return out
 
 
@@ -236,6 +246,7 @@ def nt8_keltner(
     """
     midline: FloatArray = nt8_sma(typical_price(high, low, close), period)
     width: FloatArray = offset * nt8_sma(high - low, period)
+
     return midline + width, midline, midline - width
 
 
@@ -262,6 +273,7 @@ def session_vwap(price: FloatArray, volume: FloatArray, new_session: BoolArray) 
         if new_session[i]:
             cum_pv = 0.0
             cum_v = 0.0
+
         v = volume[i]
         cum_pv += price[i] * v
         cum_v += v
@@ -269,6 +281,7 @@ def session_vwap(price: FloatArray, volume: FloatArray, new_session: BoolArray) 
             out[i] = cum_pv / cum_v
         else:
             out[i] = price[i]
+
     return out
 
 
@@ -278,6 +291,8 @@ def new_session_flags(trading_day: DateArray) -> BoolArray:
     flags: BoolArray = np.zeros(days.size, dtype=np.bool_)
     if days.size == 0:
         return flags
+
     flags[0] = True
     flags[1:] = days[1:] != days[:-1]
+
     return flags

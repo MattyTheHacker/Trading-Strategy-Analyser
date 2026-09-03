@@ -39,6 +39,7 @@ def labelled(
     labels = np.where(np.arange(count) % 2 == 0, "a", "b")
     pnl = rng.normal(0.0, spread, count)
     pnl[labels == "a"] += effect
+
     return pnl, labels
 
 
@@ -49,6 +50,7 @@ def noise(
 ) -> dict[str, np.ndarray]:
     """Draw ``conditions`` labels that carry nothing, which is what a screen has to survive."""
     rng = np.random.default_rng(seed)
+
     return {f"noise_{i}": rng.integers(0, 3, count) for i in range(conditions)}
 
 
@@ -62,6 +64,7 @@ def phase_case(winning: int = 60, losing: int = 60) -> tuple[pd.DataFrame, conte
     data = dataset()
     entries = bars_in(data, timeofday.SessionPhase.CASH_OPEN, winning)
     entries += bars_in(data, timeofday.SessionPhase.MIDDAY, losing)
+
     return sim_log(entries, data, pnl=[100.0] * winning + [-100.0] * losing), data
 
 
@@ -243,6 +246,7 @@ def reversing(count: int = 400, seed: int = 11) -> tuple[np.ndarray, np.ndarray]
     cut = count - count // 4
     pnl[:cut] += np.where(labels[:cut] == "a", 100.0, -100.0)
     pnl[cut:] += np.where(labels[cut:] == "a", -100.0, 100.0)
+
     return pnl, labels
 
 
@@ -264,6 +268,7 @@ def late(count: int = 400, seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
     labels = np.where(np.arange(count) % 2 == 0, "a", "b")
     sign = np.where(labels == "a", 1.0, -1.0)
     effect = np.where(np.arange(count) < count - count // 4, 1.0, 100.0)
+
     return rng.normal(0.0, 5.0, count) + sign * effect, labels
 
 

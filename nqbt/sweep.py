@@ -63,6 +63,7 @@ class Grid:
     def __post_init__(self) -> None:
         if self.base is None:  # type: ignore[comparison-overlap]  # the None default above
             self.base = self.archetype.params_cls()  # type: ignore[unreachable]  # __post_init__ fills it
+
         if not isinstance(self.base, self.archetype.params_cls):
             msg: str = (
                 f"archetype {self.archetype.name!r} takes "
@@ -72,6 +73,7 @@ class Grid:
             raise SweepError(
                 msg,
             )
+
         sweepable: frozenset[str] = self.archetype.sweepable
         unknown: set[str] = set(self.axes) - sweepable
         if unknown:
@@ -138,12 +140,14 @@ class Grid:
         n: int = 1
         for values in self.axes.values():
             n *= len(values)
+
         return n
 
     def combinations(self) -> Iterator[Params]:
         """Yield one parameter instance per point in the grid."""
         if not self.axes:
             yield self.base
+
             return
 
         names: list[str] = list(self.axes)
@@ -199,6 +203,7 @@ def run_combination(
                 source="sim",
             ),
         )
+
     return {**row, **summary}, log
 
 
@@ -298,6 +303,7 @@ def _sweep_parallel(
     # Chunks come back in submission order; sorting states the guarantee rather than
     # relying on it.
     rows.sort(key=lambda r: cast("int", r["combo_id"]))
+
     return rows, logs
 
 
@@ -449,6 +455,7 @@ def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
     tagged: pd.DataFrame = table.copy()
     for position, name in enumerate(AxisPoint._fields):
         tagged.insert(position, name, getattr(point, name))
+
     return tagged
 
 

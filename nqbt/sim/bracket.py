@@ -485,6 +485,7 @@ def write_leg(
     )
     out[written, C_BARS_HELD] = leg_exit.bar - trade.entry_bar
     out[written, C_AMBIGUOUS] = 1.0 if leg_exit.ambiguous else 0.0
+
     return written + 1
 
 

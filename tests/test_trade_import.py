@@ -44,12 +44,14 @@ def grid(tmp_path, rows, header=HEADER, name="grid.csv"):
     """Write ``rows`` as an executions grid: newest first, CRLF, trailing comma intact."""
     path = tmp_path / name
     path.write_text("\r\n".join([header, *rows, ""]), encoding="utf-8")
+
     return path
 
 
 def fill(time, order, price, position, name="Entry"):
     """One row of the minimal column set. ``order`` reads as it does on the grid: ``"Sell 4"``."""
     action, quantity = order.split()
+
     return f"MNQ 09-26,{action},{quantity},{price},{time},{position},{name},"
 
 
@@ -76,6 +78,7 @@ def cache_bars(cache_dir, contract, first, last):
     path.parent.mkdir(parents=True, exist_ok=True)
     index = pd.DatetimeIndex([first, last], tz="UTC", name="ts_utc")
     pd.DataFrame({"close": [1.0, 2.0]}, index=index).to_parquet(path)
+
     return path
 
 

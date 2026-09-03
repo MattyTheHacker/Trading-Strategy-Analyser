@@ -111,12 +111,14 @@ def sides_mask(sides: Iterable[Side]) -> int:
     mask: int = 0
     for side in sides:
         mask |= Side(side).bit
+
     return mask
 
 
 def sides_in(mask: int) -> tuple[Side, ...]:
     """Unpack a mask into the sides it admits, in ascending-price order."""
     validate_mask(mask)
+
     return tuple(s for s in Side if mask & s.bit)
 
 
@@ -125,9 +127,11 @@ def validate_mask(mask: int) -> int:
     if mask < 0 or mask & ~ALL_SIDES:
         msg: str = f"higher-timeframe mask {mask} sets bits outside 0..{ALL_SIDES}; use Side.bit or sides_mask()"
         raise HigherTimeframeError(msg)
+
     if mask == 0:
         msg = "higher-timeframe mask 0 admits no side, so every combination along it would trade nothing"
         raise HigherTimeframeError(msg)
+
     return mask
 
 
@@ -139,6 +143,7 @@ def validate_minutes(minutes: int) -> int:
             "a 1-minute higher timeframe is the existing moving-average gate"
         )
         raise HigherTimeframeError(timeframe_error_message)
+
     return minutes
 
 
@@ -147,6 +152,7 @@ def validate_period(period: int) -> int:
     if period < 1:
         timeframe_error_message: str = f"higher_timeframe_period must be >= 1, got {period}"
         raise HigherTimeframeError(timeframe_error_message)
+
     return period
 
 
@@ -163,6 +169,7 @@ def key(minutes: int, period: int) -> HigherTimeframeKey:
 def _nanoseconds(index: pd.DatetimeIndex) -> IntArray:
     """UTC nanoseconds since the epoch, the one form two indices can be compared in."""
     naive: pd.DatetimeIndex = index.tz_convert("UTC").tz_localize(None) if index.tz is not None else index
+
     return naive.to_numpy(dtype="datetime64[ns]").astype("int64")
 
 
@@ -186,6 +193,7 @@ def project(coarse_stamps: pd.DatetimeIndex, values: FloatArray, stamps: pd.Date
     out: FloatArray = np.full(stamps.size, np.nan, dtype=np.float64)
     completed: BoolArray = positions >= 0
     out[completed] = coarse[positions[completed]]
+
     return out
 
 
@@ -202,6 +210,7 @@ def _label(close: FloatArray, series: FloatArray) -> LabelArray:
             out[i] = Side.ABOVE
         else:
             out[i] = Side.AT
+
     return out
 
 
@@ -212,6 +221,7 @@ def _gate(labels: LabelArray, mask: int) -> BoolArray:
     for i in range(n):
         if labels[i] != UNDEFINED:
             out[i] = (mask & (1 << labels[i])) != 0
+
     return out
 
 
@@ -234,6 +244,7 @@ def gate(labels: LabelArray, mask: int) -> BoolArray:
     archetype's signal skips this call entirely at the default.
     """
     validate_mask(mask)
+
     return _gate(np.ascontiguousarray(labels, dtype=np.int8), int(mask))
 
 
@@ -320,4 +331,5 @@ def higher_timeframe_grid(
             values[row] = project(coarse_stamps, indicators.nt8_ema(coarse_close, wanted.period), stamps)
             labels[row] = label(close, values[row])
             row += 1
+
     return HigherTimeframeGrid(keys=ordered, values=values, labels=labels)

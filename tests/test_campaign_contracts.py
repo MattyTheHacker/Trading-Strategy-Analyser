@@ -36,6 +36,7 @@ def contract_rows(**columns: object) -> pd.DataFrame:
         "null_trades": [118.0, 92.0, 61.0],
         "excess": [10.0, -10.0, -2.0],
     }
+
     return pd.DataFrame({**base, **columns})
 
 
@@ -129,6 +130,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
         index=idx,
     )
     frame["trading_day"] = sessions.classify(idx).trading_day
+
     return frame
 
 

@@ -42,6 +42,7 @@ def minute_bars(days: int = 4, seed: int = 7) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -71,6 +72,7 @@ def agreeing_export(bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     for column, values in at_coarse.items():
         primary[column] = values.reindex(stamps).ffill()
     primary.loc[reads.isna(), list(at_coarse)] = np.nan
+
     return primary, coarse
 
 
@@ -78,6 +80,7 @@ def agreeing_export(bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 def export():
     bars = minute_bars()
     primary, coarse = agreeing_export(bars)
+
     # Microsecond stamps, which is what read_csv hands back. Building the fixture with
     # date_range instead gives nanoseconds and hides every resolution assumption in the
     # tool -- one shipped that way and put the whole comparison in 1970.
@@ -90,6 +93,7 @@ def as_microseconds(frame: pd.DataFrame) -> pd.DataFrame:
     out.index = pd.DatetimeIndex(out.index).as_unit("us")
     if "coarse_utc" in out.columns:
         out["coarse_utc"] = pd.DatetimeIndex(out["coarse_utc"]).as_unit("us")
+
     return out
 
 
@@ -217,4 +221,5 @@ def write_probe_csv(frame: pd.DataFrame, path: Path, coarse_columns: bool) -> No
     if coarse_columns:
         stamps = pd.DatetimeIndex(out["coarse_utc"])
         out["coarse_utc"] = np.where(stamps.isna(), "", stamps.strftime("%Y%m%d %H%M%S"))
+
     out.to_csv(path, sep=";", index=False)

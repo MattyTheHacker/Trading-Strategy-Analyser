@@ -53,6 +53,7 @@ def minutes_since_open(index: pd.DatetimeIndex, template: SessionTemplate = CME_
     seconds: IntArray = (naive.hour * 3600 + naive.minute * 60 + naive.second).to_numpy()
     open_s: int = template.open_seconds
     past_open: IntArray = np.where(seconds > open_s, seconds - open_s, seconds + SECONDS_PER_DAY - open_s)
+
     return (past_open // 60).astype(np.int64)
 
 
@@ -127,4 +128,5 @@ def resample(
         tz="UTC",
         name=bars.index.name,
     )
+
     return out[list(bars.columns)]

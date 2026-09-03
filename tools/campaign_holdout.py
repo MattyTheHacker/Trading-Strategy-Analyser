@@ -71,6 +71,7 @@ def paired(name: str) -> pd.DataFrame:
         if not mismatched[f"{parameter}_sel"].equals(mismatched[f"{parameter}_hold"]):
             msg: str = f"{name}: {parameter} differs between the windows at the same combo_id"
             raise RuntimeError(msg)
+
     return merged
 
 
@@ -107,6 +108,7 @@ def verdict(name: str, merged: pd.DataFrame) -> pd.DataFrame:
                 "passes": shortlist_pf > 1.0 and shortlist_pf > unselected_pf,
             },
         )
+
     return pd.DataFrame(rows)
 
 
@@ -116,7 +118,9 @@ def show(title: str, frame: pd.DataFrame) -> None:
     logger.info("--- %s ---", title)
     if frame.empty:
         logger.info("(nothing)")
+
         return
+
     with pd.option_context("display.width", 220, "display.max_columns", 60):
         logger.info("%s", frame.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
@@ -133,6 +137,7 @@ def main(argv: list[str]) -> int:
         if merged.empty:
             logger.warning("no paired windows for %s; run --split first", name)
             continue
+
         block: pd.DataFrame = verdict(name, merged)
         verdicts.append(block)
         show(f"{name}: best 20 on the selection window, measured on the holdout", block)
@@ -159,6 +164,7 @@ def main(argv: list[str]) -> int:
         logger.info("")
         logger.info("=" * 110)
         show("HELD-OUT VERDICT -- every archetype", pd.concat(verdicts, ignore_index=True))
+
     return 0
 
 

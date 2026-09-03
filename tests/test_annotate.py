@@ -51,6 +51,7 @@ def bars(n: int = 120, start: str = START) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -73,6 +74,7 @@ def manual_log(legs: list[dict[str, object]], contract: str = "MNQ 09-26") -> pd
     frame["contract"] = pd.Series(contract, index=frame.index, dtype="string")
     for name in ("entry_bar", "exit_bar"):
         frame[name] = pd.Series(pd.NA, index=frame.index, dtype="Int64")
+
     return frame
 
 
@@ -100,6 +102,7 @@ def sim_log(
 ) -> pd.DataFrame:
     """Build a log the way the simulator leaves one: bar indices, and the stamps of those bars."""
     prices = np.array([close_of(i) for i in range(len(index))]) if closes is None else closes
+
     return pd.DataFrame(
         {
             "trade_id": np.arange(1, len(pairs) + 1, dtype=np.int64),
@@ -833,6 +836,7 @@ def sample_bars() -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 

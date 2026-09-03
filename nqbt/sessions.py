@@ -203,4 +203,5 @@ def _session_end_seconds(info: SessionInfo, template: SessionTemplate) -> IntArr
     has_close: BoolArray = closing_day[slot] == info.trading_day
 
     end[has_close] = _epoch_seconds(info.eastern)[closes][slot[has_close]]
+
     return end

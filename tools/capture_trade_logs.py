@@ -137,7 +137,9 @@ def main(argv: list[str]) -> int:
     if len(argv) != EXPECTED_ARGV:
         logger.info("%s", __doc__)
         return 2
+
     capture(Path(argv[1]))
+
     return 0
 
 

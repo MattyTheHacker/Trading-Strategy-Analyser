@@ -108,6 +108,7 @@ def splits(
             ),
         )
         train_end += step
+
     return out
 
 
@@ -152,12 +153,14 @@ class WalkForwardResult:
             stats.per_trade(window)["net_pnl"].to_numpy(dtype=float)
             for _, window in self.trades.groupby("split", sort=True)
         ]
+
         return np.concatenate(parts)
 
     def summary(self) -> WalkForwardSummary:
         """Aggregate in-sample against out-of-sample, over splits that selected anything."""
         chosen: pd.DataFrame = self.table[self.table["combo_id"].notna()]
         pooled: FloatArray = self.pooled_pnl()
+
         return WalkForwardSummary(
             statistic=self.statistic,
             splits=len(self.table),
@@ -197,6 +200,7 @@ def _window_log(
 
     # ``entry_bar`` is a position into ``slice_``, which is what the prefix is measured in.
     keep: BoolArray = log["entry_bar"].to_numpy() >= (start - lead)
+
     return log[keep].reset_index(drop=True)
 
 
@@ -206,6 +210,7 @@ def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
         return np.nan, 0
 
     pnl: FloatArray = stats.per_trade(log)["net_pnl"].to_numpy(float)
+
     return stats.trade_statistic(pnl, name), int(pnl.size)
 
 
@@ -305,6 +310,7 @@ def walk_forward(  # noqa: PLR0913, PLR0917 - each argument is a distinct axis; 
         test_stat, test_trades = _statistic(test_log, select_by)
         if not test_log.empty:
             logs.append(test_log.assign(split=split.index))
+
         rows.append(
             {
                 **row,

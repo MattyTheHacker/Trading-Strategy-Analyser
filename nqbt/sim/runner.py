@@ -117,6 +117,7 @@ def run_deadcat(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = deadcat_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             matrix=legs.matrix,

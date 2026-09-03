@@ -264,6 +264,7 @@ def stratify(
     """One condition's strata: a row per value it took, summarising the trades that carried it."""
     legs, reviewable, omitted = _prepare(log, annotation, unpopulated)
     _check_stratifiable(reviewable, condition)
+
     return _strata(legs, reviewable[condition], condition, min_trades=min_trades, omitted=omitted)
 
 
@@ -333,6 +334,7 @@ def rank_conditions(strata: pd.DataFrame, by: str = "expectancy") -> pd.DataFram
             },
         )
     ordered: pd.DataFrame = pd.DataFrame(rows).sort_values("separation", ascending=False, na_position="last")
+
     return ordered.reset_index(drop=True)
 
 
@@ -355,6 +357,7 @@ def _prepare(
 
     legs: pd.DataFrame = log[log["trade_id"].isin(reviewable.index)]
     absent: tuple[str, ...] = _absent_columns(legs)
+
     return _summarisable(legs, absent), reviewable, _reasons(absent, legs, unpopulated or {})
 
 
@@ -396,6 +399,7 @@ def _reasons(absent: Sequence[str], legs: pd.DataFrame, unpopulated: Mapping[str
             "this log's exit reasons are its source's own rather than the simulator's, so a "
             "position closed by the clock cannot be told from one closed by a rule"
         )
+
     return reasons
 
 
@@ -475,12 +479,14 @@ def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
                 "reported": summary.trades >= min_trades,
             },
         )
+
     return pd.DataFrame(rows, columns=["condition", "value", *_columns(omitted), "reported"])
 
 
 def _groups(values: pd.Series) -> list[tuple[object, pd.Index]]:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Each distinct value of one condition and the trade ids carrying it, nulls excluded."""
     present = values.dropna()
+
     return list(present.groupby(present, sort=True, observed=True).groups.items())
 
 
@@ -503,8 +509,10 @@ def _separation(usable: pd.DataFrame, by: str) -> tuple[float, object, object]:
     """Measure the widest gap in ``by`` across a condition's strata, and name both its ends."""
     if len(usable) < MIN_STRATA:
         return np.nan, pd.NA, pd.NA
+
     best = usable.loc[usable[by].idxmax()]
     worst = usable.loc[usable[by].idxmin()]
+
     # A row of a numeric column; pandas types every cell as the frame's widest possible value.
     return float(best[by] - worst[by]), best["value"], worst["value"]  # type: ignore[arg-type]
 
@@ -540,6 +548,7 @@ def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.DataF
 
     grouped: pd.DataFrame = reviewable.groupby(reviewable[PHASE_COLUMN], observed=True)[columns].median()
     named: pd.DataFrame = grouped.rename(columns={name: f"median_{name}" for name in columns})
+
     return named.reindex(phases)
 
 

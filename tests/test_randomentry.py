@@ -43,6 +43,7 @@ def session_bars(days: int = 30, seed: int = 11) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -53,6 +54,7 @@ def prepared():
     data = sweep.prepare_for(bars, sweep.Grid.of(params))
     signal = archetypes.DEADCATBOUNCE.signal(data, params)
     assert signal.sum() > 50, "fixture produced too few signals; the tests prove little"
+
     return data, params, signal
 
 
@@ -388,6 +390,7 @@ def test_zero_iterations_is_refused(prepared) -> None:
 def stub_log(pnl_per_trade) -> pd.DataFrame:
     """A minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
+
     return pd.DataFrame(
         {
             "trade_id": range(1, len(pnl_per_trade) + 1),
@@ -421,6 +424,7 @@ def stub_legs(pnl_per_trade) -> trades.LegMatrix:
     matrix[:, trades.C_QUANTITY] = 1
     matrix[:, trades.C_DIRECTION] = trades.SHORT
     matrix[:, trades.C_EXIT_REASON] = trades.EXIT_TARGET
+
     return trades.LegMatrix(matrix, len(pnl_per_trade))
 
 

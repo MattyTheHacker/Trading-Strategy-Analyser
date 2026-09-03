@@ -91,6 +91,7 @@ def phases_mask(phases: Iterable[SessionPhase]) -> int:
 def phases_in(mask: int) -> tuple[SessionPhase, ...]:
     """The phases a mask admits, in session order."""
     validate_mask(mask)
+
     return tuple(p for p in SessionPhase if mask & p.bit)
 
 
@@ -154,6 +155,7 @@ def phase_from_minutes(minutes: IntArray, template: SessionTemplate = CME_US_IND
     """
     occupied: IntArray = np.asarray(minutes, dtype=np.int64) - 1
     starts: IntArray = phase_start_minutes(template)
+
     return (np.searchsorted(starts, occupied, side="right") - 1).astype(np.int8)
 
 
@@ -166,6 +168,7 @@ def bits_from_phase(phase: LabelArray) -> BitsArray:
     bits: BitsArray = np.zeros(phase.size, dtype=np.uint8)
     inside: BoolArray = phase >= 0
     bits[inside] = (1 << phase[inside].astype(np.int64)).astype(np.uint8)
+
     return bits
 
 
@@ -199,6 +202,7 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
         return 1
 
     values, counts = np.unique(positive, return_counts=True)
+
     return int(values[counts.argmax()])
 
 
@@ -243,6 +247,7 @@ def classify(
     stamps: pd.DatetimeIndex = pd.DatetimeIndex(index)
     if info is None:
         info = sessions.classify(stamps, template)
+
     size: int = bar_minutes if bar_minutes is not None else infer_bar_minutes(stamps)
 
     minutes: IntArray = resample.minutes_since_open(stamps, template)

@@ -93,6 +93,7 @@ def regimes_mask(regimes: Iterable[Regime]) -> int:
 def regimes_in(mask: int) -> tuple[Regime, ...]:
     """Unpack a mask into the regimes it admits, in ascending-ratio order."""
     validate_mask(mask)
+
     return tuple(r for r in Regime if mask & r.bit)
 
 
@@ -162,6 +163,7 @@ def _efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
             out[i] = 0.0
         else:
             out[i] = abs(close[i] - close[i - lookback]) / path
+
     return out
 
 
@@ -176,6 +178,7 @@ def _regime_of(ratio: float, consolidating_below: float, directional_above: floa
 
     if ratio > directional_above:
         return Regime.DIRECTIONAL
+
     return Regime.UNCLASSIFIABLE
 
 
@@ -185,6 +188,7 @@ def _label(values: FloatArray, consolidating_below: float, directional_above: fl
     out = np.empty(n, dtype=np.int8)
     for i in range(n):
         out[i] = _regime_of(values[i], consolidating_below, directional_above)
+
     return out
 
 
@@ -197,6 +201,7 @@ def _gate(values: FloatArray, consolidating_below: float, directional_above: flo
         found = _regime_of(values[i], consolidating_below, directional_above)
         if found != UNDEFINED:
             out[i] = (mask & (1 << found)) != 0
+
     return out
 
 
@@ -206,6 +211,7 @@ def efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
     ``nan`` for the first ``lookback`` bars, which have no window to measure.
     """
     validate_lookback(lookback)
+
     return _efficiency_ratio(np.ascontiguousarray(close, dtype=np.float64), int(lookback))
 
 
@@ -216,6 +222,7 @@ def label(values: FloatArray, consolidating_below: float, directional_above: flo
     strictly above the upper is directional, and equality on either is unclassifiable.
     """
     validate_thresholds(consolidating_below, directional_above)
+
     return _label(np.ascontiguousarray(values, dtype=np.float64), float(consolidating_below), float(directional_above))
 
 
@@ -227,6 +234,7 @@ def gate(values: FloatArray, mask: int, consolidating_below: float, directional_
     """
     validate_mask(mask)
     validate_thresholds(consolidating_below, directional_above)
+
     return _gate(
         np.ascontiguousarray(values, dtype=np.float64),
         float(consolidating_below),
@@ -258,6 +266,7 @@ class EfficiencyRatioGrid:
         if idx >= self.lookbacks.size or self.lookbacks[idx] != lookback:
             msg: str = f"efficiency ratio over {lookback} bars is not in this grid; built for {self.lookbacks.tolist()}"
             raise KeyError(msg)
+
         return idx
 
     def values_for(self, lookback: int) -> FloatArray:
@@ -288,6 +297,7 @@ def efficiency_ratio_grid(close: FloatArray, lookbacks: Iterable[int]) -> Effici
     if unique.size == 0:
         msg: str = "no lookbacks supplied"
         raise RegimeError(msg)
+
     validate_lookback(int(unique[0]))
 
     close = np.ascontiguousarray(close, dtype=np.float64)

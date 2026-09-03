@@ -109,6 +109,7 @@ class SessionMinutePool:
         minutes: IntArray = minute_of_session(index, template)
         order: OffsetArray = np.argsort(minutes, kind="stable")
         starts: OffsetArray = np.searchsorted(minutes[order], np.arange(minutes.max() + 2), side="left")
+
         return cls(minutes=minutes, bars_by_minute=order, starts=starts)
 
     def pool_for(self, minute: int) -> IntArray:
@@ -170,6 +171,7 @@ def _null_summary(
     rng: np.random.Generator = np.random.default_rng(seed)
     drawn: BoolArray = matched_random_signal(data, signal, rng, pool=pool)
     legs: LegMatrix = archetype.legs(data, params, instrument, signal=drawn)
+
     return stats.summarise_legs(legs, data.day_codes).as_dict()
 
 
@@ -191,6 +193,7 @@ def null_summaries(
     if iterations < 1:
         msg: str = "iterations must be at least 1"
         raise RandomEntryError(msg)
+
     archetype = archetype if archetype is not None else archetypes.for_params(params)
     signal: BoolArray = archetype.signal(data, params)
     pool: SessionMinutePool = SessionMinutePool.build(data.index, template)
@@ -272,6 +275,7 @@ def compare(
             raise RandomEntryError(
                 msg,
             )
+
         results[name] = _place(
             name,
             value,
@@ -281,6 +285,7 @@ def compare(
             observed_trades=int(observed["trades"]),
             null_median_trades=float(null["trades"].median()),
         )
+
     return results
 
 

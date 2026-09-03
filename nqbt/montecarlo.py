@@ -70,9 +70,11 @@ def trade_pnl(trades: pd.DataFrame) -> FloatArray:
     """Collapse legs into the per-trade P&L vector a resampling test operates on."""
     if trades.empty:
         return np.empty(0, dtype=float)
+
     per_trade: pd.DataFrame = stats.per_trade(trades)
     if "entry_time" in per_trade.columns:
         per_trade = per_trade.sort_values("entry_time", kind="stable")
+
     return per_trade["net_pnl"].to_numpy(dtype=float)
 
 
@@ -80,6 +82,7 @@ def _value(pnl: FloatArray, name: str) -> float:
     """Dispatch to whichever of the two ``stats`` entry points owns ``name``."""
     if name in stats.PATH_STATISTICS:
         return stats.path_statistic(pnl, name)
+
     return stats.trade_statistic(pnl, name)
 
 
@@ -183,4 +186,5 @@ def bootstrap(
     frame.attrs["iterations"] = iterations
     frame.attrs["trades"] = int(pnl.size)
     frame.attrs["underpowered"] = bool(pnl.size < MIN_TRADES)
+
     return frame

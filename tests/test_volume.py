@@ -52,11 +52,13 @@ def clock(index: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Trading day, in-session flag and bar-of-session index for one series of stamps."""
     info = sessions.classify(index)
     labels = timeofday.classify(index, bar_minutes=1, info=info)
+
     return info.trading_day, info.in_session, labels.bar_of_session
 
 
 def grid_of(counts: np.ndarray, index: pd.DatetimeIndex, *keys: volume.VolumeKey) -> volume.VolumeGrid:
     trading_day, in_session, bar_of_session = clock(index)
+
     return volume.volume_grid(counts, trading_day, in_session, bar_of_session, keys or (PER_BAR,))
 
 
@@ -68,6 +70,7 @@ def hump(index: pd.DatetimeIndex) -> np.ndarray:
     """
     _, _, bar_of_session = clock(index)
     minutes = np.where(bar_of_session >= 0, bar_of_session, 0).astype(np.float64)
+
     return 100.0 + 3900.0 * np.exp(-0.5 * ((minutes - 905.0) / 30.0) ** 2)
 
 
@@ -489,6 +492,7 @@ def bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 

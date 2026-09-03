@@ -124,6 +124,7 @@ def resolve_lots(
             last_fill = out[written - 1, C_EXIT_PRICE]
 
         legs.is_open[lot] = lots.mask[lot]
+
     return written, last_fill
 
 
@@ -286,6 +287,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             )
             if written < 0:
                 return -1
+
             after = open_lots(legs)
             in_position = after > 0
             position_changed = in_position and after != before
@@ -323,6 +325,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 # measured from.
                 fixed_stop = bracket.round_to_tick(fixed_stop, costs.tick_size)
                 trail_stop = bracket.round_to_tick(trail_stop, costs.tick_size)
+
             fixed_risk = d * (fill - fixed_stop)
             trail_risk = d * (fill - trail_stop)
             # A stop at or through the price it protects is not a stop order, and neither
@@ -373,7 +376,9 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 )
                 if written < 0:
                     return -1
+
                 in_position = open_lots(legs) > 0
+
             pending_bar = -1
 
         # ---- close of bar i: trail the runner's stop ------------------------------------
@@ -515,6 +520,7 @@ def run_insidebartrailing(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = insidebartrailing_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             matrix=legs.matrix,

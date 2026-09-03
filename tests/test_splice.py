@@ -35,6 +35,7 @@ def make_frame(
     info = sessions.classify(frame.index)
     frame["trading_day"] = info.trading_day
     frame["in_session"] = info.in_session
+
     return frame
 
 
@@ -138,6 +139,7 @@ def test_non_overlapping_contracts_are_rejected() -> None:
 def two_contract_frames():
     front = make_frame(DAYS, 100.0, {"2024-03-06": 900, "2024-03-07": 800, "2024-03-08": 100})
     back = make_frame(DAYS, 110.0, {"2024-03-06": 100, "2024-03-07": 200, "2024-03-08": 900})
+
     return {FRONT: front, BACK: back}
 
 
@@ -221,6 +223,7 @@ def drifting_basis_frames() -> dict[ContractId, pd.DataFrame]:
         {"2024-03-06": 108.0, "2024-03-07": 112.0, "2024-03-08": 126.0},
         {"2024-03-06": 100, "2024-03-07": 200, "2024-03-08": 900},
     )
+
     return {FRONT: front, BACK: back}
 
 
@@ -447,6 +450,7 @@ def test_a_contract_squeezed_to_no_bars_is_reported_not_silently_dropped(monkeyp
     def mock_detect_roll(f_id, b_id, *args, **kwargs):
         if f_id == FRONT and b_id == BACK:
             return roll1
+
         return roll2
 
     monkeypatch.setattr(splice, "detect_roll", mock_detect_roll)

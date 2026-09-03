@@ -70,6 +70,7 @@ def minute_bars(closes: list[float], first_open: str = FIRST_OPEN) -> pd.DataFra
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -91,6 +92,7 @@ def random_bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
         index=index,
     )
     frame["trading_day"] = sessions.classify(index).trading_day
+
     return frame
 
 
@@ -100,6 +102,7 @@ def last_completed(coarse_stamps: pd.DatetimeIndex, values, stamps: pd.DatetimeI
     for stamp in stamps:
         seen = [v for s, v in zip(coarse_stamps, values, strict=True) if s <= stamp]
         out.append(seen[-1] if seen else np.nan)
+
     return np.asarray(out, dtype=np.float64)
 
 
@@ -197,6 +200,7 @@ def test_one_resample_serves_every_period_at_the_same_resolution(monkeypatch) ->
 
     def counted(frame, minutes, **kwargs):
         calls.append(minutes)
+
         return real(frame, minutes, **kwargs)
 
     monkeypatch.setattr(resample, "resample", counted)

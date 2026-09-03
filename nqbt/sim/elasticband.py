@@ -84,6 +84,7 @@ def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_
             side = 0.0
             out[i] = np.nan
             continue
+
         d = direction_at[i]
         if side != d:
             # A new run, or the same run reading the other side of the basis.
@@ -93,7 +94,9 @@ def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_
             extreme = min(extreme, low[i])
         else:
             extreme = max(extreme, high[i])
+
         out[i] = extreme
+
     return out
 
 
@@ -220,6 +223,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                     )
                     if written < 0:
                         return -1
+
                     legs.is_open[leg] = False
             in_position = False
         elif in_position:
@@ -238,6 +242,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             )
             if written < 0:
                 return -1
+
         pending_exit = False
 
         # ---- the entry order fills at this bar's open, unconditionally ---------------
@@ -295,6 +300,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                 )
                 if written < 0:
                     return -1
+
             pending_bar = -1
 
         # ---- close of bar i: schedule the next bar's orders --------------------------
@@ -302,8 +308,10 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             # The close went further than the excursion the trade faded: the range broke and
             # held, which is the mean-reversion definition of being wrong.
             pending_exit = True
+
         if in_position and rules.max_hold_bars > 0 and i - trade.entry_bar >= rules.max_hold_bars:
             pending_exit = True
+
         if (
             i >= rules.bars_required
             and signal[i]
@@ -355,6 +363,7 @@ def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, F
     """The basis, dispersion and extension this combination reads, at its band lag."""
     period: int = params.band_period
     lag: int = params.band_lag
+
     return (
         lagged(data.band_basis(period), lag),
         lagged(data.band_stddev(period), lag),
@@ -477,6 +486,7 @@ def run_elasticband(
 ) -> pd.DataFrame:
     """Simulate one parameter combination and return its leg-level trade log."""
     legs: LegMatrix = elasticband_legs(data, params, instrument, signal=signal)
+
     return trades.validate(
         trades.trades_to_frame(
             matrix=legs.matrix,

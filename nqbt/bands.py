@@ -50,6 +50,7 @@ def validate_period(period: int) -> int:
             "one-bar standard deviation is always zero and nothing is ever outside the band"
         )
         raise BandError(msg)
+
     return int(period)
 
 
@@ -83,6 +84,7 @@ class BandGrid:
         if idx >= self.periods.size or self.periods[idx] != period:
             msg: str = f"band period {period} is not in this grid; built for {self.periods.tolist()}"
             raise KeyError(msg)
+
         return idx
 
     def basis_for(self, period: int) -> FloatArray:
@@ -109,6 +111,7 @@ def band_grid(close: FloatArray, periods: Iterable[int]) -> BandGrid:
     if unique.size == 0:
         msg: str = "no band periods supplied"
         raise BandError(msg)
+
     for period in unique:
         validate_period(int(period))
 

@@ -146,6 +146,7 @@ def states_mask(states: Iterable[VolumeState]) -> int:
 def states_in(mask: int) -> tuple[VolumeState, ...]:
     """Unpack a mask into the states it admits, in ascending-ratio order."""
     validate_mask(mask)
+
     return tuple(s for s in VolumeState if mask & s.bit)
 
 
@@ -185,6 +186,7 @@ def validate_rolling_bars(rolling_bars: int) -> int:
             "a one-bar window is VolumeForm.PER_BAR"
         )
         raise VolumeError(msg)
+
     return rolling_bars
 
 
@@ -225,6 +227,7 @@ def key(form: int, rolling_bars: int, baseline_sessions: int) -> VolumeKey:
     """
     resolved: VolumeForm = validate_form(form)
     window: int = validate_rolling_bars(rolling_bars) if resolved is VolumeForm.ROLLING else NO_ROLLING
+
     return VolumeKey(resolved, window, validate_baseline_sessions(baseline_sessions))
 
 
@@ -245,6 +248,7 @@ def session_ids(trading_day: DateArray, in_session: BoolArray) -> IntArray:
     boundary[0] = True
     boundary[1:] = ordered[1:] != ordered[:-1]
     ids[inside] = np.cumsum(boundary) - 1
+
     return ids
 
 
@@ -263,8 +267,10 @@ def _rolling_sum(values: FloatArray, window: int) -> FloatArray:
         total += values[i]
         if i >= window:
             total -= values[i - window]
+
         if i >= window - 1:
             out[i] = total
+
     return out
 
 
@@ -279,11 +285,14 @@ def _session_cumulative(values: FloatArray, session_id: IntArray) -> FloatArray:
         session = session_id[i]
         if session < 0:
             continue
+
         if session != current:
             current = session
             total = 0.0
+
         total += values[i]
         out[i] = total
+
     return out
 
 
@@ -295,6 +304,7 @@ def _insert_sorted(buffer: FloatArray, held: int, value: float) -> int:
         buffer[slot + 1] = buffer[slot]
         slot -= 1
     buffer[slot + 1] = value
+
     return held + 1
 
 
@@ -316,6 +326,7 @@ def _remove_sorted(buffer: FloatArray, held: int, value: float) -> int:
             high = middle
     for slot in range(low, held - 1):
         buffer[slot] = buffer[slot + 1]
+
     return held - 1
 
 
@@ -366,12 +377,15 @@ def _trailing_medians(grid: FloatArray, window: int, min_observations: int) -> F
         for session in range(n_sessions):
             if held >= min_observations:
                 medians[session, index] = _median_of(buffer, held)
+
             entering = grid[session, index]
             if not np.isnan(entering):
                 held = _insert_sorted(buffer, held, entering)
+
             oldest = session - window
             if oldest >= 0 and not np.isnan(grid[oldest, index]):
                 held = _remove_sorted(buffer, held, grid[oldest, index])
+
     return medians
 
 
@@ -385,6 +399,7 @@ def _gather(medians: FloatArray, session_id: IntArray, bar_of_session: IntArray)
         index = bar_of_session[i]
         if session >= 0 and 0 <= index < n_indices:
             out[i] = medians[session, index]
+
     return out
 
 
@@ -401,6 +416,7 @@ def _ratio(values: FloatArray, baseline: FloatArray) -> FloatArray:
         scale = baseline[i]
         if not np.isnan(values[i]) and not np.isnan(scale) and scale > 0.0:
             out[i] = values[i] / scale
+
     return out
 
 
@@ -486,6 +502,7 @@ def relative_to_bar_of_session(
 
     grid: FloatArray = _session_grid(values, sessions, indices, n_sessions, n_indices)
     medians: FloatArray = _trailing_medians(grid, int(baseline_sessions), int(min_observations))
+
     return _ratio(values, _gather(medians, sessions, indices))
 
 
@@ -496,6 +513,7 @@ def label(relative: FloatArray, thin_below: float, heavy_above: float) -> LabelA
     strictly above the upper is heavy, and equality on either is normal.
     """
     validate_thresholds(thin_below, heavy_above)
+
     return _label(np.ascontiguousarray(relative, dtype=np.float64), float(thin_below), float(heavy_above))
 
 
@@ -507,6 +525,7 @@ def gate(relative: FloatArray, mask: int, thin_below: float, heavy_above: float)
     """
     validate_mask(mask)
     validate_thresholds(thin_below, heavy_above)
+
     return _gate(
         np.ascontiguousarray(relative, dtype=np.float64),
         float(thin_below),
@@ -593,4 +612,5 @@ def volume_grid(
         series: FloatArray = absolute_form(traded, wanted.form, wanted.rolling_bars, session_id)
         absolute[i] = series
         relative[i] = relative_to_bar_of_session(series, session_id, indices, wanted.baseline_sessions)
+
     return VolumeGrid(keys=ordered, absolute=absolute, relative=relative)

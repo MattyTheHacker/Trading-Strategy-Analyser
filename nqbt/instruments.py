@@ -43,6 +43,7 @@ def months_from_codes(codes: str) -> frozenset[int]:
         listed: str = "".join(MONTH_CODES.values())
         msg: str = f"not futures month codes: {unknown!r}; expected letters from {listed}"
         raise ValueError(msg)
+
     return frozenset(CODE_MONTHS[code] for code in codes)
 
 
@@ -81,6 +82,7 @@ class Instrument:
         and rounding to one place produces prices that do not exist on the grid.
         """
         exponent = Decimal(str(self.tick_size)).normalize().as_tuple().exponent
+
         return max(0, -int(exponent))
 
     def ticks_to_dollars(self, ticks: float, quantity: int = 1) -> float:
@@ -122,6 +124,7 @@ class Instrument:
         else:  # pragma: no cover - guarded by the Literal type
             msg = f"unknown round mode: {mode!r}"  # type: ignore[unreachable]  # a caller may ignore it
             raise ValueError(msg)
+
         return round(n * self.tick_size, self.price_decimals)
 
     def is_on_tick(self, price: float) -> bool:
@@ -138,10 +141,12 @@ class Instrument:
         if stop_distance_points <= 0:
             msg: str = "stop_distance_points must be positive"
             raise ValueError(msg)
+
         per_contract: float = self.points_to_dollars(stop_distance_points)
         if per_contract <= 0:
             msg = "stop distance rounds to zero dollars of risk"
             raise ValueError(msg)
+
         return int(risk_dollars // per_contract)
 
 
@@ -283,6 +288,7 @@ class ContractId:
         if not contract_match:
             msg: str = f"cannot parse contract name {text!r}; expected e.g. 'MNQ 03-24'"
             raise ValueError(msg)
+
         return cls(
             root=contract_match["root"].upper(),
             month=int(contract_match["month"]),

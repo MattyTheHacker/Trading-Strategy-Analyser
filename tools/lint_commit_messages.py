@@ -75,18 +75,21 @@ def split_conventional_prefix(subject: str) -> tuple[str | None, str]:
     match = CONVENTIONAL_PREFIX_PATTERN.match(subject)
     if match and match.group("type") in CONVENTIONAL_TYPES:
         return match.group("type"), subject[match.end() :]
+
     return None, subject
 
 
 def first_word(subject: str) -> str:
     """The first word of the subject, lowercased and stripped of surrounding punctuation."""
     word = subject.strip().split(" ", maxsplit=1)[0]
+
     return word.strip("\"'`*_.,:;()[]").lower()
 
 
 def verb_candidate(subject: str) -> str:
     """The word whose mood is judged: the first one after any conventional prefix."""
     _, remainder = split_conventional_prefix(subject.strip())
+
     return first_word(remainder)
 
 
@@ -98,6 +101,7 @@ def check_subject_shape(remainder: str, conventional_type: str | None) -> list[F
     stray = STRAY_PREFIX_PATTERN.match(remainder)
     if not stray:
         return []
+
     return [
         Finding(
             "subject-shape",
@@ -120,7 +124,9 @@ def check_subject_verb(remainder: str, conventional_type: str | None) -> list[Fi
     word = first_word(remainder)
     if word in ALLOWED_VERB_SET:
         return []
+
     opener = f'"{word}"' if word else "nothing"
+
     return [
         Finding(
             "subject-verb",
@@ -140,6 +146,7 @@ def check_subject(subject: str, suffix: str) -> list[Finding]:
         findings.append(
             Finding("subject-trim", "The subject has leading or trailing whitespace.", is_error=True),
         )
+
     if subject.startswith(GENERATED_SUBJECT_PREFIXES):
         return findings
 
@@ -161,6 +168,7 @@ def check_subject(subject: str, suffix: str) -> list[Finding]:
     shape = check_subject_shape(remainder, conventional_type)
     if shape:
         return [*findings, *shape]
+
     return findings + check_subject_verb(remainder, conventional_type)
 
 
@@ -182,6 +190,7 @@ def check_subject_length(subject: str, suffix: str) -> list[Finding]:
                 is_error=True,
             ),
         ]
+
     return [
         Finding(
             "subject-clipped",
@@ -200,8 +209,10 @@ def check_body(lines: list[str]) -> list[Finding]:
     """
     if not any(line.strip() for line in lines):
         return []
+
     if not lines[0].strip():
         return []
+
     return [
         Finding(
             "body-leading-blank",
@@ -216,6 +227,7 @@ def check_message(message: str, suffix: str = "") -> list[Finding]:
     lines = message.rstrip().splitlines()
     if not lines:
         return [Finding("subject-empty", "The message is empty.", is_error=True)]
+
     return check_subject(lines[0], suffix) + check_body(lines[1:])
 
 
@@ -228,6 +240,7 @@ def report(subject: str, findings: list[Finding], github: bool) -> None:
     """Print one message's findings, as text and optionally as workflow annotations."""
     if not findings:
         emit(f"  ok  {subject}")
+
         return
 
     emit(f"  !!  {subject}")
@@ -242,6 +255,7 @@ def read_messages(args: argparse.Namespace) -> list[str]:
     """Collect the messages to check, from stdin or from a file."""
     if args.stdin:
         return [chunk for chunk in sys.stdin.read().split("\0") if chunk.strip()]
+
     return [Path(args.message_file).read_text(encoding="utf-8")]
 
 
@@ -257,6 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="text GitHub appends to the subject, for example ' (#165)'",
     )
     parser.add_argument("--github", action="store_true", help="also emit GitHub workflow annotations")
+
     return parser
 
 
@@ -279,7 +294,9 @@ def main(argv: list[str] | None = None) -> int:
     if errors:
         emit(f'{errors} error(s). The rules are in CONTRIBUTING.md, "Commits".')
         return 1
+
     emit(f"{len(messages)} message(s) checked, no errors.")
+
     return 0
 
 

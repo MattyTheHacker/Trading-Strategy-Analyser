@@ -308,6 +308,7 @@ def _group(labels: Column, min_trades: int) -> _Grouping:  # type: ignore[explic
         )
 
     sizes: IntArray = np.array([len(at) for _, at in kept], dtype=np.int64)
+
     return _Grouping(
         order=np.concatenate([np.asarray(at, dtype=np.int64) for _, at in kept]),
         bounds=np.cumsum(sizes)[:-1],
@@ -321,7 +322,9 @@ def _stratum_values(pnl: Floats, grouping: _Grouping, statistic: str) -> Floats:
     """Read the statistic of every stratum that met the floor, in :attr:`_Grouping.values`' order."""
     if grouping.order.size == 0:
         return np.empty(0, dtype=np.float64)
+
     parts: list[FloatArray] = np.split(pnl[grouping.order], grouping.bounds)
+
     return np.fromiter(
         (stats.trade_statistic(part, statistic) for part in parts),
         dtype=np.float64,
@@ -334,6 +337,7 @@ def _spread(values: Floats) -> float:
     finite: FloatArray = values[np.isfinite(values)]
     if finite.size < review.MIN_STRATA:
         return np.nan
+
     return float(finite.max() - finite.min())
 
 
@@ -367,6 +371,7 @@ def separate(  # type: ignore[explicit-any]  # a condition's dtype is its own
             strata_ranked=int(usable.size),
             trades_ranked=int(grouping.sizes[finite].sum()),
         )
+
     return Separation(
         value=float(usable.max() - usable.min()),
         best=ranked[int(np.argmax(usable))],
@@ -420,12 +425,14 @@ def _null(  # type: ignore[explicit-any]  # a condition's dtype is its own
         shuffled: Floats = rng.permutation(kept)
         for column, grouping in enumerate(groupings.values()):
             draws[draw, column] = _spread(_stratum_values(shuffled, grouping, statistic))
+
     return _Null(observed=observed, draws=draws, trades=int(kept.size), dropped=dropped)
 
 
 def _family_null(draws: Draws) -> Floats:
     """Take the widest separation any condition reached per shuffle, NaN where none of them could."""
     widest: Floats = np.where(np.isfinite(draws), draws, -np.inf).max(axis=1)
+
     return np.where(np.isneginf(widest), np.nan, widest)
 
 
@@ -434,6 +441,7 @@ def _p_value(null: Floats, observed: float) -> tuple[float, int]:
     finite: FloatArray = null[np.isfinite(null)]
     if not np.isfinite(observed) or finite.size == 0:
         return np.nan, int(finite.size)
+
     return float((finite >= observed).mean()), int(finite.size)
 
 
@@ -467,6 +475,7 @@ def screen(  # type: ignore[explicit-any]  # a condition's dtype is its own
         "trades": drawn.trades,
         "dropped": drawn.dropped,
     }
+
     return frame
 
 
@@ -500,6 +509,7 @@ def _screen_frame(drawn: _Null) -> pd.DataFrame:
         na_position="last",
         kind="stable",
     )
+
     return ordered.reset_index(drop=True)
 
 
@@ -530,6 +540,7 @@ def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is it
     column: FloatArray = drawn.draws[:, 0]
     p_value, finite = _p_value(column, separation.value)
     measurable: FloatArray = column[np.isfinite(column)]
+
     return SeparationTest(
         condition=condition,
         statistic=statistic,
@@ -575,6 +586,7 @@ def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its ow
     best: FloatArray = recent[_is(recent_labels, chosen.best)]
     worst: FloatArray = recent[_is(recent_labels, chosen.worst)]
     gap: float = _gap(best, worst, statistic)
+
     return Holdout(
         condition=condition,
         statistic=statistic,
@@ -598,7 +610,9 @@ def _gap(best: Floats, worst: Floats, statistic: str) -> float:
     """Measure the two chosen strata's gap out of sample, NaN where either is empty or unbounded."""
     if not best.size or not worst.size:
         return np.nan
+
     gap: float = stats.trade_statistic(best, statistic) - stats.trade_statistic(worst, statistic)
+
     return float(gap) if np.isfinite(gap) else np.nan
 
 
@@ -608,13 +622,16 @@ def _cut(trades: int, share: float, held_out: int | None) -> int:
         if not 0.0 < share < 1.0:
             msg: str = f"a holdout share must sit strictly between 0 and 1; got {share}"
             raise GuardError(msg)
+
         held_out = round(trades * share)
+
     if held_out < 1 or held_out >= trades:
         msg = (
             f"holding out {held_out} of {trades} trades leaves one side empty, so there is "
             f"either nothing to choose a split on or nothing to read it over"
         )
         raise GuardError(msg)
+
     return trades - held_out
 
 
@@ -666,6 +683,7 @@ def guard(
         )
         for name in screened["condition"]
     ]
+
     return Guard(
         screen=screened,
         holdout=pd.DataFrame([one.as_dict() for one in held], columns=list(HOLDOUT_COLUMNS)),
@@ -705,6 +723,7 @@ def _trades(  # type: ignore[explicit-any]  # a condition's dtype is its own
     ordered: pd.DataFrame = per_trade.sort_values("entry_time", kind="stable")
     aligned: pd.DataFrame = reviewable.loc[ordered.index]
     chosen: tuple[str, ...] = _chosen(reviewable, annotation, conditions)
+
     return ordered["net_pnl"].to_numpy(np.float64), {name: aligned[name].reset_index(drop=True) for name in chosen}
 
 
@@ -712,10 +731,12 @@ def _chosen(reviewable: pd.DataFrame, annotation: Annotation, conditions: Sequen
     """Pick the conditions to guard: the caller's, checked, or every one a review could cut by."""
     if conditions is None:
         return review.stratifiable(reviewable, annotation.conditions)
+
     unknown: list[str] = [name for name in conditions if name not in reviewable.columns]
     if unknown:
         guard_error_msg: str = f"no condition(s) {unknown} in this annotation; it holds {sorted(reviewable.columns)}"
         raise GuardError(guard_error_msg)
+
     return tuple(conditions)
 
 
@@ -723,6 +744,7 @@ def _check_statistic(statistic: str, argument: str = "statistic") -> None:
     """Refuse a statistic a separation cannot honestly be measured in."""
     if statistic in STATISTICS:
         return
+
     guard_error_message: str = (
         f"cannot separate strata by {argument}={statistic!r}; a guard measures a separation in "
         f"{list(STATISTICS)}, which is what a review reports and a shuffle can move"
@@ -734,6 +756,7 @@ def _check_length(pnl: Floats, given: int, what: str) -> None:
     """Refuse a label per anything but a trade, which would silently mis-stratify every one."""
     if given == pnl.size:
         return
+
     guard_error_message: str = f"{given} {what} for {pnl.size} trades; a guard takes one label per trade"
     raise GuardError(guard_error_message)
 

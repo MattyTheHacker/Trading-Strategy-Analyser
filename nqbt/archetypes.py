@@ -92,6 +92,7 @@ def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, .
     """
     if not any(int(v) != regime.ALL_REGIMES for v in values.get("regime_filter", ())):
         return ()
+
     return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
 
 
@@ -102,6 +103,7 @@ def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.Volu
     """
     if not any(int(v) != volume.ALL_STATES for v in values.get("volume_filter", ())):
         return ()
+
     return tuple(
         sorted(
             {
@@ -122,6 +124,7 @@ def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendK
     """
     if not any(int(v) != trend.ALL_TRENDS for v in values.get("trend_filter", ())):
         return ()
+
     return tuple(
         sorted(
             {
@@ -144,6 +147,7 @@ def _higher_timeframe_keys(
     """
     if not any(int(v) != higher_timeframe.ALL_SIDES for v in values.get("higher_timeframe_filter", ())):
         return ()
+
     return tuple(
         sorted(
             {
@@ -170,6 +174,7 @@ def _ma_keys(
         for kind in values.get(f"{gate}_kind", ()):
             for period in values.get(f"{gate}_period", ()):
                 periods_by_kind.setdefault(str(kind), set()).add(int(period))
+
     return conditions.ma_keys(**periods_by_kind)
 
 
@@ -198,6 +203,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     ``docs/roadmap.md`` §M17.
     """
     atr: set[int] = {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
+
     return ContextSpec(
         ma_keys=_ma_keys(values, ("fast", "slow")),
         atr_periods=tuple(sorted(atr)),
@@ -222,6 +228,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         if any(int(v) == STOP_ATR for v in values.get("stop_mode", ()))
         else set()
     )
+
     return ContextSpec(
         band_periods=tuple(sorted({int(v) for v in values.get("band_period", ())})),
         atr_periods=tuple(sorted(atr)),
@@ -494,7 +501,9 @@ def register(archetype: Archetype) -> Archetype:
     if archetype.name in _REGISTRY:
         msg: str = f"archetype {archetype.name!r} is already registered"
         raise ArchetypeError(msg)
+
     _REGISTRY[archetype.name] = archetype
+
     return archetype
 
 
@@ -503,6 +512,7 @@ def get(name: str) -> Archetype:
     if name not in _REGISTRY:
         msg: str = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
         raise ArchetypeError(msg)
+
     return _REGISTRY[name]
 
 
@@ -529,9 +539,11 @@ def for_params(params: Params) -> Archetype:
         raise ArchetypeError(
             msg,
         )
+
     if len(matches) > 1:
         msg = f"{type(params).__name__} is shared by {[a.name for a in matches]}; pass archetype= explicitly"
         raise ArchetypeError(
             msg,
         )
+
     return matches[0]

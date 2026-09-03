@@ -83,6 +83,7 @@ class Notes:
     def __str__(self) -> str:
         """Say how many trades carry a note, and how many of those name a screenshot."""
         shots: int = int(self.frame["screenshot"].notna().sum()) if self.trades else 0
+
         return f"{self.trades} trade(s) noted, {shots} naming a screenshot"
 
 
@@ -90,6 +91,7 @@ def empty() -> Notes:
     """Build an empty sidecar, in the dtypes a populated one carries."""
     index: pd.MultiIndex = pd.Index([], name=KEY, dtype="int64")
     columns = {name: pd.array([], dtype="string") for name in TEXT_COLUMNS}
+
     return Notes(frame=pd.DataFrame(columns, index=index))
 
 
@@ -99,6 +101,7 @@ def record(notes: Notes, trade_id: int, note: str, screenshot: str | None = None
     if not text:
         msg: str = f"trade {trade_id}'s note is empty; a trade with nothing to say carries no row"
         raise NotesError(msg)
+
     written: pd.DataFrame = pd.DataFrame(
         {
             "note": pd.array([text], dtype="string"),
@@ -107,6 +110,7 @@ def record(notes: Notes, trade_id: int, note: str, screenshot: str | None = None
         index=pd.Index([int(trade_id)], name=KEY, dtype="int64"),
     )
     kept: pd.DataFrame = notes.frame.drop(index=int(trade_id), errors="ignore")
+
     return Notes(frame=pd.concat([kept, written]).sort_index())
 
 
@@ -188,6 +192,8 @@ def _keyed(raw: pd.DataFrame, source: str) -> pd.DataFrame:
         row: int = int(unreadable.to_numpy().argmax())
         msg: str = f"{source}: {KEY} must be a whole number on every row; row {row} carries {raw[KEY].iloc[row]!r}"
         raise NotesError(msg)
+
     frame: pd.DataFrame = raw[list(TEXT_COLUMNS)].copy()
     frame.index = pd.Index(ids.astype("int64"), name=KEY)
+
     return frame

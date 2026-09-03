@@ -25,6 +25,7 @@ def bars(n: int, seed: int = 0) -> pd.DataFrame:
     low = close - rng.uniform(0.25, 4.0, size=n)
     open_ = np.concatenate(([close[0]], close[:-1]))
     index = pd.date_range("2024-01-02 00:00", periods=n, freq=BAR, tz="UTC")
+
     return pd.DataFrame(
         {
             "open": np.round(open_ * 4) / 4,
