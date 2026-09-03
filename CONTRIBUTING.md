@@ -108,16 +108,58 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 ./.venv/Scripts/python.exe -m pytest
 ./.venv/Scripts/ruff check .
 ./.venv/Scripts/ruff format --check .
-./.venv/Scripts/mypy nqbt
+./.venv/Scripts/mypy nqbt formatting
+./.venv/Scripts/python.exe -m formatting.cli --check nqbt
 ./.venv/Scripts/pymarkdown scan $(git ls-files '*.md')
 ./.venv/Scripts/python.exe -m mdformat --check .
 ```
 
 CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead. `mdformat` takes a bare `.` in both places because its exclusions live in [`.mdformat.toml`](.mdformat.toml) rather than on the command line.
 
-**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt`, `ruff format --check .` and `mypy nqbt`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated; running them over the whole tree is still worth doing, but only the package's count has to stay at zero.
+**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt formatting`, `ruff format --check .` and `mypy nqbt formatting`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated; running them over the whole tree is still worth doing, but only the package's and the formatter's counts have to stay at zero.
 
 Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-line reason, and so does every `# noqa` and every `# type: ignore`. Add none of them without one. Put the reason **after the pragma on the same line, however long that makes the line**, so that grepping for a bare `# noqa: X$` finds anything undocumented. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
+
+### The custom formatting rules
+
+`formatting/` is a small LibCST formatter for two things `ruff format` has no opinion about, both of which are house style rather than anyone's convention:
+
+1. **A blank line after an `if` block**, before whatever statement follows it in the same block.
+2. **A blank line before the last `return` in a function**, so the value a function produces is visually separated from the work that produced it.
+
+```bash
+./.venv/Scripts/python.exe -m formatting.cli --check nqbt   # what CI runs
+./.venv/Scripts/python.exe -m formatting.cli nqbt           # rewrite in place
+```
+
+**It is independent of `ruff format`, and the order you run them in does not matter.** That is a property of the rules rather than a coincidence: they only ever *insert* a blank line, never at the top of a block, and only where there were none. Anywhere `ruff format` demands two blank lines, a source with none was already unformatted — so going from none to one cannot break it. Measured over `nqbt/` in both orders: the formatter rewrites files `ruff format` had already accepted, and `ruff format --check` still passes on every one. `tests/test_formatting.py` pins the two properties this rests on, and is the place to look if the two ever start fighting.
+
+#### Where the blank line goes
+
+**A comment belongs to the statement below it, so the blank line goes above the comment, not between the comment and its statement.** Both rules share one predicate for this in `formatting/_leading.py`, because they held separate copies of it and disagreed — one skipped a return that carried a comment, the other counted a blank line sitting *below* a comment as satisfying it, which left the comment butted against the block above.
+
+```python
+x = compute()
+
+# why this is the fallback
+return x
+```
+
+The one exception is a docstring: a return directly beneath one stays against it.
+
+#### Scope, and the exit statuses
+
+**CI checks `nqbt` only.** `formatting/` holds to the rules as well and is worth checking by hand; `tests/` and `tools/` are nowhere near zero, which is why the gate is not simply pointed at the tree. Widen it in a change that also does the reformatting, not by itself.
+
+A directory argument skips dot-directories beneath it, so `formatting.cli .` at the repository root does not walk into `.venv`. Naming one explicitly still works.
+
+| status | meaning                                                             |
+| ------ | ------------------------------------------------------------------- |
+| 0      | every file checked is formatted                                     |
+| 1      | `--check` found a file that would be reformatted                    |
+| 2      | a path was missing or unparseable, so it was never actually checked |
+
+**Status 2 is the one that matters for a gate.** A file the formatter cannot parse, and a path that is not there at all, both used to report success — a typo in the checked path passed as a clean run.
 
 ### Local variables carry their type too
 
