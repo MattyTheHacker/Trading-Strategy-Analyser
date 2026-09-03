@@ -22,6 +22,12 @@ once per regime and once per session phase; ``--strata context`` adds the volume
 higher-timeframe cuts and appends to the same databases. Each dimension is also nameable on its
 own -- ``unfiltered``, ``regime``, ``phase``, ``volume``, ``trend``, ``htf`` -- which is how a
 held-out pass adds one at a time.
+
+``--regime-quantiles`` replaces the regime stratum's raw thresholds with a pair fitted to the
+efficiency ratio's own distribution at each ``(resolution, lookback)``, and splits the stratum
+into one cell per lookback -- ``regime=DIRECTIONAL@n=20``. The fit is taken on the selection
+window at every window, so a held-out run reads a cut it did not see. Why a raw pair cannot be
+swept against the lookback, and what the quantiles are chosen for: ``docs/roadmap.md`` §M27.5.
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ from nqbt import (
     trend,
     volume,
 )
+from nqbt.arrays import float_column
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import (
     STOP_ATR,
@@ -66,7 +73,7 @@ from nqbt.sim.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     from nqbt.archetypes import Archetype, AxisValue, Params
 
@@ -85,6 +92,14 @@ RESOLUTIONS = (1, 2, 5, 10, 15)
 SELECTION_SHARE = 0.6
 """Share of the series, by bar count, that ``--split`` selects on. The rest is held out."""
 
+REGIME_LOOKBACKS = (5, 10, 20, 30, 50)
+"""Horizons the regime label can describe, swept once ``--regime-quantiles`` makes the cells
+comparable across them -- ``docs/roadmap.md`` §M27.5."""
+
+REGIME_QUANTILES = (0.20, 0.80)
+"""The cell size ``--regime-quantiles`` defaults to: a fifth of the measured bars in each of
+CONSOLIDATING and DIRECTIONAL, stated ahead of the sweep rather than discovered in it."""
+
 MIN_TRADES = 30
 """The floor ``sweep.rank`` applies, repeated here for the per-sweep progress line."""
 
@@ -94,9 +109,13 @@ NAN = float("nan")
 
 
 UNFILTERED = "unfiltered"
+REGIME = "regime"
 CORE = "core"
 CONTEXT = "context"
 ALL_STRATA = "all"
+
+Calibration = dict[int, tuple[float, float]]
+"""Regime lookback -> the threshold pair fitted at it, one entry per swept lookback."""
 
 
 def _unfiltered() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -136,7 +155,7 @@ def _higher_timeframe() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 STRATUM_GROUPS = {
     UNFILTERED: _unfiltered,
-    "regime": _regime,
+    REGIME: _regime,
     "phase": _phase,
     "volume": _volume,
     "trend": _trend,
@@ -156,10 +175,51 @@ skipped rather than re-running it. Every dimension is also selectable on its own
 lets a held-out pass take them one at a time -- ``docs/roadmap.md`` §M27.4."""
 
 
-def strata(which: str) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+def _per_lookback(
+    name: str,
+    axes: dict[str, list[AxisValue]],
+    calibration: Calibration,
+) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """Split one regime cell into a cell per lookback, each carrying its own fitted thresholds.
+
+    A cell rather than an axis because the thresholds move *with* the lookback, and a sweep
+    crosses its axes -- pairing them any other way runs cells that are not comparable.
+    """
+    for lookback, (consolidating, directional) in calibration.items():
+        yield (
+            f"{name}@n={lookback}",
+            axes
+            | {
+                "regime_lookback": [lookback],
+                "regime_consolidating_below": [consolidating],
+                "regime_directional_above": [directional],
+            },
+        )
+
+
+def strata(
+    which: str,
+    calibration: Calibration | None = None,
+) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """The stratifications ``which`` names, unfiltered first wherever it is included."""
     for group in STRATUM_SETS[which]:
-        yield from STRATUM_GROUPS[group]()
+        for name, axes in STRATUM_GROUPS[group]():
+            if group != REGIME or calibration is None:
+                yield name, axes
+                continue
+
+            yield from _per_lookback(name, axes, calibration)
+
+
+def calibrate(
+    frame: pd.DataFrame,
+    lookbacks: Sequence[int],
+    quantiles: tuple[float, float],
+) -> Calibration:
+    """Fit a threshold pair per lookback to ``frame``'s own efficiency ratios."""
+    grid: regime.EfficiencyRatioGrid = regime.efficiency_ratio_grid(float_column(frame, "close"), lookbacks)
+
+    return {lookback: grid.thresholds_for(lookback, *quantiles) for lookback in sorted(lookbacks)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,11 +399,15 @@ VARIANTS = {
 """Archetype name -> the variants swept for it, built per root so costs are the root's."""
 
 
-def grids_for(variant: Variant, which: str) -> list[tuple[str, sweep.Grid]]:
+def grids_for(
+    variant: Variant,
+    which: str,
+    calibration: Calibration | None = None,
+) -> list[tuple[str, sweep.Grid]]:
     """One grid per stratum over ``variant``, named by the stratum."""
     return [
         (name, sweep.Grid(axes=variant.axes | extra, base=variant.base, archetype=variant.archetype))
-        for name, extra in strata(which)
+        for name, extra in strata(which, calibration)
     ]
 
 
@@ -382,6 +446,7 @@ def run_point(
     window: str,
     batch_id: int,
     which: str,
+    calibration: Calibration | None,
     *,
     n_jobs: int,
 ) -> None:
@@ -392,7 +457,9 @@ def run_point(
     """
     archetype: Archetype = variants[0].archetype
     named: list[tuple[str, str, sweep.Grid]] = [
-        (variant.name, stratum, grid) for variant in variants for stratum, grid in grids_for(variant, which)
+        (variant.name, stratum, grid)
+        for variant in variants
+        for stratum, grid in grids_for(variant, which, calibration)
     ]
 
     spec: context.ContextSpec = context.ContextSpec()
@@ -425,6 +492,7 @@ def run_point(
         notes=(
             f"campaign; window={window}; strata={which}; variants={len(variants)}; "
             f"cells={len(named) // len(variants)}; "
+            f"regime={'quantile-fitted' if calibration else 'raw'}; "
             f"${COMMISSION[root]:.2f} RT + {SLIPPAGE_TICKS:g} tick"
         ),
         strategy=archetype.name,
@@ -451,16 +519,81 @@ def run_point(
     )
 
 
+def cell_shape(argv: argparse.Namespace) -> Calibration | None:
+    """A calibration with the right lookbacks and no thresholds, for counting cells only."""
+    if not argv.regime_quantiles:
+        return None
+
+    return dict.fromkeys(argv.regime_lookbacks, (NAN, NAN))
+
+
 def planned_combinations(argv: argparse.Namespace) -> int:
     """How many combinations the requested run will simulate, before it starts."""
     per_window: int = 0
+    cells: int = len(list(strata(argv.strata, cell_shape(argv))))
     for name in argv.strategies:
         for root in argv.roots:
             per_stratum: int = sum(variant.sized() for variant in VARIANTS[name](root))
-            cells: int = len(list(strata(argv.strata)))
             per_window += per_stratum * cells * len(argv.resolutions)
 
     return per_window * (2 if argv.split else 1)
+
+
+def quantile_pair(given: list[float] | None) -> tuple[float, float] | None:
+    """The pair to fit at: ``None`` for the raw thresholds, and bare for :data:`REGIME_QUANTILES`."""
+    if given is None:
+        return None
+
+    if not given:
+        return REGIME_QUANTILES
+
+    if len(given) != len(REGIME_QUANTILES):
+        msg: str = f"--regime-quantiles takes a consolidating and a directional quantile, got {len(given)}"
+        raise SystemExit(msg)
+
+    return given[0], given[1]
+
+
+def log_calibration(
+    fitted: dict[int, Calibration],
+    quantiles: tuple[float, float],
+    selection_bars: int,
+) -> None:
+    """Report the cut every stratum below was defined by, beside the anchor it is read against."""
+    logger.info("  regime thresholds fitted at q=%s on %s selection bars", quantiles, f"{selection_bars:,}")
+    for minutes, calibration in fitted.items():
+        for lookback, (consolidating, directional) in calibration.items():
+            anchor: float = regime.random_walk_ratio(lookback)
+            logger.info(
+                "    %2dm n=%-3d consolidating %.4f (%.2fx)  directional %.4f (%.2fx)",
+                minutes,
+                lookback,
+                consolidating,
+                consolidating / anchor,
+                directional,
+                directional / anchor,
+            )
+
+
+def fit_regime(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, Calibration]:
+    """One calibration per resolution, fitted on the selection window whether or not it is split.
+
+    The held-out window reads the selection window's cut, so nothing about the holdout reaches
+    the definition of the stratum -- ``docs/roadmap.md`` §M27.5.
+    """
+    if not argv.regime_quantiles:
+        return {}
+
+    selection: pd.DataFrame = bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
+    fitted: dict[int, Calibration] = {
+        minutes: calibrate(
+            resample.resample(selection, minutes), argv.regime_lookbacks, argv.regime_quantiles
+        )
+        for minutes in argv.resolutions
+    }
+    log_calibration(fitted, argv.regime_quantiles, len(selection))
+
+    return fitted
 
 
 def main(argv: list[str]) -> int:
@@ -472,7 +605,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))
     parser.add_argument("--resolutions", nargs="+", type=int, default=list(RESOLUTIONS))
     parser.add_argument("--strata", choices=sorted(STRATUM_SETS), default=None, help="stratifications")
+    parser.add_argument(
+        "--regime-quantiles",
+        nargs="*",
+        type=float,
+        default=None,
+        help="fit the regime thresholds on the selection window; bare takes the stated pair",
+    )
+    parser.add_argument("--regime-lookbacks", nargs="+", type=int, default=list(REGIME_LOOKBACKS))
     args = parser.parse_args(argv[1:])
+    args.regime_quantiles = quantile_pair(args.regime_quantiles)
     # A held-out test of a stratified shortlist is a smaller sample twice over, so --split
     # defaults to the unfiltered stratum alone unless one is named.
     args.strata = args.strata or (UNFILTERED if args.split else CORE)
@@ -486,6 +628,7 @@ def main(argv: list[str]) -> int:
         for root in args.roots:
             variants: list[Variant] = VARIANTS[name](root)
             bars: pd.DataFrame = splice.load_continuous(root)
+            fitted: dict[int, Calibration] = fit_regime(bars, args)
             for window, source in windows(bars, split=args.split):
                 for minutes in args.resolutions:
                     frame: pd.DataFrame = resample.resample(source, minutes)
@@ -497,6 +640,7 @@ def main(argv: list[str]) -> int:
                         window,
                         batch_id,
                         args.strata,
+                        fitted.get(minutes),
                         n_jobs=args.n_jobs,
                     )
     logger.info("")

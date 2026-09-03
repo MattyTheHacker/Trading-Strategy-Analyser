@@ -140,6 +140,140 @@ def test_a_threshold_outside_zero_to_one_is_refused(lower, upper) -> None:
         regime.label(np.array([0.5]), lower, upper)
 
 
+# -- the calibrated thresholds -------------------------------------------------
+
+LOOKBACKS = (5, 10, 20, 30, 50)
+
+
+def walk(n: int = 20000, seed: int = 3) -> np.ndarray:
+    """Build a driftless random walk: the null both reparameterisations are anchored on."""
+    rng = np.random.default_rng(seed)
+
+    return 16000.0 + np.cumsum(rng.normal(0.0, 5.0, n))
+
+
+def directional_share(ratios: np.ndarray, upper: float) -> float:
+    """The share of measured bars a threshold labels directional."""
+    labels = regime.label(ratios, 0.0, upper)
+    measured = labels[labels != UNDEFINED]
+
+    return float((measured == Regime.DIRECTIONAL).mean())
+
+
+def test_the_anchor_is_the_mean_efficiency_ratio_of_a_driftless_random_walk() -> None:
+    # 1/sqrt(n) is an identity in the module and a measurement here; pin it against the walk.
+    rng = np.random.default_rng(17)
+    for lookback in (5, 20, 50):
+        steps = rng.normal(0.0, 1.0, (20000, lookback))
+        ratio = np.abs(steps.sum(axis=1)) / np.abs(steps).sum(axis=1)
+        assert float(ratio.mean()) == pytest.approx(regime.random_walk_ratio(lookback), abs=0.015)
+
+
+def test_a_quantile_states_the_share_of_bars_each_regime_takes() -> None:
+    ratios = regime.efficiency_ratio(walk(), 20)
+    lower, upper = regime.thresholds_from_quantiles(ratios, 0.2, 0.8)
+    labels = regime.label(ratios, lower, upper)
+    measured = labels[labels != UNDEFINED]
+    assert float((measured == Regime.CONSOLIDATING).mean()) == pytest.approx(0.2, abs=0.01)
+    assert float((measured == Regime.DIRECTIONAL).mean()) == pytest.approx(0.2, abs=0.01)
+
+
+def test_a_quantile_holds_the_cell_size_across_the_lookback_axis_and_a_raw_threshold_does_not() -> None:
+    close = walk()
+    fitted: list[float] = []
+    raw: list[float] = []
+    for lookback in LOOKBACKS:
+        ratios = regime.efficiency_ratio(close, lookback)
+        _, upper = regime.thresholds_from_quantiles(ratios, 0.2, 0.8)
+        fitted.append(directional_share(ratios, upper))
+        raw.append(directional_share(ratios, UPPER))
+
+    assert max(fitted) - min(fitted) < 0.01
+    assert max(raw) - min(raw) > 0.3
+
+
+def test_a_multiple_of_the_anchor_nearly_holds_it_too_where_a_raw_threshold_does_not() -> None:
+    close = walk()
+    scaled: list[float] = []
+    raw: list[float] = []
+    for lookback in LOOKBACKS:
+        ratios = regime.efficiency_ratio(close, lookback)
+        _, upper = regime.thresholds_from_multiples(lookback, 0.0, 1.5)
+        scaled.append(directional_share(ratios, upper))
+        raw.append(directional_share(ratios, UPPER))
+
+    assert max(scaled) - min(scaled) < 0.05
+    assert max(raw) - min(raw) > 0.3
+
+
+def test_the_warm_up_is_excluded_from_a_fit_rather_than_counted_as_a_flat_window() -> None:
+    ratios = regime.efficiency_ratio(walk(120, seed=9), 20)
+    fitted = regime.thresholds_from_quantiles(ratios, 0.2, 0.8)
+    assert fitted == regime.thresholds_from_quantiles(ratios[np.isfinite(ratios)], 0.2, 0.8)
+    assert regime.thresholds_from_quantiles(np.nan_to_num(ratios), 0.2, 0.8)[0] < fitted[0]
+
+
+def test_equal_quantiles_collapse_the_band_onto_one_cut() -> None:
+    lower, upper = regime.thresholds_from_quantiles(regime.efficiency_ratio(walk(2000), 20), 0.5, 0.5)
+    assert lower == upper
+
+
+@pytest.mark.parametrize(("lower", "upper"), [(0.0, 1.0), (0.2, 0.8), (0.5, 0.5), (0.9, 0.95)])
+def test_a_fitted_pair_is_always_a_legal_threshold_pair(lower, upper) -> None:
+    ratios = regime.efficiency_ratio(walk(2000), 20)
+    regime.validate_thresholds(*regime.thresholds_from_quantiles(ratios, lower, upper))
+    regime.validate_thresholds(*regime.thresholds_from_multiples(20, lower, upper))
+
+
+def test_the_grid_fits_a_threshold_pair_from_the_row_it_names() -> None:
+    close = walk(5000)
+    grid = regime.efficiency_ratio_grid(close, [5, 20])
+    for lookback in (5, 20):
+        assert grid.thresholds_for(lookback, 0.2, 0.8) == regime.thresholds_from_quantiles(
+            regime.efficiency_ratio(close, lookback),
+            0.2,
+            0.8,
+        )
+
+
+@pytest.mark.parametrize(("lower", "upper"), [(-0.1, 0.8), (0.2, 1.5)])
+def test_a_quantile_outside_zero_to_one_is_refused(lower, upper) -> None:
+    with pytest.raises(RegimeError, match=r"must lie in 0\.\.1"):
+        regime.thresholds_from_quantiles(np.array([0.5]), lower, upper)
+
+
+def test_quantiles_that_cross_are_refused_rather_than_silently_ordered() -> None:
+    with pytest.raises(RegimeError, match="would cross the thresholds they fit"):
+        regime.thresholds_from_quantiles(np.array([0.5]), 0.8, 0.2)
+
+
+def test_fitting_on_a_series_with_no_measured_bar_is_refused() -> None:
+    with pytest.raises(RegimeError, match="every bar is warm-up"):
+        regime.thresholds_from_quantiles(np.full(30, np.nan), 0.2, 0.8)
+
+
+@pytest.mark.parametrize(("lower", "upper"), [(-0.5, 1.5), (0.5, -1.5)])
+def test_a_negative_multiple_of_the_anchor_is_refused(lower, upper) -> None:
+    with pytest.raises(RegimeError, match="must not be negative"):
+        regime.thresholds_from_multiples(20, lower, upper)
+
+
+def test_multiples_that_cross_are_refused_rather_than_silently_ordered() -> None:
+    with pytest.raises(RegimeError, match="would put a bar in both regimes"):
+        regime.thresholds_from_multiples(20, 2.0, 1.0)
+
+
+def test_a_multiple_past_the_ratios_maximum_is_refused_rather_than_admitting_nothing() -> None:
+    # 3 / sqrt(5) is 1.34, and no bar can exceed 1.0, so the cell would be empty.
+    with pytest.raises(RegimeError, match="above the ratio's maximum"):
+        regime.thresholds_from_multiples(5, 0.0, 3.0)
+
+
+def test_the_anchor_refuses_the_lookback_the_ratio_is_degenerate_at() -> None:
+    with pytest.raises(RegimeError, match="must be >= 2"):
+        regime.random_walk_ratio(1)
+
+
 # -- the mask ------------------------------------------------------------------
 
 
