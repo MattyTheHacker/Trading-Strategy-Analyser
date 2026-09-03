@@ -17,6 +17,7 @@ dependencies = [
     "duckdb==1.5.5",
     "joblib==1.5.3",
     "tzdata==2026.3",
+    "libcst==1.9.0",
 ]
 
 
@@ -104,6 +105,7 @@ max-args = 10
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "D103"]
 "nqbt/cli.py" = ["PLC0415"]  # Each subcommand only imports the specific modules it needs for performance
+"formatting/**" = ["T201", "D102", "D103"]
 
 
 [tool.mypy]
