@@ -8,6 +8,10 @@ serves every multiple, so the multiple costs no memory and no precompute. Reason
 No NT8-parity question of its own: both halves are :func:`nqbt.indicators.nt8_sma` and
 :func:`nqbt.indicators.nt8_stddev`, pinned against NinjaTrader in ``docs/nt8-fidelity.md``
 § "Indicators".
+
+:class:`VwapBand` is the second source and the same coordinate system over a different window
+-- session-anchored rather than a rolling period, so it has no period axis at all. Neither of
+its halves is pinned: ``docs/nt8-fidelity.md`` §M26.4.
 """
 
 from __future__ import annotations
@@ -22,14 +26,16 @@ from nqbt import indicators
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from nqbt.arrays import FloatArray, IntArray
+    from nqbt.arrays import BoolArray, DateArray, FloatArray, IntArray
 
 __all__ = [
     "MIN_BAND_PERIOD",
     "BandError",
     "BandGrid",
+    "VwapBand",
     "band_grid",
     "validate_period",
+    "vwap_band",
 ]
 
 MIN_BAND_PERIOD = 2
@@ -126,3 +132,57 @@ def band_grid(close: FloatArray, periods: Iterable[int]) -> BandGrid:
         stretch[i] = indicators.band_stretch(close, basis[i], stddev[i])
 
     return BandGrid(periods=unique, basis=basis, stddev=stddev, stretch=stretch)
+
+
+@dataclass(slots=True)
+class VwapBand:
+    """The session-anchored band: VWAP as the basis and its volume-weighted dispersion as the width.
+
+    The same three series :class:`BandGrid` holds, in the same coordinate system, but **there
+    is no period axis** -- the window is the session so far, so this is one row rather than a
+    grid. What the anchor costs, and why the warm-up counter travels with it:
+    ``docs/roadmap.md`` §M26.4.
+    """
+
+    basis: FloatArray
+    """:func:`nqbt.indicators.session_vwap`, which is also what :meth:`Dataset.vwap_values`
+    reports -- the band's midline is the VWAP itself, not a second estimate of it."""
+    stddev: FloatArray
+    """Volume-weighted dispersion about that basis -- the band's half-width at ``k=1``."""
+    stretch: FloatArray
+    """Signed extension in those units, so ``+-k`` are the two bands exactly as on a
+    :class:`BandGrid`."""
+    bars_since_anchor: IntArray
+    """Completed bars since the session's anchor, ``0`` on the anchor bar.
+
+    A band over three bars is not yet a band, and nothing else in a :class:`Dataset` counts
+    from the VWAP's own anchor."""
+
+    def __len__(self) -> int:
+        return int(self.basis.size)
+
+    @property
+    def nbytes(self) -> int:
+        """Bytes the band occupies -- what a parallel worker is handed."""
+        return self.basis.nbytes + self.stddev.nbytes + self.stretch.nbytes + self.bars_since_anchor.nbytes
+
+
+def vwap_band(
+    high: FloatArray,
+    low: FloatArray,
+    close: FloatArray,
+    volume: FloatArray,
+    trading_day: DateArray,
+) -> VwapBand:
+    """Compute the session-anchored band once, over the whole series."""
+    typical: FloatArray = indicators.typical_price(high, low, close)
+    new_session: BoolArray = indicators.new_session_flags(trading_day)
+    basis: FloatArray = indicators.session_vwap(typical, volume, new_session)
+    stddev: FloatArray = indicators.session_vwap_dispersion(typical, volume, basis, new_session)
+
+    return VwapBand(
+        basis=basis,
+        stddev=stddev,
+        stretch=indicators.band_stretch(close, basis, stddev),
+        bars_since_anchor=indicators.bars_since_anchor(new_session),
+    )

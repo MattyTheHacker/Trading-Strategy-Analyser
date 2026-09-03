@@ -930,6 +930,15 @@ strategy stop; ``swing`` is the adverse extreme of a fixed number of bars, which
 express.
 """
 
+BAND_BOLLINGER = 0
+BAND_VWAP = 1
+BAND_SOURCES = {BAND_BOLLINGER: "bollinger", BAND_VWAP: "vwap"}
+"""Which channel the extension is measured against. ``bollinger`` is ``nt8_sma`` +- k *
+``nt8_stddev`` over :attr:`ElasticBandParams.band_period`; ``vwap`` is the session VWAP and
+its volume-weighted dispersion, whose window is the session so far rather than a period --
+``docs/roadmap.md`` §M26.4.
+"""
+
 TARGET_STRETCH = 0
 TARGET_R = 1
 TARGET_MODES = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
@@ -942,14 +951,26 @@ mean-reversion geometry; ``r`` uses the shared R ladder and is comparable with E
 class ElasticBandParams:
     """Rule set for the ElasticBand archetype -- an original, with no NinjaScript.
 
-    The first mean-reversion archetype: fade a close far enough outside a Bollinger band and
-    target the middle. Every rule it implements, and the NinjaScript each would be written as:
-    ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes: ``docs/roadmap.md``
-    §M26.
+    The first mean-reversion archetype: fade a close far enough outside a band and target the
+    middle. :attr:`band_source` picks the channel -- Bollinger over :attr:`band_period`, or the
+    session-anchored VWAP. Every rule it implements, and the NinjaScript each would be written
+    as: ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes:
+    ``docs/roadmap.md`` §M26.
     """
 
+    band_source: int = BAND_BOLLINGER
+    """One of :data:`BAND_SOURCES` -- which channel the extension is measured against."""
+
     band_period: int = 20
-    """Period of both the basis and the standard deviation, which are one window."""
+    """Period of both the basis and the standard deviation, which are one window.
+
+    Read under :data:`BAND_BOLLINGER` alone; the VWAP band's window is the session."""
+
+    vwap_min_session_bars: int = 30
+    """Bars a session's VWAP band must have before it can signal, under :data:`BAND_VWAP`.
+
+    The anchor resets at every session open, so the first bars of a session have a band built
+    from too few observations to be one -- ``docs/roadmap.md`` §M26.4."""
 
     entry_std: float = 2.0
     """How far outside the basis a close must sit to signal, in standard deviations."""
@@ -1093,9 +1114,17 @@ class ElasticBandParams:
 
     def _validate_entry(self) -> None:
         """Check the band and the rule that decides which bars signal."""
+        if self.band_source not in BAND_SOURCES:
+            msg: str = f"unknown band_source {self.band_source}; use one of {sorted(BAND_SOURCES)}"
+            raise ValueError(msg)
+
         bands.validate_period(self.band_period)
+        if self.vwap_min_session_bars < 0:
+            msg = f"vwap_min_session_bars must be >= 0, got {self.vwap_min_session_bars}"
+            raise ValueError(msg)
+
         if self.entry_std <= 0.0:
-            msg: str = f"entry_std must be > 0, got {self.entry_std}"
+            msg = f"entry_std must be > 0, got {self.entry_std}"
             raise ValueError(msg)
 
         if self.max_entry_std != 0.0 and self.max_entry_std <= self.entry_std:

@@ -34,7 +34,7 @@ from nqbt import (
 from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, FloatArray, IndexArray, LabelArray
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, LabelArray
     from nqbt.bands import BandGrid
     from nqbt.conditions import MovingAverageGrid
     from nqbt.higher_timeframe import HigherTimeframeGrid
@@ -71,6 +71,11 @@ class ContextSpec:
     multiple is **not** part of the key -- one period serves every multiple."""
 
     needs_vwap: bool = False
+    needs_vwap_band: bool = False
+    """Build the session-anchored VWAP band (:class:`nqbt.bands.VwapBand`). Implies
+    :attr:`needs_vwap`, because the band's basis is that VWAP rather than a second estimate
+    of it."""
+
     needs_time_of_day: bool = False
     """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
 
@@ -106,6 +111,7 @@ class ContextSpec:
             atr_periods=tuple(sorted({*self.atr_periods, *other.atr_periods})),
             band_periods=tuple(sorted({*self.band_periods, *other.band_periods})),
             needs_vwap=self.needs_vwap or other.needs_vwap,
+            needs_vwap_band=self.needs_vwap_band or other.needs_vwap_band,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
@@ -155,6 +161,9 @@ class Dataset:
     vwap: FloatArray | None = None
     below_vwap: BoolArray | None = None
     above_vwap: BoolArray | None = None
+    vwap_band: bands.VwapBand | None = None
+    """Session-anchored basis, dispersion and extension, or ``None`` when nothing asked."""
+
     time_of_day: timeofday.TimeOfDay | None = None
     """Session phase and bar of session, or ``None`` when nothing asked for them."""
 
@@ -251,6 +260,34 @@ class Dataset:
     def band_stretch(self, period: int) -> FloatArray:
         """One period's signed extension in standard deviations, for gating and stratifying."""
         return self._band().stretch_for(period)
+
+    def _vwap_band(self) -> bands.VwapBand:
+        if self.vwap_band is None:
+            msg: str = (
+                "no VWAP band in this dataset; prepare() was not asked for one. "
+                "Set needs_vwap_band on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+
+        return self.vwap_band
+
+    def vwap_band_basis(self) -> FloatArray:
+        """The session VWAP, which is the band's midline and the level a reversion targets."""
+        return self._vwap_band().basis
+
+    def vwap_band_stddev(self) -> FloatArray:
+        """Volume-weighted dispersion about the VWAP -- the band's half-width at one multiple."""
+        return self._vwap_band().stddev
+
+    def vwap_band_stretch(self) -> FloatArray:
+        """Signed extension from the VWAP in those units, for gating and stratifying."""
+        return self._vwap_band().stretch
+
+    def vwap_band_age(self) -> IntArray:
+        """Completed bars since each bar's VWAP anchor -- what a warm-up gate counts."""
+        return self._vwap_band().bars_since_anchor
 
     def vwap_gate(self, *, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) the session VWAP?"""
@@ -480,6 +517,9 @@ class Dataset:
         if self.band is not None:
             total += self.band.nbytes
 
+        if self.vwap_band is not None:
+            total += self.vwap_band.nbytes
+
         for a in (
             self.vwap,
             self.below_vwap,
@@ -593,14 +633,31 @@ def prepare(
         else None
     )
 
-    vwap = below_vwap = above_vwap = None
-    if spec.needs_vwap:
-        typical: FloatArray = indicators.typical_price(high, low, close)
-        vwap = indicators.session_vwap(
-            typical,
+    # Built before the VWAP so that a dataset holding both takes the basis off the band rather
+    # than computing the same series a second time.
+    vwap_band: bands.VwapBand | None = (
+        bands.vwap_band(
+            high,
+            low,
+            close,
             float_column(bars, "volume"),
-            indicators.new_session_flags(bars["trading_day"].to_numpy()),
+            bars["trading_day"].to_numpy(),
         )
+        if spec.needs_vwap_band
+        else None
+    )
+    vwap = below_vwap = above_vwap = None
+    if spec.needs_vwap or vwap_band is not None:
+        if vwap_band is not None:
+            vwap = vwap_band.basis
+        else:
+            typical: FloatArray = indicators.typical_price(high, low, close)
+            vwap = indicators.session_vwap(
+                typical,
+                float_column(bars, "volume"),
+                indicators.new_session_flags(bars["trading_day"].to_numpy()),
+            )
+
         below_vwap = conditions.below_series(close, vwap)
         above_vwap = conditions.above_series(close, vwap)
 
@@ -627,6 +684,7 @@ def prepare(
         vwap=vwap,
         below_vwap=below_vwap,
         above_vwap=above_vwap,
+        vwap_band=vwap_band,
         time_of_day=tod,
         regimes=regimes,
         volumes=volumes,

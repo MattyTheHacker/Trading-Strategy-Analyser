@@ -10,9 +10,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import conditions, context, sessions, sweep
+from nqbt import archetypes, conditions, context, sessions, sweep
 from nqbt.context import ContextError, ContextSpec
-from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+from nqbt.sim.types import (
+    BAND_BOLLINGER,
+    BAND_VWAP,
+    DeadCatParams,
+    ElasticBandParams,
+    PullBackAndGoParams,
+)
 
 
 def bars(n: int = 800, seed: int = 3) -> pd.DataFrame:
@@ -295,6 +301,78 @@ def test_the_band_grid_is_built_for_exactly_the_declared_periods() -> None:
     assert data.mas == {}
     with pytest.raises(KeyError, match="band period 30 is not in this grid"):
         data.band_basis(30)
+
+
+def test_an_elasticband_grid_builds_only_the_bands_its_sources_name() -> None:
+    vwap_only = sweep.Grid.of(
+        ElasticBandParams(band_source=BAND_VWAP),
+        archetype=archetypes.ELASTICBAND,
+    ).required_context()
+    # A period grid nothing reads is memory in every worker, so a pure-VWAP sweep builds none.
+    assert vwap_only.band_periods == ()
+    assert vwap_only.needs_vwap_band
+
+    bollinger_only = sweep.Grid.of(
+        ElasticBandParams(band_source=BAND_BOLLINGER),
+        archetype=archetypes.ELASTICBAND,
+    ).required_context()
+    assert bollinger_only.band_periods == (20,)
+    assert not bollinger_only.needs_vwap_band
+
+
+def test_sweeping_both_band_sources_builds_both_bands() -> None:
+    spec = sweep.Grid.of(
+        ElasticBandParams(),
+        archetype=archetypes.ELASTICBAND,
+        band_source=[BAND_BOLLINGER, BAND_VWAP],
+        band_period=[10, 20],
+    ).required_context()
+    assert spec.band_periods == (10, 20)
+    assert spec.needs_vwap_band
+
+
+def test_the_vwap_band_is_absent_unless_the_spec_asks_for_it() -> None:
+    data = context.prepare(bars(), ContextSpec(band_periods=(20,)))
+    assert data.vwap_band is None
+    for read in (
+        data.vwap_band_basis,
+        data.vwap_band_stddev,
+        data.vwap_band_stretch,
+        data.vwap_band_age,
+    ):
+        with pytest.raises(ContextError, match="needs_vwap_band"):
+            read()
+
+
+def test_the_vwap_band_is_built_without_any_period_grid_at_all() -> None:
+    data = context.prepare(bars(), ContextSpec(needs_vwap_band=True))
+    assert data.vwap_band is not None
+    assert data.vwap_band_stretch().shape == (len(data),)
+    assert data.vwap_band_age().shape == (len(data),)
+    # A session-anchored window has no period, so nothing keyed by one gets built.
+    assert data.band is None
+    assert data.mas == {}
+
+
+def test_asking_for_the_vwap_band_brings_the_vwap_it_is_anchored_on() -> None:
+    # The band's basis *is* the VWAP, so a dataset holding one and not the other would let a
+    # trade's target and its context row disagree about where the mean was.
+    data = context.prepare(bars(), ContextSpec(needs_vwap_band=True, needs_vwap=False))
+    assert data.vwap_values().tolist() == data.vwap_band_basis().tolist()
+
+
+def test_the_union_of_two_specs_carries_the_vwap_band() -> None:
+    assert (ContextSpec() | ContextSpec(needs_vwap_band=True)).needs_vwap_band
+    assert (ContextSpec(needs_vwap_band=True) | ContextSpec()).needs_vwap_band
+    assert not (ContextSpec() | ContextSpec()).needs_vwap_band
+
+
+def test_the_vwap_band_is_counted_in_the_bytes_a_worker_is_handed() -> None:
+    frame = bars()
+    with_band = context.prepare(frame, ContextSpec(needs_vwap_band=True))
+    without = context.prepare(frame, ContextSpec(needs_vwap=True))
+    # Basis, dispersion, stretch and the anchor clock, at eight bytes each.
+    assert with_band.nbytes - without.nbytes == 4 * 8 * len(frame)
 
 
 def test_the_union_of_two_specs_carries_the_band_periods() -> None:

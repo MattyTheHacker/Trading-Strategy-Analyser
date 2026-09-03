@@ -66,3 +66,55 @@ def test_the_grid_reads_only_bars_up_to_and_including_each_one() -> None:
         prefix = bands.band_grid(close[:cut], [20])
         assert prefix.stretch_for(20) == pytest.approx(full.stretch_for(20)[:cut])
         assert prefix.basis_for(20) == pytest.approx(full.basis_for(20)[:cut])
+
+
+# -- the VWAP band ----------------------------------------------------------------
+
+HIGH = CLOSE + 1.0
+LOW = CLOSE - 1.0
+VOLUME = np.array([1.0, 2.0, 1.0, 3.0, 1.0, 1.0, 2.0, 1.0], dtype=np.float64)
+DAYS = np.array(
+    ["2024-03-07"] * 4 + ["2024-03-08"] * 4,
+    dtype="datetime64[D]",
+)
+
+
+def test_the_vwap_bands_three_series_are_the_pinned_indicators_and_nothing_else() -> None:
+    band = bands.vwap_band(HIGH, LOW, CLOSE, VOLUME, DAYS)
+    typical = indicators.typical_price(HIGH, LOW, CLOSE)
+    flags = indicators.new_session_flags(DAYS)
+    basis = indicators.session_vwap(typical, VOLUME, flags)
+    assert band.basis == pytest.approx(basis)
+    assert band.stddev == pytest.approx(indicators.session_vwap_dispersion(typical, VOLUME, basis, flags))
+    assert band.stretch == pytest.approx(indicators.band_stretch(CLOSE, basis, band.stddev))
+
+
+def test_the_vwap_bands_basis_is_the_dataset_vwap_rather_than_a_second_estimate() -> None:
+    # The band's midline has to be the number every other reader of the VWAP sees, or a
+    # trade's target and its context row disagree about where the mean was.
+    band = bands.vwap_band(HIGH, LOW, CLOSE, VOLUME, DAYS)
+    typical = indicators.typical_price(HIGH, LOW, CLOSE)
+    reported = indicators.session_vwap(typical, VOLUME, indicators.new_session_flags(DAYS))
+    assert band.basis.tolist() == reported.tolist()
+
+
+def test_a_price_is_recovered_from_a_vwap_stretch_level() -> None:
+    band = bands.vwap_band(HIGH, LOW, CLOSE, VOLUME, DAYS)
+    live = band.stddev > 0.0
+    assert (band.basis + band.stretch * band.stddev)[live] == pytest.approx(CLOSE[live])
+
+
+def test_the_vwap_band_reanchors_at_each_session_and_carries_its_own_clock() -> None:
+    band = bands.vwap_band(HIGH, LOW, CLOSE, VOLUME, DAYS)
+    assert band.bars_since_anchor.tolist() == [0, 1, 2, 3, 0, 1, 2, 3]
+    # An anchor bar has one observation, so it has no width and can never be outside itself.
+    assert band.stddev[0] == 0.0
+    assert band.stddev[4] == 0.0
+    assert band.stretch[0] == 0.0
+    assert band.stretch[4] == 0.0
+
+
+def test_the_vwap_band_has_no_period_axis_so_it_is_one_row_per_series() -> None:
+    band = bands.vwap_band(HIGH, LOW, CLOSE, VOLUME, DAYS)
+    assert len(band) == CLOSE.size
+    assert band.nbytes == 3 * CLOSE.size * 8 + CLOSE.size * 8

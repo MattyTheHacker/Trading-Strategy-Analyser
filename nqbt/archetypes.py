@@ -18,6 +18,7 @@ from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import crossover, elasticband, insidebar, insidebartrailing, pullback, runner
 from nqbt.sim.types import (
+    BAND_VWAP,
     STOP_ATR,
     DeadCatParams,
     ElasticBandParams,
@@ -222,12 +223,15 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What ElasticBand reads: a band grid per period, and an ATR only where a stop needs one.
+    """What ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
 
     **No moving-average grid at all** -- the basis is the band's own, so this is the first
     archetype that builds none. The band multiple is not part of the key, so sweeping it is
-    free -- ``docs/roadmap.md`` §M26.
+    free -- ``docs/roadmap.md`` §M26. A grid that never selects a Bollinger source builds no
+    period grid at all, and one that never selects the VWAP source builds no VWAP band.
     """
+    sources: set[int] = {int(v) for v in values.get("band_source", ())}
+    periods: set[int] = {int(v) for v in values.get("band_period", ())} if sources != {BAND_VWAP} else set()
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())}
         if any(int(v) == STOP_ATR for v in values.get("stop_mode", ()))
@@ -235,7 +239,8 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     )
 
     return ContextSpec(
-        band_periods=tuple(sorted({int(v) for v in values.get("band_period", ())})),
+        band_periods=tuple(sorted(periods)),
+        needs_vwap_band=BAND_VWAP in sources,
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),

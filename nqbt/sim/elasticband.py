@@ -19,7 +19,14 @@ from numba import njit
 from nqbt import conditions, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
-from nqbt.sim.types import STOP_ATR, STOP_EXCURSION, STOP_MIN_TICKS, STOP_SWING, TARGET_STRETCH
+from nqbt.sim.types import (
+    BAND_VWAP,
+    STOP_ATR,
+    STOP_EXCURSION,
+    STOP_MIN_TICKS,
+    STOP_SWING,
+    TARGET_STRETCH,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -363,15 +370,35 @@ def lagged(series: FloatArray, lag: int) -> FloatArray:
 
 
 def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, FloatArray, FloatArray]:
-    """The basis, dispersion and extension this combination reads, at its band lag."""
-    period: int = params.band_period
+    """The basis, dispersion and extension this combination reads, at its band lag.
+
+    One coordinate system, two windows: a rolling ``band_period`` under :data:`BAND_BOLLINGER`
+    and the session so far under :data:`BAND_VWAP`.
+    """
     lag: int = params.band_lag
+    if params.band_source == BAND_VWAP:
+        return (
+            lagged(data.vwap_band_basis(), lag),
+            lagged(data.vwap_band_stddev(), lag),
+            lagged(data.vwap_band_stretch(), lag),
+        )
+
+    period: int = params.band_period
 
     return (
         lagged(data.band_basis(period), lag),
         lagged(data.band_stddev(period), lag),
         lagged(data.band_stretch(period), lag),
     )
+
+
+def vwap_band_warmed_up(data: Dataset, params: ElasticBandParams) -> BoolArray:
+    """Bars whose VWAP band has enough of its own session behind it to be a band.
+
+    The lag is added to the requirement rather than applied to the counter, which also keeps a
+    lagged read inside the session it was anchored in.
+    """
+    return np.asarray(data.vwap_band_age() >= params.vwap_min_session_bars + params.band_lag)
 
 
 def fade_direction(stretch: FloatArray) -> FloatArray:
@@ -410,6 +437,9 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
 
     if params.max_entry_std > 0.0:
         signal &= np.abs(stretch) <= params.max_entry_std
+
+    if params.band_source == BAND_VWAP:
+        signal &= vwap_band_warmed_up(data, params)
 
     return filters.apply_context_filters(signal, data, params)
 
