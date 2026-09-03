@@ -186,6 +186,97 @@ def test_session_vwap_survives_zero_volume_bars() -> None:
     assert out == pytest.approx([10.0, 20.0, 30.0])
 
 
+def reference_vwap_dispersion(price, volume, vwap, new_session):
+    """Two-pass volume-weighted dispersion about the running VWAP, written the obvious way.
+
+    The definition ``session_vwap_dispersion`` implements in one pass; slow enough to be
+    unusable and simple enough to be obviously right, which is the point of it.
+    """
+    out = np.zeros(price.size)
+    start = 0
+    for i in range(price.size):
+        if new_session[i]:
+            start = i
+
+        weight = volume[start : i + 1]
+        total = weight.sum()
+        if total <= 0.0:
+            continue
+
+        variance = (weight * (price[start : i + 1] - vwap[i]) ** 2).sum() / total
+        out[i] = np.sqrt(variance) if variance > 0.0 else 0.0
+
+    return out
+
+
+def test_session_vwap_dispersion_is_zero_on_the_anchor_bar() -> None:
+    price = np.array([10.0, 20.0])
+    volume = np.array([1.0, 1.0])
+    vwap = indicators.session_vwap(price, volume, np.array([True, False]))
+    out = indicators.session_vwap_dispersion(price, volume, vwap, np.array([True, False]))
+    # One observation has no dispersion about its own mean, so no bar can ever be outside
+    # the band on the bar it was anchored at.
+    assert out[0] == 0.0
+    assert out[1] == pytest.approx(5.0)
+
+
+def test_session_vwap_dispersion_weights_by_volume() -> None:
+    price = np.array([10.0, 20.0])
+    volume = np.array([1.0, 3.0])
+    vwap = indicators.session_vwap(price, volume, np.array([True, False]))
+    out = indicators.session_vwap_dispersion(price, volume, vwap, np.array([True, False]))
+    # Population divisor is the summed weight: (1*(10-17.5)^2 + 3*(20-17.5)^2) / 4.
+    assert out[1] == pytest.approx(np.sqrt((1 * 7.5**2 + 3 * 2.5**2) / 4))
+
+
+def test_session_vwap_dispersion_reanchors_at_each_session_open() -> None:
+    price = np.array([10.0, 20.0, 100.0, 200.0])
+    volume = np.ones(4)
+    flags = np.array([True, False, True, False])
+    vwap = indicators.session_vwap(price, volume, flags)
+    out = indicators.session_vwap_dispersion(price, volume, vwap, flags)
+    assert out[2] == 0.0
+    assert out[3] == pytest.approx(50.0)
+
+
+def test_session_vwap_dispersion_survives_zero_volume_bars() -> None:
+    price = np.array([10.0, 20.0, 30.0])
+    volume = np.array([0.0, 0.0, 2.0])
+    flags = np.array([True, False, False])
+    vwap = indicators.session_vwap(price, volume, flags)
+    out = indicators.session_vwap_dispersion(price, volume, vwap, flags)
+    # No division by zero, and no dispersion until some volume has arrived.
+    assert list(out[:2]) == [0.0, 0.0]
+    assert out[2] == 0.0
+
+
+def test_session_vwap_dispersion_matches_the_two_pass_definition_at_index_prices() -> None:
+    """The one-pass sums are taken about a shifted origin, and this is what that buys.
+
+    At a five-figure price the unshifted sums cancel catastrophically; the reference below is
+    the definition, so agreeing with it to well under a tick is the whole claim.
+    """
+    rng = np.random.default_rng(101)
+    price = 21500.0 + np.cumsum(rng.normal(0.0, 3.0, 4000))
+    volume = rng.integers(1, 500, 4000).astype(np.float64)
+    flags = np.zeros(4000, dtype=np.bool_)
+    flags[::1300] = True
+    vwap = indicators.session_vwap(price, volume, flags)
+    out = indicators.session_vwap_dispersion(price, volume, vwap, flags)
+    reference = reference_vwap_dispersion(price, volume, vwap, flags)
+    assert np.abs(out - reference).max() < 1e-9
+    assert out.max() > 1.0
+
+
+def test_bars_since_anchor_counts_from_each_session_open() -> None:
+    flags = np.array([True, False, False, True, False])
+    assert list(indicators.bars_since_anchor(flags)) == [0, 1, 2, 0, 1]
+
+
+def test_bars_since_anchor_on_empty_input() -> None:
+    assert indicators.bars_since_anchor(np.array([], dtype=np.bool_)).size == 0
+
+
 def test_typical_price() -> None:
     high = np.array([12.0])
     low = np.array([9.0])

@@ -18,11 +18,12 @@ import numpy as np
 from numba import njit
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, DateArray, FloatArray
+    from nqbt.arrays import BoolArray, DateArray, FloatArray, IntArray
 
 __all__ = [
     "MIN_HMA_PERIOD",
     "band_stretch",
+    "bars_since_anchor",
     "new_session_flags",
     "nt8_atr",
     "nt8_bollinger",
@@ -34,6 +35,7 @@ __all__ = [
     "nt8_true_range",
     "nt8_wma",
     "session_vwap",
+    "session_vwap_dispersion",
     "typical_price",
 ]
 
@@ -283,6 +285,73 @@ def session_vwap(price: FloatArray, volume: FloatArray, new_session: BoolArray) 
             out[i] = cum_pv / cum_v
         else:
             out[i] = price[i]
+
+    return out
+
+
+@njit(cache=True)
+def session_vwap_dispersion(
+    price: FloatArray,
+    volume: FloatArray,
+    vwap: FloatArray,
+    new_session: BoolArray,
+) -> FloatArray:
+    """Volume-weighted standard deviation of ``price`` about ``vwap``, re-anchored per session.
+
+    The half-width of the VWAP band at one multiple, so ``vwap +- k * this`` is the band and
+    ``band_stretch`` reads a bar against it. Population divisor -- the summed weight, never a
+    corrected one -- which is the convention ``nt8_stddev`` already uses.
+
+    Zero on the first bar of a session, where one observation has no dispersion about its own
+    mean, and on any run whose volume is zero. Every rule and the NinjaScript it becomes:
+    ``docs/nt8-fidelity.md`` §M26.4.
+    """
+    n = price.size
+    out = np.empty(n, dtype=np.float64)
+    # Sums are taken about the session's first price rather than about zero: the two are
+    # algebraically identical and only the shifted one survives the subtraction below at
+    # index-future prices -- ``docs/roadmap.md`` §M26.4.
+    origin = 0.0
+    cum_v = 0.0
+    cum_vq = 0.0
+    cum_vqq = 0.0
+
+    for i in range(n):
+        if new_session[i]:
+            origin = price[i]
+            cum_v = 0.0
+            cum_vq = 0.0
+            cum_vqq = 0.0
+
+        q = price[i] - origin
+        v = volume[i]
+        cum_v += v
+        cum_vq += v * q
+        cum_vqq += v * q * q
+        if cum_v <= 0.0:
+            out[i] = 0.0
+            continue
+
+        centre = vwap[i] - origin
+        variance = cum_vqq / cum_v - centre * (2.0 * cum_vq / cum_v - centre)
+        out[i] = np.sqrt(variance) if variance > 0.0 else 0.0
+
+    return out
+
+
+@njit(cache=True)
+def bars_since_anchor(new_session: BoolArray) -> IntArray:
+    """Completed bars since each session's VWAP anchor, ``0`` on the anchor bar itself.
+
+    The VWAP band's own clock rather than :mod:`nqbt.timeofday`'s, so a warm-up gate on it
+    cannot read one session's count against another's anchor.
+    """
+    n = new_session.size
+    out = np.empty(n, dtype=np.int64)
+    count = 0
+    for i in range(n):
+        count = 0 if new_session[i] else count + 1
+        out[i] = count
 
     return out
 

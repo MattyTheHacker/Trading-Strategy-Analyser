@@ -25,6 +25,7 @@ from nqbt.sim.elasticband import (
     run_extreme,
 )
 from nqbt.sim.types import (
+    BAND_VWAP,
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_EXCURSION,
@@ -598,6 +599,113 @@ def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
         elasticband_signal(data, lag)[1:],
         elasticband_signal(data, live)[:-1],
     )
+
+
+# -- the VWAP band as the second source -------------------------------------------
+
+
+def vwap_params(**kwargs):
+    """A VWAP-source parameter set with the warm-up gate off unless a test sets it."""
+    defaults = {
+        "band_source": BAND_VWAP,
+        "entry_std": 2.0,
+        "vwap_min_session_bars": 0,
+        "bars_required_to_trade": 0,
+    }
+
+    return ElasticBandParams(**(defaults | kwargs))
+
+
+def test_the_vwap_source_reads_the_session_band_and_never_the_period_grid() -> None:
+    rng = np.random.default_rng(29)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
+    params = vwap_params()
+    data = dataset(close, params)
+    basis, stddev, stretch = elasticband.band_series(data, params)
+    assert basis.tolist() == data.vwap_band_basis().tolist()
+    assert stddev.tolist() == data.vwap_band_stddev().tolist()
+    assert stretch.tolist() == data.vwap_band_stretch().tolist()
+    # Nothing keyed by a period was built, so a period read would have raised.
+    assert data.band is None
+
+
+def test_the_two_sources_are_different_bands_rather_than_the_same_one_renamed() -> None:
+    rng = np.random.default_rng(31)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
+    bollinger = ElasticBandParams(band_period=20, entry_std=2.0, bars_required_to_trade=30)
+    vwap = vwap_params(bars_required_to_trade=30)
+    from_bollinger = elasticband_signal(dataset(close, bollinger), bollinger)
+    from_vwap = elasticband_signal(dataset(close, vwap), vwap)
+    assert from_bollinger.any()
+    assert from_vwap.any()
+    assert not np.array_equal(from_bollinger, from_vwap)
+
+
+def test_the_vwap_signal_fires_only_beyond_the_entry_threshold() -> None:
+    rng = np.random.default_rng(37)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
+    params = vwap_params(entry_std=2.0)
+    data = dataset(close, params)
+    signal = elasticband_signal(data, params)
+    assert signal.any()
+    assert (np.abs(data.vwap_band_stretch()[signal]) >= 2.0).all()
+
+
+def test_the_warm_up_gate_drops_the_bars_whose_session_is_too_young() -> None:
+    rng = np.random.default_rng(41)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
+    ungated = vwap_params()
+    gated = vwap_params(vwap_min_session_bars=60)
+    data = dataset(close, ungated)
+    loose, tight = elasticband_signal(data, ungated), elasticband_signal(data, gated)
+    age = data.vwap_band_age()
+    assert tight.any()
+    assert (tight <= loose).all()
+    assert (age[tight] >= 60).all()
+    dropped = loose & ~tight
+    assert dropped.any()
+    assert (age[dropped] < 60).all()
+
+
+def test_a_lagged_vwap_band_is_never_read_across_its_own_anchor() -> None:
+    # The lag is added to the requirement rather than applied to the counter, so the band a
+    # bar reads always belongs to the session that bar is in.
+    rng = np.random.default_rng(43)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
+    params = vwap_params(band_lag=3, vwap_min_session_bars=1)
+    data = dataset(close, params)
+    signal = elasticband_signal(data, params)
+    assert signal.any()
+    assert (data.vwap_band_age()[signal] >= 4).all()
+
+
+def test_the_vwap_signal_reads_only_bars_up_to_and_including_its_own() -> None:
+    """The same no-lookahead property as the Bollinger source, over the anchored window."""
+    rng = np.random.default_rng(47)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 800))
+    params = vwap_params(min_bars_outside=2, vwap_min_session_bars=10)
+    full = elasticband_signal(dataset(close, params), params)
+    for cut in (120, 455, 799):
+        assert np.array_equal(elasticband_signal(dataset(close[:cut], params), params), full[:cut])
+
+
+def test_a_vwap_run_produces_a_valid_trade_log() -> None:
+    rng = np.random.default_rng(53)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1200))
+    params = vwap_params(vwap_min_session_bars=20, max_hold_bars=10)
+    log = run_elasticband(dataset(close, params), params, MNQ)
+    assert not log.empty
+    assert log["exit_reason"].isin({"stop", "target", "signal", "session_close", "end_of_data"}).all()
+
+
+def test_an_unknown_band_source_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match=r"unknown band_source 7; use one of \[0, 1\]"):
+        ElasticBandParams(band_source=7)
+
+
+def test_a_negative_warm_up_is_refused() -> None:
+    with pytest.raises(ValueError, match="vwap_min_session_bars must be >= 0"):
+        ElasticBandParams(vwap_min_session_bars=-1)
 
 
 # -- the archetype end to end ---------------------------------------------------

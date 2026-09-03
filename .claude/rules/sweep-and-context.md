@@ -79,10 +79,17 @@ paths:
   and stretch target reads the same three rows, so sweeping a multiple costs nothing. Do not
   add the multiple to the key "for symmetry" with `ma_keys` — it would multiply the grid for no
   information. `docs/roadmap.md` §M26.
+- **The VWAP band is the second source and has no period axis at all.** `bands.vwap_band` is one
+  row rather than a grid, because its window is the session so far — so `band_period` is read
+  under `BAND_BOLLINGER` alone and `vwap_min_session_bars` under `BAND_VWAP` alone.
+  `elasticband_context` builds only the bands a grid's `band_source` values actually name; a
+  pure-VWAP sweep builds no period grid. `docs/roadmap.md` §M26.4.
 - **ElasticBand's stop and target axes cannot be gated at all, and that is a known blind spot.**
   They are inert at every `stop_mode`/`target_mode` but one, and `dead_axes` compares a toggle
   against a single off value. Sweeping `atr_stop_multiple` under `STOP_EXCURSION` runs identical
-  combinations and nothing will say so — same shape as `volume_rolling_bars` below.
+  combinations and nothing will say so — same shape as `volume_rolling_bars` below. **`band_period`
+  and `vwap_min_session_bars` are the same blind spot against `band_source`**, so sweeping either
+  under the source that does not read it runs identical combinations silently.
 - **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
   `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
   caught. Sweeping the window under a per-bar form runs identical combinations.

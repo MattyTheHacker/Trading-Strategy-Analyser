@@ -480,6 +480,38 @@ All four are `SetStopLoss` / `SetProfitTarget` against a level the script alread
 
 **Flat before the session close binds harder here than on any existing archetype**, because "hold until price returns to the basis" is an unbounded hold. `IsExitOnSessionCloseStrategy` handles it identically to every other archetype and nothing new is needed, but the expected `session_close_share` is high enough that it changes what the results mean — [roadmap.md](roadmap.md) §M26.
 
+### M26.4 — the VWAP band, the second source and the first unpinned indicator in an archetype (#221)
+
+**`band_source` picks the channel, and everything above still describes the Bollinger one.** The rules here are the ones the VWAP source changes and nothing else: entry depth, duration, direction, all three exit schemes, the target-as-a-level geometry and the session flatten are read from the same `band_stretch` coordinate and are untouched. `Archetype.tier2` stays `TIER1_ONLY`.
+
+**The basis is the session VWAP already in the codebase, and it is *not* pinned.** `indicators.session_vwap` is hand-rolled `Σ(typical × volume) / Σ(volume)` re-anchored at each 18:00 ET open — "Indicators" above records that it mirrors `OrderFlowVWAP(VWAPResolution.Standard, …)` and #167's port note records that nothing has ever checked it against NinjaTrader. **This is the first archetype rule built on an unpinned indicator**, and it is a deliberate exception to how every other entry gate here was arrived at: the Python is exploratory and the pin is owed before [#170], not before the measurement. The probe is `NqbtIndicatorProbe.cs` extended with the VWAP and its bands; what it has to settle is below.
+
+**The width is the volume-weighted population standard deviation about that basis**, over the same anchored window:
+
+```text
+sigma[i] = sqrt( Σ v_j (p_j − vwap[i])^2 / Σ v_j )   over j from the session anchor to i
+```
+
+`p` is `typical_price`, matching what the VWAP itself weights, and the divisor is the summed weight rather than a corrected one — the convention `nt8_stddev` already uses. `sigma` is 0 on an anchor bar, where one observation has no dispersion about its own mean, and `band_stretch` reads 0 rather than infinite there, so **no bar can be outside the band on the bar that anchored it**.
+
+**Written as NinjaScript this is four running doubles in `OnBarUpdate`**, reset on `Bars.IsFirstBarOfSession`, and *not* a read of `OrderFlowVWAP`'s own standard-deviation bands:
+
+```csharp
+if (Bars.IsFirstBarOfSession) { origin = Typical[0]; cumV = cumVQ = cumVQQ = 0; }
+double q = Typical[0] - origin;
+cumV += Volume[0]; cumVQ += Volume[0] * q; cumVQQ += Volume[0] * q * q;
+double c = vwap - origin;
+double variance = cumVQQ / cumV - c * (2.0 * cumVQ / cumV - c);
+```
+
+**Hand-rolling it is the point.** `OrderFlowVWAP` does expose deviation bands, but its variance definition is not readable from the C# and the plausible candidates — volume-weighted against unweighted, population against sample — differ by enough to move which bars signal. A band the script computes itself is a rule this document can state and a probe can check, where a band read off a closed indicator is an assumption. **What the probe is for is therefore the basis, not the width**: the width is ours by construction, and the width is only meaningful if the VWAP under it is NT8's.
+
+**The sums are taken about the session's first price rather than about zero**, which is the shifted-data variance algorithm and not a rearrangement anyone should undo. At a five-figure index price the unshifted form subtracts two numbers of order 4e8 to produce a variance of order 25, and loses most of the precision doing it; the shifted form agrees with the two-pass definition to under 1e-9 points over a session. `tests/test_indicators.py::test_session_vwap_dispersion_matches_the_two_pass_definition_at_index_prices` pins that against the definition written the obvious way. In NinjaScript the same subtraction is on the same two doubles, so the shift travels with the rule rather than being a Python detail.
+
+**A warm-up gate is a rule here and has no Bollinger equivalent.** `vwap_min_session_bars` is bars since the anchor, `Bars.BarsSinceNewTradingDay` in NinjaScript. `BarsRequiredToTrade` counts from the start of the series and so does nothing at a session open, where a band built from a handful of observations is narrow enough to put ordinary bars several deviations outside it. Under a band lag the requirement is `vwap_min_session_bars + band_lag`, which also stops a lagged read reaching back across its own anchor into the previous session.
+
+**Every other NT8 question this archetype raises is answered above and unchanged**, including the entry mechanism, the one-bar order lifetime, the two `EXIT_SIGNAL` exits and `IsExitOnSessionCloseStrategy`. The measurements the source produced, and the standing caveats on them: [roadmap.md](roadmap.md) §M26.4.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.
