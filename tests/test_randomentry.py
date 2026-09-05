@@ -10,6 +10,7 @@ would say so.
 from __future__ import annotations
 
 import collections
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -510,8 +511,54 @@ def test_a_signal_filling_every_pool_it_touches_is_refused_rather_than_drawn(pre
     data, _, _ = prepared
     every_bar = np.ones(len(data), dtype=bool)
 
-    with pytest.raises(randomentry.RandomEntryError, match="same signal"):
+    with pytest.raises(randomentry.RandomEntryError, match="spare bars"):
         randomentry.matched_random_signal(data, every_bar, np.random.default_rng(0))
+
+
+def test_a_nearly_saturated_signal_is_refused_too(prepared) -> None:
+    """**The case a zero-freedom test misses**, and the one that occurs in practice.
+
+    An unfiltered OpeningRange leaves 0.0019 spare bars per signal rather than none, so an
+    exact-saturation guard passes it and the null then reports p = 1 with a spread of 1e-4.
+    Freeing one bar in a thousand is not a control.
+    """
+    data, _, _ = prepared
+    nearly_every_bar = np.ones(len(data), dtype=bool)
+    nearly_every_bar[:: len(data) // 3] = False
+
+    pool = randomentry.SessionMinutePool.build(data.index)
+    freedom = pool.draw_freedom(nearly_every_bar)
+    assert 0.0 < freedom < randomentry.MIN_DRAW_FREEDOM, "premise gone; rewrite this test"
+
+    with pytest.raises(randomentry.RandomEntryError, match="spare bars"):
+        randomentry.matched_random_signal(data, nearly_every_bar, np.random.default_rng(0))
+
+
+def test_draw_freedom_separates_the_registry_from_the_degenerate_case(prepared) -> None:
+    """The cut is meaningful because nothing real sits near it -- ``docs/roadmap.md`` §M28.1."""
+    data, _, signal = prepared
+    pool = randomentry.SessionMinutePool.build(data.index)
+
+    assert pool.draw_freedom(signal) > randomentry.MIN_DRAW_FREEDOM
+    assert pool.draw_freedom(np.ones(len(data), dtype=bool)) == 0.0
+    assert pool.draw_freedom(np.zeros(len(data), dtype=bool)) == 0.0
+
+
+def test_a_null_whose_draws_all_agree_is_refused_from_the_result_side(prepared, monkeypatch) -> None:
+    """The second guard: the same failure seen from the result, whatever caused the point mass.
+
+    The draw-freedom check catches the dense-signal cause before the simulations run; this one
+    holds for any cause, which is why both exist.
+    """
+    data, params, _ = prepared
+    monkeypatch.setattr(
+        randomentry,
+        "null_summaries",
+        lambda *_args, **_kwargs: pd.DataFrame({"profit_factor": [1.5] * 4, "trades": [10] * 4}),
+    )
+
+    with pytest.raises(randomentry.RandomEntryError, match="randomised nothing"):
+        randomentry.compare(data, params, statistics=("profit_factor",), iterations=4)
 
 
 def test_a_sparse_signal_still_draws_and_still_moves(prepared) -> None:
@@ -532,3 +579,26 @@ def test_spare_bars_counts_the_room_the_draw_has(prepared) -> None:
 
     assert pool.spare_bars(minutes, counts) == 0, "every bar of every minute is every bar"
     assert pool.spare_bars(minutes, counts - 1) == len(minutes)
+
+
+def test_the_refusal_survives_the_parallel_path_as_the_same_exception(prepared) -> None:
+    """``tools/campaign_null.py`` catches ``RandomEntryError`` to report gate 3 as not run.
+
+    joblib reconstructs a worker's exception rather than re-raising it, so the type surviving
+    the round trip is what that catch depends on.
+    """
+    data, params, _ = prepared
+    every_bar = np.ones(len(data), dtype=bool)
+
+    def dense(*_args, **_kwargs):
+        return every_bar
+
+    for jobs in (1, 2):
+        with pytest.raises(randomentry.RandomEntryError, match="spare bars"):
+            randomentry.null_summaries(
+                data,
+                params,
+                replace(archetypes.DEADCATBOUNCE, signal=dense),
+                iterations=2,
+                n_jobs=jobs,
+            )

@@ -9,6 +9,11 @@ randomises the day -- ``docs/roadmap.md`` §M7a and § "The method that does ans
 
 Rebuilds the parameter set from a stored ``combos`` row, so what is tested is exactly what the
 sweep ranked.
+
+**Not every archetype has a matched null, and one that does not exits 2 rather than 0.** An
+entry whose trigger is a *level* fires on every bar the level exists, which leaves the matched
+draw nothing to randomise -- ``docs/roadmap.md`` §M28.1. That is a gate that could not be run,
+not a gate that passed, so it is reported as its own status the way ``formatting.cli``'s is.
 """
 
 from __future__ import annotations
@@ -31,6 +36,13 @@ from nqbt import archetypes, logsetup, randomentry, resample, splice, sweep
 from nqbt.instruments import get_instrument
 
 logger = logging.getLogger(__name__)
+
+NO_NULL_AVAILABLE = 2
+"""Exit status for an archetype the matched null cannot be drawn for at all.
+
+Distinct from 0 so that "the gate did not run" cannot be read as "the gate passed" -- the same
+reason ``formatting.cli`` separates its statuses.
+"""
 
 STATISTICS = ("profit_factor", "expectancy", "win_rate", "mean_r")
 """What the observation is placed against. ``profit_factor`` and ``expectancy`` are the
@@ -83,15 +95,23 @@ def main(argv: list[str]) -> int:
     frame: pd.DataFrame = resample.resample(bars, minutes)
     grid: sweep.Grid = sweep.Grid(base=params, archetype=archetype)
     data = sweep.prepare_for(frame, grid)
-    placed: dict[str, randomentry.NullResult] = randomentry.compare(
-        data,
-        params,
-        archetype,
-        get_instrument(args.root),
-        statistics=STATISTICS,
-        iterations=args.iterations,
-        n_jobs=args.n_jobs,
-    )
+    placed: dict[str, randomentry.NullResult]
+    try:
+        placed = randomentry.compare(
+            data,
+            params,
+            archetype,
+            get_instrument(args.root),
+            statistics=STATISTICS,
+            iterations=args.iterations,
+            n_jobs=args.n_jobs,
+        )
+    except randomentry.RandomEntryError as refused:
+        logger.info("")
+        logger.info("NO MATCHED NULL for %s: %s", args.strategy, refused)
+
+        return NO_NULL_AVAILABLE
+
     logger.info("")
     with pd.option_context("display.width", 220, "display.max_columns", 60):
         logger.info("%s", randomentry.report(placed).to_string(index=False))

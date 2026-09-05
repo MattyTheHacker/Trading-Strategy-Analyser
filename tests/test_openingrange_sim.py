@@ -574,7 +574,7 @@ def test_the_matched_random_null_refuses_a_signal_this_dense() -> None:
     data = dataset_for(params)
     signal = openingrange_signal(data, params)
 
-    with pytest.raises(randomentry.RandomEntryError, match="same signal"):
+    with pytest.raises(randomentry.RandomEntryError, match="spare bars"):
         randomentry.matched_random_signal(data, signal, np.random.default_rng(0))
 
 

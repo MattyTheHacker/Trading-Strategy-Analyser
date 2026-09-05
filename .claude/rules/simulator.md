@@ -107,9 +107,10 @@ below and is what you quote; this file is the index, not the record.
   none of them is optional: its signal is **dense** (about a third of all bars), so
   `allocate_output`'s signal-count bound over-allocates by three orders of magnitude and
   `entry_bound` sizes the output from the per-session cap instead; the **matched random-entry
-  null cannot be drawn at all**, and `randomentry.matched_random_signal` refuses it rather than
-  returning the observation; and the loop re-checks `armed` itself rather than trusting the
-  signal, because the null arm substitutes it. `docs/roadmap.md` §M28.1.
+  null cannot be drawn on the unfiltered signal**, so `randomentry` refuses it below
+  `MIN_DRAW_FREEDOM` rather than returning the observation (a context filter that thins the
+  signal restores it); and the loop re-checks `armed` itself rather than trusting the signal,
+  because the null arm substitutes it. `docs/roadmap.md` §M28.1.
 - **OpeningRange computes its whole bracket from the trigger, never from the fill**, because the
   trigger is the only price known when the order is submitted. A gapped fill is worse than
   planned and its R is measured against the plan — DeadCatBounce's rule, shared deliberately.
