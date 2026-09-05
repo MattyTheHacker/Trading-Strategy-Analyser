@@ -38,6 +38,17 @@ SUMMARY_SQL = """
 STATISTICS = frozenset(stats.Summary.columns())
 """What a results row carries beside its parameters. Read from the class, never copied."""
 
+NET_TO_DRAWDOWN = "net_to_drawdown"
+"""Net P&L against the worst peak-to-trough that earned it -- Gate 4, and the ranking §M27.3
+reads instead of profit factor."""
+
+DERIVED = frozenset({NET_TO_DRAWDOWN})
+"""Statistics :func:`load` computes from stored columns rather than reading.
+
+Separate from :data:`STATISTICS` so that one stays exactly ``stats.Summary``'s fields, and
+listed at all because :func:`parameter_columns` would otherwise call a derived statistic an
+axis."""
+
 TAGS = frozenset(
     {
         "sweep_id",
@@ -60,23 +71,68 @@ The two cost fields are here because they vary with the root and nothing else, s
 them as axes would report the root twice under a name that hides it."""
 
 
+def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
+    """One summary's net P&L over its own worst peak-to-trough, undefined at no drawdown.
+
+    Undefined rather than infinite, because an unbounded statistic wins a ranking it was never
+    measured on -- the defect ``docs/roadmap.md`` § "Reading the per-contract tally" records
+    against profit factor. Rank with :func:`rank`, never with ``nlargest`` directly.
+    """
+    if max_drawdown <= 0.0:
+        return float("nan")
+
+    return net_pnl / max_drawdown
+
+
+def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
+    """:func:`ratio_to_drawdown` over a whole results frame.
+
+    The same guard by a faster route -- ``load`` runs it over every stored row, so it is
+    vectorised rather than applied. Pinned equal to the scalar, never re-derived.
+    """
+    drawdown: pd.Series = frame["max_drawdown"].where(frame["max_drawdown"] > 0.0)  # type: ignore[type-arg]  # duckdb's dtypes
+
+    return frame["net_pnl"] / drawdown
+
+
+def rank(frame: pd.DataFrame, top: int, by: str) -> pd.DataFrame:
+    """The ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
+
+    **``DataFrame.nlargest`` pads its result with undefined rows rather than returning fewer**,
+    so ranking a shortlist straight through it hands the null test and the per-contract step
+    configurations whose ranking statistic was never measured. Measured, not assumed:
+    ``tests/test_campaign_report.py`` pins it.
+    """
+    return frame[frame[by].notna()].nlargest(top, by)
+
+
 def load(name: str, windows: list[str]) -> pd.DataFrame:
     """Every viable combination stored for one archetype, tagged with its root."""
     frame: pd.DataFrame = results.query(
         SUMMARY_SQL.format(min_trades=MIN_TRADES),
         db_path=db_path(name),
     )
+    frame[NET_TO_DRAWDOWN] = net_to_drawdown(frame)
 
     return frame[frame["window"].isin(windows)]
 
 
-def swept_axes(frame: pd.DataFrame) -> list[str]:
-    """Parameter columns that actually vary here, so a constant is never reported as an axis."""
+def parameter_columns(frame: pd.DataFrame) -> list[str]:
+    """Columns holding a parameter rather than a tag or a statistic.
+
+    Shared with ``tools/campaign_holdout.py`` because both held their own copy of the predicate
+    and a derived statistic would have been a parameter to one of them.
+    """
     return [
         column
         for column in frame.columns
-        if column not in TAGS and column not in STATISTICS and frame[column].nunique(dropna=False) > 1
+        if column not in TAGS and column not in STATISTICS and column not in DERIVED
     ]
+
+
+def swept_axes(frame: pd.DataFrame) -> list[str]:
+    """Parameter columns that actually vary here, so a constant is never reported as an axis."""
+    return [column for column in parameter_columns(frame) if frame[column].nunique(dropna=False) > 1]
 
 
 def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:

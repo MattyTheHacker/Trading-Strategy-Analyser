@@ -13,7 +13,19 @@ import pytest
 
 from nqbt import archetypes, stats
 from tools.campaign_holdout import GROUP_KEYS, JOIN_KEYS, TOP, rank_correlation, verdict
-from tools.campaign_report import STATISTICS, TAGS, axis_influence, eta_squared, profile, swept_axes
+from tools.campaign_report import (
+    NET_TO_DRAWDOWN,
+    STATISTICS,
+    TAGS,
+    axis_influence,
+    eta_squared,
+    net_to_drawdown,
+    parameter_columns,
+    rank,
+    ratio_to_drawdown,
+    profile,
+    swept_axes,
+)
 from tools.campaign_shortlist import rebuild
 
 
@@ -132,6 +144,8 @@ def paired_rows(stratum: str, holdout: np.ndarray, size: int = TOP + 10) -> pd.D
             "profit_factor_sel": np.arange(size, dtype=float),
             "profit_factor_hold": holdout,
             "net_pnl_hold": np.zeros(size),
+            "net_to_drawdown_sel": np.arange(size, dtype=float),
+            "net_to_drawdown_hold": holdout,
         },
     )
 
@@ -212,3 +226,109 @@ def test_rebuilding_keeps_the_default_for_a_column_the_row_does_not_carry() -> N
     rebuilt = rebuild(row, archetypes.INSIDEBAR)
     assert rebuilt.ema_period == 44
     assert rebuilt.atr_length == archetypes.INSIDEBAR.params_cls().atr_length
+
+
+# -- net-to-drawdown, the ranking Gate 4 is actually about ----------------------------------
+
+
+def test_net_to_drawdown_divides_the_profit_by_the_worst_peak_to_trough() -> None:
+    frame = combos(net_pnl=[100.0, -100.0, 50.0, 0.0], max_drawdown=[50.0, 25.0, 200.0, 10.0])
+    assert list(net_to_drawdown(frame)) == pytest.approx([2.0, -4.0, 0.25, 0.0])
+
+
+def test_a_row_with_no_drawdown_is_undefined_rather_than_infinite() -> None:
+    """The defect §M27.5's tally records against profit factor, one statistic along: an
+    unbounded value wins a ranking it was never measured on."""
+    frame = combos(net_pnl=[100.0, 1.0, 1.0, 1.0], max_drawdown=[0.0, 10.0, 10.0, 10.0])
+    assert np.isnan(net_to_drawdown(frame).iloc[0])
+    assert not np.isinf(net_to_drawdown(frame)).any()
+
+
+def test_nlargest_pads_with_undefined_rows_which_is_why_rank_exists() -> None:
+    """The premise of :func:`rank`, pinned because it is the opposite of what it looks like:
+    a shortlist drawn straight through ``nlargest`` carries rows it could not measure."""
+    frame = combos(net_pnl=[100.0, 1.0, 1.0, 1.0], max_drawdown=[0.0, 10.0, 10.0, 10.0])
+    frame["ntd"] = net_to_drawdown(frame)
+
+    assert len(frame.nlargest(4, "ntd")) == 4, "premise gone; nlargest now drops them itself"
+    assert frame.nlargest(4, "ntd")["ntd"].isna().any()
+    assert len(rank(frame, 4, "ntd")) == 3
+    assert not rank(frame, 4, "ntd")["ntd"].isna().any()
+
+
+def test_rank_returns_the_largest_rows_in_order() -> None:
+    frame = combos(net_pnl=[10.0, 40.0, 20.0, 30.0], max_drawdown=[10.0] * 4)
+    frame["ntd"] = net_to_drawdown(frame)
+    assert list(rank(frame, 2, "ntd")["net_pnl"]) == [40.0, 30.0]
+
+
+def test_the_scalar_and_the_vectorised_guard_agree_exactly() -> None:
+    """Two implementations of one rule, so the faster route is pinned to the slower one rather
+    than re-derived -- the shape ``guard.separate`` and ``review.rank_conditions`` use."""
+    frame = combos(net_pnl=[100.0, -50.0, 7.0, 0.0], max_drawdown=[50.0, 25.0, 0.0, 10.0])
+    scalar = [ratio_to_drawdown(net, dd) for net, dd in zip(frame["net_pnl"], frame["max_drawdown"])]
+    assert net_to_drawdown(frame).to_numpy() == pytest.approx(scalar, nan_ok=True)
+
+
+def test_a_negative_drawdown_is_undefined_too() -> None:
+    """``_max_drawdown`` cannot return one, so this pins the guard rather than the producer."""
+    frame = combos(net_pnl=[10.0] * 4, max_drawdown=[-1.0, 1.0, 1.0, 1.0])
+    assert np.isnan(net_to_drawdown(frame).iloc[0])
+
+
+def test_a_derived_statistic_is_never_reported_as_a_swept_axis() -> None:
+    """It varies on every row and is not a parameter, so the predicate has to know it by name."""
+    frame = combos(ema_period=[11, 22, 33, 44], net_to_drawdown=[1.0, 2.0, 3.0, 4.0])
+    assert swept_axes(frame) == ["ema_period"]
+    assert NET_TO_DRAWDOWN not in parameter_columns(frame)
+
+
+def test_the_two_predicates_agree_on_what_a_parameter_is() -> None:
+    """``swept_axes`` is ``parameter_columns`` plus a variance filter and nothing else, which is
+    what stops the holdout's parameter check and the report's axis table from drifting apart."""
+    frame = combos(ema_period=[11, 22, 33, 44], atr_length=[3, 3, 3, 3])
+    assert set(swept_axes(frame)) <= set(parameter_columns(frame))
+    assert "atr_length" in parameter_columns(frame)
+
+
+# -- the holdout ranks on whichever statistic it is given -----------------------------------
+
+
+def test_the_holdout_can_shortlist_on_net_to_drawdown_instead_of_profit_factor() -> None:
+    """§M27.3's instruction: the two disagree on this dataset, so the tool has to be able to
+    take the other one."""
+    size = 2 * TOP
+    rows = paired_rows("unfiltered", np.linspace(0.9, 1.1, size), size)
+    # The two rankings pick disjoint halves: profit factor ascends, net-to-drawdown descends.
+    rows["profit_factor_sel"] = np.arange(size, dtype=float)
+    rows["net_to_drawdown_sel"] = np.arange(size, dtype=float)[::-1]
+    rows["net_to_drawdown_hold"] = np.r_[np.full(TOP, 5.0), np.full(TOP, 0.1)]
+
+    by_drawdown = verdict("InsideBar", rows, NET_TO_DRAWDOWN).iloc[0]
+    by_profit_factor = verdict("InsideBar", rows).iloc[0]
+
+    assert by_drawdown["hold_top20_ntd"] == pytest.approx(5.0)
+    assert by_drawdown["clears_drawdown"]
+    assert by_profit_factor["hold_top20_ntd"] == pytest.approx(0.1)
+    assert not by_profit_factor["clears_drawdown"]
+
+
+def test_the_shortlisted_count_is_reported_because_an_undefined_ranking_drops_rows() -> None:
+    """A cell whose rows mostly had no drawdown would otherwise report a twenty that was five."""
+    size = TOP + 10
+    measurable = 6
+    rows = paired_rows("unfiltered", np.linspace(0.9, 1.1, size), size)
+    rows["net_to_drawdown_sel"] = np.nan
+    rows.loc[: measurable - 1, "net_to_drawdown_sel"] = 1.0
+
+    row = verdict("InsideBar", rows, NET_TO_DRAWDOWN).iloc[0]
+    assert row["paired"] == size
+    assert row["shortlisted"] == measurable
+
+
+def test_a_variant_can_be_held_out_on_its_own() -> None:
+    """A narrow re-sweep lands in the same database as the campaign it follows, so a shortlist
+    drawn without ``--variant`` would pool two grids inside one stratum -- §M27.3."""
+    frame = combos(variant=["bracket", "bracket", "narrow", "narrow"], window="selection")
+    assert list(frame[frame["variant"] == "narrow"]["combo_id"]) == [2, 3]
+    assert "variant" not in parameter_columns(frame), "variant is a tag, not an axis"

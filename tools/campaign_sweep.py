@@ -1,4 +1,4 @@
-"""Sweep every registered archetype across resolution, market regime and session phase.
+r"""Sweep every registered archetype across resolution, market regime and session phase.
 
 One screen over the whole registry, so "which strategy is worth improving" is a query rather
 than six incomparable runs:
@@ -28,6 +28,21 @@ efficiency ratio's own distribution at each ``(resolution, lookback)``, and spli
 into one cell per lookback -- ``regime=DIRECTIONAL@n=20``. The fit is taken on the selection
 window at every window, so a held-out run reads a cut it did not see. Why a raw pair cannot be
 swept against the lookback, and what the quantiles are chosen for: ``docs/roadmap.md`` §M27.5.
+
+``--variants narrow`` sweeps the §M27.3 re-sweep instead of the campaign grid -- InsideBar's
+entry held at what §M27 chose, its bracket pair crossed, and ``--strata narrow`` for the two
+cells it is asked about:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants narrow --strata narrow \
+        --split --regime-quantiles --n-jobs 8
+
+``--resolutions`` is not needed there: each narrow variant declares the one bar size its entry
+was chosen at, and a resolution no variant expresses is skipped.
+
+Its rows land in ``results/campaign/InsideBar.duckdb`` beside the campaign's under the variant
+name ``narrow``; every reading tool takes ``--variant`` to separate them. **Run it once per
+database** -- a second pass appends a second copy of every row and
+``tools/campaign_holdout.py`` pairs the windows one-to-one.
 """
 
 from __future__ import annotations
@@ -80,7 +95,7 @@ from nqbt.sim.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from nqbt.archetypes import Archetype, AxisValue, Params
 
@@ -117,8 +132,10 @@ NAN = float("nan")
 
 UNFILTERED = "unfiltered"
 REGIME = "regime"
+DIRECTIONAL = "directional"
 CORE = "core"
 CONTEXT = "context"
+NARROW = "narrow"
 ALL_STRATA = "all"
 
 Calibration = dict[int, tuple[float, float]]
@@ -134,6 +151,15 @@ def _regime() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """Once per efficiency-ratio regime."""
     for state in regime.Regime:
         yield f"regime={state.name}", {"regime_filter": [state.bit]}
+
+
+def _directional() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """The one regime cell a narrow re-sweep runs inside, without its four siblings.
+
+    Its own group rather than ``--strata regime`` because four cells nobody is asking about are
+    four more comparisons -- ``docs/roadmap.md`` §M27.3.
+    """
+    yield f"regime={regime.Regime.DIRECTIONAL.name}", {"regime_filter": [regime.Regime.DIRECTIONAL.bit]}
 
 
 def _phase() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -163,6 +189,7 @@ def _higher_timeframe() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 STRATUM_GROUPS = {
     UNFILTERED: _unfiltered,
     REGIME: _regime,
+    DIRECTIONAL: _directional,
     "phase": _phase,
     "volume": _volume,
     "trend": _trend,
@@ -171,11 +198,18 @@ STRATUM_GROUPS = {
 """One generator per context dimension. **Never crossed** -- one dimension at a time is what
 tells "no edge anywhere" from "edge in one stratum, drowned by the others"."""
 
+REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL})
+"""Groups whose cells ``--regime-quantiles`` splits per lookback. Membership rather than one
+name, so that a group yielding a single regime cell is calibrated like the full one."""
+
 STRATUM_SETS: dict[str, tuple[str, ...]] = {
     **{group: (group,) for group in STRATUM_GROUPS},
     CORE: (UNFILTERED, "regime", "phase"),
     CONTEXT: ("volume", "trend", "htf"),
-    ALL_STRATA: tuple(STRATUM_GROUPS),
+    NARROW: (UNFILTERED, DIRECTIONAL),
+    # ``directional`` is a subset of ``regime`` rather than a dimension of its own, so
+    # including it here would run that one cell twice.
+    ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group != DIRECTIONAL),
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
 skipped rather than re-running it. Every dimension is also selectable on its own, which is what
@@ -211,7 +245,7 @@ def strata(
     """The stratifications ``which`` names, unfiltered first wherever it is included."""
     for group in STRATUM_SETS[which]:
         for name, axes in STRATUM_GROUPS[group]():
-            if group != REGIME or calibration is None:
+            if group not in REGIME_GROUPS or calibration is None:
                 yield name, axes
                 continue
 
@@ -353,6 +387,45 @@ def insidebar_variants(root: str) -> list[Variant]:
     ]
 
 
+NARROW_ENTRY: dict[int, dict[str, AxisValue]] = {
+    5: {"ema_kind": "hma", "ema_period": 22, "error_margin": 0.1, "atr_length": 14},
+    10: {"ema_kind": "hma", "ema_period": 11, "error_margin": 0.1, "atr_length": 3},
+}
+"""InsideBar's entry, held per resolution at the modal value of §M27's own DIRECTIONAL top
+twenty, so that the re-sweep varies the bracket and nothing else.
+
+Where that twenty is tied -- ``fast_sma_period`` at both resolutions, ``slow_sma_period`` at ten
+minutes -- the NinjaScript default stands rather than a coin flip, which is the campaign's own
+finding that the moving-average axes barely matter. Chosen on profit factor because §M27 ranked
+that way; **held**, never re-tuned -- ``docs/roadmap.md`` §M27.3."""
+
+NARROW_TP = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
+"""Target distances in ATRs from the fill. Opens at the ``1.0`` the campaign was stuck with and
+runs well past it, because the lopsided bracket is what Gate 4 stops on."""
+
+NARROW_ATR = [2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0]
+"""Stop distances in ATRs beyond the signal bar. Covers §M27's 5/10/20 and extends below it,
+since a tighter stop is the other half of the same asymmetry."""
+
+
+def insidebar_narrow_variants(root: str) -> list[Variant]:
+    """One variant per resolution: the campaign's entry, crossed over the bracket it never swept.
+
+    Two variants rather than one because the entry §M27 chose differs between five and ten
+    minutes, and a ``Variant`` carries one base -- ``docs/roadmap.md`` §M27.3.
+    """
+    return [
+        Variant(
+            name=NARROW,
+            archetype=archetypes.INSIDEBAR,
+            base=_costed(InsideBarParams(**entry), root),  # type: ignore[arg-type]  # keyed by field name
+            axes={"tp_multiplier": [*NARROW_TP], "atr_multiplier": [*NARROW_ATR]},
+            resolutions=(minutes,),
+        )
+        for minutes, entry in NARROW_ENTRY.items()
+    ]
+
+
 def insidebartrailing_variants(root: str) -> list[Variant]:
     """One variant: InsideBar's entry against the split-lot trailing exit's own axes."""
     return [
@@ -470,7 +543,26 @@ VARIANTS = {
     "ElasticBand": elasticband_variants,
     "OpeningRange": openingrange_variants,
 }
-"""Archetype name -> the variants swept for it, built per root so costs are the root's."""
+"""Archetype name -> the variants swept for it, built per root so costs are the root's.
+
+**This is what §M27 measured**, so a re-sweep that changes an axis belongs in its own entry of
+:data:`VARIANT_SETS` rather than in here, where it would leave the stored rows and the code
+that produced them disagreeing."""
+
+NARROW_VARIANTS = {"InsideBar": insidebar_narrow_variants}
+"""The §M27.3 re-sweep: one archetype, the bracket pair §M27 could not cross."""
+
+CAMPAIGN = "campaign"
+
+VARIANT_SETS = {CAMPAIGN, NARROW}
+"""Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
+lands in the same database as the campaign it follows and is still separable from it -- pass
+``--variant narrow`` to the reading tools."""
+
+
+def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
+    """The variant builders one ``--variants`` name selects."""
+    return NARROW_VARIANTS if which == NARROW else VARIANTS
 
 
 def grids_for(
@@ -605,9 +697,10 @@ def planned_combinations(argv: argparse.Namespace) -> int:
     """How many combinations the requested run will simulate, before it starts."""
     per_window: int = 0
     cells: int = len(list(strata(argv.strata, cell_shape(argv))))
+    builders = variants_for(argv.variants)
     for name in argv.strategies:
         for root in argv.roots:
-            for variant in VARIANTS[name](root):
+            for variant in builders[name](root):
                 live: int = sum(1 for minutes in argv.resolutions if variant.runs_at(minutes))
                 per_window += variant.sized() * cells * live
 
@@ -677,7 +770,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--n-jobs", type=int, default=8, help="joblib workers; 1 stays in-process")
     parser.add_argument("--split", action="store_true", help="selection and held-out windows")
     parser.add_argument("--roots", nargs="+", default=list(ROOTS))
-    parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))
+    parser.add_argument("--strategies", nargs="+", default=None)
+    parser.add_argument(
+        "--variants",
+        choices=sorted(VARIANT_SETS),
+        default=CAMPAIGN,
+        help="which grid to sweep; narrow is the §M27.3 re-sweep",
+    )
     parser.add_argument("--resolutions", nargs="+", type=int, default=list(RESOLUTIONS))
     parser.add_argument("--strata", choices=sorted(STRATUM_SETS), default=None, help="stratifications")
     parser.add_argument(
@@ -689,6 +788,7 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--regime-lookbacks", nargs="+", type=int, default=list(REGIME_LOOKBACKS))
     args = parser.parse_args(argv[1:])
+    args.strategies = args.strategies or list(variants_for(args.variants))
     args.regime_quantiles = quantile_pair(args.regime_quantiles)
     # A held-out test of a stratified shortlist is a smaller sample twice over, so --split
     # defaults to the unfiltered stratum alone unless one is named.
@@ -701,7 +801,7 @@ def main(argv: list[str]) -> int:
         logger.info("")
         logger.info("=== %s (batch %d) ===", name, batch_id)
         for root in args.roots:
-            variants: list[Variant] = VARIANTS[name](root)
+            variants: list[Variant] = variants_for(args.variants)[name](root)
             bars: pd.DataFrame = splice.load_continuous(root)
             fitted: dict[int, Calibration] = fit_regime(bars, args)
             for window, source in windows(bars, split=args.split):

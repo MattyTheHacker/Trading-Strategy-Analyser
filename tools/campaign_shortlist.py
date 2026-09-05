@@ -29,7 +29,7 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_report import load
+from tools.campaign_report import load, rank
 from tools.campaign_sweep import ELASTIC_LADDERS, db_path, windows
 
 from nqbt import archetypes, context, logsetup, resample, results, splice, sweep
@@ -91,8 +91,12 @@ def shortlist(
     top: int = 1,
     stratum: str | None = None,
     resolution: int | None = None,
+    variant: str | None = None,
 ) -> pd.DataFrame:
-    """The highest-ranked stored combinations for one archetype, root and stratum."""
+    """The highest-ranked stored combinations for one archetype, root and stratum.
+
+    A row whose ``by`` is undefined is dropped rather than ranked -- :func:`campaign_report.rank`.
+    """
     frame: pd.DataFrame = load(name, window)
     frame = frame[frame["root"] == root]
     if stratum is not None:
@@ -101,11 +105,19 @@ def shortlist(
     if resolution is not None:
         frame = frame[frame["resolution"] == resolution]
 
+    if variant is not None:
+        frame = frame[frame["variant"] == variant]
+
     if frame.empty:
         msg: str = f"no stored rows for {name} on {root} in windows {window}, stratum {stratum}"
         raise RuntimeError(msg)
 
-    return frame.nlargest(top, by)
+    ranked: pd.DataFrame = rank(frame, top, by)
+    if ranked.empty:
+        msg = f"{name} on {root}: every one of {len(frame)} stored rows has no {by} to rank on"
+        raise RuntimeError(msg)
+
+    return ranked
 
 
 def best_row(
@@ -115,9 +127,10 @@ def best_row(
     by: str,
     stratum: str | None = None,
     resolution: int | None = None,
+    variant: str | None = None,
 ) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
     """The highest-ranked stored combination for one archetype, root and stratum."""
-    return shortlist(name, root, window, by, 1, stratum, resolution).iloc[0]
+    return shortlist(name, root, window, by, 1, stratum, resolution, variant).iloc[0]
 
 
 def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
@@ -245,6 +258,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--by", default="profit_factor", help="which statistic picks the rows")
     parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
+    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=TOP, help="how many configurations to log")
     args = parser.parse_args(argv[1:])
 
@@ -256,6 +270,7 @@ def main(argv: list[str]) -> int:
         args.top,
         args.stratum,
         args.resolution,
+        args.variant,
     )
     logger.info(
         "%s on %s: %d configurations ranked on %s by %s",

@@ -1,6 +1,7 @@
-"""Place a campaign shortlist's best configuration against a matched random entry.
+"""Place a campaign shortlist's configurations against a matched random entry.
 
     ./.venv/Scripts/python.exe tools/campaign_null.py --strategy ElasticBand --root MNQ
+    ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
 
 A sweep can say which configuration has the highest profit factor. It cannot say whether the
 **entry** earned it, because a bracket that suits the bars flatters a random entry just as much.
@@ -8,12 +9,17 @@ The matched null holds the signal count and the time-of-session distribution fix
 randomises the day -- ``docs/roadmap.md`` §M7a and § "The method that does answer the question".
 
 Rebuilds the parameter set from a stored ``combos`` row, so what is tested is exactly what the
-sweep ranked.
+sweep ranked. ``--top`` measures that many of them and reports **three rankings side by side**:
+the observed statistic, the excess over each configuration's own null, and net-to-drawdown. They
+can order a grid differently, and where they part the excess is the one to believe --
+``docs/roadmap.md`` §M27.3.
 
 **Not every archetype has a matched null, and one that does not exits 2 rather than 0.** An
 entry whose trigger is a *level* fires on every bar the level exists, which leaves the matched
 draw nothing to randomise -- ``docs/roadmap.md`` §M28.1. That is a gate that could not be run,
 not a gate that passed, so it is reported as its own status the way ``formatting.cli``'s is.
+Over a shortlist the status is reached only when **every** row was refused; a row refused
+alongside rows that ran is reported as a refusal and carries no verdict.
 """
 
 from __future__ import annotations
@@ -29,10 +35,10 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_shortlist import best_row, rebuild
-from tools.campaign_sweep import windows
+from tools.campaign_report import NET_TO_DRAWDOWN, rank, ratio_to_drawdown, swept_axes
+from tools.campaign_shortlist import rebuild, shortlist, source
 
-from nqbt import archetypes, logsetup, randomentry, resample, splice, sweep
+from nqbt import archetypes, context, logsetup, randomentry, resample, splice, sweep
 from nqbt.instruments import get_instrument
 
 logger = logging.getLogger(__name__)
@@ -44,10 +50,163 @@ Distinct from 0 so that "the gate did not run" cannot be read as "the gate passe
 reason ``formatting.cli`` separates its statuses.
 """
 
-STATISTICS = ("profit_factor", "expectancy", "win_rate", "mean_r")
+STATISTICS = ("profit_factor", "expectancy", "win_rate", "mean_r", "net_pnl", "max_drawdown")
 """What the observation is placed against. ``profit_factor`` and ``expectancy`` are the
 verdict; ``win_rate`` is reported because a mean-reversion entry can beat the null on payoff
-while losing on frequency -- ``docs/roadmap.md`` §M26."""
+while losing on frequency -- ``docs/roadmap.md`` §M26.
+
+The last two are here for :data:`~tools.campaign_report.NET_TO_DRAWDOWN` and cost almost
+nothing: ``compare`` summarises the observation once and draws the null once, then reads a
+column per statistic."""
+
+RANKINGS = ("profit_factor", "expectancy_excess", NET_TO_DRAWDOWN)
+"""The orders :func:`rankings` compares. Profit factor is here to be disagreed with rather than
+to be believed -- ``docs/roadmap.md`` § "The method that does answer the question"."""
+
+
+def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
+    """One configuration named by whatever actually varies across the shortlist."""
+    if not axes:
+        return f"sweep {int(row['sweep_id'])} combo {int(row['combo_id'])}"
+
+    return " ".join(f"{axis}={row[axis]}" for axis in axes)
+
+
+def measure_row(
+    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+    data: context.Dataset,
+    archetype: archetypes.Archetype,
+    root: str,
+    label: str,
+    iterations: int,
+    n_jobs: int,
+) -> dict[str, object]:
+    """One configuration against its own matched null, or a row saying it was refused.
+
+    Every measured column is the **test window's**, including net-to-drawdown; the stored row
+    supplies the parameters and its own ranking-window figures stay out, so that one row is not
+    two windows wearing one set of names.
+    """
+    params: archetypes.Params = rebuild(row, archetype)
+    identity: dict[str, object] = {
+        "label": label,
+        "stratum": row["stratum"],
+        "resolution": int(row["resolution"]),
+        "ranked_by": float(row[NET_TO_DRAWDOWN]),
+        "stored_trades": int(row["trades"]),
+    }
+    try:
+        placed: dict[str, randomentry.NullResult] = randomentry.compare(
+            data,
+            params,
+            archetype,
+            get_instrument(root),
+            statistics=STATISTICS,
+            iterations=iterations,
+            n_jobs=n_jobs,
+        )
+    except randomentry.RandomEntryError as refused:
+        logger.info("  %-44s REFUSED: %s", label, refused)
+
+        return {**identity, "refused": str(refused)}
+
+    measured: dict[str, object] = {**identity, "refused": None}
+    for statistic, result in placed.items():
+        measured[statistic] = result.observed
+        measured[f"{statistic}_null"] = result.null_median
+        measured[f"{statistic}_excess"] = result.observed - result.null_median
+        measured[f"{statistic}_p"] = result.p_value
+    measured["trades"] = placed[STATISTICS[0]].observed_trades
+    measured["null_trades"] = placed[STATISTICS[0]].null_median_trades
+    measured[NET_TO_DRAWDOWN] = ratio_to_drawdown(
+        placed["net_pnl"].observed,
+        placed["max_drawdown"].observed,
+    )
+    logger.info(
+        "  %-44s PF %6.3f  null %6.3f  excess %+6.3f  n/dd %6.3f  %5d trades",
+        label,
+        measured["profit_factor"],
+        measured["profit_factor_null"],
+        measured["profit_factor_excess"],
+        measured[NET_TO_DRAWDOWN],
+        measured["trades"],
+    )
+
+    return measured
+
+
+def measure(
+    rows: pd.DataFrame,
+    archetype: archetypes.Archetype,
+    root: str,
+    test_window: str,
+    iterations: int,
+    n_jobs: int,
+) -> pd.DataFrame:
+    """Every shortlisted configuration against its own null, one row each.
+
+    Grouped by resolution because the resample and the prepared dataset are the expensive parts,
+    exactly as ``tools/campaign_shortlist.store_group`` groups them.
+    """
+    axes: list[str] = swept_axes(rows)
+    tested: pd.DataFrame = source(splice.load_continuous(root), test_window)
+
+    measured: list[dict[str, object]] = []
+    for minutes, block in rows.groupby("resolution", sort=False):
+        frame: pd.DataFrame = resample.resample(tested, int(minutes))
+        rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
+            (row, rebuild(row, archetype)) for _, row in block.iterrows()
+        ]
+        spec: context.ContextSpec = context.ContextSpec()
+        for _, params in rebuilt:
+            spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
+        data: context.Dataset = context.prepare(frame, spec, bar_minutes=int(minutes))
+
+        measured.extend(
+            measure_row(row, data, archetype, root, label_of(row, axes), iterations, n_jobs)
+            for row, _ in rebuilt
+        )
+
+    return pd.DataFrame(measured)
+
+
+def rankings(table: pd.DataFrame) -> list[str]:
+    """Which configuration each ranking picks, and whether they agree.
+
+    The disagreement is the finding: a bracket that suits the bars raises the observed statistic
+    and its null together, so the two orders part exactly where profit factor misleads.
+    """
+    ranked: pd.DataFrame = table[table["refused"].isna()]
+    if ranked.empty:
+        return ["  (nothing was measured)"]
+
+    lines: list[str] = []
+    picked: list[str] = []
+    for statistic in RANKINGS:
+        best: pd.DataFrame = rank(ranked, 1, statistic)
+        if best.empty:
+            lines.append(f"  best by {statistic:<18} (undefined on every row)")
+            continue
+
+        picked.append(str(best.iloc[0]["label"]))
+        lines.append(f"  best by {statistic:<18} {best.iloc[0]['label']}")
+    agree: str = "agree" if len(set(picked)) == 1 else "DISAGREE"
+    lines.append(f"  the rankings {agree}")
+
+    return lines
+
+
+def show(title: str, frame: pd.DataFrame) -> None:
+    """Print one table under a heading, or say that it is empty."""
+    logger.info("")
+    logger.info("--- %s ---", title)
+    if frame.empty:
+        logger.info("(nothing)")
+
+        return
+
+    with pd.option_context("display.width", 240, "display.max_columns", 60):
+        logger.info("%s", frame.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
 
 def main(argv: list[str]) -> int:
@@ -62,59 +221,62 @@ def main(argv: list[str]) -> int:
         choices=["full", "selection", "holdout"],
         help="which bars the null runs on; holdout after ranking on selection is the honest pair",
     )
-    parser.add_argument("--by", default="profit_factor", help="which statistic picks the row")
+    parser.add_argument("--by", default="profit_factor", help="which statistic picks the rows")
     parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
+    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
+    parser.add_argument("--top", type=int, default=1, help="how many configurations to place")
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--n-jobs", type=int, default=8)
     args = parser.parse_args(argv[1:])
 
     archetype: archetypes.Archetype = archetypes.get(args.strategy)
-    row: pd.Series = best_row(args.strategy, args.root, args.window, args.by, args.stratum, args.resolution)  # type: ignore[type-arg]  # duckdb's dtypes
-    params: archetypes.Params = rebuild(row, archetype)
-    minutes: int = int(row["resolution"])
-
-    logger.info(
-        "%s on %s at %dm, ranked on %s by %s=%s, tested on %s; stratum %s, variant %s, %d trades",
+    rows: pd.DataFrame = shortlist(
         args.strategy,
         args.root,
-        minutes,
+        args.window,
+        args.by,
+        args.top,
+        args.stratum,
+        args.resolution,
+        args.variant,
+    )
+    logger.info(
+        "%s on %s: %d of the top configurations ranked on %s by %s, tested on %s",
+        args.strategy,
+        args.root,
+        len(rows),
         "+".join(args.window),
         args.by,
-        f"{row[args.by]:.3f}",
         args.test_window,
-        row["stratum"],
-        row["variant"],
-        int(row["trades"]),
     )
 
-    bars: pd.DataFrame = splice.load_continuous(args.root)
-    if args.test_window != "full":
-        bars = dict(windows(bars, split=True))[args.test_window]
-
-    frame: pd.DataFrame = resample.resample(bars, minutes)
-    grid: sweep.Grid = sweep.Grid(base=params, archetype=archetype)
-    data = sweep.prepare_for(frame, grid)
-    placed: dict[str, randomentry.NullResult]
-    try:
-        placed = randomentry.compare(
-            data,
-            params,
-            archetype,
-            get_instrument(args.root),
-            statistics=STATISTICS,
-            iterations=args.iterations,
-            n_jobs=args.n_jobs,
-        )
-    except randomentry.RandomEntryError as refused:
+    table: pd.DataFrame = measure(
+        rows,
+        archetype,
+        args.root,
+        args.test_window,
+        args.iterations,
+        args.n_jobs,
+    )
+    refused: pd.DataFrame = table[table["refused"].notna()]
+    if len(refused) == len(table):
         logger.info("")
-        logger.info("NO MATCHED NULL for %s: %s", args.strategy, refused)
+        logger.info("NO MATCHED NULL for %s: %s", args.strategy, table.iloc[0]["refused"])
 
         return NO_NULL_AVAILABLE
 
+    show("every configuration against its own null", table.drop(columns=["refused"]))
+    if not refused.empty:
+        logger.info("")
+        logger.info(
+            "%d of %d configurations were refused a null and carry no verdict", len(refused), len(table)
+        )
+
     logger.info("")
-    with pd.option_context("display.width", 220, "display.max_columns", 60):
-        logger.info("%s", randomentry.report(placed).to_string(index=False))
+    logger.info("--- the rankings, side by side ---")
+    for line in rankings(table):
+        logger.info("%s", line)
 
     return 0
 
