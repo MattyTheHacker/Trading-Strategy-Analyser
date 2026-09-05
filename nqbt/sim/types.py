@@ -10,7 +10,17 @@ import math
 from dataclasses import dataclass, fields
 from typing import Protocol, override
 
-from nqbt import bands, conditions, higher_timeframe, regime, timeofday, trend, volume
+from nqbt import (
+    bands,
+    conditions,
+    higher_timeframe,
+    regime,
+    sessionrange,
+    timeofday,
+    trades,
+    trend,
+    volume,
+)
 
 
 class ContextFilterParams(Protocol):
@@ -1186,6 +1196,260 @@ class ElasticBandParams:
         """The per-leg target tuple this combination reads, whichever mode selected it."""
         if self.target_mode == TARGET_STRETCH:
             return self.target_stretch_levels
+
+        return self.target_r_multiples
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
+        n: int = len(self.target_levels)
+        base: int = self.order_quantity // n
+        remainder: int = self.order_quantity % n
+
+        return tuple([base] * (n - 1) + [base + remainder])
+
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
+        for f in fields(self):
+            value: object = getattr(self, f.name)
+            out[f.name] = list(value) if isinstance(value, tuple) else value
+
+        return out
+
+
+ORB_STOP_OPPOSITE = 0
+ORB_STOP_ATR = 1
+ORB_STOP_MODES = {ORB_STOP_OPPOSITE: "opposite", ORB_STOP_ATR: "atr"}
+"""Where the opening range's protective stop goes. ``opposite`` is the range's other extreme,
+which makes the stop distance the range width itself; ``atr`` is a multiple of ATR from the
+trigger and is the only one floored, because only it is a distance rather than a level. The
+midpoint and the range fraction the literature also uses are one axis later --
+``docs/roadmap.md`` §M28.1.
+"""
+
+ORB_TARGET_R = 0
+ORB_TARGET_WIDTH = 1
+ORB_TARGET_MODES = {ORB_TARGET_R: "r", ORB_TARGET_WIDTH: "width"}
+"""Which per-leg target tuple is read. ``r`` is the shared R ladder, comparable with every
+other archetype; ``width`` places each leg a multiple of the **range width** past the trigger,
+which is the unit the opening range states its own geometry in.
+"""
+
+
+@dataclass(slots=True)
+class OpeningRangeParams:
+    """Rule set for the OpeningRange archetype -- an original, with no NinjaScript.
+
+    The opening-range break, which the literature calls the ORB: measure the high and low of
+    :attr:`window_minutes` from :attr:`anchor_minutes` past the session open, then rest a stop
+    order at whichever extreme :attr:`direction` names. **One side per combination**, because
+    NT8's managed approach refuses the opposite-direction submission and a two-sided range is
+    not established as expressible -- ``docs/roadmap.md`` §M28.
+
+    Every rule it implements and the NinjaScript each would be written as:
+    ``docs/nt8-fidelity.md`` §M28. The design and what was deliberately left out:
+    ``docs/roadmap.md`` §M28.1.
+    """
+
+    anchor_minutes: int = sessionrange.CASH_OPEN_MINUTES
+    """Minutes past the session open at which the range starts -- the cash open by default.
+
+    :data:`nqbt.sessionrange.ETH_OPEN_MINUTES` is the overnight range's anchor. **The bar size
+    must divide it**, so this axis is constrained by the resolution rather than free --
+    :func:`nqbt.sessionrange.validate_key`."""
+
+    window_minutes: int = 30
+    """How much of the session the range measures. 5, 15 and 30 are what every source means,
+    and the bar size must divide this too."""
+
+    direction: float = trades.LONG
+    """Which break is taken: :data:`nqbt.trades.LONG` above the range, ``SHORT`` below it.
+
+    A parameter rather than two archetypes, and one side per combination rather than both live
+    at once -- ``docs/roadmap.md`` §M28, finding 1."""
+
+    entry_offset_ticks: int = 1
+    """Ticks beyond the range extreme for the entry trigger.
+
+    Not cosmetic: at ``0`` the trigger sits on the extreme, and a bar closing exactly there
+    cannot submit at all, because NT8 declines a stop entry at or through the market --
+    ``docs/nt8-fidelity.md`` §M18."""
+
+    max_entries_per_session: int = 1
+    """How many entries one session may fill, uncapped at ``0``.
+
+    **The default is one-shot**, which is what essentially every published opening-range result
+    measures; a level-based trigger re-arms every bar, so uncapped it re-enters after every
+    stop -- ``docs/roadmap.md`` §M28, finding 4."""
+
+    phase_filter: int = timeofday.ALL_PHASES
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
+
+    regime_lookback: int = 20
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """The efficiency-ratio lookback and its two cuts -- see
+    :attr:`DeadCatParams.regime_directional_above`."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    volume_rolling_bars: int = 30
+    volume_baseline_sessions: int = 20
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """The relative-volume series and its two cuts -- see
+    :attr:`DeadCatParams.volume_heavy_above`."""
+
+    trend_filter: int = trend.ALL_TRENDS
+    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    trend_slope_lookback: int = 5
+    trend_min_agreement: int = 3
+    """The trend label's averages and its agreement threshold -- see
+    :attr:`DeadCatParams.trend_min_agreement`."""
+
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Sides of a coarse average an entry may be taken on -- see
+    :attr:`DeadCatParams.higher_timeframe_filter`."""
+
+    higher_timeframe_minutes: int = 60
+    higher_timeframe_period: int = 50
+    """The coarse resolution and the period averaged on it -- see
+    :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    stop_mode: int = ORB_STOP_OPPOSITE
+    """One of :data:`ORB_STOP_MODES`."""
+
+    stop_offset_ticks: int = 2
+    """Ticks beyond the opposite extreme under :data:`ORB_STOP_OPPOSITE`, so the stop does not
+    sit exactly on the level it protects."""
+
+    atr_period: int = 14
+    atr_stop_multiple: float = 2.0
+    """Stop distance as a multiple of ATR at the signal bar, under :data:`ORB_STOP_ATR`."""
+
+    min_bracket_dollars: float = 0.0
+    """Floor on the ATR stop distance in **dollars per contract**, off at ``0``.
+
+    Applies to :data:`ORB_STOP_ATR` alone, because only it is a distance rather than a level --
+    see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
+
+    target_mode: int = ORB_TARGET_R
+    """One of :data:`ORB_TARGET_MODES`."""
+
+    target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
+    """Per-leg targets in R, read under :data:`ORB_TARGET_R`. ``nan`` marks a runner, which
+    here leaves at the session close."""
+
+    target_width_multiples: tuple[float, ...] = (1.0, float("nan"))
+    """Per-leg targets as multiples of the **range width** past the trigger, read under
+    :data:`ORB_TARGET_WIDTH`. Not scaled by :attr:`tp_multiplier`, which would be the same
+    axis twice."""
+
+    tp_multiplier: float = 1.0
+    """Scales every R target, as on the ported archetypes."""
+
+    order_quantity: int = 4
+
+    bars_required_to_trade: int = 200
+
+    ambiguity_policy: int = 1
+    """See :attr:`DeadCatParams.ambiguity_policy` -- same concept, same default."""
+
+    fill_limit_on_touch: bool = False
+    block_entry_at_session_close: bool = True
+    round_targets: bool = True
+    """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
+
+    commission_per_contract: float = 0.0
+    slippage_ticks: float = 0.0
+    """Adverse slippage on the stop entry and both market exits. Never applied to a limit
+    target."""
+
+    def __post_init__(self) -> None:
+        self._validate_entry()
+        self._validate_exit_scheme()
+        validate_context_filters(self)
+
+    def _validate_entry(self) -> None:
+        """Check the range and the rule that decides which bars may submit an order."""
+        if self.direction not in (trades.LONG, trades.SHORT):
+            msg: str = (
+                f"direction must be {trades.LONG} (long) or {trades.SHORT} (short), got "
+                f"{self.direction}; a range traded both ways at once is not expressible in NT8"
+            )
+            raise ValueError(msg)
+
+        # Resolution-independent only: whether the bar size can express this range is checked
+        # where the bars are, in ``sessionrange.validate_key``.
+        sessionrange.validate_key(self.anchor_minutes, self.window_minutes, bar_minutes=1)
+        if self.entry_offset_ticks < 0:
+            msg = f"entry_offset_ticks must be >= 0, got {self.entry_offset_ticks}"
+            raise ValueError(msg)
+
+        if self.max_entries_per_session < 0:
+            msg = f"max_entries_per_session must be >= 0, got {self.max_entries_per_session}"
+            raise ValueError(msg)
+
+    def _validate_exit_scheme(self) -> None:
+        """Check the stop and the targets against each other."""
+        if self.stop_mode not in ORB_STOP_MODES:
+            msg: str = f"unknown stop_mode {self.stop_mode}; use one of {sorted(ORB_STOP_MODES)}"
+            raise ValueError(msg)
+
+        if self.target_mode not in ORB_TARGET_MODES:
+            msg = f"unknown target_mode {self.target_mode}; use one of {sorted(ORB_TARGET_MODES)}"
+            raise ValueError(msg)
+
+        if self.order_quantity < len(self.target_levels):
+            msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_levels)} legs"
+            raise ValueError(msg)
+
+        if self.atr_period < 1:
+            msg = f"atr_period must be >= 1, got {self.atr_period}"
+            raise ValueError(msg)
+
+        if self.stop_offset_ticks < 0:
+            msg = f"stop_offset_ticks must be >= 0, got {self.stop_offset_ticks}"
+            raise ValueError(msg)
+
+        if self.min_bracket_dollars < 0.0:
+            msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
+            raise ValueError(msg)
+
+    @property
+    def range_key(self) -> sessionrange.RangeKey:
+        """Which of the dataset's session ranges this combination reads."""
+        return (self.anchor_minutes, self.window_minutes)
+
+    @property
+    def target_levels(self) -> tuple[float, ...]:
+        """The per-leg target tuple this combination reads, whichever mode selected it."""
+        if self.target_mode == ORB_TARGET_WIDTH:
+            return self.target_width_multiples
 
         return self.target_r_multiples
 

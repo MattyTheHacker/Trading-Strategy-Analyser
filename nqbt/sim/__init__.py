@@ -13,6 +13,7 @@ from nqbt.sim.types import (
     ElasticBandParams,
     EmaCrossoverParams,
     InsideBarParams,
+    OpeningRangeParams,
     PullBackAndGoParams,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "ElasticBandParams",
     "EmaCrossoverParams",
     "InsideBarParams",
+    "OpeningRangeParams",
     "PullBackAndGoParams",
 ]

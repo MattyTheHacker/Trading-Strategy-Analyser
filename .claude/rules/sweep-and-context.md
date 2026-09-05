@@ -109,6 +109,24 @@ paths:
 - **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
   `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
   caught. Sweeping the window under a per-bar form runs identical combinations.
+- **A session range is stored per session, not per bar.** `sessionrange.SessionRangeGrid` holds
+  the levels as `[n_keys, n_sessions]` and only the armed flag per bar, read through a per-bar
+  `session_id`. Stamping the level per bar instead costs 16 bytes a bar **per window**, which
+  every parallel worker pays; as stored it is about 5 bytes a bar whatever a sweep asks for. Do
+  not "simplify" it into a per-bar level. `docs/roadmap.md` §M28.1.
+- **The range window and anchor are not free axes: the bar size has to divide both.** A
+  cash-anchored range needs `N | 930`, which with §M13's `N | 60` leaves **`N | 30`** and rules
+  60-minute bars out entirely. `sessionrange.validate_key` raises rather than measuring a window
+  over a different span than it names, so a sweep crossing an unbuildable pair fails loudly.
+  That is also why `campaign_sweep.Variant` carries `resolutions`: which windows exist depends on
+  the resolution, and a grid crosses its axes uniformly at every axis point, so the window is a
+  variant dimension rather than an axis. `tests/test_sessionrange.py` pins the divisor set.
+- **OpeningRange's stop axes are ElasticBand's blind spot again.** `atr_period`,
+  `atr_stop_multiple` and `min_bracket_dollars` are inert at `ORB_STOP_OPPOSITE` and
+  `stop_offset_ticks` is inert at `ORB_STOP_ATR`, and `dead_axes` knows one off value per axis, so
+  neither is caught. The *memory* cost is avoided — `openingrange_context` builds no ATR unless
+  some combination selects the ATR stop — but sweeping either under the wrong mode runs identical
+  combinations silently.
 - **Parallel sweeps top out around 5×, not 16×, and that is the hardware.** Per-core throughput
   drops when all physical cores are busy (mobile Ryzen, high single-core boost against a much
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —

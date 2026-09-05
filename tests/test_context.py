@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, conditions, context, sessions, sweep
+from nqbt import archetypes, conditions, context, sessionrange, sessions, sweep
 from nqbt.context import ContextError, ContextSpec
 from nqbt.sim.types import (
     BAND_BOLLINGER,
@@ -387,3 +387,67 @@ def test_the_band_grid_counts_towards_what_a_worker_is_handed() -> None:
         bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), band_periods=(20,))
     )
     assert with_band.nbytes == without.nbytes + with_band.band.nbytes
+
+
+# -- session ranges ------------------------------------------------------------
+
+
+def session_bars(days: int = 3) -> pd.DataFrame:
+    """Whole sessions, so a cash-anchored range has a window to be measured over."""
+    return bars(n=days * 1440, seed=5)
+
+
+def test_the_session_ranges_are_absent_unless_the_spec_asks_for_them() -> None:
+    data = context.prepare(session_bars(), ContextSpec(needs_vwap=True))
+    assert data.session_ranges is None
+
+    key = (sessionrange.CASH_OPEN_MINUTES, 30)
+    for read in (data.range_armed, data.range_high, data.range_low):
+        with pytest.raises(ContextError, match="range_keys"):
+            read(key)
+    with pytest.raises(ContextError, match="range_keys"):
+        data.range_session_id()
+
+
+def test_a_declared_range_is_built_and_reads_back_by_its_key() -> None:
+    key = (sessionrange.CASH_OPEN_MINUTES, 30)
+    data = context.prepare(session_bars(), ContextSpec(range_keys=(key,)), bar_minutes=1)
+
+    assert data.range_armed(key).shape == (len(data),)
+    assert data.range_session_id().shape == (len(data),)
+    assert data.range_high(key).size == data.session_ranges.sessions
+    assert data.range_armed(key).any(), "the fixture never reaches a complete range"
+
+
+def test_a_range_the_bar_size_cannot_express_fails_loudly_rather_than_quietly() -> None:
+    """60-minute bars straddle the 930-minute cash anchor -- ``docs/roadmap.md`` §M28."""
+    with pytest.raises(sessionrange.RangeError, match="straddle the anchor"):
+        context.prepare(
+            session_bars(),
+            ContextSpec(range_keys=((sessionrange.CASH_OPEN_MINUTES, 60),)),
+            bar_minutes=60,
+        )
+
+
+def test_the_bar_size_is_inferred_when_prepare_is_not_told_it() -> None:
+    key = (sessionrange.CASH_OPEN_MINUTES, 30)
+    frame = session_bars()
+    stated = context.prepare(frame, ContextSpec(range_keys=(key,)), bar_minutes=1)
+    inferred = context.prepare(frame, ContextSpec(range_keys=(key,)))
+
+    assert inferred.range_armed(key).tolist() == stated.range_armed(key).tolist()
+
+
+def test_the_union_of_two_specs_carries_the_range_keys() -> None:
+    merged = ContextSpec(range_keys=((930, 30),)) | ContextSpec(range_keys=((930, 5),))
+
+    assert merged.range_keys == ((930, 5), (930, 30))
+
+
+def test_the_range_grid_counts_towards_what_a_worker_is_handed() -> None:
+    frame = session_bars()
+    key = (sessionrange.CASH_OPEN_MINUTES, 30)
+    without = context.prepare(frame, ContextSpec(needs_vwap=True))
+    with_range = context.prepare(frame, ContextSpec(needs_vwap=True, range_keys=(key,)), bar_minutes=1)
+
+    assert with_range.nbytes == without.nbytes + with_range.session_ranges.nbytes

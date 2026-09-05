@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, higher_timeframe, regime, timeofday, trend, volume
+from nqbt import archetypes, higher_timeframe, regime, sessionrange, timeofday, trades, trend, volume
 from nqbt.sim.types import STOP_ATR, STOP_CATASTROPHE, STOP_SWING
 from tools.campaign_sweep import (
     ALL_STRATA,
@@ -38,6 +38,7 @@ from tools.campaign_sweep import (
     db_path,
     fit_regime,
     grids_for,
+    orb_resolutions,
     planned_combinations,
     quantile_pair,
     strata,
@@ -331,3 +332,58 @@ def test_planned_combinations_counts_the_calibrated_cells() -> None:
     )
     per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
     assert planned_combinations(args) == per_stratum * len(regime.Regime) * 2
+
+
+# -- the opening range, whose windows are not expressible at every resolution ---------------
+
+
+def test_every_variant_but_the_opening_ranges_runs_at_every_resolution() -> None:
+    """The exception is the point: a session-anchored range needs the bar size to divide both
+    its 930-minute anchor and its window -- ``docs/roadmap.md`` §M28."""
+    for variant in all_variants():
+        expected = RESOLUTIONS if variant.archetype is not archetypes.OPENINGRANGE else variant.resolutions
+        assert variant.resolutions == expected, variant.name
+        assert all(variant.runs_at(minutes) for minutes in variant.resolutions)
+
+
+def test_the_opening_ranges_windows_survive_exactly_the_resolutions_that_divide_them() -> None:
+    assert orb_resolutions(5) == (1, 5)
+    assert orb_resolutions(15) == (1, 5, 15)
+    assert orb_resolutions(30) == RESOLUTIONS
+    # 10-minute bars divide 930 but not a 5- or 15-minute window.
+    assert 10 not in orb_resolutions(15)
+
+
+def test_every_opening_range_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
+    """The real guard: a claimed resolution whose range grid refuses to build would fail an
+    hour into a run rather than here."""
+    for variant in VARIANTS["OpeningRange"]("MNQ"):
+        for minutes in variant.resolutions:
+            for _, grid in grids_for(variant, UNFILTERED):
+                for anchor, window in grid.required_context().range_keys:
+                    sessionrange.validate_key(anchor, window, minutes)
+
+
+def test_planned_combinations_skips_a_resolution_a_variant_cannot_express() -> None:
+    args = argparse.Namespace(
+        strategies=["OpeningRange"],
+        roots=["MNQ"],
+        strata=UNFILTERED,
+        resolutions=[10],
+        split=False,
+        regime_quantiles=None,
+        regime_lookbacks=list(REGIME_LOOKBACKS),
+    )
+    variants = VARIANTS["OpeningRange"]("MNQ")
+    only_thirty = sum(v.sized() for v in variants if v.runs_at(10))
+
+    assert only_thirty < sum(v.sized() for v in variants), "premise gone; nothing is being skipped"
+    assert planned_combinations(args) == only_thirty
+
+
+def test_the_opening_range_sweeps_both_sides_as_separate_combinations() -> None:
+    """A two-sided range is not expressible in NT8, so every combination is one-sided."""
+    for variant in VARIANTS["OpeningRange"]("MNQ"):
+        assert variant.axes["direction"] == [trades.LONG, trades.SHORT]
+        for combination in grids_for(variant, UNFILTERED)[0][1].combinations():
+            assert combination.direction in (trades.LONG, trades.SHORT)
