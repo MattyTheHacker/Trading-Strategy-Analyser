@@ -111,6 +111,7 @@ max-args = 10
 "nqbt/sim/elasticband.py" = ["FBT003"]
 "nqbt/sim/insidebar.py" = ["FBT003"]
 "nqbt/sim/insidebartrailing.py" = ["FBT003"]
+"nqbt/sim/openingrange.py" = ["FBT003"]
 # Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
 # numba, pandas and TA-Lib.
 "nqbt/cli.py" = ["PLC0415"]

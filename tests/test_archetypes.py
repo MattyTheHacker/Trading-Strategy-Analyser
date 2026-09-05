@@ -20,6 +20,7 @@ from nqbt.sim.types import (
     EmaCrossoverParams,
     InsideBarParams,
     InsideBarTrailingParams,
+    OpeningRangeParams,
     PullBackAndGoParams,
 )
 
@@ -33,6 +34,7 @@ def test_every_archetype_is_registered() -> None:
         "EmaCrossover",
         "InsideBar",
         "InsideBarTrailing",
+        "OpeningRange",
         "PullBackAndGo",
     ]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
@@ -40,6 +42,7 @@ def test_every_archetype_is_registered() -> None:
     assert archetypes.get("EmaCrossover") is archetypes.EMACROSSOVER
     assert archetypes.get("InsideBar") is archetypes.INSIDEBAR
     assert archetypes.get("InsideBarTrailing") is archetypes.INSIDEBARTRAILING
+    assert archetypes.get("OpeningRange") is archetypes.OPENINGRANGE
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
 
 
@@ -73,6 +76,7 @@ def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(EmaCrossoverParams()) is archetypes.EMACROSSOVER
     assert archetypes.for_params(InsideBarParams()) is archetypes.INSIDEBAR
     assert archetypes.for_params(InsideBarTrailingParams()) is archetypes.INSIDEBARTRAILING
+    assert archetypes.for_params(OpeningRangeParams()) is archetypes.OPENINGRANGE
 
 
 def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
@@ -96,6 +100,8 @@ def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     assert archetypes.INSIDEBAR.tier2 is Tier2Status.RECONCILED
     assert archetypes.INSIDEBARTRAILING.tier2 is Tier2Status.RECONCILED
     assert archetypes.EMACROSSOVER.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.ELASTICBAND.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.OPENINGRANGE.tier2 is Tier2Status.TIER1_ONLY
 
 
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------

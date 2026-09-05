@@ -26,6 +26,7 @@ from nqbt import (
     higher_timeframe,
     indicators,
     regime,
+    sessionrange,
     sessions,
     timeofday,
     trend,
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     from nqbt.conditions import MovingAverageGrid
     from nqbt.higher_timeframe import HigherTimeframeGrid
     from nqbt.regime import EfficiencyRatioGrid
+    from nqbt.sessionrange import SessionRangeGrid
     from nqbt.sessions import SessionInfo
     from nqbt.timeofday import TimeOfDay
     from nqbt.trend import TrendGrid
@@ -79,6 +81,11 @@ class ContextSpec:
     needs_time_of_day: bool = False
     """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
 
+    range_keys: tuple[sessionrange.RangeKey, ...] = ()
+    """Session-anchored ranges to build (:mod:`nqbt.sessionrange`), each an
+    ``(anchor_minutes, window_minutes)`` pair. Empty builds nothing, and a key the bar size
+    cannot express raises rather than being measured over a different span."""
+
     regime_lookbacks: tuple[int, ...] = ()
     """Efficiency-ratio lookbacks to build (:mod:`nqbt.regime`). Empty builds nothing."""
 
@@ -113,6 +120,7 @@ class ContextSpec:
             needs_vwap=self.needs_vwap or other.needs_vwap,
             needs_vwap_band=self.needs_vwap_band or other.needs_vwap_band,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
+            range_keys=tuple(sorted({*self.range_keys, *other.range_keys})),
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
             trend_keys=tuple(sorted({*self.trend_keys, *other.trend_keys})),
@@ -166,6 +174,9 @@ class Dataset:
 
     time_of_day: timeofday.TimeOfDay | None = None
     """Session phase and bar of session, or ``None`` when nothing asked for them."""
+
+    session_ranges: sessionrange.SessionRangeGrid | None = None
+    """Opening ranges per declared key, or ``None`` when nothing asked for them."""
 
     regimes: regime.EfficiencyRatioGrid | None = None
     """Efficiency ratios per declared lookback, or ``None`` when nothing asked for them."""
@@ -343,6 +354,34 @@ class Dataset:
         """Per-bar index from the session open, the fine form of the same clock."""
         return self._time_of_day().bar_of_session
 
+    def _session_ranges(self) -> SessionRangeGrid:
+        if self.session_ranges is None:
+            msg: str = (
+                "no session ranges in this dataset; prepare() was not asked for them. "
+                "Add the (anchor, window) pair to range_keys on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+
+        return self.session_ranges
+
+    def range_armed(self, key: sessionrange.RangeKey) -> BoolArray:
+        """Per bar: whether one session range is complete and may be traded off."""
+        return self._session_ranges().armed_for(key)
+
+    def range_high(self, key: sessionrange.RangeKey) -> FloatArray:
+        """Per **session**: one range's high, read through :meth:`range_session_id`."""
+        return self._session_ranges().high_for(key)
+
+    def range_low(self, key: sessionrange.RangeKey) -> FloatArray:
+        """Per **session**: one range's low, read through :meth:`range_session_id`."""
+        return self._session_ranges().low_for(key)
+
+    def range_session_id(self) -> IndexArray:
+        """Per bar: which session it belongs to, which is the index into the range levels."""
+        return self._session_ranges().session_id
+
     def _regimes(self) -> regime.EfficiencyRatioGrid:
         if self.regimes is None:
             msg: str = (
@@ -514,35 +553,25 @@ class Dataset:
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
         total += sum(a.nbytes for a in self.atrs.values())
-        if self.band is not None:
-            total += self.band.nbytes
-
-        if self.vwap_band is not None:
-            total += self.vwap_band.nbytes
-
-        for a in (
+        # Every optional series and grid reports its own size, so one loop rather than one
+        # branch each -- a new one is then counted by being declared.
+        for held in (
             self.vwap,
             self.below_vwap,
             self.above_vwap,
             self.seconds_to_session_end,
             self.day_codes,
+            self.band,
+            self.vwap_band,
+            self.time_of_day,
+            self.session_ranges,
+            self.regimes,
+            self.volumes,
+            self.trends,
+            self.higher_timeframes,
         ):
-            if a is not None:
-                total += a.nbytes
-        if self.time_of_day is not None:
-            total += self.time_of_day.nbytes
-
-        if self.regimes is not None:
-            total += self.regimes.nbytes
-
-        if self.volumes is not None:
-            total += self.volumes.nbytes
-
-        if self.trends is not None:
-            total += self.trends.nbytes
-
-        if self.higher_timeframes is not None:
-            total += self.higher_timeframes.nbytes
+            if held is not None:
+                total += held.nbytes
 
         return total
 
@@ -610,6 +639,19 @@ def prepare(
     tod: TimeOfDay | None = (
         timeofday.classify(pd.DatetimeIndex(bars.index), bar_minutes=bar_minutes, info=info)
         if spec.needs_time_of_day or spec.volume_keys
+        else None
+    )
+    # The range needs a stated bar size rather than an inferred one per key, and it is the
+    # only series whose *existence* depends on it -- ``docs/roadmap.md`` §M28.
+    ranges: SessionRangeGrid | None = (
+        sessionrange.range_grid(
+            bars,
+            spec.range_keys,
+            bar_minutes
+            if bar_minutes is not None
+            else timeofday.infer_bar_minutes(pd.DatetimeIndex(bars.index)),
+        )
+        if spec.range_keys
         else None
     )
     regimes: EfficiencyRatioGrid | None = (
@@ -686,6 +728,7 @@ def prepare(
         above_vwap=above_vwap,
         vwap_band=vwap_band,
         time_of_day=tod,
+        session_ranges=ranges,
         regimes=regimes,
         volumes=volumes,
         trends=trends,

@@ -16,15 +16,25 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
-from nqbt.sim import crossover, elasticband, insidebar, insidebartrailing, pullback, runner
+from nqbt.sim import (
+    crossover,
+    elasticband,
+    insidebar,
+    insidebartrailing,
+    openingrange,
+    pullback,
+    runner,
+)
 from nqbt.sim.types import (
     BAND_VWAP,
+    ORB_STOP_ATR,
     STOP_ATR,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
     InsideBarParams,
     InsideBarTrailingParams,
+    OpeningRangeParams,
     PullBackAndGoParams,
 )
 
@@ -250,6 +260,39 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     )
 
 
+def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
+    """What OpeningRange reads: the ranges its anchors and windows name, and an ATR under one stop.
+
+    **No moving-average grid and no band**, so this and ElasticBand are the two archetypes
+    that build neither. A range key is the anchor crossed with the window, exactly as an MA
+    key is a kind crossed with a period, and the resolution decides which of them are
+    buildable at all -- :func:`nqbt.sessionrange.validate_key`.
+    """
+    atr: set[int] = (
+        {int(v) for v in values.get("atr_period", ())}
+        if any(int(v) == ORB_STOP_ATR for v in values.get("stop_mode", ()))
+        else set()
+    )
+
+    return ContextSpec(
+        range_keys=tuple(
+            sorted(
+                {
+                    (int(anchor), int(window))
+                    for anchor in values.get("anchor_minutes", ())
+                    for window in values.get("window_minutes", ())
+                },
+            ),
+        ),
+        atr_periods=tuple(sorted(atr)),
+        needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
+        trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
+    )
+
+
 def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
 
@@ -376,6 +419,23 @@ combinations and nothing will say so -- the same shape as ``volume_rolling_bars`
 """
 
 
+OPENINGRANGE_GATES: Mapping[str, str] = {
+    **REGIME_GATES,
+    **VOLUME_GATES,
+    **TREND_GATES,
+    **HIGHER_TIMEFRAME_GATES,
+}
+"""Only the shared context filters gate an axis here.
+
+**The stop axes cannot be gated and this is ElasticBand's blind spot again**: ``atr_period``,
+``atr_stop_multiple`` and ``min_bracket_dollars`` are inert at :data:`~nqbt.sim.types.
+ORB_STOP_OPPOSITE` and ``stop_offset_ticks`` is inert at :data:`~nqbt.sim.types.ORB_STOP_ATR`,
+so one off value per axis cannot express either. ``dead_axes`` will not say so; the *memory*
+cost is still avoided, because :func:`openingrange_context` builds no ATR unless some
+combination selects the ATR stop.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callables below
     """How to sweep one strategy. Frozen, so a lookup cannot mutate the registry."""
@@ -488,6 +548,21 @@ ELASTICBAND = Archetype(
 TIER1_ONLY until there is one. Its three exit schemes are three grids rather than three
 archetypes -- ``docs/roadmap.md`` §M26."""
 
+OPENINGRANGE = Archetype(
+    name="OpeningRange",
+    params_cls=OpeningRangeParams,
+    run=openingrange.run_openingrange,
+    legs=openingrange.openingrange_legs,
+    signal=openingrange.openingrange_signal,
+    tier2=Tier2Status.TIER1_ONLY,
+    gated_by=OPENINGRANGE_GATES,
+    context_for=openingrange_context,
+    not_sweepable=frozenset({"target_r_multiples", "target_width_multiples"}),
+)
+"""The third original and the first archetype whose trigger is a level rather than an event:
+no NinjaScript, and TIER1_ONLY until there is one. One side per combination, because a
+two-sided range is not established as expressible -- ``docs/roadmap.md`` §M28."""
+
 _REGISTRY: dict[str, Archetype] = {
     a.name: a
     for a in (
@@ -496,6 +571,7 @@ _REGISTRY: dict[str, Archetype] = {
         EMACROSSOVER,
         INSIDEBAR,
         INSIDEBARTRAILING,
+        OPENINGRANGE,
         PULLBACKANDGO,
     )
 }
