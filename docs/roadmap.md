@@ -1131,6 +1131,64 @@ Four findings, in decreasing order of how much each constrains [#236].
 
 **The matched random-entry arm matters more here than on anything built so far.** An ORB fires at a level price has already reached, on a day it has already moved, so its trades are conditioned on volatility twice over and a raw profit factor reflects that before it reflects any edge. `randomentry.py` matched on the same bars is what separates the two, and by the standing rubric a number with no null is not a finding.
 
+### M28.1 — the OpeningRange baseline, and the null it turns out not to have ([#236])
+
+§M28 named one configuration to build and three findings that constrained it. This is what was built, the four decisions that were not obvious, and the measurement — which is a **baseline rather than a finding**, for a reason §M28 predicted the opposite of.
+
+#### What was built, as coordinates in §M28's own six axes
+
+**Anchor** the cash open, derived rather than written down: `sessionrange.CASH_OPEN_MINUTES` is `timeofday.phase_start_minutes` read at `CASH_OPEN`, so the 930 moves if the template's open ever does. **Window** 5, 15 or 30 minutes. **Level** the window's high and low. **Trigger** a stop-market order at the extreme ± `entry_offset_ticks`, resubmitted every armed bar. **Side** one per combination, `direction` being a swept axis. **Geometry** the opposite extreme or an ATR multiple for the stop, and the four-leg R ladder or a multiple of the range width for the targets.
+
+The primitive is `nqbt/sessionrange.py` and the archetype `nqbt/sim/openingrange.py`, registered as `OpeningRange` and `TIER1_ONLY`. `bracket.py` was not touched: the archetype writes the entry half only.
+
+#### Four decisions that were not obvious
+
+**A range is one fact about a session, so it is stored per session.** `SessionRangeGrid` holds the levels as `[n_keys, n_sessions]` and only the armed flag as `[n_keys, n_bars]`, read through a per-bar `session_id`. Stamping the levels per bar instead would cost 16 bytes a bar per window against the flag's one, which a parallel worker pays for every window a sweep tries. Measured on the fixtures at three windows: about 5 bytes a bar in total.
+
+**A session short of window bars gets no range at all.** The alternative — measure whatever bars were there — produces a silently narrow range and therefore a silently tight stop, on exactly the sessions where the data is worst. One flag carries both "not yet" and "not at all", so the loop asks one question.
+
+**Everything is measured from the trigger, never from the fill.** The stop, the risk and every target are known when the order is submitted, which is what a NinjaScript setting `SetStopLoss` at submission does and what the reconciled DeadCatBounce port already does. A gapped fill is therefore worse than planned and its R is measured against the plan, not against itself.
+
+**The per-session entry cap is a parameter rather than a caveat.** §M28's finding 4 said a level-based trigger re-arms every bar, so a simulated ORB re-enters after every stop where the published results are one-shot. `max_entries_per_session` defaults to 1 and 0 is uncapped, which makes the divergence a swept axis. Measured below: uncapped runs about a quarter more trades and a quarter more commission for a lower profit factor on both windows.
+
+#### The bar grid, pinned rather than commented
+
+§M28's finding 2 asked for a test rather than a comment, and `tests/test_sessionrange.py` has it: over the bar sizes §M13 admits, a cash-anchored range is buildable at exactly `N ∈ {1, 2, 3, 5, 6, 10, 15, 30}` and **not at 60**. The general rule the validator enforces is that the anchor and the window must each be a whole number of bars; `N | 30` is the consequence of crossing that with §M13's `N | 60`, and the two conditions are genuinely separate — 31 divides 930 and not 60.
+
+That makes the window a **variant dimension rather than a sweep axis** in `tools/campaign_sweep.py`: which windows exist depends on the resolution, and a sweep crosses its axes uniformly across every axis point. `Variant.resolutions` is what carries it, and the opening range is the only variant that sets it.
+
+#### The finding §M28 predicted backwards: this archetype has no matched null
+
+§M28 predicted that "the matched random-entry arm matters more here than on anything built so far". It matters, and **it cannot be drawn.** A trigger that is a level persists, so the order is resubmitted on every armed bar and the signal is dense by construction — roughly a third of all bars. `matched_random_signal` draws, for each minute-of-session the rule fired at, that many bars without replacement from every bar sharing that minute; when the rule fired on *all* of them the draw has nothing left to choose and returns the signal it was matched to. Every null realisation is then the observation, reported as a p-value of 1 and read as "indistinguishable from random".
+
+**Left alone that is a wrong conclusion dressed as a finding**, so `matched_random_signal` now refuses a signal that fills every pool it touches. The guard is general — it fires on the property, not on the archetype — and no existing archetype's signal comes near it.
+
+The consequence stands: **by the standing rubric a number with no null is not a finding, so everything below is a baseline and not a result.** A null for a level-based trigger has to randomise the level or the session rather than the bars, which is new machinery and belongs to [#237].
+
+#### The baseline
+
+`tools/campaign_sweep.py --strategies OpeningRange --split` — both roots, the spliced continuous series, the real commission and one tick of slippage, on a 60/40 selection and held-out split. The database it writes is the live number; what follows is the shape, not a figure to quote.
+
+**The stop geometry is the dominant lever and it is the one thing that holds out.** The opposite-extreme stop's median profit factor clears 1 on both windows with the majority of combinations profitable; the ATR stop's sits near 0.7 with under an eighth of them profitable, on both windows and both roots. That is a wider separation than any axis on any archetype here, and it is the axis §M28 predicted would matter for the opposite reason — not because the range width sets the risk through costs, but because a stop that is *not* the range is the wrong stop for this entry.
+
+**Almost all of what survives is the long side.** Within the opposite-extreme stop the long side's median clears 1 on both windows with most combinations profitable; the short side clears 1 on the selection window and loses on the held-out one.
+
+**The range window's ordering does not hold out.** At a fixed resolution the selection window ranks 30 > 15 > 5 and the held-out window ranks 15 > 30 > 5, so no window can be chosen on this evidence — which is the §M27 shape again and the reason the campaign sweeps all three rather than picking one.
+
+**Read `session_close_share` before any of it.** It sits near 0.4 on the selection window and above that on the held-out one: **about half the legs leave at the session close rather than at a bracket level**, so the strategy is substantially a hold-to-close trade. Over this sample that is a drift trade — MNQ rose about 4,500 points across the selection window and about 9,900 across the held-out one, which nearly doubled the index. **A long-only breakout held to the close, in that tape, is close to a levered long**, and the long/short asymmetry above is exactly what that would look like. `ambiguous_share` is negligible, near 0.003, which is the one number here that needs no caveat.
+
+So the baseline is: **the machinery is right, the entry is expressible, the stop geometry is the lever, and nothing yet separates the long side's edge from the sample's drift.** The last is what [#237] has to attack, and the null is the first thing it needs.
+
+#### Corrections to §M28's two predictions
+
+**"The range width will do most of the work, and it will do it through costs."** It does not. The stop geometry separates the results by far more than the window does, the window's ordering does not survive the holdout, and `min_bracket_dollars` never binds because the default stop is a level rather than a distance. The prediction's mechanism was right about *what* sets risk per trade and wrong about which axis carries the variance.
+
+**"The matched random-entry arm matters more here than on anything built so far."** Right about the importance, wrong about the availability — see above.
+
+#### What is deferred, and why
+
+The retest entry (a second mechanism and a limit rather than a stop), the fade, the overnight anchor and the noise-area form are all §M28's own deferrals and are unchanged. Two more are added here: the **midpoint and range-fraction stops**, which are one axis over the existing level rather than a new mechanism, and a **null that randomises the level**, which the section above makes the first thing [#237] owes.
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
@@ -1874,6 +1932,7 @@ ______________________________________________________________________
 [#234]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/234
 [#235]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/235
 [#236]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/236
+[#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27

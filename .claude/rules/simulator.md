@@ -25,6 +25,10 @@ below and is what you quote; this file is the index, not the record.
   on a bar that closed on its high is not a stop order and NT8 declines it. DeadCatBounce is
   immune by construction — the `min(...)` cap puts the trigger below the close on exactly those
   bars — which is why this only surfaced once a second archetype used a bare `High[0]`.
+- **For a trigger that is a *level*, that refusal binds constantly rather than rarely.** After a
+  break most bars close past the range extreme, so OpeningRange's order is refused on them;
+  `entry_offset_ticks` defaults to **1**, because at 0 a bar closing exactly on the extreme can
+  never submit at all. `docs/nt8-fidelity.md` §M28.
 - **Entry orders are not GTC**: NT8's managed approach cancels them after one bar. That is an
   unset parameter, not a platform limit — `docs/roadmap.md` § "Order lifetime in NT8" has the
   three routes and their costs. The simulation keeps the one-bar lifetime because that is what
@@ -96,6 +100,22 @@ below and is what you quote; this file is the index, not the record.
   entry mechanism reaches rules the others made unreachable *by construction*, and `bracket.py`
   inherits whatever is wrong — which is why each archetype earns its own reconciliation.
   `docs/roadmap.md` § "What M15.5 changed".
+- **A trigger that is a *level* rests for the whole session; one computed from the signal bar
+  does not.** Resubmitting an unchanged trigger at every bar close is route 3, and in Tier 1 that
+  is identical to a GTC order rather than an approximation of one — the fill test is the same
+  per-bar OHLC comparison. OpeningRange is the only archetype with one. Three things follow, and
+  none of them is optional: its signal is **dense** (about a third of all bars), so
+  `allocate_output`'s signal-count bound over-allocates by three orders of magnitude and
+  `entry_bound` sizes the output from the per-session cap instead; the **matched random-entry
+  null cannot be drawn at all**, and `randomentry.matched_random_signal` refuses it rather than
+  returning the observation; and the loop re-checks `armed` itself rather than trusting the
+  signal, because the null arm substitutes it. `docs/roadmap.md` §M28.1.
+- **OpeningRange computes its whole bracket from the trigger, never from the fill**, because the
+  trigger is the only price known when the order is submitted. A gapped fill is worse than
+  planned and its R is measured against the plan — DeadCatBounce's rule, shared deliberately.
+- **It carries the only per-session entry cap in the registry.** Every other loop re-enters as
+  soon as it is flat; `max_entries_per_session` defaults to 1, which is the one-shot form every
+  published opening-range result measures. `docs/roadmap.md` §M28, finding 4.
 - **Stop-and-reverse is not supported.** The loop's `in_position` boolean assumes flat-to-flat
   and reversal collides with the one-bar entry lifetime. A deliberate limitation.
 - **`EXIT_SIGNAL` is spent by EmaCrossover and InsideBarTrailing** — a rule-driven exit with no

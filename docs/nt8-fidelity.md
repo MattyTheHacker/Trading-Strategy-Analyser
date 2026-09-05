@@ -512,6 +512,49 @@ double variance = cumVQQ / cumV - c * (2.0 * cumVQ / cumV - c);
 
 **Every other NT8 question this archetype raises is answered above and unchanged**, including the entry mechanism, the one-bar order lifetime, the two `EXIT_SIGNAL` exits and `IsExitOnSessionCloseStrategy`. The measurements the source produced, and the standing caveats on them: [roadmap.md](roadmap.md) §M26.4.
 
+### M28 — the opening-range rules, written before the Python (#236)
+
+**Written down before the Python existed and the Python written to it**, as §M26 was. There is still no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as — a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later. The design and what was deferred are in [roadmap.md](roadmap.md) §M28.1; only the rules are here.
+
+`Archetype.tier2` is `TIER1_ONLY`, and stays there until a trade list has been diffed against it.
+
+**The range window is a wall-clock window on both sides, so the two forms are the same test.** `sessionrange` counts minutes from the *template's* 18:00 ET open, which `resample.minutes_since_open` computes from the wall clock and not from the session's observed first bar — so minute 930 is 09:30 ET on every session, and the NinjaScript form is the obvious one:
+
+```csharp
+if (Bars.IsFirstBarOfSession) { rangeHigh = double.MinValue; rangeLow = double.MaxValue; barsInRange = 0; }
+if (ToTime(Time[0]) > 93000 && ToTime(Time[0]) <= 100000)
+{ rangeHigh = Math.Max(rangeHigh, High[0]); rangeLow = Math.Min(rangeLow, Low[0]); barsInRange++; }
+```
+
+**This is the opposite of the no-entry window's trap** — "A no-entry window before the session close" above records that a rule counting back from the *observed* session end cannot be reconciled against a C# reading the wall clock. A rule counting forward from the template's open can, because that is the wall clock.
+
+**A session missing any of its window bars has no range.** `barsInRange` has to reach `windowMinutes / barMinutes` or the session is skipped. Measuring the range over whatever bars arrived would give a narrow range and so a tight stop on precisely the sessions whose data is worst.
+
+**The order rests for the session, and route 3 is what expresses it.** The trigger is a level that persists rather than a value computed from the signal bar, so `EnterLongStopMarket(rangeHigh + entryOffsetTicks * TickSize)` resubmitted at every bar close reproduces a resting order — and § "Route 3" in [roadmap.md](roadmap.md) establishes that in Tier 1 this is not an approximation of a GTC order but identical to one, because the fill test is the same per-bar OHLC comparison either way. **`entry_order_lifetime_bars` is therefore not needed and is not built.**
+
+**A stop entry at or through the market is never submitted, and here it binds constantly.** §M18's rule, from "A stop-market entry must sit strictly beyond the market": the order is refused on any bar whose close has already reached the trigger — which after a break is most of them. DeadCatBounce is immune to this by construction and the opening range is not, so `entry_offset_ticks` defaults to **1 rather than 0**: at 0 a bar closing exactly on the range extreme can never submit.
+
+**The fill test is DeadCatBounce's, unchanged.** An open at or beyond the trigger fills at the open, because a stop is a market order once triggered; otherwise the bar's favourable extreme must reach the trigger and the fill is at the trigger. `filled_at_open` is false either way, so the gapped-stop rule stays off the entry bar exactly as it does there.
+
+**The whole bracket is computed from the trigger, not from the fill.** `SetStopLoss` and `SetProfitTarget` are set when the order is submitted and the trigger is the only price known then. Risk is `trigger − stop`; a gapped fill is worse than planned and its R is measured against the plan. This is what the reconciled DeadCatBounce port already does.
+
+**Two stop schemes, and only one of them is floored:**
+
+| scheme       | stop                                                          | floored |
+| ------------ | ------------------------------------------------------------- | ------- |
+| the opposite | `rangeLow - stopOffsetTicks * TickSize`, mirrored for a short | no      |
+| ATR          | `trigger - Math.Max(atr * multiple, floor / pointValue)`      | yes     |
+
+Same rule as §M26's: **only a distance is floored, never a level.** `min_bracket_dollars` is per contract and converted through `instruments.py`, and it is inert under the opposite-extreme stop — as `stop_offset_ticks` is under the ATR stop. Neither is visible to `dead_axes`, which is ElasticBand's blind spot reached again.
+
+**Two target ladders.** The shared R ladder scaled by `tpMultiplier`, or per-leg multiples of the **range width** measured from the trigger. A width multiple is already a distance, so `tpMultiplier` is not applied to it — applying both would be one axis expressed twice. Either way the legs are prices by the time `bracket.py` sees them and nothing in the bracket engine changes.
+
+**A per-session entry cap, which no other archetype has.** An `int` reset on `Bars.IsFirstBarOfSession` and incremented in `OnExecutionUpdate`, compared against `maxEntriesPerSession` before each submission. Entirely expressible, and it is what makes the one-shot form every published opening-range result measures reachable at all — [roadmap.md](roadmap.md) §M28, finding 4.
+
+**One side per instance, and this is a limitation rather than a choice.** "The managed approach refuses the opposite-direction submission outright" above kills the classic form of both stops live with the first fill winning; §M28's finding 1 records that the probe measured route 1 and that **whether two plain opposite stops are both accepted is still untested**. Until a sixth probe scenario says otherwise the archetype is one-sided per combination, `direction` is a swept axis, and no combination ever holds two orders. The simulator has the same limit from the other side — one `pending_*` slot per loop.
+
+**Flat before the session close binds hard, and the live share is the thing to read.** A cash-anchored entry around 09:45 ET against a 17:00 close leaves the hold bounded by the geometry rather than the clock, but a runner leg with no target reaches the flatten every time: `session_close_share` runs near **half of all legs**, which changes what the results mean. It is produced by `tools/campaign_sweep.py --strategies OpeningRange --split` and read out of `results/campaign/OpeningRange.duckdb`; [roadmap.md](roadmap.md) §M28.1 has what it implies.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.

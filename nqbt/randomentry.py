@@ -135,6 +135,17 @@ class SessionMinutePool:
         """Every bar sharing one minute-of-session."""
         return self.bars_by_minute[self.starts[minute] : self.starts[minute + 1]]
 
+    def spare_bars(self, minutes: IntArray, counts: IntArray) -> int:
+        """Bars the draw could pick but ``counts`` does not need -- the room it has to differ.
+
+        Zero means every pool is consumed whole, so the draw can only return the signal it was
+        matched to -- see :func:`matched_random_signal`.
+        """
+        return sum(
+            int(self.starts[minute + 1] - self.starts[minute]) - int(count)
+            for minute, count in zip(minutes, counts, strict=True)
+        )
+
 
 def matched_random_signal(
     data: Dataset,
@@ -149,6 +160,12 @@ def matched_random_signal(
     For every minute-of-session at which the real rule fired, the same number of entries is
     drawn without replacement from all bars sharing that minute, across every trading day.
     The pool is deliberately not narrowed to in-session bars -- ``docs/roadmap.md`` §M7a.
+
+    **A signal dense enough to consume every pool it touches is refused rather than drawn**,
+    because the match would then have nothing left to randomise and each "null" realisation
+    would be the observation itself -- reported as a p-value of 1 and read as "indistinguishable
+    from random". OpeningRange is the archetype that reaches this: its trigger is a level that
+    persists, so it resubmits on every armed bar -- ``docs/roadmap.md`` §M28.1.
     """
     if signal.shape != (len(data),):
         msg: str = f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
@@ -168,6 +185,17 @@ def matched_random_signal(
 
     out: BoolArray = np.zeros(len(data), dtype=bool)
     wanted_minutes, wanted_counts = np.unique(grouped.minutes[signal], return_counts=True)
+    if not grouped.spare_bars(wanted_minutes, wanted_counts):
+        msg = (
+            f"the entry rule's {live} signals fill every bar of all {wanted_minutes.size} "
+            "minute-of-session pools they touch, so drawing without replacement can only "
+            "return the same signal and the "
+            "null would be the observation. A rule whose trigger is a level rather than an "
+            "event is dense by construction and needs a null over the level, not over the "
+            "bars -- docs/roadmap.md §M28.1."
+        )
+        raise RandomEntryError(msg)
+
     for minute, count in zip(wanted_minutes, wanted_counts, strict=True):
         out[rng.choice(grouped.pool_for(minute), size=count, replace=False)] = True
 

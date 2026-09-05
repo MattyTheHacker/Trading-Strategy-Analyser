@@ -495,3 +495,40 @@ def test_report_gives_one_row_per_statistic(prepared) -> None:
     frame = randomentry.report(got)
     assert list(frame["statistic"]) == list(randomentry.RATE_STATISTICS)
     assert {"verdict", "p_value", "percentile", "count_sensitive"} <= set(frame.columns)
+
+
+# -- the draw that cannot randomise anything -----------------------------------
+
+
+def test_a_signal_filling_every_pool_it_touches_is_refused_rather_than_drawn(prepared) -> None:
+    """Drawing without replacement from a pool the signal already fills returns that signal.
+
+    Left unguarded the null is the observation, reported as a p-value of 1 and read as
+    "indistinguishable from random". OpeningRange's trigger is a level rather than an event,
+    so it fires on every armed bar and reaches this -- ``docs/roadmap.md`` §M28.1.
+    """
+    data, _, _ = prepared
+    every_bar = np.ones(len(data), dtype=bool)
+
+    with pytest.raises(randomentry.RandomEntryError, match="same signal"):
+        randomentry.matched_random_signal(data, every_bar, np.random.default_rng(0))
+
+
+def test_a_sparse_signal_still_draws_and_still_moves(prepared) -> None:
+    """The guard must not fire for the archetypes it was not written for."""
+    data, _, signal = prepared
+
+    drawn = randomentry.matched_random_signal(data, signal, np.random.default_rng(0))
+
+    assert drawn.sum() == signal.sum()
+    assert not np.array_equal(drawn, signal), "the draw randomised nothing"
+
+
+def test_spare_bars_counts_the_room_the_draw_has(prepared) -> None:
+    """One bar short of saturation is still a legal draw, which is where the boundary is."""
+    data, _, _ = prepared
+    pool = randomentry.SessionMinutePool.build(data.index)
+    minutes, counts = np.unique(pool.minutes, return_counts=True)
+
+    assert pool.spare_bars(minutes, counts) == 0, "every bar of every minute is every bar"
+    assert pool.spare_bars(minutes, counts - 1) == len(minutes)

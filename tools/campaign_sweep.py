@@ -51,15 +51,21 @@ from nqbt import (
     regime,
     resample,
     results,
+    sessionrange,
     splice,
     sweep,
     timeofday,
+    trades,
     trend,
     volume,
 )
 from nqbt.arrays import float_column
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import (
+    ORB_STOP_ATR,
+    ORB_STOP_OPPOSITE,
+    ORB_TARGET_R,
+    ORB_TARGET_WIDTH,
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_SWING,
@@ -69,6 +75,7 @@ from nqbt.sim.types import (
     EmaCrossoverParams,
     InsideBarParams,
     InsideBarTrailingParams,
+    OpeningRangeParams,
     PullBackAndGoParams,
 )
 
@@ -234,6 +241,13 @@ class Variant:
     archetype: Archetype
     base: Params
     axes: dict[str, list[AxisValue]] = field(default_factory=dict)
+    resolutions: tuple[int, ...] = RESOLUTIONS
+    """Bar sizes this variant can be run at.
+
+    Every variant but the opening range's is expressible at all of them. A session-anchored
+    range is not: its anchor and its window must both be whole numbers of bars, so a 5-minute
+    range does not exist on 10-minute bars -- ``docs/roadmap.md`` §M28.
+    """
 
     def sized(self) -> int:
         """How many combinations this variant's own axes make."""
@@ -242,6 +256,10 @@ class Variant:
             total *= len(values)
 
         return total
+
+    def runs_at(self, minutes: int) -> bool:
+        """Whether this variant is expressible at one resolution."""
+        return minutes in self.resolutions
 
 
 def _costed(params: Params, root: str) -> Params:
@@ -388,6 +406,61 @@ def elasticband_variants(root: str) -> list[Variant]:
     ]
 
 
+ORB_WINDOWS = (5, 15, 30)
+"""Opening-range windows, the three every source means -- ``docs/roadmap.md`` §M28."""
+
+
+def orb_resolutions(window: int) -> tuple[int, ...]:
+    """Which campaign resolutions can express a cash-anchored range of ``window`` minutes.
+
+    Both the 930-minute anchor and the window have to be whole numbers of bars, which is why
+    this is computed rather than written down: 5-minute ranges survive at two resolutions of
+    the five and 30-minute ranges at all of them.
+    """
+    return tuple(
+        minutes
+        for minutes in RESOLUTIONS
+        if sessionrange.CASH_OPEN_MINUTES % minutes == 0 and window % minutes == 0
+    )
+
+
+def openingrange_variants(root: str) -> list[Variant]:
+    """One variant per (window, stop, target), because each triple reads axes the others do not.
+
+    The window has to be a variant rather than an axis: it decides which resolutions the range
+    exists at, and a sweep crosses its axes uniformly across every axis point.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "entry_offset_ticks": [1, 4],
+        "max_entries_per_session": [1, 0],
+    }
+    stops: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
+        "stop=opposite": (ORB_STOP_OPPOSITE, {"stop_offset_ticks": [1, 8]}),
+        "stop=atr": (ORB_STOP_ATR, {"atr_stop_multiple": [1.0, 2.0]}),
+    }
+    targets: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
+        "target=R": (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]}),
+        "target=width": (ORB_TARGET_WIDTH, {}),
+    }
+
+    return [
+        Variant(
+            name=f"window={window}m {stop_name} {target_name}",
+            archetype=archetypes.OPENINGRANGE,
+            base=_costed(
+                OpeningRangeParams(window_minutes=window, stop_mode=stop_mode, target_mode=target_mode),
+                root,
+            ),
+            axes={**shared, **stop_axes, **target_axes},
+            resolutions=orb_resolutions(window),
+        )
+        for window in ORB_WINDOWS
+        for stop_name, (stop_mode, stop_axes) in stops.items()
+        for target_name, (target_mode, target_axes) in targets.items()
+    ]
+
+
 VARIANTS = {
     "DeadCatBounce": deadcat_variants,
     "PullBackAndGo": pullback_variants,
@@ -395,6 +468,7 @@ VARIANTS = {
     "InsideBar": insidebar_variants,
     "InsideBarTrailing": insidebartrailing_variants,
     "ElasticBand": elasticband_variants,
+    "OpeningRange": openingrange_variants,
 }
 """Archetype name -> the variants swept for it, built per root so costs are the root's."""
 
@@ -533,8 +607,9 @@ def planned_combinations(argv: argparse.Namespace) -> int:
     cells: int = len(list(strata(argv.strata, cell_shape(argv))))
     for name in argv.strategies:
         for root in argv.roots:
-            per_stratum: int = sum(variant.sized() for variant in VARIANTS[name](root))
-            per_window += per_stratum * cells * len(argv.resolutions)
+            for variant in VARIANTS[name](root):
+                live: int = sum(1 for minutes in argv.resolutions if variant.runs_at(minutes))
+                per_window += variant.sized() * cells * live
 
     return per_window * (2 if argv.split else 1)
 
@@ -631,10 +706,16 @@ def main(argv: list[str]) -> int:
             fitted: dict[int, Calibration] = fit_regime(bars, args)
             for window, source in windows(bars, split=args.split):
                 for minutes in args.resolutions:
+                    # A variant the resolution cannot express is skipped rather than raising:
+                    # the opening range is the only one this can drop -- see Variant.resolutions.
+                    at_resolution: list[Variant] = [v for v in variants if v.runs_at(minutes)]
+                    if not at_resolution:
+                        continue
+
                     frame: pd.DataFrame = resample.resample(source, minutes)
                     run_point(
                         frame,
-                        variants,
+                        at_resolution,
                         root,
                         minutes,
                         window,
