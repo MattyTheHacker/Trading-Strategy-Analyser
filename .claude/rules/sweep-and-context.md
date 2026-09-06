@@ -108,7 +108,16 @@ paths:
   under the source that does not read it runs identical combinations silently.
 - **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
   `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
-  caught. Sweeping the window under a per-bar form runs identical combinations.
+  caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes
+  through `volume.key`** wherever a sweep crosses the form with the window — it drops the window
+  from every form that does not read it, so the axis cannot vary where it is inert;
+  `campaign_sweep._volume_axes` is the shape.
+- **A raw volume threshold pair is not one cut either**, for the same reason a raw regime
+  threshold is not. 0.7/1.5 admits 28% of bars under `PER_BAR` and 8% under `ROLLING` on the same
+  series, and the share moves with the bar size within a form too, so cells cut by it cannot be
+  read against each other across either axis. State the cut with
+  `volume.thresholds_from_quantiles`, fitted on the selection window alone, and carry the tail
+  size in the stratum name rather than crossing it with the thresholds. `docs/roadmap.md` §M27.8.
 - **A session range is stored per session, not per bar.** `sessionrange.SessionRangeGrid` holds
   the levels as `[n_keys, n_sessions]` and only the armed flag per bar, read through a per-bar
   `session_id`. Stamping the level per bar instead costs 16 bytes a bar **per window**, which

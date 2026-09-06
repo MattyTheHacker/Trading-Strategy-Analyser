@@ -883,6 +883,7 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 
 #### What the campaign could not test
 
+- **Time of day and relative volume were swept as entry filters and never reported.** Seven phases and three volume states went into the sweep and one pooled row per stratum came out; no time-of-day or volume finding reached this section at all. That is not the same defect as the bullet below, which is about the *split* — these cells had full-window numbers nobody read. §M27.7 and §M27.8 are the read, and both turned up something the report as it stood could not have shown: a stratum that is empty by construction, and a stratification whose ranking is decided by where it cut.
 - **Sixteen of the twenty strata were never held out.** Session phase, relative volume, trend label and higher-timeframe side had full-window numbers only. [#199] has since run them through the split — §M27.4, which is where those cells' numbers now live.
 - **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the campaign. [#200] carries it, and **not** by loosening the threshold to restore the sample: the cut is uncalibrated rather than merely tight (§M10.1), and choosing it by the trade count it leaves would pick the stratum's definition from the statistic the stratum is about to be tested on. §M27.5 is where it landed — the threshold restated as a quantile of the ratio's own distribution, and the sample restored at 5 minutes and not at 15. The infinite profit factors seen alongside were a separate defect ([#218]), fixed in § "Reading the per-contract tally".
 - **The held-out split is a single time cut** at 60% of the bars, so it tests one regime transition rather than many. The two roots track the same index over the same dates, so the thirty-eight per-contract samples are not thirty-eight independent ones.
@@ -892,7 +893,7 @@ Only **one cell of InsideBar's holdout** has a majority of configurations finish
 
 #### The tools, and why there are five databases
 
-`tools/campaign_sweep.py` runs the sweep — `--strata core|context|regime|phase|volume|trend|htf|all` so a later pass appends the dimensions an earlier one skipped, and `--split` for the selection and holdout windows. `tools/campaign_report.py` produces the distribution tables and the η² figures, `tools/campaign_holdout.py` the held-out test, and `tools/campaign_null.py` and `tools/campaign_contracts.py` the matched null on the continuous holdout and per contract. `tools/campaign_shortlist.py` is the trade-log path: the sweep stores summary rows only, so a bootstrap, a permutation test or a time-of-day review gets its per-trade vector by re-running a shortlisted row with `keep_trades=True` and storing the log under the same `(sweep_id, combo_id)` the summary carries. `tools/campaign_walkforward.py` and `tools/campaign_montecarlo.py` are the fifth gate — §M27.6.
+`tools/campaign_sweep.py` runs the sweep — `--strata core|context|regime|phase|volume|volume-forms|trend|htf|all` so a later pass appends the dimensions an earlier one skipped, and `--split` for the selection and holdout windows. `tools/campaign_report.py` produces the distribution tables and the η² figures, `tools/campaign_holdout.py` the held-out test, and `tools/campaign_null.py` and `tools/campaign_contracts.py` the matched null on the continuous holdout and per contract. `tools/campaign_shortlist.py` is the trade-log path: the sweep stores summary rows only, so a bootstrap, a permutation test or a time-of-day review gets its per-trade vector by re-running a shortlisted row with `keep_trades=True` and storing the log under the same `(sweep_id, combo_id)` the summary carries. `tools/campaign_walkforward.py` and `tools/campaign_montecarlo.py` are the fifth gate — §M27.6, and `tools/campaign_review.py` reads a shortlist's own trades by the clock — §M27.7.
 
 **One DuckDB per archetype**, under `results/campaign/`. At the time, `results._append_or_create` wrote `combos` by name and silently dropped a column the table did not have, so six parameter classes could not share one table — appending an `InsideBarParams` row to a table created from `DeadCatParams` would have stored it with `error_margin`, `atr_length` and `atr_multiplier` thrown away and nothing would have said so. [#201] closed that: the table widens instead, so the split is now a convention rather than a constraint, and the campaign keeps it because its results are already there.
 
@@ -1151,6 +1152,213 @@ So `Grid` takes the combinations outright: `Grid.of_combinations` sets `combos` 
 **`randomentry.py` looks like this machinery and is not**, which is the confusion worth pre-empting: it draws hundreds of samples per comparison, but it replaces the *entry* and holds the geometry and the ordering fixed. These two take the entries as given and can therefore never separate "worse than random" from "no better than random". The two arms are complementary and a run needs both; a figure quoted from here without the null beside it is half an argument.
 
 A configuration with no stored log is named and skipped rather than dropped, because a report resampling four of twenty rows reads exactly like one resampling all twenty.
+
+### M27.7 — time of day: swept, never read, and the artefact is in the wrong phase ([#205])
+
+Seven session phases went into the §M27 campaign as an entry filter. **One pooled row per phase came out, and no time-of-day finding reached §M27 at all** — the numbers have been in `results/campaign/*.duckdb` since, and nobody had looked. What follows is that read, plus the two mechanisms it turned up, both of which would have been invisible in the report as it stood.
+
+#### What could not be read, and what now produces it
+
+`tools/campaign_report.py` stopped at `profile(frame, ["stratum"])`: one row per stratum, pooled over root, resolution and variant, and **nothing else in the report was phase-aware** — the η² table and the variant table both read the `unfiltered` stratum alone. It now reads every dimension the stored strata hold, **one dimension at a time and cut by resolution rather than pooled over it**, because bar size is the largest lever in the campaign and a figure taken across resolutions reports that instead of the dimension. `dimension_of` reads the dimension off the stratum name, so a database gains its tables by having the rows rather than by anyone adding a case.
+
+`session_close_share` and `ambiguous_share` are now columns of **every** table rather than an option, for the reason `CONTRIBUTING.md` § "Statistics and results" already gives: an optional column that a coarse-resolution or late-session result is read wrong without is a column nobody adds.
+
+The other half was never touched at all. Filtering entries to a phase and re-running the grid answers *does this work if it only trades then*; `nqbt/review.py` answers *when did these trades actually happen, and what was true when they did*, and **no tool in `tools/` called `review`, `annotate` or `guard`**. `tools/campaign_review.py` is that call, over the logs [#215] made storable: `review.time_of_day` in session order with both forms of volume beside it, and `guard.guard` over the clock and the three volume labels as one family.
+
+#### InsideBar's `CLOSE` stratum is empty by construction, and the campaign could not say so
+
+**4,320 rows per window, every one of them zero trades**, at every resolution and on both roots. Not thin — empty, and empty everywhere.
+
+The cause is the archetype's own rule. `InsideBarParams.no_entry_minutes_before_close` is 60, which is `InsideBar.cs`'s own hour, and `SessionPhase.CLOSE` is 16:00–17:00 ET against a 17:00 ET close. **The stratum and the guard are the same hour**, so the cell could never hold a trade. InsideBarTrailing is the control that proves it rather than a second guess: the same entry with `no_entry_minutes_before_close = 0`, and 3,456 viable `CLOSE` combinations.
+
+Viable combinations — 30 trades or more, full window, both roots — per phase:
+
+| strategy          | OVERNIGHT | LONDON | PRE_OPEN | CASH_OPEN | MIDDAY | AFTERNOON | CLOSE  |
+| ----------------- | --------- | ------ | -------- | --------- | ------ | --------- | ------ |
+| DeadCatBounce     | 2,871     | 2,784  | 2,550    | 1,608     | 2,676  | 2,265     | 1,530  |
+| PullBackAndGo     | 1,917     | 1,840  | 1,767    | 1,249     | 1,833  | 1,712     | 979    |
+| EmaCrossover      | 10,240    | 10,240 | 10,240   | 10,240    | 10,240 | 10,240    | 10,020 |
+| InsideBar         | 4,320     | 4,320  | 4,320    | 4,320     | 4,320  | 4,320     | **0**  |
+| InsideBarTrailing | 4,320     | 4,320  | 4,320    | 4,320     | 4,320  | 4,320     | 3,456  |
+| ElasticBand       | 5,232     | 5,184  | 5,136    | 5,232     | 4,992  | 5,040     | 4,592  |
+| OpeningRange      | **0**     | **0**  | **0**    | 1,920     | 1,920  | 1,920     | 1,920  |
+
+**Nothing in the sweep is wrong here; the rows are correct.** What was wrong is that a report reading only viable rows cannot tell *structurally empty* from *below the trade floor*, and both leave the table the same way. OpeningRange's three zeros are the same shape from the other side and are equally invisible: a cash-anchored range cannot arm before 09:30, so three of the seven phases are unreachable by construction rather than unprofitable.
+
+**The stratification is therefore not seven cells everywhere, and a phase count is not a sample size.** Read the viability table before reading any phase result.
+
+#### The forced flat is in AFTERNOON, not CLOSE
+
+§M10.4 predicted that the last phase would look anomalous because it holds the forced flat, measured `session_close_share` at 0.0016 on `CLOSE` against 0.0001 overall at 1 minute, and said to expect it to matter at 15 and 30 minutes. **It was right that it grows and wrong about where it lands.** InsideBar, full window, median `session_close_share` by phase and resolution:
+
+| phase     | 1m    | 2m    | 5m    | 10m   | 15m       |
+| --------- | ----- | ----- | ----- | ----- | --------- |
+| OVERNIGHT | 0.001 | 0.002 | 0.007 | 0.025 | 0.051     |
+| LONDON    | 0.000 | 0.001 | 0.014 | 0.023 | 0.063     |
+| PRE_OPEN  | 0.003 | 0.006 | 0.028 | 0.055 | 0.089     |
+| CASH_OPEN | 0.038 | 0.105 | 0.146 | 0.227 | 0.240     |
+| MIDDAY    | 0.043 | 0.093 | 0.177 | 0.298 | 0.355     |
+| AFTERNOON | 0.128 | 0.187 | 0.278 | 0.404 | **0.449** |
+
+**The stratification is by *entry* phase, and the clock closes the position that was entered earlier.** A trade taken in the afternoon on 15-minute bars is the one still open at 17:00; a trade taken in the `CLOSE` hour barely exists for this archetype and cannot exist at all for InsideBar. So the phase that carries the artefact is the one two hours *before* the flatten, and it gets worse with bar size exactly as §M10.4 expected the last phase to.
+
+Pooled over 5, 10 and 15 minutes, the same column across the archetypes that do trade in `CLOSE`:
+
+| phase     | DeadCatBounce | PullBackAndGo | EmaCrossover | InsideBarTrailing | ElasticBand | OpeningRange |
+| --------- | ------------- | ------------- | ------------ | ----------------- | ----------- | ------------ |
+| MIDDAY    | 0.000         | 0.000         | 0.208        | 0.429             | 0.160       | 0.357        |
+| AFTERNOON | 0.000         | 0.005         | 0.419        | 0.566             | 0.523       | 0.607        |
+| CLOSE     | 0.122         | 0.250         | 0.877        | 0.893             | 0.878       | 0.809        |
+
+`CLOSE` is 0.88 for every archetype that holds a position for any length of time, which is §M10.4's prediction confirmed at the resolutions it could not reach. But **the contamination is a hold-time × bar-size property rather than a phase property**: DeadCatBounce and PullBackAndGo hold for minutes and read zero everywhere but `CLOSE`, while the three archetypes that hold longer are half clock in the afternoon. `FORCED_EXIT_PHASE` names the phase the flatten falls in and that is not the same thing as the phase whose results the flatten decides.
+
+**The consequence for InsideBar is direct: the two phases with the best median profit factor at 5 and 10 minutes are the two most contaminated.** AFTERNOON medians 1.131 at 5 minutes and 1.097 at 10 with 28% and 40% of its legs closed by the clock; MIDDAY medians 1.169 and 1.024 with 18% and 30%. Neither is a claim about the hour until the exits are attributed, which is what the `session_close_share` column now sitting beside them exists to force.
+
+#### Against a matched random entry, the edge is in the quiet phases
+
+`tools/campaign_null.py` already took `--stratum` and had been run for `unfiltered` and the three regimes only. Per phase, best configuration on the selection window, measured on the holdout against a matched random entry — 200 draws, both roots:
+
+| phase     | root | bars | trades | PF    | null  | excess     | p         | expectancy p |
+| --------- | ---- | ---- | ------ | ----- | ----- | ---------- | --------- | ------------ |
+| OVERNIGHT | MNQ  | 15m  | 292    | 1.385 | 0.865 | **+0.520** | **0.030** | **0.010**    |
+| OVERNIGHT | NQ   | 15m  | 259    | 1.116 | 0.889 | +0.227     | 0.239     | 0.219        |
+| LONDON    | MNQ  | 10m  | 183    | 1.517 | 0.904 | **+0.613** | **0.050** | **0.030**    |
+| LONDON    | NQ   | 10m  | 182    | 1.447 | 0.935 | **+0.512** | **0.040** | **0.040**    |
+| PRE_OPEN  | MNQ  | 5m   | 281    | 0.907 | 0.842 | +0.065     | 0.796     | 0.786        |
+| PRE_OPEN  | NQ   | 5m   | 239    | 0.919 | 0.971 | −0.052     | 0.925     | 0.925        |
+| CASH_OPEN | MNQ  | 5m   | 87     | 1.062 | 1.112 | −0.050     | 0.915     | 0.945        |
+| CASH_OPEN | NQ   | 5m   | 81     | 1.100 | 1.009 | +0.090     | 0.846     | 0.806        |
+| MIDDAY    | MNQ  | 10m  | 129    | 0.892 | 0.970 | −0.078     | 0.726     | 0.736        |
+| MIDDAY    | NQ   | 10m  | 127    | 0.905 | 0.978 | −0.073     | 0.697     | 0.697        |
+| AFTERNOON | MNQ  | 15m  | 59     | 0.674 | 0.963 | −0.290     | 0.289     | 0.259        |
+| AFTERNOON | NQ   | 5m   | 138    | 0.968 | 0.948 | +0.020     | 0.955     | 0.955        |
+
+`CLOSE` has no row on either root: with no viable stored configuration there is nothing to rebuild, which is the empty stratum arriving in the null as an absence rather than as a zero.
+
+**LONDON is the only phase whose entry beats a matched random entry on both roots**, and OVERNIGHT does it on one. Both are phases with essentially no forced-flat contamination — `session_close_share` of 0.014–0.063 in the table above. **Every phase in the second half of the session is at or below its null**, including the two whose median profit factor looked best.
+
+Three things travel with that and none of them is optional. **Twelve cells were measured and the phase was chosen by looking**, so a nominal 0.04 is not a family-wise 0.04; at a Bonferroni threshold over twelve, nothing here clears. **Each row is its own configuration**, best-on-selection within that phase, so the table compares phases at different parameters and different bar sizes rather than one strategy across the session. And **`AFTERNOON` on MNQ rests on 59 trades**, which is below the floor everything else in the campaign is held to.
+
+#### Over the survivor's own trades, the clock separates and does not hold
+
+The other question needs the log rather than the grid. `tools/campaign_review.py` over the top unfiltered configuration at 5 minutes, on its own selection window, 2,000 label shuffles, separation in expectancy:
+
+| root | legs  | separation | best      | worst  | p     | family p |
+| ---- | ----- | ---------- | --------- | ------ | ----- | -------- |
+| MNQ  | 2,413 | 87.5       | cash_open | london | 0.112 | 0.125    |
+| NQ   | 2,240 | 1,023.7    | cash_open | london | 0.059 | 0.065    |
+
+**The clock does not separate this configuration's trades beyond what shuffling the labels produces**, on either root, and the holdout is worse than the null: the best in-sample phase, `cash_open`, is the **worst** out of sample on both roots, and the worst in-sample phase is not the worst out of sample either. §M27.8 has the same screen with the three volume labels beside it, which is where the two halves are read together.
+
+**This does not contradict the per-phase null above**, and the difference is worth being explicit about because the two tables point opposite ways. The null asks whether the *entry* beats a random entry inside one phase, at that phase's own best parameters; the screen asks whether one configuration's realised P&L differs *between* phases. A strategy can beat a random entry everywhere it trades and still have no phase better than another.
+
+#### A simulated log does not always fit inside its own bars
+
+The review could not run at all until this was understood, and it is a finding rather than a nuisance. `nqbt/annotate.py` checks every fill price against the bar it matched, because that is the one test that catches a back-adjusted series, and `price_tolerance` is documented as admitting a simulated run's slippage and nothing wider. On the shortlist above it refuses: **23 of 2,413 legs land outside their exit bar, every one of them a `target` exit, by up to 17.25 points against a one-tick slippage.** Entry fills are all within the tick.
+
+The cause is a profit target that a bar gapped through. On the first of them the previous bar closes at 15,225.75, the target sits at 15,219.00 and the exit bar opens at 15,201.75 and never trades above it — and the simulation fills at the target price. `docs/nt8-fidelity.md` has the matching rule for the other side, "A stop fills at the open when the bar gaps through it", established against a real trade list; **there is no such rule recorded for a limit**, so whether NT8 fills a gapped-through target at the target or at the open is untested. [#244] carries it.
+
+**All 23 fall before the continuous series' first roll**, which is what stops this being alarming. The spliced series begins on the earliest cached contract's *own* pre-roll bars — MNQ 03-22 from 2021-09-19 — because there is nothing older to splice, and a deferred contract barely trades. Every gap of that size is that thin leading span. Measured over the whole front-month series under the reconciled configurations of all four C#-backed archetypes, on both roots, the case is **17 instances across 11 contracts, and every one of them is a point or less**. It is real, rare and small wherever the data is a market rather than a coverage boundary.
+
+That also says why the stored exports cannot settle it. Across all five NT8 trade lists on this machine there are **3,043 target exits whose entry price, exit time and exit reason all agree with nqbt's — and not one of them is a gapped-through target**, because each reconciliation window is a front-month period and the case needs the deferred bars NT8 will not serve for its own contract. Same shape as the gapped-*stop* rule surviving the first reconciliation: a window is evidence about the bars it contains and nothing else. [#244] names the export that would contain it.
+
+Until it is settled `tools/campaign_review.py` takes `--price-tolerance`, defaulting to the run's own slippage and printing any widening. The numbers above were taken at 20 points, which admits every one of the 23 and is still two orders of magnitude below the offset a back-adjusted series would show — the guard survives the widening, which is the only reason it is acceptable. **The better fix is to start a review after the first roll rather than to widen anything**, and it is not taken here because §M27's windows are shares of the whole series and moving them would make this section's numbers incomparable with §M27.4's.
+
+#### What the clock does not settle
+
+- **The per-phase null is not family-wise.** Twelve cells, the phase chosen after looking. `nqbt/guard.py` is the family-wise machinery and it works over a trade log rather than over a grid, so the two tables above answer at different levels and neither covers the other's.
+- **`bar_of_session` is still unread.** Seven phases is the coarsest cut available, chosen so seven against five regimes stayed at 35 cells (§M10.4). The finer clock is on the dataset and stratifying by it is a multiple-comparisons decision rather than a free improvement.
+- **The forced-exit map is one archetype's per resolution.** The cross-archetype table is pooled over 5, 10 and 15 minutes, so it shows that the effect is a hold-time property and not how it scales for each of them.
+- **Nothing here re-runs a sweep.** Every number in this section comes out of the databases §M27 and §M27.4 already wrote; what changed is that they are now read.
+
+### M27.8 — volume: one form, one cut, and the answer is the cut's ([#206])
+
+The §M27 campaign's volume stratum was three values of one field. `_volume()` yielded `{"volume_filter": [state.bit]}` per state and moved nothing else, so **every volume row in every campaign database was produced at the `sim/types.py` defaults** — the `PER_BAR` form, a 30-bar window, a 20-session baseline and the thresholds 0.7 and 1.5. The five other volume axes never moved, and like session phase the result was never reported: §M27 contains no volume finding either.
+
+#### The raw pair is a different cut under each form, and at each resolution
+
+§M10.2 says the thresholds "are conventional starting points, not a calibration" and predicted they would want different values at coarser bars. Measured on the selection window, the share of labelled bars each tail admits:
+
+| root | bars | form            | below 0.7 | above 1.5 | fitted q20 | fitted q80 |
+| ---- | ---- | --------------- | --------- | --------- | ---------- | ---------- |
+| MNQ  | 1m   | per bar         | 27.3%     | 28.2%     | 0.602      | 1.828      |
+| MNQ  | 1m   | rolling 30      | 17.5%     | 19.6%     | 0.727      | 1.487      |
+| MNQ  | 1m   | session to date | 12.9%     | 14.5%     | 0.771      | 1.358      |
+| MNQ  | 15m  | per bar         | 20.2%     | 22.3%     | 0.697      | 1.577      |
+| MNQ  | 15m  | rolling 30      | 11.5%     | 12.7%     | 0.788      | 1.317      |
+| MNQ  | 15m  | session to date | 13.0%     | 15.4%     | 0.770      | 1.376      |
+| NQ   | 15m  | per bar         | 19.2%     | 18.9%     | 0.708      | 1.469      |
+| NQ   | 15m  | rolling 30      | 9.5%      | 8.2%      | 0.807      | 1.252      |
+| NQ   | 15m  | session to date | 11.8%     | 11.8%     | 0.786      | 1.290      |
+
+**`HEAVY` is a 28%-of-bars population under one form and an 8%-of-bars population under another, at the same two numbers.** [#206]'s own premise — that 0.7 and 1.5 place roughly a fifth to a third of bars in each tail — is right for the per-bar form and wrong by a factor of three for the other two. The cut also moves with the bar size *within* a form, which is the defect §M27.5 records for the regime threshold arriving in a second place: cells cut by a raw pair cannot be read against each other across either axis.
+
+So the thresholds are stated the way §M27.5 states the regime's — `volume.thresholds_from_quantiles`, fitted per (root, resolution, form) on the selection window alone, with the tail size as a cell dimension rather than an axis because the thresholds move with it. `--strata volume-forms` crosses three forms, three tail sizes and three states into 27 cells, and `volume.key` drops the rolling window from every form that does not read it, so the axis does not vary where it is inert — the `dead_axes` blind spot avoided by construction rather than rediscovered. It is a **re-cut** of the volume dimension rather than a new one, so `--strata all` leaves it out, as it already leaves out `directional`.
+
+#### Which state helps is decided by the form and the cut, not by volume
+
+InsideBar, 5-minute bars, selection window, both roots, 864 combinations per cell — median profit factor and the share of combinations that made money:
+
+| state  | per bar 10/90 | per bar 20/80 | per bar 33/67 | rolling 10/90 | rolling 20/80 | rolling 33/67  | to date 10/90 | to date 20/80    | to date 33/67 |
+| ------ | ------------- | ------------- | ------------- | ------------- | ------------- | -------------- | ------------- | ---------------- | ------------- |
+| THIN   | 0.883 / 23%   | 0.971 / 39%   | 1.047 / 66%   | 0.781 / 8%    | 0.902 / 11%   | 0.858 / **0%** | 0.875 / 14%   | 0.823 / 2%       | 0.958 / 40%   |
+| NORMAL | 1.055 / 84%   | 1.035 / 75%   | 0.986 / 40%   | 1.067 / 94%   | 1.054 / 82%   | 1.098 / 97%    | 1.070 / 92%   | **1.134 / 100%** | 1.084 / 69%   |
+| HEAVY  | 1.001 / 50%   | 1.038 / 64%   | 1.008 / 55%   | 0.992 / 49%   | 1.012 / 54%   | 1.051 / 73%    | 0.891 / 27%   | 0.935 / 30%      | 1.021 / 61%   |
+
+The unfiltered control in the same cell is 1.032 with 71% profitable.
+
+**Under the per-bar form `THIN` is the worst state at a tenth-tail and the best at a third-tail**, moving 0.883 → 1.047 while nothing but the cut changes. **Under the rolling form `THIN` is the worst state at every tail**, and at a third-tail not one of 864 combinations made money. `NORMAL` — the state that is not an extreme at all — is the best cell under two of the three forms at every tail, and its best cell has every one of its 864 combinations profitable.
+
+**That is the answer to which of the three statements the survivor's edge belongs to: none of them.** The stored campaign reading is not reproduced at a fitted cut of its own form — §M27's `volume=THIN` is the best of its three states at 5 minutes (1.038, 66% profitable), and at the 20/80 fit of the same per-bar form `THIN` is 0.971 with 39% profitable while `HEAVY` is the best. A stratification whose ranking inverts when the cut moves three percentage points is reporting the cut.
+
+#### Held out, and it is a coin flip
+
+Every cell through §M27.4's test — best 20 on the selection window, measured on the holdout, per root and per stratum, never pooled.
+
+**16 of the 31 volume cells pass on both roots, and not one of them clears the drawdown check on either.** Passing is not stable within a state or within a form: `HEAVY` under the per-bar form passes at all three tails, under the rolling form at one of three, and under the session-to-date form at one of three. `NORMAL` under the per-bar form passes at one of three. Unfiltered passes too, on both roots, and also fails the drawdown check — so no volume cell buys anything the baseline did not already have.
+
+Read against §M27.3, this is the same verdict from a second direction: **what stops InsideBar is the bracket, and no cut of the volume axis reaches it.** The drawdown column is failed by all 31 cells and by the unfiltered baseline alike.
+
+#### The clock and the volume label over the survivor's own trades
+
+`tools/campaign_review.py` over the top unfiltered configuration at 5 minutes, its own selection-window log, 2,000 label shuffles, separation in expectancy — 2,413 legs on MNQ, 2,240 on NQ:
+
+| condition                | separation MNQ | p MNQ     | family p MNQ | separation NQ | p NQ      | family p NQ |
+| ------------------------ | -------------- | --------- | ------------ | ------------- | --------- | ----------- |
+| `entry_phase`            | 87.5           | 0.112     | 0.125        | 1,023.7       | 0.059     | 0.065       |
+| volume state, per bar    | 57.6           | **0.043** | 0.595        | 761.7         | **0.010** | 0.295       |
+| volume state, rolling 30 | 50.2           | 0.135     | 0.769        | 443.9         | 0.269     | 0.902       |
+| volume state, to date    | 28.0           | 0.552     | 0.994        | 750.2         | **0.036** | 0.316       |
+
+**The three forms disagree about their own significance over one set of trades.** The per-bar form reaches a nominal p of 0.043 and 0.010, the rolling form nothing on either root, and the session-to-date form on one root only. Same trades, three views, three answers — §M10.2's decomposition finding restated as a p-value, and the reason a form cannot be chosen once and then reported as a fact about volume.
+
+**Nothing survives the family-wise null.** Once the four conditions are shuffled together the smallest family p is 0.295. The holdout half is where the two questions part: the volume label's direction holds out on both roots under the per-bar form — `heavy` above `thin` in and out of sample — while `entry_phase`'s does not, its best in-sample stratum `cash_open` being the worst out of sample on both roots. **The clock separates and does not hold; the volume label holds and does not separate.**
+
+#### Absolute volume, which is the half a profit factor cannot see
+
+§M10.2 settled that absolute volume is carried and never filtered on, and this does not reopen it. What it is for is the question no relative measure can answer, and the review reports it beside the clock. Median contracts in the entry bar of the same configuration:
+
+| phase     | MNQ per bar | NQ per bar | MNQ session to date | NQ session to date | MNQ trades |
+| --------- | ----------- | ---------- | ------------------- | ------------------ | ---------- |
+| OVERNIGHT | 923         | 364        | 40,736              | 18,486             | 946        |
+| LONDON    | 1,990       | 836        | 122,945             | 52,385             | 436        |
+| PRE_OPEN  | 2,967       | 1,341      | 202,074             | 91,350             | 291        |
+| CASH_OPEN | 21,224      | 11,545     | 388,930             | 199,656            | 154        |
+| MIDDAY    | 9,367       | 5,400      | 739,349             | 382,144            | 372        |
+| AFTERNOON | 8,612       | 5,408      | 1,079,614           | 540,453            | 214        |
+
+**The survivor takes 39% of its trades in the phase with 4% of the cash open's depth.** A 5-minute overnight bar trades 923 MNQ contracts at the median against 21,224 at the open — a 23× difference that no profit factor in the campaign reports, and the phase carrying it holds twice the trades of any other.
+
+That is a statement about where the trades are and not a fill model: bar volume bounds what could have traded and says nothing about the book. At one to four contracts the constraint is not binding anywhere in the table, and it is a fifth of a median overnight bar at 200 lots; where between those it starts to bite is not something these tables can say.
+
+**On NQ against MNQ it settles the half of the comparison that is not arithmetic.** NQ trades roughly half MNQ's contract count in every phase and each contract is worth ten times as much, so **NQ is the deeper market by about 5.4× in notional** — 11,545 NQ contracts against 21,224 MNQ ones at the open. §M27 found NQ ahead on arithmetic rather than edge; this points the same way for a different reason.
+
+#### What the volume axis does not settle
+
+- **One archetype.** The form and threshold sweep was run for InsideBar on both roots at all five resolutions, and the other six archetypes' volume rows are still the single cut. Their re-run is a flag rather than a change: `--strata volume-forms --volume-quantiles`.
+- **The baseline window never moved.** `volume_baseline_sessions` is still 20 everywhere and `volume_rolling_bars` still 30 under the one form that reads it. Both are axes and neither has been swept; the form and the cut are the two [#206] argued were load-bearing.
+- **Three tail sizes is not a calibration either.** A tenth, a fifth and a third are stated ahead of the sweep rather than fitted, exactly as §M27.5's pair is. What the fit buys is that a cell means the same share of bars under every form and at every bar size, not that the share chosen is the right one.
+- **The family-wise null is over four conditions, not over the 31 cells.** The screen above asks whether the clock or a volume label separates one configuration's trades. Whether the best of 31 held-out cells beats the best of 31 draws is a different test and has not been run.
 
 ### M28 — the opening range: what "ORB" actually names, and what of it is expressible ([#235])
 
@@ -2099,7 +2307,10 @@ ______________________________________________________________________
 [#200]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/200
 [#201]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/201
 [#203]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/203
+[#205]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/205
+[#206]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/206
 [#208]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/208
+[#215]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/215
 [#218]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/218
 [#221]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/221
 [#23]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/23
@@ -2108,6 +2319,7 @@ ______________________________________________________________________
 [#236]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/236
 [#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
+[#244]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/244
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28

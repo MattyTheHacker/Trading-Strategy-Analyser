@@ -54,6 +54,7 @@ __all__ = [
     "VolumeKey",
     "VolumeState",
     "absolute_form",
+    "describe_key",
     "describe_mask",
     "gate",
     "key",
@@ -62,9 +63,11 @@ __all__ = [
     "session_ids",
     "states_in",
     "states_mask",
+    "thresholds_from_quantiles",
     "validate_baseline_sessions",
     "validate_form",
     "validate_mask",
+    "validate_quantiles",
     "validate_rolling_bars",
     "validate_thresholds",
     "volume_grid",
@@ -177,6 +180,14 @@ def describe_mask(mask: int) -> str:
     return "+".join(s.name for s in states_in(mask))
 
 
+def describe_key(wanted: VolumeKey) -> str:
+    """Name one series by what determines it, carrying the window only where it has one."""
+    form: VolumeForm = VolumeForm(wanted.form)
+    window: str = f"_{wanted.rolling_bars}" if form is VolumeForm.ROLLING else ""
+
+    return f"{form.name.lower()}{window}_{wanted.baseline_sessions}"
+
+
 def validate_form(form: int) -> VolumeForm:
     """Resolve a form to its enum member, naming the legal ones when it is not one."""
     try:
@@ -228,6 +239,47 @@ def validate_thresholds(thin_below: float, heavy_above: float) -> None:
             "which would put a bar in both states at once"
         )
         raise VolumeError(msg)
+
+
+def validate_quantiles(thin_quantile: float, heavy_quantile: float) -> None:
+    """Reject quantiles outside 0-1, or a pair that would put a bar in two states at once."""
+    if not 0.0 <= thin_quantile <= 1.0:
+        msg: str = f"thin_quantile must lie in 0..1, got {thin_quantile}"
+        raise VolumeError(msg)
+
+    if not 0.0 <= heavy_quantile <= 1.0:
+        msg = f"heavy_quantile must lie in 0..1, got {heavy_quantile}"
+        raise VolumeError(msg)
+
+    if thin_quantile > heavy_quantile:
+        msg = (
+            f"thin_quantile {thin_quantile} exceeds heavy_quantile {heavy_quantile}, "
+            "which would cross the thresholds they fit"
+        )
+        raise VolumeError(msg)
+
+
+def thresholds_from_quantiles(
+    values: FloatArray,
+    thin_quantile: float,
+    heavy_quantile: float,
+) -> tuple[float, float]:
+    """Both thresholds as quantiles of the ratios in ``values``, unlabelled bars excluded.
+
+    A raw pair is a different share of bars under each form and at each resolution, so cells cut
+    by one cannot be read against each other -- ``docs/roadmap.md`` §M27.8. Fit on the selection
+    window alone: fitting on the whole series leaks the holdout.
+    """
+    validate_quantiles(thin_quantile, heavy_quantile)
+    measured: FloatArray = np.asarray(values, dtype=np.float64)
+    measured = measured[np.isfinite(measured)]
+    if measured.size == 0:
+        msg: str = "no measured relative volume to take a quantile of; every bar is undefined"
+        raise VolumeError(msg)
+
+    cuts: FloatArray = np.quantile(measured, [thin_quantile, heavy_quantile])
+
+    return float(cuts[0]), float(cuts[1])
 
 
 def key(form: int, rolling_bars: int, baseline_sessions: int) -> VolumeKey:
@@ -580,6 +632,18 @@ class VolumeGrid:
     def relative_for(self, wanted: VolumeKey) -> FloatArray:
         """Read one series' relative volume."""
         return np.asarray(self.relative[self.row(wanted)])
+
+    def thresholds_for(
+        self,
+        wanted: VolumeKey,
+        thin_quantile: float,
+        heavy_quantile: float,
+    ) -> tuple[float, float]:
+        """Fit both thresholds to one series' own distribution of ratios.
+
+        See :func:`thresholds_from_quantiles` for what a fit must be fitted on.
+        """
+        return thresholds_from_quantiles(self.relative_for(wanted), thin_quantile, heavy_quantile)
 
     def labels_for(self, wanted: VolumeKey, thin_below: float, heavy_above: float) -> LabelArray:
         """Label every bar of one series, the stratification key -- see :func:`label`."""

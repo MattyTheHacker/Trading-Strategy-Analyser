@@ -7,6 +7,12 @@ Reports **distributions, not winners**. The best profit factor in a 300,000-row 
 statement about the size of the sweep; the median and the profitable share are statements about
 the strategy -- ``docs/roadmap.md`` § "Selecting on one contract is worse than not selecting".
 
+**Every stored stratum is read, one dimension at a time.** §M27 swept twenty strata and reported
+one pooled row per stratum, which is how session phase and relative volume went into the campaign
+and no finding about either came out -- ``docs/roadmap.md`` §M27.7 and §M27.8. A cell is only
+comparable within a resolution, so the dimension tables are cut by it rather than pooled over it,
+and :data:`SHARES` travels with every table.
+
 Reads what ``tools/campaign_sweep.py`` wrote, one database per archetype.
 """
 
@@ -48,6 +54,16 @@ DERIVED = frozenset({NET_TO_DRAWDOWN})
 Separate from :data:`STATISTICS` so that one stays exactly ``stats.Summary``'s fields, and
 listed at all because :func:`parameter_columns` would otherwise call a derived statistic an
 axis."""
+
+UNFILTERED = "unfiltered"
+"""The stratum every other one is read against, and the only name that names no dimension."""
+
+SHARES = ("session_close_share", "ambiguous_share")
+"""What every table carries beside its statistics, because a result is read wrong without them.
+
+The final session phase holds the forced flat, so a stratification by the clock will always show
+it as anomalous and ``session_close_share`` is what tells the two apart -- ``docs/roadmap.md``
+§M10.4. ``ambiguous_share`` is the same obligation at a coarse resolution."""
 
 TAGS = frozenset(
     {
@@ -136,7 +152,11 @@ def swept_axes(frame: pd.DataFrame) -> list[str]:
 
 
 def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
-    """Combination count, profitable share and the profit-factor distribution, per group."""
+    """Combination count, profitable share and the profit-factor distribution, per group.
+
+    The two share columns are here rather than optional because a coarse resolution and the
+    final session phase are both read wrong without them -- :data:`SHARES`.
+    """
     grouped = frame.groupby(by, dropna=False)
 
     return pd.DataFrame(
@@ -148,8 +168,55 @@ def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
             "pf_best": grouped["profit_factor"].max(),
             "trades_med": grouped["trades"].median(),
             "net_median": grouped["net_pnl"].median(),
+            **{f"{share}_med": grouped[share].median() for share in SHARES if share in frame.columns},
         },
     ).reset_index()
+
+
+def dimension_of(stratum: str) -> str:
+    """Which context dimension one stratum name cuts, ``unfiltered`` cutting none.
+
+    Stratum names are ``<dimension>=<cell>``, and a cell may carry its own cut after an ``@`` --
+    ``regime=DIRECTIONAL@n=20``, ``volume=HEAVY@per_bar_20 q=0.20/0.80``.
+    """
+    return stratum.split("=", 1)[0]
+
+
+def dimensions(frame: pd.DataFrame) -> list[str]:
+    """Every context dimension this frame holds strata for, unfiltered excluded."""
+    found: set[str] = {dimension_of(str(name)) for name in frame["stratum"].unique()}
+
+    return sorted(found - {UNFILTERED})
+
+
+def in_dimension(frame: pd.DataFrame, dimension: str) -> pd.DataFrame:
+    """The rows cut by one dimension, whatever cell of it each carries."""
+    return frame[frame["stratum"].map(lambda name: dimension_of(str(name)) == dimension)]
+
+
+def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
+    """How much of the profit-factor variance each dimension's cells explain, per resolution.
+
+    Measured **within** a resolution, never pooled over them: bar size is the largest lever in
+    the campaign (§M27), so a figure taken across resolutions reports that instead.
+    """
+    rows: list[dict[str, object]] = []
+    for dimension in dimensions(frame):
+        cut: pd.DataFrame = in_dimension(frame, dimension)
+        for resolution, block in cut.groupby("resolution"):
+            rows.append(
+                {
+                    "dimension": dimension,
+                    "resolution": int(resolution),  # type: ignore[call-overload]  # duckdb's dtypes
+                    "cells": int(block["stratum"].nunique()),
+                    "eta2": eta_squared(block, "stratum"),
+                    "pf_median": block["profit_factor"].median(),
+                },
+            )
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.DataFrame(rows).sort_values("eta2", ascending=False).reset_index(drop=True)
 
 
 def eta_squared(frame: pd.DataFrame, axis: str, statistic: str = "profit_factor") -> float:
@@ -201,8 +268,17 @@ def report_strategy(name: str, windows: list[str]) -> pd.DataFrame:
 
     show("by root and resolution", profile(frame, ["root", "resolution"]))
     show("by context stratum, pooled over resolution", profile(frame, ["stratum"]))
+    show(
+        "how much each context dimension's cells explain, within a resolution, eta^2",
+        dimension_influence(frame),
+    )
+    for dimension in dimensions(frame):
+        show(
+            f"by {dimension} and resolution -- read {SHARES[0]} before the clock",
+            profile(in_dimension(frame, dimension), ["stratum", "resolution"]),
+        )
 
-    unfiltered: pd.DataFrame = frame[frame["stratum"] == "unfiltered"]
+    unfiltered: pd.DataFrame = frame[frame["stratum"] == UNFILTERED]
     if frame["variant"].nunique() > 1:
         show("by variant, unfiltered only", profile(unfiltered, ["variant"]))
 

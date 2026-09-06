@@ -16,8 +16,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, higher_timeframe, regime, sessionrange, timeofday, trades, trend, volume
-from nqbt.sim.types import STOP_ATR, STOP_CATASTROPHE, STOP_SWING
+from nqbt import (
+    archetypes,
+    higher_timeframe,
+    regime,
+    sessionrange,
+    sessions,
+    timeofday,
+    trades,
+    trend,
+    volume,
+)
+from nqbt.sim.types import STOP_ATR, STOP_CATASTROPHE, STOP_SWING, DeadCatParams
 from tools.campaign_sweep import (
     ALL_STRATA,
     CAMPAIGN,
@@ -31,6 +41,8 @@ from tools.campaign_sweep import (
     NARROW_ENTRY,
     NARROW_TP,
     NARROW_VARIANTS,
+    NO_CUTS,
+    RECUTS,
     REGIME,
     REGIME_LOOKBACKS,
     REGIME_QUANTILES,
@@ -40,16 +52,27 @@ from tools.campaign_sweep import (
     STRATUM_SETS,
     UNFILTERED,
     VARIANTS,
+    VOLUME_BASELINE_SESSIONS,
+    VOLUME_FORMS,
+    VOLUME_ROLLING_BARS,
+    VOLUME_TAILS,
+    Cuts,
     Variant,
+    VolumeCut,
     calibrate,
+    calibrate_volume,
     db_path,
     fit_regime,
+    fit_volume,
     grids_for,
     orb_resolutions,
     planned_combinations,
     quantile_pair,
+    raw_volume_cuts,
     strata,
+    tail_pairs,
     variants_for,
+    volume_series,
     windows,
 )
 
@@ -230,6 +253,7 @@ def test_planned_combinations_multiplies_the_axes_out() -> None:
         split=False,
         regime_quantiles=None,
         regime_lookbacks=list(REGIME_LOOKBACKS),
+        volume_quantiles=(),
     )
     per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
     assert planned_combinations(args) == per_stratum * 2
@@ -264,6 +288,7 @@ def calibrated_args(**overrides: object) -> argparse.Namespace:
             "resolutions": [1],
             "regime_quantiles": REGIME_QUANTILES,
             "regime_lookbacks": [20],
+            "volume_quantiles": (),
             **overrides,
         },
     )
@@ -272,12 +297,12 @@ def calibrated_args(**overrides: object) -> argparse.Namespace:
 def test_a_calibrated_regime_stratum_is_one_cell_per_lookback() -> None:
     """A cell rather than an axis: the thresholds move with the lookback, and a sweep crosses
     its axes, so pairing them any other way runs cells that are not comparable."""
-    names = [name for name, _ in strata(REGIME, FITTED)]
+    names = [name for name, _ in strata(REGIME, Cuts(regime=FITTED))]
     assert names == [f"regime={state.name}@n={n}" for state in regime.Regime for n in FITTED]
 
 
 def test_a_calibrated_cell_carries_the_thresholds_fitted_at_its_own_lookback() -> None:
-    for name, extra in strata(REGIME, FITTED):
+    for name, extra in strata(REGIME, Cuts(regime=FITTED)):
         lookback = int(name.split("@n=")[1])
         consolidating, directional = FITTED[lookback]
         assert extra["regime_lookback"] == [lookback]
@@ -289,20 +314,22 @@ def test_a_calibration_changes_the_regime_dimension_and_no_other() -> None:
     """Every other stratum is one filter and stays one filter; only the cut is reparameterised."""
     others = [(name, extra) for name, extra in strata(ALL_STRATA) if not name.startswith("regime=")]
     calibrated = [
-        (name, extra) for name, extra in strata(ALL_STRATA, FITTED) if not name.startswith("regime=")
+        (name, extra)
+        for name, extra in strata(ALL_STRATA, Cuts(regime=FITTED))
+        if not name.startswith("regime=")
     ]
     assert others == calibrated
 
 
 def test_an_uncalibrated_run_keeps_the_stratum_names_the_stored_databases_carry() -> None:
-    assert [name for name, _ in strata(ALL_STRATA, None)] == [name for name, _ in strata(ALL_STRATA)]
+    assert [name for name, _ in strata(ALL_STRATA, NO_CUTS)] == [name for name, _ in strata(ALL_STRATA)]
 
 
 def test_every_calibrated_grid_in_the_campaign_can_be_built() -> None:
     """The fitted thresholds reach a real parameter class, which validates them on construction."""
     fitted = calibrate(calibration_bars(), [5, 20], REGIME_QUANTILES)
     for variant in all_variants():
-        for _, grid in grids_for(variant, REGIME, fitted):
+        for _, grid in grids_for(variant, REGIME, Cuts(regime=fitted)):
             assert len(grid) == variant.sized()
 
 
@@ -339,6 +366,7 @@ def test_planned_combinations_counts_the_calibrated_cells() -> None:
         split=False,
         regime_quantiles=REGIME_QUANTILES,
         regime_lookbacks=[5, 20],
+        volume_quantiles=(),
     )
     per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
     assert planned_combinations(args) == per_stratum * len(regime.Regime) * 2
@@ -384,6 +412,7 @@ def test_planned_combinations_skips_a_resolution_a_variant_cannot_express() -> N
         split=False,
         regime_quantiles=None,
         regime_lookbacks=list(REGIME_LOOKBACKS),
+        volume_quantiles=(),
     )
     variants = VARIANTS["OpeningRange"]("MNQ")
     only_thirty = sum(v.sized() for v in variants if v.runs_at(10))
@@ -400,6 +429,153 @@ def test_the_opening_range_sweeps_both_sides_as_separate_combinations() -> None:
             assert combination.direction in (trades.LONG, trades.SHORT)
 
 
+# -- the volume form and the cut it is read at -----------------------------------------------
+
+
+def volume_bars(sessions_wanted: int = 30, seed: int = 7) -> pd.DataFrame:
+    """Whole sessions carrying volume, so a bar-of-session baseline has sessions to be taken over."""
+    n = sessions_wanted * 1440
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
+    close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
+    opened = np.concatenate([[close[0]], close[:-1]])
+    frame = pd.DataFrame(
+        {
+            "open": opened,
+            "high": np.maximum(opened, close) + 1.0,
+            "low": np.minimum(opened, close) - 1.0,
+            "close": close,
+            "volume": rng.integers(1, 500, n).astype(float),
+        },
+        index=idx,
+    )
+    frame["trading_day"] = sessions.classify(idx).trading_day
+
+    return frame
+
+
+def volume_args(**overrides: object) -> argparse.Namespace:
+    """The arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
+    return argparse.Namespace(**{"resolutions": [1], "volume_quantiles": VOLUME_TAILS, **overrides})
+
+
+def test_the_volume_form_group_is_one_cell_per_form_tail_and_state() -> None:
+    """§M27 swept three cells of one form; the axis itself is the form crossed with the cut."""
+    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS))
+    names = [name for name, _ in strata(VOLUME_FORMS, cuts)]
+    assert len(names) == len(volume.VolumeForm) * len(VOLUME_TAILS) * len(volume.VolumeState)
+    assert len(set(names)) == len(names)
+
+
+def test_each_volume_form_cell_admits_exactly_one_state() -> None:
+    for name, extra in strata(VOLUME_FORMS):
+        state = name.removeprefix("volume=").split("@")[0]
+        assert extra["volume_filter"] == [volume.VolumeState[state].bit]
+
+
+def test_a_volume_form_cell_names_the_series_and_the_cut_it_reads() -> None:
+    """Two cells that differ only in the tail size have to be separable in the results table."""
+    cut = VolumeCut(volume.key(volume.VolumeForm.PER_BAR, 30, 20), 0.5, 2.0, tails=(0.10, 0.90))
+    assert cut.name == "per_bar_20 q=0.10/0.90"
+    assert VolumeCut(cut.series, 0.7, 1.5).name == "per_bar_20 q=raw"
+
+
+def test_the_rolling_window_is_set_only_under_the_form_that_reads_it() -> None:
+    """``dead_axes`` knows one toggle per axis and this one has two, so a cross of form x window
+    would run duplicate combinations silently -- ``.claude/rules/sweep-and-context.md``."""
+    for name, extra in strata(VOLUME_FORMS):
+        rolling = "@rolling_" in name
+        assert ("volume_rolling_bars" in extra) is rolling, name
+        if rolling:
+            assert extra["volume_rolling_bars"] == [VOLUME_ROLLING_BARS]
+
+
+def test_every_volume_series_is_a_distinct_form_at_the_campaigns_own_window() -> None:
+    series = volume_series()
+    assert len(series) == len(volume.VolumeForm)
+    assert {key.form for key in series} == set(volume.VolumeForm)
+    assert {key.baseline_sessions for key in series} == {VOLUME_BASELINE_SESSIONS}
+
+
+def test_an_unfitted_volume_form_run_cuts_at_the_thresholds_the_campaign_ran() -> None:
+    """So that the PER_BAR cells of an unfitted run are §M27's own, and comparable to them."""
+    defaults = DeadCatParams()
+    for cut in raw_volume_cuts():
+        assert (cut.thin_below, cut.heavy_above) == (defaults.volume_thin_below, defaults.volume_heavy_above)
+        assert cut.tails is None
+
+
+def test_the_volume_form_group_is_left_out_of_all_because_it_recuts_one_dimension() -> None:
+    """``all`` is one pass per dimension; including a re-cut would run volume twice."""
+    assert VOLUME_FORMS in RECUTS
+    assert VOLUME_FORMS not in STRATUM_SETS[ALL_STRATA]
+    assert STRATUM_SETS[VOLUME_FORMS] == (VOLUME_FORMS,)
+
+
+def test_a_volume_calibration_changes_the_volume_forms_and_no_other_dimension() -> None:
+    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS))
+    assert list(strata(CORE, cuts)) == list(strata(CORE))
+
+
+def test_each_form_is_fitted_against_its_own_distribution() -> None:
+    """The point of the fit: one raw pair sits at a different percentile under each form, so
+    HEAVY is a different population under each -- ``docs/roadmap.md`` §M27.8."""
+    fitted = calibrate_volume(volume_bars(), 1, ((0.20, 0.80),))
+    heavy = {cut.series.form: cut.heavy_above for cut in fitted}
+    assert len(set(heavy.values())) == len(volume.VolumeForm)
+
+
+def test_every_volume_form_grid_in_the_campaign_can_be_built() -> None:
+    """The fitted thresholds reach a real parameter class, which validates them on construction."""
+    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS))
+    for variant in all_variants():
+        for _, grid in grids_for(variant, VOLUME_FORMS, cuts):
+            assert len(grid) == variant.sized()
+
+
+def test_the_volume_fit_reads_the_selection_window_and_never_the_holdout() -> None:
+    """Fitting on the whole series would leak the holdout into the definition of the stratum."""
+    bars = volume_bars()
+    bars.iloc[math.floor(len(bars) * SELECTION_SHARE) :, bars.columns.get_loc("volume")] *= 100.0
+    selection_fit = fit_volume(bars, volume_args())[1]
+    whole_fit = calibrate_volume(bars, 1, VOLUME_TAILS)
+    for fitted, leaked in zip(selection_fit, whole_fit, strict=True):
+        assert fitted.series == leaked.series
+        assert fitted.heavy_above != leaked.heavy_above
+
+
+def test_no_volume_fit_is_taken_when_the_thresholds_are_left_raw() -> None:
+    assert fit_volume(volume_bars(), volume_args(volume_quantiles=())) == {}
+
+
+def test_a_bare_volume_quantile_flag_takes_the_tails_the_campaign_states() -> None:
+    assert tail_pairs([]) == VOLUME_TAILS
+    assert tail_pairs([0.1, 0.9, 0.2, 0.8]) == ((0.1, 0.9), (0.2, 0.8))
+    assert tail_pairs(None) == ()
+
+
+def test_an_odd_number_of_volume_quantiles_is_refused_rather_than_half_paired() -> None:
+    with pytest.raises(SystemExit, match="thin and a heavy quantile per cut"):
+        tail_pairs([0.2, 0.8, 0.3])
+
+
+def test_planned_combinations_counts_the_volume_form_cells() -> None:
+    args = argparse.Namespace(
+        strategies=["InsideBar"],
+        roots=["MNQ"],
+        strata=VOLUME_FORMS,
+        variants=CAMPAIGN,
+        resolutions=[5],
+        split=False,
+        regime_quantiles=None,
+        regime_lookbacks=list(REGIME_LOOKBACKS),
+        volume_quantiles=VOLUME_TAILS,
+    )
+    per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
+    cells = len(volume.VolumeForm) * len(VOLUME_TAILS) * len(volume.VolumeState)
+    assert planned_combinations(args) == per_stratum * cells
+
+
 # -- the §M27.3 narrow re-sweep --------------------------------------------------------------
 
 
@@ -411,12 +587,12 @@ def test_the_narrow_set_is_the_baseline_and_the_one_cell_it_asks_about() -> None
 def test_the_directional_group_is_calibrated_like_the_full_regime_one() -> None:
     """The prerequisite §M27.3 inherits from [#200]: the raw 0.5 cut is not one filter, so a
     group yielding a single regime cell has to be split per lookback too."""
-    fitted = {name for name, _ in strata(NARROW, FITTED)}
+    fitted = {name for name, _ in strata(NARROW, Cuts(regime=FITTED))}
     assert fitted == {UNFILTERED, *(f"regime=DIRECTIONAL@n={n}" for n in FITTED)}
 
 
 def test_a_calibrated_directional_cell_carries_its_own_lookbacks_thresholds() -> None:
-    cells = dict(strata(DIRECTIONAL, FITTED))
+    cells = dict(strata(DIRECTIONAL, Cuts(regime=FITTED)))
     for lookback, (consolidating, directional) in FITTED.items():
         axes = cells[f"regime=DIRECTIONAL@n={lookback}"]
         assert axes["regime_lookback"] == [lookback]
