@@ -18,6 +18,7 @@ import pytest
 
 from nqbt import (
     archetypes,
+    compression,
     higher_timeframe,
     regime,
     sessionrange,
@@ -80,6 +81,7 @@ EVERY_STATE = {
     "regime": [f"regime={state.name}" for state in regime.Regime],
     "phase": [f"phase={phase.name}" for phase in timeofday.SessionPhase],
     "volume": [f"volume={state.name}" for state in volume.VolumeState],
+    "compression": [f"compression={state.name}" for state in compression.Compression],
     "trend": [f"trend={label.name}" for label in trend.Trend],
     "htf": [f"htf={side.name}" for side in higher_timeframe.Side],
 }

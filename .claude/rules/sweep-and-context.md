@@ -10,12 +10,14 @@ paths:
   - "nqbt/timeofday.py"
   - "nqbt/regime.py"
   - "nqbt/volume.py"
+  - "nqbt/compression.py"
   - "nqbt/trend.py"
   - "nqbt/higher_timeframe.py"
   - "tests/test_context.py"
   - "tests/test_bands.py"
   - "tests/test_regime.py"
   - "tests/test_volume.py"
+  - "tests/test_compression.py"
   - "tests/test_trend.py"
   - "tests/test_higher_timeframe.py"
   - "tests/test_sweep_stats.py"
@@ -118,6 +120,16 @@ paths:
   read against each other across either axis. State the cut with
   `volume.thresholds_from_quantiles`, fitted on the selection window alone, and carry the tail
   size in the stratum name rather than crossing it with the thresholds. `docs/roadmap.md` §M27.8.
+- **Compression is filtered on a trailing rank, never on the raw width, and that is what makes
+  its raw thresholds comparable.** The width spans a factor of 17,000 across the roots,
+  resolutions, forms and periods a campaign crosses, so a threshold on it is a different cut in
+  every cell; the rank puts every cell within five points of the share it names. Do not "simplify"
+  `compression.py` into gating the width, and do not add a quantile calibration pass to
+  `campaign_sweep.py` for it without re-measuring the table first -- `docs/roadmap.md` §M19.1.
+- **The bandwidth form reads `bands.BandGrid` rather than building a Bollinger of its own**, so
+  `ContextSpec.band_periods_needed()` -- not `band_periods` -- is what `prepare` builds the band
+  from. A bandwidth key implies its period the way `needs_vwap_band` implies `needs_vwap`.
+  `docs/roadmap.md` §M26.
 - **A session range is stored per session, not per bar.** `sessionrange.SessionRangeGrid` holds
   the levels as `[n_keys, n_sessions]` and only the armed flag per bar, read through a per-bar
   `session_id`. Stamping the level per bar instead costs 16 bytes a bar **per window**, which

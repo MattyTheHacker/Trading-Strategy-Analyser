@@ -12,6 +12,7 @@ from typing import Protocol, override
 
 from nqbt import (
     bands,
+    compression,
     conditions,
     higher_timeframe,
     regime,
@@ -24,7 +25,7 @@ from nqbt import (
 
 
 class ContextFilterParams(Protocol):
-    """The five context filters and every field behind them, as one shape.
+    """The six context filters and every field behind them, as one shape.
 
     Structural so that :func:`validate_context_filters` is one definition rather than a copy
     per parameter class. Narrower than :class:`nqbt.sim.filters.ContextFiltered`, which
@@ -42,6 +43,12 @@ class ContextFilterParams(Protocol):
     volume_baseline_sessions: int
     volume_thin_below: float
     volume_heavy_above: float
+    compression_filter: int
+    compression_form: int
+    compression_period: int
+    compression_baseline_bars: int
+    compression_compressed_below: float
+    compression_expanded_above: float
     trend_filter: int
     trend_fast_period: int
     trend_slow_period: int
@@ -67,6 +74,14 @@ def validate_context_filters(params: ContextFilterParams) -> None:
     volume.validate_rolling_bars(params.volume_rolling_bars)
     volume.validate_baseline_sessions(params.volume_baseline_sessions)
     volume.validate_thresholds(params.volume_thin_below, params.volume_heavy_above)
+    compression.validate_mask(params.compression_filter)
+    compression.validate_form(params.compression_form)
+    compression.validate_period(params.compression_period)
+    compression.validate_baseline_bars(params.compression_baseline_bars)
+    compression.validate_thresholds(
+        params.compression_compressed_below,
+        params.compression_expanded_above,
+    )
     trend.validate_mask(params.trend_filter)
     trend.validate_periods(params.trend_fast_period, params.trend_slow_period)
     trend.validate_slope_lookback(params.trend_slope_lookback)
@@ -149,6 +164,28 @@ class DeadCatParams:
     """Where relative volume is cut into the three states, both boundaries falling in the
     normal band. Conventional starting points rather than measured ones, and inert while
     :attr:`volume_filter` admits everything -- ``docs/roadmap.md`` §M10.2."""
+
+    compression_filter: int = compression.ALL_STATES
+    """Which compression states an entry may be taken in, as a :mod:`nqbt.compression` bitmask.
+
+    Absent from the NinjaScript, off by default, and a bitmask for the same reason
+    :attr:`phase_filter` is. The states are cut from a **trailing rank**, never a raw width --
+    ``docs/roadmap.md`` §M19.1."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    """Which width measure the rank is taken of -- see :class:`nqbt.compression.CompressionForm`."""
+
+    compression_period: int = 20
+    """Bars the width measure spans. Both forms read it, so it is inert under neither."""
+
+    compression_baseline_bars: int = 250
+    """Bars the rank is taken against, all strictly before the bar being ranked."""
+
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """Where the rank is cut into the three states, both boundaries falling in the normal band.
+    Quarters of a trailing window rather than measured points, and inert while
+    :attr:`compression_filter` admits everything -- ``docs/roadmap.md`` §M19.1."""
 
     trend_filter: int = trend.ALL_TRENDS
     """Which trends an entry may be taken in, as a :mod:`nqbt.trend` bitmask.
@@ -259,6 +296,15 @@ class DeadCatParams:
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
 
     @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series this combination reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
+
+    @property
     def trend_key(self) -> trend.TrendKey:
         """Which of the dataset's trend labels this combination reads."""
         return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
@@ -342,6 +388,18 @@ class PullBackAndGoParams:
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
+    compression_filter: int = compression.ALL_STATES
+    """Compression states an entry may be taken in -- see
+    :attr:`DeadCatParams.compression_filter`."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    compression_period: int = 20
+    compression_baseline_bars: int = 250
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """The width measure the rank is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.compression_expanded_above`."""
+
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
 
@@ -420,6 +478,15 @@ class PullBackAndGoParams:
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series this combination reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
 
     @property
     def trend_key(self) -> trend.TrendKey:
@@ -507,6 +574,18 @@ class EmaCrossoverParams:
     volume_heavy_above: float = 1.5
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
+
+    compression_filter: int = compression.ALL_STATES
+    """Compression states an entry may be taken in -- see
+    :attr:`DeadCatParams.compression_filter`."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    compression_period: int = 20
+    compression_baseline_bars: int = 250
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """The width measure the rank is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.compression_expanded_above`."""
 
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
@@ -615,6 +694,15 @@ class EmaCrossoverParams:
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
 
     @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series this combination reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
+
+    @property
     def trend_key(self) -> trend.TrendKey:
         """Which of the dataset's trend labels this combination reads."""
         return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
@@ -718,6 +806,18 @@ class InsideBarParams:
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
+    compression_filter: int = compression.ALL_STATES
+    """Compression states an entry may be taken in -- see
+    :attr:`DeadCatParams.compression_filter`."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    compression_period: int = 20
+    compression_baseline_bars: int = 250
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """The width measure the rank is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.compression_expanded_above`."""
+
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
 
@@ -789,6 +889,15 @@ class InsideBarParams:
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series this combination reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
 
     @property
     def trend_key(self) -> trend.TrendKey:
@@ -1027,6 +1136,18 @@ class ElasticBandParams:
     """The relative-volume series and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
+    compression_filter: int = compression.ALL_STATES
+    """Compression states an entry may be taken in -- see
+    :attr:`DeadCatParams.compression_filter`."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    compression_period: int = 20
+    compression_baseline_bars: int = 250
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """The width measure the rank is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.compression_expanded_above`."""
+
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
 
@@ -1205,6 +1326,15 @@ class ElasticBandParams:
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
 
     @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series this combination reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
+
+    @property
     def trend_key(self) -> trend.TrendKey:
         """Which of the dataset's trend labels this combination reads."""
         return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
@@ -1320,6 +1450,18 @@ class OpeningRangeParams:
     volume_heavy_above: float = 1.5
     """The relative-volume series and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
+
+    compression_filter: int = compression.ALL_STATES
+    """Compression states an entry may be taken in -- see
+    :attr:`DeadCatParams.compression_filter`."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    compression_period: int = 20
+    compression_baseline_bars: int = 250
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """The width measure the rank is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.compression_expanded_above`."""
 
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
@@ -1457,6 +1599,15 @@ class OpeningRangeParams:
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series this combination reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
 
     @property
     def trend_key(self) -> trend.TrendKey:

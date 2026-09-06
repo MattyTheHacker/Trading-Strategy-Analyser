@@ -70,6 +70,7 @@ import pandas as pd
 
 from nqbt import (
     archetypes,
+    compression,
     context,
     higher_timeframe,
     logsetup,
@@ -144,6 +145,11 @@ VOLUME_TAILS = ((0.10, 0.90), (0.20, 0.80), (0.33, 0.67))
 Three rather than one because the cut is what decides who is in ``HEAVY``, and a stratification
 read off a single unexamined cut is the cut's result -- ``docs/roadmap.md`` §M27.8."""
 
+COMPRESSION_PERIOD = 20
+COMPRESSION_BASELINE_BARS = 250
+"""The width window and the trailing window every compression cell runs at, held so that the
+form is what moves. Both are ``sim/types.py`` defaults -- ``docs/roadmap.md`` §M19.1."""
+
 MIN_TRADES = 30
 """The floor ``sweep.rank`` applies, repeated here for the per-sweep progress line."""
 
@@ -156,6 +162,7 @@ UNFILTERED = "unfiltered"
 REGIME = "regime"
 DIRECTIONAL = "directional"
 VOLUME_FORMS = "volume-forms"
+COMPRESSION_FORMS = "compression-forms"
 CORE = "core"
 CONTEXT = "context"
 NARROW = "narrow"
@@ -285,6 +292,35 @@ def _volume_forms() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     yield from _volume_cells(raw_volume_cuts())
 
 
+def _compression_axes(form: compression.CompressionForm) -> dict[str, list[AxisValue]]:
+    """The series one compression stratum reads. Both forms read every axis, so none is dropped."""
+    return {
+        "compression_form": [int(form)],
+        "compression_period": [COMPRESSION_PERIOD],
+        "compression_baseline_bars": [COMPRESSION_BASELINE_BARS],
+    }
+
+
+def _compression() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """Once per compression state, at the one form and the one cut a first pass runs."""
+    for state in compression.Compression:
+        yield f"compression={state.name}", {"compression_filter": [state.bit]}
+
+
+def _compression_forms() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """Once per (form, state): whether a narrow band and a short range say the same thing.
+
+    The cut stays the campaign's raw pair rather than a fitted one, because a trailing rank
+    already means the same share of bars in every cell -- ``docs/roadmap.md`` §M19.1.
+    """
+    for form in compression.CompressionForm:
+        for state in compression.Compression:
+            yield (
+                f"compression={state.name}@{form.name.lower()}",
+                _compression_axes(form) | {"compression_filter": [state.bit]},
+            )
+
+
 def _trend() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """Once per compact trend label."""
     for label in trend.Trend:
@@ -304,6 +340,8 @@ STRATUM_GROUPS = {
     "phase": _phase,
     "volume": _volume,
     VOLUME_FORMS: _volume_forms,
+    "compression": _compression,
+    COMPRESSION_FORMS: _compression_forms,
     "trend": _trend,
     "htf": _higher_timeframe,
 }
@@ -314,17 +352,18 @@ REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL})
 """Groups whose cells ``--regime-quantiles`` splits per lookback. Membership rather than one
 name, so that a group yielding a single regime cell is calibrated like the full one."""
 
-RECUTS = frozenset({DIRECTIONAL, VOLUME_FORMS})
+RECUTS = frozenset({DIRECTIONAL, VOLUME_FORMS, COMPRESSION_FORMS})
 """Groups that re-cut a dimension another group already owns, so ``all`` leaves them out.
 
 ``directional`` is one regime cell without its four siblings; ``volume-forms`` is the volume
-dimension under all three forms and a fitted cut. Either inside ``all`` would run its dimension
-twice under two sets of names."""
+dimension under all three forms and a fitted cut; ``compression-forms`` is the compression
+dimension under both of its forms. Any of them inside ``all`` would run its dimension twice
+under two sets of names."""
 
 STRATUM_SETS: dict[str, tuple[str, ...]] = {
     **{group: (group,) for group in STRATUM_GROUPS},
     CORE: (UNFILTERED, "regime", "phase"),
-    CONTEXT: ("volume", "trend", "htf"),
+    CONTEXT: ("volume", "compression", "trend", "htf"),
     NARROW: (UNFILTERED, DIRECTIONAL),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
