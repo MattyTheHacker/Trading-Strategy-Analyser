@@ -48,12 +48,14 @@ paths:
   thing that catches a back-adjusted series — the lookup succeeds and every comparison is out by
   the roll offset. `price_tolerance` admits a simulated run's slippage and nothing wider.
 - **A simulated fill does not always land within its bar plus the slippage, and today that is
-  unsettled rather than safe.** A profit target a bar gapped through fills at the target price,
-  which put 23 of 2,413 legs up to 17.25 points outside their exit bar on one campaign shortlist
-  — against one tick. `docs/nt8-fidelity.md` records the gapped-*stop* rule and nothing for a
-  limit, so which fill NT8 gives is untested (#244). **Widening `price_tolerance` to get past it
-  is a stated workaround, not a default**: keep it orders of magnitude below the roll offset so
-  the back-adjustment guard still fires, and print the widening. `docs/roadmap.md` §M27.7.
+  unsettled rather than safe.** A profit target a bar gapped through fills at the target price.
+  `docs/nt8-fidelity.md` records the gapped-*stop* rule and nothing for a limit, so which fill
+  NT8 gives is untested (#244). On front-month bars it is 17 instances across 11 contracts and
+  never more than a point; the 17-point cases are the continuous series' **leading span**, where
+  the earliest cached contract supplies its own deferred bars. **Prefer excluding that span to
+  widening `price_tolerance`**, and where a widening is unavoidable state it, print it, and keep
+  it orders of magnitude below the roll offset so the back-adjustment guard still fires.
+  `docs/roadmap.md` §M27.7.
 - **A review is `summarise` over subsets and defines no statistic of its own.** A stratum's
   row is the summary's fields read off; a second definition of a win rate would drift from the
   sweep's silently, because both numbers would look reasonable. `docs/roadmap.md` §M11.3.
