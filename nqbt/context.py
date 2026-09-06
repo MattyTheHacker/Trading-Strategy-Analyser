@@ -22,6 +22,7 @@ import pandas as pd
 
 from nqbt import (
     bands,
+    compression,
     conditions,
     higher_timeframe,
     indicators,
@@ -37,6 +38,7 @@ from nqbt.arrays import float_column, ohlc
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, LabelArray
     from nqbt.bands import BandGrid
+    from nqbt.compression import CompressionGrid
     from nqbt.conditions import MovingAverageGrid
     from nqbt.higher_timeframe import HigherTimeframeGrid
     from nqbt.regime import EfficiencyRatioGrid
@@ -93,6 +95,10 @@ class ContextSpec:
     """Relative-volume series to build (:mod:`nqbt.volume`). Empty builds nothing, and any
     entry implies the time-of-day labels the baseline is taken over."""
 
+    compression_keys: tuple[compression.CompressionKey, ...] = ()
+    """Compression series to build (:mod:`nqbt.compression`). Empty builds nothing, and a
+    bandwidth-form entry implies the band period it reads -- see :meth:`band_periods_needed`."""
+
     trend_keys: tuple[trend.TrendKey, ...] = ()
     """Compact trend labels to build (:mod:`nqbt.trend`). Empty builds nothing, and an entry
     does **not** imply :attr:`needs_ma_values` -- the averages behind a label are built and
@@ -123,6 +129,7 @@ class ContextSpec:
             range_keys=tuple(sorted({*self.range_keys, *other.range_keys})),
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
+            compression_keys=tuple(sorted({*self.compression_keys, *other.compression_keys})),
             trend_keys=tuple(sorted({*self.trend_keys, *other.trend_keys})),
             higher_timeframe_keys=tuple(
                 sorted({*self.higher_timeframe_keys, *other.higher_timeframe_keys}),
@@ -130,6 +137,19 @@ class ContextSpec:
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
             needs_session_clock=self.needs_session_clock or other.needs_session_clock,
         )
+
+    def band_periods_needed(self) -> tuple[int, ...]:
+        """Declared :attr:`band_periods`, plus the ones a bandwidth compression key reads.
+
+        A bandwidth form is defined off the band's own two rows rather than a second estimate
+        of them, so asking for one asks for the period behind it -- exactly as
+        :attr:`needs_vwap_band` implies :attr:`needs_vwap`.
+        """
+        implied: set[int] = {
+            k.period for k in self.compression_keys if k.form is compression.CompressionForm.BANDWIDTH
+        }
+
+        return tuple(sorted({*self.band_periods, *implied}))
 
     def periods_by_kind(self) -> dict[str, tuple[int, ...]]:
         """One sorted period list per kind, which is one grid call each.
@@ -183,6 +203,9 @@ class Dataset:
 
     volumes: volume.VolumeGrid | None = None
     """Absolute and relative volume per declared series, or ``None`` when nothing asked."""
+
+    compressions: compression.CompressionGrid | None = None
+    """Width and its trailing rank per declared series, or ``None`` when nothing asked."""
 
     trends: trend.TrendGrid | None = None
     """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
@@ -464,6 +487,49 @@ class Dataset:
         """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
         return self._volumes().labels_for(key, thin_below, heavy_above)
 
+    def _compressions(self) -> compression.CompressionGrid:
+        if self.compressions is None:
+            msg: str = (
+                "no compression series in this dataset; prepare() was not asked for them. "
+                "Add the series to compression_keys on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+
+        return self.compressions
+
+    def compression_gate(
+        self,
+        key: compression.CompressionKey,
+        mask: int,
+        compressed_below: float,
+        expanded_above: float,
+    ) -> BoolArray:
+        """Per-bar boolean: whether this bar's compression state passes ``mask``.
+
+        Callers skip this entirely at :data:`nqbt.compression.ALL_STATES` -- see
+        :func:`nqbt.compression.gate`.
+        """
+        return self._compressions().gate_for(key, mask, compressed_below, expanded_above)
+
+    def compression_width(self, key: compression.CompressionKey) -> FloatArray:
+        """Per-bar raw width measure, in whatever unit its form is in -- for reporting only."""
+        return self._compressions().width_for(key)
+
+    def compression_rank(self, key: compression.CompressionKey) -> FloatArray:
+        """Per-bar trailing rank in ``0..1`` -- the quantity behind the labels."""
+        return self._compressions().rank_for(key)
+
+    def compression_labels(
+        self,
+        key: compression.CompressionKey,
+        compressed_below: float,
+        expanded_above: float,
+    ) -> LabelArray:
+        """Per-bar :class:`nqbt.compression.Compression`, for stratifying results."""
+        return self._compressions().labels_for(key, compressed_below, expanded_above)
+
     def _trends(self) -> trend.TrendGrid:
         if self.trends is None:
             msg: str = (
@@ -567,6 +633,7 @@ class Dataset:
             self.session_ranges,
             self.regimes,
             self.volumes,
+            self.compressions,
             self.trends,
             self.higher_timeframes,
         ):
@@ -675,6 +742,16 @@ def prepare(
         else None
     )
 
+    # Hoisted out of the Dataset call below because the bandwidth compression form is defined
+    # off these two rows rather than off a second Bollinger of its own.
+    band_periods: tuple[int, ...] = spec.band_periods_needed()
+    band: BandGrid | None = bands.band_grid(close, band_periods) if band_periods else None
+    compressions: CompressionGrid | None = (
+        compression.compression_grid(high, low, close, spec.compression_keys, band)
+        if spec.compression_keys
+        else None
+    )
+
     # Built before the VWAP so that a dataset holding both takes the basis off the band rather
     # than computing the same series a second time.
     vwap_band: bands.VwapBand | None = (
@@ -722,7 +799,7 @@ def prepare(
             for kind, periods in spec.periods_by_kind().items()
         },
         atrs={p: indicators.nt8_atr(high, low, close, p) for p in spec.atr_periods},
-        band=bands.band_grid(close, spec.band_periods) if spec.band_periods else None,
+        band=band,
         vwap=vwap,
         below_vwap=below_vwap,
         above_vwap=above_vwap,
@@ -731,6 +808,7 @@ def prepare(
         session_ranges=ranges,
         regimes=regimes,
         volumes=volumes,
+        compressions=compressions,
         trends=trends,
         higher_timeframes=higher_timeframes,
         seconds_to_session_end=(sessions.seconds_to_session_end(info) if spec.needs_session_clock else None),

@@ -438,6 +438,42 @@ Two archetypes size a bracket off ATR for opposite reasons — EmaCrossover beca
 
 Queued rather than scheduled; the expensive archetype. "Squeeze" means at least three things, and fixing the definition is the first task: TTM-style (Bollinger inside Keltner — the full M16 debt), bandwidth (`(upper − lower) / mid` below a trailing percentile — Bollinger only), or structural (inside bars — no new indicators at all). **Recommend the bandwidth form first:** one indicator rather than three, it drops the Keltner parity question flagged above as most likely to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and is the only version of this strategy with C# ground truth. Its trade list also settled two questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]` means inside `OnExecutionUpdate`. The real structural cost is a two-sided OCO entry model the loop lacks; the order-lifetime research above resolves that resubmission is exactly equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate, and results that cluster by volatility regime so the aggregate PF averages two populations.
 
+### M19.1 — compression as a condition, before it is an archetype ([#51])
+
+M19 opens by saying "squeeze" means at least three things and that fixing the definition comes first. This fixes it in the cheapest place: **compression is a property of the bars, so it is a context filter and not a strategy.** `nqbt/compression.py` is the sixth filter beside phase, regime, volume, trend and the higher-timeframe side, which means every registered archetype can be stratified by it for the price of one module — and the question M19 exists to answer, *does compression-then-break pay*, can be asked of `InsideBar` and `OpeningRange`, both of which already implement a break of a range, before anything new is built.
+
+`Trading-Docs/trading_concepts.md` § 3.2 puts "Bollinger bandwidth, or rolling high−low range ÷ ATR" in the same table of codeable classifiers that [#40] built `regime.py` from. Bandwidth is the sibling entry to the efficiency ratio, not a strategy of its own, and this treats it that way.
+
+#### Two forms, because a narrow band is not a short range
+
+`CompressionForm.BANDWIDTH` is `2σ / basis`, taken off `bands.BandGrid`'s two rows rather than a second Bollinger of its own — §M26's "build that grid once, because M19 reads it too", honoured. `CompressionForm.RANGE_TO_ATR` is the window's high−low range over an ATR of the same length, which reads near 1 for a window that went nowhere and near the lookback for one that trended. One period axis serves both, so unlike the volume axes **neither form leaves an axis inert** — the blind spot `dead_axes` cannot see is avoided rather than rediscovered.
+
+The Bollinger multiple is a constant, not an axis. It scales every bar alike, so it cannot move an ordering, a rank or a fitted quantile; sweeping it would run identical combinations.
+
+#### The rank is the design, and it is what the two siblings do not have
+
+Neither raw width has a unit. Measured over both roots, three resolutions, both forms and three periods — 36 cells — **the raw width's median spans 0.00045 to 7.61, a factor of about 17,000.** A raw threshold on it is a different cut in every cell, which is exactly the failure §M27.5 records for the efficiency ratio (0.5 is the 59th percentile at a lookback of 5 and the 99.6th at 50) and §M27.8 for relative volume (0.7/1.5 admits 28% of bars under `PER_BAR` and 8% under `ROLLING`).
+
+So the filter cuts a **trailing percentile rank** rather than the width: where this bar's width sits among the `baseline_bars` widths *strictly before* it. That is the device `volume.py` already uses when it divides by a trailing median, and #51 names it outright — "below a trailing percentile".
+
+**Across the same 36 cells, a raw cut at 0.25 admits between 0.2524 and 0.2970 of the measured bars.** The worst cell is under five points off nominal and most are within two. That is a comparability neither sibling achieves, and it is why this dimension ships without a `--compression-quantiles` calibration pass: `CompressionGrid.thresholds_for` exists for a stratification that needs one, and the campaign's first pass does not. The residual drift is the shape it should be — larger for `BANDWIDTH` than for `RANGE_TO_ATR`, larger at long periods and short resolutions — because width is autocorrelated and the ranks bunch at both ends.
+
+#### The lookahead trap, closed by construction and pinned by a test
+
+§M19 calls lookahead "the second-easiest place in the project to manufacture a fictional edge", and a compression measure that reads the breakout bar's own range trivially predicts the breakout. Two things stand against it. A bar's width is computed from bars up to and including itself and its rank against bars strictly before it, so the series is causal at every step; and the filter is ANDed into the *signal*, which the simulator tests against the **next** bar's OHLC, exactly as every other context filter is. `tests/test_compression.py::test_no_bar_contributes_to_its_own_rank` pins it by truncation — every rank taken over a prefix must equal the rank the whole series gives that bar — and the test beside it checks that a window reaching one bar forward breaks the gate, because verifying the gate can fail is part of using it.
+
+#### What this is not
+
+**It is not the squeeze archetype**, and it does not answer M19. It supplies the condition and the stratification; the entry model M19 describes — a two-sided break of the compression range — is still unbuilt, and §M28's expressibility finding 1 still stands against the two-sided half of it. What it does is let the campaign ask whether compression is worth an archetype before one is written, which is the order §M28 and §M28.1 established for the opening range and the order the standing rubric asks for.
+
+**The first read to expect is uncomfortable.** §M27 measured `InsideBar` — the structural compression-then-break, with C# ground truth — separating in the **DIRECTIONAL** regime stratum, 99.7% of configurations profitable on the holdout at 10 minutes against 6.1% for CONSOLIDATING, and §M27.4 reproduced it under two more strata. A squeeze thesis predicts the opposite. If `compression=COMPRESSED` is the losing half here too, that is the same finding arriving from a third direction and it is a reason to park the archetype, not to re-cut until it agrees.
+
+#### The stratum, and how a campaign asks for it
+
+`--strata compression` is the dimension (one cell per state, at `compression_period = 20` and `compression_baseline_bars = 250`, both `sim/types.py` defaults) and joins `--strata context` and `--strata all`. `--strata compression-forms` is the recut that crosses both forms, and sits in `RECUTS` beside `volume-forms` so that `all` does not run the dimension twice under two sets of names.
+
+Adding the fields moved no number: the trade-log gate reports every pre-existing column identical across all fourteen files, with the six new parameter columns declared. That is the property `ALL_STATES` buys — the conjunction is skipped entirely at the default, so an unfiltered run is the run that predates the fields.
+
 ### M26 — the elastic band, the first mean-reversion archetype ([#167])
 
 Price mostly stays inside a band; when it closes far enough outside one, take the other side and target the middle. [#168] is the design and the indicator work, [#169] the Python, [#170] the port — and [#170] happens only if the Python clears the promotion criteria under "Decisions taken", not because the Python exists.

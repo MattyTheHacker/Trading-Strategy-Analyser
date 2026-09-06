@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
-from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
+from nqbt import compression, conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import (
     crossover,
@@ -130,6 +130,28 @@ def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.Volu
     )
 
 
+def _compression_keys(
+    values: Mapping[str, Sequence[AxisValue]],
+) -> tuple[compression.CompressionKey, ...]:
+    """List the compression series to build: none unless some combination filters on them.
+
+    Sixteen bytes per bar per series, plus the trailing-rank pass -- ``docs/roadmap.md`` §M19.1.
+    """
+    if not any(int(v) != compression.ALL_STATES for v in values.get("compression_filter", ())):
+        return ()
+
+    return tuple(
+        sorted(
+            {
+                compression.key(int(form), int(period), int(baseline))
+                for form in values.get("compression_form", ())
+                for period in values.get("compression_period", ())
+                for baseline in values.get("compression_baseline_bars", ())
+            },
+        ),
+    )
+
+
 def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendKey, ...]:
     """List the trend labels to build: none unless some combination filters on them.
 
@@ -205,6 +227,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
+        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
     )
@@ -226,6 +249,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
+        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_ma_values=True,
@@ -255,6 +279,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
+        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
     )
@@ -288,6 +313,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
+        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
     )
@@ -306,6 +332,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
+        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_ma_values=True,
@@ -316,6 +343,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 INERT_AT: Mapping[str, object] = {
     "regime_filter": regime.ALL_REGIMES,
     "volume_filter": volume.ALL_STATES,
+    "compression_filter": compression.ALL_STATES,
     "trend_filter": trend.ALL_TRENDS,
     "higher_timeframe_filter": higher_timeframe.ALL_SIDES,
 }
@@ -343,6 +371,18 @@ VOLUME_GATES: Mapping[str, str] = {
 }
 """Shared by every archetype: the five volume axes do nothing while the filter admits all
 three states. What this cannot catch: ``docs/roadmap.md`` §M10.2.
+"""
+
+COMPRESSION_GATES: Mapping[str, str] = {
+    "compression_form": "compression_filter",
+    "compression_period": "compression_filter",
+    "compression_baseline_bars": "compression_filter",
+    "compression_compressed_below": "compression_filter",
+    "compression_expanded_above": "compression_filter",
+}
+"""Shared by every archetype: the five compression axes do nothing while the filter admits all
+three states. Both forms read ``compression_period``, so unlike the volume axes none of these
+is inert under a form -- ``docs/roadmap.md`` §M19.1.
 """
 
 TREND_GATES: Mapping[str, str] = {
@@ -373,6 +413,7 @@ MA_GATES: Mapping[str, str] = {
     "slow_sma_kind": "use_slow_sma",
     **REGIME_GATES,
     **VOLUME_GATES,
+    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
@@ -383,6 +424,7 @@ CROSSOVER_GATES: Mapping[str, str] = {
     "min_bracket_dollars": "use_atr_stop",
     **REGIME_GATES,
     **VOLUME_GATES,
+    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
@@ -395,6 +437,7 @@ Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17
 INSIDEBAR_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
+    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
@@ -406,6 +449,7 @@ context filters gate an axis.
 ELASTICBAND_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
+    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
@@ -422,6 +466,7 @@ combinations and nothing will say so -- the same shape as ``volume_rolling_bars`
 OPENINGRANGE_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
+    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
