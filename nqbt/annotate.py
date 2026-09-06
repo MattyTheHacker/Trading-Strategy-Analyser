@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 
     from nqbt.arrays import FloatArray, OffsetArray
     from nqbt.context import Dataset
-    from nqbt.volume import VolumeForm
 
 __all__ = [
     "NO_LABELS",
@@ -580,7 +579,7 @@ def _volume_conditions(
     """Gather absolute and relative volume for every series built, and the state where asked."""
     out: dict[str, Column] = {}
     for key in grid.keys:
-        suffix: str = _volume_suffix(key)
+        suffix: str = volume.describe_key(key)
         relative: FloatArray = grid.relative_for(key)[at]
         out[f"volume_{suffix}"] = grid.absolute_for(key)[at]
         out[f"relative_volume_{suffix}"] = relative
@@ -632,14 +631,6 @@ def _higher_timeframe_conditions(
         )
 
     return out
-
-
-def _volume_suffix(key: volume.VolumeKey) -> str:
-    """Name one relative-volume series, carrying the rolling window only where it has one."""
-    form: VolumeForm = volume.VolumeForm(key.form)
-    window: str = f"_{key.rolling_bars}" if form is volume.VolumeForm.ROLLING else ""
-
-    return f"{form.name.lower()}{window}_{key.baseline_sessions}"
 
 
 def _trend_suffix(key: trend.TrendKey) -> str:

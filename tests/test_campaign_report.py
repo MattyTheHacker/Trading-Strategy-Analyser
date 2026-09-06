@@ -17,13 +17,18 @@ from tools.campaign_report import (
     NET_TO_DRAWDOWN,
     STATISTICS,
     TAGS,
+    UNFILTERED,
     axis_influence,
+    dimension_influence,
+    dimension_of,
+    dimensions,
     eta_squared,
+    in_dimension,
     net_to_drawdown,
     parameter_columns,
+    profile,
     rank,
     ratio_to_drawdown,
-    profile,
     swept_axes,
 )
 from tools.campaign_shortlist import rebuild
@@ -120,6 +125,61 @@ def test_profile_reports_the_profitable_share_not_the_best_row() -> None:
 def test_profile_groups_by_every_column_it_is_given() -> None:
     frame = combos(resolution=[5, 5, 15, 15])
     assert len(profile(frame, ["root", "resolution"])) == 2
+
+
+def test_every_table_carries_the_two_shares_a_result_is_read_wrong_without() -> None:
+    """A coarse resolution and the final session phase are both misread without them, and
+    optional columns are the ones nobody adds -- ``CONTRIBUTING.md`` § "Statistics and results"."""
+    frame = combos(session_close_share=[0.0, 0.1, 0.2, 0.3], ambiguous_share=[0.0, 0.0, 0.0, 0.4])
+    row = profile(frame, ["root"]).iloc[0]
+    assert row["session_close_share_med"] == pytest.approx(0.15)
+    assert row["ambiguous_share_med"] == pytest.approx(0.0)
+
+
+def test_a_frame_without_the_shares_is_profiled_rather_than_refused() -> None:
+    """The campaign databases widened over time, so an older row can be short a column."""
+    assert "session_close_share_med" not in profile(combos(), ["root"]).columns
+
+
+# -- reading a dimension of the strata -----------------------------------------------------
+
+
+def test_a_stratum_name_says_which_dimension_it_cuts() -> None:
+    assert dimension_of("phase=CASH_OPEN") == "phase"
+    assert dimension_of("regime=DIRECTIONAL@n=20") == "regime"
+    assert dimension_of("volume=HEAVY@per_bar_20 q=0.20/0.80") == "volume"
+
+
+def test_the_unfiltered_stratum_names_no_dimension() -> None:
+    """It is the baseline every other stratum is read against, not a cut of its own."""
+    assert dimension_of(UNFILTERED) == UNFILTERED
+    assert dimensions(combos(stratum=[UNFILTERED] * 4)) == []
+
+
+def test_every_dimension_present_is_reported_and_each_exactly_once() -> None:
+    """§M27 swept twenty strata and read one pooled row per stratum, which is how session phase
+    and volume went into the campaign and no finding about either came out."""
+    frame = combos(stratum=["phase=MIDDAY", "phase=CLOSE", "volume=HEAVY", UNFILTERED])
+    assert dimensions(frame) == ["phase", "volume"]
+    assert len(in_dimension(frame, "phase")) == 2
+
+
+def test_a_dimensions_influence_is_measured_inside_a_resolution_and_never_across_it() -> None:
+    """Bar size is the largest lever in the campaign, so a figure pooled over resolutions
+    reports that instead of the dimension -- ``docs/roadmap.md`` §M27."""
+    frame = combos(
+        stratum=["phase=MIDDAY", "phase=CLOSE", "phase=MIDDAY", "phase=CLOSE"],
+        resolution=[5, 5, 15, 15],
+        profit_factor=[2.0, 1.0, 2.0, 1.0],
+    )
+    influence = dimension_influence(frame)
+    assert list(influence["resolution"]) == [5, 15]
+    assert influence["eta2"].to_numpy() == pytest.approx([1.0, 1.0])
+    assert set(influence["cells"]) == {2}
+
+
+def test_a_frame_with_no_stratified_rows_has_no_influence_table() -> None:
+    assert dimension_influence(combos(stratum=[UNFILTERED] * 4)).empty
 
 
 # -- the held-out test ---------------------------------------------------------------------

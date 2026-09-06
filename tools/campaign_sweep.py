@@ -23,6 +23,17 @@ higher-timeframe cuts and appends to the same databases. Each dimension is also 
 own -- ``unfiltered``, ``regime``, ``phase``, ``volume``, ``trend``, ``htf`` -- which is how a
 held-out pass adds one at a time.
 
+``--strata volume-forms`` re-cuts the volume dimension rather than adding one: a cell per
+(form, tail size, state), so that "an unusually busy bar" and "an unusually busy session so
+far" are separable statements rather than one of three the campaign happened to ask.
+``--volume-quantiles`` fits each form's thresholds to its own distribution on the selection
+window, for the reason ``--regime-quantiles`` fits the regime's -- a raw pair is a different
+share of bars under each form. Neither it nor ``directional`` is in ``--strata all``, which
+would otherwise run their dimension twice:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strata volume-forms --split \
+        --volume-quantiles --n-jobs 8
+
 ``--regime-quantiles`` replaces the regime stratum's raw thresholds with a pair fitted to the
 efficiency ratio's own distribution at each ``(resolution, lookback)``, and splits the stratum
 into one cell per lookback -- ``regime=DIRECTIONAL@n=20``. The fit is taken on the selection
@@ -53,7 +64,7 @@ import math
 import sys
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import pandas as pd
 
@@ -122,6 +133,17 @@ REGIME_QUANTILES = (0.20, 0.80)
 """The cell size ``--regime-quantiles`` defaults to: a fifth of the measured bars in each of
 CONSOLIDATING and DIRECTIONAL, stated ahead of the sweep rather than discovered in it."""
 
+VOLUME_ROLLING_BARS = 30
+VOLUME_BASELINE_SESSIONS = 20
+"""The window and baseline §M27 ran at, held so that the form is what moves. Both are
+``sim/types.py`` defaults, which is what makes the ``PER_BAR`` cells here the campaign's own."""
+
+VOLUME_TAILS = ((0.10, 0.90), (0.20, 0.80), (0.33, 0.67))
+"""Tail sizes ``--volume-quantiles`` fits, each stated as a share of the measured bars.
+
+Three rather than one because the cut is what decides who is in ``HEAVY``, and a stratification
+read off a single unexamined cut is the cut's result -- ``docs/roadmap.md`` §M27.8."""
+
 MIN_TRADES = 30
 """The floor ``sweep.rank`` applies, repeated here for the per-sweep progress line."""
 
@@ -133,6 +155,7 @@ NAN = float("nan")
 UNFILTERED = "unfiltered"
 REGIME = "regime"
 DIRECTIONAL = "directional"
+VOLUME_FORMS = "volume-forms"
 CORE = "core"
 CONTEXT = "context"
 NARROW = "narrow"
@@ -140,6 +163,43 @@ ALL_STRATA = "all"
 
 Calibration = dict[int, tuple[float, float]]
 """Regime lookback -> the threshold pair fitted at it, one entry per swept lookback."""
+
+
+class VolumeCut(NamedTuple):
+    """One relative-volume series, the tail size asked of it, and the pair that fitted to."""
+
+    series: volume.VolumeKey
+    thin_below: float
+    heavy_above: float
+    tails: tuple[float, float] | None = None
+    """``None`` where the thresholds are the campaign's raw pair rather than a fit."""
+
+    @property
+    def name(self) -> str:
+        """What a stratum cut this way is called, which is what separates it in the table."""
+        stated: str = "raw" if self.tails is None else f"{self.tails[0]:.2f}/{self.tails[1]:.2f}"
+
+        return f"{volume.describe_key(self.series)} q={stated}"
+
+
+VolumeCalibration = tuple[VolumeCut, ...]
+"""Every (series, tail size) a volume-form stratification runs, each carrying its own cut."""
+
+
+@dataclass(frozen=True, slots=True)
+class Cuts:
+    """The fitted cut points one sweep point's strata are defined by, a field per dimension.
+
+    One object rather than one argument each, because every reader of a stratum group needs the
+    dimension it owns and none of them needs the others.
+    """
+
+    regime: Calibration | None = None
+    volume: VolumeCalibration = ()
+
+
+NO_CUTS = Cuts()
+"""What an uncalibrated run passes: the stratum names the stored databases already carry."""
 
 
 def _unfiltered() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -169,9 +229,60 @@ def _phase() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _volume() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per relative-volume state."""
+    """Once per relative-volume state, at the one form and the one cut §M27 ran."""
     for state in volume.VolumeState:
         yield f"volume={state.name}", {"volume_filter": [state.bit]}
+
+
+def volume_series() -> tuple[volume.VolumeKey, ...]:
+    """The three relative-volume series a form stratification reads.
+
+    Built through :func:`nqbt.volume.key`, which drops the rolling window from every form but
+    ``ROLLING`` -- the blind spot ``dead_axes`` cannot see, avoided rather than rediscovered.
+    """
+    return tuple(
+        volume.key(form, VOLUME_ROLLING_BARS, VOLUME_BASELINE_SESSIONS) for form in volume.VolumeForm
+    )
+
+
+def raw_volume_cuts() -> VolumeCalibration:
+    """The three forms at the campaign's own thresholds, which is what an unfitted run compares."""
+    defaults: DeadCatParams = DeadCatParams()
+
+    return tuple(
+        VolumeCut(series, defaults.volume_thin_below, defaults.volume_heavy_above)
+        for series in volume_series()
+    )
+
+
+def _volume_axes(cut: VolumeCut) -> dict[str, list[AxisValue]]:
+    """The series and the cut one volume-form stratum reads.
+
+    The rolling window is set only under the form that reads it, so the axis does not vary where
+    it is inert and no combination is run twice -- ``.claude/rules/sweep-and-context.md``.
+    """
+    axes: dict[str, list[AxisValue]] = {
+        "volume_form": [int(cut.series.form)],
+        "volume_baseline_sessions": [cut.series.baseline_sessions],
+        "volume_thin_below": [cut.thin_below],
+        "volume_heavy_above": [cut.heavy_above],
+    }
+    if cut.series.form is volume.VolumeForm.ROLLING:
+        axes["volume_rolling_bars"] = [cut.series.rolling_bars]
+
+    return axes
+
+
+def _volume_cells(cuts: VolumeCalibration) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """Once per (series, tail size, state): which of the three statements an edge belongs to."""
+    for cut in cuts:
+        for state in volume.VolumeState:
+            yield f"volume={state.name}@{cut.name}", _volume_axes(cut) | {"volume_filter": [state.bit]}
+
+
+def _volume_forms() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """The form stratification at the raw thresholds, which is what an unfitted run gets."""
+    yield from _volume_cells(raw_volume_cuts())
 
 
 def _trend() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -192,6 +303,7 @@ STRATUM_GROUPS = {
     DIRECTIONAL: _directional,
     "phase": _phase,
     "volume": _volume,
+    VOLUME_FORMS: _volume_forms,
     "trend": _trend,
     "htf": _higher_timeframe,
 }
@@ -202,14 +314,19 @@ REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL})
 """Groups whose cells ``--regime-quantiles`` splits per lookback. Membership rather than one
 name, so that a group yielding a single regime cell is calibrated like the full one."""
 
+RECUTS = frozenset({DIRECTIONAL, VOLUME_FORMS})
+"""Groups that re-cut a dimension another group already owns, so ``all`` leaves them out.
+
+``directional`` is one regime cell without its four siblings; ``volume-forms`` is the volume
+dimension under all three forms and a fitted cut. Either inside ``all`` would run its dimension
+twice under two sets of names."""
+
 STRATUM_SETS: dict[str, tuple[str, ...]] = {
     **{group: (group,) for group in STRATUM_GROUPS},
     CORE: (UNFILTERED, "regime", "phase"),
     CONTEXT: ("volume", "trend", "htf"),
     NARROW: (UNFILTERED, DIRECTIONAL),
-    # ``directional`` is a subset of ``regime`` rather than a dimension of its own, so
-    # including it here would run that one cell twice.
-    ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group != DIRECTIONAL),
+    ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
 skipped rather than re-running it. Every dimension is also selectable on its own, which is what
@@ -240,16 +357,20 @@ def _per_lookback(
 
 def strata(
     which: str,
-    calibration: Calibration | None = None,
+    cuts: Cuts = NO_CUTS,
 ) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """The stratifications ``which`` names, unfiltered first wherever it is included."""
     for group in STRATUM_SETS[which]:
+        if group == VOLUME_FORMS and cuts.volume:
+            yield from _volume_cells(cuts.volume)
+            continue
+
         for name, axes in STRATUM_GROUPS[group]():
-            if group not in REGIME_GROUPS or calibration is None:
+            if group not in REGIME_GROUPS or cuts.regime is None:
                 yield name, axes
                 continue
 
-            yield from _per_lookback(name, axes, calibration)
+            yield from _per_lookback(name, axes, cuts.regime)
 
 
 def calibrate(
@@ -261,6 +382,27 @@ def calibrate(
     grid: regime.EfficiencyRatioGrid = regime.efficiency_ratio_grid(float_column(frame, "close"), lookbacks)
 
     return {lookback: grid.thresholds_for(lookback, *quantiles) for lookback in sorted(lookbacks)}
+
+
+def calibrate_volume(
+    frame: pd.DataFrame,
+    minutes: int,
+    tails: Sequence[tuple[float, float]],
+) -> VolumeCalibration:
+    """Fit a threshold pair per (series, tail size) to ``frame``'s own relative volumes.
+
+    Each form is fitted against its own distribution, which is the whole point: the same raw
+    pair sits at a different percentile under each of the three -- ``docs/roadmap.md`` §M27.8.
+    """
+    series: tuple[volume.VolumeKey, ...] = volume_series()
+    spec = context.ContextSpec(volume_keys=series, needs_time_of_day=True)
+    data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
+
+    return tuple(
+        VolumeCut(key, *volume.thresholds_from_quantiles(data.relative_volume(key), *pair), tails=pair)
+        for key in series
+        for pair in tails
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,12 +710,12 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
 def grids_for(
     variant: Variant,
     which: str,
-    calibration: Calibration | None = None,
+    cuts: Cuts = NO_CUTS,
 ) -> list[tuple[str, sweep.Grid]]:
     """One grid per stratum over ``variant``, named by the stratum."""
     return [
         (name, sweep.Grid(axes=variant.axes | extra, base=variant.base, archetype=variant.archetype))
-        for name, extra in strata(which, calibration)
+        for name, extra in strata(which, cuts)
     ]
 
 
@@ -612,7 +754,7 @@ def run_point(
     window: str,
     batch_id: int,
     which: str,
-    calibration: Calibration | None,
+    cuts: Cuts,
     *,
     n_jobs: int,
 ) -> None:
@@ -625,7 +767,7 @@ def run_point(
     named: list[tuple[str, str, sweep.Grid]] = [
         (variant.name, stratum, grid)
         for variant in variants
-        for stratum, grid in grids_for(variant, which, calibration)
+        for stratum, grid in grids_for(variant, which, cuts)
     ]
 
     spec: context.ContextSpec = context.ContextSpec()
@@ -658,7 +800,8 @@ def run_point(
         notes=(
             f"campaign; window={window}; strata={which}; variants={len(variants)}; "
             f"cells={len(named) // len(variants)}; "
-            f"regime={'quantile-fitted' if calibration else 'raw'}; "
+            f"regime={'quantile-fitted' if cuts.regime else 'raw'}; "
+            f"volume={'quantile-fitted' if cuts.volume else 'raw'}; "
             f"${COMMISSION[root]:.2f} RT + {SLIPPAGE_TICKS:g} tick"
         ),
         strategy=archetype.name,
@@ -685,12 +828,20 @@ def run_point(
     )
 
 
-def cell_shape(argv: argparse.Namespace) -> Calibration | None:
-    """A calibration with the right lookbacks and no thresholds, for counting cells only."""
-    if not argv.regime_quantiles:
-        return None
+def cell_shape(argv: argparse.Namespace) -> Cuts:
+    """Cuts with the right cells and no thresholds in them, for counting cells only."""
+    regime_cells: Calibration | None = (
+        dict.fromkeys(argv.regime_lookbacks, (NAN, NAN)) if argv.regime_quantiles else None
+    )
+    volume_cells: VolumeCalibration = (
+        tuple(
+            VolumeCut(key, NAN, NAN, tails=pair) for key in volume_series() for pair in argv.volume_quantiles
+        )
+        if argv.volume_quantiles
+        else ()
+    )
 
-    return dict.fromkeys(argv.regime_lookbacks, (NAN, NAN))
+    return Cuts(regime=regime_cells, volume=volume_cells)
 
 
 def planned_combinations(argv: argparse.Namespace) -> int:
@@ -722,6 +873,21 @@ def quantile_pair(given: list[float] | None) -> tuple[float, float] | None:
     return given[0], given[1]
 
 
+def tail_pairs(given: list[float] | None) -> tuple[tuple[float, float], ...]:
+    """The tail sizes to fit: empty for the raw thresholds, and bare for :data:`VOLUME_TAILS`."""
+    if given is None:
+        return ()
+
+    if not given:
+        return VOLUME_TAILS
+
+    if len(given) % 2:
+        msg: str = f"--volume-quantiles takes a thin and a heavy quantile per cut, got {len(given)}"
+        raise SystemExit(msg)
+
+    return tuple((given[at], given[at + 1]) for at in range(0, len(given), 2))
+
+
 def log_calibration(
     fitted: dict[int, Calibration],
     quantiles: tuple[float, float],
@@ -741,6 +907,38 @@ def log_calibration(
                 directional,
                 directional / anchor,
             )
+
+
+def log_volume_calibration(fitted: dict[int, VolumeCalibration], selection_bars: int) -> None:
+    """Report the cut each volume-form stratum below was defined by, and what share it admits."""
+    logger.info("  volume thresholds fitted on %s selection bars", f"{selection_bars:,}")
+    for minutes, calibration in fitted.items():
+        for cut in calibration:
+            logger.info(
+                "    %2dm %-32s thin < %.4f  heavy > %.4f",
+                minutes,
+                cut.name,
+                cut.thin_below,
+                cut.heavy_above,
+            )
+
+
+def fit_volume(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, VolumeCalibration]:
+    """One calibration per resolution, fitted on the selection window whether or not it is split.
+
+    The held-out window reads the selection window's cut, exactly as :func:`fit_regime`'s does.
+    """
+    if not argv.volume_quantiles:
+        return {}
+
+    selection: pd.DataFrame = bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
+    fitted: dict[int, VolumeCalibration] = {
+        minutes: calibrate_volume(resample.resample(selection, minutes), minutes, argv.volume_quantiles)
+        for minutes in argv.resolutions
+    }
+    log_volume_calibration(fitted, len(selection))
+
+    return fitted
 
 
 def fit_regime(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, Calibration]:
@@ -787,9 +985,17 @@ def main(argv: list[str]) -> int:
         help="fit the regime thresholds on the selection window; bare takes the stated pair",
     )
     parser.add_argument("--regime-lookbacks", nargs="+", type=int, default=list(REGIME_LOOKBACKS))
+    parser.add_argument(
+        "--volume-quantiles",
+        nargs="*",
+        type=float,
+        default=None,
+        help="fit the volume-form thresholds on the selection window; bare takes the stated tails",
+    )
     args = parser.parse_args(argv[1:])
     args.strategies = args.strategies or list(variants_for(args.variants))
     args.regime_quantiles = quantile_pair(args.regime_quantiles)
+    args.volume_quantiles = tail_pairs(args.volume_quantiles)
     # A held-out test of a stratified shortlist is a smaller sample twice over, so --split
     # defaults to the unfiltered stratum alone unless one is named.
     args.strata = args.strata or (UNFILTERED if args.split else CORE)
@@ -804,6 +1010,7 @@ def main(argv: list[str]) -> int:
             variants: list[Variant] = variants_for(args.variants)[name](root)
             bars: pd.DataFrame = splice.load_continuous(root)
             fitted: dict[int, Calibration] = fit_regime(bars, args)
+            volumes: dict[int, VolumeCalibration] = fit_volume(bars, args)
             for window, source in windows(bars, split=args.split):
                 for minutes in args.resolutions:
                     # A variant the resolution cannot express is skipped rather than raising:
@@ -821,7 +1028,7 @@ def main(argv: list[str]) -> int:
                         window,
                         batch_id,
                         args.strata,
-                        fitted.get(minutes),
+                        Cuts(regime=fitted.get(minutes), volume=volumes.get(minutes, ())),
                         n_jobs=args.n_jobs,
                     )
     logger.info("")
