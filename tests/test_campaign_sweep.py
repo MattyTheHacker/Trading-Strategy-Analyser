@@ -20,10 +20,17 @@ from nqbt import archetypes, higher_timeframe, regime, sessionrange, timeofday, 
 from nqbt.sim.types import STOP_ATR, STOP_CATASTROPHE, STOP_SWING
 from tools.campaign_sweep import (
     ALL_STRATA,
+    CAMPAIGN,
     COMMISSION,
     CONTEXT,
     CORE,
+    DIRECTIONAL,
     ELASTIC_LADDERS,
+    NARROW,
+    NARROW_ATR,
+    NARROW_ENTRY,
+    NARROW_TP,
+    NARROW_VARIANTS,
     REGIME,
     REGIME_LOOKBACKS,
     REGIME_QUANTILES,
@@ -42,6 +49,7 @@ from tools.campaign_sweep import (
     planned_combinations,
     quantile_pair,
     strata,
+    variants_for,
     windows,
 )
 
@@ -217,6 +225,7 @@ def test_planned_combinations_multiplies_the_axes_out() -> None:
         strategies=["InsideBar"],
         roots=["MNQ"],
         strata=UNFILTERED,
+        variants=CAMPAIGN,
         resolutions=[5, 15],
         split=False,
         regime_quantiles=None,
@@ -325,6 +334,7 @@ def test_planned_combinations_counts_the_calibrated_cells() -> None:
         strategies=["InsideBar"],
         roots=["MNQ"],
         strata=REGIME,
+        variants=CAMPAIGN,
         resolutions=[5],
         split=False,
         regime_quantiles=REGIME_QUANTILES,
@@ -369,6 +379,7 @@ def test_planned_combinations_skips_a_resolution_a_variant_cannot_express() -> N
         strategies=["OpeningRange"],
         roots=["MNQ"],
         strata=UNFILTERED,
+        variants=CAMPAIGN,
         resolutions=[10],
         split=False,
         regime_quantiles=None,
@@ -387,3 +398,87 @@ def test_the_opening_range_sweeps_both_sides_as_separate_combinations() -> None:
         assert variant.axes["direction"] == [trades.LONG, trades.SHORT]
         for combination in grids_for(variant, UNFILTERED)[0][1].combinations():
             assert combination.direction in (trades.LONG, trades.SHORT)
+
+
+# -- the §M27.3 narrow re-sweep --------------------------------------------------------------
+
+
+def test_the_narrow_set_is_the_baseline_and_the_one_cell_it_asks_about() -> None:
+    """Four regime cells nobody is asking about are four more comparisons -- §M27.3."""
+    assert [name for name, _ in strata(NARROW)] == [UNFILTERED, "regime=DIRECTIONAL"]
+
+
+def test_the_directional_group_is_calibrated_like_the_full_regime_one() -> None:
+    """The prerequisite §M27.3 inherits from [#200]: the raw 0.5 cut is not one filter, so a
+    group yielding a single regime cell has to be split per lookback too."""
+    fitted = {name for name, _ in strata(NARROW, FITTED)}
+    assert fitted == {UNFILTERED, *(f"regime=DIRECTIONAL@n={n}" for n in FITTED)}
+
+
+def test_a_calibrated_directional_cell_carries_its_own_lookbacks_thresholds() -> None:
+    cells = dict(strata(DIRECTIONAL, FITTED))
+    for lookback, (consolidating, directional) in FITTED.items():
+        axes = cells[f"regime=DIRECTIONAL@n={lookback}"]
+        assert axes["regime_lookback"] == [lookback]
+        assert axes["regime_consolidating_below"] == [consolidating]
+        assert axes["regime_directional_above"] == [directional]
+
+
+def test_the_directional_cell_is_not_swept_twice_by_the_full_set() -> None:
+    """``directional`` is a subset of ``regime``, so including it in ``all`` would run one cell
+    twice and report it as two."""
+    assert DIRECTIONAL not in STRATUM_SETS[ALL_STRATA]
+    assert len(list(strata(ALL_STRATA))) == 1 + sum(len(names) for names in EVERY_STATE.values())
+
+
+def test_the_narrow_variants_cross_the_bracket_pair_and_nothing_else() -> None:
+    """§M27 moved the stop across three values and could not move the target by a tick; the
+    re-sweep varies exactly those two so the crossed pair is the only thing changing."""
+    for variant in NARROW_VARIANTS["InsideBar"]("MNQ"):
+        assert set(variant.axes) == {"tp_multiplier", "atr_multiplier"}
+        assert variant.sized() == len(NARROW_TP) * len(NARROW_ATR)
+
+
+def test_the_narrow_grid_contains_the_geometry_the_campaign_actually_ran() -> None:
+    """Without §M27's own cell in the grid there is nothing to read the re-sweep against."""
+    assert 1.0 in NARROW_TP, "the hardcoded 1x ATR target the campaign was stuck with"
+    assert {5.0, 10.0, 20.0} <= set(NARROW_ATR), "§M27's three stop distances"
+
+
+def test_each_narrow_variant_runs_at_exactly_one_resolution() -> None:
+    """A ``Variant`` carries one base and the entry §M27 chose differs between the two bar
+    sizes, so the resolutions are what separates them."""
+    variants = NARROW_VARIANTS["InsideBar"]("MNQ")
+    assert [variant.resolutions for variant in variants] == [(5,), (10,)]
+    assert {minutes for variant in variants for minutes in variant.resolutions} == set(NARROW_ENTRY)
+
+
+def test_the_narrow_entry_is_held_at_a_value_and_never_swept() -> None:
+    for variant in NARROW_VARIANTS["InsideBar"]("MNQ"):
+        assert set(variant.axes).isdisjoint(NARROW_ENTRY[variant.resolutions[0]])
+
+
+def test_the_narrow_variants_carry_the_roots_real_costs() -> None:
+    for root, commission in COMMISSION.items():
+        for variant in NARROW_VARIANTS["InsideBar"](root):
+            assert variant.base.commission_per_contract == commission
+            assert variant.base.slippage_ticks == SLIPPAGE_TICKS
+
+
+def test_every_narrow_variant_is_named_for_the_reading_tools_to_filter_on() -> None:
+    """The rows land in the campaign's own database, so the variant name is what separates
+    them from §M27's -- ``--variant narrow`` on every reading tool."""
+    assert {variant.name for variant in NARROW_VARIANTS["InsideBar"]("MNQ")} == {NARROW}
+    assert NARROW not in {variant.name for variant in all_variants()}
+
+
+def test_the_campaign_grid_is_untouched_by_the_re_sweep() -> None:
+    """§M27's stored rows and the code that produced them must not drift apart, so a re-sweep
+    is its own variant set rather than an axis added to the campaign's."""
+    assert "tp_multiplier" not in VARIANTS["InsideBar"]("MNQ")[0].axes
+    assert set(NARROW_VARIANTS) < set(VARIANTS)
+
+
+def test_variants_for_selects_the_grid_the_flag_names() -> None:
+    assert variants_for(NARROW) is NARROW_VARIANTS
+    assert variants_for(CAMPAIGN) is VARIANTS

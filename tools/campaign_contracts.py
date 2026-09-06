@@ -26,8 +26,7 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_report import load
-from tools.campaign_shortlist import rebuild
+from tools.campaign_shortlist import best_row, rebuild
 
 from nqbt import archetypes, dispersion, logsetup, randomentry, resample, stats, sweep
 from nqbt.instruments import get_instrument
@@ -42,21 +41,10 @@ def chosen(
     by: str,
     stratum: str | None = None,
     resolution: int | None = None,
+    variant: str | None = None,
 ) -> tuple[archetypes.Params, int]:
     """The configuration a window's ranking picked, and the resolution it was ranked at."""
-    frame: pd.DataFrame = load(name, window)
-    frame = frame[frame["root"] == root]
-    if stratum is not None:
-        frame = frame[frame["stratum"] == stratum]
-
-    if resolution is not None:
-        frame = frame[frame["resolution"] == resolution]
-
-    if frame.empty:
-        msg: str = f"no stored rows for {name} on {root} in {window}, stratum {stratum}"
-        raise RuntimeError(msg)
-
-    row: pd.Series = frame.nlargest(1, by).iloc[0]  # type: ignore[type-arg]  # duckdb's dtypes
+    row: pd.Series = best_row(name, root, window, by, stratum, resolution, variant)  # type: ignore[type-arg]  # duckdb's dtypes
 
     return rebuild(row, archetypes.get(name)), int(row["resolution"])
 
@@ -118,10 +106,11 @@ def run_root(
     n_jobs: int,
     stratum: str | None = None,
     resolution: int | None = None,
+    variant: str | None = None,
 ) -> pd.DataFrame:
     """Every front-month contract of one root, under the configuration the window chose."""
     archetype: archetypes.Archetype = archetypes.get(name)
-    params, minutes = chosen(name, root, window, by, stratum, resolution)
+    params, minutes = chosen(name, root, window, by, stratum, resolution, variant)
     logger.info("")
     logger.info("%s on %s at %dm, configuration ranked on %s by %s", name, root, minutes, window, by)
 
@@ -186,6 +175,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--by", default="profit_factor")
     parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
+    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--n-jobs", type=int, default=8)
     args = parser.parse_args(argv[1:])
@@ -200,6 +190,7 @@ def main(argv: list[str]) -> int:
             args.n_jobs,
             args.stratum,
             args.resolution,
+            args.variant,
         )
         for root in args.roots
     ]
