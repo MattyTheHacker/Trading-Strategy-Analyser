@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, resample, results, sessions, sweep
+from nqbt import archetypes, disambiguate, resample, results, sessions, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
 from nqbt.sim.types import InsideBarParams
@@ -346,6 +346,7 @@ def main_over(monkeypatch: pytest.MonkeyPatch, table: pd.DataFrame) -> tuple[int
 
     monkeypatch.setattr(campaign_ambiguity, "shortlist", lambda *_args: rows)
     monkeypatch.setattr(campaign_ambiguity, "measure", remember)
+    monkeypatch.setattr(campaign_ambiguity, "settle", lambda *_args: (pd.DataFrame(), pd.DataFrame()))
     status = campaign_ambiguity.main(["campaign_ambiguity.py", "--strategy", STRATEGY])
 
     return status, [rows, *seen]
@@ -364,3 +365,90 @@ def test_main_survives_a_shortlist_that_measured_nothing(monkeypatch) -> None:
     status, _ = main_over(monkeypatch, pd.DataFrame())
 
     assert status == 0
+
+
+def test_main_can_report_the_band_without_reading_any_minute_bars(monkeypatch) -> None:
+    """``--no-settle`` is the cheap path, and it must not reach the third step at all."""
+    rows = pd.DataFrame({"window": ["full"], "resolution": [5]})
+    monkeypatch.setattr(campaign_ambiguity, "shortlist", lambda *_args: rows)
+    monkeypatch.setattr(campaign_ambiguity, "measure", lambda *_args: measured())
+    monkeypatch.setattr(
+        campaign_ambiguity,
+        "settle",
+        lambda *_a: (_ for _ in ()).throw(AssertionError("settled under --no-settle")),
+    )
+
+    assert campaign_ambiguity.main(["campaign_ambiguity.py", "--strategy", STRATEGY, "--no-settle"]) == 0
+
+
+# -- settling the band against the minute bars -----------------------------------------------
+
+
+def settled_over(tmp_path, monkeypatch, bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Store the fixture's two configurations, then run the third step over them."""
+    db = tmp_path / f"{STRATEGY}.duckdb"
+    stored(db, bars, 5, "full")
+    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+
+    return campaign_ambiguity.settle(combos(db), archetypes.INSIDEBAR, ROOT)
+
+
+def test_only_the_rows_over_the_threshold_are_settled(tmp_path, monkeypatch) -> None:
+    """The user-facing contract: an extra step on a finished result, run only where the
+    assumption is common enough to have decided anything -- ``disambiguate.MIN_AMBIGUOUS_SHARE``."""
+    bars = synthetic_bars()
+    table = spread_table(tmp_path / "spread", monkeypatch, bars, [("full", 5)])
+    over = table[table["ambiguous_share"] >= disambiguate.MIN_AMBIGUOUS_SHARE]
+    assert len(over) == 1, "the fixture must straddle the threshold or this proves nothing"
+
+    settled, _ = settled_over(tmp_path, monkeypatch, bars)
+    assert len(settled) == 1
+    assert settled["ambiguous_share"].iloc[0] >= disambiguate.MIN_AMBIGUOUS_SHARE
+
+
+def test_a_shortlist_with_no_ambiguity_settles_nothing_rather_than_raising(tmp_path, monkeypatch) -> None:
+    """Most shortlists are this case, and it must be a quiet skip rather than an error."""
+    db = tmp_path / f"{STRATEGY}.duckdb"
+    bars = synthetic_bars()
+    stored(db, bars, 5, "full")
+    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    block = combos(db)
+    block.loc[:, "ambiguous_share"] = 0.0
+
+    settled, verdicts = campaign_ambiguity.settle(block, archetypes.INSIDEBAR, ROOT)
+    assert settled.empty
+    assert verdicts.empty
+
+
+def test_a_settled_row_reports_the_resolved_result_beside_the_ranked_one(tmp_path, monkeypatch) -> None:
+    """The point of the step: the profit factor with the assumption corrected where the minute
+    bars can correct it, against the one that was ranked."""
+    settled, _ = settled_over(tmp_path, monkeypatch, synthetic_bars())
+    row = settled.iloc[0]
+
+    assert row[campaign_ambiguity.MOVE] == pytest.approx(
+        row[campaign_ambiguity.RESOLVED] - row["profit_factor"],
+    )
+    assert row["ambiguous_bars"] >= 1
+
+
+def test_every_ambiguous_bar_of_a_settled_row_gets_a_verdict(tmp_path, monkeypatch) -> None:
+    settled, verdicts = settled_over(tmp_path, monkeypatch, synthetic_bars())
+
+    assert len(verdicts) == int(settled["ambiguous_bars"].sum())
+    assert set(verdicts.columns) >= {"trade_id", "exit_bar", "assumed", "resolved", "agrees", "label"}
+
+
+def test_the_printed_bars_are_the_ones_worth_looking_at() -> None:
+    """A bar the assumption called right is evidence, not a finding; printing every one buries
+    the handful that moved the result."""
+    verdicts = pd.DataFrame(
+        {
+            "resolved": ["target_first", "stop_first", "still_ambiguous"],
+            "agrees": pd.array([True, False, None], dtype="boolean"),
+        },
+    )
+    shown = campaign_ambiguity.unsettled(verdicts)
+
+    assert list(shown["resolved"]) == ["stop_first", "still_ambiguous"]
+    assert campaign_ambiguity.unsettled(pd.DataFrame()).empty

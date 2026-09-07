@@ -16,7 +16,15 @@ below and is what you quote; this file is the index, not the record.
 - `IsFillLimitOnTouch = false`: a limit must trade **through**, so targets need `low < target`,
   not `<=`.
 - **Ambiguous bars** (stop and target both in range) resolve to whichever is **nearer the
-  open**. A blanket worst case is *more* pessimistic than NT8, not equal to it.
+  open**. A blanket worst case is *more* pessimistic than NT8, not equal to it, and a blanket
+  best case is the other end; both exist only so `nqbt/disambiguate.py` has the two outcomes to
+  choose between, and **neither is ever ranked on**. **The rule is unfitted where an entry fills
+  inside the ambiguous bar** — the trade list that established it has no such bar, and the bar's
+  open is then not the price the trade was live from. `docs/roadmap.md` §M28.4.
+- **The whole position closes on an ambiguous bar under either policy** — targets-first fills
+  what it can and stops the remainder on the same bar. So the arms are the same trades leg for
+  leg, which is what lets a diagnostic select rows between them rather than recompute a price.
+  **Do not "optimise" the targets-first branch into leaving legs open.**
 - **A stop that gaps fills at the open, not at the stop price** — a stop is a market order once
   triggered. This holds for **exits as well as entries**; the exit path missed it until M15.5.
   It does *not* apply on the entry bar: the position did not exist at that bar's open, so price

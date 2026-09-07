@@ -40,7 +40,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from nqbt import conditions, context, ingest, logsetup, splice, stats, sweep
+from nqbt import conditions, context, ingest, logsetup, paths, splice, stats, sweep
 from nqbt.instruments import MNQ, NQ, ContractId
 from nqbt.sim.runner import run_deadcat
 from nqbt.sim.types import DeadCatParams
@@ -50,6 +50,30 @@ logger = logging.getLogger(__name__)
 CONTRACT = "MNQ 03-24"
 SWEEP_FROM = "2024-01-01"
 EXPECTED_ARGV = 2
+
+JIT_CACHE_SUFFIXES = (".nbi", ".nbc")
+"""What ``@njit(cache=True)`` writes beside each module, and what a capture must not reuse.
+
+**numba's cache does not track cross-module dependencies.** A change to ``bracket.py`` leaves
+every archetype's compiled loop holding the *old* inlined fill rules, so a capture taken over
+them compares new source against old machine code and reports no change -- the gate passing
+because it never ran the change. Measured on the ambiguity policy: identical source, caches
+deleted, different trade log. ``.claude/rules/regression-gate.md``.
+"""
+
+
+def purge_jit_cache(package: Path = paths.REPO_ROOT / "nqbt") -> int:
+    """Delete every compiled-function cache under ``package`` and return how many files went.
+
+    Cheap insurance rather than an optimisation to skip: the recompile costs a minute and a
+    stale cache costs the gate.
+    """
+    stale: list[Path] = [path for path in package.rglob("*") if path.suffix in JIT_CACHE_SUFFIXES]
+    for path in stale:
+        path.unlink()
+
+    return len(stale)
+
 
 EXACT = "%.17g"
 """Round-trips float64 without loss. See the module docstring -- the default does not."""
@@ -138,6 +162,7 @@ def main(argv: list[str]) -> int:
         logger.info("%s", __doc__)
         return 2
 
+    logger.info("purged %d stale JIT cache files", purge_jit_cache())
     capture(Path(argv[1]))
 
     return 0
