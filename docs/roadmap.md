@@ -1641,7 +1641,7 @@ The retest entry, the fade, the overnight anchor and the noise-area form are §M
 
 ### M28.2 — the deferral list, built: three entry mechanisms, one stop axis, and a null over levels ([#237])
 
-§M28 and §M28.1 each ended with a list of things deferred with reasons rather than by omission. [#237] is that list, built. **Nothing here is a result yet** — this is the machinery and the pre-registration; the campaign that reads it is the next pass.
+§M28 and §M28.1 each ended with a list of things deferred with reasons rather than by omission. [#237] is that list, built — and then swept, under strata named before the run. **The headline is a negative result and a trap**: of the two entry mechanisms added, one fails outright and the other cannot be read at all, because the campaign ranked it straight into a corner where the simulation assumption decides the trade. The breakout reproduces §M28.1 and gains the null it never had.
 
 #### What was deferred, and where each one landed
 
@@ -1722,6 +1722,67 @@ Written down so they can be scored the way §M28's two were, and §M28's two wer
 **The retest will trade a little less than the breakout rather than far less, and the sample-size verdict will still be what stops it.** The obvious reading — it needs a break *and* a return, so it is strictly more selective — is wrong, and the reason is §M18. A breakout's stop is refused on every bar that closes past the trigger, which after a break is most of them; a retest's limit is refused on every bar that closes *inside* it, which after a break is few of them. **The two rules lose their opportunities to opposite halves of the same refusal**, so the selectivity mostly cancels. Measured on a 60-session random-walk fixture at the one-shot cap: 136 breakout trades against 128 retest trades on the same bars, and 18–29% fewer per combination once the `break_confirm_ticks` axis is divided out. §M28.1 could not call gate 4 on roughly 460 held-out trades, so a fifth fewer is still the wrong side of the line: expect gate 4 to bind at least as hard.
 
 **The fade will be the one that separates the roots, and drift is why.** §M28.1's null showed the long side carrying almost all of the raw result in a tape that nearly doubled. A fade of the *low* is a long trade that fires when the day has gone down — the opposite conditioning to the breakout's — so it is the first configuration here whose long side is not aligned with the drift. If the fade's long side survives its matched null, that is a stronger signal than anything §M28.1 measured; if it collapses, that is the drift being visible from the other side.
+
+#### The campaign, and the finding is a negative one
+
+`tools/campaign_sweep.py --variants orb --strata orb` over three passes — the full window, the selection/holdout split, and the quantile-fitted regime cells — is **364,800 combinations in 31 minutes**, both roots, at the real commission for the root and one tick of slippage. Every figure below is re-derivable from `results/campaign/OpeningRange.duckdb` and is a measurement of one dated run rather than a standing property; the rows carry `entry_mode`, which is what separates them from §M28.1's.
+
+**Gate 1 — the stop fraction is monotone, and it recovers §M28.1 at its endpoint.** Share of combinations profitable, unfiltered, full window, MNQ / NQ:
+
+| entry    | frac 0.25     | 0.50          | 0.75          | 1.00              |
+| -------- | ------------- | ------------- | ------------- | ----------------- |
+| breakout | 0.000 / 0.006 | 0.135 / 0.146 | 0.383 / 0.438 | **0.615 / 0.633** |
+| fade     | 0.036 / 0.054 | 0.073 / 0.143 | 0.139 / 0.185 | 0.190 / 0.246     |
+| retest   | 0.611 / 0.709 | 0.542 / 0.609 | 0.546 / 0.603 | 0.619 / 0.654     |
+
+The breakout clears only at `1.0`, which *is* the opposite-extreme stop — so the axis reproduced §M28.1's gate-1 finding from a new direction and put a gradient under it. **A stop that is not the range is not merely worse; it degrades smoothly to nothing as it tightens.** The midpoint stop the literature recommends is the 0.50 column, and it is not close. **The fade fails gate 1 on both roots at every fraction**, which is the clearest verdict in the table.
+
+**Gate 2 — the retest appears to pass, and it is an artefact.** Through `campaign_holdout`'s own `verdict()`, per entry mode: breakout 16 of 16 cells pass, fade 0 of 16, retest 16 of 16 with held-out profit factors of **2.15 to 3.87**.
+
+That number is not a result, and the standing rubric is what catches it:
+
+| entry      | top-20 held-out PF | top-20 `ambiguous_share` | its population's mean |
+| ---------- | ------------------ | ------------------------ | --------------------- |
+| breakout   | 1.101 / 1.123      | 0.003 / 0.000            | 0.024                 |
+| fade       | 0.901 / 0.768      | 0.001 / 0.001            | 0.019                 |
+| **retest** | **2.755 / 2.780**  | **0.345 / 0.338**        | 0.021                 |
+
+**The selection window picked, almost exclusively, the configurations whose outcome is decided by the ambiguity assumption rather than by the data** — sixteen times the population rate. Every one of the top twenty carries `stop_range_fraction=0.25`, and both directions score about 2.7, which is the tell: an assumption does not care which way you trade.
+
+**The mechanism is specific to the entry type, and no earlier archetype could have found it.** A stop entry fills as price moves *toward* its target, so the bar's favourable extreme plausibly comes after the fill. A limit entry fills as price moves *away* from its target, so on the fill bar that extreme usually **predates the fill** — and bar-close OHLC cannot say so. Measured at `frac=0.25`: the retest exits on its own entry bar 22.9% of the time with 49% of those being targets, against the breakout's 5%. A one-bar range (`cash=5m` on 5-minute bars) with a quarter-range stop and an R ladder on top puts both bracket levels inside a single bar, and then the policy decides the trade.
+
+**This is not a bug to fix in the fill model.** NT8 under bar-close OHLC has exactly the same ambiguity, and resolving it more pessimistically would breach the prime directive in the other direction — § "Ambiguous bars resolve to whichever level is nearer the open". What is new is that a configuration's *result* is now dominated by it, so the result is not attributable. `.claude/rules/simulator.md` predicted the shape of this: **each new entry mechanism reaches rules the others made unreachable by construction.**
+
+**Gate 3 — the level draw runs where the bar draw refuses, and that is the whole point of it.** On the unfiltered breakout, ranked on the selection window and tested on the held-out one, 200 draws:
+
+| root | observed PF   | level-null PF | excess           | p             |
+| ---- | ------------- | ------------- | ---------------- | ------------- |
+| MNQ  | 1.095 – 1.116 | 0.928 – 0.959 | +0.125 to +0.167 | 0.040 – 0.159 |
+| NQ   | 1.095 – 1.143 | 0.953 – 0.972 | +0.136 to +0.178 | 0.090 – 0.209 |
+
+The draw over **bars** refused on both roots with the message §M28.1 wrote, and `campaign_null.py` exited 2 — a gate that could not be run rather than one that passed. The draw over **levels** ran on the same rows.
+
+**The excess is consistent in sign and size across both roots and all three resolutions, and only one cell clears p < 0.05.** By the standing rubric that is *suggestive, not significant* — but it is strictly more than §M28.1 could say, because there this configuration had no null at all.
+
+**What the level null settles that the bar null could not.** Its arm holds the bars, the signal and the armed flags fixed and moves only the level — and it **loses money**, −5,850 to −9,804 net on MNQ, where the observation makes +16,254 on the same rising tape. So the drift is in both arms and cannot be what separates them, which is §M28.1's own drift argument reached for the configuration that had no way to make it.
+
+#### Both predictions were wrong, and the second one usefully
+
+**"The retest will trade a little less than the breakout."** Right about the mechanism and wrong about what would matter. Per combination it does trade about a fifth less, and the §M18 cancellation is real — but the trade count was never what stopped it. What stopped it was that its geometry makes ambiguous bars common where every earlier archetype made them rare, which no part of the prediction anticipated.
+
+**"The fade will be the one that separates the roots."** Wrong twice over. The fade does not separate the roots — NQ runs about five points of profitable share above MNQ in every fade cell, which is the same gap the other two show — and it does not survive to a stage where separation would mean anything, failing gate 1 at every fraction on both roots. **The entry that turned out to be interesting was the retest, and it was interesting for a reason that is not about trading at all.**
+
+#### Where that leaves the three entries
+
+- **Breakout** — reproduces §M28.1 and adds the gradient beneath it. It is still the only OpeningRange entry with a defensible result, and the level null now gives its unfiltered form a control it did not have.
+- **Fade** — fails gate 1 on both roots at every stop fraction. **Parked, with a reason**: § "Parked is not abandoned". What would justify a re-run is a different bracket, not a different seed — its stop is the axis that never suited it, since the range extreme it enters at is the one thing it cannot stop behind.
+- **Retest** — **no verdict, and that is the finding.** Its gate-2 pass is a measurement of `ambiguity_policy`, not of a strategy. It cannot be read at all until its shortlist is constrained to configurations whose brackets do not both sit inside one bar, which is a change to how the campaign selects rather than to the archetype.
+
+#### What this campaign says the tooling needs
+
+**A shortlist that ranks on profit factor will select for `ambiguous_share` whenever an archetype has configurations where it is high**, and nothing in the campaign tools says so. §M28.1 knew to read the number and read it once, by hand, for one configuration. That worked because OpeningRange's ambiguity was 0.003 everywhere; it does not survive an archetype whose ambiguity ranges from 0.006 to 0.35 across its own swept space.
+
+The cheap guard is a ceiling on `ambiguous_share` in `campaign_report.rank`, beside the trade floor `MIN_TRADES` that is already there and already exists for exactly this reason — a statistic that is undefined or unattributable should not be rankable. **That is the next change, and it is a tooling change rather than an archetype one** — [#248], which carries the two questions to settle before implementing it: where the ceiling goes, given that filtering inside `rank` moves every stored comparison, and what the number means as a sentence.
 
 #### What is still deferred
 
@@ -2476,6 +2537,7 @@ ______________________________________________________________________
 [#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
 [#244]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/244
+[#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
