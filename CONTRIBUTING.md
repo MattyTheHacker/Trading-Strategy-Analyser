@@ -297,6 +297,7 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 - **Guard against multiple comparisons.** The best of nineteen contracts × N combinations is the *expected* output of noise. Test a combination chosen for a reason, not the best of two hundred.
 - **Say what a statistic was computed over.** Per trade or per leg, whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
 - **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse resolution.
+- **The share is not the exposure.** `ambiguous_share` says how often the fill assumption was invoked, not how much the result depends on it. Where an archetype's ambiguity varies across its own swept space, run `tools/campaign_ambiguity.py` over the shortlist and read the spread between the two policies — [`docs/roadmap.md`](docs/roadmap.md) §M28.3.
 
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
 [#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91

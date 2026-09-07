@@ -1782,11 +1782,43 @@ The draw over **bars** refused on both roots with the message §M28.1 wrote, and
 
 **A shortlist that ranks on profit factor will select for `ambiguous_share` whenever an archetype has configurations where it is high**, and nothing in the campaign tools says so. §M28.1 knew to read the number and read it once, by hand, for one configuration. That worked because OpeningRange's ambiguity was 0.003 everywhere; it does not survive an archetype whose ambiguity ranges from 0.006 to 0.35 across its own swept space.
 
-**The guard belongs in the campaign tools rather than in the archetype**, beside the trade floor `MIN_TRADES` that is already there for the same reason: a statistic that is undefined or unattributable should not be rankable. What that guard should be, and what it should not be, is [#248].
+**The guard belongs in the campaign tools rather than in the archetype**, beside the trade floor `MIN_TRADES` that is already there for the same reason: a statistic that is undefined or unattributable should not be rankable. What that guard should be, and what it should not be, is [#248], answered in §M28.3: the spread between the two ambiguity policies, reported beside the shares and gating nothing.
 
 #### What is still deferred
 
 The **noise-area form**, which §M28 put on ElasticBand's thread and which stays there. The **two-sided range**, which is not a parameter but a probe — §M28's finding 1, unanswered. The **marketable-limit question** above, which is the same booking. And a **null over the level's kind rather than its identity**, which is the thing neither null asks.
+
+### M28.3 — the ambiguity spread: a shortlist's second arm ([#248])
+
+§M28.2's retest shortlist is the case: ranked on held-out profit factor, it selected almost exclusively configurations whose outcome the ambiguity assumption decides, at sixteen times its own population's `ambiguous_share`. Nothing in the campaign tools said so, and nothing in them would have said so on the next archetype either.
+
+#### A ceiling on `ambiguous_share` is the wrong instrument, for two separate reasons
+
+**It is regime-dependent.** The share is an outcome statistic, and §M13 expects it to climb with bar size. A ceiling low enough to catch the retest's 0.34 would not be excluding unattributable results; it would be excluding coarse resolutions on every archetype in the registry.
+
+**It measures the wrong thing.** The share counts how often the assumption was invoked. What a shortlist needs to know is how much the answer depends on it, and those come apart in both directions — a configuration resolving a third of its legs by assumption whose profit factor barely moves is safe to rank, and one resolving a twentieth whose profit factor moves by 1.5 is not.
+
+#### What the spread is, and why `AMBIGUITY_WORST_CASE` is the right arm to read it with
+
+`tools/campaign_ambiguity.py` re-runs each shortlisted row under both policies and reports the two profit factors and the gap between them. The gap is **the width of the band the bar data cannot narrow**: one end is NT8's rule, the other is every ambiguous bar resolved against the trade, and the truth is somewhere inside. § "Eleven strata per root, one dimension at a time" dropped the worst case as a *sweep* axis because ranking on it would rank against a fill rule the prime directive rejects, and closed by saying re-add the axis to re-measure it. Re-running a shortlist under it is not ranking on it.
+
+Each row is re-run on the bars its own `window` names, so the first arm reproduces the stored figure exactly and `campaign_shortlist.verify` refuses it otherwise. That is what makes the second number a band around a figure that was actually ranked rather than around a re-derivation of it.
+
+**The spread is one-sided by construction.** Every ambiguous bar the worst case resolves is one the ranked arm may have given to the target, so gross profit can only fall and gross loss can only rise; `tests/test_campaign_ambiguity.py` pins that a negative spread means the two arms are not the same configuration. Cost is a shortlist re-run rather than a second sweep — the same shape as the null test.
+
+#### Reported, not gated, and that is the decision
+
+**The ranking statistic stays `AMBIGUITY_NEAREST_TO_OPEN`**, and no row is dropped or re-ordered. The prime directive governs what the shortlist claims; the second arm is attribution.
+
+Gating was considered and deferred rather than forgotten. Reporting the second arm beside each shortlist changes no stored comparison. **Gating on it changes every one** — §M27's and §M28.1's included, whose shortlists were selected without it and whose spreads are therefore unknown rather than small. If a gate follows it goes where `MIN_TRADES` is and it is stated the way `MIN_DRAW_FREEDOM` and `MIN_DONOR_SESSIONS` are, as a meaning: **the claimed edge must survive the assumption**. Not: the assumption must be rare. `campaign_ambiguity.STATEMENT` is that sentence, reported per shortlist so that the figures a gate would be calibrated against accumulate before the gate exists.
+
+#### What the spread bounds, and what would settle it
+
+It bounds the risk; it does not resolve it. **Neither tier can say whether nearest-to-open is right**, because NT8 has the same blind spot — Tier 2 will re-validate an unattributable profit factor rather than contradict it. This is a live-trading risk rather than a tier-disagreement risk, which is why no amount of NT8 reconciliation touches it.
+
+Finer bars settle it, and above one minute they are already in the archive: §M13 establishes that OHLC aggregation is associative, so a 5-minute bar is five 1-minute bars and the first sub-bar holding only the stop or only the target says which came first. Only the residue still ambiguous at one minute needs `data/tick/`. **That must not reach `nqbt/sim/`** — NT8 guesses on the same bars, so resolving a fill truthfully there would make the two tiers disagree on exactly those bars, which is the more-precise-than-NT8 error precisely. As a diagnostic it is the trade-review side's reasoning: nothing is being simulated, an assumption is being scored, and it would give nearest-to-open an empirical accuracy worth carrying in `docs/nt8-fidelity.md`. Its own issue rather than this one.
+
+The narrower constraint §M28.2 named for the retest — restricting a shortlist to configurations whose stop and target do not both sit inside one bar — is not built here. It is a pre-trade geometric property rather than an outcome statistic, so it cannot delete a coarse resolution that was fine, but it does not generalise across the registry the way the spread does.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 
@@ -2450,7 +2482,7 @@ Two things the build settled, both of which were latent bugs rather than choices
 
 **Stored sweeps — dropped and re-run, stratified** ([#71]). Everything previously in `results/sweeps.duckdb` was computed against a continuous series with different roll dates, at $0.74 commission, and before the M10 labels existed. Those rows were answers to a different question, so they were dropped rather than added to. `tools/rerun_sweeps.py` is the re-run, and it is a committed tool rather than a shell session because the drop had to happen for a reason that was not obvious: `_append_or_create` wrote an existing table **by name** and silently dropped a column the table did not have, so appending stratified rows to the pre-#39 schema would have stored them with `regime_filter` and `phase_filter` thrown away. Since [#201] it would widen instead, and the drop stays for the reason above — those rows answer a different question.
 
-**Eleven strata per root, one dimension at a time.** Unfiltered, then once per regime, then once per session phase — not the 32 cells the product would give. Each label answers "no edge anywhere, or edge in one stratum drowned by the others?" on its own, and crossing them is what [#48]'s guard exists to refuse. Every stratum runs the same 96-combination grid, so the stratum is the only thing that varies between two comparable rows. **`ambiguity_policy` is not swept**: `0` is a blanket worst case, deliberately *more* pessimistic than NT8 rather than equal to it, so half the stored rows would have ranked a combination against a fill rule the prime directive rejects. The trade is that the 0.009 profit factor between the two policies came from the rows that were dropped and is no longer re-derivable from `combos`; re-add the axis to re-measure it.
+**Eleven strata per root, one dimension at a time.** Unfiltered, then once per regime, then once per session phase — not the 32 cells the product would give. Each label answers "no edge anywhere, or edge in one stratum drowned by the others?" on its own, and crossing them is what [#48]'s guard exists to refuse. Every stratum runs the same 96-combination grid, so the stratum is the only thing that varies between two comparable rows. **`ambiguity_policy` is not swept**: `0` is a blanket worst case, deliberately *more* pessimistic than NT8 rather than equal to it, so half the stored rows would have ranked a combination against a fill rule the prime directive rejects. The trade is that the 0.009 profit factor between the two policies came from the rows that were dropped and is no longer re-derivable from `combos`; re-add the axis to re-measure it, or re-run a shortlist under both policies, which is what §M28.3 does instead.
 
 **The answer is "no edge anywhere", and one cell needed ruling out to say so.** 21 of the 2,112 rows reach a profit factor above 1, and all 21 are the same cell: NQ, `phase=CLOSE`, every one of them with `use_vwap` on. Nothing else in either root, either label, crosses 1.0 — MNQ's own `CLOSE` stratum tops out at 0.954. Three reasons that cell is not a finding, in ascending order of how much they settle it:
 
