@@ -555,6 +555,32 @@ Same rule as §M26's: **only a distance is floored, never a level.** `min_bracke
 
 **Flat before the session close binds hard, and the live share is the thing to read.** A cash-anchored entry around 09:45 ET against a 17:00 close leaves the hold bounded by the geometry rather than the clock, but a runner leg with no target reaches the flatten every time: `session_close_share` runs near **half of all legs**, which changes what the results mean. It is produced by `tools/campaign_sweep.py --strategies OpeningRange --split` and read out of `results/campaign/OpeningRange.duckdb`; [roadmap.md](roadmap.md) §M28.1 has what it implies.
 
+### M28.2 — the fade, the retest and the stop fraction, written before the Python (#237)
+
+**The same discipline as §M28 and the same standing: still no NinjaScript, so nothing here is backed by a trade list.** Each item names what it would be written as. The design and what was deferred: [roadmap.md](roadmap.md) §M28.2.
+
+**The stop fraction is a level, so it is not floored.** `rangeHigh - stopRangeFraction * (rangeHigh - rangeLow) - stopOffsetTicks * TickSize`, mirrored for a short, measured from **the extreme the order rests at** rather than from the trigger. It replaces §M28's two-scheme table with one axis: at `1.0` it is the opposite-extreme stop exactly, offset included, and at `0.5` it is the midpoint stop. `min_bracket_dollars` stays inert under it for §M26's reason — only a distance is floored, never a level.
+
+**A fade and a retest need a break that already happened, which is one `bool` per session.** Reset on `Bars.IsFirstBarOfSession` and set from `High[0]`/`Low[0]` against the level plus `breakConfirmTicks`; nothing reads a bar it could not have seen, and nothing reads a *future* bar, so it is expressible as written. It is **not** reset by a fill: a session's second entry re-uses the break its first one was armed by, which is what the per-session cap is there to bound.
+
+**A fade rests its stop at the extreme it needs broken, so its trigger is the range's *other* side.** `EnterLongStopMarket(rangeLow + entryOffsetTicks * TickSize)` after price has traded below `rangeLow`. The submittability rule is §M18's unchanged — the order is only accepted while the close is still below the trigger, which is exactly the state "price is outside the range" — so no new refusal is introduced.
+
+**A fade cannot take the opposite-extreme stop, and this is refused rather than swept.** Its entry level *is* the extreme that mode names, so the stop would land `stopOffsetTicks` from the entry and the mode would be the fraction stop at a fraction of zero. `OpeningRangeParams` raises instead of running the duplicate, because a swept space with two names for one thing is the blind spot `dead_axes` cannot see.
+
+**The retest is the first limit entry in the registry, and its two halves are the stop entry's mirror:**
+
+|                           | stop entry                                | retest's limit                                       |
+| ------------------------- | ----------------------------------------- | ---------------------------------------------------- |
+| NinjaScript               | `EnterLongStopMarket(level + offset)`     | `EnterLongLimit(level - retestOffset)`               |
+| rests                     | beyond the market                         | inside the market                                    |
+| a bar that gaps past it   | fills at the open, **worse** than planned | fills at the open, **better** than planned           |
+| merely reaching the price | fills — a stop triggers on touch          | does **not** fill under `IsFillLimitOnTouch = false` |
+| slippage                  | applied                                   | **never applied**                                    |
+
+The last two rows are rules this project has already established for *exits* — "Limit orders must trade **through**, not touch" and the targets taking no slippage — reaching the entry for the first time. `bracket.limit_filled` is the one implementation and the entry reads it at `-direction`, because the limit is favourable from the other side.
+
+**A marketable limit is refused rather than filled, and this one is a decision rather than a measurement.** §M18 establishes that NT8 declines a stop entry at or through the market; the mirror — what it does with a buy limit submitted at or above the close — **has not been probed**, and NT8 would most likely accept it and fill at the market. The simulation refuses it, so a retest never enters at a price the market has already left. That is a deliberate deviation from an *unmeasured* behaviour rather than from a known one; it is the conservative side, and it is the first thing to settle if the retest ever earns a port. Booking it with the two-sided-range probe §M28 already wants is the cheap way to answer it.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.

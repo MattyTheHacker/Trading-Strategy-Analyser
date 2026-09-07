@@ -142,12 +142,20 @@ paths:
   That is also why `campaign_sweep.Variant` carries `resolutions`: which windows exist depends on
   the resolution, and a grid crosses its axes uniformly at every axis point, so the window is a
   variant dimension rather than an axis. `tests/test_sessionrange.py` pins the divisor set.
-- **OpeningRange's stop axes are ElasticBand's blind spot again.** `atr_period`,
-  `atr_stop_multiple` and `min_bracket_dollars` are inert at `ORB_STOP_OPPOSITE` and
-  `stop_offset_ticks` is inert at `ORB_STOP_ATR`, and `dead_axes` knows one off value per axis, so
-  neither is caught. The *memory* cost is avoided — `openingrange_context` builds no ATR unless
-  some combination selects the ATR stop — but sweeping either under the wrong mode runs identical
-  combinations silently.
+- **OpeningRange's stop and entry axes are ElasticBand's blind spot again.** `atr_period`,
+  `atr_stop_multiple` and `min_bracket_dollars` are read under `ORB_STOP_ATR` alone,
+  `stop_range_fraction` under `ORB_STOP_FRACTION` alone, `entry_offset_ticks` under every entry
+  mode but `ORB_ENTRY_RETEST`, `retest_offset_ticks` under that one alone, and
+  `break_confirm_ticks` under neither `ORB_ENTRY_BREAKOUT`; `dead_axes` knows one off value per
+  axis, so none of them is caught. The *memory* cost is avoided — `openingrange_context` builds
+  no ATR unless some combination selects the ATR stop — but sweeping any of them under a mode
+  that does not read it runs identical combinations silently. **The stop mode and the entry mode
+  are therefore variant dimensions rather than axes** in `campaign_sweep.py`, which is what keeps
+  each variant's axes to the ones it actually reads — `ORB_ENTRIES` is the shape.
+- **A re-sweep that adds an axis is its own variant set, never an edit to `VARIANTS`.** That dict
+  is what §M27 and §M28.1 measured, so an added axis would leave the stored rows and the code
+  that produced them disagreeing. `NARROW_VARIANTS` and `ORB_VARIANTS` are the two, each with a
+  `STRATUM_SETS` entry naming its strata **before** it runs — `docs/roadmap.md` §M28.2.
 - **Parallel sweeps top out around 5×, not 16×, and that is the hardware.** Per-core throughput
   drops when all physical cores are busy (mobile Ryzen, high single-core boost against a much
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —
