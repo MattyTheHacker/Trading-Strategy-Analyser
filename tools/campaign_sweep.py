@@ -97,6 +97,7 @@ from nqbt.sim.types import (
     ORB_STOP_OPPOSITE,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
+    REQUIRE_ALL,
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_SWING,
@@ -172,6 +173,7 @@ CONTEXT = "context"
 NARROW = "narrow"
 TREND_UP = "trend-up"
 ORB = "orb"
+SPEC = "spec"
 ALL_STRATA = "all"
 
 Calibration = dict[int, tuple[float, float]]
@@ -384,6 +386,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     CONTEXT: ("volume", "compression", "trend", "htf"),
     NARROW: (UNFILTERED, DIRECTIONAL),
     ORB: (UNFILTERED, DIRECTIONAL, TREND_UP),
+    SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
@@ -809,6 +812,125 @@ def openingrange_further_variants(root: str) -> list[Variant]:
     ]
 
 
+SPEC_SHARED: dict[str, list[AxisValue]] = {
+    "fast_period": [9, 20],
+    "slow_period": [50, 200],
+    "tp_multiplier": [1.0, 2.0],
+    "exit_on_opposite_cross": [True, False],
+}
+"""What every spec variant holds in common: a coarse cut of the axes §M27 already measured.
+
+Deliberately smaller than :func:`crossover_variants`' grid, and with the moving-average kind
+dropped entirely. §M27's gate 1 puts every kind axis below 0.04 eta-squared, so crossing them
+here would multiply the run without separating anything -- and the question this set exists to
+ask is about the three new axes, which a large shared grid would bury.
+"""
+
+SPEC_STOPS: dict[str, tuple[bool, dict[str, list[AxisValue]]]] = {
+    "stop=atr": (True, {"atr_stop_multiple": [1.5, 3.0]}),
+    "stop=swing": (False, {"swing_lookback": [1, 3]}),
+}
+"""The two initial stops, carried through every spec variant.
+
+A variant dimension for :func:`crossover_variants`' reason: ``atr_stop_multiple`` is inert
+under the swing stop and ``swing_lookback`` under the ATR one, and a grid crosses its axes
+uniformly.
+"""
+
+SPEC_TRAILS: dict[str, tuple[bool, dict[str, list[AxisValue]]]] = {
+    "trail=off": (False, {}),
+    "trail=on": (
+        True,
+        {
+            "trail_ma_kind": ["ema", "sma"],
+            "trail_ma_period": [20, 50, 100],
+            "trail_offset_ticks": [2, 8],
+        },
+    ),
+}
+"""Whether the stop trails a moving average, and the three axes only the trailing half reads.
+
+**A variant rather than an axis**: with the toggle off, its three axes are inert and every
+combination along them is identical -- the silent duplicate ``dead_axes`` cannot see. The
+``trail=off`` half is the control, run in the same pass on the same bars so the comparison is
+inside one measurement rather than across two.
+"""
+
+SPEC_ROUNDS: dict[str, dict[str, list[AxisValue]]] = {
+    "round=off": {},
+    "round=on": {"round_number_points": [5.0, 25.0], "round_number_offset_ticks": [2, 8]},
+}
+"""The round-number spacings tried, against a control that avoids nothing.
+
+5 and 25 points rather than a wider ladder: on NQ they are the two spacings a discretionary
+trader would name, and the rule can only ever move a stop that lands exactly on one, so a
+denser ladder buys resolution the rule does not have. **Every one of these cells needs raw
+prices** -- see :func:`run_point`, which is where the campaign says so.
+"""
+
+SPEC_CONFLUENCE_FILTERS: dict[str, int] = {
+    "regime_filter": regime.Regime.DIRECTIONAL.bit,
+    "volume_filter": volume.VolumeState.HEAVY.bit,
+    "compression_filter": compression.Compression.EXPANDED.bit,
+}
+"""The three filters a confluence count is measured over, all of them side-neutral.
+
+Trend and higher-timeframe are left out on purpose: both name a *direction*, and EmaCrossover
+takes each side on its own signal, so switching one on measures the long half rather than the
+count. **Three is also the smallest number that makes the axis interesting** -- at two, the
+only legal count is 1, which is the union.
+"""
+
+
+def spec_variants(root: str) -> list[Variant]:
+    """The [#74] axes, each against a control run on the same bars in the same pass.
+
+    Its own set rather than an edit to :data:`VARIANTS`, which is what §M27 measured --
+    ``docs/roadmap.md`` § "The build spec's three loose ends, measured".
+    """
+    stopped: list[tuple[str, bool, dict[str, list[AxisValue]]]] = [
+        (name, use_atr, axes) for name, (use_atr, axes) in SPEC_STOPS.items()
+    ]
+
+    return [
+        *[
+            Variant(
+                name=f"{stop_name} {trail_name}",
+                archetype=archetypes.EMACROSSOVER,
+                base=_costed(
+                    EmaCrossoverParams(use_atr_stop=use_atr, trail_ma_stop=trailing),
+                    root,
+                ),
+                axes={**SPEC_SHARED, **stop_axes, **trail_axes},
+            )
+            for stop_name, use_atr, stop_axes in stopped
+            for trail_name, (trailing, trail_axes) in SPEC_TRAILS.items()
+        ],
+        *[
+            Variant(
+                name=f"{stop_name} {round_name}",
+                archetype=archetypes.EMACROSSOVER,
+                base=_costed(EmaCrossoverParams(use_atr_stop=use_atr), root),
+                axes={**SPEC_SHARED, **stop_axes, **round_axes},
+            )
+            for stop_name, use_atr, stop_axes in stopped
+            for round_name, round_axes in SPEC_ROUNDS.items()
+        ],
+        *[
+            Variant(
+                name=f"{stop_name} confluence",
+                archetype=archetypes.EMACROSSOVER,
+                base=_costed(
+                    EmaCrossoverParams(use_atr_stop=use_atr, **SPEC_CONFLUENCE_FILTERS),
+                    root,
+                ),
+                axes={**SPEC_SHARED, **stop_axes, "confluence_required": [REQUIRE_ALL, 1, 2]},
+            )
+            for stop_name, use_atr, stop_axes in stopped
+        ],
+    ]
+
+
 VARIANTS = {
     "DeadCatBounce": deadcat_variants,
     "PullBackAndGo": pullback_variants,
@@ -832,9 +954,14 @@ ORB_VARIANTS = {"OpeningRange": openingrange_further_variants}
 archetype. Its own set rather than an edit to :data:`VARIANTS`, which is what §M28.1 measured
 and what the stored rows were produced by."""
 
+SPEC_VARIANTS = {"EmaCrossover": spec_variants}
+"""The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
+count, each against a control in the same pass. One archetype, because that is where the three
+axes exist -- ``docs/roadmap.md`` § "The build spec's three loose ends, measured"."""
+
 CAMPAIGN = "campaign"
 
-VARIANT_SETS = {CAMPAIGN, NARROW, ORB}
+VARIANT_SETS = {CAMPAIGN, NARROW, ORB, SPEC}
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
 ``--variant narrow`` to the reading tools."""
@@ -842,7 +969,7 @@ lands in the same database as the campaign it follows and is still separable fro
 
 def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
-    return {NARROW: NARROW_VARIANTS, ORB: ORB_VARIANTS}.get(which, VARIANTS)
+    return {NARROW: NARROW_VARIANTS, ORB: ORB_VARIANTS, SPEC: SPEC_VARIANTS}.get(which, VARIANTS)
 
 
 def grids_for(
@@ -912,7 +1039,15 @@ def run_point(
     for _, _, grid in named:
         spec = spec | grid.required_context()
     started: float = time.perf_counter()
-    data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
+    # ``load_continuous`` is called without ``back_adjust``, so these are the prices that
+    # traded and a rule reading an absolute level may run -- ``docs/roadmap.md`` § "The
+    # build spec's three loose ends".
+    data: context.Dataset = context.prepare(
+        frame,
+        spec,
+        bar_minutes=minutes,
+        price_basis=context.PriceBasis.RAW,
+    )
     prepared: float = time.perf_counter() - started
 
     tables: list[pd.DataFrame] = []
