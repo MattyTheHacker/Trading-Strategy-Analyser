@@ -382,6 +382,13 @@ def sided(low: float, high: float, direction: float) -> tuple[float, float]:
 
 AMBIGUITY_WORST_CASE = 0
 AMBIGUITY_NEAREST_TO_OPEN = 1
+AMBIGUITY_BEST_CASE = 2
+"""NT8's guess, and the two outcomes it is guessing between.
+
+Only ``AMBIGUITY_NEAREST_TO_OPEN`` reproduces NT8, and it stays the default and the only one
+anything is ranked on. The other two are the ends of the band a bar cannot narrow, and they
+exist so that a diagnostic can ask which end the minute bars support -- ``nqbt/disambiguate.py``
+and ``docs/roadmap.md`` §M28.4."""
 
 
 @njit(cache=True)
@@ -389,14 +396,14 @@ def targets_reached_first(open_px: float, stop_px: float, target_px: float, poli
     """On a bar holding both the stop and a target, did price reach the target first?
 
     Bar-close OHLC cannot say, so this is an assumption. ``AMBIGUITY_NEAREST_TO_OPEN``
-    reproduces NT8; ``AMBIGUITY_WORST_CASE`` always answers no, which is *more* pessimistic
-    than NT8 rather than equal to it. Evidence: ``docs/nt8-fidelity.md``, "Ambiguous bars
-    resolve to whichever level is nearer the open".
+    reproduces NT8; the other two answer always-no and always-yes, which are the two ends of
+    the band rather than fill rules to rank on. Evidence: ``docs/nt8-fidelity.md``, "Ambiguous
+    bars resolve to whichever level is nearer the open".
     """
     if policy == AMBIGUITY_NEAREST_TO_OPEN:
         return abs(open_px - target_px) < abs(stop_px - open_px)
 
-    return False
+    return policy == AMBIGUITY_BEST_CASE
 
 
 @njit(cache=True)

@@ -41,7 +41,7 @@ Area-specific invariants live in `.claude/rules/` and load automatically when yo
 | `stats-and-trades.md`  | Leg vs trade aggregation, R, the shared summary path, `validate_legs`  |
 | `data-pipeline.md`     | Archive and exports, contract rolls, bar labelling, NT8 reconciliation |
 | `indicators.md`        | Where TA-Lib disagrees with NT8, and which indicators are pinned       |
-| `regression-gate.md`   | The trade-log gate and the three things that silently disable it       |
+| `regression-gate.md`   | The trade-log gate and the four things that silently disable it        |
 
 ## Environment
 

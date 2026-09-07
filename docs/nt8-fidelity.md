@@ -168,7 +168,9 @@ When a bar contains both the stop and a target, bar-close OHLC cannot say which 
 
 7 of 7. A bar-direction rule (up bar ⇒ Open→Low→High→Close) fits only 5 of 7 — all seven bars are up bars, and the two NT8 stopped out are the ones where the stop was nearer.
 
-`ambiguity_policy` exposes this: `1` reproduces NT8 (default), `0` assumes a blanket worst case. Worst case is *more* pessimistic than NT8, not equal to it — a distinction that was originally stated backwards in this project and corrected only by the trade list.
+`ambiguity_policy` exposes this: `1` reproduces NT8 (default), `0` assumes a blanket worst case and `2` a blanket best case. Worst case is *more* pessimistic than NT8, not equal to it — a distinction that was originally stated backwards in this project and corrected only by the trade list. `0` and `2` are the two ends of the band and are never ranked on; they exist so that `nqbt/disambiguate.py` has both outcomes to select between.
+
+**The seven bars above contain no same-bar limit entry, and that is where the rule stops being fitted.** All seven are exits from a position opened on an earlier bar, so the bar's open is also the price the trade was live from. On an entry that fills *inside* the ambiguous bar the two come apart, and measuring distance from the bar's open then asks a question the trade list never answered. Measured against the minute bars on OpeningRange's retest — the registry's only limit entry — the rule was wrong on every bar that could be settled: `docs/roadmap.md` §M28.4. That is a limit on the rule's reach, not a contradiction of the trade list, and NT8 will still fill those bars its own way.
 
 The 2024-01-11 16:11 bar is the clearest evidence: NT8 filled S1's target at 16836.00 **and** stopped S2/S3/S4 at 16842.75 on that one bar.
 

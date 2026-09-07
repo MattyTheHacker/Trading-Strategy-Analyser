@@ -7,9 +7,16 @@ paths:
 
 # The trade-log regression gate
 
-`CONTRIBUTING.md` § "The trade-log regression gate" is the procedure. Three things it depends
+`CONTRIBUTING.md` § "The trade-log regression gate" is the procedure. Four things it depends
 on that are easy to undo:
 
+- **numba's `cache=True` does not track cross-module dependencies**, so a change to
+  `nqbt/sim/bracket.py` leaves every archetype's compiled loop holding the *old* inlined fill
+  rules and the gate compares new source against old machine code. It reports no change because
+  the change never ran. Measured on `AMBIGUITY_BEST_CASE`: identical source, caches deleted,
+  different trade log. `tools/capture_trade_logs.py` purges `*.nbi`/`*.nbc` before each capture
+  — **do not remove that purge to make a capture faster.** It disables the gate on exactly the
+  file the gate exists to protect. `docs/roadmap.md` §M28.4.
 - **`float_precision="round_trip"` on the read side is what makes the gate correct** — with it,
   either writer is exact. The `%.17g` on the write side fixes nothing on its own and, paired
   with a default parser, makes matters worse, because 17-digit text is what a lax parser
