@@ -473,11 +473,12 @@ OPENINGRANGE_GATES: Mapping[str, str] = {
 """Only the shared context filters gate an axis here.
 
 **The stop axes cannot be gated and this is ElasticBand's blind spot again**: ``atr_period``,
-``atr_stop_multiple`` and ``min_bracket_dollars`` are inert at :data:`~nqbt.sim.types.
-ORB_STOP_OPPOSITE` and ``stop_offset_ticks`` is inert at :data:`~nqbt.sim.types.ORB_STOP_ATR`,
-so one off value per axis cannot express either. ``dead_axes`` will not say so; the *memory*
-cost is still avoided, because :func:`openingrange_context` builds no ATR unless some
-combination selects the ATR stop.
+``atr_stop_multiple`` and ``min_bracket_dollars`` are read under :data:`~nqbt.sim.types.
+ORB_STOP_ATR` alone, ``stop_range_fraction`` under :data:`~nqbt.sim.types.ORB_STOP_FRACTION`
+alone, and ``stop_offset_ticks`` under neither of the first two, so one off value per axis
+cannot express any of them. ``dead_axes`` will not say so; the *memory* cost is still avoided,
+because :func:`openingrange_context` builds no ATR unless some combination selects the ATR
+stop.
 """
 
 

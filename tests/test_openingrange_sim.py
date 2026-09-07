@@ -33,7 +33,12 @@ from nqbt.instruments import MNQ, NQ
 from nqbt.sim import openingrange
 from nqbt.sim.openingrange import entry_bound, openingrange_signal, run_openingrange
 from nqbt.sim.types import (
+    DeadCatParams,
+    ORB_ENTRY_BREAKOUT,
+    ORB_ENTRY_FADE,
+    ORB_ENTRY_RETEST,
     ORB_STOP_ATR,
+    ORB_STOP_FRACTION,
     ORB_STOP_OPPOSITE,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
@@ -60,9 +65,13 @@ def simulate(
     force_flat_at=(),
     quantities=(1,),
     levels=(1.0,),
+    entry_mode=ORB_ENTRY_BREAKOUT,
     entry_offset_ticks=0.0,
+    break_confirm_ticks=0.0,
+    retest_offset_ticks=0.0,
     stop_mode=ORB_STOP_OPPOSITE,
     stop_offset_ticks=0.0,
+    stop_range_fraction=0.5,
     atr_stop_multiple=1.0,
     min_bracket_dollars=0.0,
     target_mode=ORB_TARGET_R,
@@ -120,9 +129,13 @@ def simulate(
         openingrange.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         openingrange.OpeningRangeRules(
             direction=direction,
+            entry_mode=entry_mode,
             entry_offset=entry_offset_ticks * TICK,
+            break_confirm=break_confirm_ticks * TICK,
+            retest_offset=retest_offset_ticks * TICK,
             stop_mode=stop_mode,
             stop_offset=stop_offset_ticks * TICK,
+            stop_range_fraction=stop_range_fraction,
             atr_stop_multiple=atr_stop_multiple,
             min_bracket_points=instrument.dollars_to_points(min_bracket_dollars),
             target_mode=target_mode,
@@ -289,6 +302,175 @@ def test_the_stop_offset_does_nothing_under_the_atr_stop() -> None:
     none = run([BELOW, BREAKS], stop_offset_ticks=0.0, **kwargs)
 
     assert wide["initial_stop"].iloc[0] == none["initial_stop"].iloc[0]
+
+
+def test_the_fraction_stop_reproduces_the_opposite_stop_exactly_at_one() -> None:
+    """The axis contains the mode that already works, which is what makes the two comparable.
+
+    Not approximately: a fraction of one is a whole range width back from the extreme that was
+    broken, and that extreme plus a width *is* the other extreme.
+    """
+    kwargs = {"signal_at": (0,), "stop_offset_ticks": 4.0}
+    fraction = run([BELOW, BREAKS], stop_mode=ORB_STOP_FRACTION, stop_range_fraction=1.0, **kwargs)
+    opposite = run([BELOW, BREAKS], stop_mode=ORB_STOP_OPPOSITE, **kwargs)
+
+    assert fraction["initial_stop"].iloc[0] == opposite["initial_stop"].iloc[0]
+    assert fraction["risk_points"].iloc[0] == opposite["risk_points"].iloc[0]
+
+
+def test_a_fraction_of_a_half_is_the_midpoint_stop() -> None:
+    """The named case the literature uses, which is one value of the axis rather than a mode."""
+    trades = run([BELOW, BREAKS], signal_at=(0,), stop_mode=ORB_STOP_FRACTION, stop_range_fraction=0.5)
+
+    assert trades["initial_stop"].iloc[0] == (RANGE_HIGH + RANGE_LOW) / 2
+
+
+def test_the_fraction_stop_measures_from_the_broken_extreme_on_the_short_side_too() -> None:
+    rows = [(100.0, 105.0, 95.0, 100.0), (100.0, 105.0, 85.0, 88.0)]
+    trades = run(rows, signal_at=(0,), direction=SHORT, stop_mode=ORB_STOP_FRACTION, stop_range_fraction=0.25)
+
+    assert trades["initial_stop"].iloc[0] == RANGE_LOW + 0.25 * (RANGE_HIGH - RANGE_LOW)
+
+
+# -- the fade and the retest, which wait for a break rather than for a level -----
+
+BREAKS_BELOW = (100.0, 105.0, 85.0, 88.0)
+"""A bar that trades through the range low and closes below it."""
+
+RECLAIMS = (88.0, 95.0, 87.0, 94.0)
+"""A bar that comes back up through the range low."""
+
+
+def test_a_fade_submits_nothing_until_its_level_has_been_broken() -> None:
+    """The break is the whole rule: without it a fade is a buy order sitting inside the range."""
+    trades = run(
+        [BELOW, BELOW, BELOW], signal_at=(0, 1), entry_mode=ORB_ENTRY_FADE, stop_mode=ORB_STOP_FRACTION
+    )
+
+    assert len(trades) == 0
+
+
+def test_a_fade_buys_back_through_the_low_after_it_breaks() -> None:
+    trades = run(
+        [BELOW, BREAKS_BELOW, RECLAIMS],
+        signal_at=(0, 1, 2),
+        entry_mode=ORB_ENTRY_FADE,
+        stop_mode=ORB_STOP_FRACTION,
+        stop_range_fraction=0.5,
+        entry_offset_ticks=0.0,
+    )
+
+    assert len(trades) == 1
+    assert trades["entry_price"].iloc[0] == RANGE_LOW
+    assert trades["entry_bar"].iloc[0] == 2
+    assert trades["initial_stop"].iloc[0] == RANGE_LOW - 0.5 * (RANGE_HIGH - RANGE_LOW)
+
+
+def test_break_confirm_ticks_decides_how_far_past_the_level_counts_as_a_break() -> None:
+    """The same bars are a break at zero and are not one once the threshold is past them.
+
+    ``BREAKS_BELOW`` reaches five points through the low, so a six-point threshold refuses
+    exactly the break a zero-point one accepts.
+    """
+    rows = [BELOW, BREAKS_BELOW, RECLAIMS]
+    kwargs = {"signal_at": (0, 1, 2), "entry_mode": ORB_ENTRY_FADE, "stop_mode": ORB_STOP_FRACTION}
+
+    assert len(run(rows, break_confirm_ticks=0.0, **kwargs)) == 1
+    assert len(run(rows, break_confirm_ticks=24.0, **kwargs)) == 0
+
+
+def test_the_break_is_forgotten_at_the_session_boundary() -> None:
+    """A fade armed by yesterday's break would trade a level today's session never reached.
+
+    The break has to sit on a bar that cannot submit and the entry on a bar that cannot break,
+    which a threshold separates and a bare trade-through cannot: a bar closing beyond the level
+    has traded through it by construction.
+    """
+    rows = [
+        BELOW,
+        (100.0, 105.0, 84.0, 95.0),  # breaks past the threshold, closes back above the level
+        (95.0, 96.0, 88.0, 88.0),  # closes below the level without breaking past the threshold
+        RECLAIMS,
+    ]
+    kwargs = {
+        "signal_at": (0, 1, 2, 3),
+        "entry_mode": ORB_ENTRY_FADE,
+        "stop_mode": ORB_STOP_FRACTION,
+        "break_confirm_ticks": 20.0,
+    }
+
+    assert len(run(rows, session_id=[0, 0, 1, 1], **kwargs)) == 0
+    assert len(run(rows, session_id=[0, 0, 0, 0], **kwargs)) == 1
+
+
+def test_a_retest_waits_for_the_break_then_buys_the_pullback_on_a_limit() -> None:
+    """The one entry in the registry that is not a stop order: it rests *inside* the market."""
+    rows = [BELOW, BREAKS, (112.0, 114.0, 105.0, 113.0)]
+    trades = run(
+        rows,
+        signal_at=(0, 1, 2),
+        entry_mode=ORB_ENTRY_RETEST,
+        stop_mode=ORB_STOP_FRACTION,
+        stop_range_fraction=0.5,
+    )
+
+    assert len(trades) == 1
+    assert trades["entry_price"].iloc[0] == RANGE_HIGH
+    assert trades["entry_bar"].iloc[0] == 2
+
+
+def test_a_retest_limit_must_trade_through_and_not_merely_touch() -> None:
+    """``IsFillLimitOnTouch = false`` reaches the entry as well as the targets."""
+    rows = [BELOW, BREAKS, (112.0, 114.0, RANGE_HIGH, 113.0)]
+    kwargs = {
+        "signal_at": (0, 1, 2),
+        "entry_mode": ORB_ENTRY_RETEST,
+        "stop_mode": ORB_STOP_FRACTION,
+    }
+
+    assert len(run(rows, fill_limit_on_touch=False, **kwargs)) == 0
+    assert len(run(rows, fill_limit_on_touch=True, **kwargs)) == 1
+
+
+def test_a_retest_that_gaps_past_its_limit_fills_better_rather_than_worse() -> None:
+    """A limit fills at its price or better, which is the stop entry's rule reflected."""
+    rows = [BELOW, BREAKS, (105.0, 106.0, 104.0, 105.5)]
+    trades = run(
+        rows,
+        signal_at=(0, 1, 2),
+        entry_mode=ORB_ENTRY_RETEST,
+        stop_mode=ORB_STOP_FRACTION,
+        slippage=4.0,
+    )
+
+    assert trades["entry_price"].iloc[0] == 105.0
+
+
+def test_a_retest_limit_takes_no_slippage() -> None:
+    """The rule the bracket's targets already follow, applied to the entry that is a limit."""
+    rows = [BELOW, BREAKS, (112.0, 114.0, 105.0, 113.0)]
+    kwargs = {
+        "signal_at": (0, 1, 2),
+        "entry_mode": ORB_ENTRY_RETEST,
+        "stop_mode": ORB_STOP_FRACTION,
+    }
+    slipped = run(rows, slippage=4.0, **kwargs)
+    clean = run(rows, slippage=0.0, **kwargs)
+
+    assert slipped["entry_price"].iloc[0] == clean["entry_price"].iloc[0] == RANGE_HIGH
+
+
+def test_a_retest_limit_is_not_submitted_from_a_bar_that_closed_below_it() -> None:
+    """The stop entry's refusal read from the other side: a marketable limit is not submitted."""
+    rows = [BELOW, BREAKS, (105.0, 108.0, 104.0, 105.0), (105.0, 106.0, 100.0, 101.0)]
+    trades = run(
+        rows,
+        signal_at=(2,),
+        entry_mode=ORB_ENTRY_RETEST,
+        stop_mode=ORB_STOP_FRACTION,
+    )
+
+    assert len(trades) == 0
 
 
 # -- the targets ----------------------------------------------------------------
@@ -561,7 +743,7 @@ def test_the_archetype_is_registered_as_tier_1_only() -> None:
     assert archetypes.for_params(OpeningRangeParams()) is archetypes.OPENINGRANGE
 
 
-# -- the null this archetype cannot have -----------------------------------------
+# -- the null over bars it cannot have, and the null over levels it can ----------
 
 
 def test_the_matched_random_null_refuses_a_signal_this_dense() -> None:
@@ -576,6 +758,122 @@ def test_the_matched_random_null_refuses_a_signal_this_dense() -> None:
 
     with pytest.raises(randomentry.RandomEntryError, match="spare bars"):
         randomentry.matched_random_signal(data, signal, np.random.default_rng(0))
+
+
+def levels_dataset(days: int = 30) -> tuple[OpeningRangeParams, context.Dataset]:
+    """A window long enough for the level draw's donor pool, with its params."""
+    params = OpeningRangeParams(bars_required_to_trade=0)
+
+    return params, dataset_for(params, cash_bars(days))
+
+
+def test_the_level_null_leaves_the_signal_alone_and_moves_only_the_level() -> None:
+    """What makes it *matched*: the same bars enter, and they enter against a different range."""
+    params, data = levels_dataset()
+    drawn = randomentry.matched_random_ranges(data, params.range_key, np.random.default_rng(0))
+
+    assert np.array_equal(drawn.armed_for(params.range_key), data.range_armed(params.range_key))
+    assert np.array_equal(drawn.session_id, data.range_session_id())
+    assert not np.allclose(
+        drawn.high_for(params.range_key),
+        data.range_high(params.range_key),
+        equal_nan=True,
+    )
+
+
+def test_the_level_null_permutes_the_range_shapes_rather_than_inventing_them() -> None:
+    """Widths are carried across whole, so the null trades ranges the series actually printed."""
+    params, data = levels_dataset()
+    drawn = randomentry.matched_random_ranges(data, params.range_key, np.random.default_rng(0))
+
+    observed = data.range_high(params.range_key) - data.range_low(params.range_key)
+    null = drawn.high_for(params.range_key) - drawn.low_for(params.range_key)
+
+    assert np.allclose(np.sort(observed[np.isfinite(observed)]), np.sort(null[np.isfinite(null)]))
+
+
+def test_the_level_null_places_each_donor_at_the_session_it_is_traded_on() -> None:
+    """An absolute permutation would put every level out of reach; this one cannot drift.
+
+    The transplanted range keeps its distance from the price its own window closed at, so it
+    arrives at *this* session's price however far apart the two sessions are.
+    """
+    params, data = levels_dataset()
+    key = params.range_key
+    drawn = randomentry.matched_random_ranges(data, key, np.random.default_rng(0))
+
+    reference = randomentry._window_close(  # noqa: SLF001 - the reference is the property under test
+        data.close,
+        data.range_armed(key),
+        data.range_session_id(),
+        data.range_high(key).size,
+    )
+    live = np.isfinite(drawn.high_for(key)) & np.isfinite(reference)
+    observed_offsets = (data.range_high(key) - reference)[live]
+    null_offsets = (drawn.high_for(key) - reference)[live]
+
+    assert np.allclose(np.sort(observed_offsets), np.sort(null_offsets))
+
+
+def test_a_series_where_no_range_ever_completes_has_no_reference_price() -> None:
+    """Every session short of window bars, so the draw has nothing to place a donor against."""
+    params, data = levels_dataset()
+    none_armed = np.zeros(len(data), dtype=bool)
+
+    reference = randomentry._window_close(  # noqa: SLF001 - the empty case is the behaviour under test
+        data.close,
+        none_armed,
+        data.range_session_id(),
+        data.range_high(params.range_key).size,
+    )
+
+    assert np.isnan(reference).all()
+
+
+def test_the_level_null_is_refused_when_too_few_sessions_carry_a_range() -> None:
+    """The draw's own MIN_DRAW_FREEDOM: a permutation this small is largely the identity."""
+    params, data = levels_dataset(days=5)
+
+    with pytest.raises(randomentry.RandomEntryError, match="sessions carry"):
+        randomentry.matched_random_ranges(data, params.range_key, np.random.default_rng(0))
+
+
+def test_the_level_draw_produces_a_null_where_the_bar_draw_could_not() -> None:
+    """§M28.1's open question: the configuration with no stratum choice in it can be gated."""
+    params, data = levels_dataset()
+
+    with pytest.raises(randomentry.RandomEntryError, match="spare bars"):
+        randomentry.null_summaries(data, params, instrument=NQ, iterations=2)
+
+    null = randomentry.null_summaries(
+        data,
+        params,
+        instrument=NQ,
+        iterations=8,
+        draw=randomentry.OVER_LEVELS,
+    )
+
+    assert len(null) == 8
+    assert null["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"
+
+
+def test_a_level_draw_is_refused_for_an_archetype_with_no_range() -> None:
+    """Falling back to the draw over bars would be a null silently taken over the wrong thing."""
+    with pytest.raises(randomentry.RandomEntryError, match="no session range"):
+        randomentry._range_key_for(  # noqa: SLF001 - the refusal is the behaviour under test
+            DeadCatParams(),
+            archetypes.DEADCATBOUNCE,
+            randomentry.OVER_LEVELS,
+        )
+
+
+def test_an_unknown_draw_is_refused_by_name() -> None:
+    with pytest.raises(randomentry.RandomEntryError, match="unknown draw"):
+        randomentry._range_key_for(  # noqa: SLF001 - the refusal is the behaviour under test
+            OpeningRangeParams(),
+            archetypes.OPENINGRANGE,
+            "sideways",
+        )
 
 
 # -- the parameter class's own guards ---------------------------------------------
@@ -597,13 +895,32 @@ def test_a_two_sided_range_cannot_be_asked_for() -> None:
         ({"target_mode": 9}, "unknown target_mode"),
         ({"atr_period": 0}, "atr_period must be >= 1"),
         ({"stop_offset_ticks": -1}, "stop_offset_ticks must be >= 0"),
+        ({"stop_range_fraction": 0.0}, "stop_range_fraction must be > 0"),
         ({"min_bracket_dollars": -1.0}, "min_bracket_dollars must be >= 0"),
         ({"order_quantity": 1}, "cannot fill 4 legs"),
+        ({"entry_mode": 9}, "unknown entry_mode"),
+        ({"break_confirm_ticks": -1}, "break_confirm_ticks must be >= 0"),
+        ({"retest_offset_ticks": -1}, "retest_offset_ticks must be >= 0"),
     ],
 )
 def test_an_impossible_rule_set_is_refused_by_name(kwargs: dict, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         OpeningRangeParams(**kwargs)
+
+
+def test_a_fade_cannot_stop_at_the_extreme_it_enters_at() -> None:
+    """It would be the fraction stop at a fraction of zero, which is a silent duplicate."""
+    with pytest.raises(ValueError, match="fade enters at the range extreme"):
+        OpeningRangeParams(entry_mode=ORB_ENTRY_FADE, stop_mode=ORB_STOP_OPPOSITE)
+
+    assert OpeningRangeParams(entry_mode=ORB_ENTRY_FADE, stop_mode=ORB_STOP_FRACTION).stop_mode
+
+
+def test_a_retest_may_stop_at_the_range_s_other_extreme() -> None:
+    """Unlike the fade: a retest enters at the broken extreme, so the far side is a real stop."""
+    params = OpeningRangeParams(entry_mode=ORB_ENTRY_RETEST, stop_mode=ORB_STOP_OPPOSITE)
+
+    assert params.stop_mode == ORB_STOP_OPPOSITE
 
 
 def test_the_leg_split_follows_the_selected_target_ladder() -> None:

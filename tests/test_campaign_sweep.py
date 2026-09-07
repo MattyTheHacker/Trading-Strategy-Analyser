@@ -28,7 +28,16 @@ from nqbt import (
     trend,
     volume,
 )
-from nqbt.sim.types import STOP_ATR, STOP_CATASTROPHE, STOP_SWING, DeadCatParams
+from nqbt.sim.types import (
+    ORB_ENTRY_BREAKOUT,
+    ORB_ENTRY_FADE,
+    ORB_ENTRY_RETEST,
+    ORB_STOP_FRACTION,
+    STOP_ATR,
+    STOP_CATASTROPHE,
+    STOP_SWING,
+    DeadCatParams,
+)
 from tools.campaign_sweep import (
     ALL_STRATA,
     CAMPAIGN,
@@ -43,6 +52,10 @@ from tools.campaign_sweep import (
     NARROW_TP,
     NARROW_VARIANTS,
     NO_CUTS,
+    ORB,
+    ORB_RANGES,
+    ORB_VARIANTS,
+    LONDON_OPEN_MINUTES,
     RECUTS,
     REGIME,
     REGIME_LOOKBACKS,
@@ -387,17 +400,30 @@ def test_every_variant_but_the_opening_ranges_runs_at_every_resolution() -> None
 
 
 def test_the_opening_ranges_windows_survive_exactly_the_resolutions_that_divide_them() -> None:
-    assert orb_resolutions(5) == (1, 5)
-    assert orb_resolutions(15) == (1, 5, 15)
-    assert orb_resolutions(30) == RESOLUTIONS
+    cash = sessionrange.CASH_OPEN_MINUTES
+    assert orb_resolutions(cash, 5) == (1, 5)
+    assert orb_resolutions(cash, 15) == (1, 5, 15)
+    assert orb_resolutions(cash, 30) == RESOLUTIONS
     # 10-minute bars divide 930 but not a 5- or 15-minute window.
-    assert 10 not in orb_resolutions(15)
+    assert 10 not in orb_resolutions(cash, 15)
+
+
+def test_the_anchor_constrains_the_resolutions_as_much_as_the_window_does() -> None:
+    """§M28.2's own anchors: both are whole numbers of bars at every campaign resolution.
+
+    The overnight range spans the anchor to the cash open, so its window carries the 930 the
+    cash anchor carries -- which is why it survives where a 5-minute cash range does not.
+    """
+    assert orb_resolutions(sessionrange.ETH_OPEN_MINUTES, sessionrange.CASH_OPEN_MINUTES) == RESOLUTIONS
+    assert orb_resolutions(LONDON_OPEN_MINUTES, 60) == RESOLUTIONS
+    # An anchor no bar boundary lands on rules out every resolution but the minute.
+    assert orb_resolutions(7, 60) == (1,)
 
 
 def test_every_opening_range_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
     """The real guard: a claimed resolution whose range grid refuses to build would fail an
     hour into a run rather than here."""
-    for variant in VARIANTS["OpeningRange"]("MNQ"):
+    for variant in VARIANTS["OpeningRange"]("MNQ") + ORB_VARIANTS["OpeningRange"]("MNQ"):
         for minutes in variant.resolutions:
             for _, grid in grids_for(variant, UNFILTERED):
                 for anchor, window in grid.required_context().range_keys:
@@ -659,4 +685,64 @@ def test_the_campaign_grid_is_untouched_by_the_re_sweep() -> None:
 
 def test_variants_for_selects_the_grid_the_flag_names() -> None:
     assert variants_for(NARROW) is NARROW_VARIANTS
+    assert variants_for(ORB) is ORB_VARIANTS
     assert variants_for(CAMPAIGN) is VARIANTS
+
+
+# -- the §M28.2 re-sweep -----------------------------------------------------------
+
+
+def test_the_opening_ranges_re_sweep_states_its_strata_before_it_runs() -> None:
+    """§M28.1's own caveat for [#237]: choosing the stratum afterwards is a comparison too.
+
+    The two beyond ``unfiltered`` are exactly the two that passed gate 3 on **both** roots, and
+    naming them here is what makes the re-sweep a test of them rather than another search.
+    """
+    assert [name for name, _ in strata(ORB)] == [
+        UNFILTERED,
+        "regime=DIRECTIONAL",
+        "trend=UP",
+    ]
+
+
+def test_the_re_sweep_drops_the_atr_stop_and_keeps_the_one_that_worked() -> None:
+    """§M28.1's deferral: 0 of 10 cells and half the runtime, against a fraction axis whose
+    top value reproduces the opposite-extreme stop exactly."""
+    variants = ORB_VARIANTS["OpeningRange"]("MNQ")
+
+    assert {variant.base.stop_mode for variant in variants} == {ORB_STOP_FRACTION}
+    assert all("atr_stop_multiple" not in variant.axes for variant in variants)
+    assert all(1.0 in variant.axes["stop_range_fraction"] for variant in variants)
+
+
+def test_the_re_sweep_carries_every_anchor_and_every_entry_mechanism() -> None:
+    """§M28 deferred both and §M28.1 left both deferred; this is where they arrive."""
+    variants = ORB_VARIANTS["OpeningRange"]("MNQ")
+    keys = {(variant.base.anchor_minutes, variant.base.window_minutes) for variant in variants}
+
+    assert keys == set(ORB_RANGES.values())
+    assert {variant.base.entry_mode for variant in variants} == {
+        ORB_ENTRY_BREAKOUT,
+        ORB_ENTRY_FADE,
+        ORB_ENTRY_RETEST,
+    }
+
+
+def test_each_entry_mechanism_sweeps_only_the_offsets_it_reads() -> None:
+    """The blind spot the entry mode is a variant dimension rather than an axis to avoid:
+    ``retest_offset_ticks`` under a breakout would run identical combinations silently."""
+    for variant in ORB_VARIANTS["OpeningRange"]("MNQ"):
+        reads_a_limit = variant.base.entry_mode == ORB_ENTRY_RETEST
+        assert ("retest_offset_ticks" in variant.axes) is reads_a_limit
+        assert ("entry_offset_ticks" in variant.axes) is not reads_a_limit
+        waits = variant.base.entry_mode != ORB_ENTRY_BREAKOUT
+        assert ("break_confirm_ticks" in variant.axes) is waits
+
+
+def test_the_campaign_grid_is_untouched_by_the_opening_ranges_re_sweep() -> None:
+    """§M28.1's stored rows were produced by ``VARIANTS``, so the new axes go in their own set."""
+    campaign = VARIANTS["OpeningRange"]("MNQ")
+
+    assert all("stop_range_fraction" not in variant.axes for variant in campaign)
+    assert {variant.base.entry_mode for variant in campaign} == {ORB_ENTRY_BREAKOUT}
+    assert {variant.base.anchor_minutes for variant in campaign} == {sessionrange.CASH_OPEN_MINUTES}

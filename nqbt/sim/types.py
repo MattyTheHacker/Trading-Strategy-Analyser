@@ -1363,14 +1363,38 @@ class ElasticBandParams:
         return out
 
 
+ORB_ENTRY_BREAKOUT = 0
+ORB_ENTRY_FADE = 1
+ORB_ENTRY_RETEST = 2
+ORB_ENTRY_MODES = {
+    ORB_ENTRY_BREAKOUT: "breakout",
+    ORB_ENTRY_FADE: "fade",
+    ORB_ENTRY_RETEST: "retest",
+}
+"""Which event at the range the entry order waits for, and therefore which order type it is.
+
+``breakout`` rests a stop beyond the extreme in the direction traded. ``fade`` waits for that
+extreme to be broken *against* the direction traded and rests a stop back inside the range, so
+a long fade buys the failed break of the low. ``retest`` waits for the break to happen in the
+direction traded and then rests a **limit** at the level it broke, which is the one entry in
+the registry that is not a stop order. All three read the same levels --
+``docs/roadmap.md`` §M28.2.
+"""
+
 ORB_STOP_OPPOSITE = 0
 ORB_STOP_ATR = 1
-ORB_STOP_MODES = {ORB_STOP_OPPOSITE: "opposite", ORB_STOP_ATR: "atr"}
+ORB_STOP_FRACTION = 2
+ORB_STOP_MODES = {
+    ORB_STOP_OPPOSITE: "opposite",
+    ORB_STOP_ATR: "atr",
+    ORB_STOP_FRACTION: "fraction",
+}
 """Where the opening range's protective stop goes. ``opposite`` is the range's other extreme,
 which makes the stop distance the range width itself; ``atr`` is a multiple of ATR from the
-trigger and is the only one floored, because only it is a distance rather than a level. The
-midpoint and the range fraction the literature also uses are one axis later --
-``docs/roadmap.md`` §M28.1.
+trigger and is the only one floored, because only it is a distance rather than a level;
+``fraction`` is :attr:`OpeningRangeParams.stop_range_fraction` of the range width back from the
+extreme that was broken, which puts the midpoint stop the literature also uses at ``0.5`` and
+reproduces ``opposite`` exactly at ``1.0`` -- ``docs/roadmap.md`` §M28.2.
 """
 
 ORB_TARGET_R = 0
@@ -1414,12 +1438,30 @@ class OpeningRangeParams:
     A parameter rather than two archetypes, and one side per combination rather than both live
     at once -- ``docs/roadmap.md`` §M28, finding 1."""
 
-    entry_offset_ticks: int = 1
-    """Ticks beyond the range extreme for the entry trigger.
+    entry_mode: int = ORB_ENTRY_BREAKOUT
+    """One of :data:`ORB_ENTRY_MODES` -- which event at the range the order waits for."""
 
-    Not cosmetic: at ``0`` the trigger sits on the extreme, and a bar closing exactly there
+    entry_offset_ticks: int = 1
+    """Ticks beyond the level the stop trigger sits at, under :data:`ORB_ENTRY_BREAKOUT` and
+    :data:`ORB_ENTRY_FADE`.
+
+    Not cosmetic: at ``0`` the trigger sits on the level, and a bar closing exactly there
     cannot submit at all, because NT8 declines a stop entry at or through the market --
     ``docs/nt8-fidelity.md`` §M18."""
+
+    break_confirm_ticks: int = 0
+    """Ticks past the level price must trade before a fade or a retest arms, read under
+    :data:`ORB_ENTRY_FADE` and :data:`ORB_ENTRY_RETEST` alone.
+
+    At ``0`` any trade through the level counts as the break. The flag it sets lasts the rest
+    of the session, so a fade re-arms after its own stop the way a breakout does."""
+
+    retest_offset_ticks: int = 0
+    """Ticks *inside* the broken level the limit sits at, read under
+    :data:`ORB_ENTRY_RETEST` alone.
+
+    At ``0`` the limit sits on the level itself. It is a limit rather than a stop, so it fills
+    at its price or better and takes no slippage -- ``docs/nt8-fidelity.md`` §M28.2."""
 
     max_entries_per_session: int = 1
     """How many entries one session may fill, uncapped at ``0``.
@@ -1486,8 +1528,16 @@ class OpeningRangeParams:
     """One of :data:`ORB_STOP_MODES`."""
 
     stop_offset_ticks: int = 2
-    """Ticks beyond the opposite extreme under :data:`ORB_STOP_OPPOSITE`, so the stop does not
-    sit exactly on the level it protects."""
+    """Ticks beyond the stop's level under :data:`ORB_STOP_OPPOSITE` and
+    :data:`ORB_STOP_FRACTION`, so the stop does not sit exactly on the level it protects."""
+
+    stop_range_fraction: float = 0.5
+    """How far back across the range the stop sits under :data:`ORB_STOP_FRACTION`, as a
+    fraction of the range width from the extreme that was broken.
+
+    ``0.5`` is the midpoint stop and ``1.0`` is :data:`ORB_STOP_OPPOSITE` exactly, offset
+    included -- so the axis contains the mode that already works rather than running beside
+    it. Values past ``1.0`` are legal and put the stop outside the range."""
 
     atr_period: int = 14
     atr_stop_multiple: float = 2.0
@@ -1545,11 +1595,23 @@ class OpeningRangeParams:
             )
             raise ValueError(msg)
 
+        if self.entry_mode not in ORB_ENTRY_MODES:
+            msg = f"unknown entry_mode {self.entry_mode}; use one of {sorted(ORB_ENTRY_MODES)}"
+            raise ValueError(msg)
+
         # Resolution-independent only: whether the bar size can express this range is checked
         # where the bars are, in ``sessionrange.validate_key``.
         sessionrange.validate_key(self.anchor_minutes, self.window_minutes, bar_minutes=1)
         if self.entry_offset_ticks < 0:
             msg = f"entry_offset_ticks must be >= 0, got {self.entry_offset_ticks}"
+            raise ValueError(msg)
+
+        if self.break_confirm_ticks < 0:
+            msg = f"break_confirm_ticks must be >= 0, got {self.break_confirm_ticks}"
+            raise ValueError(msg)
+
+        if self.retest_offset_ticks < 0:
+            msg = f"retest_offset_ticks must be >= 0, got {self.retest_offset_ticks}"
             raise ValueError(msg)
 
         if self.max_entries_per_session < 0:
@@ -1566,6 +1628,15 @@ class OpeningRangeParams:
             msg = f"unknown target_mode {self.target_mode}; use one of {sorted(ORB_TARGET_MODES)}"
             raise ValueError(msg)
 
+        if self.entry_mode == ORB_ENTRY_FADE and self.stop_mode == ORB_STOP_OPPOSITE:
+            msg = (
+                "a fade enters at the range extreme this stop mode names, so the stop would "
+                "sit stop_offset_ticks from the entry and the mode would just be the fraction "
+                f"stop at a fraction of zero. Use stop_mode {ORB_STOP_FRACTION} (fraction), "
+                f"which measures from that same level, or {ORB_STOP_ATR} (atr)"
+            )
+            raise ValueError(msg)
+
         if self.order_quantity < len(self.target_levels):
             msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_levels)} legs"
             raise ValueError(msg)
@@ -1576,6 +1647,10 @@ class OpeningRangeParams:
 
         if self.stop_offset_ticks < 0:
             msg = f"stop_offset_ticks must be >= 0, got {self.stop_offset_ticks}"
+            raise ValueError(msg)
+
+        if self.stop_range_fraction <= 0.0:
+            msg = f"stop_range_fraction must be > 0, got {self.stop_range_fraction}"
             raise ValueError(msg)
 
         if self.min_bracket_dollars < 0.0:

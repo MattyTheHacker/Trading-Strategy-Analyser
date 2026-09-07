@@ -22,7 +22,15 @@ from numba import njit
 from nqbt import trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
-from nqbt.sim.types import ORB_STOP_ATR, ORB_TARGET_WIDTH, STOP_MIN_TICKS
+from nqbt.sim.types import (
+    ORB_ENTRY_BREAKOUT,
+    ORB_ENTRY_FADE,
+    ORB_ENTRY_RETEST,
+    ORB_STOP_ATR,
+    ORB_STOP_FRACTION,
+    ORB_TARGET_WIDTH,
+    STOP_MIN_TICKS,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -59,9 +67,13 @@ class OpeningRangeRules(NamedTuple):
     """The scalar rule set :func:`simulate_openingrange` reads, one field per parameter."""
 
     direction: float
+    entry_mode: int
     entry_offset: float
+    break_confirm: float
+    retest_offset: float
     stop_mode: int
     stop_offset: float
+    stop_range_fraction: float
     atr_stop_multiple: float
     min_bracket_points: float
     target_mode: int
@@ -69,6 +81,108 @@ class OpeningRangeRules(NamedTuple):
     max_entries_per_session: int
     bars_required: int
     block_entry_at_session_close: bool
+
+
+@njit(cache=True)
+def entry_level(range_high: float, range_low: float, rules: OpeningRangeRules) -> float:
+    """The range extreme this combination's order rests at.
+
+    A breakout and a retest both work off the extreme in the direction traded -- one waiting
+    to go through it, the other to come back to it -- and a fade works off the extreme against
+    it, which is the one it needs broken first.
+    """
+    opposite, breakout = bracket.sided(range_low, range_high, rules.direction)
+    if rules.entry_mode == ORB_ENTRY_FADE:
+        return opposite
+
+    return breakout
+
+
+@njit(cache=True)
+def break_confirmed(
+    bars: bracket.Bars, i: int, range_high: float, range_low: float, rules: OpeningRangeRules
+) -> bool:
+    """Whether bar ``i`` breaks the level a fade or a retest is waiting on.
+
+    A fade needs its level broken *against* the direction traded and a retest needs it broken
+    *with* it, so one comparison serves both once :func:`bracket.sided` has picked the extreme
+    each reads. ``break_confirm`` is a price, and at zero any trade through the level counts.
+    """
+    direction = rules.direction
+    adverse, favourable = bracket.sided(bars.low[i], bars.high[i], direction)
+    level = entry_level(range_high, range_low, rules)
+    if rules.entry_mode == ORB_ENTRY_FADE:
+        return direction * adverse < direction * level - rules.break_confirm
+
+    return direction * favourable > direction * level + rules.break_confirm
+
+
+@njit(cache=True)
+def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
+    """Whether NT8 would accept this order at this bar's close.
+
+    A stop entry has to sit strictly beyond the market it is submitted into --
+    ``docs/nt8-fidelity.md`` §M18 -- and a retest's limit strictly inside it, which is the same
+    refusal read from the other side: a limit at or through the market is marketable, and what
+    NT8 does with one is written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M28.2.
+    """
+    if rules.entry_mode == ORB_ENTRY_RETEST:
+        return rules.direction * trigger < rules.direction * close
+
+    return rules.direction * trigger > rules.direction * close
+
+
+@njit(cache=True)
+def _stop_entry_fill(
+    bars: bracket.Bars, i: int, trigger: float, slippage: float, direction: float
+) -> tuple[bool, float]:
+    """DeadCatBounce's stop-entry test: a market order once triggered, so a gap fills at the open."""
+    if direction * bars.open_[i] >= direction * trigger:
+        return True, bars.open_[i] + direction * slippage
+
+    _, touch = bracket.sided(bars.low[i], bars.high[i], direction)
+    if direction * touch >= direction * trigger:
+        return True, trigger + direction * slippage
+
+    return False, 0.0
+
+
+@njit(cache=True)
+def _limit_entry_fill(
+    bars: bracket.Bars, i: int, trigger: float, fills: bracket.FillRules, direction: float
+) -> tuple[bool, float]:
+    """The retest's limit test, which is the stop's mirror in both of its halves.
+
+    A limit fills at its price or better, so a bar opening past it fills at the open and the
+    trade is *better* than planned rather than worse; and it takes no slippage, which is the
+    rule the bracket's targets already follow. The limit rests against the direction traded, so
+    :func:`bracket.limit_filled` reads it at ``-direction`` -- price has to trade **through**
+    it under ``IsFillLimitOnTouch = false``.
+    """
+    if direction * bars.open_[i] <= direction * trigger:
+        return True, bars.open_[i]
+
+    adverse, _ = bracket.sided(bars.low[i], bars.high[i], direction)
+    if bracket.limit_filled(adverse, trigger, fills.fill_limit_on_touch, -direction):
+        return True, trigger
+
+    return False, 0.0
+
+
+@njit(cache=True)
+def entry_fill(
+    bars: bracket.Bars,
+    i: int,
+    trigger: float,
+    slippage: float,
+    fills: bracket.FillRules,
+    rules: OpeningRangeRules,
+) -> tuple[bool, float]:
+    """Whether the resting order fills on bar ``i``, and at what price."""
+    if rules.entry_mode == ORB_ENTRY_RETEST:
+        return _limit_entry_fill(bars, i, trigger, fills, rules.direction)
+
+    return _stop_entry_fill(bars, i, trigger, slippage, rules.direction)
 
 
 @njit(cache=True)
@@ -81,15 +195,21 @@ def range_bracket(
 ) -> tuple[float, float, float]:
     """One session range's order arithmetic: trigger, initial stop, planned risk.
 
-    The trigger sits ``entry_offset`` beyond the extreme the trade breaks out of, and the stop
-    either at the other extreme or an ATR multiple back from the trigger. **Everything is
-    measured from the trigger rather than the fill**, because the whole bracket is known when
-    the order is submitted -- which is what the reconciled DeadCatBounce port does and what a
-    NinjaScript setting its stop and target at submission would do.
+    The trigger sits ``entry_offset`` beyond the level a stop entry waits at, or
+    ``retest_offset`` inside it for the limit a retest waits at; the stop goes at the range's
+    other extreme, a fraction of the range width back from the level, or an ATR multiple back
+    from the trigger. **Everything is measured from the trigger rather than the fill**, because
+    the whole bracket is known when the order is submitted -- which is what the reconciled
+    DeadCatBounce port does and what a NinjaScript setting its stop and target at submission
+    would do.
     """
     direction = rules.direction
-    opposite, breakout = bracket.sided(range_low, range_high, direction)
-    trigger = breakout + direction * rules.entry_offset
+    opposite, _ = bracket.sided(range_low, range_high, direction)
+    level = entry_level(range_high, range_low, rules)
+    if rules.entry_mode == ORB_ENTRY_RETEST:
+        trigger = level - direction * rules.retest_offset
+    else:
+        trigger = level + direction * rules.entry_offset
 
     if rules.stop_mode == ORB_STOP_ATR:
         distance = bracket.atr_bracket_distance(
@@ -98,6 +218,9 @@ def range_bracket(
             rules.min_bracket_points,
         )
         stop = trigger - direction * distance
+    elif rules.stop_mode == ORB_STOP_FRACTION:
+        width = range_high - range_low
+        stop = level - direction * (rules.stop_range_fraction * width + rules.stop_offset)
     else:
         stop = opposite - direction * rules.stop_offset
 
@@ -147,6 +270,8 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     written = 0
     trade_id = 0
     entries_this_session = 0
+    broken_this_session = False
+    waits_for_a_break = rules.entry_mode != ORB_ENTRY_BREAKOUT
 
     in_position = False
     pending_bar = -1
@@ -164,9 +289,10 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     )
 
     for i in range(n):
-        # ---- a new session re-arms the per-session entry cap -------------------------
+        # ---- a new session re-arms the per-session entry cap and forgets the break ---
         if i > 0 and ranges.session_id[i] != ranges.session_id[i - 1]:
             entries_this_session = 0
+            broken_this_session = False
 
         # ---- exits, using the stop and targets set when the order was submitted ------
         if in_position:
@@ -188,19 +314,10 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
         # ---- the resting entry order, tested against this bar ------------------------
         elif pending_bar >= 0 and pending_bar == i - 1:
-            filled = False
-            fill = 0.0
             # A force-flat bar is tested for a fill like any other; the session-close handler
             # runs after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
             # bar, and is flattened at its close".
-            if direction * bars.open_[i] >= direction * pending_trigger:
-                fill = bars.open_[i] + direction * slippage  # gapped through the trigger
-                filled = True
-            else:
-                _, touch = bracket.sided(bars.low[i], bars.high[i], direction)
-                if direction * touch >= direction * pending_trigger:
-                    fill = pending_trigger + direction * slippage
-                    filled = True
+            filled, fill = entry_fill(bars, i, pending_trigger, slippage, fills, rules)
 
             if filled:
                 trade_id += 1
@@ -252,6 +369,13 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
             pending_bar = -1
 
+        # ---- the break a fade or a retest waits for, remembered for the session ------
+        # Updated whatever the submission guards below do, because a break that happens while
+        # a position is open still happened.
+        session = ranges.session_id[i]
+        if waits_for_a_break and not broken_this_session and ranges.armed[i]:
+            broken_this_session = break_confirmed(bars, i, ranges.high[session], ranges.low[session], rules)
+
         # ---- close of bar i: resubmit the order, which is what makes it rest ---------
         if in_position or i < rules.bars_required or not signal[i]:
             continue
@@ -261,13 +385,15 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
         if not ranges.armed[i]:
             continue
 
+        if waits_for_a_break and not broken_this_session:
+            continue
+
         if rules.max_entries_per_session > 0 and entries_this_session >= rules.max_entries_per_session:
             continue
 
         if rules.block_entry_at_session_close and bars.force_flat[i]:
             continue
 
-        session = ranges.session_id[i]
         range_high = ranges.high[session]
         range_low = ranges.low[session]
         trigger, candidate_stop, candidate_risk = range_bracket(
@@ -277,9 +403,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             i,
             rules,
         )
-        # A stop-market entry must sit strictly beyond the market it is submitted into, which
-        # under Calculate.OnBarClose is this bar's close -- ``docs/nt8-fidelity.md`` §M18.
-        if candidate_risk < min_risk or direction * trigger <= direction * bars.close[i]:
+        if candidate_risk < min_risk or not submittable(trigger, bars.close[i], rules):
             continue
 
         pending_bar = i
@@ -381,9 +505,13 @@ def openingrange_legs(
         ),
         OpeningRangeRules(
             direction=params.direction,
+            entry_mode=params.entry_mode,
             entry_offset=params.entry_offset_ticks * instrument.tick_size,
+            break_confirm=params.break_confirm_ticks * instrument.tick_size,
+            retest_offset=params.retest_offset_ticks * instrument.tick_size,
             stop_mode=params.stop_mode,
             stop_offset=params.stop_offset_ticks * instrument.tick_size,
+            stop_range_fraction=params.stop_range_fraction,
             atr_stop_multiple=params.atr_stop_multiple,
             min_bracket_points=instrument.dollars_to_points(params.min_bracket_dollars),
             target_mode=params.target_mode,

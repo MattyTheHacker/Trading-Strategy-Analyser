@@ -1635,7 +1635,97 @@ Three things keep it a candidate rather than a result:
 
 #### What is deferred, and why
 
+**Every deferral below except the noise-area form has since been built — §M28.2 has the table.** What follows is the list as it stood at this milestone.
+
 The retest entry, the fade, the overnight anchor and the noise-area form are §M28's own deferrals and are unchanged. Three more are added here: the **midpoint and range-fraction stops**, which are one axis over a level that already works rather than a new mechanism; a **null that randomises the level**, which the unfiltered configuration needs before it can be gated at all; and the **ATR stop's removal from the swept space**, which is 0 of 10 cells and half the runtime — kept for now only because §M28 named it and a parked configuration space is not retired on one campaign.
+
+### M28.2 — the deferral list, built: three entry mechanisms, one stop axis, and a null over levels ([#237])
+
+§M28 and §M28.1 each ended with a list of things deferred with reasons rather than by omission. [#237] is that list, built. **Nothing here is a result yet** — this is the machinery and the pre-registration; the campaign that reads it is the next pass.
+
+#### What was deferred, and where each one landed
+
+| deferred in | what                                  | landed as                                                     |
+| ----------- | ------------------------------------- | ------------------------------------------------------------- |
+| §M28        | the retest entry                      | `ORB_ENTRY_RETEST` — the first limit entry in the registry    |
+| §M28        | the fade                              | `ORB_ENTRY_FADE`                                              |
+| §M28        | the overnight-range anchor            | `ORB_RANGES["overnight"]`, and London beside it               |
+| §M28        | the noise-area form                   | **still deferred** — it is ElasticBand's thread, not this one |
+| §M28.1      | the midpoint and range-fraction stops | one axis, `stop_range_fraction`                               |
+| §M28.1      | a null that randomises the level      | `randomentry.matched_random_ranges`                           |
+| §M28.1      | the ATR stop's removal                | gone from the re-sweep's variant set                          |
+
+#### The stop axis absorbed a mode rather than sitting beside one
+
+§M28.1 deferred "the midpoint and range-fraction stops" as two things. They are one: **a fraction of the range width measured back from the extreme the order rests at**, where `0.5` is the midpoint and `1.0` reproduces the opposite-extreme stop *exactly*, offset included, on both sides.
+
+That exactness is the point rather than a coincidence, and `tests/test_openingrange_sim.py` pins it. §M28.1's gate 1 found the archetype split cleanly in two by stop mode — 10 of 10 cells one way, 0 of 10 the other — so the one thing a new stop axis must not do is fail to contain the half that worked. It contains it as an endpoint, which makes every other value on the axis directly comparable against it instead of against a different mode.
+
+The ATR stop is gone from the re-sweep for §M28.1's own reason: 0 of 10 cells and half the runtime. **It is parked, not retired** — it stays in `ORB_STOP_MODES`, and § "Parked is not abandoned" is the rule. What retires it, if anything does, is a campaign that says so with a reason that is not "it lost once".
+
+#### The fade and the retest are the same primitive read twice
+
+Both wait for a break that already happened, which is one `bool` per session, reset at the session boundary and set from the bar's own extreme against the level. What differs is only **which extreme** and **which order type**:
+
+|          | waits for                                          | rests                                      | order     |
+| -------- | -------------------------------------------------- | ------------------------------------------ | --------- |
+| breakout | nothing                                            | beyond the extreme in the direction traded | stop      |
+| fade     | that extreme broken *against* the direction traded | back inside the range                      | stop      |
+| retest   | that extreme broken *with* the direction traded    | at the level it broke                      | **limit** |
+
+So `entry_level` is three lines and `break_confirmed` is one comparison, both sided through `bracket.sided` — the sign multiplier doing the work it was built for. **The retest is the only one that reaches new fill semantics**, and it reaches them at the entry for the first time: a limit fills at its price or better, does not fill on a touch, and takes no slippage. All three rules already existed for exits; `bracket.limit_filled` is the one implementation and the entry reads it at `-direction`.
+
+**One decision in there is a deviation rather than a port, and it is flagged as such.** NT8 refuses a stop entry at or through the market (§M18). What it does with a *marketable limit* — a buy limit submitted at or above the close — is unmeasured, and the likely answer is that it accepts and fills at market. The simulation refuses it, so a retest never enters at a price the market has already left. That is the conservative side of an unmeasured behaviour, and `docs/nt8-fidelity.md` §M28.2 books it against the two-sided-range probe §M28 already wants. **It is the one thing here that a trade list could contradict.**
+
+#### The anchor was free, and the divisor rule is why it stayed unbuilt
+
+`anchor_minutes` has been a parameter since §M28.1; what was missing was a sweep that moved it, because `orb_resolutions` had the 930-minute cash anchor written into it. Generalised to take the anchor, it produces §M28's second finding as arithmetic rather than as a comment:
+
+| range        | anchor | window | resolutions |
+| ------------ | ------ | ------ | ----------- |
+| `cash=5m`    | 930    | 5      | 1, 5        |
+| `cash=15m`   | 930    | 15     | 1, 5, 15    |
+| `cash=30m`   | 930    | 30     | all five    |
+| `overnight`  | 0      | 930    | all five    |
+| `london=60m` | 540    | 60     | all five    |
+
+**The overnight range survives at every resolution where a 5-minute cash range survives at two**, which is not a quirk: its anchor is the session open, which every bar boundary lands on, and its window is the 930 that constrains the cash anchor from the other side. The London anchor is `anchor_for(SessionPhase.LONDON)` — derived from the same phase clock as `CASH_OPEN_MINUTES`, so neither can drift if the template's open ever moves.
+
+#### The null over levels, which is what §M28.1 could not run
+
+§M28.1's sharpest open question was that **the configuration with no stratum choice in it — the unfiltered one — had no null at all**, because a trigger that is a level fires on every armed bar and `matched_random_signal` had nothing left to relocate. Its own refusal message named the fix: "an entry whose trigger is a level rather than an event is dense by construction and needs a null over the level rather than over the bars."
+
+`randomentry.matched_random_ranges` is that null. It holds the bars, the costs, the geometry and **the armed flags** fixed — so the entry signal is bit-identical and only the level moves — and permutes which session's range is traded. The question it asks is the one the archetype's thesis actually makes: *is the range this session printed worth more than a range of some other session's shape, placed at this session's price?*
+
+**Every range travels as two offsets from the price its own window closed at, never as a pair of prices.** That is the whole of why this works: NQ drifts thousands of points across a campaign window, so a donor transplanted absolutely would sit out of reach all day and the "null" would be a run of no trades — a p-value manufactured by the transplant rather than measured. Carried as offsets, a donor from six months away arrives at today's price with its width and its asymmetry intact.
+
+`MIN_DONOR_SESSIONS` is its `MIN_DRAW_FREEDOM`, and it is stated the same way — as a meaning rather than a tuned number. **A uniform permutation has exactly one expected fixed point whatever its size**, so the share of sessions handed back the level they actually traded is `1/n`; twenty sessions is "at most one in twenty keeps its own".
+
+**What it does not settle.** It is a null over *which* range is traded, not over whether a range is the right kind of level at all — a permutation of observed ranges cannot answer the second question, and neither could the draw over bars. And it is a second null rather than a replacement: the two arms ask different questions, and an archetype that beat one and not the other would be telling you which.
+
+#### The strata, stated before the run
+
+§M28.1's first caveat was that its strata "were chosen after looking at which held out best, and choosing the stratum is a comparison too", and it asked [#237] to state the stratum before running it. `STRATUM_SETS["orb"]` is that statement, in code:
+
+- **`unfiltered`** — the only cell with no choice of stratum in it, and now the only one with a null it can use.
+- **`regime=DIRECTIONAL`** — the archetype's own thesis, that a break out of a compressed range runs.
+- **`trend=UP`** — the other cell that passed gate 3 on **both** roots in §M28.1.
+
+Two and three are the two §M28.1 passed, named in advance so the re-sweep is a test of them rather than another search over twenty. **This is weaker than pre-registration and stronger than nothing**: the strata were chosen from an earlier run's results, so what it buys is that the *next* result cannot be the best of twenty presented as though it were the only one.
+
+The re-sweep is its own variant set for the reason `VARIANTS` already gives — §M28.1's stored rows were produced by that grid, and adding axes to it would leave the rows and the code that produced them disagreeing. `--variants orb --strata orb` is the pass.
+
+#### Two predictions, before the sweep rather than after
+
+Written down so they can be scored the way §M28's two were, and §M28's two were half wrong in an informative way.
+
+**The retest will trade a little less than the breakout rather than far less, and the sample-size verdict will still be what stops it.** The obvious reading — it needs a break *and* a return, so it is strictly more selective — is wrong, and the reason is §M18. A breakout's stop is refused on every bar that closes past the trigger, which after a break is most of them; a retest's limit is refused on every bar that closes *inside* it, which after a break is few of them. **The two rules lose their opportunities to opposite halves of the same refusal**, so the selectivity mostly cancels. Measured on a 60-session random-walk fixture at the one-shot cap: 136 breakout trades against 128 retest trades on the same bars, and 18–29% fewer per combination once the `break_confirm_ticks` axis is divided out. §M28.1 could not call gate 4 on roughly 460 held-out trades, so a fifth fewer is still the wrong side of the line: expect gate 4 to bind at least as hard.
+
+**The fade will be the one that separates the roots, and drift is why.** §M28.1's null showed the long side carrying almost all of the raw result in a tape that nearly doubled. A fade of the *low* is a long trade that fires when the day has gone down — the opposite conditioning to the breakout's — so it is the first configuration here whose long side is not aligned with the drift. If the fade's long side survives its matched null, that is a stronger signal than anything §M28.1 measured; if it collapses, that is the drift being visible from the other side.
+
+#### What is still deferred
+
+The **noise-area form**, which §M28 put on ElasticBand's thread and which stays there. The **two-sided range**, which is not a parameter but a probe — §M28's finding 1, unanswered. The **marketable-limit question** above, which is the same booking. And a **null over the level's kind rather than its identity**, which is the thing neither null asks.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 

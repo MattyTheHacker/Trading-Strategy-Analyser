@@ -89,7 +89,11 @@ from nqbt import (
 from nqbt.arrays import float_column
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import (
+    ORB_ENTRY_BREAKOUT,
+    ORB_ENTRY_FADE,
+    ORB_ENTRY_RETEST,
     ORB_STOP_ATR,
+    ORB_STOP_FRACTION,
     ORB_STOP_OPPOSITE,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
@@ -166,6 +170,8 @@ COMPRESSION_FORMS = "compression-forms"
 CORE = "core"
 CONTEXT = "context"
 NARROW = "narrow"
+TREND_UP = "trend-up"
+ORB = "orb"
 ALL_STRATA = "all"
 
 Calibration = dict[int, tuple[float, float]]
@@ -227,6 +233,16 @@ def _directional() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     four more comparisons -- ``docs/roadmap.md`` §M27.3.
     """
     yield f"regime={regime.Regime.DIRECTIONAL.name}", {"regime_filter": [regime.Regime.DIRECTIONAL.bit]}
+
+
+def _trend_up() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """The one trend cell §M28.1's gate 3 passed in on both roots, without its siblings.
+
+    Its own group so that the opening range's re-sweep can **name its strata before it runs**
+    rather than pick them from the results afterwards, which is the caveat §M28.1 left for
+    [#237] -- ``docs/roadmap.md`` §M28.2.
+    """
+    yield f"trend={trend.Trend.UP.name}", {"trend_filter": [trend.Trend.UP.bit]}
 
 
 def _phase() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -343,6 +359,7 @@ STRATUM_GROUPS = {
     "compression": _compression,
     COMPRESSION_FORMS: _compression_forms,
     "trend": _trend,
+    TREND_UP: _trend_up,
     "htf": _higher_timeframe,
 }
 """One generator per context dimension. **Never crossed** -- one dimension at a time is what
@@ -352,10 +369,11 @@ REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL})
 """Groups whose cells ``--regime-quantiles`` splits per lookback. Membership rather than one
 name, so that a group yielding a single regime cell is calibrated like the full one."""
 
-RECUTS = frozenset({DIRECTIONAL, VOLUME_FORMS, COMPRESSION_FORMS})
+RECUTS = frozenset({DIRECTIONAL, TREND_UP, VOLUME_FORMS, COMPRESSION_FORMS})
 """Groups that re-cut a dimension another group already owns, so ``all`` leaves them out.
 
-``directional`` is one regime cell without its four siblings; ``volume-forms`` is the volume
+``directional`` is one regime cell without its four siblings and ``trend-up`` one trend cell
+without its two; ``volume-forms`` is the volume
 dimension under all three forms and a fitted cut; ``compression-forms`` is the compression
 dimension under both of its forms. Any of them inside ``all`` would run its dimension twice
 under two sets of names."""
@@ -365,6 +383,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     CORE: (UNFILTERED, "regime", "phase"),
     CONTEXT: ("volume", "compression", "trend", "htf"),
     NARROW: (UNFILTERED, DIRECTIONAL),
+    ORB: (UNFILTERED, DIRECTIONAL, TREND_UP),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
@@ -664,18 +683,14 @@ ORB_WINDOWS = (5, 15, 30)
 """Opening-range windows, the three every source means -- ``docs/roadmap.md`` §M28."""
 
 
-def orb_resolutions(window: int) -> tuple[int, ...]:
-    """Which campaign resolutions can express a cash-anchored range of ``window`` minutes.
+def orb_resolutions(anchor: int, window: int) -> tuple[int, ...]:
+    """Which campaign resolutions can express a range of ``window`` minutes from ``anchor``.
 
-    Both the 930-minute anchor and the window have to be whole numbers of bars, which is why
-    this is computed rather than written down: 5-minute ranges survive at two resolutions of
-    the five and 30-minute ranges at all of them.
+    Both the anchor and the window have to be whole numbers of bars, which is why this is
+    computed rather than written down: off the 930-minute cash anchor, 5-minute ranges survive
+    at two resolutions of the five and 30-minute ranges at all of them.
     """
-    return tuple(
-        minutes
-        for minutes in RESOLUTIONS
-        if sessionrange.CASH_OPEN_MINUTES % minutes == 0 and window % minutes == 0
-    )
+    return tuple(minutes for minutes in RESOLUTIONS if anchor % minutes == 0 and window % minutes == 0)
 
 
 def openingrange_variants(root: str) -> list[Variant]:
@@ -707,10 +722,89 @@ def openingrange_variants(root: str) -> list[Variant]:
                 root,
             ),
             axes={**shared, **stop_axes, **target_axes},
-            resolutions=orb_resolutions(window),
+            resolutions=orb_resolutions(sessionrange.CASH_OPEN_MINUTES, window),
         )
         for window in ORB_WINDOWS
         for stop_name, (stop_mode, stop_axes) in stops.items()
+        for target_name, (target_mode, target_axes) in targets.items()
+    ]
+
+
+LONDON_OPEN_MINUTES = sessionrange.anchor_for(timeofday.SessionPhase.LONDON)
+"""Minutes from the 18:00 ET session open to the 03:00 ET European open -- §M28's third anchor."""
+
+ORB_RANGES: dict[str, sessionrange.RangeKey] = {
+    "cash=5m": (sessionrange.CASH_OPEN_MINUTES, 5),
+    "cash=15m": (sessionrange.CASH_OPEN_MINUTES, 15),
+    "cash=30m": (sessionrange.CASH_OPEN_MINUTES, 30),
+    "overnight": (sessionrange.ETH_OPEN_MINUTES, sessionrange.CASH_OPEN_MINUTES),
+    "london=60m": (LONDON_OPEN_MINUTES, 60),
+}
+"""The ranges the §M28.2 re-sweep trades: §M28's anchor axis, which §M28.1 never left.
+
+``overnight`` is the session open through to the cash open, which is what "the overnight range"
+and FX's "London breakout" both name; ``london=60m`` is the first hour of the European cash
+session. Both were free once the range primitive was session-anchored -- ``docs/roadmap.md``
+§M28.2.
+"""
+
+ORB_ENTRIES: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
+    "entry=breakout": (ORB_ENTRY_BREAKOUT, {"entry_offset_ticks": [1, 4]}),
+    "entry=fade": (ORB_ENTRY_FADE, {"entry_offset_ticks": [1, 4], "break_confirm_ticks": [0, 8]}),
+    "entry=retest": (ORB_ENTRY_RETEST, {"retest_offset_ticks": [0, 4], "break_confirm_ticks": [0, 8]}),
+}
+"""The three entry mechanisms, each with the axes only it reads.
+
+A variant dimension rather than an axis because of exactly that: ``entry_offset_ticks`` is
+inert for a retest and ``retest_offset_ticks`` for the other two, and a grid crosses its axes
+uniformly. ``docs/roadmap.md`` §M28.2.
+"""
+
+ORB_FRACTIONS = [0.25, 0.5, 0.75, 1.0]
+"""How far back across the range the stop sits, in range widths.
+
+**One axis where §M28.1 had two modes**: ``1.0`` reproduces the opposite-extreme stop exactly,
+offset included, and ``0.5`` is the midpoint stop the literature also uses -- so the axis
+contains the only stop that passed gate 1 rather than running beside it. The ATR stop is gone,
+which is §M28.1's own deferral: 0 of 10 cells and half the runtime.
+"""
+
+
+def openingrange_further_variants(root: str) -> list[Variant]:
+    """§M28.2's re-sweep: the anchor axis, the three entry mechanisms and one stop axis.
+
+    One variant per (range, entry, target), because each triple reads axes the others do not
+    and because the range decides which resolutions exist at all -- ``Variant.resolutions``.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "max_entries_per_session": [1, 0],
+        "stop_range_fraction": [*ORB_FRACTIONS],
+    }
+    targets: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
+        "target=R": (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]}),
+        "target=width": (ORB_TARGET_WIDTH, {}),
+    }
+
+    return [
+        Variant(
+            name=f"{range_name} {entry_name} {target_name}",
+            archetype=archetypes.OPENINGRANGE,
+            base=_costed(
+                OpeningRangeParams(
+                    anchor_minutes=anchor,
+                    window_minutes=window,
+                    entry_mode=entry_mode,
+                    stop_mode=ORB_STOP_FRACTION,
+                    target_mode=target_mode,
+                ),
+                root,
+            ),
+            axes={**shared, **entry_axes, **target_axes},
+            resolutions=orb_resolutions(anchor, window),
+        )
+        for range_name, (anchor, window) in ORB_RANGES.items()
+        for entry_name, (entry_mode, entry_axes) in ORB_ENTRIES.items()
         for target_name, (target_mode, target_axes) in targets.items()
     ]
 
@@ -733,9 +827,14 @@ that produced them disagreeing."""
 NARROW_VARIANTS = {"InsideBar": insidebar_narrow_variants}
 """The §M27.3 re-sweep: one archetype, the bracket pair §M27 could not cross."""
 
+ORB_VARIANTS = {"OpeningRange": openingrange_further_variants}
+"""The §M28.2 re-sweep: §M28's deferred anchors, entries and stop levels, over §M28.1's
+archetype. Its own set rather than an edit to :data:`VARIANTS`, which is what §M28.1 measured
+and what the stored rows were produced by."""
+
 CAMPAIGN = "campaign"
 
-VARIANT_SETS = {CAMPAIGN, NARROW}
+VARIANT_SETS = {CAMPAIGN, NARROW, ORB}
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
 ``--variant narrow`` to the reading tools."""
@@ -743,7 +842,7 @@ lands in the same database as the campaign it follows and is still separable fro
 
 def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
-    return NARROW_VARIANTS if which == NARROW else VARIANTS
+    return {NARROW: NARROW_VARIANTS, ORB: ORB_VARIANTS}.get(which, VARIANTS)
 
 
 def grids_for(

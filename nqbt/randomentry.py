@@ -7,20 +7,20 @@ evidence and caveats: ``docs/roadmap.md`` §M7a.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING
+from dataclasses import asdict, dataclass, replace
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed, effective_n_jobs
 
-from nqbt import archetypes, resample, stats
+from nqbt import archetypes, resample, sessionrange, stats
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
 
 if TYPE_CHECKING:
     from nqbt.archetypes import Archetype, Params
-    from nqbt.arrays import BoolArray, FloatArray, IntArray, OffsetArray
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, OffsetArray
     from nqbt.context import Dataset
     from nqbt.trades import LegMatrix
 
@@ -41,6 +41,26 @@ rather than a tuned number. The measured separation it sits in: an unfiltered Op
 0.0019 and the tightest healthy case in the registry, ElasticBand, has 7.6 -- three orders of
 magnitude apart, so nothing here is close to the cut. :meth:`SessionMinutePool.draw_freedom`
 and ``docs/roadmap.md`` §M28.1.
+"""
+
+OVER_BARS = "bars"
+OVER_LEVELS = "levels"
+DRAWS = (OVER_BARS, OVER_LEVELS)
+"""What a null realisation randomises, holding everything else fixed.
+
+``bars`` moves which day each entry signal lands on and is the default every archetype uses.
+``levels`` moves which session's range shape is traded and exists for the one archetype whose
+trigger is a level: its signal is dense by construction, so ``bars`` cannot be drawn on it at
+all -- ``docs/roadmap.md`` §M28.1 and §M28.2.
+"""
+
+MIN_DONOR_SESSIONS = 20
+"""Sessions with a range the level draw needs before it is a control at all.
+
+A uniform permutation has **exactly one expected fixed point whatever its size**, so the share
+of sessions handed their own range back is ``1/n`` and the cut is a meaning rather than a tuned
+number: *at most one session in twenty keeps the level it actually traded*. The bar draw's
+counterpart is :data:`MIN_DRAW_FREEDOM` -- ``docs/roadmap.md`` §M28.2.
 """
 
 WORSE = "worse than random"
@@ -233,6 +253,108 @@ def matched_random_signal(
     return out
 
 
+def _window_close(
+    close: FloatArray,
+    armed: BoolArray,
+    session_id: IndexArray,
+    n_sessions: int,
+) -> FloatArray:
+    """Each session's price at the moment its range window closed, ``nan`` where none did.
+
+    The close of the first armed bar: the range is complete there, so it is the last price a
+    rule reading that range could have seen when it first became tradeable.
+    """
+    reference: FloatArray = np.full(n_sessions, np.nan, dtype=np.float64)
+    complete: OffsetArray = np.flatnonzero(armed)
+    if complete.size == 0:
+        return reference
+
+    of_session: IndexArray = session_id[complete]
+    starts: OffsetArray = np.flatnonzero(np.concatenate(([True], of_session[1:] != of_session[:-1])))
+    reference[of_session[starts]] = close[complete[starts]]
+
+    return reference
+
+
+def matched_random_ranges(
+    data: Dataset,
+    key: sessionrange.RangeKey,
+    rng: np.random.Generator,
+) -> sessionrange.SessionRangeGrid:
+    """``key``'s ranges, each session's replaced by another session's shape at its own price.
+
+    **The null for an entry whose trigger is a level rather than an event.** It holds the bars,
+    the costs, the geometry and the armed flags fixed -- so the entry *signal* is identical and
+    only the level moves -- and asks whether the range this session actually printed is worth
+    more than a range of some other session's shape placed at this session's price.
+
+    Every range travels as two offsets from the price its window closed at, never as a pair of
+    prices: NQ drifts thousands of points across a campaign window, so a donor transplanted
+    absolutely would sit out of reach all day and the null would be a run of no trades rather
+    than a control. What is randomised is therefore the range's **shape and placement relative
+    to the market**, which is the thing the entry rule claims is informative.
+
+    ``docs/roadmap.md`` §M28.2.
+    """
+    armed: BoolArray = data.range_armed(key)
+    session_id: IndexArray = data.range_session_id()
+    high: FloatArray = data.range_high(key)
+    low: FloatArray = data.range_low(key)
+    reference: FloatArray = _window_close(data.close, armed, session_id, high.size)
+
+    donors: OffsetArray = np.flatnonzero(np.isfinite(high) & np.isfinite(reference))
+    if donors.size < MIN_DONOR_SESSIONS:
+        msg: str = (
+            f"only {donors.size} sessions carry a {key} range, against the "
+            f"{MIN_DONOR_SESSIONS} this needs; a permutation that small hands too many "
+            "sessions back the level they actually traded for the draw to be a control"
+        )
+        raise RandomEntryError(msg)
+
+    drawn: OffsetArray = rng.permutation(donors)
+    null_high: FloatArray = np.full(high.size, np.nan, dtype=np.float64)
+    null_low: FloatArray = np.full(low.size, np.nan, dtype=np.float64)
+    null_high[donors] = reference[donors] + (high[drawn] - reference[drawn])
+    null_low[donors] = reference[donors] + (low[drawn] - reference[drawn])
+
+    return sessionrange.SessionRangeGrid(
+        keys=(key,),
+        session_id=session_id,
+        armed=armed[np.newaxis, :],
+        high=null_high[np.newaxis, :],
+        low=null_low[np.newaxis, :],
+    )
+
+
+def _range_key_for(
+    params: Params,
+    archetype: Archetype,
+    draw: str,
+) -> sessionrange.RangeKey | None:
+    """The range a level draw randomises, or ``None`` for the draw over bars.
+
+    Refuses a level draw for an archetype whose trigger is not a level, rather than falling
+    back to the draw over bars: a null silently taken over the wrong thing is the failure
+    ``docs/roadmap.md`` §M28.1 records, arrived at from the other direction.
+    """
+    if draw not in DRAWS:
+        msg: str = f"unknown draw {draw!r}; use one of {list(DRAWS)}"
+        raise RandomEntryError(msg)
+
+    if draw == OVER_BARS:
+        return None
+
+    key: object = getattr(params, "range_key", None)
+    if key is None:
+        msg = (
+            f"{archetype.name} has no session range to randomise, so there is no level draw "
+            f"for it; {OVER_BARS!r} is the draw for an entry whose trigger is an event"
+        )
+        raise RandomEntryError(msg)
+
+    return cast("sessionrange.RangeKey", key)
+
+
 def _null_summary(
     data: Dataset,
     params: Params,
@@ -241,13 +363,25 @@ def _null_summary(
     signal: BoolArray,
     seed: int,
     pool: SessionMinutePool,
+    range_key: sessionrange.RangeKey | None,
 ) -> dict[str, float]:
-    """One null realisation: draw a matched signal, simulate it, summarise it.
+    """One null realisation: draw a matched arm, simulate it, summarise it.
+
+    ``range_key`` picks which arm. Over levels the signal is left alone and the dataset's
+    ranges are redrawn; over bars the ranges are left alone and the signal is redrawn.
 
     Module level and seeded per draw so the parallel path returns the serial path's values in
     the serial path's order, whatever order the workers finish in.
     """
     rng: np.random.Generator = np.random.default_rng(seed)
+    if range_key is not None:
+        over_levels: Dataset = replace(data, session_ranges=matched_random_ranges(data, range_key, rng))
+
+        return stats.summarise_legs(
+            archetype.legs(over_levels, params, instrument),
+            data.day_codes,
+        ).as_dict()
+
     drawn: BoolArray = matched_random_signal(data, signal, rng, pool=pool)
     legs: LegMatrix = archetype.legs(data, params, instrument, signal=drawn)
 
@@ -263,35 +397,40 @@ def null_summaries(
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
     n_jobs: int = 1,
+    draw: str = OVER_BARS,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> pd.DataFrame:
     """One row of :class:`nqbt.stats.Summary` per null realisation.
 
     Every draw is seeded deterministically from ``seed``, so ``n_jobs`` changes the wall clock
-    and nothing else.
+    and nothing else. ``draw`` is one of :data:`DRAWS`.
     """
     if iterations < 1:
         msg: str = "iterations must be at least 1"
         raise RandomEntryError(msg)
 
     archetype = archetype if archetype is not None else archetypes.for_params(params)
+    range_key: sessionrange.RangeKey | None = _range_key_for(params, archetype, draw)
     signal: BoolArray = archetype.signal(data, params)
     pool: SessionMinutePool = SessionMinutePool.build(data.index, template)
     seeds = np.random.SeedSequence(seed).generate_state(iterations)
 
     rows: list[dict[str, float]]
     if effective_n_jobs(n_jobs) == 1:
-        rows = [_null_summary(data, params, archetype, instrument, signal, int(s), pool) for s in seeds]
+        rows = [
+            _null_summary(data, params, archetype, instrument, signal, int(s), pool, range_key) for s in seeds
+        ]
     else:
         lean: Dataset = data.slim()
         rows = Parallel(n_jobs=n_jobs)(
-            delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool) for s in seeds
+            delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool, range_key)
+            for s in seeds
         )
 
     return pd.DataFrame(rows)
 
 
-def compare(
+def compare(  # noqa: PLR0913 - each keyword is an independent knob; a config bag would hide a swap
     data: Dataset,
     params: Params,
     archetype: Archetype | None = None,
@@ -302,6 +441,7 @@ def compare(
     seed: int = 0,
     alpha: float = DEFAULT_ALPHA,
     n_jobs: int = 1,
+    draw: str = OVER_BARS,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> dict[str, NullResult]:
     """Run the strategy and its matched null, and say where the strategy landed.
@@ -330,6 +470,7 @@ def compare(
         iterations=iterations,
         seed=seed,
         n_jobs=n_jobs,
+        draw=draw,
         template=template,
     )
 
