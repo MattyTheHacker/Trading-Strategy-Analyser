@@ -1782,7 +1782,7 @@ The draw over **bars** refused on both roots with the message §M28.1 wrote, and
 
 **A shortlist that ranks on profit factor will select for `ambiguous_share` whenever an archetype has configurations where it is high**, and nothing in the campaign tools says so. §M28.1 knew to read the number and read it once, by hand, for one configuration. That worked because OpeningRange's ambiguity was 0.003 everywhere; it does not survive an archetype whose ambiguity ranges from 0.006 to 0.35 across its own swept space.
 
-The cheap guard is a ceiling on `ambiguous_share` in `campaign_report.rank`, beside the trade floor `MIN_TRADES` that is already there and already exists for exactly this reason — a statistic that is undefined or unattributable should not be rankable. **That is the next change, and it is a tooling change rather than an archetype one** — [#248], which carries the two questions to settle before implementing it: where the ceiling goes, given that filtering inside `rank` moves every stored comparison, and what the number means as a sentence.
+**The guard belongs in the campaign tools rather than in the archetype**, beside the trade floor `MIN_TRADES` that is already there for the same reason: a statistic that is undefined or unattributable should not be rankable. What that guard should be, and what it should not be, is [#248].
 
 #### What is still deferred
 
