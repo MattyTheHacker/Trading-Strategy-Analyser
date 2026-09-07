@@ -20,6 +20,12 @@ draw nothing to randomise -- ``docs/roadmap.md`` §M28.1. That is a gate that co
 not a gate that passed, so it is reported as its own status the way ``formatting.cli``'s is.
 Over a shortlist the status is reached only when **every** row was refused; a row refused
 alongside rows that ran is reported as a refusal and carries no verdict.
+
+**``--draw levels`` is the second arm, and it is the one such an entry can use.** It permutes
+which session's range is traded instead of which day each signal lands on, so the signal itself
+is held fixed -- ``docs/roadmap.md`` §M28.2. The two arms ask different questions and are not
+interchangeable, which is why every measured row carries the ``draw`` it was produced under: a
+table mixing them silently would be two nulls wearing one set of names.
 """
 
 from __future__ import annotations
@@ -72,7 +78,7 @@ def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[type-arg] 
     return " ".join(f"{axis}={row[axis]}" for axis in axes)
 
 
-def measure_row(
+def measure_row(  # noqa: PLR0913 - each argument is a distinct axis of one measurement
     row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
     data: context.Dataset,
     archetype: archetypes.Archetype,
@@ -80,6 +86,7 @@ def measure_row(
     label: str,
     iterations: int,
     n_jobs: int,
+    draw: str = randomentry.OVER_BARS,
 ) -> dict[str, object]:
     """One configuration against its own matched null, or a row saying it was refused.
 
@@ -90,6 +97,9 @@ def measure_row(
     params: archetypes.Params = rebuild(row, archetype)
     identity: dict[str, object] = {
         "label": label,
+        # Carried so a stored table cannot mix the two arms silently: they ask different
+        # questions -- ``docs/roadmap.md`` §M28.2.
+        "draw": draw,
         "stratum": row["stratum"],
         "resolution": int(row["resolution"]),
         "ranked_by": float(row[NET_TO_DRAWDOWN]),
@@ -104,6 +114,7 @@ def measure_row(
             statistics=STATISTICS,
             iterations=iterations,
             n_jobs=n_jobs,
+            draw=draw,
         )
     except randomentry.RandomEntryError as refused:
         logger.info("  %-44s REFUSED: %s", label, refused)
@@ -135,13 +146,14 @@ def measure_row(
     return measured
 
 
-def measure(
+def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurement
     rows: pd.DataFrame,
     archetype: archetypes.Archetype,
     root: str,
     test_window: str,
     iterations: int,
     n_jobs: int,
+    draw: str = randomentry.OVER_BARS,
 ) -> pd.DataFrame:
     """Every shortlisted configuration against its own null, one row each.
 
@@ -163,7 +175,7 @@ def measure(
         data: context.Dataset = context.prepare(frame, spec, bar_minutes=int(minutes))
 
         measured.extend(
-            measure_row(row, data, archetype, root, label_of(row, axes), iterations, n_jobs)
+            measure_row(row, data, archetype, root, label_of(row, axes), iterations, n_jobs, draw)
             for row, _ in rebuilt
         )
 
@@ -228,6 +240,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--top", type=int, default=1, help="how many configurations to place")
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--n-jobs", type=int, default=8)
+    parser.add_argument(
+        "--draw",
+        choices=list(randomentry.DRAWS),
+        default=randomentry.OVER_BARS,
+        help="what the null randomises; levels is for a trigger that is a level",
+    )
     args = parser.parse_args(argv[1:])
 
     archetype: archetypes.Archetype = archetypes.get(args.strategy)
@@ -258,11 +276,17 @@ def main(argv: list[str]) -> int:
         args.test_window,
         args.iterations,
         args.n_jobs,
+        args.draw,
     )
     refused: pd.DataFrame = table[table["refused"].notna()]
     if len(refused) == len(table):
         logger.info("")
-        logger.info("NO MATCHED NULL for %s: %s", args.strategy, table.iloc[0]["refused"])
+        logger.info(
+            "NO MATCHED NULL for %s over %s: %s",
+            args.strategy,
+            args.draw,
+            table.iloc[0]["refused"],
+        )
 
         return NO_NULL_AVAILABLE
 

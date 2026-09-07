@@ -12,7 +12,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tools.campaign_null import RANKINGS, STATISTICS, label_of, rankings
+from nqbt import randomentry
+from tools import campaign_null
+from tools.campaign_null import RANKINGS, STATISTICS, label_of, measure_row, rankings
 from tools.campaign_report import NET_TO_DRAWDOWN
 
 
@@ -30,6 +32,51 @@ def measured(**columns: object) -> pd.DataFrame:
     }
 
     return pd.DataFrame({**base, **columns})
+
+
+# -- which null a row was produced under -----------------------------------------------------
+
+
+def refused_row(monkeypatch: pytest.MonkeyPatch, draw: str) -> dict[str, object]:
+    """One ``measure_row`` result, with the simulation and the null both stubbed out.
+
+    The identity half is what is under test, so neither a dataset nor a draw is needed --
+    stubbing ``compare`` to refuse reaches it by the shortest path.
+    """
+
+    def refuse(*_args: object, **_kwargs: object) -> dict[str, object]:
+        msg = "stubbed"
+        raise randomentry.RandomEntryError(msg)
+
+    monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
+    monkeypatch.setattr(campaign_null.randomentry, "compare", refuse)
+    row = pd.Series({"stratum": "unfiltered", "resolution": 10, NET_TO_DRAWDOWN: 1.0, "trades": 5})
+
+    return measure_row(row, object(), object(), "MNQ", "a", 2, 1, draw)
+
+
+def test_a_measured_row_says_which_null_produced_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The two arms ask different questions, so a table mixing them would be two nulls wearing
+    one set of names -- ``docs/roadmap.md`` §M28.2."""
+    over_bars = refused_row(monkeypatch, randomentry.OVER_BARS)
+    over_levels = refused_row(monkeypatch, randomentry.OVER_LEVELS)
+
+    assert over_bars["draw"] == randomentry.OVER_BARS
+    assert over_levels["draw"] == randomentry.OVER_LEVELS
+
+
+def test_the_draw_defaults_to_the_one_every_archetype_has(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Adding the second arm must not change what an unflagged run measures."""
+    monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
+    monkeypatch.setattr(
+        campaign_null.randomentry,
+        "compare",
+        lambda *_a, **kwargs: (_ for _ in ()).throw(AssertionError(kwargs["draw"])),
+    )
+    row = pd.Series({"stratum": "unfiltered", "resolution": 10, NET_TO_DRAWDOWN: 1.0, "trades": 5})
+
+    with pytest.raises(AssertionError, match=randomentry.OVER_BARS):
+        measure_row(row, object(), object(), "MNQ", "a", 2, 1)
 
 
 # -- naming a configuration ------------------------------------------------------------------
