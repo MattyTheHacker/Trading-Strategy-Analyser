@@ -174,9 +174,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
             ref = i - rules.ratchet_lag
             if ref >= 0:
                 adverse_ref, _ = bracket.sided(bars.low[ref], bars.high[ref], direction)
-                new_stop = adverse_ref - direction * ratchet_offset
-                if direction * new_stop > direction * stop:
-                    stop = new_stop
+                stop = bracket.tightened_stop(stop, adverse_ref - direction * ratchet_offset, direction)
         elif (
             i >= rules.bars_required
             and signal[i]

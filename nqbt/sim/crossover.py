@@ -19,6 +19,7 @@ import numpy as np
 from numba import njit
 
 from nqbt import conditions, trades
+from nqbt.context import PriceBasis
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
 from nqbt.sim.types import STOP_MIN_TICKS
@@ -37,6 +38,20 @@ NO_ATR = np.zeros(0, dtype=np.float64)
 Numba needs an array of the right dtype whether or not the branch reading it runs.
 """
 
+NO_TRAIL = np.zeros(0, dtype=np.float64)
+"""Stand-in for the trailing average, for the same reason as :data:`NO_ATR`."""
+
+
+class CrossoverSeries(NamedTuple):
+    """The two per-bar series a stop mode may read, held together to keep the loop under ten.
+
+    Each is empty in the mode that does not read it -- :data:`NO_ATR` and :data:`NO_TRAIL` --
+    because Numba needs an array of the right dtype whether or not the branch runs.
+    """
+
+    atr: FloatArray
+    trail_ma: FloatArray
+
 
 class CrossoverRules(NamedTuple):
     """The scalar rule set :func:`simulate_crossover` reads, one field per parameter."""
@@ -46,6 +61,10 @@ class CrossoverRules(NamedTuple):
     min_bracket_points: float
     swing_lookback: int
     stop_offset_ticks: float
+    trail_ma_stop: bool
+    trail_offset_ticks: float
+    round_number_points: float
+    round_number_offset_ticks: float
     tp_multiplier: float
     bars_required: int
     exit_on_opposite_cross: bool
@@ -57,7 +76,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
     bars: bracket.Bars,
     signal: BoolArray,
     direction_at: FloatArray,
-    atr: FloatArray,
+    series: CrossoverSeries,
     leg_quantities: IntArray,
     target_r: FloatArray,
     costs: bracket.Costs,
@@ -146,7 +165,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             # bar, and is flattened at its close".
             d = pending_direction
             fill = bars.open_[i] + d * slippage
-            candidate_stop = _protective_stop(bars, atr, pending_bar, fill, d, rules, costs)
+            candidate_stop = _protective_stop(bars, series.atr, pending_bar, fill, d, rules, costs)
             candidate_risk = d * (fill - candidate_stop)
             # A stop at or through the price it protects is not a stop order --
             # ``docs/nt8-fidelity.md`` §M18.
@@ -190,7 +209,10 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
 
             pending_bar = -1
 
-        # ---- close of bar i: schedule the next bar's orders --------------------------
+        # ---- close of bar i: trail the stop, then schedule the next bar's orders ------
+        if in_position and rules.trail_ma_stop:
+            stop = _trailed_stop(stop, series.trail_ma[i], d, rules, costs)
+
         if in_position and rules.exit_on_opposite_cross and direction_at[i] != d:
             pending_exit = True
 
@@ -251,13 +273,51 @@ def _protective_stop(
             rules.atr_stop_multiple,
             rules.min_bracket_points,
         )
-        return fill - direction * distance
+        stop = fill - direction * distance
+    else:
+        stop = bracket.swing_stop(
+            bars,
+            signal_bar,
+            rules.swing_lookback,
+            rules.stop_offset_ticks * costs.tick_size,
+            direction,
+        )
 
-    return bracket.swing_stop(
-        bars,
-        signal_bar,
-        rules.swing_lookback,
-        rules.stop_offset_ticks * costs.tick_size,
+    return _off_the_round_number(stop, direction, rules, costs)
+
+
+@njit(cache=True)
+def _trailed_stop(
+    stop: float,
+    ma_value: float,
+    direction: float,
+    rules: CrossoverRules,
+    costs: bracket.Costs,
+) -> float:
+    """The stop after one completed bar of the moving-average trail.
+
+    Round-number avoidance runs **before** the ratchet, so pushing a level away from a round
+    number can only widen the candidate and never loosen the stop already in place.
+    """
+    candidate = ma_value - direction * rules.trail_offset_ticks * costs.tick_size
+    candidate = _off_the_round_number(candidate, direction, rules, costs)
+
+    return bracket.tightened_stop(stop, candidate, direction)
+
+
+@njit(cache=True)
+def _off_the_round_number(
+    stop: float,
+    direction: float,
+    rules: CrossoverRules,
+    costs: bracket.Costs,
+) -> float:
+    """The stop, moved off a round number it landed exactly on. Off at ``0`` spacing."""
+    return bracket.avoid_round_number(
+        stop,
+        rules.round_number_points,
+        rules.round_number_offset_ticks * costs.tick_size,
+        costs.tick_size,
         direction,
     )
 
@@ -299,7 +359,27 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     if params.trade_short:
         signal |= conditions.cross_below(fast, slow, params.cross_lookback) & (direction == trades.SHORT)
 
-    return filters.apply_context_filters(signal, data, params)
+    return filters.apply_confluence_filters(signal, data, params)
+
+
+def _check_price_basis(data: Dataset, params: EmaCrossoverParams) -> None:
+    """Refuse round-number avoidance on bars whose absolute levels may not be the traded ones.
+
+    Fails closed: :attr:`~nqbt.context.PriceBasis.UNKNOWN` is the default, so a caller who
+    never said which series this is gets the refusal rather than a silently meaningless run.
+    Back-adjustment shifts every level by the roll offsets -- ``docs/roadmap.md`` § "The
+    build spec's three loose ends".
+    """
+    if params.round_number_points <= 0.0 or data.price_basis is PriceBasis.RAW:
+        return
+
+    msg: str = (
+        f"round_number_points is {params.round_number_points} but these bars are "
+        f"{data.price_basis.value}; a round number is only a round number on raw prices. "
+        f"Pass price_basis=PriceBasis.RAW to prepare() for a single contract or an "
+        f"unadjusted splice."
+    )
+    raise ValueError(msg)
 
 
 def crossover_legs(
@@ -314,19 +394,23 @@ def crossover_legs(
     ``signal`` overrides the computed entry signal for the random-entry control arm; the regime
     series is *not* overridden, so a drawn bar is taken on whichever side the averages were on.
     """
+    _check_price_basis(data, params)
     fast, slow = crossover_averages(data, params)
     direction_at: FloatArray = regime_direction(fast, slow)
     signal = crossover_signal(data, params) if signal is None else signal
     quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
     atr: FloatArray = data.atr_values(params.atr_period) if params.use_atr_stop else NO_ATR
+    trail: FloatArray = (
+        data.ma_values(params.trail_ma_kind, params.trail_ma_period) if params.trail_ma_stop else NO_TRAIL
+    )
     out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
     count: int = simulate_crossover(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         direction_at,
-        atr,
+        CrossoverSeries(atr, trail),
         quantities,
         targets,
         bracket.Costs(
@@ -346,6 +430,10 @@ def crossover_legs(
             min_bracket_points=instrument.dollars_to_points(params.min_bracket_dollars),
             swing_lookback=params.swing_lookback,
             stop_offset_ticks=float(params.stop_offset_ticks),
+            trail_ma_stop=params.trail_ma_stop,
+            trail_offset_ticks=float(params.trail_offset_ticks),
+            round_number_points=params.round_number_points,
+            round_number_offset_ticks=float(params.round_number_offset_ticks),
             tp_multiplier=params.tp_multiplier,
             bars_required=params.bars_required_to_trade,
             exit_on_opposite_cross=params.exit_on_opposite_cross,

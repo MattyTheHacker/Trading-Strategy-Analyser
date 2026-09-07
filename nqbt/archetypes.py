@@ -237,14 +237,18 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
 
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
-    ``docs/roadmap.md`` §M17.
+    ``docs/roadmap.md`` §M17. The trailing average is a **third** grid and is built only where
+    some combination trails on it -- ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
     )
+    gates: tuple[str, ...] = (
+        ("fast", "slow", "trail_ma") if any(values.get("trail_ma_stop", ())) else ("fast", "slow")
+    )
 
     return ContextSpec(
-        ma_keys=_ma_keys(values, ("fast", "slow")),
+        ma_keys=_ma_keys(values, gates),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -341,6 +345,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 INERT_AT: Mapping[str, object] = {
+    "round_number_points": 0.0,
     "regime_filter": regime.ALL_REGIMES,
     "volume_filter": volume.ALL_STATES,
     "compression_filter": compression.ALL_STATES,
@@ -422,6 +427,10 @@ CROSSOVER_GATES: Mapping[str, str] = {
     "atr_period": "use_atr_stop",
     "atr_stop_multiple": "use_atr_stop",
     "min_bracket_dollars": "use_atr_stop",
+    "trail_ma_kind": "trail_ma_stop",
+    "trail_ma_period": "trail_ma_stop",
+    "trail_offset_ticks": "trail_ma_stop",
+    "round_number_offset_ticks": "round_number_points",
     **REGIME_GATES,
     **VOLUME_GATES,
     **COMPRESSION_GATES,
@@ -431,6 +440,9 @@ CROSSOVER_GATES: Mapping[str, str] = {
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
 Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17.
+``confluence_required`` is not here because it is refused at construction instead: a count
+that no combination could satisfy, or that is the plain conjunction again, raises out of
+:func:`nqbt.sim.types.validate_confluence` rather than running identical rows.
 """
 
 

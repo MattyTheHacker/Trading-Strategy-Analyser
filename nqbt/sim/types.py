@@ -91,6 +91,66 @@ def validate_context_filters(params: ContextFilterParams) -> None:
     higher_timeframe.validate_period(params.higher_timeframe_period)
 
 
+MIN_CONFLUENCE_FILTERS = 2
+"""Fewest active context filters a confluence count can mean anything against."""
+
+REQUIRE_ALL = 0
+"""The confluence count meaning "every active context filter must pass", which is the AND
+:func:`nqbt.sim.filters.apply_context_filters` has always applied.
+
+Zero rather than the number of gates, because how many are active is a property of the
+combination and a rule set has to be able to say "all of them" without knowing it.
+"""
+
+
+def active_context_filters(params: ContextFilterParams) -> int:
+    """How many of the six context filters this combination actually restricts anything with.
+
+    What a confluence count is measured against, and the reason it can be validated at
+    construction: a rule set knows how many gates it switched on.
+    """
+    return sum(
+        (
+            params.phase_filter != timeofday.ALL_PHASES,
+            params.regime_filter != regime.ALL_REGIMES,
+            params.volume_filter != volume.ALL_STATES,
+            params.compression_filter != compression.ALL_STATES,
+            params.trend_filter != trend.ALL_TRENDS,
+            params.higher_timeframe_filter != higher_timeframe.ALL_SIDES,
+        ),
+    )
+
+
+def validate_confluence(params: ContextFilterParams, required: int) -> None:
+    """Refuse a confluence count that is impossible, or that is the plain conjunction again.
+
+    ``REQUIRE_ALL`` is the conjunction and always legal. Anything from the number of active
+    gates upwards *is* that conjunction, or narrower than any bar can satisfy, and both are
+    silent duplicates of a combination the sweep already runs -- the shape ``dead_axes``
+    cannot see. ``docs/roadmap.md`` § "The build spec's three loose ends".
+    """
+    if required == REQUIRE_ALL:
+        return
+
+    active: int = active_context_filters(params)
+    if active < MIN_CONFLUENCE_FILTERS:
+        msg: str = (
+            f"confluence_required is {required} but this combination switches {active} "
+            f"context filters on; 'at least N of M' needs at least "
+            f"{MIN_CONFLUENCE_FILTERS} of them, and {REQUIRE_ALL} is how a rule set asks "
+            f"for every active filter"
+        )
+        raise ValueError(msg)
+
+    if required < 1 or required >= active:
+        msg = (
+            f"confluence_required must be {REQUIRE_ALL} (every active filter) or between 1 "
+            f"and {active - 1}; this combination switches {active} filters on, so {required} "
+            f"is either unsatisfiable or the plain conjunction under another name"
+        )
+        raise ValueError(msg)
+
+
 @dataclass(slots=True)
 class DeadCatParams:
     """Rule set for the DeadCatBounce archetype.
@@ -606,6 +666,13 @@ class EmaCrossoverParams:
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    confluence_required: int = REQUIRE_ALL
+    """How many of the active context filters an entry needs, rather than all of them.
+
+    The only archetype that reads it, so the other six keep the plain conjunction. Legal
+    values are :data:`REQUIRE_ALL` and ``1`` up to one below the number of filters this
+    combination switches on -- :func:`validate_confluence`."""
+
     exit_on_opposite_cross: bool = True
     """Close the position at the next bar's open when the regime flips.
 
@@ -639,6 +706,32 @@ class EmaCrossoverParams:
     """Ticks beyond the swing extreme, matching the two ported archetypes. Not applied to
     the ATR stop, whose multiple already sets the distance."""
 
+    trail_ma_stop: bool = False
+    """Trail the stop along a moving average, on top of whichever mode placed it.
+
+    **Off by default and it must stay off in a sweep's base**: it is the only thing here that
+    needs ``keep_values``, which is the 8-bytes-against-1 memory switch every parallel worker
+    pays -- ``docs/roadmap.md`` § "The build spec's three loose ends"."""
+
+    trail_ma_kind: str = "ema"
+    trail_ma_period: int = 50
+    """The average the stop follows -- a third grid, independent of the two that cross."""
+
+    trail_offset_ticks: int = 2
+    """Ticks beyond the average the trailing stop sits, so it is not exactly on the level it
+    follows. Separate from :attr:`stop_offset_ticks` for the reason
+    ``ratchet_offset_ticks`` is separate from it in the ported archetypes."""
+
+    round_number_points: float = 0.0
+    """Spacing of the round numbers a stop may never sit exactly on, in points; ``0`` is off.
+
+    **Only meaningful on raw prices**, so a dataset must declare
+    :attr:`nqbt.context.PriceBasis.RAW` before a combination setting this will run --
+    ``docs/roadmap.md`` § "The build spec's three loose ends"."""
+
+    round_number_offset_ticks: int = 2
+    """Ticks further from the entry a stop landing on a round number is pushed."""
+
     tp_multiplier: float = 1.0
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """Per-leg targets in R, ``nan`` marking a runner.
@@ -666,11 +759,11 @@ class EmaCrossoverParams:
             msg: str = f"order_quantity {self.order_quantity} cannot fill {len(self.target_r_multiples)} legs"
             raise ValueError(msg)
 
-        for name in ("fast_period", "slow_period", "atr_period", "swing_lookback"):
+        for name in ("fast_period", "slow_period", "atr_period", "swing_lookback", "trail_ma_period"):
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
-        for gate in ("fast", "slow"):
+        for gate in ("fast", "slow", "trail_ma"):
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         if self.cross_lookback < 1:
             msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
@@ -680,7 +773,20 @@ class EmaCrossoverParams:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
 
+        if self.round_number_points < 0.0:
+            msg = f"round_number_points must be >= 0, got {self.round_number_points}"
+            raise ValueError(msg)
+
+        # An offset of zero would leave the stop on the round number the rule exists to avoid.
+        if self.round_number_points > 0.0 and self.round_number_offset_ticks < 1:
+            msg = (
+                f"round_number_offset_ticks must be >= 1 while round_number_points is "
+                f"{self.round_number_points}, got {self.round_number_offset_ticks}"
+            )
+            raise ValueError(msg)
+
         validate_context_filters(self)
+        validate_confluence(self, self.confluence_required)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
             msg = (
                 f"fast and slow are both {self.fast_kind}({self.fast_period}); identical "

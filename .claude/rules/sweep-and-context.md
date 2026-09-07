@@ -156,6 +156,13 @@ paths:
   is what §M27 and §M28.1 measured, so an added axis would leave the stored rows and the code
   that produced them disagreeing. `NARROW_VARIANTS` and `ORB_VARIANTS` are the two, each with a
   `STRATUM_SETS` entry naming its strata **before** it runs — `docs/roadmap.md` §M28.2.
+- **A price basis is stated, never inferred, and the default is the refusing one.**
+  `prepare(price_basis=...)` defaults to `PriceBasis.UNKNOWN`, and a rule that reads an
+  absolute level -- round-number stop avoidance is the only one -- runs on `RAW` alone. An
+  attribute carried on the frame was rejected: it fails to propagate silently and the default
+  would then be the permissive answer. `sweep.sweep` does not forward it, so a sweep that
+  needs it builds its `Dataset` and passes `data=`. `docs/roadmap.md` § "The build spec's
+  three loose ends".
 - **Parallel sweeps top out around 5×, not 16×, and that is the hardware.** Per-core throughput
   drops when all physical cores are busy (mobile Ryzen, high single-core boost against a much
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —
