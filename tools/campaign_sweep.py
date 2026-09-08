@@ -54,6 +54,11 @@ Its rows land in ``results/campaign/InsideBar.duckdb`` beside the campaign's und
 name ``narrow``; every reading tool takes ``--variant`` to separate them. **Run it once per
 database** -- a second pass appends a second copy of every row and
 ``tools/campaign_holdout.py`` pairs the windows one-to-one.
+
+``--variants orb-fade`` re-runs §M28.2's parked fade over the bracket it was parked for, with
+``--strata orb-fade`` for the two cells stated in advance -- ``docs/roadmap.md`` §M28.5:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
 """
 
 from __future__ import annotations
@@ -166,6 +171,7 @@ NAN = float("nan")
 UNFILTERED = "unfiltered"
 REGIME = "regime"
 DIRECTIONAL = "directional"
+CONSOLIDATING = "consolidating"
 VOLUME_FORMS = "volume-forms"
 COMPRESSION_FORMS = "compression-forms"
 CORE = "core"
@@ -173,6 +179,7 @@ CONTEXT = "context"
 NARROW = "narrow"
 TREND_UP = "trend-up"
 ORB = "orb"
+ORB_FADE = "orb-fade"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -235,6 +242,15 @@ def _directional() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     four more comparisons -- ``docs/roadmap.md`` §M27.3.
     """
     yield f"regime={regime.Regime.DIRECTIONAL.name}", {"regime_filter": [regime.Regime.DIRECTIONAL.bit]}
+
+
+def _consolidating() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """The regime cell a fade's own thesis names, without its four siblings.
+
+    :func:`_directional` is the breakout's thesis, and running a fade inside it would be
+    stating the wrong hypothesis in advance -- ``docs/roadmap.md`` §M28.5.
+    """
+    yield f"regime={regime.Regime.CONSOLIDATING.name}", {"regime_filter": [regime.Regime.CONSOLIDATING.bit]}
 
 
 def _trend_up() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -355,6 +371,7 @@ STRATUM_GROUPS = {
     UNFILTERED: _unfiltered,
     REGIME: _regime,
     DIRECTIONAL: _directional,
+    CONSOLIDATING: _consolidating,
     "phase": _phase,
     "volume": _volume,
     VOLUME_FORMS: _volume_forms,
@@ -367,15 +384,15 @@ STRATUM_GROUPS = {
 """One generator per context dimension. **Never crossed** -- one dimension at a time is what
 tells "no edge anywhere" from "edge in one stratum, drowned by the others"."""
 
-REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL})
+REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL, CONSOLIDATING})
 """Groups whose cells ``--regime-quantiles`` splits per lookback. Membership rather than one
 name, so that a group yielding a single regime cell is calibrated like the full one."""
 
-RECUTS = frozenset({DIRECTIONAL, TREND_UP, VOLUME_FORMS, COMPRESSION_FORMS})
+RECUTS = frozenset({DIRECTIONAL, CONSOLIDATING, TREND_UP, VOLUME_FORMS, COMPRESSION_FORMS})
 """Groups that re-cut a dimension another group already owns, so ``all`` leaves them out.
 
-``directional`` is one regime cell without its four siblings and ``trend-up`` one trend cell
-without its two; ``volume-forms`` is the volume
+``directional`` and ``consolidating`` are each one regime cell without its four siblings, and
+``trend-up`` one trend cell without its two; ``volume-forms`` is the volume
 dimension under all three forms and a fitted cut; ``compression-forms`` is the compression
 dimension under both of its forms. Any of them inside ``all`` would run its dimension twice
 under two sets of names."""
@@ -386,6 +403,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     CONTEXT: ("volume", "compression", "trend", "htf"),
     NARROW: (UNFILTERED, DIRECTIONAL),
     ORB: (UNFILTERED, DIRECTIONAL, TREND_UP),
+    ORB_FADE: (UNFILTERED, CONSOLIDATING),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -812,6 +830,80 @@ def openingrange_further_variants(root: str) -> list[Variant]:
     ]
 
 
+ORB_TIGHT_FRACTIONS = [0.02, 0.05, 0.10, 0.25]
+"""How far outside the extreme a fade's stop sits, in range widths -- §M28.5's axis.
+
+**A fade's stop runs outward where a breakout's runs inward**, because the extreme it enters at
+is the one it has to stop behind, so §M28.2's ``[0.25, 0.5, 0.75, 1.0]`` placed it between a
+quarter of the range width outside and a full width outside and never anywhere tight. This
+extends the same axis downward and keeps ``0.25`` as its endpoint, so the new rows and the
+parked ones share a cell exactly -- ``docs/roadmap.md`` §M28.5.
+"""
+
+ORB_FADE_LADDERS: dict[str, tuple[float, ...]] = {
+    "target=width": (1.0, NAN),
+    "target=width+mid": (0.5, 1.0, NAN),
+}
+"""Per-leg targets as multiples of the range width, past the trigger.
+
+``target=width`` is §M28.2's ladder, kept so the two runs share it. ``target=width+mid`` adds
+the **midpoint** — which is what a rejection trade is aiming at and the first target in the
+band-reversion convention §M26 records — and which the swept space has never carried.
+"""
+
+
+def openingrange_fade_variants(root: str) -> list[Variant]:
+    """§M28.5's re-run: the fade alone, with the bracket §M28.2 parked it for.
+
+    The entry axes are held at exactly what §M28.2 swept, so the only thing that moved is the
+    bracket — which is what § "Parked is not abandoned" asks a re-run to be able to say.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "max_entries_per_session": [1, 0],
+        "entry_offset_ticks": [1, 4],
+        "break_confirm_ticks": [0, 8],
+        "stop_range_fraction": [*ORB_TIGHT_FRACTIONS],
+        "stop_offset_ticks": [2, 8],
+    }
+
+    return [
+        Variant(
+            name=f"{range_name} entry=fade {target_name}",
+            archetype=archetypes.OPENINGRANGE,
+            base=_costed(
+                OpeningRangeParams(
+                    anchor_minutes=anchor,
+                    window_minutes=window,
+                    entry_mode=ORB_ENTRY_FADE,
+                    stop_mode=ORB_STOP_FRACTION,
+                    target_mode=target_mode,
+                    target_width_multiples=ladder,
+                ),
+                root,
+            ),
+            axes={**shared, **target_axes},
+            resolutions=orb_resolutions(anchor, window),
+        )
+        for range_name, (anchor, window) in ORB_RANGES.items()
+        for target_name, target_mode, ladder, target_axes in _orb_fade_targets()
+    ]
+
+
+def _orb_fade_targets() -> list[tuple[str, int, tuple[float, ...], dict[str, list[AxisValue]]]]:
+    """The three target schemes §M28.5 crosses: the R ladder and two width ladders.
+
+    A ladder is a tuple, so it is a variant rather than an axis -- see :class:`Variant`. The
+    width multiples ride along under :data:`ORB_TARGET_R` too, where nothing reads them.
+    """
+    default: tuple[float, ...] = ORB_FADE_LADDERS["target=width"]
+
+    return [
+        ("target=R", ORB_TARGET_R, default, {"tp_multiplier": [1.0, 2.0]}),
+        *((name, ORB_TARGET_WIDTH, ladder, {}) for name, ladder in ORB_FADE_LADDERS.items()),
+    ]
+
+
 SPEC_SHARED: dict[str, list[AxisValue]] = {
     "fast_period": [9, 20],
     "slow_period": [50, 200],
@@ -954,6 +1046,10 @@ ORB_VARIANTS = {"OpeningRange": openingrange_further_variants}
 archetype. Its own set rather than an edit to :data:`VARIANTS`, which is what §M28.1 measured
 and what the stored rows were produced by."""
 
+ORB_FADE_VARIANTS = {"OpeningRange": openingrange_fade_variants}
+"""The §M28.5 re-run: the fade alone, with a stop tighter than §M28.2's axis reached and a
+target that stops at the middle of the range -- ``docs/roadmap.md`` §M28.5."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -961,7 +1057,7 @@ axes exist -- ``docs/roadmap.md`` § "The build spec's three loose ends, measure
 
 CAMPAIGN = "campaign"
 
-VARIANT_SETS = {CAMPAIGN, NARROW, ORB, SPEC}
+VARIANT_SETS = {CAMPAIGN, NARROW, ORB, ORB_FADE, SPEC}
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
 ``--variant narrow`` to the reading tools."""
@@ -969,7 +1065,14 @@ lands in the same database as the campaign it follows and is still separable fro
 
 def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
-    return {NARROW: NARROW_VARIANTS, ORB: ORB_VARIANTS, SPEC: SPEC_VARIANTS}.get(which, VARIANTS)
+    sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
+        NARROW: NARROW_VARIANTS,
+        ORB: ORB_VARIANTS,
+        ORB_FADE: ORB_FADE_VARIANTS,
+        SPEC: SPEC_VARIANTS,
+    }
+
+    return sets.get(which, VARIANTS)
 
 
 def grids_for(
