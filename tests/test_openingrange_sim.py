@@ -366,6 +366,29 @@ def test_a_fade_buys_back_through_the_low_after_it_breaks() -> None:
     assert trades["initial_stop"].iloc[0] == RANGE_LOW - 0.5 * (RANGE_HIGH - RANGE_LOW)
 
 
+def test_a_tight_fraction_stops_a_fade_just_outside_the_range_and_targets_its_middle() -> None:
+    """The geometry §M28.5 re-runs the fade over, which its own axis never reached.
+
+    A fade's fraction stop runs **outward** -- the extreme it enters at is the one it has to
+    stop behind -- so a small fraction is a tight stop where for a breakout it is a wide one.
+    The half-width leg lands on the range midpoint, which is what the trade is aiming at.
+    """
+    trades = run(
+        [BELOW, BREAKS_BELOW, RECLAIMS],
+        signal_at=(0, 1, 2),
+        entry_mode=ORB_ENTRY_FADE,
+        stop_mode=ORB_STOP_FRACTION,
+        stop_range_fraction=0.05,
+        entry_offset_ticks=0.0,
+        target_mode=ORB_TARGET_WIDTH,
+        levels=(0.5,),
+    )
+
+    assert trades["entry_price"].iloc[0] == RANGE_LOW
+    assert trades["initial_stop"].iloc[0] == RANGE_LOW - 0.05 * (RANGE_HIGH - RANGE_LOW)
+    assert trades["target_price"].iloc[0] == (RANGE_HIGH + RANGE_LOW) / 2.0
+
+
 def test_break_confirm_ticks_decides_how_far_past_the_level_counts_as_a_break() -> None:
     """The same bars are a break at zero and are not one once the threshold is past them.
 

@@ -33,6 +33,8 @@ from nqbt.sim.types import (
     ORB_ENTRY_FADE,
     ORB_ENTRY_RETEST,
     ORB_STOP_FRACTION,
+    ORB_TARGET_R,
+    ORB_TARGET_WIDTH,
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_SWING,
@@ -44,6 +46,7 @@ from tools.campaign_sweep import (
     COMMISSION,
     CONTEXT,
     CORE,
+    CONSOLIDATING,
     DIRECTIONAL,
     ELASTIC_LADDERS,
     NARROW,
@@ -53,7 +56,13 @@ from tools.campaign_sweep import (
     NARROW_VARIANTS,
     NO_CUTS,
     ORB,
+    ORB_ENTRIES,
+    ORB_FADE,
+    ORB_FADE_LADDERS,
+    ORB_FADE_VARIANTS,
+    ORB_FRACTIONS,
     ORB_RANGES,
+    ORB_TIGHT_FRACTIONS,
     ORB_VARIANTS,
     LONDON_OPEN_MINUTES,
     RECUTS,
@@ -746,3 +755,65 @@ def test_the_campaign_grid_is_untouched_by_the_opening_ranges_re_sweep() -> None
     assert all("stop_range_fraction" not in variant.axes for variant in campaign)
     assert {variant.base.entry_mode for variant in campaign} == {ORB_ENTRY_BREAKOUT}
     assert {variant.base.anchor_minutes for variant in campaign} == {sessionrange.CASH_OPEN_MINUTES}
+
+
+# -- the §M28.5 fade re-run --------------------------------------------------------
+
+
+def test_the_fades_re_run_states_the_fades_own_thesis_as_its_stratum() -> None:
+    """``regime=DIRECTIONAL`` is the *breakout's* hypothesis, and running a fade inside it
+    would be stating the wrong one in advance -- ``docs/roadmap.md`` §M28.5."""
+    assert [name for name, _ in strata(ORB_FADE)] == [UNFILTERED, "regime=CONSOLIDATING"]
+    assert [name for name, _ in strata(CONSOLIDATING)] == ["regime=CONSOLIDATING"]
+
+
+def test_the_fades_stop_axis_reaches_below_the_one_that_parked_it_and_keeps_its_endpoint() -> None:
+    """A shared endpoint is what makes the two runs comparable rather than adjacent: §M28.2's
+    tightest fade cell has to exist in this grid too, and everything else has to be tighter."""
+    assert min(ORB_TIGHT_FRACTIONS) < min(ORB_FRACTIONS)
+    assert max(ORB_TIGHT_FRACTIONS) == min(ORB_FRACTIONS)
+    for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ"):
+        assert variant.axes["stop_range_fraction"] == ORB_TIGHT_FRACTIONS
+        assert variant.base.stop_mode == ORB_STOP_FRACTION
+
+
+def test_the_fades_re_run_holds_its_entry_axes_at_exactly_what_parked_it() -> None:
+    """The bracket is the only thing that moved, which is what § "Parked is not abandoned"
+    asks a re-run to be able to say."""
+    _, parked = ORB_ENTRIES["entry=fade"]
+
+    for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ"):
+        assert variant.base.entry_mode == ORB_ENTRY_FADE
+        assert {key: variant.axes[key] for key in parked} == parked
+
+
+def test_only_one_of_the_fades_target_ladders_reaches_the_middle_of_the_range() -> None:
+    """§M28.2's ladder is kept so the two runs share it; the midpoint is the new half."""
+    ladders = {
+        variant.base.target_width_multiples
+        for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ")
+        if variant.base.target_mode == ORB_TARGET_WIDTH
+    }
+
+    assert ladders == set(ORB_FADE_LADDERS.values())
+    assert [0.5 in ladder for ladder in sorted(ladders, key=len)] == [False, True]
+
+
+def test_the_fades_re_run_is_one_variant_per_range_and_target_scheme() -> None:
+    """The R ladder is not repeated once per width ladder, which would be the same grid twice."""
+    variants = ORB_FADE_VARIANTS["OpeningRange"]("MNQ")
+
+    assert len(variants) == len(ORB_RANGES) * (len(ORB_FADE_LADDERS) + 1)
+    assert len({variant.name for variant in variants}) == len(variants)
+    assert sum(variant.base.target_mode == ORB_TARGET_R for variant in variants) == len(ORB_RANGES)
+
+
+def test_the_parked_orb_grid_is_untouched_by_the_fades_re_run() -> None:
+    """§M28.2's stored rows were produced by ``ORB_VARIANTS``, so the tighter axis goes in its
+    own set for the reason that one did."""
+    assert all(
+        variant.axes["stop_range_fraction"] == ORB_FRACTIONS
+        for variant in ORB_VARIANTS["OpeningRange"]("MNQ")
+    )
+    assert variants_for(ORB_FADE) is ORB_FADE_VARIANTS
+    assert variants_for(ORB) is ORB_VARIANTS
