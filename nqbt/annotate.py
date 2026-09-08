@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, override
 import numpy as np
 import pandas as pd
 
+from nqbt import conditions as conditions_module
 from nqbt import higher_timeframe, ingest, notes, paths, regime, timeofday, trend, volume
 from nqbt.arrays import AnyArray, BoolArray, DateArray, IntArray, LabelArray
 from nqbt.instruments import ContractId
@@ -47,6 +48,7 @@ __all__ = [
     "LabelThresholds",
     "annotate_trades",
     "bars_for_fills",
+    "confluence",
     "contract_bars",
 ]
 
@@ -194,6 +196,85 @@ class Annotation:
             f"{self.matched}/{self.trades} trades annotated ({self.share:.1%}), "
             f"{len(self.conditions)} conditions"
         )
+
+
+MIN_CONFLUENCE_COLUMNS = 2
+"""Fewest conditions a count over them says anything the conditions did not already say."""
+
+CONFLUENCE_COLUMN = "entry_confluence"
+"""Default name for the count :func:`confluence` adds."""
+
+
+def confluence(
+    annotation: Annotation,
+    columns: Sequence[str],
+    *,
+    name: str = CONFLUENCE_COLUMN,
+) -> Annotation:
+    """How many of ``columns`` were true at each trade's entry bar, as a new condition.
+
+    This is the *descriptive* half of the confluence pattern and needs no strategy to gate on
+    anything: the trades already happened, and the count says what was true when each one was
+    taken. :func:`nqbt.review.stratify` then reads it like any other condition, which is what
+    turns it into "trades with three of these did X". The gating half is
+    ``EmaCrossoverParams.confluence_required`` -- ``docs/roadmap.md`` § "Counting the
+    confluence a trade actually had".
+
+    **The set is named by the caller and never derived**, because a count is only meaningful
+    against a stated denominator: counting whatever booleans an annotation happens to carry
+    would change the number when a dataset is built with one more moving-average period, and
+    nothing would say so.
+
+    A condition that is false because it could not be computed -- a moving average inside its
+    warm-up -- counts as not true, exactly as it does everywhere else in the codebase.
+    """
+    frame: pd.DataFrame = annotation.frame
+    _check_confluence(frame, columns, name)
+    stack: BoolArray = np.vstack(
+        [frame[column].fillna(value=False).to_numpy(dtype=np.bool_) for column in columns],
+    )
+    # Left bare: the nullable Int64 an unmatched trade needs is not a dtype the stubs can state.
+    counted = pd.Series(
+        conditions_module.count_true(stack),
+        index=frame.index,
+        dtype="Int64",
+    ).mask(~frame["matched"].astype(bool))
+
+    return Annotation(
+        frame=frame.assign(**{name: counted}),
+        conditions=(*annotation.conditions, name),
+    )
+
+
+def _check_confluence(frame: pd.DataFrame, columns: Sequence[str], name: str) -> None:
+    """Refuse a count whose denominator is not a set of booleans this annotation carries."""
+    if len(columns) < MIN_CONFLUENCE_COLUMNS:
+        msg: str = (
+            f"a confluence count needs at least {MIN_CONFLUENCE_COLUMNS} conditions, got "
+            f"{len(columns)}; a count over one of them is that condition with another name"
+        )
+        raise AnnotationError(msg)
+
+    if len(set(columns)) != len(columns):
+        msg = f"the same condition is counted twice in {list(columns)}, which weights it twice"
+        raise AnnotationError(msg)
+
+    if name in frame.columns:
+        msg = f"this annotation already carries {name!r}; pass name= to count a second set"
+        raise AnnotationError(msg)
+
+    for column in columns:
+        if column not in frame.columns:
+            msg = f"no condition {column!r} in this annotation; it holds {sorted(frame.columns)}"
+            raise AnnotationError(msg)
+
+        if not pd.api.types.is_bool_dtype(frame[column].dtype):
+            msg = (
+                f"{column!r} is {frame[column].dtype}, not a boolean, so it cannot be counted. "
+                f"A raw series or a label has to become a condition first -- annotate with "
+                f"LabelThresholds, or name the boolean the label was cut into."
+            )
+            raise AnnotationError(msg)
 
 
 def bars_for_fills(

@@ -368,6 +368,47 @@ def swing_stop(
 
 
 @njit(cache=True)
+def tightened_stop(stop: float, candidate: float, direction: float) -> float:
+    """Whichever of the two is nearer the market, which is the one ratchet in the codebase.
+
+    DeadCatBounce's candidate is a lagged bar's adverse extreme and EmaCrossover's is a moving
+    average, both already offset; all a ratchet does with either is refuse to loosen. A
+    ``nan`` candidate -- a moving average still warming up -- leaves the stop alone, because
+    every comparison against it is false. ``docs/nt8-fidelity.md``, "Ratchet reads the
+    just-closed bar".
+    """
+    if direction * candidate > direction * stop:
+        return candidate
+
+    return stop
+
+
+@njit(cache=True)
+def avoid_round_number(
+    stop: float,
+    spacing: float,
+    offset: float,
+    tick_size: float,
+    direction: float,
+) -> float:
+    """Push a stop that lands exactly on a multiple of ``spacing`` further from the entry.
+
+    ``spacing`` is a price -- 25 points, say -- and a spacing of ``0`` switches the rule off.
+    Only an exact landing moves; a zone around the level would be a second parameter
+    nobody specified. **Meaningless on a back-adjusted series**, which shifts every level by
+    the roll offsets -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    """
+    if spacing <= 0.0:
+        return stop
+
+    remainder = stop - spacing * np.floor(stop / spacing + 0.5)
+    if abs(remainder) >= 0.5 * tick_size:
+        return stop
+
+    return stop - direction * offset
+
+
+@njit(cache=True)
 def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     """Which raw price is adverse and which is favourable for this direction.
 

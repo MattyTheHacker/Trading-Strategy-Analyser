@@ -171,6 +171,23 @@ below and is what you quote; this file is the index, not the record.
   and its price — not a market order at the next bar's open, which is §M18's rule for an exit
   decided in `OnBarUpdate`. Two different `EXIT_SIGNAL` semantics, and the archetype says which.
   `docs/nt8-fidelity.md` §M23.
+- **`tightened_stop` is the one ratchet, and a trail is a ratchet over a different level.**
+  DeadCatBounce's candidate is a lagged bar's adverse extreme and EmaCrossover's is a moving
+  average plus a cushion; all either does with a candidate is refuse to loosen, and a `nan`
+  candidate leaves the stop alone. **Do not write a second comparison.** EmaCrossover's trail
+  sits *on top of* whichever mode placed the initial stop rather than replacing it, so
+  `(use_atr_stop, trail_ma_stop)` is a legal 2x2 instead of a mode with a cell where one toggle
+  masks the other. `docs/roadmap.md` § "The build spec's three loose ends".
+- **Round-number stop avoidance moves only a stop that lands *exactly* on a multiple**, and it
+  is refused outright on bars that have not been declared `PriceBasis.RAW` — back-adjustment
+  shifts every level, so the rule measures nothing on a merged series while looking fine. The
+  default basis is `UNKNOWN` and the refusal is what a caller who never said gets.
+- **The confluence count is over the *active* context filters only.** A gate at its everything
+  value is absent from `filters.context_gates`, not present as an all-true row: these gates pass
+  no mask on a bar they cannot label, so counting an inactive one changes the answer on exactly
+  the bars the skip exists for. `REQUIRE_ALL` is the plain conjunction and every other archetype
+  stays on it; a count that equals or exceeds the active total raises out of
+  `validate_confluence` rather than running a combination the sweep already has.
 - **`PullBackAndGoParams`'s defaults reproduce the reconciled configuration, not the
   NinjaScript's** — `PullBackAndGo.cs` leaves seven properties uninitialised in `SetDefaults`.
   `use_vwap` stays off: nothing has checked nqbt's VWAP against `OrderFlowVWAP`.

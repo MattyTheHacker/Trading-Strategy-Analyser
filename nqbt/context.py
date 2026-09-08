@@ -15,6 +15,7 @@ each other.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
@@ -51,6 +52,24 @@ if TYPE_CHECKING:
 
 class ContextError(KeyError):
     """Raised when a strategy reads a series :func:`prepare` was not asked to build."""
+
+
+class PriceBasis(StrEnum):
+    """Whether these bars carry the prices that traded, and it has to be stated.
+
+    Only :data:`RAW` admits a rule that reads an absolute price level -- round-number stop
+    avoidance is the one -- and :data:`UNKNOWN` is the default so that a caller who never said
+    is refused rather than assumed right. ``docs/roadmap.md`` § "The build spec's three loose ends".
+    """
+
+    RAW = "raw"
+    """The prices that traded: one contract, or a spliced series with no back-adjustment."""
+
+    BACK_ADJUSTED = "back-adjusted"
+    """Shifted at each roll so the segments join, which moves every absolute level."""
+
+    UNKNOWN = "unknown"
+    """Nobody said, so nothing may depend on the levels being real."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -216,6 +235,9 @@ class Dataset:
     seconds_to_session_end: FloatArray | None = None
     """Seconds from each bar to its session's scheduled close, or ``None`` when nothing
     asked for them."""
+
+    price_basis: PriceBasis = PriceBasis.UNKNOWN
+    """Whether these bars' absolute levels are the ones that traded -- see :class:`PriceBasis`."""
 
     day_codes: IndexArray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
@@ -678,6 +700,7 @@ class PrepareOptions(TypedDict, total=False):
     exit_on_close_seconds: int
     keep_ma_values: bool
     bar_minutes: int | None
+    price_basis: PriceBasis
 
 
 def prepare(
@@ -687,6 +710,7 @@ def prepare(
     exit_on_close_seconds: int = 30,
     keep_ma_values: bool = False,
     bar_minutes: int | None = None,
+    price_basis: PriceBasis = PriceBasis.UNKNOWN,
 ) -> Dataset:
     """Precompute exactly the conditions ``spec`` declares.
 
@@ -694,6 +718,8 @@ def prepare(
     :meth:`nqbt.sweep.Grid.required_context` derives it from the grid, which is the only way to
     be sure it does. ``bar_minutes`` sizes the bar-of-session index and is inferred from the
     index when not given -- pass it wherever the resolution is already known.
+    ``price_basis`` is stated rather than inferred, and defaults to
+    :attr:`PriceBasis.UNKNOWN` so a rule needing raw levels refuses instead of guessing.
     """
     open_: FloatArray
     high: FloatArray
@@ -812,5 +838,6 @@ def prepare(
         trends=trends,
         higher_timeframes=higher_timeframes,
         seconds_to_session_end=(sessions.seconds_to_session_end(info) if spec.needs_session_clock else None),
+        price_basis=price_basis,
         day_codes=day_codes(bars.index),
     )

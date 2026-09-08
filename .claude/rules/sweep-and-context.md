@@ -156,6 +156,24 @@ paths:
   is what §M27 and §M28.1 measured, so an added axis would leave the stored rows and the code
   that produced them disagreeing. `NARROW_VARIANTS` and `ORB_VARIANTS` are the two, each with a
   `STRATUM_SETS` entry naming its strata **before** it runs — `docs/roadmap.md` §M28.2.
+- **A price basis is stated, never inferred, and the default is the refusing one.**
+  `prepare(price_basis=...)` defaults to `PriceBasis.UNKNOWN`, and a rule that reads an
+  absolute level -- round-number stop avoidance is the only one -- runs on `RAW` alone. An
+  attribute carried on the frame was rejected: it fails to propagate silently and the default
+  would then be the permissive answer. `sweep.sweep` does not forward it, so a sweep that
+  needs it builds its `Dataset` and passes `data=`. `docs/roadmap.md` § "The build spec's
+  three loose ends".
+- **A shortlist is the wrong instrument for an A/B variant pair, and the bias is in the design
+  rather than the data.** Two arms of a variant set rarely hold the same number of
+  combinations -- a treatment carries the axes its rule reads -- so its shortlist is a
+  best-of-more and wins on size. Measured: EmaCrossover's trailing arm has 384 combinations
+  against its control's 32, its best beats the control's best in several cells, and paired
+  cell by cell it is a consistent *cost*. Use `tools/campaign_paired.py` for a control/treatment
+  pair and `tools/campaign_holdout.py` for a ranking. `docs/roadmap.md` § "The build spec's
+  three loose ends, measured".
+- **Read `sel_top20_pf` beside `passes`.** The held-out gate is defined on the test window
+  alone, so a shortlist drawn from a space containing nothing profitable can clear it by
+  luck -- DeadCatBounce does, on MNQ, with a selection-window shortlist averaging 0.940.
 - **Parallel sweeps top out around 5×, not 16×, and that is the hardware.** Per-core throughput
   drops when all physical cores are busy (mobile Ryzen, high single-core boost against a much
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —

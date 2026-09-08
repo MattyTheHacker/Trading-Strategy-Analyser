@@ -397,6 +397,175 @@ The first original archetype, chosen to prove M15 and M17 because it is the chea
 
 **What M19 inherits.** `EXIT_SIGNAL` is now exercised rather than reserved. The bracket engine is a set of `@njit` device functions any loop can call, so a squeeze breakout needs to write only its two-sided OCO entry. And the per-combination cost of a high-leg archetype is now known rather than assumed, which is what the numpy summary path ([#33]) was moved ahead of M18 to buy.
 
+### The build spec's three loose ends ([#74])
+
+`docs/backtest_tool_spec.md` asks for three things nothing ever scheduled: a moving-average trailing stop as a per-run toggle, a stop that never sits exactly on a round number, and the confluence count — "at least 3 of 5 conditions" with the minimum itself swept — wired into an archetype rather than left as a tested primitive nobody calls. They are grouped because each is small, and they all land on **EmaCrossover**: it is the original archetype, so there is no NinjaScript to lose to and its trade log is nobody's reconciliation; it already carries a two-mode stop and it is the one archetype whose signal reads raw moving-average values. Every default is unchanged, and the trade-log gate is byte-for-byte identical across all fourteen files.
+
+**None of the three has been measured.** They are axes an archetype can now be swept along, not findings, and §M27's rule applies: picking EmaCrossover back up needs a statement of what has changed since, and "it has three axes it did not have" is exactly such a statement — for that archetype and no other.
+
+#### The trail is a ratchet over a different level, and that is why it is not a third stop mode
+
+The spec words it as two alternative stop-loss modes, structural or MA-trailing. Written that way it would have to replace `use_atr_stop` with a three-valued mode — renaming a swept axis in every stored results table and in the two shortlist arms `campaign_sweep.py` builds — or sit beside it as a second boolean, where the two on together is a cell in which one silently masks the other. That second shape is the **silent duplicate** `dead_axes` cannot see, the same one `ORB_STOP_OPPOSITE` under a fade was refused for.
+
+So `trail_ma_stop` trails the stop the existing mode placed, rather than placing a different one: `(use_atr_stop, trail_ma_stop)` is a legal 2×2 and every cell is a distinct rule. A trailing stop starts somewhere and follows, so this is also the more faithful reading of the spec's own sentence, and it reaches the MA-trailing mode from the structural side in one combination.
+
+**It advances at the close of every completed bar and never loosens**, which is DeadCatBounce's ratchet cadence rather than InsideBarTrailing's two-cadence one — and deliberately, because there is no C# here to inherit a cadence from and the ratchet is the cadence this codebase already establishes. `bracket.tightened_stop` is now the **one** ratchet: DeadCatBounce's candidate is a lagged bar's adverse extreme, EmaCrossover's is a moving average plus a cushion, and all either does with a candidate is refuse to loosen. A `nan` candidate — an average still inside its warm-up — leaves the stop alone, because every comparison against `nan` is false.
+
+**The memory switch [#42] names was already on here, and what is gated is the third grid.** `needs_ma_values` is unconditional for EmaCrossover: its signal compares the raw fast and slow averages, so it has paid eight bytes an element per period since M18. What the trail adds is a *third* grid, and `crossover_context` builds it only where some combination in the sweep actually trails — the `ma_keys` set gains the `trail_ma` gate or it does not. `dead_axes` refuses `trail_ma_period`, `trail_ma_kind` and `trail_offset_ticks` as axes while nothing trails.
+
+#### Round numbers: an exact landing, and a price basis that has to be stated
+
+**Only a stop that lands exactly on a multiple of `round_number_points` moves**, and it moves `round_number_offset_ticks` further from the entry. A zone around the level — "within n ticks of a round number" — is a second parameter the spec never asked for and a second thing to sweep; the spec says *never placed exactly at a round number*, and that is what is implemented. The rule reaches all three places a level is set: the ATR stop, the swing stop and the trailed stop. On the trail it runs **before** the ratchet, so pushing a candidate away from a round number can widen the candidate and never loosen the stop already in place.
+
+**The hard part is not the arithmetic, it is that the rule is meaningless on the wrong bars.** Back-adjustment shifts every historical level by the accumulated roll offsets, so 20,000 on a back-adjusted series is not the 20,000 anyone traded, and a round-number rule run over one measures nothing while returning a perfectly ordinary-looking result. [#31] is what makes the rule testable at all: `dispersion.contract_frames` reloads each contract's bars raw, and a single-contract window contains no roll.
+
+That is enforced rather than intended, and it **fails closed**. `context.prepare` takes a `price_basis`, `PriceBasis.UNKNOWN` is its default, and a combination setting `round_number_points` is refused on anything but `PriceBasis.RAW`. A caller who never said which series this is gets the refusal, not the benefit of the doubt — the shape `campaign_null.py` exits 2 for, where a check that could not run must not read as one that passed. Inferring the basis from the frame was rejected for the reason the reconciliation timezone was: an attribute that quietly fails to propagate is a guard that silently stops working, and the default would be the permissive one.
+
+#### The confluence count is refused at construction rather than gated by an axis
+
+`conditions.count_true` has existed and been tested since M26 with no caller. `filters.context_gates` is what gives it one: the six context filters, as a list rather than a conjunction, so `apply_context_filters` ANDs them and `apply_confluence_filters` counts them. `confluence_required` is `REQUIRE_ALL` — zero — everywhere but EmaCrossover, and at `REQUIRE_ALL` the two functions are the same function, which is what keeps the pattern off the six archetypes that never asked for it.
+
+**M is the number of *active* filters, and a gate at its everything value is not one of them.** That follows from the skip being a correctness rule rather than an optimisation: an efficiency-ratio warm-up bar, a session with no volume baseline and a bar no coarse bar has closed before each pass *no* mask, so an inactive gate entered as an all-true row would count on exactly the bars the skip exists for, and "2 of 3" would quietly become "2 of 6".
+
+**A count of zero, or of the number of active gates, is the plain conjunction under another name**, and a count above that is unsatisfiable by construction — both are combinations a sweep would run identically to one it already has. Rather than add a case `dead_axes` cannot express, `validate_confluence` raises: legal values are `REQUIRE_ALL`, or 1 up to one below the number of filters the combination switches on, and fewer than two active filters admits nothing but `REQUIRE_ALL`. That puts the refusal at construction, where the message can say what the combination actually switched on.
+
+### The build spec's three loose ends, measured ([#74])
+
+The registry-wide campaign re-run with the three new axes in it: **2,190,720 combinations in 271 minutes across nine passes**, both roots, resolutions 1/2/5/10/15, real costs per root, on the raw spliced continuous series. Pass 1 is every stratum dimension over the whole window; pass 2 the held-out split unfiltered; pass 3 the new axes; passes 4-9 hold out one context dimension at a time.
+
+**What had changed, stated first**, because § "Parked is not abandoned" requires it: **only EmaCrossover**. Three axes it did not have, and nothing else — no new condition, no new range, no new data, no cost change for any other archetype. So six of the seven were re-run as the **control**, not as a second opinion, and their agreement with §M27 is the thing worth reading about them rather than any number in isolation.
+
+#### Four predictions, written before the sweep finished, and all four right
+
+That last clause is worth distrusting rather than celebrating. Three of the four followed from arithmetic or from a finding §M27 had already made, so they were cheap; a prediction that could not have failed is not evidence that the analysis is strong.
+
+1. **The round-number rule is nearly inert, by construction.** It moves a stop only where the stop lands *exactly* on a multiple, and prices sit on a 0.25 tick grid — so a 5-point spacing is one tick in twenty and a 25-point spacing one in a hundred. **The number worth reading is the share of stops it moves, not its profit factor.**
+2. **The trail costs profit factor.** §M27's gate 3 found EmaCrossover's held-out survival is its ATR bracket rather than its crossover, and that InsideBarTrailing "gives back exactly what the fixed bracket keeps". A ratcheting stop is the same intervention on the same half.
+3. **The confluence count buys sample size rather than edge**, with `REQUIRE_ALL` sample-starved and the union diluted. The shape that would make it a finding is 2-of-3 beating both neighbours.
+4. **The other six reproduce §M27 rather than adding to it**, and a *disagreement* would be a finding about reproducibility rather than about a strategy.
+
+#### The control reproduced §M27 to the third decimal, which is the most reassuring thing here
+
+Largest axis on profit factor, unfiltered stratum, whole window (η²), against what §M27 recorded:
+
+| archetype         | this run                            | §M27       |
+| ----------------- | ----------------------------------- | ---------- |
+| InsideBar         | resolution 0.757                    | 0.76       |
+| DeadCatBounce     | resolution 0.541                    | 0.56       |
+| PullBackAndGo     | resolution 0.465                    | 0.47       |
+| EmaCrossover      | resolution 0.343                    | 0.34       |
+| InsideBarTrailing | `trailing_stop_multiplier` 0.455    | 0.46       |
+| ElasticBand       | resolution 0.136, `stop_mode` 0.122 | 0.14, 0.12 |
+
+Every moving-average axis is again below 0.04 and most below 0.01. Gate 2 reproduces as well: InsideBar 19 of 20 on both roots, EmaCrossover 15 and 16 of 20, InsideBarTrailing marginal at 1.021 and 1.018, ElasticBand inverting again — a shortlist averaging 1.576 and 1.832 where it was chosen against 0.684 and 0.591 where it was not, 1 of 20 profitable on MNQ and 0 of 20 on NQ.
+
+**OpeningRange enters the campaign's own gate 2 for the first time and posts the strongest result in it**: 20 of 20 shortlisted configurations profitable on the holdout on both roots, above the holdout median on both. That is consistent with §M28.1 having called it the widest-margin holdout in the project, now measured on the campaign grid rather than its own.
+
+**One divergence, and it is a defect in how the gate is read rather than in the data.** DeadCatBounce comes back `passes = True` on MNQ where §M27 records it as failing. Its shortlist's *selection-window* profit factor is **0.940** — the best twenty configurations were losers where they were chosen — and they then cleared 1.0 on the holdout. **A shortlist drawn from a space containing nothing profitable can still clear a bar defined only on the test window.** Read `sel_top20_pf` beside `passes`, always; the standing finding that DeadCatBounce is unprofitable is unchanged.
+
+#### The trail costs, in nineteen of twenty cells, and its own tuning is inert
+
+Paired cell by cell with `tools/campaign_paired.py`, holding every shared parameter equal and collapsing the trail's three axes to their median inside each cell:
+
+- **Under the ATR stop, the median delta is negative in all ten root × resolution cells**, between −0.022 and −0.064 profit factor, with the treatment improving 0 to 25% of cells and an exact sign test at p < 0.001 in nine of the ten.
+- **Under the swing stop, negative in eight of ten.** The two exceptions are both 15-minute, both +0.004, at p = 0.60 and p = 0.86 — coin flips, not the mechanism working somewhere.
+- **It is not mistuned.** Inside the trailing arm, `trail_ma_period` explains η² of 0.0067 and 0.0025, `trail_ma_kind` 0.0008 and 0.0000, `trail_offset_ticks` 0.0004 and 0.0001 — every one below the moving-average axes §M27 already called nearly inert. **Trailing at all is the cost; where the average sits is not a lever.**
+
+**This arm is also the clearest demonstration in the project of why a shortlist is the wrong instrument for an A/B.** The trailing variant's *best* configuration beats the control's best in several cells — 1.286 against 1.223 at MNQ 10 minutes — purely because it has 384 combinations against the control's 32. Read on the shortlist, the trail is an improvement. Read paired, it is a consistent cost. `tools/campaign_paired.py` exists because of exactly that gap.
+
+#### The round-number rule does precisely what it was specified to do, and that is all
+
+**Measured directly against the tick arithmetic**, over the whole MNQ continuous series:
+
+| spacing   | resolution | trades | stops moved |
+| --------- | ---------- | ------ | ----------- |
+| 5 points  | 5 min      | 15,145 | 4.88%       |
+| 5 points  | 15 min     | 4,901  | 5.06%       |
+| 25 points | 5 min      | 15,145 | 0.91%       |
+| 25 points | 15 min     | 4,901  | 0.94%       |
+
+Against a predicted 1-in-20 and 1-in-100 from the 0.25 tick grid alone. The rule fires exactly as often as arithmetic says it must, and **the paired delta is 0.000 to three decimals in all twenty cells**, with `round_number_points` and `round_number_offset_ticks` both at η² of 0.0000 to four.
+
+**Several of its sign tests nonetheless reach p < 0.05, and that is the multiple-comparisons trap rather than an effect** — 22 of 32 cells improved at MNQ 1 minute (p = 0.05) against 8 of 32 at MNQ 15 minutes (p = 0.007). Forty sign tests were run across the four paired tables; two or three at p < 0.05 are the expected output of noise, and the direction disagrees across resolutions *on the same root*, which a real effect would not do. **A rule that moves one stop in twenty by two ticks cannot move an aggregate, and the significance here is the test's, not the rule's.**
+
+#### The confluence count is the one that moves results, and it is still not edge
+
+`confluence_required` is **the largest axis inside its own variant** — η² of 0.0494 under the ATR stop and 0.0180 under the swing stop, larger than every moving-average axis §M27 measured on any archetype. It is a real lever, which the other two are not.
+
+What it levers is the sample. Medians over 640 stored rows per count, three side-neutral filters (DIRECTIONAL, HEAVY, EXPANDED):
+
+| count                           | trades | profit factor | rows under the 30-trade floor |
+| ------------------------------- | ------ | ------------- | ----------------------------- |
+| 1 of 3 (the union)              | 1,204  | 0.987         | 0 of 640                      |
+| 2 of 3                          | 357    | 1.024         | 0 of 640                      |
+| `REQUIRE_ALL` (the conjunction) | 57     | 1.063         | 152 of 640                    |
+
+Strictly ordered, exactly as predicted. **2-of-3 keeps 96% of the conjunction's median profit factor at 6.3× the trades and loses no cell to the floor**, which is the honest case for having the axis at all. On the holdout it beats both neighbours at 2 and 5 minutes and beats the union at four resolutions of five.
+
+**And then it fails the matched null, at every count, on both roots.** Ranked on the selection window and tested on the holdout over 200 draws, the profit-factor excess over a matched random entry is at or below zero in seventeen of eighteen configurations; the single positive one is **+0.001 at p = 0.995**. The conjunction's high profit factor is a 23-to-25-trade artefact on the holdout — below the floor the campaign applies everywhere else. **The count dials sample size against dilution, and neither end of the dial contains an edge**, which is what §M27's gate 3 already said about this archetype's entry and what no re-weighting of the same entry could have changed.
+
+#### Where this leaves the three features
+
+All three are built, tested, sweepable and reconciled against nothing, because EmaCrossover has no NinjaScript. **None of them improves EmaCrossover, and that is the result.** Per § "Parked is not abandoned" it parks a configuration space rather than retiring a feature, and each one has an obvious un-run test that this campaign is not:
+
+- **The trail has never been given an archetype whose edge is a trend.** It was measured on the one archetype §M27 had already shown to be carried by its bracket, which is the least favourable place for it. A trailing stop is a trend-following device.
+- **The round-number rule has never been run per contract.** A splice is raw here, but a level's meaning is local to a contract, and [#31]'s per-contract windows are the series where "20,000" is a number a person watched. The share it moves would not change; whether the trades it moves are different ones might.
+- **The confluence count has never been given three filters that are individually informative.** DIRECTIONAL, HEAVY and EXPANDED were chosen for side-neutrality, not because any of them separates EmaCrossover — and §M27.4 found the separation for this archetype in none of them.
+
+**What is owed before any of this is quoted**: the per-contract dispersion arm for all three, and a second archetype for the trail. Every figure above is re-derivable from `results/campaign/<Archetype>.duckdb` with `tools/campaign_report.py`, `tools/campaign_holdout.py`, `tools/campaign_paired.py` and `tools/campaign_null.py`.
+
+### Counting the confluence a trade actually had ([#74])
+
+**There are two confluence questions and only one of them needs a strategy.** [#74] asks for the *gating* half — "at least N of M filters", with the minimum sweepable — and § "The build spec's three loose ends" is what that measured. The other half asks what was true when the trades that already happened were taken, and it needs no rule change at all: annotate each trade with **how many of a named set of conditions held at its entry bar**, then stratify realised P&L by that count. **The second question is the more useful one**, and it is the one a person actually asks when they say "does more confluence help".
+
+Almost all of it already existed. `nqbt/annotate.py` puts every condition the dataset holds on a row per trade, and `nqbt/review.py` groups realised P&L by any one of them. The missing piece was a single column, which is what finally gives `conditions.count_true` a caller on the review side: `annotate.confluence` adds the count, and `review.by_outcome` reads the same data backwards — mean confluence per outcome — because that is the phrasing the question usually arrives in.
+
+**The denominator is named by the caller and never derived.** Counting whatever booleans an annotation happens to carry would change the number the moment a dataset is prepared with one more moving-average period, and nothing would say so. A condition that is false because it could not yet be computed counts as not true, as it does everywhere else here.
+
+#### The gradient is monotone, and on its own it is not a finding
+
+MNQ, 5-minute, the long side of EmaCrossover at its defaults, $1.50 round trip and one tick, over the continuous series **after its first roll** — §M27.7's own recommended fix for the gapped-target case rather than a widened price guard. 6,904 trades, counted over five bullish conditions holding at 88.6%, 76.4%, 58.5%, 67.5% and 63.5% of entries, so no one of them is a tautology of the entry:
+
+| confluences | trades | win rate | profit factor |
+| ----------- | ------ | -------- | ------------- |
+| 0           | 247    | 2.8%     | 0.055         |
+| 1           | 555    | 17.7%    | 0.347         |
+| 2           | 811    | 31.1%    | 0.778         |
+| 3           | 1,215  | 36.0%    | 0.890         |
+| 4           | 1,737  | 39.4%    | 1.086         |
+| 5           | 2,339  | 46.9%    | 1.522         |
+
+Read backwards, winners averaged 3.94 of the five and losers 3.31.
+
+**And it holds out.** Split 60/40, the profit factors run 0.062 / 0.210 / 0.704 / 0.889 / 1.093 / 1.476 on the selection window against 0.046 / 0.463 / 0.853 / 0.890 / 1.082 / 1.558 on the held-out one — monotone in both, and within a hundredth of each other at 3, 4 and 5.
+
+#### What the matched null does to it, which is the whole point
+
+A monotone gradient is what a trending market produces whether or not the entry rule contributes anything, so the standing rubric applies: **a number with no null is not a finding.** Placing the same count over a matched random entry — same trade count, same time-of-session profile, same bracket, 20 draws — the market's own gradient is not monotone at all. It is **U-shaped**: a random long returns a profit factor of 1.183 with none of the five true, falls to 0.665 at three, and recovers to 1.271 at five.
+
+The excess is therefore the only honest column:
+
+| confluences | rule  | matched null | excess     |
+| ----------- | ----- | ------------ | ---------- |
+| 0           | 0.055 | 1.183        | **−1.128** |
+| 1           | 0.347 | 0.854        | −0.507     |
+| 2           | 0.778 | 0.738        | +0.040     |
+| 3           | 0.890 | 0.665        | +0.224     |
+| 4           | 1.086 | 0.857        | +0.229     |
+| 5           | 1.522 | 1.271        | +0.251     |
+
+**The crossover entry beats a random one only where at least two of the five hold, and below that it is far worse than random** — at zero confluences it is more than a whole profit factor worse, which is a stronger statement than anything the archetype's pooled numbers contain. The excess plateaus at about +0.22 to +0.25 from three upward, so the last two confluences buy the *level* and not the *edge*.
+
+**This sharpens §M27's gate 3 rather than contradicting it.** That campaign put EmaCrossover's excess over its null at about +0.03 and read it as "essentially nothing". It is now visible as a mixture: a badly negative low-confluence stratum averaged against a consistently positive high-confluence one. A pooled excess near zero is not evidence that an entry does nothing; it is evidence that nobody has asked which of its trades it does something on.
+
+#### What this is not
+
+**Hypothesis-generating, exactly as `review.STATUS` says of everything that module prints.** One root, one resolution, one configuration, the long side alone, and five conditions chosen by hand — the multiple-comparisons machine `nqbt/guard.py` exists for. The holdout above is a split of one series rather than the shuffled-label null and second window a claim would need.
+
+**The count is not independent of the entry.** `above_ema_21` holds at 88.6% of the entries of an EMA(9)/EMA(21) long, so the count and the signal share machinery; the four other conditions are what carry it. A set drawn from indicators the archetype does not read would be the cleaner test and has not been run.
+
+**Ten legs in 390,720 across the twenty null draws exit outside their own bar**, every one a `target` a bar gapped through, worst 263.75 points — [#244]'s open question, hit harder by a random entry because it can be placed in front of an overnight gap. Those trades are dropped rather than admitted by a widened `price_tolerance`, because a guard widened past 260 points no longer catches the back-adjusted series it exists for.
+
 ### M22 — InsideBar, the third C#-backed port ([#126])
 
 The archetype earns its place on what it reaches rather than on what it might make: three parts of the fill model no other archetype touches — `IsFillLimitOnTouch = true`, a bracket anchored to the fill and the signal bar at once, and a no-entry window before the session close. Each rule, the two the port inferred wrongly, and the wall-clock trap that still has to be fixed in the NinjaScript before that one rule can be reconciled: [nt8-fidelity.md](nt8-fidelity.md) §M22 and "A no-entry window before the session close".
@@ -462,7 +631,7 @@ So the filter cuts a **trailing percentile rank** rather than the width: where t
 
 §M19 calls lookahead "the second-easiest place in the project to manufacture a fictional edge", and a compression measure that reads the breakout bar's own range trivially predicts the breakout. Two things stand against it. A bar's width is computed from bars up to and including itself and its rank against bars strictly before it, so the series is causal at every step; and the filter is ANDed into the *signal*, which the simulator tests against the **next** bar's OHLC, exactly as every other context filter is. `tests/test_compression.py::test_no_bar_contributes_to_its_own_rank` pins it by truncation — every rank taken over a prefix must equal the rank the whole series gives that bar — and the test beside it checks that a window reaching one bar forward breaks the gate, because verifying the gate can fail is part of using it.
 
-#### What this is not
+#### What this count is not, and what would settle it
 
 **It is not the squeeze archetype**, and it does not answer M19. It supplies the condition and the stratification; the entry model M19 describes — a two-sided break of the compression range — is still unbuilt, and §M28's expressibility finding 1 still stands against the two-sided half of it. What it does is let the campaign ask whether compression is worth an archetype before one is written, which is the order §M28 and §M28.1 established for the opening range and the order the standing rubric asks for.
 
@@ -2675,6 +2844,7 @@ ______________________________________________________________________
 [#71]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/71
 [#72]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/72
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73
+[#74]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/74
 [#75]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/75
 [#76]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/76
 [#81]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/81
