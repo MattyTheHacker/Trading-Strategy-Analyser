@@ -860,3 +860,118 @@ def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tm
     ]
     simulated = annotate.annotate_trades(sim_log([(20, 24)], data.index, data.close), data, at_exit=True)
     assert simulated.conditions == annotated.conditions
+
+
+# -- the per-trade confluence count -------------------------------------------
+
+# The descriptive half of the confluence pattern: how many of a named set of conditions were
+# true when each trade was taken. The gating half is ``EmaCrossoverParams.confluence_required``
+# and the two share nothing but the primitive underneath.
+
+
+def counted(frame: pd.DataFrame, **columns: object) -> annotate.Annotation:
+    """An annotation carrying the boolean conditions a count can be taken over."""
+    index = pd.Index(np.arange(1, len(frame) + 1, dtype=np.int64), name="trade_id")
+    base = pd.DataFrame({"matched": True}, index=index)
+
+    return annotate.Annotation(
+        frame=base.assign(**{k: pd.array(v) for k, v in columns.items()}),
+        conditions=tuple(columns),
+    )
+
+
+def test_the_count_is_how_many_of_the_named_conditions_were_true() -> None:
+    ann = annotate.confluence(
+        counted(
+            pd.DataFrame(index=range(4)),
+            a=[True, True, True, False],
+            b=[True, True, False, False],
+            c=[True, False, False, False],
+        ),
+        ["a", "b", "c"],
+    )
+    assert list(ann.frame["entry_confluence"]) == [3, 2, 1, 0]
+
+
+def test_a_condition_outside_the_named_set_is_not_counted() -> None:
+    """The denominator is stated, so adding a series to the dataset cannot move the number."""
+    ann = annotate.confluence(
+        counted(
+            pd.DataFrame(index=range(2)),
+            a=[True, False],
+            b=[True, False],
+            ignored=[True, True],
+        ),
+        ["a", "b"],
+    )
+    assert list(ann.frame["entry_confluence"]) == [2, 0]
+
+
+def test_the_count_joins_the_conditions_a_review_may_stratify_by() -> None:
+    ann = annotate.confluence(
+        counted(pd.DataFrame(index=range(2)), a=[True, False], b=[True, False]),
+        ["a", "b"],
+    )
+    assert ann.conditions[-1] == "entry_confluence"
+    assert set(ann.conditions) == {"a", "b", "entry_confluence"}
+
+
+def test_a_second_count_needs_its_own_name() -> None:
+    ann = counted(pd.DataFrame(index=range(2)), a=[True, False], b=[True, False])
+    once = annotate.confluence(ann, ["a", "b"])
+    with pytest.raises(AnnotationError, match="already carries"):
+        annotate.confluence(once, ["a", "b"])
+
+    assert "bullish" in annotate.confluence(once, ["a", "b"], name="bullish").frame.columns
+
+
+def test_an_unmatched_trade_carries_no_count_rather_than_a_zero() -> None:
+    """Zero is a real value of this condition, so a missing one must not read as it."""
+    index = pd.Index([1, 2], name="trade_id")
+    frame = pd.DataFrame(
+        {
+            "matched": [True, False],
+            "a": pd.array([True, None], dtype="boolean"),
+            "b": pd.array([False, None], dtype="boolean"),
+        },
+        index=index,
+    )
+    ann = annotate.confluence(annotate.Annotation(frame=frame, conditions=("a", "b")), ["a", "b"])
+    assert ann.frame["entry_confluence"].iloc[0] == 1
+    assert pd.isna(ann.frame["entry_confluence"].iloc[1])
+
+
+@pytest.mark.parametrize(
+    ("columns", "match"),
+    [
+        (["a"], "at least 2 conditions"),
+        (["a", "a"], "counted twice"),
+        (["a", "missing"], "no condition 'missing'"),
+    ],
+)
+def test_a_count_that_would_mean_nothing_is_refused(columns, match) -> None:
+    ann = counted(pd.DataFrame(index=range(2)), a=[True, False], b=[True, False])
+    with pytest.raises(AnnotationError, match=match):
+        annotate.confluence(ann, columns)
+
+
+def test_a_label_cannot_be_counted_because_it_is_not_a_condition() -> None:
+    """A count needs booleans; a phase name or a raw ratio has to be cut into one first."""
+    ann = counted(
+        pd.DataFrame(index=range(2)),
+        a=[True, False],
+        phase=["morning", "afternoon"],
+    )
+    with pytest.raises(AnnotationError, match="not a boolean"):
+        annotate.confluence(ann, ["a", "phase"])
+
+
+def test_the_count_reads_the_entry_bar_of_a_real_dataset() -> None:
+    """End to end: the conditions come from the bars, not from a hand-written frame."""
+    data = dataset()
+    log = sim_log([(10, 20), (30, 40)], data.index)
+    ann = annotate.annotate_trades(log, data)
+    columns = [c for c in ann.conditions if str(ann.frame[c].dtype) == "boolean"][:3]
+    counted_ann = annotate.confluence(ann, columns)
+    expected = sum(int(bool(ann.frame[c].iloc[0])) for c in columns)
+    assert counted_ann.frame["entry_confluence"].iloc[0] == expected

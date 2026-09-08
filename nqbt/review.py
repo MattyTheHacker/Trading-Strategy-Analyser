@@ -38,6 +38,7 @@ __all__ = [
     "MAX_STRATA",
     "MIN_STRATA",
     "MIN_TRADES",
+    "OUTCOMES",
     "PHASE_COLUMN",
     "RANKING_COLUMNS",
     "REPORTED",
@@ -253,6 +254,59 @@ def review(
         min_trades=min_trades,
         by=by,
     )
+
+
+OUTCOMES = ("loss", "scratch", "win")
+"""What a trade's summed net P&L makes it, in the order a table reports them."""
+
+
+def by_outcome(
+    log: pd.DataFrame,
+    annotation: Annotation,
+    column: str,
+    *,
+    unpopulated: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    """One row per outcome, with the mean and median of one numeric condition over its trades.
+
+    The stratification read backwards: "winners averaged 3.2 of these five" rather than "trades
+    with three of five returned X". **The forward direction is the stronger one** -- it can show
+    whether the relationship is monotone, and a difference in means cannot -- so read
+    :func:`stratify` first and this beside it. ``docs/roadmap.md`` § "Counting the confluence a
+    trade actually had".
+
+    A trade's outcome is the sign of its legs' summed net P&L, so a scale-out that took a
+    target and then stopped out is one trade, not two.
+    """
+    legs, reviewable, _ = _prepare(log, annotation, unpopulated)
+    if column not in reviewable.columns:
+        msg: str = f"no condition {column!r} in this annotation; it holds {sorted(reviewable.columns)}"
+        raise ReviewError(msg)
+
+    if not pd.api.types.is_numeric_dtype(reviewable[column].dtype):
+        msg = f"{column!r} is {reviewable[column].dtype}; an outcome profile averages a number"
+        raise ReviewError(msg)
+
+    net: pd.Series[float] = legs.groupby("trade_id")["net_pnl"].sum()
+    values = reviewable[column].astype("Float64")
+    outcome: pd.Series[str] = pd.Series(
+        np.select([net > 0.0, net < 0.0], ["win", "loss"], default="scratch"),
+        index=net.index,
+    ).reindex(values.index)
+
+    rows: list[dict[str, object]] = []
+    for name in OUTCOMES:
+        held = values[outcome == name].dropna()
+        rows.append(
+            {
+                "outcome": name,
+                "trades": len(held),
+                "mean": float(held.mean()) if len(held) else float("nan"),
+                "median": float(held.median()) if len(held) else float("nan"),
+            },
+        )
+
+    return pd.DataFrame(rows)
 
 
 def stratify(

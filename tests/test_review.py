@@ -607,3 +607,53 @@ def test_a_real_imported_history_reviews_through_the_same_call_a_simulated_one_d
     assert reviewed.reviewed == 2
     assert reviewed.omitted["mean_r"] == imported.unpopulated["r_multiple"]
     assert "HYPOTHESIS-GENERATING" in str(reviewed)
+
+
+# -- the outcome profile: the stratification read backwards --------------------
+
+
+def counted_case(per_phase: int = 40) -> tuple[pd.DataFrame, annotate.Annotation]:
+    """Two phases of trades, with a confluence count over three of the annotation's booleans."""
+    log, annotation, _ = two_phase_case(per_phase)
+    booleans = [c for c in annotation.conditions if str(annotation.frame[c].dtype) == "boolean"][:3]
+
+    return log, annotate.confluence(annotation, booleans)
+
+
+def test_a_trades_outcome_is_the_sign_of_its_legs_summed_net_pnl() -> None:
+    """A scale-out that took a target and then stopped out is one trade, not two."""
+    log, annotation = counted_case()
+    profile = review.by_outcome(log, annotation, "entry_confluence")
+    net = log.groupby("trade_id")["net_pnl"].sum()
+    assert list(profile["outcome"]) == list(review.OUTCOMES)
+    assert profile.set_index("outcome").loc["win", "trades"] == int((net > 0).sum())
+    assert profile.set_index("outcome").loc["loss", "trades"] == int((net < 0).sum())
+
+
+def test_the_mean_is_taken_over_the_trades_of_that_outcome_alone() -> None:
+    log, annotation = counted_case()
+    profile = review.by_outcome(log, annotation, "entry_confluence").set_index("outcome")
+    net = log.groupby("trade_id")["net_pnl"].sum()
+    winners = annotation.frame.loc[net[net > 0].index, "entry_confluence"]
+    assert profile.loc["win", "mean"] == pytest.approx(float(winners.mean()))
+    assert profile.loc["win", "median"] == pytest.approx(float(winners.median()))
+
+
+def test_an_outcome_no_trade_reached_is_reported_empty_rather_than_dropped() -> None:
+    """A table whose rows appear and disappear cannot be read across two runs."""
+    log, annotation = counted_case()
+    profile = review.by_outcome(log, annotation, "entry_confluence").set_index("outcome")
+    assert profile.loc["scratch", "trades"] == 0
+    assert np.isnan(profile.loc["scratch", "mean"])
+
+
+def test_a_condition_that_is_not_a_number_has_no_mean() -> None:
+    log, annotation, _ = two_phase_case()
+    with pytest.raises(ReviewError, match="an outcome profile averages a number"):
+        review.by_outcome(log, annotation, review.PHASE_COLUMN)
+
+
+def test_a_condition_the_annotation_does_not_carry_is_named_in_the_error() -> None:
+    log, annotation = counted_case()
+    with pytest.raises(ReviewError, match="no condition 'nope'"):
+        review.by_outcome(log, annotation, "nope")
