@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, override
 import numpy as np
 import pandas as pd
 
+from nqbt import compression, higher_timeframe, ingest, notes, paths, regime, timeofday, trend, volume
 from nqbt import conditions as conditions_module
-from nqbt import higher_timeframe, ingest, notes, paths, regime, timeofday, trend, volume
 from nqbt.arrays import AnyArray, BoolArray, DateArray, IntArray, LabelArray
 from nqbt.instruments import ContractId
 
@@ -35,10 +35,12 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from nqbt.arrays import FloatArray, OffsetArray
+    from nqbt import sessionrange
+    from nqbt.arrays import FloatArray, IndexArray, OffsetArray
     from nqbt.context import Dataset
 
 __all__ = [
+    "MAX_CROSSED_VALUES",
     "NO_LABELS",
     "OUT_OF_SESSION_LABEL",
     "UNDEFINED_LABEL",
@@ -50,6 +52,7 @@ __all__ = [
     "bars_for_fills",
     "confluence",
     "contract_bars",
+    "crossed",
 ]
 
 UNMATCHED = -1
@@ -70,6 +73,7 @@ type Column = AnyArray | pd.DatetimeIndex
 _PHASE_NAMES = tuple(phase.name.lower() for phase in timeofday.SessionPhase)
 _REGIME_NAMES = tuple(state.name.lower() for state in regime.Regime)
 _VOLUME_NAMES = tuple(state.name.lower() for state in volume.VolumeState)
+_COMPRESSION_NAMES = tuple(state.name.lower() for state in compression.Compression)
 _TREND_NAMES = tuple(state.name.lower() for state in trend.Trend)
 _SIDE_NAMES = tuple(side.name.lower() for side in higher_timeframe.Side)
 """Label values are lowercase names rather than codes, as ``exit_reason`` already is."""
@@ -102,6 +106,8 @@ class LabelThresholds:
     regime_directional_above: float | None = None
     volume_thin_below: float | None = None
     volume_heavy_above: float | None = None
+    compression_compressed_below: float | None = None
+    compression_expanded_above: float | None = None
     trend_min_agreement: int | None = None
 
     def __post_init__(self) -> None:
@@ -130,6 +136,18 @@ class LabelThresholds:
                 float(self.volume_heavy_above),  # type: ignore[arg-type]  # the property checked
             )
 
+        _check_pair(
+            "compression_compressed_below",
+            self.compression_compressed_below,
+            "compression_expanded_above",
+            self.compression_expanded_above,
+        )
+        if self.labels_compression:
+            compression.validate_thresholds(
+                float(self.compression_compressed_below),  # type: ignore[arg-type]  # the property checked
+                float(self.compression_expanded_above),  # type: ignore[arg-type]  # the property checked
+            )
+
         if self.trend_min_agreement is not None:
             trend.validate_min_agreement(self.trend_min_agreement)
 
@@ -142,6 +160,11 @@ class LabelThresholds:
     def labels_volume(self) -> bool:
         """Whether a volume-state label can be cut from a relative volume."""
         return self.volume_thin_below is not None and self.volume_heavy_above is not None
+
+    @property
+    def labels_compression(self) -> bool:
+        """Whether a compression label can be cut from a trailing width rank."""
+        return self.compression_compressed_below is not None and self.compression_expanded_above is not None
 
     @property
     def labels_trend(self) -> bool:
@@ -203,6 +226,22 @@ MIN_CONFLUENCE_COLUMNS = 2
 
 CONFLUENCE_COLUMN = "entry_confluence"
 """Default name for the count :func:`confluence` adds."""
+
+MIN_CROSSED_COLUMNS = 2
+"""Fewest conditions a cross is a cross of. One of them is that condition with another name."""
+
+MAX_CROSSED_VALUES = 12
+"""Most values a cross may take and still be a stratification.
+
+Pinned equal to :data:`nqbt.review.MAX_STRATA` by ``tests/test_annotate.py`` rather than
+imported, because :mod:`nqbt.review` imports this module and the dependency cannot run both
+ways. Above it every stratum would fall under :data:`nqbt.review.MIN_TRADES` and the cross
+would be reported as a skipped condition rather than refused -- which is the silence the
+check exists to replace.
+"""
+
+CROSSED_SEPARATOR = " & "
+"""What joins one crossed value's parts, chosen so a label carrying an underscore stays readable."""
 
 
 def confluence(
@@ -275,6 +314,90 @@ def _check_confluence(frame: pd.DataFrame, columns: Sequence[str], name: str) ->
                 f"LabelThresholds, or name the boolean the label was cut into."
             )
             raise AnnotationError(msg)
+
+
+def crossed(
+    annotation: Annotation,
+    columns: Sequence[str],
+    *,
+    name: str | None = None,
+    separator: str = CROSSED_SEPARATOR,
+) -> Annotation:
+    """Combine two or more categorical conditions into one, as a new condition.
+
+    ``"up & directional"`` rather than two separate tables, which is the only way to ask what
+    held *together* at a trade's entry bar: :func:`nqbt.review.stratify` cuts by one condition,
+    and a pair read side by side cannot show an interaction. The result is an ordinary
+    condition, so :func:`nqbt.review.review` ranks it and :func:`nqbt.guard.guard` puts it in
+    the same family as everything else -- **no statistic is defined here.**
+
+    ``name`` defaults to the crossed columns joined by ``_x_``. A trade missing any part is
+    null in the cross, as it is in each part.
+
+    **Cardinality is the hazard.** The product grows multiplicatively while the sample does
+    not, so a cross of three three-valued labels is 27 strata over the same trades and
+    :data:`nqbt.review.MIN_TRADES` would report almost none of them. Above
+    :data:`MAX_CROSSED_VALUES` this refuses, naming the count.
+    """
+    frame: pd.DataFrame = annotation.frame
+    chosen: str = name if name is not None else "_x_".join(columns)
+    _check_crossed(frame, columns, chosen)
+    parts: list[pd.Series[str]] = [frame[column].astype("string") for column in columns]
+    joined: pd.Series[str] = parts[0]
+    for part in parts[1:]:
+        joined = joined + separator + part
+
+    _check_cardinality(joined, columns, chosen)
+
+    return Annotation(
+        frame=frame.assign(**{chosen: joined}),
+        conditions=(*annotation.conditions, chosen),
+    )
+
+
+def _check_crossed(frame: pd.DataFrame, columns: Sequence[str], name: str) -> None:
+    """Refuse a cross whose parts are not categorical conditions this annotation carries."""
+    if len(columns) < MIN_CROSSED_COLUMNS:
+        msg: str = (
+            f"a cross needs at least {MIN_CROSSED_COLUMNS} conditions, got {len(columns)}; "
+            f"a cross of one is that condition with another name"
+        )
+        raise AnnotationError(msg)
+
+    if len(set(columns)) != len(columns):
+        msg = f"the same condition is crossed with itself in {list(columns)}, which adds nothing"
+        raise AnnotationError(msg)
+
+    if name in frame.columns:
+        msg = f"this annotation already carries {name!r}; pass name= to cross a second set"
+        raise AnnotationError(msg)
+
+    for column in columns:
+        if column not in frame.columns:
+            msg = f"no condition {column!r} in this annotation; it holds {sorted(frame.columns)}"
+            raise AnnotationError(msg)
+
+        if pd.api.types.is_float_dtype(frame[column].dtype):
+            msg = (
+                f"{column!r} is {frame[column].dtype}, a raw series rather than a label, so "
+                f"crossing it would make one stratum per trade. Cut it first -- annotate with "
+                f"LabelThresholds, or name the boolean the label was cut into."
+            )
+            raise AnnotationError(msg)
+
+
+def _check_cardinality(joined: pd.Series[str], columns: Sequence[str], name: str) -> None:
+    """Refuse a cross that has split these trades into more strata than a comparison can hold."""
+    values: int = joined.dropna().nunique()
+    if values <= MAX_CROSSED_VALUES:
+        return
+
+    msg: str = (
+        f"crossing {list(columns)} into {name!r} takes {values} distinct values over these "
+        f"trades, above the {MAX_CROSSED_VALUES} a stratification can hold. Cross fewer "
+        f"conditions, or coarsen one of them before crossing it."
+    )
+    raise AnnotationError(msg)
 
 
 def bars_for_fills(
@@ -605,6 +728,15 @@ def _conditions_at(data: Dataset, at: IntArray, thresholds: LabelThresholds) -> 
     if data.volumes is not None:
         out.update(_volume_conditions(data.volumes, at, thresholds))
 
+    if data.compressions is not None:
+        out.update(_compression_conditions(data, at, thresholds))
+
+    if data.band is not None or data.vwap_band is not None:
+        out.update(_band_conditions(data, at))
+
+    if data.session_ranges is not None:
+        out.update(_range_conditions(data, at))
+
     if data.trends is not None:
         out.update(_trend_conditions(data.trends, at, thresholds))
 
@@ -671,6 +803,77 @@ def _volume_conditions(
                 float(thresholds.volume_heavy_above),  # type: ignore[arg-type]  # the property checked
             )
             out[f"volume_state_{suffix}"] = _named(labels, _VOLUME_NAMES, UNDEFINED_LABEL)
+
+    return out
+
+
+def _compression_conditions(
+    data: Dataset,
+    at: IntArray,
+    thresholds: LabelThresholds,
+) -> dict[str, Column]:
+    """Gather the raw width and its trailing rank for every series built, and the state where asked.
+
+    Both are reported because they answer different questions and only one of them is
+    comparable: the width's scale belongs to the form, the period and the resolution at once,
+    while the rank is a share of a trailing window -- ``docs/roadmap.md`` §M19.1.
+    """
+    grid: compression.CompressionGrid = data.compressions  # type: ignore[assignment]  # the caller checked
+    out: dict[str, Column] = {}
+    for key in grid.keys:
+        suffix: str = compression.describe_key(key)
+        ranks: FloatArray = data.compression_rank(key)[at]
+        out[f"compression_width_{suffix}"] = data.compression_width(key)[at]
+        out[f"compression_rank_{suffix}"] = ranks
+        if thresholds.labels_compression:
+            labels: LabelArray = compression.label(
+                ranks,
+                float(thresholds.compression_compressed_below),  # type: ignore[arg-type]  # the property checked
+                float(thresholds.compression_expanded_above),  # type: ignore[arg-type]  # the property checked
+            )
+            out[f"compression_state_{suffix}"] = _named(labels, _COMPRESSION_NAMES, UNDEFINED_LABEL)
+
+    return out
+
+
+def _band_conditions(data: Dataset, at: IntArray) -> dict[str, Column]:
+    """Gather every band built, in the signed-extension coordinate system the entry rules use.
+
+    ``stretch`` is the one a review wants: ``0.0`` is the midline and ``+-k`` are the two bands,
+    so it is comparable across periods and roots where a basis or a dispersion is not.
+    """
+    out: dict[str, Column] = {}
+    if data.band is not None:
+        for period in data.band.periods.tolist():
+            out[f"band_basis_{period}"] = data.band_basis(period)[at]
+            out[f"band_stddev_{period}"] = data.band_stddev(period)[at]
+            out[f"band_stretch_{period}"] = data.band_stretch(period)[at]
+
+    if data.vwap_band is not None:
+        out["vwap_band_basis"] = data.vwap_band_basis()[at]
+        out["vwap_band_stddev"] = data.vwap_band_stddev()[at]
+        out["vwap_band_stretch"] = data.vwap_band_stretch()[at]
+        out["vwap_band_age"] = data.vwap_band_age()[at]
+
+    return out
+
+
+def _range_conditions(data: Dataset, at: IntArray) -> dict[str, Column]:
+    """Gather each session range's levels and whether the bar could trade off them yet.
+
+    **The levels are stored per session and the flag per bar**, so a level is read through the
+    bar's own ``session_id`` rather than at ``at`` -- indexing them by the bar succeeds and
+    silently returns another session's range. ``docs/roadmap.md`` §M28.1.
+    """
+    grid: sessionrange.SessionRangeGrid = data.session_ranges  # type: ignore[assignment]  # the caller checked
+    sessions: IndexArray = data.range_session_id()[at]
+    out: dict[str, Column] = {}
+    for key in grid.keys:
+        anchor, window = key
+        suffix: str = f"{anchor}_{window}"
+        out[f"range_armed_{suffix}"] = data.range_armed(key)[at]
+        out[f"range_high_{suffix}"] = data.range_high(key)[sessions]
+        out[f"range_low_{suffix}"] = data.range_low(key)[sessions]
 
     return out
 

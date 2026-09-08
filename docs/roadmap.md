@@ -566,6 +566,38 @@ The excess is therefore the only honest column:
 
 **Ten legs in 390,720 across the twenty null draws exit outside their own bar**, every one a `target` a bar gapped through, worst 263.75 points — [#244]'s open question, hit harder by a random entry because it can be placed in front of an overnight gap. Those trades are dropped rather than admitted by a widened `price_tolerance`, because a guard widened past 260 points no longer catches the back-adjusted series it exists for.
 
+### Filtering trades by context and configuration ([#251])
+
+**There are two questions about a condition and only one of them is the review's.** *Does this strategy work if it only trades in an uptrend* changes the strategy: `trend_filter` and its five siblings are swept, and `tools/campaign_sweep.py` measures the result. *Of the trades it took, which worked and what was true then* changes nothing, and it is the one a person actually asks first. Both existed already; what did not was any way to ask the second one as a **filter** rather than as a report — `review.stratify` cuts by one condition at a time, an annotation lived only in the Python session that built it, and three context families had no per-trade columns at all.
+
+#### Three gaps, and the third is the one that made it a query
+
+**Compression, session ranges and bands were unreviewable.** `Dataset.compression_labels`' docstring has read *"for stratifying results"* since [#51] and had no caller; `annotate.py` mentioned compression nowhere. So an entry could be gated on a condition that could never be read back off the trades it produced, and OpeningRange and ElasticBand — the two newest archetypes — could not be stratified by their own geometry at all. `_compression_conditions`, `_band_conditions` and `_range_conditions` close it, and `LabelThresholds` gains the compression pair on the same both-or-neither rule as the other two.
+
+**Nothing crossed two conditions.** `annotate.crossed` builds the composite label, and it is deliberately not a new kind of thing: the result is an ordinary condition, so `review.stratify` ranks it and `guard.screen` puts it in the same family as everything else. **No statistic is defined by it**, which is the property that keeps a cross from drifting away from the sweep's numbers.
+
+**The cardinality limit is the substance of that function, not its validation.** The product grows multiplicatively while the sample does not: trend × regime × phase is 81 strata over a few hundred trades, every one of them under `review.MIN_TRADES`, and the failure mode is a report that silently skips the condition rather than one that says why. `MAX_CROSSED_VALUES` refuses above `review.MAX_STRATA` and names the count — pinned equal to it by a test rather than imported, because `review` imports `annotate` and the dependency cannot run both ways. Same arrangement as `guard.separate` against `review.rank_conditions`.
+
+#### The parameter dimension stays in the sweeps table, and that is a measurement rather than a preference
+
+The obvious next step — pool every combination's trades and stratify by `ema_period` — is wrong, and the reason is in the data rather than in taste. **Two combinations differing in one axis share most of their entries.** A grid varying only `tp_multiplier` produces the same signals with different exits, so pooling twenty of them and treating each trade as an independent observation inflates every sample size roughly twentyfold. `guard`'s permutation test assumes exchangeable trades; near-duplicate trades from neighbouring cells are not exchangeable, and the null it draws would be far too tight. The p-value would look excellent and mean nothing.
+
+`tools/campaign_report.py`'s `axis_influence` already answers the parameter question correctly, one row per combination, and §M27's η² tables are what it produces.
+
+**The join gives the filter anyway, which is what makes the restraint cheap.** `trades` joins `combos` on `(sweep_id, combo_id)`, so `results.TRADE_VIEW` carries every parameter beside every trade. A parameter can therefore *narrow the population* — "the trades a 20-period EMA configuration took" — while the review still refuses it as a *ranking*. Filtering by a column and grouping by it are different acts, and only the second is unsound here. The view prefixes every `combos` column with `combo_`, which is not only collision avoidance: `net_pnl` means the leg's on one side and the whole combination's on the other, and a query that confused them would report a plausible number.
+
+#### What a stored annotation has to carry with it
+
+**The cut, on every row.** An annotation is meaningless without the thresholds it was labelled at — §M27.8 is the case where a whole volume ranking turned out to be decided by its cut, and a raw pair admits 28% of bars under one form and 8% under another. Two annotations written under different cuts are two populations, and a query joining them would silently report one. `save_annotation` therefore stamps the `LabelThresholds` onto each row under `results.CUT_PREFIX` rather than leaving the provenance to be remembered.
+
+There is a weaker case inside that: where a configuration's filter was inert, the stored threshold is the params-class default that nobody chose. `tools/campaign_annotate.py` reads it anyway, because *the cut this row was measured at* is the only honest answer available and the stamp is what lets a reader see that it was a default.
+
+**And the notes rail.** `annotate_trades`, `review` and `guard` are the three doors that refuse free text. Persisting to a queryable table is a fourth door onto the same data and a worse one, because a note reaching a column is one `GROUP BY` away from the perfectly circular finding §M11.5 describes — so `save_annotation` refuses it too.
+
+#### What needed no code
+
+"Profitable **and** taken in an uptrend" is `review.stratify` over the trend label: a row per state carrying win rate, expectancy and profit factor. Filtering *to* the winners and asking what they had in common is the same question read backwards, and it is the weaker direction — it cannot show whether a relationship is monotone, and it will always find something. `review.by_outcome` is the honest form of the backwards read and says so; § "Counting the confluence a trade actually had" is where that argument was first made.
+
 ### M22 — InsideBar, the third C#-backed port ([#126])
 
 The archetype earns its place on what it reaches rather than on what it might make: three parts of the fill model no other archetype touches — `IsFillLimitOnTouch = true`, a bracket anchored to the fill and the signal bar at once, and a no-entry window before the session close. Each rule, the two the port inferred wrongly, and the wall-clock trap that still has to be fixed in the NinjaScript before that one rule can be reconciled: [nt8-fidelity.md](nt8-fidelity.md) §M22 and "A no-entry window before the session close".
@@ -2798,6 +2830,7 @@ ______________________________________________________________________
 [#244]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/244
 [#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
+[#251]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/251
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29

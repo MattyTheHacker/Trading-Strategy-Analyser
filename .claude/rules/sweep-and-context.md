@@ -178,3 +178,8 @@ paths:
   drops when all physical cores are busy (mobile Ryzen, high single-core boost against a much
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —
   don't "fix" it. Figures in `docs/roadmap.md`.
+- **The `annotations` table widens by name exactly as `combos` does**, so a dataset prepared
+  with one more series needs no migration and the earlier rows read null. It is keyed
+  `(sweep_id, combo_id, trade_id)` and joined to the other two by `results.create_trade_view`;
+  the reason a parameter may filter that view but never group it is in
+  `.claude/rules/stats-and-trades.md`.

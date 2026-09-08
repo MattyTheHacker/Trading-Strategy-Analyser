@@ -90,3 +90,22 @@ paths:
   written knowing the outcome, so stratifying by one would rediscover that outcome and lead the
   ranking — and `stratifiable` would *accept* one, so the rule cannot rest on a note failing to
   look like a condition. `docs/roadmap.md` §M11.5.
+- **A cross is an ordinary condition, and its cardinality is the whole check.**
+  `annotate.crossed` defines no statistic; `review` ranks the composite label and `guard` puts
+  it in the same family as everything else. What it must refuse is a product that outgrows the
+  sample — trend × regime × phase is 81 strata over a few hundred trades — because a review
+  would *skip* it silently rather than say why. `MAX_CROSSED_VALUES` is pinned equal to
+  `review.MAX_STRATA` by a test and never imported, since `review` imports `annotate`.
+  `docs/roadmap.md` § "Filtering trades by context and configuration".
+- **A stored annotation carries the cut it was labelled at, on every row.** Two annotations
+  written under different thresholds are two populations, and a query joining them reports one;
+  `results.save_annotation` stamps the `LabelThresholds` under `results.CUT_PREFIX` rather than
+  leaving the provenance to be remembered. `docs/roadmap.md` §M27.8.
+- **`save_annotation` is the fourth door the notes rail is enforced at**, and the worst one to
+  leave open: a note in a queryable column is one `GROUP BY` from rediscovering its own outcome.
+- **In `results.TRADE_VIEW` a parameter is a filter and never a grouping.** Neighbouring
+  combinations share most of their entries, so grouping the view by `ema_period` counts the same
+  trade many times and makes `guard`'s permutation null far too tight. Narrowing the population
+  by one is fine; comparing across them is `campaign_report.axis_influence`'s job, one row per
+  combination. The `combo_` prefix is load-bearing — `net_pnl` means the leg's on `trades` and
+  the whole combination's on `combos`.
