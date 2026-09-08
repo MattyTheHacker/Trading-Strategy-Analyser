@@ -12,7 +12,21 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import annotate, conditions, context, ingest, regime, sessions, trade_import, trades, trend, volume
+from nqbt import (
+    annotate,
+    compression,
+    conditions,
+    context,
+    ingest,
+    regime,
+    review,
+    sessionrange,
+    sessions,
+    trade_import,
+    trades,
+    trend,
+    volume,
+)
 from nqbt.annotate import UNMATCHED, AnnotationError, LabelThresholds
 from nqbt.context import ContextSpec
 from nqbt.instruments import ContractId
@@ -975,3 +989,222 @@ def test_the_count_reads_the_entry_bar_of_a_real_dataset() -> None:
     counted_ann = annotate.confluence(ann, columns)
     expected = sum(int(bool(ann.frame[c].iloc[0])) for c in columns)
     assert counted_ann.frame["entry_confluence"].iloc[0] == expected
+
+
+# -- compression, bands and session ranges ------------------------------------
+
+# The three context families that had no annotation columns until #251. Each is already
+# reachable as an entry filter, so the gap was that a trade could be gated on one and never
+# reviewed by it.
+
+COMPRESSION_KEY = compression.key(int(compression.CompressionForm.RANGE_TO_ATR), 5, 20)
+RANGE_KEY = sessionrange.validate_key(960, 30, 1)
+
+GEOMETRY_SPEC = ContextSpec(
+    compression_keys=(COMPRESSION_KEY,),
+    band_periods=(5,),
+    needs_vwap=True,
+    needs_vwap_band=True,
+    range_keys=(RANGE_KEY,),
+)
+
+CUT_COMPRESSION = LabelThresholds(compression_compressed_below=0.3, compression_expanded_above=0.7)
+
+
+def geometry_annotation(
+    n: int = 120,
+    pairs: list[tuple[int, int]] | None = None,
+    thresholds: LabelThresholds = annotate.NO_LABELS,
+) -> annotate.Annotation:
+    """Annotate a log against a dataset carrying every geometry series."""
+    data = context.prepare(bars(n=n), GEOMETRY_SPEC, bar_minutes=1)
+    log = sim_log(pairs if pairs is not None else [(60, 70)], data.index)
+
+    return annotate.annotate_trades(log, data, thresholds=thresholds)
+
+
+def test_compression_reaches_a_trade_as_both_a_width_and_a_rank() -> None:
+    """The width's scale belongs to its form and resolution at once; only the rank compares."""
+    ann = geometry_annotation()
+    assert "entry_compression_width_range_to_atr_5_20" in ann.conditions
+    assert "entry_compression_rank_range_to_atr_5_20" in ann.conditions
+    assert 0.0 <= float(ann.frame["entry_compression_rank_range_to_atr_5_20"].iloc[0]) <= 1.0
+
+
+def test_a_compression_state_appears_only_once_its_cut_is_stated() -> None:
+    assert "entry_compression_state_range_to_atr_5_20" not in geometry_annotation().conditions
+
+    cut = geometry_annotation(thresholds=CUT_COMPRESSION)
+    states = set(cut.frame["entry_compression_state_range_to_atr_5_20"].dropna())
+    assert states <= {"compressed", "normal", "expanded", "undefined"}
+
+
+def test_half_a_compression_cut_is_refused_like_every_other_pair() -> None:
+    with pytest.raises(AnnotationError, match="a label needs both cut points or neither"):
+        LabelThresholds(compression_compressed_below=0.3)
+
+
+def test_a_compression_cut_that_puts_a_bar_in_two_states_is_refused_by_its_own_module() -> None:
+    with pytest.raises(compression.CompressionError, match="both states at once"):
+        LabelThresholds(compression_compressed_below=0.8, compression_expanded_above=0.2)
+
+
+def test_the_band_reaches_a_trade_in_the_coordinate_system_the_entry_rules_use() -> None:
+    """Stretch is signed extension in standard deviations, so a price is basis + stretch * sd."""
+    frame = geometry_annotation().frame
+    basis = float(frame["entry_band_basis_5"].iloc[0])
+    stddev = float(frame["entry_band_stddev_5"].iloc[0])
+    stretch = float(frame["entry_band_stretch_5"].iloc[0])
+    assert basis + stretch * stddev == pytest.approx(float(frame["entry_bar_close"].iloc[0]))
+
+
+def test_the_vwap_band_reaches_a_trade_with_the_warm_up_counter_beside_it() -> None:
+    """A band over three bars is not yet a band, and only the counter can say so."""
+    ann = geometry_annotation()
+    for name in ("basis", "stddev", "stretch", "age"):
+        assert f"entry_vwap_band_{name}" in ann.conditions
+
+    assert int(ann.frame["entry_vwap_band_age"].iloc[0]) >= 0
+
+
+def test_a_session_range_reaches_a_trade_as_its_levels_and_whether_it_was_armed() -> None:
+    ann = geometry_annotation()
+    assert bool(ann.frame["entry_range_armed_960_30"].iloc[0])
+    assert float(ann.frame["entry_range_high_960_30"].iloc[0]) > float(
+        ann.frame["entry_range_low_960_30"].iloc[0],
+    )
+
+
+def test_a_range_level_is_read_per_session_and_never_per_bar() -> None:
+    """The levels are ``[n_keys, n_sessions]``, so indexing them by the bar is silently wrong.
+
+    Bar 1 sits in the first session, and the second session's high is a different but entirely
+    plausible number -- which is exactly what a per-bar read returns.
+    """
+    data = context.prepare(bars(n=3000), GEOMETRY_SPEC, bar_minutes=1)
+    levels = data.range_high(RANGE_KEY)
+    assert data.range_session_id()[1] == 0, "bar 1 must be in the first session for this to bite"
+    assert levels[0] != levels[1], "the two sessions must differ or the test cannot fail"
+
+    ann = annotate.annotate_trades(sim_log([(1, 2000)], data.index), data)
+    assert float(ann.frame["entry_range_high_960_30"].iloc[0]) == levels[0]
+
+
+def test_a_trade_in_a_later_session_carries_that_sessions_range() -> None:
+    data = context.prepare(bars(n=3000), GEOMETRY_SPEC, bar_minutes=1)
+    session = int(data.range_session_id()[2000])
+    ann = annotate.annotate_trades(sim_log([(2000, 2010)], data.index), data)
+    assert float(ann.frame["entry_range_high_960_30"].iloc[0]) == data.range_high(RANGE_KEY)[session]
+
+
+# -- crossing two conditions --------------------------------------------------
+
+# What "an uptrend *and* a directional market" needs. A cross is an ordinary condition, so
+# ``review`` ranks it and ``guard`` puts it in the same family; no statistic is defined here.
+
+
+def test_a_cross_is_the_two_labels_a_trade_carried_together() -> None:
+    ann = annotate.crossed(
+        counted(
+            pd.DataFrame(index=range(3)),
+            trend=["up", "up", "down"],
+            regime=["directional", "consolidating", "directional"],
+        ),
+        ["trend", "regime"],
+    )
+    assert list(ann.frame["trend_x_regime"]) == [
+        "up & directional",
+        "up & consolidating",
+        "down & directional",
+    ]
+
+
+def test_a_cross_joins_the_conditions_a_review_may_stratify_by() -> None:
+    ann = annotate.crossed(
+        counted(pd.DataFrame(index=range(2)), a=["x", "y"], b=["p", "q"]),
+        ["a", "b"],
+        name="both",
+    )
+    assert ann.conditions[-1] == "both"
+    assert set(ann.conditions) == {"a", "b", "both"}
+
+
+def test_a_trade_missing_either_part_carries_no_cross_rather_than_a_partial_one() -> None:
+    index = pd.Index([1, 2], name="trade_id")
+    frame = pd.DataFrame(
+        {
+            "matched": [True, False],
+            "a": pd.array(["up", None], dtype="string"),
+            "b": pd.array(["directional", None], dtype="string"),
+        },
+        index=index,
+    )
+    ann = annotate.crossed(annotate.Annotation(frame=frame, conditions=("a", "b")), ["a", "b"])
+    assert ann.frame["a_x_b"].iloc[0] == "up & directional"
+    assert pd.isna(ann.frame["a_x_b"].iloc[1])
+
+
+def test_a_cross_that_splits_the_trades_too_finely_is_refused_with_the_count() -> None:
+    """Above the limit every stratum falls under the review's minimum and none is reported."""
+    many = [f"v{i}" for i in range(5)]
+    ann = counted(pd.DataFrame(index=range(25)), a=many * 5, b=sorted(many * 5))
+    with pytest.raises(AnnotationError, match="takes 25 distinct values"):
+        annotate.crossed(ann, ["a", "b"])
+
+
+def test_a_raw_series_cannot_be_crossed_because_it_is_not_a_label() -> None:
+    ann = counted(pd.DataFrame(index=range(2)), a=["up", "down"], ratio=[0.1, 0.9])
+    with pytest.raises(AnnotationError, match="a raw series rather than a label"):
+        annotate.crossed(ann, ["a", "ratio"])
+
+
+@pytest.mark.parametrize(
+    ("columns", "match"),
+    [
+        (["a"], "at least 2 conditions"),
+        (["a", "a"], "crossed with itself"),
+        (["a", "missing"], "no condition 'missing'"),
+    ],
+)
+def test_a_cross_that_would_mean_nothing_is_refused(columns, match) -> None:
+    ann = counted(pd.DataFrame(index=range(2)), a=["up", "down"], b=["p", "q"])
+    with pytest.raises(AnnotationError, match=match):
+        annotate.crossed(ann, columns)
+
+
+def test_a_second_cross_needs_its_own_name() -> None:
+    ann = counted(pd.DataFrame(index=range(2)), a=["up", "down"], b=["p", "q"])
+    once = annotate.crossed(ann, ["a", "b"])
+    with pytest.raises(AnnotationError, match="already carries"):
+        annotate.crossed(once, ["a", "b"])
+
+
+def test_the_cross_limit_matches_the_number_of_strata_a_review_will_rank() -> None:
+    """Pinned rather than imported: ``review`` imports ``annotate``, so it cannot run both ways."""
+    assert annotate.MAX_CROSSED_VALUES == review.MAX_STRATA
+
+
+def test_a_cross_reads_the_entry_bar_of_a_real_dataset() -> None:
+    """End to end, and stratifiable: the pair is what ``review`` cuts realised P&L by."""
+    data = dataset()
+    ann = annotate.annotate_trades(sim_log([(10, 20), (30, 40)], data.index), data)
+    labels = [c for c in ann.conditions if str(ann.frame[c].dtype) == "boolean"][:2]
+    crossed_ann = annotate.crossed(ann, labels)
+    expected = " & ".join(str(ann.frame[c].iloc[0]) for c in labels)
+    assert crossed_ann.frame[f"{labels[0]}_x_{labels[1]}"].iloc[0] == expected
+
+
+def test_a_dataset_with_only_a_bollinger_band_carries_no_vwap_band_columns() -> None:
+    """Each band is built only where a grid asked for it, and neither implies the other."""
+    data = context.prepare(bars(), ContextSpec(band_periods=(5,)), bar_minutes=1)
+    ann = annotate.annotate_trades(sim_log([(60, 70)], data.index), data)
+    assert "entry_band_stretch_5" in ann.conditions
+    assert not [name for name in ann.conditions if name.startswith("entry_vwap_band")]
+
+
+def test_a_dataset_with_only_a_vwap_band_carries_no_period_keyed_band_columns() -> None:
+    spec = ContextSpec(needs_vwap=True, needs_vwap_band=True)
+    data = context.prepare(bars(), spec, bar_minutes=1)
+    ann = annotate.annotate_trades(sim_log([(60, 70)], data.index), data)
+    assert "entry_vwap_band_stretch" in ann.conditions
+    assert not [name for name in ann.conditions if name.startswith("entry_band_")]

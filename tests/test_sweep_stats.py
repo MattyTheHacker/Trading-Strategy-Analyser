@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, conditions, context, resample, results, sessions, stats, sweep, trades
+from nqbt import archetypes, conditions, context, notes, resample, results, sessions, stats, sweep, trades
 from nqbt.instruments import NQ
 from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
@@ -1230,3 +1230,141 @@ def test_a_column_named_like_a_sql_keyword_survives_the_widening(db) -> None:
     save(db, results_frame=windowed)
     stored = results.query('SELECT "window" FROM combos WHERE sweep_id = 2 ORDER BY combo_id', db)
     assert list(stored["window"]) == ["selection", "holdout", "holdout"]
+
+
+# -- the stored annotation, and the view that joins it (#251) ------------------
+
+# What turns "filter trades by what was true when they were taken" from a Python session into
+# a query. The parameters come along through ``combos`` as a *filter*; grouping by one is
+# ``tools/campaign_report.py``'s job, because neighbouring combinations share their entries.
+
+
+def fake_annotation(n=2, **columns: object) -> pd.DataFrame:
+    """An ``Annotation.frame``: one row per trade, indexed by ``trade_id``."""
+    index = pd.Index(range(n), name="trade_id")
+    base = pd.DataFrame({"matched": [True] * n, "entry_bar": range(n)}, index=index)
+
+    return base.assign(**{name: pd.array(value) for name, value in columns.items()})
+
+
+NO_CUT = {"regime_consolidating_below": None, "regime_directional_above": None}
+A_CUT = {"regime_consolidating_below": 0.2, "regime_directional_above": 0.6}
+
+
+def test_an_annotation_round_trips_with_its_trade_ids(db) -> None:
+    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
+    stored = results.query("SELECT * FROM annotations ORDER BY trade_id", db)
+    assert list(stored["trade_id"]) == [0, 1]
+    assert list(stored["sweep_id"]) == [1, 1]
+    assert list(stored["combo_id"]) == [0, 0]
+
+
+def test_the_cut_an_annotation_was_labelled_at_is_stored_beside_it(db) -> None:
+    """Two annotations cut differently are two populations, and only the stamp says so."""
+    results.save_annotation(fake_annotation(), 1, 0, A_CUT, db)
+    stored = results.query("SELECT * FROM annotations", db)
+    assert stored["cut_regime_directional_above"].iloc[0] == 0.6
+    assert stored["cut_regime_consolidating_below"].iloc[0] == 0.2
+
+
+def test_an_annotation_stored_twice_doubles_and_replacing_it_does_not(db) -> None:
+    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
+    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
+    assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == 4
+
+    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db, replace=True)
+    assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == 2
+
+
+def test_replacing_an_annotation_leaves_every_other_combination_alone(db) -> None:
+    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
+    results.save_annotation(fake_annotation(), 1, 1, NO_CUT, db)
+    results.save_annotation(fake_annotation(), 2, 0, NO_CUT, db)
+    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db, replace=True)
+    counts = results.query("SELECT sweep_id, combo_id, COUNT(*) n FROM annotations GROUP BY 1, 2", db)
+    assert list(counts["n"]) == [2, 2, 2]
+
+
+def test_a_second_annotation_carrying_a_new_condition_widens_the_table(db) -> None:
+    """A dataset prepared with one more series must not need a migration."""
+    results.save_annotation(fake_annotation(entry_trend=["up", "down"]), 1, 0, NO_CUT, db)
+    results.save_annotation(
+        fake_annotation(entry_trend=["up", "up"], entry_regime_20=["directional", "consolidating"]),
+        1,
+        1,
+        NO_CUT,
+        db,
+    )
+    stored = results.query("SELECT * FROM annotations WHERE sweep_id = 1 ORDER BY combo_id", db)
+    assert stored["entry_regime_20"].isna().sum() == 2, "the earlier rows read null, not dropped"
+    assert set(stored["entry_trend"]) == {"up", "down"}
+
+
+def test_an_annotation_carrying_a_note_is_refused_rather_than_made_queryable(db) -> None:
+    """The fourth door: a note in a column a query can group by rediscovers its own outcome."""
+    with pytest.raises(notes.NotesError, match="free-text column"):
+        results.save_annotation(fake_annotation(note=["clean setup", "impatient"]), 1, 0, NO_CUT, db)
+
+    assert results.query("SELECT COUNT(*) c FROM information_schema.tables", db).loc[0, "c"] >= 0
+
+
+def stocked(db) -> None:
+    """A database holding one combination's trades, annotation and summary row."""
+    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
+    results.save_annotation(fake_annotation(entry_trend=["up", "down"]), 1, 0, A_CUT, db)
+
+
+def test_the_trade_view_joins_a_trade_to_its_context_and_its_configuration(db) -> None:
+    stocked(db)
+    results.create_trade_view(db)
+    rows = results.query(f"SELECT * FROM {results.TRADE_VIEW} ORDER BY trade_id", db)
+    assert len(rows) == 2
+    assert list(rows["entry_trend"]) == ["up", "down"]
+    assert list(rows["net_pnl"]) == [10.0, -4.0], "the leg's P&L, not the combination's"
+    assert list(rows["combo_ema_period"]) == [9, 9], "the parameter, reachable as a filter"
+
+
+def test_a_combinations_own_statistics_are_prefixed_so_they_cannot_be_read_as_the_trades(db) -> None:
+    """``net_pnl`` means the leg's here and the whole combination's there; the join needs both."""
+    stocked(db)
+    results.create_trade_view(db)
+    rows = results.query(f"SELECT net_pnl, combo_net_pnl FROM {results.TRADE_VIEW} ORDER BY trade_id", db)
+    assert list(rows["net_pnl"]) == [10.0, -4.0]
+    assert list(rows["combo_net_pnl"]) == [500.0, 500.0]
+
+
+def test_the_view_answers_the_question_it_exists_for(db) -> None:
+    """Profitable, taken in an uptrend, by a configuration with this parameter -- one query."""
+    stocked(db)
+    results.create_trade_view(db)
+    rows = results.query(
+        f"SELECT trade_id FROM {results.TRADE_VIEW} "
+        f"WHERE entry_trend = 'up' AND net_pnl > 0 AND combo_ema_period = 9",
+        db,
+    )
+    assert list(rows["trade_id"]) == [0]
+
+
+def test_the_view_drops_an_annotation_column_the_trade_log_already_carries(db) -> None:
+    """Both carry ``entry_bar``; the producer's is the one that counts, and one must win."""
+    stocked(db)
+    results.create_trade_view(db)
+    described = results.query(f"DESCRIBE {results.TRADE_VIEW}", db)
+    assert list(described["column_name"]).count("entry_bar") <= 1
+
+
+def test_the_view_is_refused_until_there_is_something_to_join(db) -> None:
+    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
+    with pytest.raises(results.ResultsError, match="campaign_annotate"):
+        results.create_trade_view(db)
+
+
+def test_rebuilding_the_view_picks_up_a_condition_added_since(db) -> None:
+    """It is replaced rather than created, so a widened table does not need it dropped first."""
+    stocked(db)
+    results.create_trade_view(db)
+    results.save_annotation(
+        fake_annotation(entry_regime_20=["directional", "directional"]), 1, 0, A_CUT, db, replace=True
+    )
+    assert "entry_regime_20" in results.create_trade_view(db)

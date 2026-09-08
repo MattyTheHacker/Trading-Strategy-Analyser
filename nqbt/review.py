@@ -46,6 +46,7 @@ __all__ = [
     "STATUS",
     "Review",
     "ReviewError",
+    "by_outcome",
     "rank_conditions",
     "review",
     "stratifiable",
@@ -284,7 +285,10 @@ def by_outcome(
         raise ReviewError(msg)
 
     if not pd.api.types.is_numeric_dtype(reviewable[column].dtype):
-        msg = f"{column!r} is {reviewable[column].dtype}; an outcome profile averages a number"
+        msg = (
+            f"{column!r} is {reviewable[column].dtype}; an outcome profile averages a number. "
+            f"For a label, stratify() is the instrument -- and the stronger direction anyway."
+        )
         raise ReviewError(msg)
 
     net: pd.Series[float] = legs.groupby("trade_id")["net_pnl"].sum()
