@@ -96,6 +96,34 @@ results.save_sweep(res, root="MNQ", instrument="MNQ", bars=bars, axes=grid.axes)
 print(sweep.rank(res, "profit_factor", top=10, min_trades=200))
 ```
 
+### Looking at one trade
+
+`nqbt.chart` draws a single trade on the bars it happened on and writes a self-contained SVG — the candles either side of it, the stop and target each leg carried, where every leg left and why, and how far price ran each way while it was open. Any archetype, and an imported trade log just as readily as a simulated one:
+
+```python
+from nqbt import archetypes, chart, splice, sweep
+from nqbt.context import PriceBasis
+from nqbt.instruments import MNQ
+
+bars = splice.load_continuous("MNQ")
+grid = sweep.Grid(archetype=archetypes.get("InsideBar"))
+data = sweep.prepare_for(bars, grid, price_basis=PriceBasis.RAW)
+_, log = sweep.run_combination(data, grid.base, MNQ, grid.archetype)
+
+worst = log.groupby("trade_id")["net_pnl"].sum().nsmallest(5).index
+for drawn in chart.charts(log, data, worst, bars_either_side=25):
+    drawn.save(f"results/charts/trade-{drawn.trade_id}.svg")
+```
+
+`sweep.prepare_for` is what builds the `Dataset`, because `Grid.required_context` is the only thing that reliably knows which series an archetype reads — hand-rolling a `ContextSpec` gets a `ContextError` naming the one it missed.
+
+Four things worth knowing before reading one:
+
+- **A chart is a debugging instrument, not a selection one.** It can settle whether the simulator did what the rule says; it cannot settle whether the rule is any good, and a dozen charts read for that are exactly the multiple-comparisons machine [`nqbt/guard.py`](nqbt/guard.py) exists for. Every chart says so along the bottom. Take what one raises to a sweep.
+- **Draw an imported log against per-contract bars**, via [`annotate.contract_bars`](nqbt/annotate.py) — never the back-adjusted continuous series, which shifts every historical price by the roll offset while the lookup still succeeds. A fill landing far off its candle is the chart showing you exactly that, and the series it drew is named in the top-right corner.
+- **Nothing is drawn between the two fills.** The shaded band is the bars the position was open for; a line from entry to exit would depict an intrabar path these bars do not record.
+- **The window is bars, not minutes**, so a trade held for hundreds of bars makes a very wide document. `bars_either_side` controls the context, not the trade itself.
+
 ## Architecture
 
 ```text
@@ -121,6 +149,9 @@ nqbt/
   sweep.py         Grid, combo-major sweep, ranking; n_jobs spreads chunks over
                    processes sharing one memmapped copy of the dataset.
   stats.py         Per-trade summary statistics.
+  chart.py         One trade drawn on its own bars, as an SVG. Reads a trade log
+                   and a Dataset; knows nothing about archetypes, so a simulated
+                   leg and an imported fill are drawn by the same code.
   results.py       DuckDB persistence.
 ```
 

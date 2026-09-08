@@ -13,6 +13,13 @@ simulator did what the rule says; it cannot settle whether the rule is any good,
 of charts read for that is the multiple-comparisons machine :mod:`nqbt.guard` exists to defend
 against. :data:`CAUTION` is drawn on every chart for the reason :data:`nqbt.review.STATUS` is
 printed in every report.
+
+``README.md`` § "Looking at one trade" is the worked example, from bars to a written file::
+
+    grid = sweep.Grid(archetype=archetypes.get("InsideBar"))
+    data = sweep.prepare_for(bars, grid, price_basis=PriceBasis.RAW)
+    _, log = sweep.run_combination(data, grid.base, MNQ, grid.archetype)
+    chart.chart(log, data, trade_id).save("results/charts/trade.svg")
 """
 
 from __future__ import annotations

@@ -10,13 +10,14 @@ that makes it visible. **Bars of a different series are refused**, through the s
 annotation applies.
 """
 
+import re
 from xml.etree import ElementTree
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import annotate, chart, context, sessions, stats, trades
+from nqbt import annotate, archetypes, chart, context, paths, sessions, splice, stats, sweep, trades
 from nqbt.chart import ChartError
 from nqbt.context import ContextSpec, PriceBasis
 
@@ -471,6 +472,36 @@ def test_charts_draws_each_trade_asked_for_in_order():
     drawn = chart.charts(many, data, [3, 1])
 
     assert [one.trade_id for one in drawn] == [3, 1]
+
+
+def test_the_readme_worked_example_names_things_that_still_exist():
+    """A rotted worked example is worse than none, and nothing else here would catch a rename.
+
+    The example itself needs ``cache/`` and cannot run in CI, so what is pinned is the surface
+    it calls: every name it uses, in both directions.
+    """
+    readme = (paths.REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    fence = "```"
+    found = re.search(rf"### Looking at one trade.*?{fence}python\n(.*?){fence}", readme, re.DOTALL)
+    assert found, "the README no longer carries a chart example"
+
+    example = found.group(1)
+    compile(example, "README.md", "exec")
+    for module, name in (
+        (splice, "load_continuous"),
+        (sweep, "Grid"),
+        (sweep, "prepare_for"),
+        (sweep, "run_combination"),
+        (archetypes, "get"),
+        (chart, "charts"),
+    ):
+        used = f"{module.__name__.removeprefix('nqbt.')}.{name}"
+
+        assert used in example, f"the example no longer calls {used}"
+        assert hasattr(module, name), f"the example calls {used}, which no longer exists"
+
+    assert "drawn.save(" in example
+    assert hasattr(chart.TradeChart, "save")
 
 
 def test_save_writes_the_svg_where_it_was_asked_to(tmp_path):
