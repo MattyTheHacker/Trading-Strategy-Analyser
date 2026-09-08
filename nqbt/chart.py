@@ -113,11 +113,18 @@ _BODY_SHARE = 0.6
 _MIN_BODY = 1.0
 """Pixels a doji's body still occupies, so a bar whose open equals its close is not invisible."""
 
-_MARKER = 5.0
+_MARKER = 6.0
 """Half-width of an entry triangle, in pixels. The exit disc is drawn a little smaller."""
 
+_LABEL_GAP = 4.0
+"""Pixels between a mark and its label."""
+
 _MARGIN_LEFT = 10.0
-_MARGIN_RIGHT = 96.0
+_MARGIN_RIGHT = 64.0
+"""Room to the right of the panel for the price axis, which has that lane to itself: a level's
+label stays inside the panel rather than competing with a tick for it.
+"""
+
 _HEADER = 48.0
 _TIME_AXIS = 22.0
 _FOOTER = 30.0
@@ -168,7 +175,8 @@ _STYLE = """
   .title { font-size: 14px; font-weight: 600 }
   .subtitle { font-size: 11px; fill: #667085 }
   .tick { font-size: 10px; fill: #667085 }
-  .tag { font-size: 10px }
+  .tag { font-size: 10px; paint-order: stroke; stroke: #ffffff; stroke-width: 2.5px;
+         stroke-linejoin: round }
   .caution { font-size: 9.5px; fill: #98531a }
 """
 
@@ -186,12 +194,18 @@ class Plot:
     """
 
     first_bar: int
+    bars: int
     bar_width: float
     left: float
     top: float
     height: float
     price_min: float
     price_max: float
+
+    @property
+    def width(self) -> float:
+        """Canvas width of the panel: one bar's width for each bar of the window."""
+        return self.bars * self.bar_width
 
     def x(self, bar: int) -> float:
         """Canvas x of one bar's centre."""
@@ -397,6 +411,7 @@ def _axes(
 
     return Plot(
         first_bar=first,
+        bars=last - first + 1,
         bar_width=bar_width,
         left=_MARGIN_LEFT,
         top=_HEADER,
@@ -451,23 +466,21 @@ def _render(
     """Assemble the whole document, back to front: panel, then bars, then what happened on them."""
     first, last = window
     entry_bars, exit_bars = bars
-    count: int = last - first + 1
-    width: float = _MARGIN_LEFT + count * plot.bar_width + _MARGIN_RIGHT
+    width: float = _MARGIN_LEFT + plot.width + _MARGIN_RIGHT
     caution: list[str] = _wrap(CAUTION, width - 2 * _MARGIN_LEFT)
     total: float = _HEADER + plot.height + _TIME_AXIS + _FOOTER + len(caution) * _LINE_HEIGHT
-    right: float = plot.left + count * plot.bar_width
     elements: list[str] = [
         f'<rect class="bg" x="0" y="0" width="{width:.2f}" height="{total:.2f}"/>',
         *_headline(legs, data, figures, bars, title, width),
         *_held(plot, entry_bars, exit_bars),
-        *_price_axis(plot, right),
+        *_price_axis(plot, width),
         *_candles(data, plot, first, last),
-        *_excursion_lines(legs, figures, plot, right),
+        *_excursion_lines(legs, figures, plot, plot.left + plot.width),
         *_level_lines(legs, plot, entry_bars, exit_bars),
         *_markers(legs, plot, entry_bars, exit_bars),
         (
             f'<rect class="panel" x="{plot.left:.2f}" y="{plot.top:.2f}" '
-            f'width="{count * plot.bar_width:.2f}" height="{plot.height:.2f}"/>'
+            f'width="{plot.width:.2f}" height="{plot.height:.2f}"/>'
         ),
         *_time_axis(data, plot, first, last),
         *_footer(legs, plot, caution),
@@ -539,16 +552,21 @@ def _level_lines(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars
             if not np.isfinite(price):
                 continue
 
-            drawn += _labelled_line(f"level {name}", price, (left, right), plot, name)
+            drawn += _labelled_line(f"level {name}", price, (left, right), plot, name, right)
 
     return drawn
 
 
 def _excursion_lines(legs: pd.DataFrame, figures: Figures, plot: Plot, right: float) -> list[str]:
-    """How far price ran each way while the position was open, as a level each."""
+    """How far price ran each way while the position was open, as a level each.
+
+    Labelled at the panel's left edge rather than its right, because the line spans the whole
+    window and the right-hand lane belongs to the price axis.
+    """
     drawn: list[str] = []
     for name, price in _excursions(legs, figures):
-        drawn += _labelled_line(f"excursion {name}", price, (plot.left, right), plot, name[:3].upper())
+        span: tuple[float, float] = (plot.left, right)
+        drawn += _labelled_line(f"excursion {name}", price, span, plot, name[:3].upper(), plot.left)
 
     return drawn
 
@@ -559,16 +577,32 @@ def _labelled_line(
     span: tuple[float, float],
     plot: Plot,
     label: str,
+    anchor: float,
 ) -> list[str]:
-    """One horizontal level with its name and price at the right-hand end."""
+    """One horizontal level, named and priced beside ``anchor``, inside the panel either way."""
     left, right = span
     y: float = plot.y(price)
     text: str = f"{label} {price:.{_DECIMALS}f}"
 
     return [
         f'<line class="{classes}" x1="{left:.2f}" y1="{y:.2f}" x2="{right:.2f}" y2="{y:.2f}"/>',
-        f'<text class="tag" x="{right + 4:.2f}" y="{y + 3:.2f}">{escape(text)}</text>',
+        _label(text, anchor, y, right=plot.left + plot.width),
     ]
+
+
+def _label(text: str, anchor: float, y: float, *, right: float) -> str:
+    """Place a label after ``anchor``, or before it where the panel has no room after.
+
+    Measured in characters against the monospace face :data:`_STYLE` asks for, which is what
+    lets a label be placed without laying the document out twice.
+    """
+    if anchor + _LABEL_GAP + len(text) * _CHARACTER_WIDTH <= right:
+        return f'<text class="tag" x="{anchor + _LABEL_GAP:.2f}" y="{y + 3:.2f}">{escape(text)}</text>'
+
+    return (
+        f'<text class="tag" text-anchor="end" x="{anchor - _LABEL_GAP:.2f}" y="{y + 3:.2f}">'
+        f"{escape(text)}</text>"
+    )
 
 
 def _markers(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars: IntArray) -> list[str]:
@@ -596,27 +630,38 @@ def _entry_marker(x: float, y: float, direction: float) -> str:
 
 
 def _exit_marker(x: float, y: float, reason: str) -> list[str]:
-    """A disc at the fill, coloured and labelled by why the leg left."""
+    """A disc at the fill, coloured by why the leg left and named underneath it.
+
+    Underneath rather than beside, because a leg leaving at its stop or its target lands on
+    that level's own line and the two labels would be drawn on top of each other.
+    """
     css: str = EXIT_CLASSES.get(reason, OTHER_EXIT)
 
     return [
         f'<circle class="exit {css}" cx="{x:.2f}" cy="{y:.2f}" r="{_MARKER * 0.8:.2f}"/>',
-        f'<text class="tag" x="{x + _MARKER + 2:.2f}" y="{y + 3:.2f}">{escape(reason)}</text>',
+        (
+            f'<text class="tag" text-anchor="middle" x="{x:.2f}" y="{y + _MARKER + 10:.2f}">'
+            f"{escape(reason)}</text>"
+        ),
     ]
 
 
 # -- the axes' labels, the headline and the footer ----------------------------
 
 
-def _price_axis(plot: Plot, right: float) -> list[str]:
-    """Evenly spaced gridlines across the price domain, each labelled at the right-hand edge."""
+def _price_axis(plot: Plot, width: float) -> list[str]:
+    """Evenly spaced gridlines across the price domain, each labelled in the right-hand margin."""
+    right: float = plot.left + plot.width
     drawn: list[str] = []
     for step in range(_GRIDLINES):
         price: float = plot.price_min + (plot.price_max - plot.price_min) * step / (_GRIDLINES - 1)
         y: float = plot.y(price)
         drawn += [
             f'<line class="grid" x1="{plot.left:.2f}" y1="{y:.2f}" x2="{right:.2f}" y2="{y:.2f}"/>',
-            f'<text class="tick" x="{right + 46:.2f}" y="{y + 3:.2f}">{price:.{_DECIMALS}f}</text>',
+            (
+                f'<text class="tick" text-anchor="end" x="{width - _LABEL_GAP * 2:.2f}" '
+                f'y="{y + 3:.2f}">{price:.{_DECIMALS}f}</text>'
+            ),
         ]
 
     return drawn

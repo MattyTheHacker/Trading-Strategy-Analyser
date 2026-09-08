@@ -167,16 +167,14 @@ def test_the_exit_disc_sits_at_the_exit_price_on_the_exit_bar():
     assert number(disc, "cy") == at(drawn.plot.y(float(trades_log["exit_price"].iloc[0])))
 
 
-def test_the_entry_triangle_sits_at_the_entry_price_on_the_entry_bar():
+def test_the_entry_triangle_straddles_the_entry_price_on_the_entry_bar():
+    """The mark points at the fill, whatever size the marker happens to be drawn at."""
     drawn, _, trades_log = case()
-    triangle = only(drawn, "polygon", "entry")
-    points = [
-        tuple(float(part) for part in point.split(",")) for point in (triangle.get("points") or "").split()
-    ]
-    apex = points[0]
+    points = _points(drawn)
+    fill = drawn.plot.y(float(trades_log["entry_price"].iloc[0]))
 
-    assert apex[0] == at(drawn.plot.x(100))
-    assert apex[1] == at(drawn.plot.y(float(trades_log["entry_price"].iloc[0])) - 5.0)
+    assert points[0][0] == at(drawn.plot.x(100))
+    assert min(point[1] for point in points) <= fill <= max(point[1] for point in points)
 
 
 def test_the_entry_triangle_points_the_way_the_trade_was_taken():
@@ -189,12 +187,18 @@ def test_the_entry_triangle_points_the_way_the_trade_was_taken():
     assert short_apex > short_base, "a short's apex must sit below its base"
 
 
-def _triangle(drawn: chart.TradeChart) -> tuple[float, float]:
-    """The apex's y and the base's y of one chart's entry marker."""
+def _points(drawn: chart.TradeChart) -> list[tuple[float, ...]]:
+    """The entry triangle's three corners, apex first."""
     triangle = only(drawn, "polygon", "entry")
-    points = [
+
+    return [
         tuple(float(part) for part in point.split(",")) for point in (triangle.get("points") or "").split()
     ]
+
+
+def _triangle(drawn: chart.TradeChart) -> tuple[float, float]:
+    """The apex's y and the base's y of one chart's entry marker."""
+    points = _points(drawn)
 
     return points[0][1], points[1][1]
 
@@ -205,6 +209,19 @@ def test_the_exit_disc_names_why_the_leg_left():
         drawn = chart.chart(log([100], [110], data, exit_reasons=[reason]), data, 1)
 
         assert elements(drawn, "circle", css), f"{reason} was not drawn as .{css}"
+
+
+def test_the_exit_reason_label_clears_the_level_label_it_lands_on():
+    """A leg leaving at its target sits on the target line, so the two labels must not share a spot."""
+    drawn, _, _ = case()
+    tags = {
+        "".join(tag.itertext()): (number(tag, "x"), number(tag, "y"))
+        for tag in elements(drawn, "text", "tag")
+    }
+    reason = tags["target"]
+    level = next(place for text, place in tags.items() if text.startswith("target "))
+
+    assert abs(reason[1] - level[1]) > 8.0, "the exit reason must not be drawn over the level's own label"
 
 
 def test_an_exit_reason_the_simulator_never_writes_is_drawn_rather_than_dropped():
@@ -432,13 +449,20 @@ def test_a_fill_no_bar_of_the_dataset_covers_is_refused():
 # -- the document ------------------------------------------------------------
 
 
-def test_the_svg_is_well_formed_and_sized_to_its_window():
-    drawn, _, _ = case(bars_either_side=5)
-    root = ElementTree.fromstring(drawn.svg)
-    count = drawn.last_bar - drawn.first_bar + 1
+def test_the_canvas_grows_by_one_bar_width_for_each_extra_bar_of_window():
+    """Sized to its window, without pinning the margins the layout is free to change."""
+    narrow, _, _ = case(bars_either_side=5)
+    wide, _, _ = case(bars_either_side=25)
+    extra = (wide.plot.bars - narrow.plot.bars) * narrow.plot.bar_width
 
-    assert root.tag == f"{SVG}svg"
-    assert float(root.get("width") or 0) == pytest.approx(10.0 + count * drawn.plot.bar_width + 96.0)
+    assert ElementTree.fromstring(narrow.svg).tag == f"{SVG}svg"
+    assert _canvas(wide) - _canvas(narrow) == at(extra)
+    assert number(only(narrow, "rect", "panel"), "width") == at(narrow.plot.width)
+
+
+def _canvas(drawn: chart.TradeChart) -> float:
+    """The document's own width."""
+    return float(ElementTree.fromstring(drawn.svg).get("width") or 0)
 
 
 def test_charts_draws_each_trade_asked_for_in_order():
