@@ -2556,6 +2556,28 @@ The stated goal. Import real trades, annotate each against the market context at
 
 **Worth revisiting only for deliberate qualitative coding** — a fixed set of categories chosen *before* any outcome is examined. That is a different activity from what M11 does, and it would be a different column with a different provenance rather than this one relabelled.
 
+#### Charting a trade ([#239])
+
+`nqbt/chart.py` draws one trade on the bars it happened on and returns an SVG: the candles either side of it, the bracket it carried, where every leg left, and how far price ran each way while it was open. It reads a trade log and a `Dataset` and nothing else, so a simulated leg and an imported fill are drawn by the same code — which is the property `sim/explain.py` does not have and cannot be given. That module takes `DeadCatParams`, recomputes the signal and reports each gate's operands, which is a stronger answer to *why did this fire* available for exactly one archetype. The two are complements: `explain` says why the order was placed, a chart says what happened to it.
+
+**It is a debugging instrument and not a selection one, and it states that on itself.** A chart can settle whether the simulator did what the rule says — the class of question [#44] was built to be able to ask at all. It cannot settle whether the rule is any good, and trades read one at a time for that purpose are the multiple-comparisons machine [#48] exists for, in its most seductive form: a human looking at a dozen charts will produce a specific, confident, wrong conclusion that feels earned, and no p-value will ever be attached to it. `chart.CAUTION` is drawn on every chart for the reason `review.STATUS` is printed in every report — the failure mode is not a wrong picture but a right one read without its context.
+
+**No line joins an entry to its exit.** The obvious thing to draw is a segment from the entry fill to the exit fill, and it would depict the one thing bar-close OHLC does not record: the path between them. Tick data would draw it truthfully and must not be reached for here, because the prime directive's trap is precisely this — an instrument that reads the simulation more finely than the simulation ran. What joins the two ends instead is a shaded span over the bars the position was open for, which claims only the duration. `tests/test_chart.py` pins it as a property of the whole document: every line is either a vertical wick or a horizontal level, so a sloped one cannot appear without failing.
+
+**The levels span only the bars the leg carried them, and `initial_stop` is the stop as placed.** A stop line drawn across the whole window would claim a bracket that did not exist before the fill. A stop line drawn across the whole *hold* is honest for a fixed bracket and a lie for a trailing one, since a trailed stop's path is nowhere in the trade log — InsideBarTrailing is the case, and the label says "stop" rather than "the stop" for it.
+
+**The excursions are the point rather than a decoration.** MAE and MFE put the target against where price actually went while the position was open, which is the question §M27.3 left standing: InsideBar's target distance is the largest axis on the holdout and the selection window cannot point at it. A chart cannot answer that — a few dozen trades read by eye is not a measurement — but it is the cheapest way to see *what shape* the answer has before a sweep is designed around it. The caveat travels with the number: MAE and MFE here are this project's definition and not NT8's ([#70]).
+
+**A fill outside its bar is drawn rather than refused.** `annotate` refuses one, because a price hundreds of points outside its bar is what a back-adjusted series produces and every downstream comparison would be silently wrong. A chart is the instrument that makes that visible, so refusing it here would suppress exactly the picture worth looking at: the price domain is fitted to include every drawn price, and the marker lands on the panel far from its candle. The series is named in the corner of every chart from `Dataset.price_basis` for the same reason.
+
+**Bars of a different series are refused, and through the annotation's own check.** `annotate.resolve_bars` was made public rather than copied: it resolves each fill to a bar from the log's own indices where it has them and from its timestamps where it does not, and it cross-checks both against the dataset. A second copy would eventually disagree, and the disagreement would be a chart drawn over bars an annotation would have rejected — plausible at every stage and wrong at every price.
+
+**SVG, hand-written, and no plotting dependency.** Every dependency is pinned exactly and CI resolves a fresh environment on every run, so a chart library is a standing cost paid on every build for a few hundred lines of geometry. Writing the document directly also makes the output *assertable*: a test parses the XML and checks that the stop marker sits at `plot.y(stop_price)`, which is a property, where a rendered raster could only be compared against a stored image. `Plot` is public so a caller can overlay its own marks on the same axes.
+
+**No CLI command.** The CLI covers the four pipeline steps by design, and a chart takes a trade log and a prepared `Dataset` — neither of which survives being flattened into argparse flags. `chart.charts(log, data, ids)` and `TradeChart.save(path)` are the interface.
+
+**What it deliberately does not draw**, each for its own reason: indicators, because which ones are relevant is per archetype and the module knows nothing about archetypes; volume, because a second panel doubles the layout for a quantity `review.time_of_day` already reports properly; and notes, because §M11.5's sidecar attaches at `notes.alongside` and a chart that grew a note argument would be a fourth door onto the same hazard.
+
 ### M12 — web GUI ([#52])
 
 Long term, and gated on the review's outputs being stable or the interface churns with them. **The governing lesson is the CLI's:** `nqbt sweep` and `nqbt report` were dropped because they would have been a second, lossier front door to things the Python API already does better. A GUI carries the same risk at ten times the size, so it must call the same functions and define no statistic of its own. Streamlit for the read-only views, explicitly as a throwaway, rather than starting with FastAPI and discovering the front end is the whole project.
@@ -2826,6 +2848,7 @@ ______________________________________________________________________
 [#235]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/235
 [#236]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/236
 [#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
+[#239]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/239
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
 [#244]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/244
 [#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
@@ -2874,6 +2897,7 @@ ______________________________________________________________________
 [#67]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/67
 [#68]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/68
 [#69]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/69
+[#70]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/70
 [#71]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/71
 [#72]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/72
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73

@@ -53,6 +53,7 @@ __all__ = [
     "confluence",
     "contract_bars",
     "crossed",
+    "resolve_bars",
 ]
 
 UNMATCHED = -1
@@ -481,7 +482,7 @@ def annotate_trades(
     _check_columns(log)
     notes.check_excluded(log, what="a trade log being annotated")
 
-    legs: dict[str, IntArray] = {side: _resolve_bars(log, data, side) for side in _SIDES}
+    legs: dict[str, IntArray] = {side: resolve_bars(log, data, side) for side in _SIDES}
     for side, bars in legs.items():
         _check_prices(log, data, bars, side=side, tolerance=price_tolerance)
 
@@ -542,11 +543,14 @@ def _check_columns(log: pd.DataFrame) -> None:
         raise AnnotationError(msg)
 
 
-def _resolve_bars(log: pd.DataFrame, data: Dataset, side: str) -> IntArray:
+def resolve_bars(log: pd.DataFrame, data: Dataset, side: str) -> IntArray:
     """Find the bar behind each leg's ``side`` fill: the log's own index, or one from its time.
 
     A log that carries bar indices keeps them. Resolving them from the timestamps instead would
     shift every simulated trade one bar forward, because a bar's own stamp is not a fill time.
+
+    Public because :mod:`nqbt.chart` needs the same bar and the same two checks with it; a
+    second copy would be a chart drawn over bars an annotation would have refused.
     """
     bar_column, time_column = f"{side}_bar", f"{side}_time"
     known: BoolArray = (
