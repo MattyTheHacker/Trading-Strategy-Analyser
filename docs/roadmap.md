@@ -2111,6 +2111,35 @@ Strata stated before the run, as §M28.2 established: `unfiltered` and `regime=C
 
 **The midpoint target changes nothing, which retires the other half of the deferral.** `width+mid` sits between the other two schemes at the endpoint and is identically zero everywhere below it. The target was not what parked the fade either.
 
+#### Why the axis is monotone: the stop is inside the bar the order fills on
+
+Gate 1 says the fade degrades smoothly as its stop tightens. This says why, and the reason is a property of **the entry** rather than of the stop — which is what makes it a finding rather than a restatement.
+
+Measured on the configuration gate 1 ranks highest among the tight stops — NQ, 1-minute bars, the `overnight` range, short, `stop_offset_ticks=8`, 613 trades, a measurement of one dated run — the **adverse excursion inside the entry bar alone**. It is independent of the stop by construction: it is the bar the order filled on and nothing after it, so it is not the endogenous quantity `avg_mae_points` is.
+
+| entry bar's adverse excursion | p25  | median    | p75   | p90   |
+| ----------------------------- | ---- | --------- | ----- | ----- |
+| points                        | 7.75 | **12.00** | 18.25 | 26.60 |
+
+Against that, the stops the fraction axis produces on the same configuration:
+
+| stop distance                   | 5.77 (frac 0.02) | 11.00 (0.05) | 18.85 (0.10) | 43.38 (0.25) |
+| ------------------------------- | ---------------- | ------------ | ------------ | ------------ |
+| exceeded by the entry bar alone | **84.7%**        | 56.0%        | 22.3%        | **2.4%**     |
+
+**Profitability appears exactly where the stop clears the bar it enters on**, and the two tables are the same gradient read from either end. The corroborating counts move with it: same-bar exits run 89.6%, 24.3% and 1.9% across the three fractions, and stop exits 91%, 69% and 56%.
+
+**A fade enters against a move that has just traded through the level, so the bar that fills it is the bar that move is happening on.** The stop distance is therefore not free: it is bounded below by the size of the bar the break happens on. A stop tighter than that is removed by the market before the thesis it protects has been tested.
+
+Two controls, both on the same logs, rule out the alternatives:
+
+- **Not a target mismatch.** `ORB_TARGET_R` scales the target down with the stop — 1.4 to 1.5 R at every fraction — and fails *harder* than the fixed-width target, at a profit factor of 0.19 against 0.35 at `frac=0.02`. Tightening both ends together is worse than tightening one.
+- **Not the overnight range's width.** The `cash=30m` range, 105 points wide against the overnight's 163, shows the same shape at the same fractions: a 4.61-point stop, 92.1% same-bar exits and a profit factor of 0.11. The floor tracks the bar, not the range.
+
+**What it adds to the verdict.** §M28.2 could say the fade failed across the stops it happened to sweep, and gate 1 above adds that it fails monotonically. This says the floor is set by the entry rule, so "a very tight stop just outside the range" is not a bracket the archetype was denied — it is one the entry cannot carry. It also makes a prediction the sweep did not need: **the floor should move with bar size and not with range width**. Half of that is measured here, in the two ranges above; the resolution half is not, and would be the cheapest way to falsify this.
+
+**And it is the first reason to expect [#255] to behave differently rather than merely to be untested.** A limit resting inside the extreme fills as price comes *to* it, where a stop fills after price has already traded through — so the bar that fills a reversion entry is not by construction the bar the break is happening on. That is a different exposure to the quantity measured above, and it is the only part of this archetype the fade's own campaigns have not now bounded.
+
 #### The two shares move in opposite directions, and one of them is §M28.2's mechanism again
 
 |                       | frac 0.02 | 0.05  | 0.10  | 0.25  |
@@ -2149,7 +2178,7 @@ Through `campaign_holdout`'s own `verdict()`, unfiltered, per stop fraction — 
 
 [#256] stated the fork before the run: a tight stop that fails the same way is a stronger negative than the one already recorded, and a tight stop that does not is the first evidence that the bracket rather than the entry is what parked it. It is the first. **The fade's bracket now has a verdict rather than a parked configuration space** — the archetype is not retired, and § "Parked is not abandoned" is why — and it is a stronger negative than §M28.2's, because §M28.2 could only say the fade failed across the stops it happened to sweep, while the gradient beneath those stops now says which direction it fails in and that the failure deepens monotonically toward the geometry the setup is defined by.
 
-**What that leaves.** The fade is not re-runnable on its bracket again: the stop axis has been swept from 0.02 to 1.0 of the range width and is monotone across the whole of it, and both target schemes are measured. What has *not* been tested is the entry — [#255]'s limit resting at the extreme with no break required, which is a different trigger rather than a different bracket, and which reaches an order type the fade cannot express at all. § "Parked is not abandoned" is satisfied by that and by nothing else currently written down.
+**What that leaves.** The fade is not re-runnable on its bracket again: the stop axis has been swept from 0.02 to 1.0 of the range width and is monotone across the whole of it, and both target schemes are measured. What has *not* been tested is the entry, which § "Why the axis is monotone: the stop is inside the bar the order fills on" now names as the binding constraint rather than merely the untried half — [#255]'s limit resting at the extreme with no break required, which is a different trigger rather than a different bracket, and which reaches an order type the fade cannot express at all. § "Parked is not abandoned" is satisfied by that and by nothing else currently written down.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 
