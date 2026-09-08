@@ -4,12 +4,14 @@ paths:
   - "nqbt/trades.py"
   - "nqbt/annotate.py"
   - "nqbt/review.py"
+  - "nqbt/chart.py"
   - "nqbt/guard.py"
   - "nqbt/notes.py"
   - "tests/test_numpy_summary.py"
   - "tests/test_trades_schema.py"
   - "tests/test_annotate.py"
   - "tests/test_review.py"
+  - "tests/test_chart.py"
   - "tests/test_guard.py"
   - "tests/test_notes.py"
 ---
@@ -103,6 +105,22 @@ paths:
   leaving the provenance to be remembered. `docs/roadmap.md` §M27.8.
 - **`save_annotation` is the fourth door the notes rail is enforced at**, and the worst one to
   leave open: a note in a queryable column is one `GROUP BY` from rediscovering its own outcome.
+- **A chart draws bar-close OHLC and never a path between two fills.** A line from the entry
+  price to the exit price would depict what these bars do not record, and reaching for
+  `data/tick/` to draw it truthfully is the more-precise-than-NT8 error. `tests/test_chart.py`
+  pins it over the whole document: every line is a vertical wick or a horizontal level.
+- **A chart is a debugging instrument and not a selection one**, and `chart.CAUTION` says so on
+  every one, exactly as `review.STATUS` does in every report. It can settle whether the
+  simulator did what the rule says; a dozen charts read to choose between rules is `guard`'s
+  hazard in its most seductive form.
+- **`annotate.resolve_bars` is shared, not copied.** It is the one route from a fill to a bar and
+  it carries both checks with it — the range, and the stamps that catch a different series of the
+  same shape. A chart drawn over bars an annotation would have refused is plausible at every
+  stage and wrong at every price.
+- **A fill outside its bar is refused by `annotate` and drawn by `chart`.** Back-adjustment is
+  what puts one there, and a chart is the instrument that makes it visible, so the price domain
+  is fitted to include every drawn price rather than clipping the marker away. The series is
+  named in the corner of every chart, from `Dataset.price_basis`, for the same reason.
 - **In `results.TRADE_VIEW` a parameter is a filter and never a grouping.** Neighbouring
   combinations share most of their entries, so grouping the view by `ema_period` counts the same
   trade many times and makes `guard`'s permutation null far too tight. Narrowing the population
