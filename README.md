@@ -67,16 +67,20 @@ insidebar = archetypes.get("InsideBar")
 bars = splice.load_continuous("MNQ")
 
 grid = sweep.Grid.of(
-    costs.LIVE.apply(insidebar.params_cls()),   # the archetype is inferred from the params
-    atr_multiplier=[5.0, 10.0, 15.0, 20.0],     # stop distance
+    costs.LIVE.apply(insidebar.params_cls()),  # the archetype is inferred from the params
+    atr_multiplier=[5.0, 10.0, 15.0, 20.0],  # stop distance
     atr_length=[3, 7, 14],
-    tp_multiplier=[1.0, 2.0, 3.0],              # target distance
+    tp_multiplier=[1.0, 2.0, 3.0],  # target distance
 )
 
-table, _ = sweep.sweep(bars, grid, n_jobs=8)    # n_jobs=1, the default, stays in-process
+table, _ = sweep.sweep(bars, grid, n_jobs=8)  # n_jobs=1, the default, stays in-process
 results.save_sweep(
-    table, root="MNQ", instrument="MNQ", bars=bars,
-    axes=grid.axes, strategy=grid.archetype.name,
+    table,
+    root="MNQ",
+    instrument="MNQ",
+    bars=bars,
+    axes=grid.axes,
+    strategy=grid.archetype.name,
 )
 print(sweep.rank(table, "profit_factor", top=10, min_trades=200))
 ```
@@ -139,7 +143,7 @@ The other half of the tool takes an NT8 **executions** export (Control Center �
 from nqbt import annotate, context, review, trade_import
 
 imported = trade_import.import_executions("executions.csv", timezone="Europe/London")
-bars = annotate.contract_bars(imported.frame)   # per-contract bars, never back-adjusted
+bars = annotate.contract_bars(imported.frame)  # per-contract bars, never back-adjusted
 data = context.prepare(
     bars,
     context.ContextSpec(needs_time_of_day=True),
@@ -151,7 +155,7 @@ print(review.review(imported.frame, annotation, unpopulated=imported.unpopulated
 
 Time of day is the headline, and everything a review prints is **hypothesis-generating, not confirmatory** — the report says so itself. A few hundred trades against a few dozen conditions is a multiple-comparisons machine, so what a review raises goes to `guard` and then to a sweep. Free-text notes on a trade are stored and displayed by [nqbt/notes.py](nqbt/notes.py) and are structurally barred from reaching a `groupby`: a note is written knowing the outcome, so stratifying by one would rediscover the outcome.
 
-## Drawing one trade
+## Looking at one trade
 
 `nqbt.chart` draws a single trade on the bars it happened on and writes a self-contained SVG — the candles either side, the bracket each leg carried, where every leg left and why, and how far price ran each way while it was open. Any archetype, and an imported trade log as readily as a simulated one:
 

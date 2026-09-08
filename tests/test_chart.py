@@ -482,7 +482,7 @@ def test_the_readme_worked_example_names_things_that_still_exist():
     """
     readme = (paths.REPO_ROOT / "README.md").read_text(encoding="utf-8")
     fence = "```"
-    found = re.search(rf"### Looking at one trade.*?{fence}python\n(.*?){fence}", readme, re.DOTALL)
+    found = re.search(rf"#+ Looking at one trade.*?{fence}python\n(.*?){fence}", readme, re.DOTALL)
     assert found, "the README no longer carries a chart example"
 
     example = found.group(1)
