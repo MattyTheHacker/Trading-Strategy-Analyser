@@ -67,6 +67,17 @@ def test_the_shortlist_is_restricted_to_one_root_stratum_and_resolution(monkeypa
     assert list(picked["trades"]) == [100]
 
 
+def test_a_variant_restricted_shortlist_holds_only_rows_of_that_variant(monkeypatch) -> None:
+    """The selection side of the dilution: a pool drawn over a mixture of geometries ranks the
+    fattest tail in it rather than the one being asked about -- ``docs/roadmap.md`` §M28.9."""
+    frame = stored_rows(variant=["breakout", "fade", "breakout", "fade"])
+    monkeypatch.setattr(campaign_shortlist, "load", lambda *_: frame)
+    confined = shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10, None, None, "breakout")
+    assert set(confined["variant"]) == {"breakout"}
+    assert len(confined) == 2
+    assert len(shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10)) == 4
+
+
 def test_a_selection_matching_no_stored_row_raises_rather_than_ranking_nothing(monkeypatch) -> None:
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: stored_rows())
     with pytest.raises(RuntimeError, match="no stored rows"):

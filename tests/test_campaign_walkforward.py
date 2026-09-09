@@ -18,7 +18,7 @@ import pytest
 
 from nqbt import archetypes, context, higher_timeframe, sessions, trend, walkforward
 from nqbt.conditions import ma_keys
-from tools import campaign_walkforward
+from tools import campaign_shortlist, campaign_walkforward
 from tools.campaign_walkforward import candidate_grid, geometry, main, run_resolution, warmup_for
 
 ROOT = "MNQ"
@@ -203,3 +203,33 @@ def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(monk
     argv = ["campaign_walkforward.py", "--strategy", STRATEGY, "--min-trades", "1", "--n-jobs", "1"]
     assert main(argv) == 0
     assert ran == [5, 10]
+
+
+def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch) -> None:
+    """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of, and a
+    flag that parses without reaching ``shortlist`` reads exactly like one that works."""
+    rows = stored_rows(
+        root=ROOT,
+        stratum="unfiltered",
+        resolution=[5, 5],
+        variant=["breakout", "fade"],
+        profit_factor=[1.2, 1.4],
+    )
+    monkeypatch.setattr(campaign_shortlist, "load", lambda *_: rows)
+    monkeypatch.setattr(campaign_walkforward.splice, "load_continuous", lambda _: synthetic_bars(n=100))
+
+    walked: list[str] = []
+
+    def spy(_name, block, *_rest):
+        walked.extend(str(variant) for variant in block["variant"])
+
+        return {}
+
+    monkeypatch.setattr(campaign_walkforward, "run_resolution", spy)
+    argv = ["campaign_walkforward.py", "--strategy", STRATEGY]
+    assert main([*argv, "--variant", "breakout"]) == 0
+    assert walked == ["breakout"]
+
+    walked.clear()
+    assert main(argv) == 0
+    assert sorted(walked) == ["breakout", "fade"], "unrestricted, the pool holds both geometries"

@@ -17,6 +17,11 @@ a selection, before reading one as a verdict.
 **One walk-forward per resolution.** Two candidates at different bar sizes are different frames
 and cannot be selected between, so a shortlist spanning resolutions runs as one independent
 walk-forward each and never as one pool.
+
+**A database holding more than one variant needs ``--variant``**, for the reason
+``tools/campaign_holdout.py``'s :data:`~tools.campaign_holdout.GROUP_KEYS` gives: a pool drawn
+over a mixture of geometries ranks the fattest tail in it rather than the one being asked about
+-- ``docs/roadmap.md`` §M28.9.
 """
 
 from __future__ import annotations
@@ -181,6 +186,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--by", default="profit_factor", help="ranks the pool and selects each fold")
     parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
+    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=TOP, help="how many configurations the pool holds")
     parser.add_argument("--train-share", type=float, default=TRAIN_SHARE)
     parser.add_argument("--test-share", type=float, default=TEST_SHARE)
@@ -198,15 +204,17 @@ def main(argv: list[str]) -> int:
         args.top,
         args.stratum,
         args.resolution,
+        args.variant,
     )
     logger.info(
-        "%s on %s: %d configurations ranked on %s by %s; stratum %s",
+        "%s on %s: %d configurations ranked on %s by %s; stratum %s, variant %s",
         args.strategy,
         args.root,
         len(rows),
         "+".join(args.window),
         args.by,
         args.stratum or "any",
+        args.variant or "any",
     )
 
     bars: pd.DataFrame = splice.load_continuous(args.root)
