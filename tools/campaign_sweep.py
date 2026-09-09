@@ -65,6 +65,12 @@ entries differ by their entry rule and nothing else -- ``docs/roadmap.md`` §M28
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-rejection --split \
         --strata orb-rejection
+
+``--variants orb-geometry`` crosses the range's anchor with its length on all four entries,
+each held at the bracket its own campaign swept -- ``docs/roadmap.md`` §M28.8:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-geometry --split \
+        --strata orb-geometry
 """
 
 from __future__ import annotations
@@ -188,6 +194,7 @@ TREND_UP = "trend-up"
 ORB = "orb"
 ORB_FADE = "orb-fade"
 ORB_REJECTION = "orb-rejection"
+ORB_GEOMETRY = "orb-geometry"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -420,6 +427,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ORB: (UNFILTERED, DIRECTIONAL, TREND_UP),
     ORB_FADE: ORB_REVERSION_STRATA,
     ORB_REJECTION: ORB_REVERSION_STRATA,
+    ORB_GEOMETRY: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -797,6 +805,31 @@ inert for a retest and ``retest_offset_ticks`` for the other two, and a grid cro
 uniformly. ``docs/roadmap.md`` §M28.2.
 """
 
+type OrbTarget = tuple[str, int, tuple[float, ...], dict[str, list[AxisValue]]]
+"""One target scheme: its name, the mode, the per-leg ladder and the axes only it reads."""
+
+ORB_TARGETS: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
+    "target=R": (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]}),
+    "target=width": (ORB_TARGET_WIDTH, {}),
+}
+"""The two target schemes §M28.2 crossed every entry with, at the default width ladder.
+
+``tp_multiplier`` scales an R target and is not read under :data:`ORB_TARGET_WIDTH`, so it is
+swept where it lives rather than shared -- ``docs/roadmap.md`` §M28.2.
+"""
+
+
+def _orb_further_targets() -> list[OrbTarget]:
+    """:data:`ORB_TARGETS` in the shape :func:`_orb_fade_targets` returns.
+
+    The ladder is the parameter default rather than a copy of it, so a variant built here and
+    one §M28.2 stored carry the same tuple.
+    """
+    default: tuple[float, ...] = OpeningRangeParams().target_width_multiples
+
+    return [(name, mode, default, axes) for name, (mode, axes) in ORB_TARGETS.items()]
+
+
 ORB_FRACTIONS = [0.25, 0.5, 0.75, 1.0]
 """How far back across the range the stop sits, in range widths.
 
@@ -818,10 +851,6 @@ def openingrange_further_variants(root: str) -> list[Variant]:
         "max_entries_per_session": [1, 0],
         "stop_range_fraction": [*ORB_FRACTIONS],
     }
-    targets: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
-        "target=R": (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]}),
-        "target=width": (ORB_TARGET_WIDTH, {}),
-    }
 
     return [
         Variant(
@@ -842,7 +871,7 @@ def openingrange_further_variants(root: str) -> list[Variant]:
         )
         for range_name, (anchor, window) in ORB_RANGES.items()
         for entry_name, (entry_mode, entry_axes) in ORB_ENTRIES.items()
-        for target_name, (target_mode, target_axes) in targets.items()
+        for target_name, (target_mode, target_axes) in ORB_TARGETS.items()
     ]
 
 
@@ -906,7 +935,7 @@ def openingrange_fade_variants(root: str) -> list[Variant]:
     ]
 
 
-def _orb_fade_targets() -> list[tuple[str, int, tuple[float, ...], dict[str, list[AxisValue]]]]:
+def _orb_fade_targets() -> list[OrbTarget]:
     """The three target schemes §M28.5 crosses: the R ladder and two width ladders.
 
     A ladder is a tuple, so it is a variant rather than an axis -- see :class:`Variant`. The
@@ -965,6 +994,127 @@ def openingrange_rejection_variants(root: str) -> list[Variant]:
         )
         for range_name, (anchor, window) in ORB_RANGES.items()
         for target_name, target_mode, ladder, target_axes in _orb_fade_targets()
+    ]
+
+
+ORB_WIDE_BRACKET: dict[str, list[AxisValue]] = {"stop_range_fraction": [*ORB_FRACTIONS]}
+"""The bracket §M28.2 swept the breakout and the retest on: the stop a fraction of the range
+width back from the extreme that was broken, and the offset left at its default."""
+
+ORB_TIGHT_BRACKET: dict[str, list[AxisValue]] = {
+    "stop_range_fraction": [*ORB_TIGHT_FRACTIONS],
+    "stop_offset_ticks": [2, 8],
+}
+"""The bracket §M28.5 and §M28.7 swept the fade and the rejection on: the stop just outside the
+extreme entered at, with the absolute floor separated from the proportional part."""
+
+
+ORB_REJECTION_ENTRY: dict[str, list[AxisValue]] = {"entry_offset_ticks": [*ORB_REJECTION_OFFSETS]}
+"""The rejection's own entry axis, which is the whole of what it reads at the level."""
+
+
+class OrbEntry(NamedTuple):
+    """One entry mechanism at the axes and the bracket its own campaign swept it over."""
+
+    mode: int
+    axes: dict[str, list[AxisValue]]
+    targets: list[OrbTarget]
+
+
+ORB_GEOMETRY_ENTRIES: dict[str, OrbEntry] = {
+    "entry=breakout": OrbEntry(
+        ORB_ENTRY_BREAKOUT,
+        ORB_ENTRIES["entry=breakout"][1] | ORB_WIDE_BRACKET,
+        _orb_further_targets(),
+    ),
+    "entry=fade": OrbEntry(
+        ORB_ENTRY_FADE,
+        ORB_ENTRIES["entry=fade"][1] | ORB_TIGHT_BRACKET,
+        _orb_fade_targets(),
+    ),
+    "entry=retest": OrbEntry(
+        ORB_ENTRY_RETEST,
+        ORB_ENTRIES["entry=retest"][1] | ORB_WIDE_BRACKET,
+        _orb_further_targets(),
+    ),
+    "entry=rejection": OrbEntry(
+        ORB_ENTRY_REJECTION,
+        ORB_REJECTION_ENTRY | ORB_TIGHT_BRACKET,
+        _orb_fade_targets(),
+    ),
+}
+"""All four entries, each carrying what its own campaign gave it rather than one shared grid.
+
+**That is what makes the range the only thing that moves.** §M28.2 measured the breakout and the
+retest on a stop inside the range; §M28.5 and §M28.7 measured the fade and the rejection on one
+just outside the extreme they enter at, which is the other side of the same formula. A single
+bracket across all four would move two things at once on two of them -- ``docs/roadmap.md``
+§M28.8.
+"""
+
+ORB_GEOMETRY_WINDOWS = (5, 15, 30, 45, 60, 90, 120, sessionrange.CASH_OPEN_MINUTES)
+"""Range lengths in minutes: §M28's three, the hour most sources mean by "the ORB", and the
+lengths that bracket it.
+
+The last is the overnight span rather than a length anyone would name. It is in the axis
+because it is the one window that reproduces §M28.2's ``overnight`` range, which anchors the
+gradient to a stored measurement instead of running beside it -- ``docs/roadmap.md`` §M28.8.
+"""
+
+
+def orb_geometry_ranges() -> dict[str, sessionrange.RangeKey]:
+    """Every (anchor, window) the session leaves room to trade, one entry per cell of the cross.
+
+    The anchors are the session's own phase starts, and a range must complete before the phase
+    the forced flat falls in -- so which cells exist is derived from the session template
+    rather than chosen.
+    """
+    latest: int = sessionrange.anchor_for(timeofday.FORCED_EXIT_PHASE)
+    anchors: dict[str, int] = {
+        phase.name.lower().replace("_", "-"): sessionrange.anchor_for(phase)
+        for phase in timeofday.SessionPhase
+    }
+
+    return {
+        f"{name}+{window}m": (anchor, window)
+        for name, anchor in anchors.items()
+        for window in ORB_GEOMETRY_WINDOWS
+        if anchor + window <= latest
+    }
+
+
+def openingrange_geometry_variants(root: str) -> list[Variant]:
+    """§M28.8's run: the range's anchor crossed with its length, on all four entries.
+
+    One variant per (range, entry, target), because the range decides which resolutions exist
+    at all and each entry reads axes the others do not -- ``Variant.resolutions``.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "max_entries_per_session": [1, 0],
+    }
+
+    return [
+        Variant(
+            name=f"{range_name} {entry_name} {target_name}",
+            archetype=archetypes.OPENINGRANGE,
+            base=_costed(
+                OpeningRangeParams(
+                    anchor_minutes=anchor,
+                    window_minutes=window,
+                    entry_mode=entry.mode,
+                    stop_mode=ORB_STOP_FRACTION,
+                    target_mode=target_mode,
+                    target_width_multiples=ladder,
+                ),
+                root,
+            ),
+            axes={**shared, **entry.axes, **target_axes},
+            resolutions=orb_resolutions(anchor, window),
+        )
+        for range_name, (anchor, window) in orb_geometry_ranges().items()
+        for entry_name, entry in ORB_GEOMETRY_ENTRIES.items()
+        for target_name, target_mode, ladder, target_axes in entry.targets
     ]
 
 
@@ -1114,6 +1264,13 @@ ORB_FADE_VARIANTS = {"OpeningRange": openingrange_fade_variants}
 """The §M28.5 re-run: the fade alone, with a stop tighter than §M28.2's axis reached and a
 target that stops at the middle of the range -- ``docs/roadmap.md`` §M28.5."""
 
+ORB_GEOMETRY_VARIANTS = {"OpeningRange": openingrange_geometry_variants}
+"""The §M28.8 run: the anchor axis §M28.2 opened, crossed with the length axis nothing has swept.
+
+Its own set rather than an edit to :data:`ORB_VARIANTS` for that dict's own reason, and the
+range names carry a ``+`` where the stored ones carry a ``=`` so the two cannot collide in one
+database -- ``docs/roadmap.md`` §M28.8."""
+
 ORB_REJECTION_VARIANTS = {"OpeningRange": openingrange_rejection_variants}
 """The §M28.7 run: the rejection alone, over §M28.5's bracket, so that the two reversion
 entries differ by their entry rule and nothing else -- ``docs/roadmap.md`` §M28.7."""
@@ -1125,7 +1282,7 @@ axes exist -- ``docs/roadmap.md`` § "The build spec's three loose ends, measure
 
 CAMPAIGN = "campaign"
 
-VARIANT_SETS = {CAMPAIGN, NARROW, ORB, ORB_FADE, ORB_REJECTION, SPEC}
+VARIANT_SETS = {CAMPAIGN, NARROW, ORB, ORB_FADE, ORB_GEOMETRY, ORB_REJECTION, SPEC}
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
 ``--variant narrow`` to the reading tools."""
@@ -1137,6 +1294,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_FADE: ORB_FADE_VARIANTS,
+        ORB_GEOMETRY: ORB_GEOMETRY_VARIANTS,
         ORB_REJECTION: ORB_REJECTION_VARIANTS,
         SPEC: SPEC_VARIANTS,
     }

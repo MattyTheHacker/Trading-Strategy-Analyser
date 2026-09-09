@@ -154,8 +154,11 @@ paths:
   each variant's axes to the ones it actually reads — `ORB_ENTRIES` is the shape.
 - **A re-sweep that adds an axis is its own variant set, never an edit to `VARIANTS`.** That dict
   is what §M27 and §M28.1 measured, so an added axis would leave the stored rows and the code
-  that produced them disagreeing. `NARROW_VARIANTS` and `ORB_VARIANTS` are the two, each with a
-  `STRATUM_SETS` entry naming its strata **before** it runs — `docs/roadmap.md` §M28.2.
+  that produced them disagreeing. `VARIANT_SETS` names them and each carries a `STRATUM_SETS`
+  entry naming its strata **before** it runs — `docs/roadmap.md` §M28.2. **The variant name is
+  the only thing separating two runs in one database**, so a set that re-runs a stored range
+  has to name it differently: `ORB_GEOMETRY_VARIANTS` writes `cash-open+30m` where
+  `ORB_VARIANTS` wrote `cash=30m`, and `campaign_holdout` pairs the two windows one-to-one.
 - **A price basis is stated, never inferred, and the default is the refusing one.**
   `prepare(price_basis=...)` defaults to `PriceBasis.UNKNOWN`, and a rule that reads an
   absolute level -- round-number stop avoidance is the only one -- runs on `RAW` alone. An
@@ -171,6 +174,14 @@ paths:
   cell by cell it is a consistent *cost*. Use `tools/campaign_paired.py` for a control/treatment
   pair and `tools/campaign_holdout.py` for a ranking. `docs/roadmap.md` § "The build spec's
   three loose ends, measured".
+- **A shortlist drawn over a mixture of geometries dilutes the one that works.** Ranking across
+  every range a grid swept and then testing the top twenty against a matched null pools the
+  cells that separate with the cells that do not, and the excess reported is the average of
+  both. Measured on OpeningRange: §M28.2's null over all five ranges put one cell under
+  p < 0.05, and the same null confined to one range put seven to twelve of twenty under it on
+  both roots — at two of the four lengths and neither of the others. **Rank within the variant
+  when the variant dimension is the thing being measured**, which is what `--variant` is for.
+  `docs/roadmap.md` §M28.8.
 - **Read `sel_top20_pf` beside `passes`.** The held-out gate is defined on the test window
   alone, so a shortlist drawn from a space containing nothing profitable can clear it by
   luck -- DeadCatBounce does, on MNQ, with a selection-window shortlist averaging 0.940.
