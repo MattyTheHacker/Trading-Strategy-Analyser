@@ -2491,9 +2491,24 @@ Profit factor by year, MNQ `cash+30m`, the control against all nine arms. The `@
 
 #### The drawdown check, cleared for the first time, and why it is not this axis's
 
-`cash+15m scale=stop@20` passes gate 2 on both roots and clears `campaign_holdout`'s drawdown check on both — held-out top-20 profit factor 1.224 / 1.223 against the control's 1.078 / 1.098, net-to-drawdown **1.720 / 1.651** against 0.763 / 0.897, and 20 of 20 shortlisted configurations profitable. **No cash-anchored §M28.8 variant reaches it**: the breakout and retest cells at both lengths and both target schemes run 0.446 to 0.982, and the one cell above 1.0 anywhere near them — the 15-minute retest at 3.011 on NQ — fails gate 2 and returns -0.674 on MNQ.
+Held-out top-20 net-to-drawdown at `cash+15m`, `tools/campaign_holdout.py`, MNQ / NQ. **Four of the nine arms clear the drawdown check on both roots and every one of them has the stop half switched on:**
 
-**Read it against the two paragraphs above before it is believed.** Over the matched geometry the tracked arm's median held-out net-to-drawdown is *below* the plain arm's — 0.226 against 0.376 on MNQ and 0.506 against 0.672 on NQ — so what the shortlist reports is which cells it picked rather than a property of the arm. The constant-fraction control has **not** been through the same shortlist, because the swept fraction axis does not reach the treatment's geometry; that is precisely [#262]'s gap, and settling it needs [#262]'s ladder rather than this axis.
+| arm          | MNQ       | NQ        | clears |
+| ------------ | --------- | --------- | ------ |
+| `both@20`    | **2.026** | **1.710** | yes    |
+| `stop@20`    | 1.720     | 1.651     | yes    |
+| `stop@60`    | 1.615     | 1.614     | yes    |
+| `both@60`    | 1.600     | 1.634     | yes    |
+| `target@20`  | 0.982     | 0.914     | no     |
+| `off`        | 0.763     | 0.897     | no     |
+| `target@60`  | 0.707     | 0.590     | no     |
+| `stop@250`   | 0.460     | 0.136     | no     |
+| `both@250`   | 0.459     | 0.136     | no     |
+| `target@250` | 0.195     | -0.041    | no     |
+
+`both@20` also carries the best held-out profit factor of the ten, 1.248 / 1.225 against the control's 1.078 / 1.098, with 20 of 20 shortlisted configurations profitable on both roots. **No cash-anchored §M28.8 variant reaches any of the four**: the breakout and retest cells at both lengths and both target schemes run 0.446 to 0.982, and the one figure above 1.0 anywhere near them — the 15-minute retest at 3.011 on NQ — fails gate 2 and returns -0.674 on MNQ.
+
+**No target-only arm clears it and every clearing arm is stop-side, which is the level reading from the variant side.** Read it against the two subsections above before it is believed: over the matched geometry the tracked arm's median held-out net-to-drawdown is *below* the plain arm's — 0.226 against 0.376 on MNQ and 0.506 against 0.672 on NQ — so what a shortlist reports is which cells it picked rather than a property of the arm. The constant-fraction control has **not** been through the same shortlist, because the swept fraction axis does not reach the treatment's geometry; that is precisely [#262]'s gap, and settling it needs [#262]'s ladder rather than this axis.
 
 #### The verdict, and what [#261] asked
 
