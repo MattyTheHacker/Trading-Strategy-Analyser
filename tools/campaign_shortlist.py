@@ -170,16 +170,15 @@ def store_group(
 ) -> int:
     """Store the log of every row measured on one resampled frame, and return how many.
 
-    One prepared dataset serves the whole block, built from the union of the rows' own context
-    specifications the way ``tools/campaign_sweep.py`` builds one per sweep point.
+    One prepared dataset serves the whole block, built from the shortlist as a combination grid
+    so that the union over its members is :meth:`~nqbt.sweep.Grid.required_context`'s rather
+    than a second copy of it.
     """
     rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
         (row, rebuild(row, archetype)) for _, row in block.iterrows()
     ]
-    spec: context.ContextSpec = context.ContextSpec()
-    for _, params in rebuilt:
-        spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
-    data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
+    grid: sweep.Grid = sweep.Grid.of_combinations([params for _, params in rebuilt], archetype=archetype)
+    data: context.Dataset = context.prepare(frame, grid.required_context(), bar_minutes=minutes)
 
     for row, params in rebuilt:
         summary, log = sweep.run_combination(

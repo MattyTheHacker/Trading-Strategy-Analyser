@@ -239,9 +239,25 @@ class Grid:
             name: list(self.axes.get(name, [getattr(self.base, name)])) for name in self.archetype.sweepable
         }
 
+    def own_values(self, params: Params) -> dict[str, list[AxisValue]]:
+        """One combination's parameters, in the shape ``context_for`` reads axis values."""
+        return {name: [getattr(params, name)] for name in self.archetype.sweepable}
+
     def required_context(self) -> ContextSpec:
-        """Every precomputed series any combination in this grid will read."""
-        return self.archetype.context_for(self.axis_values())
+        """Every precomputed series any combination in this grid will read.
+
+        A combination list is unioned member by member rather than crossed, because
+        :meth:`axis_values` collapses it to one list per parameter and a pair read from two of
+        them is then a pair no member holds -- ``docs/roadmap.md`` § "Standing traps".
+        """
+        if self.combos is None:
+            return self.archetype.context_for(self.axis_values())
+
+        spec: ContextSpec = ContextSpec()
+        for params in self.combos:
+            spec = spec | self.archetype.context_for(self.own_values(params))
+
+        return spec
 
 
 def prepare_for(bars: pd.DataFrame, grid: Grid, **kwargs: Unpack[PrepareOptions]) -> Dataset:
