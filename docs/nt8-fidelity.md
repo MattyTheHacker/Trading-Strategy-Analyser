@@ -172,6 +172,8 @@ When a bar contains both the stop and a target, bar-close OHLC cannot say which 
 
 **The seven bars above contain no same-bar limit entry, and that is where the rule stops being fitted.** All seven are exits from a position opened on an earlier bar, so the bar's open is also the price the trade was live from. On an entry that fills *inside* the ambiguous bar the two come apart, and measuring distance from the bar's open then asks a question the trade list never answered. Measured against the minute bars on OpeningRange's retest — the registry's only limit entry — the rule was wrong on every bar that could be settled: `docs/roadmap.md` §M28.4. That is a limit on the rule's reach, not a contradiction of the trade list, and NT8 will still fill those bars its own way.
 
+**The sign of the error is set by the entry mechanism, and both signs have now been measured.** Run over one configuration at an `ambiguous_share` near 0.9, OpeningRange's fade returns a profit factor of 0.016 under this rule against 0.012 at the blanket worst case and 2.171 at the blanket best case; its rejection returns 57.953 against 0.274 and 71.654. **Neither sits in the middle of its band — each sits on an opposite end of it.** A stop entry fills as price comes back through the level, so the bar's open lies beyond the fill on the stop's side and the rule books the stop; a limit entry fills as price comes to it, so the open lies on the target's side and the rule books the target. Where an archetype's bracket is narrow enough for this to reach most of its legs, the resulting profit factor is a measurement of the assumption rather than of the strategy: [roadmap.md](roadmap.md) §M28.7.
+
 The 2024-01-11 16:11 bar is the clearest evidence: NT8 filled S1's target at 16836.00 **and** stopped S2/S3/S4 at 16842.75 on that one bar.
 
 ### Ratchet reads the just-closed bar
@@ -592,6 +594,18 @@ Same rule as §M26's: **only a distance is floored, never a level.** `min_bracke
 The last two rows are rules this project has already established for *exits* — "Limit orders must trade **through**, not touch" and the targets taking no slippage — reaching the entry for the first time. `bracket.limit_filled` is the one implementation and the entry reads it at `-direction`, because the limit is favourable from the other side.
 
 **A marketable limit is refused rather than filled, and this one is a decision rather than a measurement.** §M18 establishes that NT8 declines a stop entry at or through the market; the mirror — what it does with a buy limit submitted at or above the close — **has not been probed**, and NT8 would most likely accept it and fill at the market. The simulation refuses it, so a retest never enters at a price the market has already left. That is a deliberate deviation from an *unmeasured* behaviour rather than from a known one; it is the conservative side, and it is the first thing to settle if the retest ever earns a port. Booking it with the two-sided-range probe §M28 already wants is the cheap way to answer it.
+
+### M28.6 — the rejection entry, written to the same standing as §M28.2 (#255)
+
+**Still no NinjaScript, so nothing here is backed by a trade list either.** The design, and what it is waiting on before it is swept: [roadmap.md](roadmap.md) §M28.6.
+
+**The rejection is one `EnterLongLimit` at the range's own extreme, with no arming condition at all.** `EnterLongLimit(rangeLow + entryOffsetTicks * TickSize)` for a long and `EnterShortLimit(rangeHigh - entryOffsetTicks * TickSize)` for a short, resubmitted at every bar close from the bar the range completes on. There is no `bool` to reset on `Bars.IsFirstBarOfSession` and no `High[0]`/`Low[0]` comparison to make: the fill test **is** the condition, because a limit `entryOffsetTicks` inside the low fills exactly when price comes that close to the low and no closer.
+
+**Every fill rule it takes is one already written down.** §M28.2's retest table applies unchanged — fills at its price or better, does not fill on a touch under `IsFillLimitOnTouch = false`, takes no slippage, and a marketable limit is refused. That last remains a deviation from an **unmeasured** behaviour rather than from a measured one, and it now carries two entry modes rather than one.
+
+**The offset runs inward here and outward for a breakout, and it may be zero.** `entryOffsetTicks` is measured past the level in the direction traded, and this mode's level is the extreme *against* that direction. §M28's reason for defaulting it to 1 — a bar closing exactly on the level can never submit a stop entry, because NT8 declines a stop at or through the market — does not reach a limit, which is accepted from any bar that closed on the range's side of it.
+
+**It refuses the opposite-extreme stop for the fade's reason.** Its entry level is the extreme `ORB_STOP_OPPOSITE` names, so the stop would land `entryOffsetTicks + stopOffsetTicks` from the entry and the mode would be the fraction stop at a fraction of zero. `OpeningRangeParams` raises rather than sweep the duplicate.
 
 ### The session end is the observed last bar, not the template's (#68)
 

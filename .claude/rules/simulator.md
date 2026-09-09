@@ -122,24 +122,38 @@ below and is what you quote; this file is the index, not the record.
 - **OpeningRange computes its whole bracket from the trigger, never from the fill**, because the
   trigger is the only price known when the order is submitted. A gapped fill is worse than
   planned and its R is measured against the plan — DeadCatBounce's rule, shared deliberately.
-- **Its three entry modes are one primitive read twice, and only the retest is new fill code.**
-  Breakout, fade and retest differ in which extreme they rest at and whether they wait for a
-  break — one per-session `bool`, reset at the session boundary — so `entry_level` and
-  `break_confirmed` are both sided through `bracket.sided`. **Do not fork the loop for a mode.**
-  The retest is the registry's **only limit entry**: it fills at its price or better, does not
-  fill on a touch, and **takes no slippage** — three rules that already existed for exits,
-  reaching an entry for the first time. It reads `bracket.limit_filled` at `-direction`,
-  because the limit is favourable from the other side. `docs/nt8-fidelity.md` §M28.2.
+- **Its four entry modes are three properties combined, and only the limit entries are new fill
+  code.** Breakout, fade, retest and rejection differ in which extreme they rest at, whether
+  they wait for a break — one per-session `bool`, reset at the session boundary — and whether
+  the order is a stop or a limit. So `ORB_OPPOSITE_EXTREME_ENTRIES`, `ORB_BREAK_ENTRIES` and
+  `ORB_LIMIT_ENTRIES` are membership tests rather than a comparison per mode, and `entry_level`
+  and `break_confirmed` are both sided through `bracket.sided`. **Do not fork the loop for a
+  mode.** The registry's **only limit entries** are both here: they fill at their price or
+  better, do not fill on a touch, and **take no slippage** — three rules that already existed
+  for exits, reaching an entry for the first time. They read `bracket.limit_filled` at
+  `-direction`, because the limit is favourable from the other side. `docs/nt8-fidelity.md`
+  §M28.2 and §M28.6.
+- **A narrow bracket on a limit entry measures `ambiguity_policy`, not the strategy.** The
+  nearest-to-open rule is unfitted where an entry fills inside the ambiguous bar, and the sign
+  of its error follows the order type: a stop entry fills with the open on the stop's side and
+  a limit entry with the open on the target's side, so on the same bars the fade lands at the
+  worst-case end of the band and the rejection at the best-case end. Every profitable cell of
+  the rejection's 245,760-combination campaign is one where the assumption decides the trade.
+  **Read `ambiguous_share` before believing any OpeningRange number**, and treat a bracket
+  narrower than a one-minute bar as unmeasurable rather than as a result — §M28.4's minute-bar
+  pass cannot settle it. `docs/roadmap.md` §M28.7.
 - **A marketable limit is refused, and that is a deviation from an *unmeasured* NT8 behaviour.**
   §M18's rule that a stop entry at or through the market is never submitted is measured; its
   mirror for a buy limit at or above the close is not, and NT8 would most likely accept it.
-  `submittable` refuses it, so a retest never enters at a price the market has already left.
-  **This is the one OpeningRange rule a trade list could contradict** — §M28.2.
-- **A fade cannot take `ORB_STOP_OPPOSITE`, and the params class raises rather than sweep it.**
-  Its entry level *is* that extreme, so the stop would be the fraction stop at a fraction of
-  zero — a silent duplicate of the kind `dead_axes` cannot see. `ORB_STOP_FRACTION` at `1.0`
-  reproduces `ORB_STOP_OPPOSITE` **exactly**, offset included, which is what makes the axis
-  contain the only stop that passed §M28.1's gate 1 rather than run beside it.
+  `submittable` refuses it, so a limit entry never enters at a price the market has already
+  left. **This is the one OpeningRange rule a trade list could contradict** — §M28.2, and both
+  limit modes now rest on it.
+- **A fade and a rejection cannot take `ORB_STOP_OPPOSITE`, and the params class raises rather
+  than sweep it.** Their entry level *is* that extreme, so the stop would be the fraction stop
+  at a fraction of zero — a silent duplicate of the kind `dead_axes` cannot see.
+  `ORB_STOP_FRACTION` at `1.0` reproduces `ORB_STOP_OPPOSITE` **exactly**, offset included,
+  which is what makes the axis contain the only stop that passed §M28.1's gate 1 rather than
+  run beside it.
 - **It carries the only per-session entry cap in the registry.** Every other loop re-enters as
   soon as it is flat; `max_entries_per_session` defaults to 1, which is the one-shot form every
   published opening-range result measures. `docs/roadmap.md` §M28, finding 4.
