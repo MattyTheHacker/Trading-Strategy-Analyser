@@ -18,6 +18,13 @@ and :data:`SHARES` travels with every table.
 the dimension tables exist to describe, and a variant is read on its own in the ``by variant``
 table below -- ``docs/roadmap.md`` §M28.9.
 
+**The one table that ranks carries what its exits were worth**, wherever
+``tools/campaign_shortlist.py`` has stored the log. ``session_close_share`` says how often the
+flatten took a leg and never what that leg returned, and on the survivor the two answers point
+opposite ways -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost, which
+``session_close_share`` cannot say". §M28.12 reads the column across the registry, where it
+does not say the same thing twice.
+
 Reads what ``tools/campaign_sweep.py`` wrote, one database per archetype.
 """
 
@@ -36,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_sweep import MIN_TRADES, VARIANTS, db_path
 
-from nqbt import logsetup, results, stats
+from nqbt import logsetup, results, stats, trades
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +76,31 @@ SHARES = ("session_close_share", "ambiguous_share")
 The final session phase holds the forced flat, so a stratification by the clock will always show
 it as anomalous and ``session_close_share`` is what tells the two apart -- ``docs/roadmap.md``
 §M10.4. ``ambiguous_share`` is the same obligation at a coarse resolution."""
+
+EXIT_ORDER = tuple(trades.EXIT_REASONS.values())
+"""Every exit reason a simulated leg can carry, in the simulator's own order rather than
+alphabetically. Read out of :data:`nqbt.trades.EXIT_REASONS` so the two cannot drift apart."""
+
+DECOMPOSITION = ("legs", "net", "bars_med")
+"""What each exit reason contributes to a ranked row, beside :data:`SHARES`.
+
+A share says how often a leg left by one route and never what that route was worth, and on the
+opening range the two point opposite ways -- ``docs/roadmap.md`` §M28.9, "The bracket is a net
+cost, which ``session_close_share`` cannot say"."""
+
+RANKED_COLUMNS = [
+    "root",
+    "resolution",
+    "variant",
+    "stratum",
+    "trades",
+    "profit_factor",
+    "net_pnl",
+    "sharpe",
+    *SHARES,
+]
+"""What the one ranking table names a configuration by. The shares are on it because it is the
+only table here that picks rows rather than describing a distribution."""
 
 TAGS = frozenset(
     {
@@ -176,6 +208,49 @@ def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
             **{f"{share}_med": grouped[share].median() for share in SHARES if share in frame.columns},
         },
     ).reset_index()
+
+
+def exit_decomposition(log: pd.DataFrame) -> dict[str, float]:
+    """One stored log's leg count, net P&L and median bars held, per exit reason.
+
+    ``stats.leg_summary`` supplies the first two, so this reads a summary over subsets and
+    defines no statistic of its own -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost,
+    which ``session_close_share`` cannot say". An exit reason the log never took is absent
+    rather than zero.
+    """
+    if log.empty:
+        return {}
+
+    decomposed: dict[str, float] = {}
+    for reason in EXIT_ORDER:
+        legs: pd.DataFrame = log[log["exit_reason"] == reason]
+        if legs.empty:
+            continue
+
+        summary: dict[str, float] = stats.leg_summary(legs)
+        decomposed[f"{reason}_legs"] = summary["legs"]
+        decomposed[f"{reason}_net"] = summary["net_pnl"]
+        decomposed[f"{reason}_bars_med"] = float(legs["bars_held"].median())
+
+    return decomposed
+
+
+def decompose_exits(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
+    """The exit decomposition of every row of ``frame``, aligned to its index.
+
+    Blank for a row ``tools/campaign_shortlist.py`` has stored no log for, since a shortlist
+    ranked here is not necessarily one whose logs were kept.
+    """
+    from tools.campaign_shortlist import load_trades  # noqa: PLC0415 - a top-level import would cycle
+
+    rows: list[dict[str, float]] = [
+        exit_decomposition(load_trades(int(row["sweep_id"]), int(row["combo_id"]), path))
+        for _, row in frame.iterrows()
+    ]
+    decomposed: pd.DataFrame = pd.DataFrame(rows, index=frame.index)
+    order: list[str] = [f"{reason}_{field}" for reason in EXIT_ORDER for field in DECOMPOSITION]
+
+    return decomposed[[column for column in order if column in decomposed.columns]]
 
 
 def dimension_of(stratum: str) -> str:
@@ -291,12 +366,15 @@ def report_strategy(name: str, windows: list[str]) -> pd.DataFrame:
         "axis influence on profit factor, unfiltered, eta^2",
         axis_influence(unfiltered, [*swept_axes(unfiltered), "resolution", "root"]),
     )
+    ranked: pd.DataFrame = frame.nlargest(5, "profit_factor")
+    named: list[str] = [column for column in RANKED_COLUMNS if column in ranked.columns]
+    decomposed: pd.DataFrame = decompose_exits(ranked, db_path(name))
     show(
         "top 5 by profit factor -- a statement about the sweep's size, not the strategy",
-        frame.nlargest(5, "profit_factor")[
-            ["root", "resolution", "variant", "stratum", "trades", "profit_factor", "net_pnl", "sharpe"]
-        ],
+        pd.concat([ranked[named], decomposed], axis=1),
     )
+    if decomposed.columns.empty:
+        logger.info("  none of these has a stored log; tools/campaign_shortlist.py writes them")
 
     by_resolution: pd.DataFrame = profile(frame, ["resolution"])
 

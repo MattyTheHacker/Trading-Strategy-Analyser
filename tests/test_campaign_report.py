@@ -7,22 +7,31 @@ an axis explains, and whether a stored row rebuilds into the parameters it came 
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, stats
+from nqbt import archetypes, stats, trades
+from tools import campaign_shortlist
 from tools.campaign_holdout import GROUP_KEYS, JOIN_KEYS, TOP, rank_correlation, verdict
 from tools.campaign_report import (
+    DECOMPOSITION,
+    EXIT_ORDER,
     NET_TO_DRAWDOWN,
+    RANKED_COLUMNS,
+    SHARES,
     STATISTICS,
     TAGS,
     UNFILTERED,
     axis_influence,
+    decompose_exits,
     dimension_influence,
     dimension_of,
     dimensions,
     eta_squared,
+    exit_decomposition,
     in_dimension,
     net_to_drawdown,
     parameter_columns,
@@ -139,6 +148,101 @@ def test_every_table_carries_the_two_shares_a_result_is_read_wrong_without() -> 
 def test_a_frame_without_the_shares_is_profiled_rather_than_refused() -> None:
     """The campaign databases widened over time, so an older row can be short a column."""
     assert "session_close_share_med" not in profile(combos(), ["root"]).columns
+
+
+# -- what the exits were worth -------------------------------------------------------------
+
+
+def legs(reason: list[str], net_pnl: list[float], bars_held: list[int]) -> pd.DataFrame:
+    """A stored trade log, cut to the three columns a decomposition reads."""
+    return pd.DataFrame({"exit_reason": reason, "net_pnl": net_pnl, "bars_held": bars_held})
+
+
+def test_a_decomposition_says_what_each_exit_reason_was_worth() -> None:
+    """The claim ``session_close_share`` cannot make: a share counts the legs the flatten took
+    and never what they returned -- ``docs/roadmap.md`` §M28.9."""
+    row = exit_decomposition(
+        legs(
+            ["stop", "stop", "target", "session_close"],
+            [-2.0, -4.0, 5.0, 9.0],
+            [10, 20, 30, 400],
+        ),
+    )
+    assert row["stop_legs"] == 2
+    assert row["stop_net"] == pytest.approx(-6.0)
+    assert row["stop_bars_med"] == pytest.approx(15.0)
+    assert row["target_net"] == pytest.approx(5.0)
+    assert row["session_close_bars_med"] == pytest.approx(400.0)
+
+
+def test_every_exit_reason_the_simulator_can_write_is_decomposed() -> None:
+    """The reasons are read from ``trades.EXIT_REASONS`` rather than listed here, so a reason
+    added to the simulator is reported rather than dropped out of a total that still sums."""
+    reasons = list(trades.EXIT_REASONS.values())
+    log = legs(reasons, [float(n) for n in range(len(reasons))], list(range(1, len(reasons) + 1)))
+    row = exit_decomposition(log)
+
+    assert sum(row[f"{reason}_legs"] for reason in reasons) == len(log)
+    assert sum(row[f"{reason}_net"] for reason in reasons) == pytest.approx(log["net_pnl"].sum())
+
+
+def test_the_decomposition_reads_leg_summary_rather_than_defining_its_own_total() -> None:
+    """A second definition of a net total would drift from the sweep's silently, because both
+    numbers would look reasonable -- ``CONTRIBUTING.md`` § "Statistics and results"."""
+    log = legs(["stop", "target", "stop"], [-2.0, 5.0, -4.0], [10, 30, 20])
+    row = exit_decomposition(log)
+    stopped = stats.leg_summary(log[log["exit_reason"] == "stop"])
+
+    assert row["stop_net"] == pytest.approx(stopped["net_pnl"])
+    assert row["stop_legs"] == stopped["legs"]
+
+
+def test_an_exit_reason_the_log_never_took_is_absent_rather_than_zero() -> None:
+    """A route that returned nothing and a route never taken are different claims."""
+    row = exit_decomposition(legs(["target"], [5.0], [30]))
+    assert "target_net" in row
+    assert not [column for column in row if column.startswith("stop_")]
+
+
+def test_a_log_with_no_legs_decomposes_into_nothing() -> None:
+    """An empty frame carries no ``exit_reason`` column at all, so the guard is the lookup's."""
+    assert exit_decomposition(pd.DataFrame()) == {}
+
+
+def test_the_decomposition_columns_follow_the_simulator_rather_than_the_alphabet(monkeypatch) -> None:
+    """``session_close`` sorts ahead of ``stop`` and ``target``, so an alphabetical grouping
+    would put the flatten before the bracket legs that decide whether it is reached."""
+    log = legs(["stop", "target", "session_close"], [-2.0, 5.0, 9.0], [10, 30, 400])
+    monkeypatch.setattr(campaign_shortlist, "load_trades", lambda *_: log)
+
+    columns = list(decompose_exits(combos(), Path("unused.duckdb")).columns)
+    assert columns == [
+        f"{reason}_{field}" for reason in ("stop", "target", "session_close") for field in DECOMPOSITION
+    ]
+    assert EXIT_ORDER.index("stop") < EXIT_ORDER.index("session_close")
+
+
+def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(monkeypatch) -> None:
+    """``campaign_report`` ranks every stored row and ``tools/campaign_shortlist.py`` stores a
+    log for a chosen few, so most ranked rows have none and are still rows."""
+    logged = {0: legs(["stop"], [-2.0], [10])}
+    monkeypatch.setattr(
+        campaign_shortlist,
+        "load_trades",
+        lambda _sweep, combo, _path: logged.get(combo, pd.DataFrame()),
+    )
+    frame = combos()
+
+    decomposed = decompose_exits(frame, Path("unused.duckdb"))
+    assert list(decomposed.index) == list(frame.index)
+    assert decomposed["stop_net"].iloc[0] == pytest.approx(-2.0)
+    assert decomposed["stop_net"].iloc[1:].isna().all()
+
+
+def test_the_one_table_that_ranks_carries_the_shares_the_decomposition_sits_beside() -> None:
+    """The distribution tables carry them and the ranking table did not, which is the half of
+    the reading rule a shortlist most needs -- ``CONTRIBUTING.md`` § "Statistics and results"."""
+    assert set(SHARES) <= set(RANKED_COLUMNS)
 
 
 # -- reading a dimension of the strata -----------------------------------------------------
