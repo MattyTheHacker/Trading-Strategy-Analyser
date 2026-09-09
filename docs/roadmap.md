@@ -2504,15 +2504,15 @@ The confined survivor, per year, at the stored `stop_range_fraction` of 1.0:
 
 | year     | profit factor | net P&L | max drawdown |
 | -------- | ------------- | ------- | ------------ |
-| 2022     | 1.134         | 9,576   | -8,001       |
-| 2023     | 1.204         | 9,406   | -5,544       |
-| 2024     | 1.233         | 12,040  | -7,669       |
-| 2025     | 1.251         | 17,197  | -6,694       |
-| **2026** | **1.007**     | **441** | **-22,625**  |
+| 2022     | 1.144         | 9,576   | -8,001       |
+| 2023     | 1.214         | 9,406   | -5,544       |
+| 2024     | 1.252         | 12,040  | -7,669       |
+| 2025     | 1.262         | 17,197  | -6,694       |
+| **2026** | **1.008**     | **441** | **-22,625**  |
 
-**The most recent eight months are flat with the largest drawdown in the sample**, and 2026 holds 156 sessions to the end of the archive, so this is a year that traded rather than thin coverage. It is not the bracket: every stop width is at or below breakeven there, 0.992 at 3.0 and 1.067 at 5.0.
+**The most recent eight months are flat with the largest drawdown in the sample**, and 2026 holds 156 sessions to the end of the archive, so this is a year that traded rather than thin coverage. It is not the bracket: every stop width is at or below breakeven there, 0.992 at 3.0 and 1.069 at 5.0.
 
-Nor is it the scale of the target, and that is the useful part. The obvious reading — a target denominated in range widths has grown too far away to be reached — predicts that tightening it helps. Measured at multiples of 0.33, 0.5 and 0.75 against 1.0's 1.007, the year returns **0.963, 0.952 and 0.999**. Tightening the target makes 2026 worse.
+Nor is it the scale of the target, and that is the useful part. The obvious reading — a target denominated in range widths has grown too far away to be reached — predicts that tightening it helps. Measured at multiples of 0.33, 0.5 and 0.75 against 1.0's 1.008, the year returns **0.959, 0.949 and 0.999**. Tightening the target makes 2026 worse.
 
 What did change is the archetype's own environment. Median 30-minute cash range, and follow-through — the further of the two extensions beyond the range, over the range width — per year on MNQ:
 
@@ -2555,7 +2555,7 @@ Every figure above is a measurement of one dated run against the archive as it s
 | 2025     | 179    | 1.262         | 17,197  | -6,694       |
 | **2026** | 110    | **1.008**     | **441** | **-22,625**  |
 
-**Net P&L is identical to the dollar in all five years to §M28.9's table above, so these are the same trades**, and the other two columns differ for stated reasons. The drawdown differs in 2022 alone because §M28.9 runs one continuous equity curve across the archive and slices it to the year, where this restarts the curve each year — -8,001 the first way against -7,706 the second, and 2023 onward the two agree exactly. The profit factors here sit about 0.01 above §M28.9's on those same legs, a different split of them into gross profit and gross loss. Neither difference reaches anything either section concludes.
+**Net P&L and profit factor are identical to §M28.9's table above in all five years**, both aggregated per trade as `stats.summarise` does rather than per leg, so the two sections are reading the same trades the same way. The drawdown differs in 2022 alone and the convention is the reason: §M28.9 runs one continuous equity curve across the archive and slices it to the year, where this restarts the curve each year — -8,001 the first way against -7,706 the second, agreeing exactly from 2023 on. Neither section's conclusions turn on it.
 
 #### The scale tracks the regime, so a negative result is about the idea rather than the estimate
 
