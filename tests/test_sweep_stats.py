@@ -7,10 +7,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, conditions, context, notes, resample, results, sessions, stats, sweep, trades
+from nqbt import (
+    archetypes,
+    conditions,
+    context,
+    notes,
+    resample,
+    results,
+    sessionrange,
+    sessions,
+    stats,
+    sweep,
+    trades,
+)
 from nqbt.instruments import NQ
 from nqbt.sim import runner
-from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+from nqbt.sim.types import DeadCatParams, OpeningRangeParams, PullBackAndGoParams
 
 
 def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
@@ -368,6 +380,43 @@ def test_a_combination_grid_builds_the_context_every_member_needs() -> None:
     assert conditions.ma_key("ema", 21) in spec.ma_keys
     assert conditions.ma_key("sma", 40) in spec.ma_keys
     assert conditions.ma_key("sma", 60) in spec.ma_keys
+
+
+def paired_range_grid() -> sweep.Grid:
+    """Two ranges each valid on its own, whose cross is not: 990+930 runs past the close."""
+    return sweep.Grid.of_combinations(
+        [
+            OpeningRangeParams(anchor_minutes=990, window_minutes=120),
+            OpeningRangeParams(anchor_minutes=450, window_minutes=930),
+        ],
+    )
+
+
+def test_a_combination_grid_asks_only_for_the_pairs_its_members_hold() -> None:
+    """``axis_values`` collapses a list to one set per parameter, so a pair read back from two
+    of them is a pair no member holds -- and for a range it may be unbuildable."""
+    grid = paired_range_grid()
+    held = sorted({(c.anchor_minutes, c.window_minutes) for c in grid.combinations()})
+    assert sorted(grid.required_context().range_keys) == held
+    assert (990, 930) not in grid.required_context().range_keys
+
+
+def test_a_combination_grid_of_individually_valid_ranges_stays_buildable() -> None:
+    """The failure this shape caused: a pooled shortlist raised ``RangeError`` for a window no
+    candidate asked for, so the pool could not be prepared at all."""
+    for anchor, window in paired_range_grid().required_context().range_keys:
+        sessionrange.validate_key(anchor, window, bar_minutes=15)
+
+
+def test_a_product_grid_still_crosses_its_axes() -> None:
+    """The other half: axes really are crossed, so narrowing this would under-build a sweep
+    and leave a combination reading a series nobody prepared."""
+    grid = sweep.Grid.of(
+        OpeningRangeParams(),
+        anchor_minutes=[0, 450],
+        window_minutes=[15, 30],
+    )
+    assert sorted(grid.required_context().range_keys) == [(0, 15), (0, 30), (450, 15), (450, 30)]
 
 
 def test_axes_and_a_combination_list_together_are_refused() -> None:
