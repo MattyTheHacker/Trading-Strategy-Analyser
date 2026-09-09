@@ -28,6 +28,7 @@ from nqbt.sim.types import (
     ORB_ENTRY_RETEST,
     ORB_LIMIT_ENTRIES,
     ORB_OPPOSITE_EXTREME_ENTRIES,
+    ORB_SCALE_NONE,
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
     ORB_TARGET_WIDTH,
@@ -61,6 +62,14 @@ class RangeSeries(NamedTuple):
     session_id: IndexArray
     high: FloatArray
     low: FloatArray
+    scale: FloatArray
+    """Per **session**: what the range width is multiplied by before the bracket reads it.
+
+    All ones where nothing is scaled, so the loop multiplies rather than branches; ``nan`` on a
+    session whose trailing follow-through has no history behind it, which is a session the
+    geometry cannot be stated for and so is not traded.
+    """
+
     atr: FloatArray
     """Per bar, and empty outside :data:`ORB_STOP_ATR`, where the loop never indexes it."""
 
@@ -80,6 +89,8 @@ class OpeningRangeRules(NamedTuple):
     min_bracket_points: float
     target_mode: int
     tp_multiplier: float
+    scale_target: bool
+    scale_stop: bool
     max_entries_per_session: int
     bars_required: int
     block_entry_at_session_close: bool
@@ -191,6 +202,7 @@ def entry_fill(
 def range_bracket(
     range_high: float,
     range_low: float,
+    stop_scale: float,
     atr: FloatArray,
     signal_bar: int,
     rules: OpeningRangeRules,
@@ -205,6 +217,9 @@ def range_bracket(
     fill**, because the whole bracket is known when the order is submitted -- which is what the
     reconciled DeadCatBounce port does and what a NinjaScript setting its stop and target at
     submission would do.
+
+    ``stop_scale`` is what the fraction stop's range width is multiplied by -- one under every
+    mode but the one that denominates it in trailing follow-through.
     """
     direction = rules.direction
     opposite, _ = bracket.sided(range_low, range_high, direction)
@@ -222,7 +237,7 @@ def range_bracket(
         )
         stop = trigger - direction * distance
     elif rules.stop_mode == ORB_STOP_FRACTION:
-        width = range_high - range_low
+        width = (range_high - range_low) * stop_scale
         stop = level - direction * (rules.stop_range_fraction * width + rules.stop_offset)
     else:
         stop = opposite - direction * rules.stop_offset
@@ -397,11 +412,20 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
         if rules.block_entry_at_session_close and bars.force_flat[i]:
             continue
 
+        # A session with too little history behind it to state the trailing scale has no
+        # geometry rather than an unscaled one; at ORB_SCALE_NONE the scale is one everywhere.
+        scale = ranges.scale[session]
+        if not np.isfinite(scale):
+            continue
+
+        stop_scale = scale if rules.scale_stop else 1.0
+        target_scale = scale if rules.scale_target else 1.0
         range_high = ranges.high[session]
         range_low = ranges.low[session]
         trigger, candidate_stop, candidate_risk = range_bracket(
             range_high,
             range_low,
+            stop_scale,
             ranges.atr,
             i,
             rules,
@@ -412,7 +436,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
         pending_bar = i
         pending_trigger = trigger
         pending_stop = candidate_stop
-        pending_width = range_high - range_low
+        pending_width = (range_high - range_low) * target_scale
 
     # The series can stop mid-session, so anything still open is liquidated at the last bar.
     if in_position:
@@ -464,6 +488,19 @@ def entry_bound(data: Dataset, params: OpeningRangeParams, signal: BoolArray) ->
     return min(live, sessions * params.max_entries_per_session)
 
 
+def follow_through_scale(data: Dataset, params: OpeningRangeParams) -> FloatArray:
+    """Per session: what this combination multiplies the range width by, before the bracket.
+
+    Ones at :data:`ORB_SCALE_NONE`, so the loop is one multiplication rather than a branch and
+    the unscaled arithmetic is bit-for-bit what it was -- ``docs/roadmap.md`` §M28.9.
+    """
+    sessions: int = int(data.range_session_id().max()) + 1 if len(data) else 0
+    if params.follow_through_scaling == ORB_SCALE_NONE:
+        return np.ones(sessions, dtype=np.float64)
+
+    return data.range_follow_through_scale(params.range_key, params.follow_through_sessions)
+
+
 def openingrange_legs(
     data: Dataset,
     params: OpeningRangeParams,
@@ -481,6 +518,7 @@ def openingrange_legs(
     quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
     levels: FloatArray = np.asarray(params.target_levels, dtype=np.float64)
     atr: FloatArray = data.atr_values(params.atr_period) if params.stop_mode == ORB_STOP_ATR else NO_ATR
+    scale: FloatArray = follow_through_scale(data, params)
     out: FloatArray = bracket.allocate_output(entry_bound(data, params, signal), quantities.size)
 
     count: int = simulate_openingrange(
@@ -491,6 +529,7 @@ def openingrange_legs(
             session_id=data.range_session_id(),
             high=data.range_high(key),
             low=data.range_low(key),
+            scale=scale,
             atr=atr,
         ),
         quantities,
@@ -519,6 +558,8 @@ def openingrange_legs(
             min_bracket_points=instrument.dollars_to_points(params.min_bracket_dollars),
             target_mode=params.target_mode,
             tp_multiplier=params.tp_multiplier,
+            scale_target=params.scales_target,
+            scale_stop=params.scales_stop,
             max_entries_per_session=params.max_entries_per_session,
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,

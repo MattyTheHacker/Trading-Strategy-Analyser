@@ -38,6 +38,10 @@ from nqbt.sim.types import (
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
     ORB_ENTRY_RETEST,
+    ORB_SCALE_BOTH,
+    ORB_SCALE_NONE,
+    ORB_SCALE_STOP,
+    ORB_SCALE_TARGET,
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
     ORB_STOP_OPPOSITE,
@@ -77,6 +81,10 @@ def simulate(
     min_bracket_dollars=0.0,
     target_mode=ORB_TARGET_R,
     tp_multiplier=1.0,
+    scale=1.0,
+    scales=None,
+    scale_target=False,
+    scale_stop=False,
     max_entries_per_session=0,
     bars_required=0,
     block_entry_at_close=True,
@@ -122,6 +130,7 @@ def simulate(
             session_id=ids,
             high=per_session(range_high),
             low=per_session(range_low),
+            scale=per_session(scale) if scales is None else np.asarray(scales, dtype=np.float64),
             atr=np.full(n, atr, dtype=np.float64),
         ),
         np.asarray(quantities, dtype=np.int64),
@@ -141,6 +150,8 @@ def simulate(
             min_bracket_points=instrument.dollars_to_points(min_bracket_dollars),
             target_mode=target_mode,
             tp_multiplier=tp_multiplier,
+            scale_target=scale_target,
+            scale_stop=scale_stop,
             max_entries_per_session=max_entries_per_session,
             bars_required=bars_required,
             block_entry_at_session_close=block_entry_at_close,
@@ -1053,6 +1064,132 @@ def test_the_range_key_is_the_anchor_and_the_window() -> None:
 
     assert params.range_key == (0, 60)
     assert params.target_levels == params.target_r_multiples
+
+
+# -- the geometry denominated in trailing follow-through rather than in the range --
+
+CLEARS = (108.0, 115.0, 106.0, 112.0)
+"""A bar that trades through the range high without reaching back to the range's middle."""
+
+REACHES = (115.0, 130.0, 112.0, 128.0)
+"""A bar that trades a whole further range width past the high, so every target here is inside it."""
+
+
+def scaled(**kwargs):
+    """A width-target combination on the fraction stop, which is what the scale can reach."""
+    return {
+        "target_mode": ORB_TARGET_WIDTH,
+        "levels": (1.0,),
+        "stop_mode": ORB_STOP_FRACTION,
+        "stop_range_fraction": 1.0,
+        **kwargs,
+    }
+
+
+def test_scaling_the_target_moves_it_by_the_scale_and_nothing_else() -> None:
+    """A width target at 1.0 sits a whole range width past the trigger, or the scaled one."""
+    plain = run([BELOW, CLEARS, REACHES], signal_at=(0,), **scaled())
+    halved = run([BELOW, CLEARS, REACHES], signal_at=(0,), **scaled(scale=0.5, scale_target=True))
+
+    assert plain["exit_price"].iloc[0] == pytest.approx(RANGE_HIGH + 20.0)
+    assert halved["exit_price"].iloc[0] == pytest.approx(RANGE_HIGH + 10.0)
+    assert plain["entry_price"].iloc[0] == halved["entry_price"].iloc[0], "the entry is untouched"
+
+
+def test_scaling_the_stop_moves_it_by_the_scale_and_leaves_the_target_alone() -> None:
+    """The fraction stop is a fraction of the width, so the scale reaches it the same way."""
+    plain = run([BELOW, CLEARS, REACHES], signal_at=(0,), **scaled())
+    tightened = run([BELOW, CLEARS, REACHES], signal_at=(0,), **scaled(scale=0.5, scale_stop=True))
+
+    assert plain["initial_stop"].iloc[0] == pytest.approx(RANGE_LOW)
+    assert tightened["initial_stop"].iloc[0] == pytest.approx(RANGE_HIGH - 10.0)
+    assert plain["exit_price"].iloc[0] == tightened["exit_price"].iloc[0], "the target is untouched"
+
+
+def test_scaling_both_halves_moves_both() -> None:
+    both = run(
+        [BELOW, CLEARS, REACHES],
+        signal_at=(0,),
+        **scaled(scale=0.5, scale_target=True, scale_stop=True),
+    )
+
+    assert both["initial_stop"].iloc[0] == pytest.approx(RANGE_HIGH - 10.0)
+    assert both["exit_price"].iloc[0] == pytest.approx(RANGE_HIGH + 10.0)
+
+
+def test_a_scale_of_one_is_the_unscaled_geometry_exactly() -> None:
+    """The property the whole axis rests on: at ORB_SCALE_NONE nothing moves."""
+    plain = run([BELOW, CLEARS, REACHES], signal_at=(0,), **scaled())
+    unit = run(
+        [BELOW, CLEARS, REACHES],
+        signal_at=(0,),
+        **scaled(scale=1.0, scale_target=True, scale_stop=True),
+    )
+
+    pd.testing.assert_frame_equal(plain, unit, check_exact=True)
+
+
+def test_a_session_with_no_trailing_scale_submits_nothing() -> None:
+    """A geometry that cannot be stated is refused, not run at the range's own width."""
+    trades = run(
+        [BELOW, CLEARS, REACHES],
+        signal_at=(0, 1),
+        **scaled(scale=float("nan"), scale_target=True),
+    )
+
+    assert trades.empty
+
+
+def test_the_scale_is_read_per_session_not_once_for_the_series() -> None:
+    """One session with a scale and one without: the second is refused, the first is not."""
+    rows = [BELOW, CLEARS, REACHES, BELOW, CLEARS, REACHES]
+    ids = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+
+    trades = run(
+        rows,
+        signal_at=(0, 3),
+        session_id=ids,
+        scales=[0.5, np.nan],
+        scale_target=True,
+        **scaled(),
+    )
+
+    assert len(trades) == 1
+    assert trades["exit_price"].iloc[0] == pytest.approx(RANGE_HIGH + 10.0)
+
+
+def test_the_scale_reaches_neither_the_r_target_nor_the_opposite_stop() -> None:
+    """Both state their geometry in another unit, which is why the params class refuses them."""
+    with pytest.raises(ValueError, match="multiple of the range width"):
+        OpeningRangeParams(follow_through_scaling=ORB_SCALE_TARGET, target_mode=ORB_TARGET_R)
+
+    with pytest.raises(ValueError, match="fraction of the range width"):
+        OpeningRangeParams(
+            follow_through_scaling=ORB_SCALE_STOP,
+            stop_mode=ORB_STOP_OPPOSITE,
+        )
+
+
+def test_an_unknown_scaling_mode_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match="unknown follow_through_scaling"):
+        OpeningRangeParams(follow_through_scaling=9)
+
+
+def test_a_lookback_below_the_floor_is_refused_at_the_params() -> None:
+    with pytest.raises(sessionrange.RangeError, match="follow_through_sessions"):
+        OpeningRangeParams(follow_through_sessions=2)
+
+
+def test_the_two_scaling_properties_read_the_mask() -> None:
+    both = OpeningRangeParams(
+        follow_through_scaling=ORB_SCALE_BOTH,
+        target_mode=ORB_TARGET_WIDTH,
+        stop_mode=ORB_STOP_FRACTION,
+    )
+
+    assert (both.scales_target, both.scales_stop) == (True, True)
+    assert OpeningRangeParams().follow_through_scaling == ORB_SCALE_NONE
+    assert (OpeningRangeParams().scales_target, OpeningRangeParams().scales_stop) == (False, False)
 
 
 @pytest.mark.parametrize(

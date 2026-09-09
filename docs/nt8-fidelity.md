@@ -607,6 +607,27 @@ The last two rows are rules this project has already established for *exits* —
 
 **It refuses the opposite-extreme stop for the fade's reason.** Its entry level is the extreme `ORB_STOP_OPPOSITE` names, so the stop would land `entryOffsetTicks + stopOffsetTicks` from the entry and the mode would be the fraction stop at a fraction of zero. `OpeningRangeParams` raises rather than sweep the duplicate.
 
+### M28.10 — the trailing follow-through, written to the same standing as M28.2 (#261)
+
+**Still no NinjaScript, so nothing here is backed by a trade list either.** The measurement that produced it and the verdict it reached: [roadmap.md](roadmap.md) M28.10.
+
+**Follow-through is a completed-session statistic, and that is what makes it expressible.** One `double` per session — the further of the two moves beyond the range, divided by the range width — accumulated over the bars past the window and closed off at the session boundary:
+
+```csharp
+if (Bars.IsFirstBarOfSession && rangeComplete)
+{ double beyond = Math.Max(reachHigh - rangeHigh, rangeLow - reachLow);
+  history.Add(Math.Max(beyond, 0) / (rangeHigh - rangeLow)); }
+reachHigh = Math.Max(reachHigh, High[0]); reachLow = Math.Min(reachLow, Low[0]);
+```
+
+**The scale a session trades on is the median of the sessions strictly before it**, so no session contributes to its own geometry. A ring buffer of the last `followThroughSessions` values, taken at the session open and held for the whole session; nothing here reads a bar it could not have seen, which is the property the whole axis is worthless without.
+
+**A session with fewer than `followThroughSessions` completed values submits no order.** The same rule as "A session missing any of its window bars has no range" one level up: a geometry that cannot be stated is refused rather than approximated from what happens to be there. On a 250-session lookback that costs the first year of the archive.
+
+**The scale multiplies the range width and reaches nothing else.** `stopRangeFraction * (rangeHigh - rangeLow) * scale` and `trigger + targetWidthMultiple * (rangeHigh - rangeLow) * scale`, each under its own half of `followThroughScaling`. It is inert against the R ladder and against the opposite-extreme stop, both of which state their geometry in another unit — `OpeningRangeParams` raises rather than sweep a combination where the axis does nothing, which is the blind spot `dead_axes` cannot see.
+
+**At `ORB_SCALE_NONE` the arithmetic is what it always was.** The scale is one everywhere and the loop multiplies rather than branches, so every stored OpeningRange row is reproducible unchanged. Checked: byte-for-byte identical over the trade-log gate's fourteen files and over 5,322 OpeningRange legs.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.

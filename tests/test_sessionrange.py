@@ -323,5 +323,189 @@ def test_a_range_grid_survives_being_built_at_a_coarser_resolution() -> None:
     assert grid.armed_for(CASH_WINDOW_30).any()
 
 
+# -- follow-through: how far past the range price actually went ----------------
+
+
+def with_reach(frame: pd.DataFrame, session: int, high: float, low: float) -> pd.DataFrame:
+    """Write one bar past the cash window of ``session`` reaching ``high`` and ``low``."""
+    grid = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
+    armed = grid.armed_for(CASH_WINDOW_30) & np.asarray(grid.session_id == session)
+    bar = np.flatnonzero(armed)[3]
+    frame = frame.copy()
+    frame.iloc[bar, frame.columns.get_loc("high")] = high
+    frame.iloc[bar, frame.columns.get_loc("low")] = low
+
+    return frame
+
+
+def ranged(frame: pd.DataFrame, session: int, high: float, low: float) -> pd.DataFrame:
+    """Write a cash window for ``session`` spanning ``low`` to ``high``."""
+    window = in_cash_window(frame)
+    sessions_of = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1).session_id
+    inside = np.flatnonzero(window & np.asarray(sessions_of == session))
+    frame = frame.copy()
+    frame.iloc[inside[2], frame.columns.get_loc("high")] = high
+    frame.iloc[inside[4], frame.columns.get_loc("low")] = low
+
+    return frame
+
+
+def test_follow_through_is_the_further_extension_measured_in_range_widths() -> None:
+    """A range 10 wide with price reaching 5 past one side of it follows through by half."""
+    frame = ranged(minute_frame(), 1, high=105.0, low=95.0)
+    frame = with_reach(frame, 1, high=110.0, low=99.0)
+
+    ranges = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
+    grid = sessionrange.follow_through_grid(
+        frame["high"].to_numpy(np.float64),
+        frame["low"].to_numpy(np.float64),
+        ranges,
+        [5],
+    )
+
+    assert grid.raw_for(CASH_WINDOW_30)[1] == pytest.approx(0.5)
+
+
+def test_follow_through_takes_the_further_side_not_the_traded_one() -> None:
+    """It is one number per session, so a bigger move below outranks a smaller one above."""
+    frame = ranged(minute_frame(), 1, high=105.0, low=95.0)
+    frame = with_reach(frame, 1, high=107.0, low=75.0)
+
+    ranges = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
+    grid = sessionrange.follow_through_grid(
+        frame["high"].to_numpy(np.float64),
+        frame["low"].to_numpy(np.float64),
+        ranges,
+        [5],
+    )
+
+    assert grid.raw_for(CASH_WINDOW_30)[1] == pytest.approx(2.0)
+
+
+def test_a_range_that_holds_all_session_follows_through_by_zero_not_by_a_negative() -> None:
+    frame = ranged(minute_frame(), 1, high=105.0, low=95.0)
+
+    ranges = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
+    grid = sessionrange.follow_through_grid(
+        frame["high"].to_numpy(np.float64),
+        frame["low"].to_numpy(np.float64),
+        ranges,
+        [5],
+    )
+
+    assert grid.raw_for(CASH_WINDOW_30)[1] == 0.0
+
+
+def test_a_session_with_no_range_has_no_follow_through() -> None:
+    """The range grid decides which sessions exist, and this reads its verdict."""
+    frame = minute_frame()
+    window = in_cash_window(frame)
+    session_one = np.asarray(range_grid(frame, [CASH_WINDOW_30], bar_minutes=1).session_id == 1)
+    holed = frame.drop(frame.index[np.flatnonzero(window & session_one)[5]])
+
+    ranges = range_grid(holed, [CASH_WINDOW_30], bar_minutes=1)
+    grid = sessionrange.follow_through_grid(
+        holed["high"].to_numpy(np.float64),
+        holed["low"].to_numpy(np.float64),
+        ranges,
+        [5],
+    )
+
+    assert np.isnan(grid.raw_for(CASH_WINDOW_30)[1])
+
+
+def test_a_zero_width_range_has_no_follow_through_rather_than_an_infinite_one() -> None:
+    """Every bar of the fixture is priced identically, so every window is a point."""
+    frame = minute_frame()
+    ranges = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
+    grid = sessionrange.follow_through_grid(
+        frame["high"].to_numpy(np.float64),
+        frame["low"].to_numpy(np.float64),
+        ranges,
+        [5],
+    )
+
+    assert np.isnan(grid.raw_for(CASH_WINDOW_30)).all()
+
+
+# -- the trailing median, which is what a bracket would be denominated in ------
+
+
+def test_the_trailing_median_reads_only_earlier_sessions() -> None:
+    """A session contributing to its own scale is lookahead wearing a rolling window."""
+    values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 100.0, 7.0], dtype=np.float64)
+
+    trailing = sessionrange.trailing_median(values, 5)
+
+    assert np.isnan(trailing[:5]).all(), "nan until five earlier sessions have accumulated"
+    assert trailing[5] == pytest.approx(3.0), "the median of 1..5, and not of 1..5 plus 100"
+    assert trailing[6] == pytest.approx(4.0), "the median of 2..100, which 100 cannot swing"
+
+
+def test_the_trailing_median_skips_sessions_with_no_value() -> None:
+    """A session with no range is absent from the baseline rather than a hole in it."""
+    values = np.array([1.0, np.nan, 2.0, 3.0, np.nan, 4.0, 5.0, 6.0], dtype=np.float64)
+
+    trailing = sessionrange.trailing_median(values, 5)
+
+    assert np.isnan(trailing[:7]).all(), "only four values precede session 6"
+    assert trailing[7] == pytest.approx(3.0), "the median of 1, 2, 3, 4, 5"
+
+
+def test_a_series_shorter_than_the_lookback_has_no_trailing_median_anywhere() -> None:
+    trailing = sessionrange.trailing_median(np.arange(4, dtype=np.float64), 5)
+
+    assert np.isnan(trailing).all()
+
+
+def test_a_lookback_below_the_floor_is_refused() -> None:
+    with pytest.raises(RangeError, match="follow_through_sessions"):
+        sessionrange.trailing_median(np.arange(50, dtype=np.float64), 1)
+
+
+def test_the_grid_holds_one_row_per_range_and_one_per_lookback() -> None:
+    frame = ranged(minute_frame(days=40), 1, high=105.0, low=95.0)
+    ranges = range_grid(frame, [(CASH_OPEN_MINUTES, 5), CASH_WINDOW_30], bar_minutes=1)
+
+    grid = sessionrange.follow_through_grid(
+        frame["high"].to_numpy(np.float64),
+        frame["low"].to_numpy(np.float64),
+        ranges,
+        [10, 5, 10],
+    )
+
+    assert grid.keys == ranges.keys
+    assert grid.lookbacks == (5, 10), "sorted and deduplicated, as the range keys are"
+    assert grid.trailing.shape == (2, 2, ranges.sessions)
+    assert grid.nbytes > 0
+
+
+def test_reading_a_lookback_the_grid_was_not_built_for_names_the_ones_it_was() -> None:
+    frame = minute_frame()
+    ranges = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
+    grid = sessionrange.follow_through_grid(
+        frame["high"].to_numpy(np.float64),
+        frame["low"].to_numpy(np.float64),
+        ranges,
+        [5],
+    )
+
+    with pytest.raises(KeyError, match="20 sessions"):
+        grid.scale_for(CASH_WINDOW_30, 20)
+
+
+def test_a_grid_with_no_lookbacks_is_refused() -> None:
+    frame = minute_frame()
+    ranges = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
+
+    with pytest.raises(RangeError, match="no follow-through lookbacks"):
+        sessionrange.follow_through_grid(
+            frame["high"].to_numpy(np.float64),
+            frame["low"].to_numpy(np.float64),
+            ranges,
+            [],
+        )
+
+
 def test_the_module_reports_its_public_names() -> None:
     assert set(sessionrange.__all__) <= set(dir(sessionrange))

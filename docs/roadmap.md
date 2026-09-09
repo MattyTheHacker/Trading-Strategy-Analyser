@@ -2411,6 +2411,248 @@ The standing caution binds and is not small: twenty configurations chosen on the
 
 **What would justify the next run.** Not another geometry — the cross is complete under the session's own cut and the two axes are now measured together. What the cross raises is why the excess stops between 30 and 45 minutes, and the candidates are separable: the range width itself, the hold time it implies, or the share of the session left after it. That is a question about one range's bracket and exit rather than about which range to measure, which is where § "Parked is not abandoned" would want the next OpeningRange run pointed.
 
+### M28.9 — the survivor, read for tradeability rather than for rank ([#261], [#262], [#263], [#264])
+
+**No new campaign.** Every figure here comes from §M28.8's own stored rows plus one single-configuration re-run, and four findings came out of reading them for a different statistic.
+
+**The statistic is not new and this section does not claim it is.** `campaign_report.NET_TO_DRAWDOWN` is Gate 4's own ranking, `ratio_to_drawdown` has been its definition since §M27.3, and `campaign_holdout` has reported `hold_top20_ntd` beside a `clears_drawdown` column for as long. Gates 1 to 3 are expressed in **profit factor**, so a configuration can pass all three while returning less than its own worst peak-to-trough — but Gate 4 was built to catch exactly that. What had not been done is reading it **across the registry in one place**, which is all the table below is.
+
+Two things this section does not claim. It does not rank anything — the shortlists below are §M28.8's, unchanged. And it does not retire OpeningRange; § "Parked is not abandoned" governs, and [#261] is what would settle the question either way.
+
+#### One archetype in seven returns its own drawdown
+
+`tools/campaign_holdout.py` over every registered archetype, unfiltered stratum, shortlist ranked on profit factor as the campaigns rank it. The column is the tool's own `hold_top20_ntd` — the median of `net_to_drawdown` across the twenty, not a ratio of medians — beside the `clears_drawdown` boolean it already computes:
+
+| archetype         | MNQ        | NQ         | clears |
+| ----------------- | ---------- | ---------- | ------ |
+| InsideBar         | 0.468      | **1.022**  | NQ     |
+| InsideBarTrailing | 0.328      | 0.196      | no     |
+| EmaCrossover      | 0.059      | −0.414     | no     |
+| DeadCatBounce     | −0.292     | −0.259     | no     |
+| PullBackAndGo     | −0.572     | −0.527     | no     |
+| ElasticBand       | −0.583     | −0.633     | no     |
+| OpeningRange      | *unusable* | *unusable* | —      |
+
+**One cell of thirteen clears, and six of seven archetypes return less than nothing.** OpeningRange's unfiltered row comes back at 264.7 and 269.2 because the pooled shortlist ranks straight into the `ambiguous_share` corner §M28.7 found — [#248]'s hazard and [#263]'s dilution arriving in the same cell, and the reason the confined figures elsewhere in this section carry a readability filter the tool does not apply.
+
+**The grids are drawn short, and the geometry beyond them only sometimes survives being chosen.** That second clause is the whole of it, and it is narrower than "the grids are the constraint".
+
+Twice now a bracket parameter the main campaign could not reach has produced net-to-drawdown above 1.0, and **the two instances are not the same kind of result**:
+
+- **§M27.3's target multiplier is reachable and not selectable.** Its 1.458 is a median *pooled over the stop, the resolution and the six strata* at `tp_multiplier=1.5` on **MNQ only** — NQ is 0.771 there, and 2.0 is the multiple that clears both at 1.434 / 1.123. It is not a shortlist's `hold_top20_ntd` and does not compare with the 0.468 in the table above. Worse for the precedent, §M27.3's own measurement is that the axis **reverses**: the holdout's ridge is 1.5–2.0, the selection window's is 5.0–6.0, and the rank correlation runs +0.194 selection against −0.455 holdout. Its verdict is the sentence to quote — *"the geometry that clears Gate 4 exists inside the grid and the selection window will not hand it to you"* — and re-measured through Gate 4 it still passes only 1 of 12 cells.
+- **§M28.10's stop scale is both, and it is the number rather than the protocol that says so.** §M27.3's narrow grid was ranked on the selection window and tested on the holdout too, and still reversed — so "ranked then tested" establishes nothing on its own, and any argument of that shape is worth no more than §M27.3's was. What separates them is the rank correlation across the split: **0.82 to 0.90** on the clearing arms against §M27.3's **−0.161**, with held-out profit factor above the selection window's in seven of the eight cells and level in the eighth (`both@20` runs 1.210 → 1.248 on MNQ and 1.173 → 1.225 on NQ, 20 of 20 profitable). **Selection does not decay here**, which is the property §M27.3's target multiplier lacks and the only thing that makes the two comparable at all.
+
+So the pattern is real and its useful form is a **question rather than a precedent**: when [#262] extends the truncated `stop_range_fraction`, does it behave like the target multiplier and reverse, or like the stop scale and hold? That is what [#262]'s stated acceptance cell is for, and it is why the answer cannot be read off a pooled holdout median.
+
+[#75] is still what turns any of this into a fundable answer — it replays account rules over a trade log rather than reporting one ratio — which is why it moved to the front.
+
+**[#261] then found cells that clear it comfortably, and they belong to [#262]'s axis rather than to the one that found them.** §M28.10 has the per-arm table and it is not restated here; what matters to this section is which half does the work. Every arm that clears has the **stop** half switched on and no `target`-only arm clears, while §M28.10 measures the tracking itself as worth −0.004 against a constant stop of the same size with the matched null rising alongside it. **So what clears the bar is the stop *level*, not the normalisation** — which is the selectable instance in the pair above, and what makes [#262]'s truncated `stop_range_fraction` the cheapest thing outstanding.
+
+§M28.10 records one caveat that travels with it and is not small: the clearing arms exit at the forced flat on 0.476 to 0.586 of their shortlisted legs against the control's 0.299, so the drawdown they return is bought with roughly twice the reliance on the flatten. It does not order them — the highest close share of the ten is `both@250` at 0.618, whose net-to-drawdown is 0.459 — but it is the same reliance the bracket decomposition below measures, arriving on the arm that looks best.
+
+§ "Standing traps" on choosing the best of twenty still binds: agreement across two roots is the guard, and it is not the same as pre-registering.
+
+Two smaller readings, both on the confined survivor and InsideBar's readable shortlist rather than on the table above. **Diversification is real and insufficient**: daily P&L correlation between the two is 0.101 on the held-out window, genuinely uncorrelated, and a 50/50 blend still returns 0.73 against the opening range's 0.79 alone, because InsideBar's readable ratio is 0.41. **Cost sensitivity is mild**: two ticks of slippage rather than one moves the opening range's held-out profit factor from 1.124 to 1.115 and InsideBar's from 1.068 to 1.061, so nothing here is a cost artefact.
+
+#### The pooled shortlist dilutes, and two of the four gate tools cannot be told not to
+
+§M28.8 named this from the null's side — *"a shortlist drawn over a mixture of geometries dilutes the one that works"*. It is visible on gate 2 in the same rows:
+
+| ranking pool                                    | selection PF | holdout PF |
+| ----------------------------------------------- | ------------ | ---------- |
+| pooled over all 472 variants, NQ                | 1.609        | **0.940**  |
+| confined to `cash-open+30m entry=breakout`, MNQ | 1.235        | 1.137      |
+
+The pooled arm does not hold out at all. `campaign_holdout.py` and `campaign_null.py` both take `--variant`; **`campaign_walkforward.py` and `campaign_montecarlo.py` do not, and pass seven positional arguments to `shortlist()` that stop at `resolution`.** So gate 4 — the gate OpeningRange is currently stopped at — has been ranking across the mixture by construction ever since the database grew past one variant. [#263].
+
+#### The bracket is a net cost, which `session_close_share` cannot say
+
+`campaign_report` counts exits by reason. It does not report what they were worth, and on the survivor the two answers point opposite ways. The confined configuration over the full window, MNQ, 4 contracts, at the root's real commission and one tick of slippage:
+
+| exit reason     | legs | net P&L      | median bars held |
+| --------------- | ---- | ------------ | ---------------- |
+| target          | 313  | +134,079     | 118              |
+| stop            | 577  | **-264,631** | 83               |
+| `session_close` | 790  | **+183,020** | 396              |
+
+**The bracket legs together net -130,552**, and the whole of the configuration's +52,468 is the forced flatten. The median surviving trade is held 396 bars — six and a half hours — so this is a day-long directional hold wearing a bracket, not the breakout scalp the archetype's name suggests. Per leg the split is even: the bracketed lot returns +26,754 and the runner +25,714.
+
+`session_close_share` for these rows is 0.53, which reads as the caveat §M28.1 already recorded. The decomposition is a **stronger and different claim**, and it is what pointed at the stop axis.
+
+**It is a decomposition and not a counterfactual.** A leg that reached the close is a leg the stop did not take, so these columns cannot be read as "remove the bracket and keep the 183,020". What they support is the weaker and sufficient statement that the bracket as configured does not pay for itself. [#264] adds the columns.
+
+#### Two axes were never swept to their end
+
+`ORB_FRACTIONS` is `[0.25, 0.5, 0.75, 1.0]` and **1.0 wins on both roots and both windows** — 0.833 / 0.875 at the tightest against 1.151 / 1.173 at the widest on the two holdouts, monotone across both selection windows. An axis whose best value is its last value has not been swept. Separately, `_orb_further_targets` hands `target=width` the parameter default `(1.0, nan)` on every cell of every ORB campaign to date, so **the width target has never been varied at all** and §M28's reading of the target axis rests entirely on the R scheme.
+
+Re-run past the boundary, held-out profit factor and net-to-drawdown, MNQ / NQ:
+
+| `stop_range_fraction` | ladder     | holdout PF        | net / drawdown  |
+| --------------------- | ---------- | ----------------- | --------------- |
+| 1.0 — the grid's edge | (1.0, nan) | 1.124 / 1.149     | 0.79 / 0.89     |
+| 3.0                   | (1.0, nan) | 1.200 / 1.223     | 1.18 / 1.28     |
+| **5.0**               | (1.0, nan) | **1.228 / 1.252** | **1.43 / 1.54** |
+| 5.0                   | (nan, nan) | 1.190 / 1.215     | 1.21 / 1.33     |
+
+Two results that have to be kept apart. **The stop is a cost across the whole tested range** — at 5.0 it fires so rarely that `session_close_share` reaches 0.81, and that is still the best cell. **The target is not**: `(1.0, nan)` beats the tighter, the wider and the no-target ladder on the holdout at every stop width on both roots, while `(nan, nan)` wins on both *selection* windows. Ranking on the selection window picks the target scheme wrong, which is a second small finding about the instrument.
+
+**The acceptance cell is 2022 and not the pool**, because part of that gain is a rising tape. In the one falling year in the sample the wide stop returns the same P&L for two and a half times the drawdown — -8,001 at `stop_range_fraction` 1.0 against -18,467 at 3.0 and -20,357 at 5.0. A configuration that earns its held-out figure by removing the stop from a tape that went up has learnt the tape. [#262].
+
+#### 2026, and the quantity the geometry is denominated in
+
+The confined survivor, per year, at the stored `stop_range_fraction` of 1.0:
+
+| year     | profit factor | net P&L | max drawdown |
+| -------- | ------------- | ------- | ------------ |
+| 2022     | 1.144         | 9,576   | -8,001       |
+| 2023     | 1.214         | 9,406   | -5,544       |
+| 2024     | 1.252         | 12,040  | -7,669       |
+| 2025     | 1.262         | 17,197  | -6,694       |
+| **2026** | **1.008**     | **441** | **-22,625**  |
+
+**The most recent eight months are flat with the largest drawdown in the sample**, and 2026 holds 156 sessions to the end of the archive, so this is a year that traded rather than thin coverage. It is not the bracket: every stop width is at or below breakeven there, 0.992 at 3.0 and 1.069 at 5.0.
+
+Nor is it the scale of the target, and that is the useful part. The obvious reading — a target denominated in range widths has grown too far away to be reached — predicts that tightening it helps. Measured at multiples of 0.33, 0.5 and 0.75 against 1.0's 1.008, the year returns **0.959, 0.949 and 0.999**. Tightening the target makes 2026 worse.
+
+What did change is the archetype's own environment. Median 30-minute cash range, and follow-through — the further of the two extensions beyond the range, over the range width — per year on MNQ:
+
+| year | median 30m range | median follow-through |
+| ---- | ---------------- | --------------------- |
+| 2022 | 122.6            | 1.158                 |
+| 2023 | 78.8             | 1.105                 |
+| 2024 | 91.5             | 1.168                 |
+| 2025 | 124.1            | 0.994                 |
+| 2026 | **182.4**        | **0.921**             |
+
+**The range has more than doubled since 2023 while price now travels less than one range width beyond it.** Both halves of the bracket are denominated in the quantity that moved, and the edge was fitted where follow-through sat near 1.15.
+
+The standing caution binds and is not small: follow-through per year is five numbers, and a mechanism that explains one bad year after the fact is the easiest thing in this project to find. Two things separate this from that failure — the mechanism was read off the range statistics rather than off the P&L, and the competing explanation it displaces made a prediction that was tested and lost. It is a hypothesis with a failed rival, not a finding. [#261] is what would settle it, by asking whether a geometry normalised against *trailing* follow-through restores the year.
+
+#### The verdict
+
+- **The one configuration through three gates is not tradeable as it stands**, and the binding constraint is net-to-drawdown rather than profit factor. Gate 4 does measure that and `clears_drawdown` does report it; what no campaign had done is read the column across the registry at once, which is the only thing the table above adds.
+- **Its recent behaviour is the open question and its bracket is the cheap one.** [#261] decides whether the space is still live; [#262] and [#263] are small and improve whatever [#261] measures; [#264] is the column that would have caught the bracket several campaigns earlier.
+- **A negative answer on [#261] is a result.** An archetype calibrated to a regime that has ended is a verdict worth more than another campaign, and it parks a configuration space without retiring the archetype.
+- **`OpeningRange` is still `TIER1_ONLY`.** It is the only archetype ever to pass gates 1 to 3 and **no leg of it has been diffed against an NT8 trade list** — its stop-market entry, its measurement from the trigger rather than the fill, and its re-arming order lifetime are all unevidenced parts of the fill model. § "Standing traps", *"one archetype cannot exercise the fill model"*. [#265] is that export, and it gates the C# rather than following it.
+
+Every figure above is a measurement of one dated run against the archive as it stands, re-derivable from `results/campaign/*.duckdb` and a single-configuration re-run — not a standing property.
+
+### M28.10 — the geometry denominated in trailing follow-through: no, and the reason is arithmetic ([#261])
+
+[#261] asked one question and asked for the answer either way: **does a bracket normalised against trailing follow-through, rather than against the current session's range, restore 2026?** It does not, on either root, at either range that carries an excess, under any of the nine ways the scale can be applied. The mechanism was built, it works, and it is measurably the wrong size to fix what broke.
+
+**What has changed since §M28.8, stated first**, because § "Parked is not abandoned" requires it before a parked configuration space is re-run: **a quantity the archetype could not previously express** — `sessionrange.follow_through_grid`, one completed-session statistic and its trailing median, with `ORB_SCALE_TARGET` and `ORB_SCALE_STOP` reading it. Not a new range, not new data, not a re-seeded sweep. The rules it adds and the NinjaScript each becomes: [nt8-fidelity.md](nt8-fidelity.md) §M28.10.
+
+#### The control reproduces [#261]'s table, which is what makes the rest of it comparable
+
+`cash+30m entry=breakout target=width`, `direction=1`, `stop_range_fraction=1.0`, `max_entries_per_session=1`, `entry_offset_ticks=1`, 1-minute bars, MNQ, 4 contracts, at the root's real commission and one tick of slippage — the confined geometry, unscaled:
+
+| year     | trades | profit factor | net P&L | max drawdown |
+| -------- | ------ | ------------- | ------- | ------------ |
+| 2022     | 174    | 1.144         | 9,576   | -7,706       |
+| 2023     | 178    | 1.214         | 9,406   | -5,544       |
+| 2024     | 183    | 1.252         | 12,040  | -7,669       |
+| 2025     | 179    | 1.262         | 17,197  | -6,694       |
+| **2026** | 110    | **1.008**     | **441** | **-22,625**  |
+
+**Net P&L and profit factor are identical to §M28.9's table above in all five years**, both aggregated per trade as `stats.summarise` does rather than per leg, so the two sections are reading the same trades the same way. The drawdown differs in 2022 alone and the convention is the reason: §M28.9 runs one continuous equity curve across the archive and slices it to the year, where this restarts the curve each year — -8,001 the first way against -7,706 the second, agreeing exactly from 2023 on. Neither section's conclusions turn on it.
+
+#### The scale tracks the regime, so a negative result is about the idea rather than the estimate
+
+Per session, median over each year, MNQ. The trailing columns are the median over the previous *n* sessions with a value, taken strictly before the session that reads it:
+
+| year | sessions | median 30m range | median follow-through | trailing@20 | trailing@60 | trailing@250 |
+| ---- | -------- | ---------------- | --------------------- | ----------- | ----------- | ------------ |
+| 2022 | 253      | 123.5            | 1.183                 | 1.174       | 1.176       | 1.196        |
+| 2023 | 253      | 78.8             | 1.171                 | 1.139       | 1.153       | 1.113        |
+| 2024 | 254      | 91.4             | 1.239                 | 1.249       | 1.242       | 1.209        |
+| 2025 | 254      | 124.1            | 1.043                 | 1.086       | 1.039       | 1.168        |
+| 2026 | 156      | 186.0            | 0.960                 | 0.936       | 0.936       | 0.985        |
+
+**The estimate is within 0.03 of the quantity it estimates in every year at the two shorter lookbacks**, and it is lookahead-free by construction. The range and the direction of the follow-through move are [#261]'s, reproduced: the range more than doubles and price travels less than one width past it by 2026.
+
+**The level differs and the reason is stated rather than reconciled.** [#261] reports 1.105 in 2023 falling to 0.921 in 2026 where this reports 1.171 to 0.960, because follow-through here is measured over the whole armed span — to the session's last bar, which is where the flatten is and therefore how far a trade could have reached. The trend, the size of the fall and the crossing below 1.0 are the same.
+
+#### Nothing restores 2026
+
+Profit factor by year, MNQ `cash+30m`, the control against all nine arms. The `@250` arm needs a year of history before it arms, which is why its 2022 column rests on 16 trades against the others' 174; 2023 onward every arm trades the same sessions.
+
+| year     | off       | target@20 | target@60 | target@250 | stop@20 | stop@60 | stop@250  | both@20 | both@60 | both@250 |
+| -------- | --------- | --------- | --------- | ---------- | ------- | ------- | --------- | ------- | ------- | -------- |
+| 2023     | 1.214     | 1.205     | 1.225     | 1.227      | 1.166   | 1.167   | 1.135     | 1.150   | 1.167   | 1.147    |
+| 2024     | 1.252     | 1.217     | 1.246     | 1.245      | 1.353   | 1.339   | 1.301     | 1.312   | 1.316   | 1.292    |
+| 2025     | 1.262     | 1.309     | 1.267     | 1.305      | 1.189   | 1.212   | 1.265     | 1.239   | 1.218   | 1.307    |
+| **2026** | **1.008** | 0.961     | 0.971     | 1.001      | 0.987   | 1.022   | **1.031** | 0.943   | 0.987   | 1.024    |
+
+**The best of the nine moves 2026 from 1.008 to 1.031 and its drawdown from 22,625 to 21,361** — about a tenth of the way back to the 1.15-1.26 of the four years before it, on 110 trades. On NQ the control returns 1.002 in 2026 and only two of the nine beat it, both by under 0.006, while seven are worse and the worst returns 0.927 on -43,138.
+
+#### The one place it looks like a gain is the stop's *level*, and that belongs to [#262]
+
+`tools/campaign_paired.py`, held-out window, each treatment against the control cell by cell over the 32 combinations they share. At `cash+30m` every median difference sits inside ±0.02 with no consistent sign. At `cash+15m` the stop-scaled arms are large and consistent — `stop@20` returns +0.09 to +0.21 in 6 of 6 root × resolution cells, all six at p < 0.05.
+
+**That is the scale's size rather than its tracking, and the two separate cleanly.** The median trailing follow-through at 15 minutes is **1.709**, so `stop@20` at a fraction of *f* places the stop *f* × 1.709 range widths back — and `stop_range_fraction` has never been swept past 1.0. Against an unscaled arm whose fraction is multiplied by that same constant, over the eight (side × fraction) configurations on the held-out window:
+
+| cell               | tracked − constant | tracked − plain | cells tracking wins |
+| ------------------ | ------------------ | --------------- | ------------------- |
+| MNQ `cash+15m` @20 | **-0.004**         | +0.092          | 3 of 8              |
+| NQ `cash+15m` @20  | **-0.001**         | +0.087          | 4 of 8              |
+| MNQ `cash+15m` @60 | **-0.010**         | +0.062          | 3 of 8              |
+| MNQ `cash+30m` @60 | **-0.030**         | -0.005          | 2 of 8              |
+| NQ `cash+30m` @60  | **-0.013**         | +0.008          | 2 of 8              |
+
+**Tracking never beats a constant of the same size**, on either root, at either range, at either lookback — and the constant is fitted with hindsight on the whole sample, which is the conservative side. The whole of the +0.09 is the level. [#262] is where a stop ladder past 1.0 belongs, and this is independent evidence for its premise.
+
+#### The matched null rises with the stop, which is the same finding from the other side
+
+`matched_random_ranges` over the top twenty of each arm, ranked on the selection window and tested on the held-out one, 100 draws, 1-minute bars, `cash+15m`. The long cells at a fraction of 1.0, which both shortlists contain:
+
+| arm             | root | observed      | null          | excess              |
+| --------------- | ---- | ------------- | ------------- | ------------------- |
+| `scale=off`     | MNQ  | 1.199 / 1.179 | 0.950 / 0.952 | **+0.249 / +0.227** |
+| `scale=stop@20` | MNQ  | 1.238 / 1.220 | 1.017 / 1.013 | **+0.221 / +0.206** |
+| `scale=off`     | NQ   | 1.213 / 1.188 | 0.946 / 0.954 | **+0.267 / +0.233** |
+| `scale=stop@20` | NQ   | 1.236 / 1.218 | 1.014 / 1.010 | **+0.222 / +0.207** |
+
+**The wider stop lifts the permuted-range arm by more than it lifts the observed one, so the excess falls.** A change that improves a random range as much as the real one is a property of the bracket and not of the entry, and this is what that looks like measured rather than argued. The entry's edge over a permuted range is §M28.8's, unchanged by anything here.
+
+#### The drawdown check, cleared for the first time, and why it is not this axis's
+
+Held-out top-20 net-to-drawdown at `cash+15m`, `tools/campaign_holdout.py`, MNQ / NQ. **Four of the nine arms clear the drawdown check on both roots and every one of them has the stop half switched on:**
+
+| arm          | MNQ       | NQ        | clears |
+| ------------ | --------- | --------- | ------ |
+| `both@20`    | **2.026** | **1.710** | yes    |
+| `stop@20`    | 1.720     | 1.651     | yes    |
+| `stop@60`    | 1.615     | 1.614     | yes    |
+| `both@60`    | 1.600     | 1.634     | yes    |
+| `target@20`  | 0.982     | 0.914     | no     |
+| `off`        | 0.763     | 0.897     | no     |
+| `target@60`  | 0.707     | 0.590     | no     |
+| `stop@250`   | 0.460     | 0.136     | no     |
+| `both@250`   | 0.459     | 0.136     | no     |
+| `target@250` | 0.195     | -0.041    | no     |
+
+`both@20` also carries the best held-out profit factor of the ten, 1.248 / 1.225 against the control's 1.078 / 1.098, with 20 of 20 shortlisted configurations profitable on both roots. **No cash-anchored §M28.8 variant reaches any of the four**: the breakout and retest cells at both lengths and both target schemes run 0.446 to 0.982, and the one figure above 1.0 anywhere near them — the 15-minute retest at 3.011 on NQ — fails gate 2 and returns -0.674 on MNQ.
+
+**Both shares read before any of that is believed**, which the standing rule asks for once and an OpeningRange number asks for twice. Across all 3,840 stored `cash+15m` rows the ambiguity is negligible — a median `ambiguous_share` of 0.0000 to 0.0054 per arm, and 10 rows in 3,840 reaching `disambiguate.MIN_AMBIGUOUS_SHARE` at all — and **no shortlisted row on either root exceeds 0.0058**, so §M28.7's corner does not reach a breakout-only variant set the way it reaches the retest and the rejection.
+
+`session_close_share` does move, and it is the caveat this result travels with: the four clearing arms exit at the forced flat on **0.476 to 0.586** of their shortlisted legs against the control's 0.299. That is what a wider stop does — fewer legs stopped out, more surviving to the clock — and it means the drawdown these arms return is bought with roughly twice the reliance on the flatten. **It does not order them**, which is worth saying because it would be the easy explanation: `both@250` carries the highest close share of the ten at 0.618 and a net-to-drawdown of 0.459.
+
+**This geometry is selectable, and that is the part §M27.3 warns it might not be.** The four clearing arms return a shortlist rank correlation between the two windows of **0.817 to 0.899** on both roots, and their held-out profit factor is *above* their selection profit factor in seven of the eight cells and level in the eighth — the selection window ranks the geometry the way the holdout does, and picking on it does not decay. §M27.3's drawdown ridge is the opposite shape: a rank correlation of **−0.161**, "the only negative figure of its kind in the project", with a selection window whose own optimum is the campaign's bracket rather than the one that clears. **So the geometry that clears Gate 4 exists inside the grid and the selection window will not hand it to you** is a finding about that axis rather than about brackets in general, and this is the first counter-example to it. Which of the two shapes [#262]'s truncated `stop_range_fraction` turns out to have is the question this hands it.
+
+**No target-only arm clears it and every clearing arm is stop-side, which is the level reading from the variant side.** Read it against the two subsections above before it is believed: over the matched geometry the tracked arm's median held-out net-to-drawdown is *below* the plain arm's — 0.226 against 0.376 on MNQ and 0.506 against 0.672 on NQ — so what a shortlist reports is which cells it picked rather than a property of the arm. The constant-fraction control has **not** been through the same shortlist, because the swept fraction axis does not reach the treatment's geometry; that is precisely [#262]'s gap, and settling it needs [#262]'s ladder rather than this axis.
+
+#### The verdict, and what [#261] asked
+
+- **No. A geometry normalised against trailing follow-through does not restore 2026**, and the answer is the same on both roots, at both ranges, at all three lookbacks and under all three ways of applying the scale.
+- **The estimate is not what failed.** The trailing median tracks the observed follow-through to within 0.03 and reads no bar it could not have seen. The idea was measured, not approximated.
+- **The arithmetic says why, and it is the more useful half of the answer.** Follow-through fell by 18% between 2023 and 2026 while the median range **rose by 136%**. A bracket denominated in range widths therefore carries 2.4× the dollar risk per trade in 2026 that it did in 2023, and 2026's drawdown is 4.1× 2023's on a nearly unchanged trade count. **A 0.82× correction cannot offset a 2.4× move**, and no lookback of this quantity could have.
+- **So the quantity worth normalising against is the width itself, not the reach past it** — which is a position-sizing question rather than a geometry one, and it is the first OpeningRange finding that points outside the bracket entirely.
+- **Parked, with a reason** — § "Parked is not abandoned". `ORB_SCALE_*` stays registered, swept and reconciled. What would justify a re-run is not another lookback, another range or another stratum: the axis is measured across all three and is a wash against a constant everywhere. What is untested is a bracket sized in **dollars or in a trailing width**, which is a different primitive rather than a different parameterisation of this one.
+- **The archetype's edge is still absent from the most recent year of data, and that is not a units problem.** Trading it live remains a bet on the regime returning, which is what [#261] asked to have stated either way.
+
+Every figure above is a measurement of one dated run over the archive as it stands, re-derivable from `results/campaign/OpeningRange.duckdb` under the variant names `cash-ft+<length>m scale=<mode>@<sessions>` and a single-configuration re-run — not a standing property.
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
@@ -3189,6 +3431,11 @@ ______________________________________________________________________
 [#255]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/255
 [#256]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/256
 [#258]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/258
+[#261]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/261
+[#262]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/262
+[#263]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/263
+[#264]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/264
+[#265]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/265
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29

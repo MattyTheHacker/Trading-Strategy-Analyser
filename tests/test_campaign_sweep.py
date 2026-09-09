@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -33,6 +34,7 @@ from nqbt.sim.types import (
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
     ORB_ENTRY_RETEST,
+    ORB_SCALE_NONE,
     ORB_STOP_FRACTION,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
@@ -64,6 +66,9 @@ from tools.campaign_sweep import (
     ORB_FRACTIONS,
     ORB_GEOMETRY,
     ORB_GEOMETRY_ENTRIES,
+    ORB_FOLLOW_THROUGH,
+    ORB_FOLLOW_THROUGH_RANGES,
+    ORB_FOLLOW_THROUGH_VARIANTS,
     ORB_GEOMETRY_VARIANTS,
     ORB_GEOMETRY_WINDOWS,
     ORB_RANGES,
@@ -1008,3 +1013,102 @@ def test_the_hoisted_target_schemes_are_what_the_stored_re_sweep_swept() -> None
     assert ORB_TARGETS["target=width"] == (ORB_TARGET_WIDTH, {})
     for name in ("entry=breakout", "entry=retest"):
         assert [target[0] for target in ORB_GEOMETRY_ENTRIES[name].targets] == list(ORB_TARGETS)
+
+
+# -- the M28.10 follow-through run --------------------------------------------------
+
+
+def follow_through_variants() -> list[Variant]:
+    return ORB_FOLLOW_THROUGH_VARIANTS["OpeningRange"]("MNQ")
+
+
+def test_the_follow_through_run_states_its_stratum_before_it_runs() -> None:
+    """One cell, as the geometry run has: the question is about the bracket's unit."""
+    assert [name for name, _ in strata(ORB_FOLLOW_THROUGH)] == [UNFILTERED]
+    assert variants_for(ORB_FOLLOW_THROUGH) is ORB_FOLLOW_THROUGH_VARIANTS
+
+
+def test_no_follow_through_variant_can_collide_with_a_stored_one() -> None:
+    """Rows are separated by variant name alone, and the ranges here are ones already swept."""
+    variants = follow_through_variants()
+    names = {variant.name for variant in variants}
+
+    assert len(names) == len(variants)
+    assert not names & {other.name for other in stored_orb_variants()}
+    assert not names & {other.name for other in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ")}
+
+
+def test_the_run_carries_an_unscaled_control_in_the_same_pass() -> None:
+    """A treatment measured against a stored run is measured against a different pass; this
+    one is on the same bars in the same sweep -- ``docs/roadmap.md`` M28.10."""
+    controls = [v for v in follow_through_variants() if v.base.follow_through_scaling == ORB_SCALE_NONE]
+
+    assert len(controls) == len(ORB_FOLLOW_THROUGH_RANGES)
+    assert all(name.endswith("scale=off") for name in (v.name for v in controls))
+
+
+def test_the_control_and_every_treatment_differ_by_the_scaling_alone() -> None:
+    """The property the comparison rests on: one field moves and the axes are identical."""
+    by_range: dict[int, list[Variant]] = {}
+    for variant in follow_through_variants():
+        by_range.setdefault(variant.base.window_minutes, []).append(variant)
+
+    for window, variants in by_range.items():
+        control = next(v for v in variants if v.base.follow_through_scaling == ORB_SCALE_NONE)
+        for treatment in variants:
+            assert treatment.axes == control.axes, treatment.name
+            assert treatment.resolutions == control.resolutions, treatment.name
+            unscaled = replace(
+                treatment.base,
+                follow_through_scaling=ORB_SCALE_NONE,
+                follow_through_sessions=control.base.follow_through_sessions,
+            )
+            assert unscaled == control.base, (window, treatment.name)
+
+
+def test_the_lookback_is_a_variant_dimension_rather_than_an_axis() -> None:
+    """``follow_through_sessions`` is inert at ORB_SCALE_NONE, and ``dead_axes`` knows one off
+    value per axis -- so crossing the two would run the control once per lookback in silence."""
+    for variant in follow_through_variants():
+        assert "follow_through_sessions" not in variant.axes
+        assert "follow_through_scaling" not in variant.axes
+
+
+def test_every_scaled_variant_states_its_geometry_in_a_width_the_scale_can_reach() -> None:
+    """The params class refuses an R target or an opposite-extreme stop under a scaling mode,
+    so a variant set that built one would fail at construction rather than run."""
+    for variant in follow_through_variants():
+        assert variant.base.target_mode == ORB_TARGET_WIDTH
+        assert variant.base.stop_mode == ORB_STOP_FRACTION
+
+
+def test_the_run_is_confined_to_the_ranges_the_null_separated() -> None:
+    """M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and nowhere
+    else, so this asks its question where there is an edge to lose."""
+    windows = {variant.base.window_minutes for variant in follow_through_variants()}
+    anchors = {variant.base.anchor_minutes for variant in follow_through_variants()}
+
+    assert windows == {15, 30}
+    assert anchors == {sessionrange.CASH_OPEN_MINUTES}
+
+
+def test_every_follow_through_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
+    for variant in follow_through_variants():
+        assert variant.resolutions, variant.name
+        for minutes in variant.resolutions:
+            for _, grid in grids_for(variant, UNFILTERED):
+                for anchor, window in grid.required_context().range_keys:
+                    sessionrange.validate_key(anchor, window, minutes)
+
+
+def test_a_scaled_grid_declares_the_lookback_its_combinations_read() -> None:
+    """The context is derived from the grid, so a lookback nothing declared would raise in the
+    loop rather than be built once."""
+    for variant in follow_through_variants():
+        for _, grid in grids_for(variant, UNFILTERED):
+            declared = grid.required_context().follow_through_sessions
+            if variant.base.follow_through_scaling == ORB_SCALE_NONE:
+                assert declared == (), variant.name
+                continue
+
+            assert declared == (variant.base.follow_through_sessions,), variant.name

@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from nqbt.conditions import MovingAverageGrid
     from nqbt.higher_timeframe import HigherTimeframeGrid
     from nqbt.regime import EfficiencyRatioGrid
-    from nqbt.sessionrange import SessionRangeGrid
+    from nqbt.sessionrange import FollowThroughGrid, SessionRangeGrid
     from nqbt.sessions import SessionInfo
     from nqbt.timeofday import TimeOfDay
     from nqbt.trend import TrendGrid
@@ -107,6 +107,12 @@ class ContextSpec:
     ``(anchor_minutes, window_minutes)`` pair. Empty builds nothing, and a key the bar size
     cannot express raises rather than being measured over a different span."""
 
+    follow_through_sessions: tuple[int, ...] = ()
+    """Trailing follow-through windows to build (:mod:`nqbt.sessionrange`), in sessions.
+
+    Empty builds nothing, and an entry implies :attr:`range_keys` -- follow-through is measured
+    against a range, so a lookback without one has nothing to measure."""
+
     regime_lookbacks: tuple[int, ...] = ()
     """Efficiency-ratio lookbacks to build (:mod:`nqbt.regime`). Empty builds nothing."""
 
@@ -146,6 +152,9 @@ class ContextSpec:
             needs_vwap_band=self.needs_vwap_band or other.needs_vwap_band,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
             range_keys=tuple(sorted({*self.range_keys, *other.range_keys})),
+            follow_through_sessions=tuple(
+                sorted({*self.follow_through_sessions, *other.follow_through_sessions}),
+            ),
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
             compression_keys=tuple(sorted({*self.compression_keys, *other.compression_keys})),
@@ -216,6 +225,9 @@ class Dataset:
 
     session_ranges: sessionrange.SessionRangeGrid | None = None
     """Opening ranges per declared key, or ``None`` when nothing asked for them."""
+
+    follow_through: sessionrange.FollowThroughGrid | None = None
+    """Each range's follow-through and its trailing medians, or ``None`` when nothing asked."""
 
     regimes: regime.EfficiencyRatioGrid | None = None
     """Efficiency ratios per declared lookback, or ``None`` when nothing asked for them."""
@@ -426,6 +438,24 @@ class Dataset:
     def range_session_id(self) -> IndexArray:
         """Per bar: which session it belongs to, which is the index into the range levels."""
         return self._session_ranges().session_id
+
+    def _follow_through(self) -> FollowThroughGrid:
+        if self.follow_through is None:
+            msg: str = (
+                "no follow-through in this dataset; prepare() was not asked for it. Add the "
+                "lookback to follow_through_sessions on the archetype's ContextSpec."
+            )
+            raise ContextError(msg)
+
+        return self.follow_through
+
+    def range_follow_through(self, key: sessionrange.RangeKey) -> FloatArray:
+        """Per **session**: how far past one range price travelled, in that range's widths."""
+        return self._follow_through().raw_for(key)
+
+    def range_follow_through_scale(self, key: sessionrange.RangeKey, sessions: int) -> FloatArray:
+        """Per **session**: the trailing follow-through a bracket may be denominated against."""
+        return self._follow_through().scale_for(key, sessions)
 
     def _regimes(self) -> regime.EfficiencyRatioGrid:
         if self.regimes is None:
@@ -653,6 +683,7 @@ class Dataset:
             self.vwap_band,
             self.time_of_day,
             self.session_ranges,
+            self.follow_through,
             self.regimes,
             self.volumes,
             self.compressions,
@@ -721,6 +752,13 @@ def prepare(
     ``price_basis`` is stated rather than inferred, and defaults to
     :attr:`PriceBasis.UNKNOWN` so a rule needing raw levels refuses instead of guessing.
     """
+    if spec.follow_through_sessions and not spec.range_keys:
+        msg: str = (
+            "follow_through_sessions was declared with no range_keys; follow-through is "
+            "measured against a range, so there is nothing here to measure it over"
+        )
+        raise ContextError(msg)
+
     open_: FloatArray
     high: FloatArray
     low: FloatArray
@@ -745,6 +783,11 @@ def prepare(
             else timeofday.infer_bar_minutes(pd.DatetimeIndex(bars.index)),
         )
         if spec.range_keys
+        else None
+    )
+    follow_through: FollowThroughGrid | None = (
+        sessionrange.follow_through_grid(high, low, ranges, spec.follow_through_sessions)
+        if ranges is not None and spec.follow_through_sessions
         else None
     )
     regimes: EfficiencyRatioGrid | None = (
@@ -832,6 +875,7 @@ def prepare(
         vwap_band=vwap_band,
         time_of_day=tod,
         session_ranges=ranges,
+        follow_through=follow_through,
         regimes=regimes,
         volumes=volumes,
         compressions=compressions,

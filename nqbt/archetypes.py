@@ -27,6 +27,7 @@ from nqbt.sim import (
 )
 from nqbt.sim.types import (
     BAND_VWAP,
+    ORB_SCALE_NONE,
     ORB_STOP_ATR,
     STOP_ATR,
     DeadCatParams,
@@ -296,10 +297,18 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
     that build neither. A range key is the anchor crossed with the window, exactly as an MA
     key is a kind crossed with a period, and the resolution decides which of them are
     buildable at all -- :func:`nqbt.sessionrange.validate_key`.
+
+    The trailing follow-through is built on the same terms as the ATR: only where some
+    combination selects a scaling mode that reads it.
     """
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())}
         if any(int(v) == ORB_STOP_ATR for v in values.get("stop_mode", ()))
+        else set()
+    )
+    scaled: set[int] = (
+        {int(v) for v in values.get("follow_through_sessions", ())}
+        if any(int(v) != ORB_SCALE_NONE for v in values.get("follow_through_scaling", ()))
         else set()
     )
 
@@ -313,6 +322,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
                 },
             ),
         ),
+        follow_through_sessions=tuple(sorted(scaled)),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -488,9 +498,10 @@ OPENINGRANGE_GATES: Mapping[str, str] = {
 ``atr_stop_multiple`` and ``min_bracket_dollars`` are read under :data:`~nqbt.sim.types.
 ORB_STOP_ATR` alone, ``stop_range_fraction`` under :data:`~nqbt.sim.types.ORB_STOP_FRACTION`
 alone, and ``stop_offset_ticks`` under neither of the first two, so one off value per axis
-cannot express any of them. ``dead_axes`` will not say so; the *memory* cost is still avoided,
-because :func:`openingrange_context` builds no ATR unless some combination selects the ATR
-stop.
+cannot express any of them. ``follow_through_sessions`` is the same shape against
+:data:`~nqbt.sim.types.ORB_SCALE_NONE`. ``dead_axes`` will not say so; the *memory* cost is
+still avoided, because :func:`openingrange_context` builds neither the ATR nor the trailing
+follow-through unless some combination selects the mode that reads it.
 """
 
 

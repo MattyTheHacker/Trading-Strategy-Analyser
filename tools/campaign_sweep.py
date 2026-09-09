@@ -71,6 +71,13 @@ each held at the bracket its own campaign swept -- ``docs/roadmap.md`` §M28.8:
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-geometry --split \
         --strata orb-geometry
+
+``--variants orb-followthrough`` denominates the bracket in the **trailing** follow-through
+rather than in the session's own range width, against a control run on the same bars in the
+same pass -- ``docs/roadmap.md`` §M28.10:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-followthrough --split \
+        --strata orb-followthrough
 """
 
 from __future__ import annotations
@@ -110,6 +117,10 @@ from nqbt.sim.types import (
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
     ORB_ENTRY_RETEST,
+    ORB_SCALE_BOTH,
+    ORB_SCALE_NONE,
+    ORB_SCALE_STOP,
+    ORB_SCALE_TARGET,
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
     ORB_STOP_OPPOSITE,
@@ -195,6 +206,7 @@ ORB = "orb"
 ORB_FADE = "orb-fade"
 ORB_REJECTION = "orb-rejection"
 ORB_GEOMETRY = "orb-geometry"
+ORB_FOLLOW_THROUGH = "orb-followthrough"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -428,6 +440,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ORB_FADE: ORB_REVERSION_STRATA,
     ORB_REJECTION: ORB_REVERSION_STRATA,
     ORB_GEOMETRY: (UNFILTERED,),
+    ORB_FOLLOW_THROUGH: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -1118,6 +1131,81 @@ def openingrange_geometry_variants(root: str) -> list[Variant]:
     ]
 
 
+ORB_FOLLOW_THROUGH_RANGES: dict[str, sessionrange.RangeKey] = {
+    "cash-ft+15m": (sessionrange.CASH_OPEN_MINUTES, 15),
+    "cash-ft+30m": (sessionrange.CASH_OPEN_MINUTES, 30),
+}
+"""The two ranges whose breakout separates from a permuted range, and no others.
+
+§M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and finds none at 45
+or 60, so this run asks its question where there is an edge to lose rather than across a
+plateau. The names carry ``cash-ft+`` where §M28.8 wrote ``cash-open+``, because the variant
+name is the only thing separating two runs in one database.
+"""
+
+ORB_FOLLOW_THROUGH_LOOKBACKS = (20, 60, 250)
+"""How many prior sessions the trailing median is taken over: a month, a quarter, a year.
+
+Three rather than one because the lookback is what decides whether the scale tracks the regime
+or averages over it, and a single unexamined window would be reporting its own choice.
+"""
+
+ORB_FOLLOW_THROUGH_MODES: dict[str, int] = {
+    "scale=target": ORB_SCALE_TARGET,
+    "scale=stop": ORB_SCALE_STOP,
+    "scale=both": ORB_SCALE_BOTH,
+}
+"""Which halves of the bracket the trailing follow-through is applied to.
+
+Separable on purpose: [#261] names both halves as denominated in the quantity that moved, and
+one arm each is what says whether either is the one that matters.
+"""
+
+
+def openingrange_follow_through_variants(root: str) -> list[Variant]:
+    """§M28.10's run: the bracket denominated in trailing reach, against an unscaled control.
+
+    **A variant dimension rather than an axis**, for :data:`SPEC_TRAILS`' reason:
+    ``follow_through_sessions`` is inert at :data:`ORB_SCALE_NONE`, so crossing the two as axes
+    would run the control once per lookback and nothing would say so. The control is in the
+    same pass on the same bars, which is what makes it a comparison rather than two runs.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "entry_offset_ticks": [1, 4],
+        "max_entries_per_session": [1, 0],
+        "stop_range_fraction": [*ORB_FRACTIONS],
+    }
+    scalings: list[tuple[str, int, int]] = [
+        (f"{name}@{sessions}", mode, sessions)
+        for name, mode in ORB_FOLLOW_THROUGH_MODES.items()
+        for sessions in ORB_FOLLOW_THROUGH_LOOKBACKS
+    ]
+
+    return [
+        Variant(
+            name=f"{range_name} {scale_name}",
+            archetype=archetypes.OPENINGRANGE,
+            base=_costed(
+                OpeningRangeParams(
+                    anchor_minutes=anchor,
+                    window_minutes=window,
+                    entry_mode=ORB_ENTRY_BREAKOUT,
+                    stop_mode=ORB_STOP_FRACTION,
+                    target_mode=ORB_TARGET_WIDTH,
+                    follow_through_scaling=mode,
+                    follow_through_sessions=sessions,
+                ),
+                root,
+            ),
+            axes=dict(shared),
+            resolutions=orb_resolutions(anchor, window),
+        )
+        for range_name, (anchor, window) in ORB_FOLLOW_THROUGH_RANGES.items()
+        for scale_name, mode, sessions in [("scale=off", ORB_SCALE_NONE, 60), *scalings]
+    ]
+
+
 SPEC_SHARED: dict[str, list[AxisValue]] = {
     "fast_period": [9, 20],
     "slow_period": [50, 200],
@@ -1264,6 +1352,10 @@ ORB_FADE_VARIANTS = {"OpeningRange": openingrange_fade_variants}
 """The §M28.5 re-run: the fade alone, with a stop tighter than §M28.2's axis reached and a
 target that stops at the middle of the range -- ``docs/roadmap.md`` §M28.5."""
 
+ORB_FOLLOW_THROUGH_VARIANTS = {"OpeningRange": openingrange_follow_through_variants}
+"""The §M28.10 run: the bracket denominated in trailing follow-through rather than in the
+session's own range width, over the two ranges §M28.8's null separated -- [#261]."""
+
 ORB_GEOMETRY_VARIANTS = {"OpeningRange": openingrange_geometry_variants}
 """The §M28.8 run: the anchor axis §M28.2 opened, crossed with the length axis nothing has swept.
 
@@ -1282,7 +1374,16 @@ axes exist -- ``docs/roadmap.md`` § "The build spec's three loose ends, measure
 
 CAMPAIGN = "campaign"
 
-VARIANT_SETS = {CAMPAIGN, NARROW, ORB, ORB_FADE, ORB_GEOMETRY, ORB_REJECTION, SPEC}
+VARIANT_SETS = {
+    CAMPAIGN,
+    NARROW,
+    ORB,
+    ORB_FADE,
+    ORB_FOLLOW_THROUGH,
+    ORB_GEOMETRY,
+    ORB_REJECTION,
+    SPEC,
+}
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
 ``--variant narrow`` to the reading tools."""
@@ -1294,6 +1395,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_FADE: ORB_FADE_VARIANTS,
+        ORB_FOLLOW_THROUGH: ORB_FOLLOW_THROUGH_VARIANTS,
         ORB_GEOMETRY: ORB_GEOMETRY_VARIANTS,
         ORB_REJECTION: ORB_REJECTION_VARIANTS,
         SPEC: SPEC_VARIANTS,
