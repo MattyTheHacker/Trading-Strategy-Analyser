@@ -42,6 +42,7 @@ from nqbt.sim.types import (
     STOP_CATASTROPHE,
     STOP_SWING,
     DeadCatParams,
+    OpeningRangeParams,
 )
 from tools.campaign_sweep import (
     ALL_STRATA,
@@ -59,6 +60,9 @@ from tools.campaign_sweep import (
     NARROW_VARIANTS,
     NO_CUTS,
     ORB,
+    ORB_BRACKET,
+    ORB_BRACKET_RANGES,
+    ORB_BRACKET_VARIANTS,
     ORB_ENTRIES,
     ORB_FADE,
     ORB_FADE_LADDERS,
@@ -71,6 +75,7 @@ from tools.campaign_sweep import (
     ORB_FOLLOW_THROUGH_VARIANTS,
     ORB_GEOMETRY_VARIANTS,
     ORB_GEOMETRY_WINDOWS,
+    ORB_LADDER_FRACTIONS,
     ORB_RANGES,
     ORB_REJECTION,
     ORB_REJECTION_OFFSETS,
@@ -78,6 +83,7 @@ from tools.campaign_sweep import (
     ORB_TARGETS,
     ORB_TIGHT_FRACTIONS,
     ORB_VARIANTS,
+    ORB_WIDTH_LADDERS,
     LONDON_OPEN_MINUTES,
     RECUTS,
     REGIME,
@@ -1112,3 +1118,158 @@ def test_a_scaled_grid_declares_the_lookback_its_combinations_read() -> None:
                 continue
 
             assert declared == (variant.base.follow_through_sessions,), variant.name
+
+
+# -- the M28.11 bracket ladder run --------------------------------------------------
+
+
+def bracket_variants() -> list[Variant]:
+    return ORB_BRACKET_VARIANTS["OpeningRange"]("MNQ")
+
+
+def test_the_bracket_run_states_its_stratum_before_it_runs() -> None:
+    """One cell, as the geometry and follow-through runs have: the question is about the
+    bracket's size rather than about the context it is traded in."""
+    assert [name for name, _ in strata(ORB_BRACKET)] == [UNFILTERED]
+    assert variants_for(ORB_BRACKET) is ORB_BRACKET_VARIANTS
+
+
+def test_the_stop_ladder_extends_the_stored_axis_instead_of_replacing_it() -> None:
+    """[#262]'s premise: 1.0 was the last value and the winning one, so the axis was truncated.
+    Every stored fraction is re-run at exactly its own value, and the new ones sit past it."""
+    assert ORB_LADDER_FRACTIONS[: len(ORB_FRACTIONS)] == ORB_FRACTIONS
+    assert max(ORB_FRACTIONS) == 1.0
+    assert [f for f in ORB_LADDER_FRACTIONS if f > 1.0]
+    assert ORB_LADDER_FRACTIONS == sorted(ORB_LADDER_FRACTIONS)
+
+
+def test_a_stop_past_the_range_width_is_legal_rather_than_refused() -> None:
+    """The whole ladder rests on it: past 1.0 the stop sits outside the range entirely, and a
+    params class that refused it would fail the run rather than the axis."""
+    for fraction in ORB_LADDER_FRACTIONS:
+        params = OpeningRangeParams(stop_mode=ORB_STOP_FRACTION, stop_range_fraction=fraction)
+
+        assert params.stop_range_fraction == fraction
+
+
+def test_the_width_ladder_is_a_variant_dimension_rather_than_an_axis() -> None:
+    """A ladder is a tuple and tuples are not sweepable, which is why no ORB campaign varied
+    it: ``_orb_further_targets`` hands over the parameter default and no axis reaches it."""
+    ladders = {variant.base.target_width_multiples for variant in bracket_variants()}
+
+    assert ladders == set(ORB_WIDTH_LADDERS.values())
+    for variant in bracket_variants():
+        assert "target_width_multiples" not in variant.axes
+        assert "target_mode" not in variant.axes
+
+
+def test_the_ladder_every_stored_run_used_is_one_cell_of_the_swept_set() -> None:
+    """What makes this an extension of the stored table rather than a run beside it: the
+    parameter default is in the set, so the new rows share a target scheme with the old ones."""
+    assert OpeningRangeParams().target_width_multiples in set(ORB_WIDTH_LADDERS.values())
+
+
+def test_the_no_target_arm_leaves_every_leg_to_the_forced_flat() -> None:
+    """M28.9 measured ``(nan, nan)`` against the default and reported it winning on the
+    selection window and losing on the holdout; this is the arm that reproduces it."""
+    runner = ORB_WIDTH_LADDERS["target=runner"]
+
+    assert all(math.isnan(level) for level in runner)
+    assert [name for name, ladder in ORB_WIDTH_LADDERS.items() if all(math.isnan(x) for x in ladder)] == [
+        "target=runner",
+    ]
+
+
+def test_every_ladder_has_a_leg_for_each_target_the_order_can_fill() -> None:
+    """A ladder longer than ``order_quantity`` raises at construction, so a set built with one
+    would fail the whole run rather than the cell."""
+    for variant in bracket_variants():
+        assert len(variant.base.target_levels) <= variant.base.order_quantity, variant.name
+
+
+def test_no_bracket_variant_can_collide_with_a_stored_one() -> None:
+    """Rows are separated by variant name alone, and these are ranges already swept twice."""
+    variants = bracket_variants()
+    names = {variant.name for variant in variants}
+    elsewhere = {
+        other.name
+        for build in (ORB_GEOMETRY_VARIANTS, ORB_FOLLOW_THROUGH_VARIANTS)
+        for other in build["OpeningRange"]("MNQ")
+    }
+
+    assert len(names) == len(variants)
+    assert not names & {other.name for other in stored_orb_variants()}
+    assert not names & elsewhere
+
+
+def test_the_bracket_run_is_confined_to_the_ranges_the_null_separated() -> None:
+    """M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and nowhere else,
+    so an axis is extended where there is an edge to lose -- ``ORB_FOLLOW_THROUGH_RANGES``."""
+    assert {window for _, window in ORB_BRACKET_RANGES.values()} == {15, 30}
+    assert {anchor for anchor, _ in ORB_BRACKET_RANGES.values()} == {sessionrange.CASH_OPEN_MINUTES}
+    assert set(ORB_BRACKET_RANGES.values()) == set(ORB_FOLLOW_THROUGH_RANGES.values())
+
+
+def test_the_bracket_run_sweeps_the_breakouts_own_offset_and_no_other() -> None:
+    """One entry, held at exactly what M28.2 and M28.10 swept it on, so the bracket is the only
+    thing that moved -- and an offset the mode does not read runs identical combinations."""
+    for variant in bracket_variants():
+        assert variant.base.entry_mode == ORB_ENTRY_BREAKOUT
+        assert variant.base.stop_mode == ORB_STOP_FRACTION
+        assert variant.base.target_mode == ORB_TARGET_WIDTH
+        assert variant.axes["entry_offset_ticks"] == [1, 4]
+        assert "retest_offset_ticks" not in variant.axes
+        assert "break_confirm_ticks" not in variant.axes
+
+
+def test_the_bracket_run_reproduces_the_unscaled_control_at_the_cell_they_share() -> None:
+    """M28.10's ``scale=off`` arm is this geometry at the stored fraction ladder, so the two
+    tables meet rather than run beside each other -- which is what makes the extension readable
+    against the stored figure."""
+    controls = {
+        variant.base.window_minutes: variant
+        for variant in ORB_FOLLOW_THROUGH_VARIANTS["OpeningRange"]("MNQ")
+        if variant.base.follow_through_scaling == ORB_SCALE_NONE
+    }
+    matched = 0
+    for variant in bracket_variants():
+        if variant.base.target_width_multiples != OpeningRangeParams().target_width_multiples:
+            continue
+
+        control = controls[variant.base.window_minutes]
+
+        assert variant.base == control.base, variant.name
+        assert variant.resolutions == control.resolutions, variant.name
+        assert set(control.axes["stop_range_fraction"]) <= set(variant.axes["stop_range_fraction"])
+        assert {k: v for k, v in variant.axes.items() if k != "stop_range_fraction"} == {
+            k: v for k, v in control.axes.items() if k != "stop_range_fraction"
+        }
+        matched += 1
+
+    assert matched == len(ORB_BRACKET_RANGES)
+
+
+def test_every_bracket_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
+    for variant in bracket_variants():
+        assert variant.resolutions, variant.name
+        for minutes in variant.resolutions:
+            for _, grid in grids_for(variant, UNFILTERED):
+                for anchor, window in grid.required_context().range_keys:
+                    sessionrange.validate_key(anchor, window, minutes)
+
+
+def test_the_stored_orb_grids_are_untouched_by_the_bracket_run() -> None:
+    """M28.1's through M28.10's rows were each produced by their own set, so an extended axis
+    goes in a seventh rather than into any of them."""
+    for build in (VARIANTS, ORB_VARIANTS, ORB_FADE_VARIANTS, ORB_REJECTION_VARIANTS, ORB_GEOMETRY_VARIANTS):
+        for variant in build["OpeningRange"]("MNQ"):
+            fractions = variant.axes.get("stop_range_fraction", [])
+
+            assert all(fraction <= 1.0 for fraction in fractions), variant.name
+
+
+def test_the_bracket_run_carries_the_roots_real_costs() -> None:
+    for root in COMMISSION:
+        for variant in ORB_BRACKET_VARIANTS["OpeningRange"](root):
+            assert variant.base.commission_per_contract == COMMISSION[root]
+            assert variant.base.slippage_ticks == SLIPPAGE_TICKS
