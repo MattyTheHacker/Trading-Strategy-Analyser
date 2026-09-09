@@ -451,3 +451,49 @@ def test_the_range_grid_counts_towards_what_a_worker_is_handed() -> None:
     with_range = context.prepare(frame, ContextSpec(needs_vwap=True, range_keys=(key,)), bar_minutes=1)
 
     assert with_range.nbytes == without.nbytes + with_range.session_ranges.nbytes
+
+
+def test_the_follow_through_is_absent_unless_the_spec_asks_for_it() -> None:
+    key = (sessionrange.CASH_OPEN_MINUTES, 30)
+    data = context.prepare(session_bars(), ContextSpec(range_keys=(key,)), bar_minutes=1)
+    assert data.follow_through is None
+
+    with pytest.raises(ContextError, match="follow_through_sessions"):
+        data.range_follow_through(key)
+    with pytest.raises(ContextError, match="follow_through_sessions"):
+        data.range_follow_through_scale(key, 5)
+
+
+def test_a_declared_follow_through_reads_back_per_session_at_its_lookback() -> None:
+    key = (sessionrange.CASH_OPEN_MINUTES, 30)
+    spec = ContextSpec(range_keys=(key,), follow_through_sessions=(5,))
+    data = context.prepare(session_bars(days=12), spec, bar_minutes=1)
+
+    assert data.range_follow_through(key).size == data.session_ranges.sessions
+    assert data.range_follow_through_scale(key, 5).size == data.session_ranges.sessions
+    assert np.isfinite(data.range_follow_through(key)).any(), "no session was measurable"
+
+
+def test_a_follow_through_lookback_with_no_range_to_measure_is_refused() -> None:
+    """The lookback implies a range; declaring one without the other builds nothing silently."""
+    with pytest.raises(ContextError, match="no range_keys"):
+        context.prepare(session_bars(), ContextSpec(follow_through_sessions=(5,)), bar_minutes=1)
+
+
+def test_the_union_of_two_specs_carries_the_follow_through_lookbacks() -> None:
+    merged = ContextSpec(follow_through_sessions=(60,)) | ContextSpec(follow_through_sessions=(20,))
+
+    assert merged.follow_through_sessions == (20, 60)
+
+
+def test_the_follow_through_grid_counts_towards_what_a_worker_is_handed() -> None:
+    frame = session_bars(days=12)
+    key = (sessionrange.CASH_OPEN_MINUTES, 30)
+    without = context.prepare(frame, ContextSpec(range_keys=(key,)), bar_minutes=1)
+    with_scale = context.prepare(
+        frame,
+        ContextSpec(range_keys=(key,), follow_through_sessions=(5,)),
+        bar_minutes=1,
+    )
+
+    assert with_scale.nbytes == without.nbytes + with_scale.follow_through.nbytes

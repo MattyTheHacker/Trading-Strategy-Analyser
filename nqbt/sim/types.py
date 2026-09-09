@@ -1525,6 +1525,26 @@ other archetype; ``width`` places each leg a multiple of the **range width** pas
 which is the unit the opening range states its own geometry in.
 """
 
+ORB_SCALE_NONE = 0
+ORB_SCALE_TARGET = 1
+ORB_SCALE_STOP = 2
+ORB_SCALE_BOTH = ORB_SCALE_TARGET | ORB_SCALE_STOP
+ORB_SCALE_MODES = {
+    ORB_SCALE_NONE: "none",
+    ORB_SCALE_TARGET: "target",
+    ORB_SCALE_STOP: "stop",
+    ORB_SCALE_BOTH: "both",
+}
+"""Which halves of the bracket are denominated in the *trailing* follow-through rather than in
+the session's own range width.
+
+A bitmask so the two halves separate: the width a leg's target is a multiple of, the width the
+fraction stop is a fraction of, either, or neither. At :data:`ORB_SCALE_NONE` the arithmetic is
+byte-for-byte what §M28.1 swept. Above it the width both halves read becomes
+``width * trailing follow-through``, which is how far price has lately gone past a range of
+that size rather than how wide the range is -- ``docs/roadmap.md`` §M28.9.
+"""
+
 
 @dataclass(slots=True)
 class OpeningRangeParams:
@@ -1688,6 +1708,16 @@ class OpeningRangeParams:
     tp_multiplier: float = 1.0
     """Scales every R target, as on the ported archetypes."""
 
+    follow_through_scaling: int = ORB_SCALE_NONE
+    """One of :data:`ORB_SCALE_MODES` -- which halves of the bracket the trailing follow-through
+    scales. Off by default, which is the geometry every stored OpeningRange row was swept on."""
+
+    follow_through_sessions: int = 60
+    """How many prior sessions the trailing follow-through is the median of.
+
+    Read under every :attr:`follow_through_scaling` but :data:`ORB_SCALE_NONE`, where it is
+    inert -- so it is a **variant dimension** rather than an axis crossed with the mode."""
+
     order_quantity: int = 4
 
     bars_required_to_trade: int = 200
@@ -1708,6 +1738,7 @@ class OpeningRangeParams:
     def __post_init__(self) -> None:
         self._validate_entry()
         self._validate_exit_scheme()
+        self._validate_follow_through()
         validate_context_filters(self)
 
     def _validate_entry(self) -> None:
@@ -1781,10 +1812,52 @@ class OpeningRangeParams:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
 
+    def _validate_follow_through(self) -> None:
+        """Check the trailing scale against the two bracket halves it can be applied to.
+
+        Each half is refused under a mode that states its geometry in some other unit, because
+        there is then no width for the scale to multiply and the axis would be silently inert.
+        """
+        if self.follow_through_scaling not in ORB_SCALE_MODES:
+            msg: str = (
+                f"unknown follow_through_scaling {self.follow_through_scaling}; use one of "
+                f"{sorted(ORB_SCALE_MODES)}"
+            )
+            raise ValueError(msg)
+
+        sessionrange.validate_follow_through_sessions(self.follow_through_sessions)
+        if self.follow_through_scaling & ORB_SCALE_TARGET and self.target_mode != ORB_TARGET_WIDTH:
+            msg = (
+                "follow-through can only scale a target that is a multiple of the range width; "
+                f"target_mode {self.target_mode} states its targets in R. Use target_mode "
+                f"{ORB_TARGET_WIDTH} (width) or drop {ORB_SCALE_TARGET} from "
+                "follow_through_scaling"
+            )
+            raise ValueError(msg)
+
+        if self.follow_through_scaling & ORB_SCALE_STOP and self.stop_mode != ORB_STOP_FRACTION:
+            msg = (
+                "follow-through can only scale a stop that is a fraction of the range width; "
+                f"stop_mode {self.stop_mode} places a level or an ATR distance. Use stop_mode "
+                f"{ORB_STOP_FRACTION} (fraction) or drop {ORB_SCALE_STOP} from "
+                "follow_through_scaling"
+            )
+            raise ValueError(msg)
+
     @property
     def range_key(self) -> sessionrange.RangeKey:
         """Which of the dataset's session ranges this combination reads."""
         return (self.anchor_minutes, self.window_minutes)
+
+    @property
+    def scales_target(self) -> bool:
+        """Whether a leg's target is a multiple of the trailing reach rather than of the range."""
+        return bool(self.follow_through_scaling & ORB_SCALE_TARGET)
+
+    @property
+    def scales_stop(self) -> bool:
+        """Whether the fraction stop is a fraction of the trailing reach rather than of the range."""
+        return bool(self.follow_through_scaling & ORB_SCALE_STOP)
 
     @property
     def target_levels(self) -> tuple[float, ...]:
