@@ -62,10 +62,15 @@ from tools.campaign_sweep import (
     ORB_FADE_LADDERS,
     ORB_FADE_VARIANTS,
     ORB_FRACTIONS,
+    ORB_GEOMETRY,
+    ORB_GEOMETRY_ENTRIES,
+    ORB_GEOMETRY_VARIANTS,
+    ORB_GEOMETRY_WINDOWS,
     ORB_RANGES,
     ORB_REJECTION,
     ORB_REJECTION_OFFSETS,
     ORB_REJECTION_VARIANTS,
+    ORB_TARGETS,
     ORB_TIGHT_FRACTIONS,
     ORB_VARIANTS,
     LONDON_OPEN_MINUTES,
@@ -92,6 +97,7 @@ from tools.campaign_sweep import (
     fit_regime,
     fit_volume,
     grids_for,
+    orb_geometry_ranges,
     orb_resolutions,
     planned_combinations,
     quantile_pair,
@@ -868,3 +874,137 @@ def test_the_parked_orb_grid_is_untouched_by_the_fades_re_run() -> None:
     assert variants_for(ORB_FADE) is ORB_FADE_VARIANTS
     assert variants_for(ORB_REJECTION) is ORB_REJECTION_VARIANTS
     assert variants_for(ORB) is ORB_VARIANTS
+
+
+# -- the §M28.8 geometry run -------------------------------------------------------
+
+
+def stored_orb_variants() -> list[Variant]:
+    """Every OpeningRange variant the three stored runs were produced by."""
+    return [
+        variant
+        for build in (VARIANTS, ORB_VARIANTS, ORB_FADE_VARIANTS, ORB_REJECTION_VARIANTS)
+        for variant in build["OpeningRange"]("MNQ")
+    ]
+
+
+def test_the_one_hour_cash_range_is_in_the_swept_set_at_every_resolution() -> None:
+    """[#258]'s gap: the only 60-minute window swept was anchored at the European open, so
+    "the first hour of the New York session" had never been run."""
+    hour = (sessionrange.CASH_OPEN_MINUTES, 60)
+
+    assert hour not in set(ORB_RANGES.values()), "premise gone; the gap has been filled elsewhere"
+    assert hour in set(orb_geometry_ranges().values())
+    assert orb_resolutions(*hour) == RESOLUTIONS
+
+
+def test_the_geometry_cross_keeps_every_cell_the_session_leaves_room_to_trade() -> None:
+    """The cut is the session's own: a range that is not complete before the phase the forced
+    flat falls in has only that phase to trade in -- ``docs/roadmap.md`` §M28.8."""
+    latest = sessionrange.anchor_for(timeofday.FORCED_EXIT_PHASE)
+    anchors = {sessionrange.anchor_for(phase) for phase in timeofday.SessionPhase}
+    ranges = orb_geometry_ranges()
+
+    assert set(ranges.values()) == {
+        (anchor, window) for anchor in anchors for window in ORB_GEOMETRY_WINDOWS if anchor + window <= latest
+    }
+    # The close phase is the one anchor no window fits after.
+    assert not [name for name in ranges if name.startswith("close+")]
+
+
+def test_the_geometry_cross_contains_every_range_the_stored_runs_measured() -> None:
+    """A shared cell is what makes the length axis comparable to §M28.2 rather than adjacent to
+    it, which is why the overnight span is a window here -- §M28.5's endpoint argument."""
+    assert set(ORB_RANGES.values()) <= set(orb_geometry_ranges().values())
+
+
+def test_no_geometry_variant_can_collide_with_a_stored_one_in_the_same_database() -> None:
+    """Rows are separated by variant name alone, and ``campaign_holdout`` pairs the two windows
+    one-to-one -- so a duplicated name would pair a new row against a stored one."""
+    geometry = ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ")
+    names = {variant.name for variant in geometry}
+
+    assert len(names) == len(geometry)
+    assert not names & {variant.name for variant in stored_orb_variants()}
+
+
+def test_the_geometry_run_states_its_stratum_before_it_runs() -> None:
+    """One cell rather than the reversion pair: the question is geometric, and every entry has
+    already been asked its own context question -- ``docs/roadmap.md`` §M28.8."""
+    assert [name for name, _ in strata(ORB_GEOMETRY)] == [UNFILTERED]
+    assert variants_for(ORB_GEOMETRY) is ORB_GEOMETRY_VARIANTS
+
+
+def test_every_entry_keeps_the_bracket_its_own_campaign_swept() -> None:
+    """A single bracket across all four would move two things at once on two of them: a fade's
+    stop runs outward from the extreme it enters at where a breakout's runs inward."""
+    wide = {ORB_ENTRY_BREAKOUT, ORB_ENTRY_RETEST}
+
+    for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
+        assert variant.base.stop_mode == ORB_STOP_FRACTION
+        if variant.base.entry_mode in wide:
+            assert variant.axes["stop_range_fraction"] == ORB_FRACTIONS
+            assert "stop_offset_ticks" not in variant.axes
+            continue
+
+        assert variant.axes["stop_range_fraction"] == ORB_TIGHT_FRACTIONS
+        assert variant.axes["stop_offset_ticks"] == [2, 8]
+
+
+def test_every_entry_sweeps_only_the_offsets_it_reads() -> None:
+    """``ORB_ENTRIES``' own reason, carried to the fourth mode: ``dead_axes`` cannot see an
+    axis that is inert under a mode, so an inert one runs identical combinations silently."""
+    for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
+        reads_a_limit = variant.base.entry_mode == ORB_ENTRY_RETEST
+        assert ("retest_offset_ticks" in variant.axes) is reads_a_limit
+        assert ("entry_offset_ticks" in variant.axes) is not reads_a_limit
+        waits = variant.base.entry_mode in (ORB_ENTRY_FADE, ORB_ENTRY_RETEST)
+        assert ("break_confirm_ticks" in variant.axes) is waits
+
+
+def test_the_geometry_run_reproduces_a_stored_variant_wherever_the_two_share_a_cell() -> None:
+    """The five stored ranges are re-run at exactly the parameters that produced their rows, so
+    the new table shares cells with the old one rather than running beside it."""
+    stored = [variant for variant in stored_orb_variants() if variant.base.stop_mode == ORB_STOP_FRACTION]
+    matched = 0
+    for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
+        against = [other for other in stored if other.base == variant.base]
+        if not against:
+            continue
+
+        assert len(against) == 1, variant.name
+        assert variant.axes == against[0].axes, variant.name
+        assert variant.resolutions == against[0].resolutions, variant.name
+        matched += 1
+
+    schemes = sum(len(entry.targets) for entry in ORB_GEOMETRY_ENTRIES.values())
+    assert matched == len(ORB_RANGES) * schemes
+
+
+def test_every_geometry_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
+    """The real guard: a claimed resolution whose range grid refuses to build would fail an
+    hour into a run rather than here."""
+    for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
+        assert variant.resolutions, variant.name
+        for minutes in variant.resolutions:
+            for _, grid in grids_for(variant, UNFILTERED):
+                for anchor, window in grid.required_context().range_keys:
+                    sessionrange.validate_key(anchor, window, minutes)
+
+
+def test_the_stored_orb_grids_are_untouched_by_the_geometry_run() -> None:
+    """§M28.1's, §M28.2's and §M28.5's rows were each produced by their own set, so a crossed
+    anchor goes in a sixth rather than into any of them."""
+    for build in (VARIANTS, ORB_VARIANTS, ORB_FADE_VARIANTS, ORB_REJECTION_VARIANTS):
+        anchors = {variant.base.anchor_minutes for variant in build["OpeningRange"]("MNQ")}
+        assert anchors <= {anchor for anchor, _ in ORB_RANGES.values()}
+
+
+def test_the_hoisted_target_schemes_are_what_the_stored_re_sweep_swept() -> None:
+    """``ORB_TARGETS`` is one dict where two builders held the same literal; the geometry run
+    reads it so that a stored cell and a new one cannot drift apart."""
+    assert list(ORB_TARGETS) == ["target=R", "target=width"]
+    assert ORB_TARGETS["target=R"] == (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]})
+    assert ORB_TARGETS["target=width"] == (ORB_TARGET_WIDTH, {})
+    for name in ("entry=breakout", "entry=retest"):
+        assert [target[0] for target in ORB_GEOMETRY_ENTRIES[name].targets] == list(ORB_TARGETS)
