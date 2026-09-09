@@ -133,6 +133,15 @@ below and is what you quote; this file is the index, not the record.
   for exits, reaching an entry for the first time. They read `bracket.limit_filled` at
   `-direction`, because the limit is favourable from the other side. `docs/nt8-fidelity.md`
   §M28.2 and §M28.6.
+- **A narrow bracket on a limit entry measures `ambiguity_policy`, not the strategy.** The
+  nearest-to-open rule is unfitted where an entry fills inside the ambiguous bar, and the sign
+  of its error follows the order type: a stop entry fills with the open on the stop's side and
+  a limit entry with the open on the target's side, so on the same bars the fade lands at the
+  worst-case end of the band and the rejection at the best-case end. Every profitable cell of
+  the rejection's 245,760-combination campaign is one where the assumption decides the trade.
+  **Read `ambiguous_share` before believing any OpeningRange number**, and treat a bracket
+  narrower than a one-minute bar as unmeasurable rather than as a result — §M28.4's minute-bar
+  pass cannot settle it. `docs/roadmap.md` §M28.7.
 - **A marketable limit is refused, and that is a deviation from an *unmeasured* NT8 behaviour.**
   §M18's rule that a stop entry at or through the market is never submitted is measured; its
   mirror for a buy limit at or above the close is not, and NT8 would most likely accept it.

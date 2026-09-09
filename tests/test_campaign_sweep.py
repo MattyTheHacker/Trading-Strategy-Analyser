@@ -31,6 +31,7 @@ from nqbt import (
 from nqbt.sim.types import (
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
+    ORB_ENTRY_REJECTION,
     ORB_ENTRY_RETEST,
     ORB_STOP_FRACTION,
     ORB_TARGET_R,
@@ -62,6 +63,9 @@ from tools.campaign_sweep import (
     ORB_FADE_VARIANTS,
     ORB_FRACTIONS,
     ORB_RANGES,
+    ORB_REJECTION,
+    ORB_REJECTION_OFFSETS,
+    ORB_REJECTION_VARIANTS,
     ORB_TIGHT_FRACTIONS,
     ORB_VARIANTS,
     LONDON_OPEN_MINUTES,
@@ -808,6 +812,52 @@ def test_the_fades_re_run_is_one_variant_per_range_and_target_scheme() -> None:
     assert sum(variant.base.target_mode == ORB_TARGET_R for variant in variants) == len(ORB_RANGES)
 
 
+# -- the §M28.7 rejection run ------------------------------------------------------
+
+
+def test_the_rejection_run_and_the_fades_share_one_stratum_tuple() -> None:
+    """Both are reversion entries, so both are asked about the range that holds -- one
+    hypothesis stated once rather than two copies that could drift apart."""
+    assert STRATUM_SETS[ORB_REJECTION] is STRATUM_SETS[ORB_FADE]
+    assert [name for name, _ in strata(ORB_REJECTION)] == [UNFILTERED, "regime=CONSOLIDATING"]
+
+
+def test_the_rejection_run_holds_the_fades_bracket_at_exactly_what_it_swept() -> None:
+    """The entry is the only thing that moved between §M28.5 and this, which is what makes the
+    two comparable as entries rather than as two unrelated grids."""
+    bracket = {"stop_range_fraction", "stop_offset_ticks"}
+    fade = {variant.name.split(" entry=")[0]: variant for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ")}
+
+    for variant in ORB_REJECTION_VARIANTS["OpeningRange"]("MNQ"):
+        against = fade[variant.name.split(" entry=")[0]]
+        assert variant.base.entry_mode == ORB_ENTRY_REJECTION
+        assert variant.base.stop_mode == ORB_STOP_FRACTION
+        assert {key: variant.axes[key] for key in bracket} == {key: against.axes[key] for key in bracket}
+
+
+def test_the_rejection_sweeps_no_break_confirmation_and_a_zero_offset() -> None:
+    """It waits for no break, so the fade's arming axis would be inert; and its limit may rest
+    on the extreme itself, which a stop entry cannot -- ``docs/roadmap.md`` §M28.7."""
+    for variant in ORB_REJECTION_VARIANTS["OpeningRange"]("MNQ"):
+        assert "break_confirm_ticks" not in variant.axes
+        assert variant.axes["entry_offset_ticks"] == ORB_REJECTION_OFFSETS
+
+    assert min(ORB_REJECTION_OFFSETS) == 0
+    assert 0 not in ORB_ENTRIES["entry=fade"][1]["entry_offset_ticks"], "a stop entry cannot"
+
+
+def test_the_rejection_grid_is_the_same_size_as_the_fades() -> None:
+    """One axis swapped for another of the same length, so a difference in the results is not a
+    difference in how many chances each entry was given."""
+    rejection = ORB_REJECTION_VARIANTS["OpeningRange"]("MNQ")
+    fade = ORB_FADE_VARIANTS["OpeningRange"]("MNQ")
+
+    assert len(rejection) == len(fade) == len(ORB_RANGES) * (len(ORB_FADE_LADDERS) + 1)
+    assert sum(v.sized() * len(v.resolutions) for v in rejection) == sum(
+        v.sized() * len(v.resolutions) for v in fade
+    )
+
+
 def test_the_parked_orb_grid_is_untouched_by_the_fades_re_run() -> None:
     """§M28.2's stored rows were produced by ``ORB_VARIANTS``, so the tighter axis goes in its
     own set for the reason that one did."""
@@ -816,4 +866,5 @@ def test_the_parked_orb_grid_is_untouched_by_the_fades_re_run() -> None:
         for variant in ORB_VARIANTS["OpeningRange"]("MNQ")
     )
     assert variants_for(ORB_FADE) is ORB_FADE_VARIANTS
+    assert variants_for(ORB_REJECTION) is ORB_REJECTION_VARIANTS
     assert variants_for(ORB) is ORB_VARIANTS

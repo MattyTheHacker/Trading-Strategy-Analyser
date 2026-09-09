@@ -59,6 +59,12 @@ database** -- a second pass appends a second copy of every row and
 ``--strata orb-fade`` for the two cells stated in advance -- ``docs/roadmap.md`` §M28.5:
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
+
+``--variants orb-rejection`` runs the fourth entry over that same bracket, so the two reversion
+entries differ by their entry rule and nothing else -- ``docs/roadmap.md`` §M28.7:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-rejection --split \
+        --strata orb-rejection
 """
 
 from __future__ import annotations
@@ -96,6 +102,7 @@ from nqbt.instruments import get_instrument
 from nqbt.sim.types import (
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
+    ORB_ENTRY_REJECTION,
     ORB_ENTRY_RETEST,
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
@@ -180,6 +187,7 @@ NARROW = "narrow"
 TREND_UP = "trend-up"
 ORB = "orb"
 ORB_FADE = "orb-fade"
+ORB_REJECTION = "orb-rejection"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -397,13 +405,21 @@ dimension under all three forms and a fitted cut; ``compression-forms`` is the c
 dimension under both of its forms. Any of them inside ``all`` would run its dimension twice
 under two sets of names."""
 
+ORB_REVERSION_STRATA = (UNFILTERED, CONSOLIDATING)
+"""The two cells both reversion entries are asked about, stated before either run.
+
+A range that holds is a range worth trading back from, so `regime=CONSOLIDATING` is the fade's
+and the rejection's own thesis where `regime=DIRECTIONAL` is the breakout's -- one tuple
+because it is one hypothesis, read twice."""
+
 STRATUM_SETS: dict[str, tuple[str, ...]] = {
     **{group: (group,) for group in STRATUM_GROUPS},
     CORE: (UNFILTERED, "regime", "phase"),
     CONTEXT: ("volume", "compression", "trend", "htf"),
     NARROW: (UNFILTERED, DIRECTIONAL),
     ORB: (UNFILTERED, DIRECTIONAL, TREND_UP),
-    ORB_FADE: (UNFILTERED, CONSOLIDATING),
+    ORB_FADE: ORB_REVERSION_STRATA,
+    ORB_REJECTION: ORB_REVERSION_STRATA,
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -904,6 +920,54 @@ def _orb_fade_targets() -> list[tuple[str, int, tuple[float, ...], dict[str, lis
     ]
 
 
+ORB_REJECTION_OFFSETS = [0, 1, 4, 8]
+"""How far inside the extreme the rejection's limit rests, in ticks -- §M28.7's entry axis.
+
+`0` is the one value that is not the setup: a limit resting on the extreme itself needs price
+to trade **through** it under `IsFillLimitOnTouch = false`, which is the break the mode exists
+to do without. From one tick in, the fill measures "came this close and turned" and nothing
+has to break -- ``docs/roadmap.md`` §M28.7.
+"""
+
+
+def openingrange_rejection_variants(root: str) -> list[Variant]:
+    """§M28.7's run: the rejection alone, over the bracket §M28.5 measured the fade on.
+
+    The bracket axes are held at exactly what §M28.5 swept, so the entry is the only thing that
+    moved -- which is the comparison § "Parked is not abandoned" asks a re-run to be able to
+    make, read here between two entries rather than between two brackets.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "max_entries_per_session": [1, 0],
+        "entry_offset_ticks": [*ORB_REJECTION_OFFSETS],
+        "stop_range_fraction": [*ORB_TIGHT_FRACTIONS],
+        "stop_offset_ticks": [2, 8],
+    }
+
+    return [
+        Variant(
+            name=f"{range_name} entry=rejection {target_name}",
+            archetype=archetypes.OPENINGRANGE,
+            base=_costed(
+                OpeningRangeParams(
+                    anchor_minutes=anchor,
+                    window_minutes=window,
+                    entry_mode=ORB_ENTRY_REJECTION,
+                    stop_mode=ORB_STOP_FRACTION,
+                    target_mode=target_mode,
+                    target_width_multiples=ladder,
+                ),
+                root,
+            ),
+            axes={**shared, **target_axes},
+            resolutions=orb_resolutions(anchor, window),
+        )
+        for range_name, (anchor, window) in ORB_RANGES.items()
+        for target_name, target_mode, ladder, target_axes in _orb_fade_targets()
+    ]
+
+
 SPEC_SHARED: dict[str, list[AxisValue]] = {
     "fast_period": [9, 20],
     "slow_period": [50, 200],
@@ -1050,6 +1114,10 @@ ORB_FADE_VARIANTS = {"OpeningRange": openingrange_fade_variants}
 """The §M28.5 re-run: the fade alone, with a stop tighter than §M28.2's axis reached and a
 target that stops at the middle of the range -- ``docs/roadmap.md`` §M28.5."""
 
+ORB_REJECTION_VARIANTS = {"OpeningRange": openingrange_rejection_variants}
+"""The §M28.7 run: the rejection alone, over §M28.5's bracket, so that the two reversion
+entries differ by their entry rule and nothing else -- ``docs/roadmap.md`` §M28.7."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -1057,7 +1125,7 @@ axes exist -- ``docs/roadmap.md`` § "The build spec's three loose ends, measure
 
 CAMPAIGN = "campaign"
 
-VARIANT_SETS = {CAMPAIGN, NARROW, ORB, ORB_FADE, SPEC}
+VARIANT_SETS = {CAMPAIGN, NARROW, ORB, ORB_FADE, ORB_REJECTION, SPEC}
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
 ``--variant narrow`` to the reading tools."""
@@ -1069,6 +1137,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_FADE: ORB_FADE_VARIANTS,
+        ORB_REJECTION: ORB_REJECTION_VARIANTS,
         SPEC: SPEC_VARIANTS,
     }
 
