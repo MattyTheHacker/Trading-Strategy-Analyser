@@ -16,6 +16,11 @@ so neither can tell "worse than random" from "no better than random"; that is
 argument. `nqbt/randomentry.py` drawing 200 samples per comparison makes it look like the same
 machinery and it is not -- it replaces the entry and holds the ordering.
 
+**A database holding more than one variant needs ``--variant``**, for the reason
+``tools/campaign_holdout.py``'s :data:`~tools.campaign_holdout.GROUP_KEYS` gives: a shortlist
+drawn over a mixture of geometries ranks the fattest tail in it rather than the one being asked
+about -- ``docs/roadmap.md`` §M28.9.
+
 Reads the logs ``tools/campaign_shortlist.py`` stored, so run that first; a row with no log is
 named and skipped rather than silently dropped.
 """
@@ -123,6 +128,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--by", default="profit_factor", help="which statistic picks the rows")
     parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
+    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=TOP, help="how many configurations to resample")
     parser.add_argument("--iterations", type=int, default=montecarlo.DEFAULT_ITERATIONS)
     parser.add_argument("--seed", type=int, default=0)
@@ -136,6 +142,7 @@ def main(argv: list[str]) -> int:
         args.top,
         args.stratum,
         args.resolution,
+        args.variant,
     )
     logger.info(
         "%s on %s: %d configurations ranked on %s by %s, %s resamples each",

@@ -13,6 +13,11 @@ and no finding about either came out -- ``docs/roadmap.md`` §M27.7 and §M27.8.
 comparable within a resolution, so the dimension tables are cut by it rather than pooled over it,
 and :data:`SHARES` travels with every table.
 
+**Pooled over variants deliberately, which is why there is no ``--variant`` here.** The dilution
+§M28.9 measured is a *selection* effect and this tool selects nothing; the mixture is the thing
+the dimension tables exist to describe, and a variant is read on its own in the ``by variant``
+table below -- ``docs/roadmap.md`` §M28.9.
+
 Reads what ``tools/campaign_sweep.py`` wrote, one database per archetype.
 """
 

@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from nqbt import montecarlo, results, stats, trades
-from tools import campaign_montecarlo
+from tools import campaign_montecarlo, campaign_shortlist
 from tools.campaign_montecarlo import PERMUTED, STATISTICS, labelled, main, resample_row
 
 SWEEP_ID = 30
@@ -186,3 +186,28 @@ def test_the_rows_that_do_have_logs_are_still_reported(monkeypatch, stocked) -> 
     """One missing log must not cost the other nineteen their percentiles."""
     rows = pd.DataFrame([stored_row(), stored_row(combo_id=999)])
     assert run_main(monkeypatch, rows, stocked) == 0
+
+
+def test_the_variant_flag_confines_the_shortlist_to_one_geometry(monkeypatch, stocked) -> None:
+    """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of, and a
+    flag that parses without reaching ``shortlist`` reads exactly like one that works."""
+    rows = pd.DataFrame([stored_row(), stored_row(variant="fade", profit_factor=9.9)])
+    monkeypatch.setattr(campaign_shortlist, "load", lambda *_: rows)
+    monkeypatch.setattr(campaign_montecarlo, "db_path", lambda _: stocked)
+
+    resampled: list[str] = []
+    measure = campaign_montecarlo.resample_row
+
+    def spy(row, path, iterations, seed):
+        resampled.append(str(row["variant"]))
+
+        return measure(row, path, iterations, seed)
+
+    monkeypatch.setattr(campaign_montecarlo, "resample_row", spy)
+    argv = ["campaign_montecarlo.py", "--strategy", "InsideBar", "--iterations", "50"]
+    assert main([*argv, "--variant", "bracket"]) == 0
+    assert resampled == ["bracket"]
+
+    resampled.clear()
+    assert main(argv) == 0
+    assert sorted(resampled) == ["bracket", "fade"], "unrestricted, the shortlist holds both"
