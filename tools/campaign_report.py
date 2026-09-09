@@ -22,7 +22,8 @@ table below -- ``docs/roadmap.md`` §M28.9.
 ``tools/campaign_shortlist.py`` has stored the log. ``session_close_share`` says how often the
 flatten took a leg and never what that leg returned, and on the survivor the two answers point
 opposite ways -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost, which
-``session_close_share`` cannot say".
+``session_close_share`` cannot say". §M28.12 reads the column across the registry, where it
+does not say the same thing twice.
 
 Reads what ``tools/campaign_sweep.py`` wrote, one database per archetype.
 """
