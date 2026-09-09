@@ -1472,19 +1472,33 @@ class ElasticBandParams:
 ORB_ENTRY_BREAKOUT = 0
 ORB_ENTRY_FADE = 1
 ORB_ENTRY_RETEST = 2
+ORB_ENTRY_REJECTION = 3
 ORB_ENTRY_MODES = {
     ORB_ENTRY_BREAKOUT: "breakout",
     ORB_ENTRY_FADE: "fade",
     ORB_ENTRY_RETEST: "retest",
+    ORB_ENTRY_REJECTION: "rejection",
 }
 """Which event at the range the entry order waits for, and therefore which order type it is.
 
 ``breakout`` rests a stop beyond the extreme in the direction traded. ``fade`` waits for that
 extreme to be broken *against* the direction traded and rests a stop back inside the range, so
 a long fade buys the failed break of the low. ``retest`` waits for the break to happen in the
-direction traded and then rests a **limit** at the level it broke, which is the one entry in
-the registry that is not a stop order. All three read the same levels --
-``docs/roadmap.md`` §M28.2.
+direction traded and then rests a **limit** at the level it broke. ``rejection`` rests a limit
+just inside the extreme against the direction traded and waits for nothing, so a long buys the
+approach to the low that turns before breaking it. All four read the same levels --
+``docs/roadmap.md`` §M28.2 and §M28.6.
+"""
+
+ORB_OPPOSITE_EXTREME_ENTRIES = (ORB_ENTRY_FADE, ORB_ENTRY_REJECTION)
+ORB_BREAK_ENTRIES = (ORB_ENTRY_FADE, ORB_ENTRY_RETEST)
+ORB_LIMIT_ENTRIES = (ORB_ENTRY_RETEST, ORB_ENTRY_REJECTION)
+"""The three properties an entry mode is made of, each read as a membership test.
+
+Which extreme the order rests at, whether a break must already have happened, and whether the
+order is a stop or a limit. The four modes are four combinations of those rather than four
+mechanisms: ``rejection`` is the fade's level, the retest's order type and the breakout's lack
+of an arming condition -- ``docs/roadmap.md`` §M28.6.
 """
 
 ORB_STOP_OPPOSITE = 0
@@ -1548,19 +1562,23 @@ class OpeningRangeParams:
     """One of :data:`ORB_ENTRY_MODES` -- which event at the range the order waits for."""
 
     entry_offset_ticks: int = 1
-    """Ticks beyond the level the stop trigger sits at, under :data:`ORB_ENTRY_BREAKOUT` and
-    :data:`ORB_ENTRY_FADE`.
+    """Ticks past the level in the direction traded, read by every mode but
+    :data:`ORB_ENTRY_RETEST`.
 
-    Not cosmetic: at ``0`` the trigger sits on the level, and a bar closing exactly there
-    cannot submit at all, because NT8 declines a stop entry at or through the market --
-    ``docs/nt8-fidelity.md`` §M18."""
+    Which side of the level that is follows from which extreme the mode rests at: outside the
+    range for a breakout, and *inside* it for the two that rest at the opposite extreme. Not
+    cosmetic under a stop entry: at ``0`` the trigger sits on the level, and a bar closing
+    exactly there cannot submit at all, because NT8 declines a stop entry at or through the
+    market -- ``docs/nt8-fidelity.md`` §M18. A limit at the level is legal, so
+    :data:`ORB_ENTRY_REJECTION` may sit at ``0``."""
 
     break_confirm_ticks: int = 0
     """Ticks past the level price must trade before a fade or a retest arms, read under
     :data:`ORB_ENTRY_FADE` and :data:`ORB_ENTRY_RETEST` alone.
 
     At ``0`` any trade through the level counts as the break. The flag it sets lasts the rest
-    of the session, so a fade re-arms after its own stop the way a breakout does."""
+    of the session, so a fade re-arms after its own stop the way a breakout does.
+    :data:`ORB_ENTRY_REJECTION` waits for no break and so reads nothing here."""
 
     retest_offset_ticks: int = 0
     """Ticks *inside* the broken level the limit sits at, read under
@@ -1734,12 +1752,12 @@ class OpeningRangeParams:
             msg = f"unknown target_mode {self.target_mode}; use one of {sorted(ORB_TARGET_MODES)}"
             raise ValueError(msg)
 
-        if self.entry_mode == ORB_ENTRY_FADE and self.stop_mode == ORB_STOP_OPPOSITE:
+        if self.entry_mode in ORB_OPPOSITE_EXTREME_ENTRIES and self.stop_mode == ORB_STOP_OPPOSITE:
             msg = (
-                "a fade enters at the range extreme this stop mode names, so the stop would "
-                "sit stop_offset_ticks from the entry and the mode would just be the fraction "
-                f"stop at a fraction of zero. Use stop_mode {ORB_STOP_FRACTION} (fraction), "
-                f"which measures from that same level, or {ORB_STOP_ATR} (atr)"
+                "a fade and a rejection enter at the range extreme this stop mode names, so "
+                "the stop would sit stop_offset_ticks from the entry and the mode would just "
+                f"be the fraction stop at a fraction of zero. Use stop_mode {ORB_STOP_FRACTION} "
+                f"(fraction), which measures from that same level, or {ORB_STOP_ATR} (atr)"
             )
             raise ValueError(msg)
 

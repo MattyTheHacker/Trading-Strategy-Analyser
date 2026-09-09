@@ -36,6 +36,7 @@ from nqbt.sim.types import (
     DeadCatParams,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
+    ORB_ENTRY_REJECTION,
     ORB_ENTRY_RETEST,
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
@@ -496,6 +497,100 @@ def test_a_retest_limit_is_not_submitted_from_a_bar_that_closed_below_it() -> No
     assert len(trades) == 0
 
 
+APPROACHES = (95.0, 96.0, 90.5, 94.0)
+"""A bar that comes within two ticks of the range low, turns, and closes back inside it."""
+
+
+def test_a_rejection_fills_on_an_approach_the_fade_never_arms_for() -> None:
+    """What the fourth mode exists for: the level holds instead of breaking.
+
+    ``APPROACHES`` never trades through the low, so a fade is never armed on it -- and even
+    armed it could not submit, because its stop entry would sit above a close inside the
+    range. The rejection's limit is already resting there.
+    """
+    rows = [BELOW, APPROACHES]
+    kwargs = {"signal_at": (0, 1), "stop_mode": ORB_STOP_FRACTION, "entry_offset_ticks": 4.0}
+
+    assert len(run(rows, entry_mode=ORB_ENTRY_FADE, **kwargs)) == 0
+
+    trades = run(rows, entry_mode=ORB_ENTRY_REJECTION, **kwargs)
+
+    assert len(trades) == 1
+    assert trades["entry_price"].iloc[0] == RANGE_LOW + 1.0
+    assert trades["entry_bar"].iloc[0] == 1
+
+
+def test_a_rejection_may_rest_its_limit_on_the_extreme_itself() -> None:
+    """§M18's refusal binds on the order type, and this one rests inside the market by construction.
+
+    A stop entry needs the offset to be non-zero or a bar closing on the level can never
+    submit. A limit at the level is submitted from any bar that closed above it.
+    """
+    trades = run(
+        [BELOW, (95.0, 96.0, RANGE_LOW, 94.0)],
+        signal_at=(0, 1),
+        entry_mode=ORB_ENTRY_REJECTION,
+        stop_mode=ORB_STOP_FRACTION,
+        entry_offset_ticks=0.0,
+    )
+
+    assert trades["entry_price"].iloc[0] == RANGE_LOW
+
+
+def test_a_rejection_limit_is_not_submitted_from_a_bar_that_closed_below_it() -> None:
+    """The retest's marketable-limit refusal, reached at the other extreme."""
+    rows = [(95.0, 96.0, 88.0, 89.0), APPROACHES]
+    trades = run(
+        rows,
+        signal_at=(0,),
+        entry_mode=ORB_ENTRY_REJECTION,
+        stop_mode=ORB_STOP_FRACTION,
+        entry_offset_ticks=4.0,
+    )
+
+    assert len(trades) == 0
+
+
+def test_a_tight_fraction_stops_a_rejection_just_outside_the_range_and_targets_its_middle() -> None:
+    """The geometry the setup is defined by: a stop under the low and a target at the middle.
+
+    Both come off the fade's own axes -- the fraction stop runs outward from the extreme the
+    order rests at, and a half-width leg lands a half range above the trigger.
+    """
+    width = RANGE_HIGH - RANGE_LOW
+    trades = run(
+        [BELOW, APPROACHES],
+        signal_at=(0, 1),
+        entry_mode=ORB_ENTRY_REJECTION,
+        stop_mode=ORB_STOP_FRACTION,
+        stop_range_fraction=0.05,
+        stop_offset_ticks=2.0,
+        entry_offset_ticks=4.0,
+        target_mode=ORB_TARGET_WIDTH,
+        levels=(0.5,),
+    )
+
+    assert trades["entry_price"].iloc[0] == RANGE_LOW + 1.0
+    assert trades["initial_stop"].iloc[0] == RANGE_LOW - (0.05 * width + 2 * TICK)
+    assert trades["target_price"].iloc[0] == RANGE_LOW + 1.0 + 0.5 * width
+
+
+def test_a_short_rejection_sells_the_approach_to_the_range_high() -> None:
+    """One sign multiplier: the level, the offset and the limit all reflect together."""
+    approaches_the_high = (105.0, 109.5, 104.0, 106.0)
+    trades = run(
+        [BELOW, approaches_the_high],
+        signal_at=(0, 1),
+        direction=SHORT,
+        entry_mode=ORB_ENTRY_REJECTION,
+        stop_mode=ORB_STOP_FRACTION,
+        entry_offset_ticks=4.0,
+    )
+
+    assert trades["direction"].iloc[0] == SHORT
+    assert trades["entry_price"].iloc[0] == RANGE_HIGH - 1.0
+
+
 # -- the targets ----------------------------------------------------------------
 
 
@@ -931,12 +1026,13 @@ def test_an_impossible_rule_set_is_refused_by_name(kwargs: dict, message: str) -
         OpeningRangeParams(**kwargs)
 
 
-def test_a_fade_cannot_stop_at_the_extreme_it_enters_at() -> None:
+@pytest.mark.parametrize("entry_mode", [ORB_ENTRY_FADE, ORB_ENTRY_REJECTION])
+def test_an_entry_at_the_opposite_extreme_cannot_stop_at_it(entry_mode: int) -> None:
     """It would be the fraction stop at a fraction of zero, which is a silent duplicate."""
-    with pytest.raises(ValueError, match="fade enters at the range extreme"):
-        OpeningRangeParams(entry_mode=ORB_ENTRY_FADE, stop_mode=ORB_STOP_OPPOSITE)
+    with pytest.raises(ValueError, match="enter at the range extreme"):
+        OpeningRangeParams(entry_mode=entry_mode, stop_mode=ORB_STOP_OPPOSITE)
 
-    assert OpeningRangeParams(entry_mode=ORB_ENTRY_FADE, stop_mode=ORB_STOP_FRACTION).stop_mode
+    assert OpeningRangeParams(entry_mode=entry_mode, stop_mode=ORB_STOP_FRACTION).stop_mode
 
 
 def test_a_retest_may_stop_at_the_range_s_other_extreme() -> None:

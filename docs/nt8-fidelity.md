@@ -593,6 +593,18 @@ The last two rows are rules this project has already established for *exits* —
 
 **A marketable limit is refused rather than filled, and this one is a decision rather than a measurement.** §M18 establishes that NT8 declines a stop entry at or through the market; the mirror — what it does with a buy limit submitted at or above the close — **has not been probed**, and NT8 would most likely accept it and fill at the market. The simulation refuses it, so a retest never enters at a price the market has already left. That is a deliberate deviation from an *unmeasured* behaviour rather than from a known one; it is the conservative side, and it is the first thing to settle if the retest ever earns a port. Booking it with the two-sided-range probe §M28 already wants is the cheap way to answer it.
 
+### M28.6 — the rejection entry, written to the same standing as §M28.2 (#255)
+
+**Still no NinjaScript, so nothing here is backed by a trade list either.** The design, and what it is waiting on before it is swept: [roadmap.md](roadmap.md) §M28.6.
+
+**The rejection is one `EnterLongLimit` at the range's own extreme, with no arming condition at all.** `EnterLongLimit(rangeLow + entryOffsetTicks * TickSize)` for a long and `EnterShortLimit(rangeHigh - entryOffsetTicks * TickSize)` for a short, resubmitted at every bar close from the bar the range completes on. There is no `bool` to reset on `Bars.IsFirstBarOfSession` and no `High[0]`/`Low[0]` comparison to make: the fill test **is** the condition, because a limit `entryOffsetTicks` inside the low fills exactly when price comes that close to the low and no closer.
+
+**Every fill rule it takes is one already written down.** §M28.2's retest table applies unchanged — fills at its price or better, does not fill on a touch under `IsFillLimitOnTouch = false`, takes no slippage, and a marketable limit is refused. That last remains a deviation from an **unmeasured** behaviour rather than from a measured one, and it now carries two entry modes rather than one.
+
+**The offset runs inward here and outward for a breakout, and it may be zero.** `entryOffsetTicks` is measured past the level in the direction traded, and this mode's level is the extreme *against* that direction. §M28's reason for defaulting it to 1 — a bar closing exactly on the level can never submit a stop entry, because NT8 declines a stop at or through the market — does not reach a limit, which is accepted from any bar that closed on the range's side of it.
+
+**It refuses the opposite-extreme stop for the fade's reason.** Its entry level is the extreme `ORB_STOP_OPPOSITE` names, so the stop would land `entryOffsetTicks + stopOffsetTicks` from the entry and the mode would be the fraction stop at a fraction of zero. `OpeningRangeParams` raises rather than sweep the duplicate.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.

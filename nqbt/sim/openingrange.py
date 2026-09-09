@@ -1,4 +1,4 @@
-"""OpeningRange archetype: rest a stop order at the opening range's extreme, one side at a time.
+"""OpeningRange archetype: rest an order at the opening range's extreme, one side at a time.
 
 **There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
 written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M28 names the NinjaScript each
@@ -23,9 +23,11 @@ from nqbt import trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
 from nqbt.sim.types import (
-    ORB_ENTRY_BREAKOUT,
+    ORB_BREAK_ENTRIES,
     ORB_ENTRY_FADE,
     ORB_ENTRY_RETEST,
+    ORB_LIMIT_ENTRIES,
+    ORB_OPPOSITE_EXTREME_ENTRIES,
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
     ORB_TARGET_WIDTH,
@@ -88,11 +90,11 @@ def entry_level(range_high: float, range_low: float, rules: OpeningRangeRules) -
     """The range extreme this combination's order rests at.
 
     A breakout and a retest both work off the extreme in the direction traded -- one waiting
-    to go through it, the other to come back to it -- and a fade works off the extreme against
-    it, which is the one it needs broken first.
+    to go through it, the other to come back to it -- and a fade and a rejection work off the
+    extreme against it, one waiting for it to break and the other for it to hold.
     """
     opposite, breakout = bracket.sided(range_low, range_high, rules.direction)
-    if rules.entry_mode == ORB_ENTRY_FADE:
+    if rules.entry_mode in ORB_OPPOSITE_EXTREME_ENTRIES:
         return opposite
 
     return breakout
@@ -122,11 +124,11 @@ def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
     """Whether NT8 would accept this order at this bar's close.
 
     A stop entry has to sit strictly beyond the market it is submitted into --
-    ``docs/nt8-fidelity.md`` §M18 -- and a retest's limit strictly inside it, which is the same
+    ``docs/nt8-fidelity.md`` §M18 -- and a limit entry strictly inside it, which is the same
     refusal read from the other side: a limit at or through the market is marketable, and what
     NT8 does with one is written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M28.2.
     """
-    if rules.entry_mode == ORB_ENTRY_RETEST:
+    if rules.entry_mode in ORB_LIMIT_ENTRIES:
         return rules.direction * trigger < rules.direction * close
 
     return rules.direction * trigger > rules.direction * close
@@ -151,7 +153,7 @@ def _stop_entry_fill(
 def _limit_entry_fill(
     bars: bracket.Bars, i: int, trigger: float, fills: bracket.FillRules, direction: float
 ) -> tuple[bool, float]:
-    """The retest's limit test, which is the stop's mirror in both of its halves.
+    """The limit test the retest and the rejection share, which is the stop's mirror in both halves.
 
     A limit fills at its price or better, so a bar opening past it fills at the open and the
     trade is *better* than planned rather than worse; and it takes no slippage, which is the
@@ -179,7 +181,7 @@ def entry_fill(
     rules: OpeningRangeRules,
 ) -> tuple[bool, float]:
     """Whether the resting order fills on bar ``i``, and at what price."""
-    if rules.entry_mode == ORB_ENTRY_RETEST:
+    if rules.entry_mode in ORB_LIMIT_ENTRIES:
         return _limit_entry_fill(bars, i, trigger, fills, rules.direction)
 
     return _stop_entry_fill(bars, i, trigger, slippage, rules.direction)
@@ -195,13 +197,14 @@ def range_bracket(
 ) -> tuple[float, float, float]:
     """One session range's order arithmetic: trigger, initial stop, planned risk.
 
-    The trigger sits ``entry_offset`` beyond the level a stop entry waits at, or
-    ``retest_offset`` inside it for the limit a retest waits at; the stop goes at the range's
-    other extreme, a fraction of the range width back from the level, or an ATR multiple back
-    from the trigger. **Everything is measured from the trigger rather than the fill**, because
-    the whole bracket is known when the order is submitted -- which is what the reconciled
-    DeadCatBounce port does and what a NinjaScript setting its stop and target at submission
-    would do.
+    The trigger sits ``entry_offset`` past the level in the direction traded -- outside the
+    range for a breakout, inside it for a fade or a rejection, whose level is the opposite
+    extreme -- or ``retest_offset`` back inside the level a retest waits at; the stop goes at
+    the range's other extreme, a fraction of the range width back from the level, or an ATR
+    multiple back from the trigger. **Everything is measured from the trigger rather than the
+    fill**, because the whole bracket is known when the order is submitted -- which is what the
+    reconciled DeadCatBounce port does and what a NinjaScript setting its stop and target at
+    submission would do.
     """
     direction = rules.direction
     opposite, _ = bracket.sided(range_low, range_high, direction)
@@ -271,7 +274,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     trade_id = 0
     entries_this_session = 0
     broken_this_session = False
-    waits_for_a_break = rules.entry_mode != ORB_ENTRY_BREAKOUT
+    waits_for_a_break = rules.entry_mode in ORB_BREAK_ENTRIES
 
     in_position = False
     pending_bar = -1
