@@ -152,6 +152,17 @@ paths:
   that does not read it runs identical combinations silently. **The stop mode and the entry mode
   are therefore variant dimensions rather than axes** in `campaign_sweep.py`, which is what keeps
   each variant's axes to the ones it actually reads — `ORB_ENTRIES` is the shape.
+- **A parameter in `not_sweepable` is held at its default forever unless a variant moves it, and
+  nothing reports that either.** `target_r_multiples` and `target_width_multiples` are tuples, so
+  no axis can reach them; every ORB campaign from §M28.1 to §M28.8 therefore ran
+  `ORB_TARGET_WIDTH` at `(1.0, nan)` and read a target axis that only the R scheme varied. This is
+  worse than an inert axis rather than milder: an inert axis at least appears in the stored `axes`
+  column. **Check `not_sweepable` before claiming a campaign swept a bracket** — `ORB_WIDTH_LADDERS`
+  and `ELASTIC_LADDERS` are the shape a ladder has to take. `docs/roadmap.md` §M28.11.
+- **An axis whose best value is its last value has been truncated, not swept**, and extending it
+  belongs in a new variant set built from the stored list rather than a rewritten one, so the two
+  tables share cells — `ORB_LADDER_FRACTIONS` is `[*ORB_FRACTIONS, ...]` for exactly that, and the
+  1,024 shared rows are checked to agree exactly. `docs/roadmap.md` §M28.11.
 - **A re-sweep that adds an axis is its own variant set, never an edit to `VARIANTS`.** That dict
   is what §M27 and §M28.1 measured, so an added axis would leave the stored rows and the code
   that produced them disagreeing. `VARIANT_SETS` names them and each carries a `STRATUM_SETS`
