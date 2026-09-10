@@ -3581,7 +3581,7 @@ Firms disagree about the trailing threshold in two independent ways, and collaps
 - `trail_basis` — what advances the **high-water mark**. Apex counts open equity, so a trade's best excursion raises the floor even after it gives it all back. TopStep advances it only on the day's closing balance.
 - `trail_breach` — what the **floor is tested against**. Both firms liquidate on open equity.
 
-TopStep's actual rule is the mixed case: an end-of-day high-water mark, breached intraday. One enum cannot express it, which is why there are two.
+TopStep's actual rule is the mixed case: an end-of-day high-water mark, breached intraday. One enum cannot express it, which is why there are two. TakeProfitTrader's evaluation is the same shape, and its funded account is Apex's.
 
 `daily_loss_basis` is the same question asked of the daily loss limit, kept separate because a firm may count open equity for one limit and not for the other.
 
@@ -3601,7 +3601,9 @@ A daily loss limit resets at the session open, so the replay groups by `sessions
 
 ### Passing, withdrawing, and what a blown account is still worth
 
-An account that passes **keeps trading under the same rules**, which is accurate for both firms shipped, and begins withdrawing everything above `starting_balance + withdrawal_threshold` at each day's end. That threshold is the safety net a firm requires a trader to leave behind.
+An account that passes **keeps trading under the same rules**, and begins withdrawing everything above `starting_balance + withdrawal_threshold` at each day's end. That threshold is the safety net a firm requires a trader to leave behind. Accurate for Apex and TopStep; TakeProfitTrader is why "the same rules" is no longer a property of the module — see "A firm that changes its rules at the pass ships as two presets" below.
+
+**`profit_split` is what reaches the trader, and it is not what leaves the account.** The firm takes the whole withdrawal out of the balance and pays a share of it, so `AccountRun.withdrawn` is the gross and `payout` is the share, with `net = payout − fees_paid`. Keeping the two apart is load-bearing rather than tidy: the consistency ratio is a share of what *the account* made, so crediting the trader's half to `withdrawn` would inflate every reported consistency figure by the firm's cut. It defaults to `1.0` rather than `0.0`, which is the one field where "no rule" is not zero — a firm paying `0.0` would be one that pays nothing.
 
 **A withdrawal is not stopped from breaching the account.** Withdrawing lowers the balance without lowering the high-water mark, so a rule set combining no safety net with a floor that never locks walks the balance onto its own floor, and the next trade kills it. That is what such a rule set would really do; special-casing it would hide the footgun rather than the consequence. Every shipped preset leaves a net above its locked floor, and a test pins that for all of them.
 
@@ -3617,13 +3619,36 @@ The headline figure is **withdrawn minus fees**, across however many attempts `m
 | consistency ratio, minimum trading days                               | published, and the ones most often revised                                                                            |
 | Apex `withdrawal_threshold`                                           | the published safety-net balance                                                                                      |
 | TopStep `withdrawal_threshold`                                        | **a conservative stand-in** — set to the trailing threshold, since TopStep's payout policy is not a simple safety net |
-| every fee                                                             | **list prices** — override them, especially Apex's                                                                    |
+| TakeProfitTrader `withdrawal_threshold`                               | the published buffer zone, which the firm defines as equal to the drawdown                                            |
+| Apex and TopStep fees                                                 | **list prices** — override them, especially Apex's                                                                    |
+| TakeProfitTrader monthly fees                                         | the **discounted** price, not the list one — see below                                                                |
+
+**TakeProfitTrader's presets carry the discounted subscription rather than the list price**, which is the opposite of the choice made for the other two firms and is deliberate. The list prices are $150 / $170 / $360 at 25K / 50K / 150K; a 40% discount code has been continuously available for years, so $90 / $102 / $216 is what an account actually costs and the list price is the fiction. Apex's discounts are as reliable and are *not* baked in, because that preset predates the decision — re-check both against the firm's current terms before a figure decides anything.
+
+**Its commission is not the project's $1.50.** TakeProfitTrader charges $4.50 per round trip per full-size contract and $1.50 per micro, so a TPT replay of an **NQ** log costed at the project's usual figure is understating commission threefold. That is the standing free-money trap arriving through a preset rather than through a default, and `propaccount` cannot catch it: costs are applied when the trade log is produced, long before an account replays it.
+
+### A firm that changes its rules at the pass ships as two presets
+
+TakeProfitTrader runs an **end-of-day** trailing drawdown during the evaluation and an **intraday** one on the funded account, with the consistency ratio and the minimum-days rule applying to the first and neither to the second. One `AccountRules` cannot hold both, and the alternative to two presets — a phase-aware rule set — would put a second, conditional definition of the floor inside the module whose whole premise is that there is one. So `TPT_50K_TEST` and `TPT_50K_PRO` are separate accounts and a full picture reads both.
+
+That difference is not cosmetic. §M28.13 measures the intraday basis and `excursion_order` as the single largest lever in the model on a full-size contract, so the funded preset is the harsher of the two by the largest margin any axis here produces.
+
+Three consequences of the split worth stating, because each looks like a defect from one side:
+
+- **The PRO preset's `profit_target` is `0.0`,** because a funded account has no target. The replay reads a pass as "eligible to withdraw", which is exactly right for a funded account that may withdraw above its buffer from day one — so a PRO run reports `passed` on its first profitable day and that is the model working, not a pass it did not earn.
+- **The $130 activation fee is the PRO preset's `evaluation_fee`,** since it is what opening that account costs, and the Test preset's `activation_fee`, since it is what passing costs. The same $130 under two field names because it is charged at the boundary the two presets share.
+- **What the Test preset does after it passes is a fiction** — it keeps trading under evaluation rules, because that is what the module does with any passed account. Read the Test preset for whether the evaluation is survivable and what it cost; read the PRO preset for what the funded account then does.
+
+**`monthly_fee_ends_at_pass` exists for the same reason.** TakeProfitTrader's subscription is cancelled the day the account passes and the funded account carries no recurring fee, where Apex's and TopStep's run for the life of the account. Without the flag a passed TPT account would be billed monthly for the remaining length of the trade log, which on a multi-year log is a larger error than every other fee in the model put together.
 
 ### What is deliberately not modelled
 
 - **TopStep's winning-day requirement** — N days each clearing a dollar floor. The consistency ratio catches the same pathology from the other side, which is a strategy that passed on one lucky session.
+- **TakeProfitTrader's raised target when the consistency rule is missed.** Failing it does not end the evaluation there; it lifts the target to twice the net P&L until the best day is back inside the ratio. The replay re-tests the pass every day and never records one until every condition holds at once, which reaches the same verdict by a different route — an account that would have had its target raised simply has not passed yet.
+- **Position-size limits, which TakeProfitTrader publishes per account size** (3/6/15 minis, ten times that in micros). Contract size is whatever the trade log says, as for every other firm here.
+- **The prohibition on automated execution.** Both TakeProfitTrader's Universal Trading Policies and its PRO contract require every trade to be placed by hand. That governs how a strategy may be traded, not whether its trade log survives the account's risk rules, and the replay answers only the second.
 - **Payout caps and cadence.** A withdrawal is taken whenever it is eligible, in full.
-- **A funded phase whose rules differ from the evaluation's.** One rule set covers both, which is accurate for the two firms shipped and would not be for a firm that changes the threshold on activation.
+- **A funded phase whose rules differ from the evaluation's, *within one preset*.** One `AccountRules` covers both phases. Where a firm changes its rules at the pass, it ships as two presets instead — see above.
 - **Scaling plans and position-size limits.** Contract size is whatever the trade log says.
 - **The consistency rule at payout time.** It gates the pass only.
 

@@ -47,6 +47,12 @@ __all__ = [
     "REQUIRED_COLUMNS",
     "TOPSTEP_50K",
     "TOPSTEP_150K",
+    "TPT_25K_PRO",
+    "TPT_25K_TEST",
+    "TPT_50K_PRO",
+    "TPT_50K_TEST",
+    "TPT_150K_PRO",
+    "TPT_150K_TEST",
     "AccountFees",
     "AccountRules",
     "AccountRun",
@@ -174,7 +180,8 @@ class AccountRules:
     """One firm's risk rules and targets, in dollars.
 
     A limit of ``0.0`` is off: that is how the trailing threshold, the daily loss limit and the
-    consistency ratio are each toggled.
+    consistency ratio are each toggled. :attr:`profit_split` is the exception -- a firm that
+    paid nothing would be ``0.0``, so its "no rule" value is ``1.0``.
     """
 
     starting_balance: float
@@ -216,6 +223,14 @@ class AccountRules:
     because a rule set that permits one is a rule set under which it would happen.
     """
 
+    profit_split: float = 1.0
+    """The trader's share of each withdrawal. ``1.0`` is no split at all.
+
+    The account still gives up the whole withdrawal -- the split decides what reaches the
+    trader, not what leaves the balance, which is why :attr:`AccountRun.withdrawn` and
+    :attr:`AccountRun.payout` are separate figures.
+    """
+
     def __post_init__(self) -> None:
         """Reject a rule set the replay could not mean anything under."""
         negative: list[str] = [
@@ -233,6 +248,13 @@ class AccountRules:
             msg = (
                 f"consistency_ratio is a share of total profit and cannot exceed 1.0; got "
                 f"{self.consistency_ratio}. Use 0.0 to disable the rule."
+            )
+            raise PropAccountError(msg)
+
+        if not 0.0 < self.profit_split <= 1.0:
+            msg = (
+                f"profit_split is the trader's share of a withdrawal and must be above 0.0 and "
+                f"at most 1.0; got {self.profit_split}. Use 1.0 for no split."
             )
             raise PropAccountError(msg)
 
@@ -285,6 +307,13 @@ class AccountFees:
 
     activation_fee: float = 0.0
     """Charged once, when the account passes."""
+
+    monthly_fee_ends_at_pass: bool = False
+    """Whether the monthly fee stops on the day the account passes.
+
+    True for a firm charging for the evaluation and nothing afterwards, false for one whose
+    funded account carries the same subscription.
+    """
 
     def __post_init__(self) -> None:
         """Reject a negative fee, which would pay the trader to fail."""
@@ -374,10 +403,121 @@ TOPSTEP_150K = PropAccount(
     fees=AccountFees(monthly_fee=149.0, activation_fee=149.0),
 )
 
+TPT_25K_TEST = PropAccount(
+    name="TakeProfitTrader 25K Test",
+    rules=AccountRules(
+        starting_balance=25_000.0,
+        profit_target=1_500.0,
+        trailing_threshold=1_500.0,
+        trail_basis=TrailBasis.END_OF_DAY,
+        trail_breach=EquityBasis.UNREALISED,
+        trail_lock=TrailLock.AT_STARTING_BALANCE,
+        consistency_ratio=0.50,
+        minimum_trading_days=3,
+        withdrawal_threshold=1_500.0,
+        profit_split=0.80,
+    ),
+    fees=AccountFees(monthly_fee=90.0, activation_fee=130.0, monthly_fee_ends_at_pass=True),
+)
+
+TPT_25K_PRO = PropAccount(
+    name="TakeProfitTrader 25K PRO",
+    rules=AccountRules(
+        starting_balance=25_000.0,
+        profit_target=0.0,
+        trailing_threshold=1_500.0,
+        trail_basis=TrailBasis.INTRADAY,
+        trail_breach=EquityBasis.UNREALISED,
+        trail_lock=TrailLock.AT_STARTING_BALANCE,
+        withdrawal_threshold=1_500.0,
+        profit_split=0.80,
+    ),
+    fees=AccountFees(evaluation_fee=130.0),
+)
+
+TPT_50K_TEST = PropAccount(
+    name="TakeProfitTrader 50K Test",
+    rules=AccountRules(
+        starting_balance=50_000.0,
+        profit_target=3_000.0,
+        trailing_threshold=2_000.0,
+        trail_basis=TrailBasis.END_OF_DAY,
+        trail_breach=EquityBasis.UNREALISED,
+        trail_lock=TrailLock.AT_STARTING_BALANCE,
+        consistency_ratio=0.50,
+        minimum_trading_days=3,
+        withdrawal_threshold=2_000.0,
+        profit_split=0.80,
+    ),
+    fees=AccountFees(monthly_fee=102.0, activation_fee=130.0, monthly_fee_ends_at_pass=True),
+)
+
+TPT_50K_PRO = PropAccount(
+    name="TakeProfitTrader 50K PRO",
+    rules=AccountRules(
+        starting_balance=50_000.0,
+        profit_target=0.0,
+        trailing_threshold=2_000.0,
+        trail_basis=TrailBasis.INTRADAY,
+        trail_breach=EquityBasis.UNREALISED,
+        trail_lock=TrailLock.AT_STARTING_BALANCE,
+        withdrawal_threshold=2_000.0,
+        profit_split=0.80,
+    ),
+    fees=AccountFees(evaluation_fee=130.0),
+)
+
+TPT_150K_TEST = PropAccount(
+    name="TakeProfitTrader 150K Test",
+    rules=AccountRules(
+        starting_balance=150_000.0,
+        profit_target=9_000.0,
+        trailing_threshold=4_500.0,
+        trail_basis=TrailBasis.END_OF_DAY,
+        trail_breach=EquityBasis.UNREALISED,
+        trail_lock=TrailLock.AT_STARTING_BALANCE,
+        consistency_ratio=0.50,
+        minimum_trading_days=3,
+        withdrawal_threshold=4_500.0,
+        profit_split=0.80,
+    ),
+    fees=AccountFees(monthly_fee=216.0, activation_fee=130.0, monthly_fee_ends_at_pass=True),
+)
+
+TPT_150K_PRO = PropAccount(
+    name="TakeProfitTrader 150K PRO",
+    rules=AccountRules(
+        starting_balance=150_000.0,
+        profit_target=0.0,
+        trailing_threshold=4_500.0,
+        trail_basis=TrailBasis.INTRADAY,
+        trail_breach=EquityBasis.UNREALISED,
+        trail_lock=TrailLock.AT_STARTING_BALANCE,
+        withdrawal_threshold=4_500.0,
+        profit_split=0.80,
+    ),
+    fees=AccountFees(evaluation_fee=130.0),
+)
+
 PRESETS: dict[str, PropAccount] = {
-    account.name: account for account in (APEX_50K, APEX_150K, TOPSTEP_50K, TOPSTEP_150K)
+    account.name: account
+    for account in (
+        APEX_50K,
+        APEX_150K,
+        TOPSTEP_50K,
+        TOPSTEP_150K,
+        TPT_25K_TEST,
+        TPT_25K_PRO,
+        TPT_50K_TEST,
+        TPT_50K_PRO,
+        TPT_150K_TEST,
+        TPT_150K_PRO,
+    )
 }
-"""The two firms at the two commonest sizes.
+"""Three firms at the commonest sizes.
+
+TakeProfitTrader ships as two presets per size because its evaluation and its funded account
+are different rule sets, which one :class:`AccountRules` cannot hold at once.
 
 **Dated, and not quotable terms** -- published rules and prices move, which is why every field
 is overridable. Where each number came from, and which are conservative stand-ins rather than
@@ -435,9 +575,14 @@ class AccountRun:
     """Best day as a share of total profit. ``0.0`` when the account never made any."""
 
     withdrawn: float
+    """Taken out of the account, before the firm's split."""
+
+    payout: float
+    """What reached the trader: :attr:`withdrawn` times ``rules.profit_split``."""
+
     fees_paid: float
     net: float
-    """:attr:`withdrawn` minus :attr:`fees_paid`: what this attempt was worth."""
+    """:attr:`payout` minus :attr:`fees_paid`: what this attempt was worth."""
 
     summary: stats.Summary
 
@@ -467,9 +612,14 @@ class PropReplay:
     pass_rate: float
     breaches: int
     withdrawn: float
+    """Taken out of the accounts, before the firm's split."""
+
+    payout: float
+    """What reached the trader: :attr:`withdrawn` times ``rules.profit_split``."""
+
     fees_paid: float
     net: float
-    """:attr:`withdrawn` minus :attr:`fees_paid`. **The figure the issue exists for**: an
+    """:attr:`payout` minus :attr:`fees_paid`. **The figure the issue exists for**: an
     account may be blown and the sequence still profitable."""
 
     trades_taken: int
@@ -522,6 +672,7 @@ class _AccountState:
     day_open_balance: float
     day_realised: float = 0.0
     withdrawn: float = 0.0
+    payout: float = 0.0
     lowest_equity: float = float("inf")
     floor_headroom: float = float("inf")
     days_traded: int = 0
@@ -576,6 +727,7 @@ def _lifetime(
     """Total the attempts, and summarise every trade any of them took."""
     passes: int = sum(run.passed for run in runs)
     withdrawn: float = sum(run.withdrawn for run in runs)
+    payout: float = sum(run.payout for run in runs)
     fees_paid: float = sum(run.fees_paid for run in runs)
 
     return PropReplay(
@@ -585,8 +737,9 @@ def _lifetime(
         pass_rate=passes / len(runs) if runs else 0.0,
         breaches=sum(run.outcome is not Outcome.SURVIVED for run in runs),
         withdrawn=withdrawn,
+        payout=payout,
         fees_paid=fees_paid,
-        net=withdrawn - fees_paid,
+        net=payout - fees_paid,
         trades_taken=len(taken),
         trades_total=table.trade_id.size,
         runs=runs,
@@ -867,6 +1020,7 @@ def _withdraw(rules: AccountRules, state: _AccountState) -> None:
 
     state.balance -= excess
     state.withdrawn += excess
+    state.payout += excess * rules.profit_split
 
 
 def _run_account(table: _TradeTable, account: PropAccount, first_day: int) -> _Attempt:
@@ -902,7 +1056,7 @@ def _finish(
     state: _AccountState = attempt.state
     opened: dt.date = _as_date(table.days[attempt.first_day])
     closed: dt.date = _as_date(table.days[attempt.last_day])
-    fees: float = _fees_paid(account.fees, opened, closed, passed=state.passed_on is not None)
+    fees: float = _fees_paid(account.fees, opened, closed, passed_on=state.passed_on)
     profit: float = state.balance + state.withdrawn - rules.starting_balance
 
     return AccountRun(
@@ -924,17 +1078,28 @@ def _finish(
         worst_day=min(state.daily) if state.daily else 0.0,
         consistency=(max(state.daily) / profit) if state.daily and profit > 0.0 else 0.0,
         withdrawn=state.withdrawn,
+        payout=state.payout,
         fees_paid=fees,
-        net=state.withdrawn - fees,
+        net=state.payout - fees,
         summary=stats.summarise(_legs_taken(log, table, state.taken)),
     )
 
 
-def _fees_paid(fees: AccountFees, opened: dt.date, closed: dt.date, *, passed: bool) -> float:
-    """One attempt's cost: the entry fee, a month for every month it was live, and activation."""
-    months: int = (closed.year - opened.year) * 12 + closed.month - opened.month + 1
+def _fees_paid(
+    fees: AccountFees,
+    opened: dt.date,
+    closed: dt.date,
+    *,
+    passed_on: dt.date | None,
+) -> float:
+    """One attempt's cost: the entry fee, a month for every month it was billed, and activation."""
+    billed_to: dt.date = closed
+    if fees.monthly_fee_ends_at_pass and passed_on is not None:
+        billed_to = passed_on
+
+    months: int = (billed_to.year - opened.year) * 12 + billed_to.month - opened.month + 1
     total: float = fees.evaluation_fee + fees.monthly_fee * months
-    if not passed:
+    if passed_on is None:
         return total
 
     return total + fees.activation_fee
