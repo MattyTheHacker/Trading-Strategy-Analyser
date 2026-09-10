@@ -39,7 +39,8 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_shortlist import TOP, load_trades, shortlist
+from tools.campaign_report import load_trades
+from tools.campaign_shortlist import TOP, shortlist
 from tools.campaign_sweep import db_path
 
 from nqbt import logsetup, montecarlo

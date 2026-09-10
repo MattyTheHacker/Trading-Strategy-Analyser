@@ -17,9 +17,9 @@ from nqbt import archetypes, resample, results, sessions, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import InsideBarParams
 from tools import campaign_shortlist
+from tools.campaign_report import load_trades
 from tools.campaign_shortlist import (
     best_row,
-    load_trades,
     shortlist,
     source,
     store_group,
@@ -267,7 +267,7 @@ def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_
     )
 
 
-# -- reading the logs back -----------------------------------------------------------------
+# -- reading the logs back, which ``tools/campaign_report.py`` does ------------------------
 
 
 def test_a_stored_log_reads_back_as_the_log_that_was_stored(tmp_path) -> None:
