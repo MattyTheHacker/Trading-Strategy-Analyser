@@ -30,6 +30,7 @@ from nqbt import (
     volume,
 )
 from nqbt.sim.types import (
+    BAND_VWAP,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
@@ -38,9 +39,12 @@ from nqbt.sim.types import (
     ORB_STOP_FRACTION,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
+    SHAPE_ANY,
+    SHAPE_REVERSAL,
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_SWING,
+    TARGET_STRETCH,
     DeadCatParams,
     OpeningRangeParams,
 )
@@ -53,6 +57,11 @@ from tools.campaign_sweep import (
     CONSOLIDATING,
     DIRECTIONAL,
     ELASTIC_LADDERS,
+    ELASTIC_SHAPE_VARIANTS,
+    ELASTIC_VOLUME,
+    ELASTIC_VOLUME_SHAPES,
+    ELASTIC_VOLUME_TARGET,
+    ELASTIC_VOLUME_VARIANTS,
     NARROW,
     NARROW_ATR,
     NARROW_ENTRY,
@@ -105,6 +114,7 @@ from tools.campaign_sweep import (
     calibrate,
     calibrate_volume,
     db_path,
+    elastic_ladder,
     fit_regime,
     fit_volume,
     grids_for,
@@ -1273,3 +1283,101 @@ def test_the_bracket_run_carries_the_roots_real_costs() -> None:
         for variant in ORB_BRACKET_VARIANTS["OpeningRange"](root):
             assert variant.base.commission_per_contract == COMMISSION[root]
             assert variant.base.slippage_ticks == SLIPPAGE_TICKS
+
+
+# -- the §M26.9 volume run -------------------------------------------------------------------
+
+
+def volume_variants(root: str = "MNQ") -> list[Variant]:
+    """The control and the treatment of the volume run, in that order."""
+    return ELASTIC_VOLUME_VARIANTS["ElasticBand"](root)
+
+
+def test_the_volume_run_states_its_strata_before_it_runs() -> None:
+    """The volume dimension re-cut on its own distribution, read against the unfiltered
+    baseline in the same pass rather than against a cell chosen once the table is in."""
+    fitted = tuple(VolumeCut(key, 0.7, 1.5, tails=pair) for key in volume_series() for pair in VOLUME_TAILS)
+    raw = [name for name, _ in strata(ELASTIC_VOLUME, Cuts(volume=raw_volume_cuts()))]
+    cut = [name for name, _ in strata(ELASTIC_VOLUME, Cuts(volume=fitted))]
+
+    assert raw[0] == UNFILTERED and cut[0] == UNFILTERED
+    assert len(raw) == 1 + len(volume_series()) * len(volume.VolumeState)
+    assert len(cut) == 1 + len(volume_series()) * len(VOLUME_TAILS) * len(volume.VolumeState)
+
+
+def test_the_volume_run_carries_its_own_control_shape_in_the_same_pass() -> None:
+    """A stored ``shape=any`` row came out of a different grid, so pairing against it would
+    compare two runs rather than two arms -- ``docs/roadmap.md`` §M26.5."""
+    assert set(ELASTIC_VOLUME_SHAPES.values()) == {SHAPE_ANY, SHAPE_REVERSAL}
+    assert {variant.base.signal_shape for variant in volume_variants()} == {SHAPE_ANY, SHAPE_REVERSAL}
+
+
+def test_the_control_and_the_treatment_differ_by_the_shape_alone() -> None:
+    """Which is what makes ``campaign_paired`` readable over this pair: every other field of
+    the base and every axis is shared, so a paired cell differs by the requirement only."""
+    control, treatment = volume_variants()
+
+    assert replace(control.base, signal_shape=treatment.base.signal_shape) == treatment.base
+    assert control.axes == treatment.axes
+
+
+def test_the_volume_run_holds_the_three_axes_the_shape_campaign_spent() -> None:
+    """§M26.5 measured ``min_one_sided_bars``'s low end as a dead value and its high end as a
+    cost, the reversal shape as making ``min_bars_outside`` a duplicate on 82.7% of cells, and
+    the target ladder's η² on the held-out profit factor as 0.0000."""
+    for variant in volume_variants():
+        assert "min_one_sided_bars" not in variant.axes
+        assert "min_bars_outside" not in variant.axes
+        assert variant.base.min_one_sided_bars == 0
+        assert variant.base.target_stretch_levels == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
+
+
+def test_every_volume_variant_reads_the_source_the_shape_campaign_left_standing() -> None:
+    """§M26.4 established that the Bollinger source does not survive a holdout, so the question
+    here is the volume and not the channel."""
+    for variant in volume_variants():
+        assert variant.base.band_source == BAND_VWAP
+        assert variant.base.target_mode == TARGET_STRETCH
+        assert variant.axes["stop_mode"] == [STOP_ATR, STOP_SWING, STOP_CATASTROPHE]
+
+
+def test_the_ladder_is_readable_back_off_every_volume_variant_name() -> None:
+    """The ladder is a tuple and so not a stored column; the name is all a reading tool has."""
+    for variant in volume_variants():
+        assert elastic_ladder(variant.name) == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
+
+
+def test_no_volume_variant_can_collide_with_a_stored_elastic_one() -> None:
+    """One database holds every ElasticBand run and the variant name is the only thing
+    separating them, so ``campaign_holdout`` would pair two campaigns' windows together."""
+    stored = {variant.name for variant in VARIANTS["ElasticBand"]("MNQ")} | {
+        variant.name for variant in ELASTIC_SHAPE_VARIANTS["ElasticBand"]("MNQ")
+    }
+
+    assert not stored & {variant.name for variant in volume_variants()}
+
+
+def test_the_stored_shape_grid_is_untouched_by_the_volume_run() -> None:
+    """§M26.5's rows were produced by its own set, so holding an axis goes in a new one."""
+    for variant in ELASTIC_SHAPE_VARIANTS["ElasticBand"]("MNQ"):
+        assert "min_one_sided_bars" in variant.axes
+        assert "min_bars_outside" in variant.axes
+
+
+def test_every_volume_variant_grid_can_be_built_at_every_cell() -> None:
+    """A cell that cannot be built fails here rather than an hour into the run."""
+    for variant in volume_variants():
+        for _, grid in grids_for(variant, ELASTIC_VOLUME, Cuts(volume=raw_volume_cuts())):
+            assert len(grid) == variant.sized()
+            assert sum(1 for _ in grid.combinations()) == variant.sized()
+
+
+def test_the_volume_run_carries_the_roots_real_costs() -> None:
+    for root in COMMISSION:
+        for variant in volume_variants(root):
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
+
+
+def test_variants_for_selects_the_volume_grid() -> None:
+    assert variants_for(ELASTIC_VOLUME) is ELASTIC_VOLUME_VARIANTS
