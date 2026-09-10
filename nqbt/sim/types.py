@@ -1140,11 +1140,13 @@ STOP_ATR = 0
 STOP_EXCURSION = 1
 STOP_CATASTROPHE = 2
 STOP_SWING = 3
+STOP_BAND = 4
 STOP_MODES = {
     STOP_ATR: "atr",
     STOP_EXCURSION: "excursion",
     STOP_CATASTROPHE: "catastrophe",
     STOP_SWING: "swing",
+    STOP_BAND: "band",
 }
 """Where the elastic band's protective stop goes, one per exit scheme -- ``docs/roadmap.md``
 §M26, "Three exit schemes". ``atr`` is a distance off the fill and the only floored one;
@@ -1152,7 +1154,9 @@ STOP_MODES = {
 is :attr:`ElasticBandParams.catastrophe_stop_ticks` and is an account rule rather than a
 strategy stop; ``swing`` is the adverse extreme of a fixed number of bars, which at
 ``swing_lookback = 1`` is the signal candle alone and is the tightest stop the archetype can
-express.
+express; ``band`` is a level on the channel the entry was measured against, the only stop here
+whose distance scales with the dispersion the entry threshold uses -- ``docs/roadmap.md``
+§M26.8.
 """
 
 BAND_BOLLINGER = 0
@@ -1363,6 +1367,15 @@ class ElasticBandParams:
     Deliberately wide: it is the account's loss limit rather than a strategy stop, and the
     scheme it belongs to exists to test whether a strategy stop helps at all."""
 
+    band_stop_std: float = 1.0
+    """How far past :attr:`entry_std` the band stop sits, in standard deviations.
+
+    Read under :data:`STOP_BAND` alone, off the signal bar's basis and dispersion exactly as a
+    stretch target is: at ``entry_std = 2.0`` a value of ``1.0`` stops at the 3-sigma band. Past
+    the threshold rather than at an absolute level because :attr:`entry_std` is swept, and cells
+    cut by a level one entry depth has already passed could not be read against each other --
+    ``docs/roadmap.md`` §M26.8."""
+
     target_mode: int = TARGET_STRETCH
     """One of :data:`TARGET_MODES`."""
 
@@ -1505,6 +1518,14 @@ class ElasticBandParams:
                 raise ValueError(msg)
         if self.min_bracket_dollars < 0.0:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
+            raise ValueError(msg)
+
+        if self.band_stop_std <= 0.0:
+            msg = (
+                "band_stop_std is how far past entry_std the stop sits and must be > 0, got "
+                f"{self.band_stop_std}; at 0 it is the entry threshold itself, which the close "
+                "that signalled has already passed"
+            )
             raise ValueError(msg)
 
         if self.max_hold_bars < 0:

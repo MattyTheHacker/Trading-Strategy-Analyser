@@ -26,6 +26,7 @@ from nqbt.sim.types import (
     SHAPE_REJECTION,
     SHAPE_REVERSAL,
     STOP_ATR,
+    STOP_BAND,
     STOP_EXCURSION,
     STOP_MIN_TICKS,
     STOP_SWING,
@@ -71,6 +72,8 @@ class ElasticBandRules(NamedTuple):
     stop_offset: float
     catastrophe_distance: float
     swing_lookback: int
+    entry_std: float
+    band_stop_std: float
     target_mode: int
     tp_multiplier: float
     bars_required: int
@@ -122,9 +125,9 @@ def _protective_stop(
     direction: float,
     rules: ElasticBandRules,
 ) -> float:
-    """Where the protective stop goes, in whichever of the four schemes is selected.
+    """Where the protective stop goes, in whichever of the five schemes is selected.
 
-    All four read the **signal** bar and the bars before it, never the bar the fill happens
+    All five read the **signal** bar and the bars before it, never the bar the fill happens
     on. Only :data:`STOP_ATR` is floored, because only it is a distance rather than a level --
     ``docs/nt8-fidelity.md`` §M26.
     """
@@ -141,6 +144,12 @@ def _protective_stop(
 
     if rules.stop_mode == STOP_EXCURSION:
         return float(band.excursion_extreme[signal_bar]) - direction * rules.stop_offset
+
+    if rules.stop_mode == STOP_BAND:
+        # A stretch level like the targets, signed away from the basis instead of towards it.
+        level = rules.entry_std + rules.band_stop_std
+
+        return float(band.basis[signal_bar]) - direction * level * float(band.stddev[signal_bar])
 
     return fill - direction * rules.catastrophe_distance
 
@@ -625,6 +634,8 @@ def elasticband_legs(
             stop_offset=params.stop_offset_ticks * instrument.tick_size,
             catastrophe_distance=params.catastrophe_stop_ticks * instrument.tick_size,
             swing_lookback=params.swing_lookback,
+            entry_std=params.entry_std,
+            band_stop_std=params.band_stop_std,
             target_mode=params.target_mode,
             tp_multiplier=params.tp_multiplier,
             bars_required=params.bars_required_to_trade,

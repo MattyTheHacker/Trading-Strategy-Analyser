@@ -42,6 +42,7 @@ from nqbt.sim.types import (
     SHAPE_ANY,
     SHAPE_REVERSAL,
     STOP_ATR,
+    STOP_BAND,
     STOP_CATASTROPHE,
     STOP_SWING,
     TARGET_STRETCH,
@@ -58,6 +59,11 @@ from tools.campaign_sweep import (
     CORE,
     CONSOLIDATING,
     DIRECTIONAL,
+    ELASTIC_BAND_STOP,
+    ELASTIC_BAND_STOP_ARMS,
+    ELASTIC_BAND_STOP_SHAPES,
+    ELASTIC_BAND_STOP_TARGET,
+    ELASTIC_BAND_STOP_VARIANTS,
     ELASTIC_LADDERS,
     ELASTIC_RECOVERY,
     ELASTIC_RECOVERY_ARMS,
@@ -1499,3 +1505,125 @@ def test_the_recovery_run_carries_the_roots_real_costs() -> None:
 
 def test_variants_for_selects_the_recovery_grid() -> None:
     assert variants_for(ELASTIC_RECOVERY) is ELASTIC_RECOVERY_VARIANTS
+
+
+# -- the §M26.8 band-stop run ------------------------------------------------------------------
+
+
+def band_stop_variants(root: str = "MNQ") -> list[Variant]:
+    """Every arm of the band-stop run, the three existing stops first."""
+    return ELASTIC_BAND_STOP_VARIANTS["ElasticBand"](root)
+
+
+def test_the_band_stop_run_states_its_stratum_before_it_runs() -> None:
+    """The stop is the thing being measured, so the pass adds no context cell to cross it
+    with -- ``docs/roadmap.md`` §M26.8."""
+    assert [name for name, _ in strata(ELASTIC_BAND_STOP, NO_CUTS)] == [UNFILTERED]
+
+
+def test_the_band_stop_run_carries_the_three_existing_stops_in_the_same_pass() -> None:
+    """A stored row came out of a different grid, so pairing against it would compare two runs
+    rather than two arms."""
+    modes = {mode for mode, _ in ELASTIC_BAND_STOP_ARMS.values()}
+
+    assert modes == {STOP_ATR, STOP_SWING, STOP_CATASTROPHE, STOP_BAND}
+
+
+def test_every_band_stop_arm_differs_from_its_control_by_the_stop_alone() -> None:
+    """Which is what makes ``campaign_paired`` readable over these arms: every other field of
+    the base and every axis is shared, so a paired cell differs by where the stop went."""
+    control, *rest = band_stop_variants()
+    for arm in rest:
+        rebased = replace(
+            control.base,
+            stop_mode=arm.base.stop_mode,
+            band_stop_std=arm.base.band_stop_std,
+            signal_shape=arm.base.signal_shape,
+        )
+
+        assert rebased == arm.base
+        assert control.axes == arm.axes
+
+
+def test_the_depth_is_carried_by_the_arm_because_it_is_inert_under_every_other_stop() -> None:
+    """Crossing it with the scheme would run identical combinations ``dead_axes`` cannot see."""
+    for variant in band_stop_variants():
+        assert "band_stop_std" not in variant.axes
+        assert "stop_mode" not in variant.axes
+
+    depths = {depth for mode, depth in ELASTIC_BAND_STOP_ARMS.values() if mode == STOP_BAND}
+    others = {depth for mode, depth in ELASTIC_BAND_STOP_ARMS.values() if mode != STOP_BAND}
+
+    assert depths == {0.5, 1.0, 1.5, 2.0}
+    assert all(depth > 0.0 for depth in depths)
+    # The three schemes that never read it carry one value between them, so nothing about
+    # them varies with an axis they are blind to.
+    assert len(others) == 1
+
+
+def test_the_band_stop_run_asks_its_question_over_an_entry_with_an_edge_and_one_without() -> None:
+    """§M26.5 measured an excess for the reversal shape and none for the control, so the pair
+    bounds whether a stop scheme is being ranked or the bars under it are."""
+    assert set(ELASTIC_BAND_STOP_SHAPES.values()) == {SHAPE_ANY, SHAPE_REVERSAL}
+    shapes = {variant.base.signal_shape for variant in band_stop_variants()}
+
+    assert shapes == {SHAPE_ANY, SHAPE_REVERSAL}
+    assert len(band_stop_variants()) == len(ELASTIC_BAND_STOP_ARMS) * len(ELASTIC_BAND_STOP_SHAPES)
+
+
+def test_the_band_stop_run_drops_the_axis_the_shape_campaign_measured_as_dead() -> None:
+    """§M26.5: ``min_one_sided_bars``'s low end is a dead value and its high end is a cost.
+    ``min_bars_outside`` stays, because §M26.9 dropped it for the reversal shape alone and half
+    these arms carry the control instead."""
+    for variant in band_stop_variants():
+        assert "min_one_sided_bars" not in variant.axes
+        assert variant.axes["min_bars_outside"] == [1, 2]
+        assert variant.base.min_one_sided_bars == 0
+        assert variant.base.target_stretch_levels == ELASTIC_LADDERS[ELASTIC_BAND_STOP_TARGET]
+
+
+def test_every_band_stop_variant_reads_the_source_the_shape_campaign_left_standing() -> None:
+    for variant in band_stop_variants():
+        assert variant.base.band_source == BAND_VWAP
+        assert variant.base.target_mode == TARGET_STRETCH
+        assert variant.axes["entry_std"] == [2.0, 2.5, 3.0]
+
+
+def test_the_ladder_is_readable_back_off_every_band_stop_variant_name() -> None:
+    """The ladder is a tuple and so not a stored column; the name is all a reading tool has."""
+    for variant in band_stop_variants():
+        assert elastic_ladder(variant.name) == ELASTIC_LADDERS[ELASTIC_BAND_STOP_TARGET]
+
+
+def test_no_band_stop_variant_can_collide_with_a_stored_elastic_one() -> None:
+    """One database holds every ElasticBand run and the variant name is the only thing
+    separating them, so ``campaign_holdout`` would pair two campaigns' windows together."""
+    stored = (
+        {variant.name for variant in VARIANTS["ElasticBand"]("MNQ")}
+        | {variant.name for variant in ELASTIC_SHAPE_VARIANTS["ElasticBand"]("MNQ")}
+        | {variant.name for variant in ELASTIC_VOLUME_VARIANTS["ElasticBand"]("MNQ")}
+        | {variant.name for variant in ELASTIC_RECOVERY_VARIANTS["ElasticBand"]("MNQ")}
+    )
+    names = {variant.name for variant in band_stop_variants()}
+
+    assert not stored & names
+    assert len(names) == len(band_stop_variants())
+
+
+def test_every_band_stop_variant_grid_can_be_built_at_every_cell() -> None:
+    """A cell that cannot be built fails here rather than an hour into the run."""
+    for variant in band_stop_variants():
+        for _, grid in grids_for(variant, ELASTIC_BAND_STOP, NO_CUTS):
+            assert len(grid) == variant.sized()
+            assert sum(1 for _ in grid.combinations()) == variant.sized()
+
+
+def test_the_band_stop_run_carries_the_roots_real_costs() -> None:
+    for root in COMMISSION:
+        for variant in band_stop_variants(root):
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
+
+
+def test_variants_for_selects_the_band_stop_grid() -> None:
+    assert variants_for(ELASTIC_BAND_STOP) is ELASTIC_BAND_STOP_VARIANTS

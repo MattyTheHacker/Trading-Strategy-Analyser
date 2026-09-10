@@ -1,7 +1,7 @@
 """ElasticBand simulation tests on hand-built bars.
 
 The archetype has no NinjaScript, so like EmaCrossover there is no trade list to check against.
-What these pin instead are the things it introduces -- three stop schemes, a target expressed
+What these pin instead are the things it introduces -- five stop schemes, a target expressed
 as a band level rather than as an R multiple, and two rule-driven exits -- plus the property
 the whole thing is worthless without: that nothing it reads comes from a bar it could not have
 seen.
@@ -37,6 +37,7 @@ from nqbt.sim.types import (
     SHAPE_REJECTION,
     SHAPE_REVERSAL,
     STOP_ATR,
+    STOP_BAND,
     STOP_CATASTROPHE,
     STOP_EXCURSION,
     STOP_SWING,
@@ -70,6 +71,8 @@ def simulate(
     min_bracket_dollars=0.0,
     stop_offset_ticks=2.0,
     catastrophe_stop_ticks=40.0,
+    entry_std=2.0,
+    band_stop_std=1.0,
     target_mode=TARGET_STRETCH,
     tp_multiplier=1.0,
     bars_required=0,
@@ -130,6 +133,8 @@ def simulate(
             stop_offset=stop_offset_ticks * TICK,
             catastrophe_distance=catastrophe_stop_ticks * TICK,
             swing_lookback=swing_lookback,
+            entry_std=entry_std,
+            band_stop_std=band_stop_std,
             target_mode=target_mode,
             tp_multiplier=tp_multiplier,
             bars_required=bars_required,
@@ -185,7 +190,7 @@ def test_a_signal_below_bars_required_is_ignored() -> None:
     assert run(FLAT, signal_at=[0], bars_required=4).empty
 
 
-# -- the three stop schemes -----------------------------------------------------
+# -- the stop schemes -----------------------------------------------------------
 
 
 def test_the_catastrophe_stop_is_a_fixed_tick_distance_from_the_fill() -> None:
@@ -304,6 +309,99 @@ def test_the_swing_stop_is_not_floored_because_it_is_a_level() -> None:
         levels=(np.nan,),
     )
     assert trades["initial_stop"].iloc[0] == pytest.approx(99.0)
+
+
+def test_the_band_stop_is_a_level_on_the_channel_the_entry_was_measured_against() -> None:
+    # Enter at 2 sigma, stop at 3: basis 100, sigma 2, so the stop is 100 - 3 * 2.
+    trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, entry_std=2.0, band_stop_std=1.0)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
+
+
+def test_the_band_stop_mirrors_on_the_short_side() -> None:
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        direction=SHORT,
+        stop_mode=STOP_BAND,
+        entry_std=2.0,
+        band_stop_std=1.0,
+        levels=(0.0,),
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(106.0)
+
+
+def test_the_band_stop_is_measured_past_the_entry_threshold_rather_than_from_the_basis() -> None:
+    """Which is what makes cells comparable across a swept ``entry_std``: the same multiple is
+    the same distance beyond wherever the entry was taken."""
+    for entry_std in (1.5, 2.0, 3.0):
+        trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, entry_std=entry_std, band_stop_std=0.5)
+        assert trades["initial_stop"].iloc[0] == pytest.approx(100.0 - (entry_std + 0.5) * 2.0)
+
+
+def test_the_band_stops_distance_scales_with_the_dispersion_the_threshold_uses() -> None:
+    """The property it exists for -- no other stop here is denominated in the same units as
+    the entry rule."""
+    for stddev in (1.0, 2.0, 5.0):
+        trades = run(
+            FLAT,
+            signal_at=[0],
+            stop_mode=STOP_BAND,
+            stddev=stddev,
+            entry_std=2.0,
+            band_stop_std=1.0,
+        )
+        assert trades["initial_stop"].iloc[0] == pytest.approx(100.0 - 3.0 * stddev)
+
+
+def test_the_band_stop_reads_the_signal_bars_band_and_not_the_fill_bars() -> None:
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        stop_mode=STOP_BAND,
+        basis=[100.0, *[90.0] * 7],
+        stddev=[2.0, *[8.0] * 7],
+        entry_std=2.0,
+        band_stop_std=1.0,
+        levels=(np.nan,),
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
+
+
+def test_the_band_stop_takes_no_offset_because_nothing_rests_at_a_computed_level() -> None:
+    """Unlike the excursion and swing stops, whose level is a price the market traded at."""
+    for offset in (0.0, 2.0, 20.0):
+        trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, stop_offset_ticks=offset)
+        assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
+
+
+def test_the_band_stop_is_not_floored_because_it_is_a_level() -> None:
+    # $100 per contract is 50 MNQ points and would bind on a 6-point stop if it applied.
+    trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, min_bracket_dollars=100.0)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
+
+
+def test_a_band_narrow_enough_to_put_its_stop_at_the_fill_skips_the_entry() -> None:
+    """The refusal path every stop here shares: a stop at or through the price it protects is
+    not a stop order -- ``docs/nt8-fidelity.md`` §M18."""
+    assert run(FLAT, signal_at=[0], stop_mode=STOP_BAND, basis=100.0, stddev=0.0).empty
+    # A band exactly STOP_MIN_TICKS wide at the stop is the boundary, and it passes: 2 sigma
+    # of 0.125 is one tick.
+    assert not run(
+        FLAT,
+        signal_at=[0],
+        stop_mode=STOP_BAND,
+        basis=100.0,
+        stddev=0.125,
+        entry_std=1.0,
+        band_stop_std=1.0,
+        levels=(np.nan,),
+    ).empty
+
+
+def test_a_band_stop_at_or_inside_the_entry_threshold_is_refused() -> None:
+    for value in (0.0, -1.0):
+        with pytest.raises(ValueError, match="band_stop_std is how far past entry_std"):
+            ElasticBandParams(band_stop_std=value)
 
 
 def test_a_swing_stop_the_fill_has_already_passed_skips_the_entry() -> None:
@@ -1101,6 +1199,23 @@ def test_the_excursion_stop_hangs_off_the_run_that_ended_rather_than_off_nothing
     assert (longs["initial_stop"] < longs["entry_price"]).all()
 
 
+def test_the_band_stop_reads_the_same_band_under_both_triggers() -> None:
+    """The three reads that had to move a bar back for the recovery trigger are the run's;
+    the band stop is a level on the channel itself, so it is defined on a signal bar inside
+    the band as much as on one outside it -- ``docs/nt8-fidelity.md`` §M26.8."""
+    rng = np.random.default_rng(107)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
+    params = recovery_params(stop_mode=STOP_BAND, band_stop_std=1.0, max_hold_bars=10)
+    data = dataset(close, params)
+    log = run_elasticband(data, params)
+    assert not log.empty
+    assert np.isfinite(log["initial_stop"]).all()
+    basis, stddev, _ = elasticband.band_series(data, params)
+    signal_bars = log["entry_bar"].to_numpy(dtype=int) - 1
+    expected = basis[signal_bars] - log["direction"].to_numpy() * 3.0 * stddev[signal_bars]
+    assert log["initial_stop"].to_numpy() == pytest.approx(expected)
+
+
 def test_a_recovery_run_produces_a_valid_trade_log() -> None:
     rng = np.random.default_rng(103)
     close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
@@ -1141,6 +1256,23 @@ def test_a_full_run_produces_a_valid_trade_log_on_both_instruments() -> None:
     # Identical geometry, ten times the money -- instruments.py is the only difference.
     assert nq["entry_price"].tolist() == mnq["entry_price"].tolist()
     assert nq["gross_pnl"].to_numpy() == pytest.approx(10.0 * mnq["gross_pnl"].to_numpy())
+
+
+def test_a_band_stop_run_produces_a_valid_trade_log_with_every_stop_beyond_its_fill() -> None:
+    rng = np.random.default_rng(109)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
+    params = vwap_params(
+        stop_mode=STOP_BAND,
+        band_stop_std=0.5,
+        max_hold_bars=10,
+        commission_per_contract=1.5,
+        slippage_ticks=1.0,
+    )
+    log = run_elasticband(dataset(close, params), params)
+    assert not log.empty
+    validate(log)
+    adverse = log["direction"].to_numpy() * (log["entry_price"] - log["initial_stop"]).to_numpy()
+    assert (adverse >= MNQ.tick_size).all()
 
 
 def test_the_registry_carries_it_as_tier_one_only_with_both_tuples_off_the_axes() -> None:
