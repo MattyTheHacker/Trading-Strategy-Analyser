@@ -111,7 +111,16 @@ paths:
   signal-bar requirements**: `rejection_close_fraction` is read under `SHAPE_REJECTION` alone and
   `one_sided_lookback` only while `min_one_sided_bars` is above 0, which is why the shape is a
   variant dimension in `campaign_sweep.py` and the count is an axis carrying its own off value —
-  `ELASTIC_SHAPES` is the shape. `docs/roadmap.md` §M26.5.
+  `ELASTIC_SHAPES` is the shape. **`recovery_fraction` joins them**: it is read under
+  `TRIGGER_RECOVERY` alone, so the trigger and its depth are one variant dimension
+  (`ELASTIC_RECOVERY_ARMS`) rather than two crossed axes. `docs/roadmap.md` §M26.5 and §M26.6.
+- **An axis another entry rule made a duplicate can come back to life, and nothing reports that
+  either.** §M26.5 measured `min_bars_outside` as inert under `reclaim` on 100% of cells and
+  under `reversal` on 82.7%, because those shapes imply the run; the recovery trigger reads the
+  run at the bar *before* the signal and so does not, and its η² is an order of magnitude higher
+  there. **Do not carry an axis's measured deadness across to a variant set with a different
+  entry rule** — re-measure it, because the interaction that killed it was with the rule and not
+  with the axis. `docs/roadmap.md` §M26.6.
 - **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
   `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
   caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes

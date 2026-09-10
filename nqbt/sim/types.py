@@ -1188,6 +1188,17 @@ needs the close within :attr:`ElasticBandParams.rejection_close_fraction` of the
 the extreme it stretched to. Why there is no engulfing mode: ``docs/roadmap.md`` §M26.5.
 """
 
+TRIGGER_EXTENDED = 0
+TRIGGER_RECOVERY = 1
+TRIGGER_MODES = {TRIGGER_EXTENDED: "extended", TRIGGER_RECOVERY: "recovery"}
+"""Which bar of an extension schedules the entry. ``extended`` fades a bar that is still
+outside the band, which is every rule above it; ``recovery`` waits for the run outside to end
+and takes the bar that closes back inside, at a depth
+:attr:`ElasticBandParams.recovery_fraction` names. A different trigger rather than a fifth
+shape, because every :data:`SHAPE_MODES` value is read on a bar that is still beyond the
+threshold -- ``docs/roadmap.md`` §M26.6.
+"""
+
 
 @dataclass(slots=True)
 class ElasticBandParams:
@@ -1224,7 +1235,19 @@ class ElasticBandParams:
     the entry region is bounded rather than one-sided -- ``docs/roadmap.md`` §M26."""
 
     min_bars_outside: int = 1
-    """Consecutive bars that must have been outside before an entry, the signal bar included."""
+    """Consecutive bars that must have been outside before an entry.
+
+    The signal bar is included under :data:`TRIGGER_EXTENDED` and is not under
+    :data:`TRIGGER_RECOVERY`, where the run ends at the bar before it."""
+
+    entry_trigger: int = TRIGGER_EXTENDED
+    """One of :data:`TRIGGER_MODES` -- which bar of an extension schedules the entry."""
+
+    recovery_fraction: float = 1.0
+    """How far back inside the band the close must come, as a share of :attr:`entry_std`.
+
+    ``1.0`` is the band edge itself and anything less is a depth. Read under
+    :data:`TRIGGER_RECOVERY` alone -- ``docs/roadmap.md`` §M26.6."""
 
     band_lag: int = 0
     """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one.
@@ -1410,6 +1433,18 @@ class ElasticBandParams:
 
         if self.min_bars_outside < 1:
             msg = f"min_bars_outside must be >= 1, got {self.min_bars_outside}"
+            raise ValueError(msg)
+
+        if self.entry_trigger not in TRIGGER_MODES:
+            msg = f"unknown entry_trigger {self.entry_trigger}; use one of {sorted(TRIGGER_MODES)}"
+            raise ValueError(msg)
+
+        if not 0.0 < self.recovery_fraction <= 1.0:
+            msg = (
+                "recovery_fraction is a share of entry_std and must be in (0, 1], got "
+                f"{self.recovery_fraction}; at 0 the close would have to sit exactly on the "
+                "basis, which no bar passes"
+            )
             raise ValueError(msg)
 
         if self.band_lag < 0:

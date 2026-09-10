@@ -30,6 +30,7 @@ from nqbt.sim.types import (
     STOP_MIN_TICKS,
     STOP_SWING,
     TARGET_STRETCH,
+    TRIGGER_RECOVERY,
 )
 
 if TYPE_CHECKING:
@@ -419,6 +420,35 @@ def beyond_band(stretch: FloatArray, params: ElasticBandParams) -> BoolArray:
     return np.abs(stretch) >= params.entry_std
 
 
+def returned_inside(stretch: FloatArray, params: ElasticBandParams) -> BoolArray:
+    """Bars whose close came back inside the band and stayed on the side it stretched to.
+
+    ``recovery_fraction`` of ``1.0`` is the band edge itself and anything less is a depth. A
+    close exactly on the basis passes on neither side, which is the symmetry one sign
+    multiplier asks for -- ``docs/nt8-fidelity.md`` §M26.6.
+    """
+    distance: FloatArray = np.abs(stretch)
+    depth: float = params.recovery_fraction * params.entry_std
+
+    return np.asarray((distance < params.entry_std) & (distance <= depth) & (stretch != 0.0))
+
+
+def outside_run_length(outside: BoolArray, *, ends_before: bool) -> IntArray:
+    """The unbroken run of bars outside the band that each bar's trigger reads.
+
+    ``ends_before`` is :data:`TRIGGER_RECOVERY`'s: the run ended at the bar before the signal,
+    so the count the signal bar reads is the one that bar carried -- ``docs/roadmap.md`` §M26.6.
+    """
+    counts: IntArray = conditions.consecutive_true(outside)
+    if not ends_before:
+        return counts
+
+    behind: IntArray = np.zeros(counts.size, dtype=np.int64)
+    behind[1:] = counts[:-1]
+
+    return behind
+
+
 def closed_towards_basis(open_: FloatArray, close: FloatArray, direction: FloatArray) -> BoolArray:
     """Bars whose body runs the way the fade would trade -- green below the basis, red above.
 
@@ -495,7 +525,12 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
 
     Where the extension is: it has lasted ``min_bars_outside`` unbroken bars on one side, it
     clears ``entry_std``, and it is under ``max_entry_std`` where that ceiling is on. The
-    ceiling gates the signal bar only -- a bar past it interrupts the trade, not the run.
+    ceiling gates the bar the extension is measured on only -- a bar past it interrupts the
+    trade, not the run.
+
+    Which bar of that extension signals: ``entry_trigger``. :data:`TRIGGER_EXTENDED` takes a
+    bar still outside and :data:`TRIGGER_RECOVERY` the one that closes back inside after the
+    run has ended, so under the second the extension is the *previous* bar's.
 
     What the bars look like: ``signal_shape`` asks the signal bar's own candle to have turned
     and ``min_one_sided_bars`` asks the move into the band to have been one-sided.
@@ -503,18 +538,23 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
     _, _, stretch = band_series(data, params)
     beyond: BoolArray = beyond_band(stretch, params)
     direction: FloatArray = fade_direction(stretch)
+    recovery: bool = params.entry_trigger == TRIGGER_RECOVERY
+    triggered: BoolArray = returned_inside(stretch, params) if recovery else beyond
+    extension: FloatArray = lagged(stretch, 1) if recovery else stretch
 
     long_run: BoolArray = beyond & (direction == trades.LONG)
     short_run: BoolArray = beyond & (direction == trades.SHORT)
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
-        signal |= conditions.consecutive_true(long_run) >= params.min_bars_outside
+        counted_long: IntArray = outside_run_length(long_run, ends_before=recovery)
+        signal |= triggered & (direction == trades.LONG) & (counted_long >= params.min_bars_outside)
 
     if params.trade_short:
-        signal |= conditions.consecutive_true(short_run) >= params.min_bars_outside
+        counted_short: IntArray = outside_run_length(short_run, ends_before=recovery)
+        signal |= triggered & (direction == trades.SHORT) & (counted_short >= params.min_bars_outside)
 
     if params.max_entry_std > 0.0:
-        signal &= np.abs(stretch) <= params.max_entry_std
+        signal &= np.abs(extension) <= params.max_entry_std
 
     if params.band_source == BAND_VWAP:
         signal &= vwap_band_warmed_up(data, params)
@@ -549,6 +589,11 @@ def elasticband_legs(
         beyond_band(stretch, params),
         direction_at,
     )
+    if params.entry_trigger == TRIGGER_RECOVERY:
+        # The signal bar is back inside the band, so the run it fades is the one that ended at
+        # the bar before it and `run_extreme` reads `nan` on the bar itself.
+        extremes = lagged(extremes, 1)
+
     signal = elasticband_signal(data, params) if signal is None else signal
     quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
     levels: FloatArray = np.asarray(params.target_levels, dtype=np.float64)
