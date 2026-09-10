@@ -3498,7 +3498,7 @@ TopStep's actual rule is the mixed case: an end-of-day high-water mark, breached
 
 Each is the harsher reading. That is deliberate: this is a go/no-go instrument, and an optimistic account model is worse than no account model.
 
-1. **A trade's peak is applied before its trough.** Bar-close OHLC cannot order the two, and applying the peak first raises the floor before the trough is tested against it. The other ordering can only ever be kinder.
+1. **A trade's peak is applied before its trough** — `excursion_order`, which **defaults** to that and is the one of the three that is a parameter rather than a fixed choice. Bar-close OHLC cannot order the two, and applying the peak first raises the floor before the trough is tested against it; the other ordering can only ever be kinder. It was fixed until §M28.13 measured what it was worth and found it too load-bearing to leave hard-coded.
 2. **A trade tripping both limits at once is read as a trailing breach**, which ends the account, rather than as a daily breach, which under `DailyBreach.LOCKOUT` would not. Same reason, and the same inability to order two events inside one trade.
 3. **The adverse excursion is summed over a trade's legs**, rather than taken as the trade's worst excursion at its full entry size. A leg that scaled out early stopped accruing excursion, so the per-leg sum is the closer of the two available answers.
 

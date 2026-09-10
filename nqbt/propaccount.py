@@ -52,6 +52,7 @@ __all__ = [
     "AccountRun",
     "DailyBreach",
     "EquityBasis",
+    "ExcursionOrder",
     "Outcome",
     "PropAccount",
     "PropAccountError",
@@ -124,6 +125,27 @@ class TrailLock(StrEnum):
     """The floor freezes a fixed buffer above the opening balance."""
 
 
+class ExcursionOrder(StrEnum):
+    """Which of one trade's two excursions is applied first, where bar data cannot say.
+
+    Read only under :attr:`TrailBasis.INTRADAY`, which is the only basis a trade's own peak can
+    move the floor under. It is the single largest lever in the model on a full-size
+    contract -- ``docs/roadmap.md`` §M28.13.
+    """
+
+    PEAK_FIRST = "peak-first"
+    """The favourable excursion raises the floor before the adverse one is tested against it.
+
+    The harsher reading, and the default.
+    """
+
+    TROUGH_FIRST = "trough-first"
+    """The adverse excursion is tested against the floor the trade opened with.
+
+    The peak is still recorded afterwards, so it moves the floor for every later trade.
+    """
+
+
 class DailyBreach(StrEnum):
     """What breaching the daily loss limit costs."""
 
@@ -169,6 +191,13 @@ class AccountRules:
     trail_lock: TrailLock = TrailLock.NEVER
     trail_lock_buffer: float = 0.0
     """Dollars above the starting balance the floor freezes at, under that lock only."""
+
+    excursion_order: ExcursionOrder = ExcursionOrder.PEAK_FIRST
+    """Which of a trade's excursions moves the floor first, under an intraday basis.
+
+    Measured, not incidental: it decides whether a full-size NQ account dies on its first trade
+    or trades on -- ``docs/roadmap.md`` §M28.13.
+    """
 
     daily_loss_limit: float = 0.0
     """Loss from the day's opening balance that ends the day. ``0.0`` disables it."""
@@ -699,11 +728,13 @@ def _probe_high(balance: float, table: _TradeTable, pos: int) -> float:
 def _take_trade(table: _TradeTable, pos: int, rules: AccountRules, state: _AccountState) -> Outcome:
     """Apply one trade to the account and report how it left it.
 
-    The peak is applied before the trough, which is the harsher reading of a bar the data cannot
-    order -- ``docs/roadmap.md`` § "Replaying a prop account over the trade log".
+    Which excursion moves the floor first is ``rules.excursion_order`` -- the bars cannot order
+    them, and it decides real outcomes. ``docs/roadmap.md`` §M28.13.
     """
-    if rules.trail_basis is TrailBasis.INTRADAY:
-        state.high_water = max(state.high_water, _probe_high(state.balance, table, pos))
+    tracks_peak: bool = rules.trail_basis is TrailBasis.INTRADAY
+    peak: float = _probe_high(state.balance, table, pos)
+    if tracks_peak and rules.excursion_order is ExcursionOrder.PEAK_FIRST:
+        state.high_water = max(state.high_water, peak)
 
     floor: float = _trailing_floor(state.high_water, rules)
     trail_low: float = _probe_low(state.balance, table, pos, rules.trail_breach)
@@ -714,6 +745,11 @@ def _take_trade(table: _TradeTable, pos: int, rules: AccountRules, state: _Accou
         state.balance = trail_low
 
         return Outcome.BREACHED_TRAILING
+
+    # Under either order the peak still happened, so it moves the floor for every later trade.
+    # Re-applying it is a no-op when it was already taken above.
+    if tracks_peak:
+        state.high_water = max(state.high_water, peak)
 
     daily_low: float = _probe_low(state.balance, table, pos, rules.daily_loss_basis)
     realised: float = float(table.net_pnl[pos])

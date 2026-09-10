@@ -176,6 +176,99 @@ def test_an_intraday_high_water_mark_raises_the_floor_a_daily_one_does_not() -> 
     assert intraday.trailing_floor > end_of_day.trailing_floor
 
 
+# -- which excursion moves the floor first -------------------------------------
+
+
+def _spikes_then_dips():
+    """One trade that runs $3,000 in favour and $1,000 against, under Apex's geometry.
+
+    The peak takes the high-water mark to $52,994, which under a $2,500 threshold locks the
+    floor at its $50,100 ceiling; the trough at $48,994 is then below it. Applied the other way
+    round the floor is still $47,500 and the same trough clears it. Sized so the two disagree,
+    which is the whole point of the parameter.
+
+    It closes at +$500 rather than +$100 so the second day clears the $50,100 the peak locked
+    the floor at; at +$100 the balance lands exactly on that floor and any dip kills it, which
+    is realistic and not what this fixture is for.
+    """
+    log = leg_log([(0, 500.0, 1_000.0 / MNQ_PER_POINT), (1, 100.0, 1.0)])
+    log.loc[0, "mfe_points"] = 3_000.0 / MNQ_PER_POINT
+
+    return log
+
+
+def _intraday(**overrides) -> PropAccount:
+    """Apex's trailing geometry: an intraday mark and a floor that locks just above the start."""
+    return account(
+        trailing_threshold=2_500.0,
+        trail_basis=TrailBasis.INTRADAY,
+        trail_breach=EquityBasis.UNREALISED,
+        trail_lock=TrailLock.ABOVE_STARTING_BALANCE,
+        trail_lock_buffer=100.0,
+        profit_target=1e6,
+        **overrides,
+    )
+
+
+def test_the_excursion_order_decides_whether_the_account_survives_its_first_trade() -> None:
+    """The measured lever, pinned: §M28.13 is the difference between one trade and twelve."""
+    log = _spikes_then_dips()
+
+    peak_first = propaccount.replay(log, _intraday()).runs[0]
+    trough_first = propaccount.replay(
+        log,
+        _intraday(excursion_order=propaccount.ExcursionOrder.TROUGH_FIRST),
+    ).runs[0]
+
+    assert peak_first.outcome is Outcome.BREACHED_TRAILING
+    assert peak_first.trades_taken == 1
+    assert trough_first.outcome is Outcome.SURVIVED
+    assert trough_first.trades_taken == 2
+
+
+def test_the_peak_still_moves_the_floor_under_the_kinder_order() -> None:
+    """Deferring the peak is not discarding it: later trades face the floor it raised."""
+    log = _spikes_then_dips()
+    run = propaccount.replay(
+        log,
+        _intraday(excursion_order=propaccount.ExcursionOrder.TROUGH_FIRST),
+    ).runs[0]
+
+    assert run.peak_balance == pytest.approx(53_000.0 - COMMISSION)
+    assert run.trailing_floor == pytest.approx(50_100.0)
+
+
+def test_the_harsher_order_is_the_default_so_a_preset_is_unchanged() -> None:
+    assert (
+        propaccount.AccountRules(
+            starting_balance=1.0,
+            profit_target=1.0,
+        ).excursion_order
+        is propaccount.ExcursionOrder.PEAK_FIRST
+    )
+    assert all(
+        a.rules.excursion_order is propaccount.ExcursionOrder.PEAK_FIRST for a in propaccount.PRESETS.values()
+    )
+
+
+def test_an_end_of_day_mark_is_untouched_by_the_order() -> None:
+    """No intraday high-water mark means no peak to order against the trough.
+
+    Asserted as agreement between the two rather than against a figure, so the claim cannot be
+    broken by re-sizing the fixture.
+    """
+    log = _spikes_then_dips()
+    runs = [
+        propaccount.replay(log, account(excursion_order=order)).runs[0]
+        for order in propaccount.ExcursionOrder
+    ]
+
+    assert runs[0].outcome is Outcome.SURVIVED
+    assert runs[0].as_dict() == runs[1].as_dict()
+    # And the peak that would have moved an intraday mark is genuinely in the fixture.
+    assert log["mfe_points"].max() * MNQ_PER_POINT > 2_500.0
+
+
 # -- a blown account can still have been profitable ----------------------------
 
 
