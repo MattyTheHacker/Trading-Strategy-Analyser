@@ -3429,7 +3429,18 @@ The stated goal. Import real trades, annotate each against the market context at
 
 **No CLI command.** The CLI covers the four pipeline steps by design, and a chart takes a trade log and a prepared `Dataset` — neither of which survives being flattened into argparse flags. `chart.charts(log, data, ids)` and `TradeChart.save(path)` are the interface.
 
-**What it deliberately does not draw**, each for its own reason: indicators, because which ones are relevant is per archetype and the module knows nothing about archetypes; volume, because a second panel doubles the layout for a quantity `review.time_of_day` already reports properly; and notes, because §M11.5's sidecar attaches at `notes.alongside` and a chart that grew a note argument would be a fourth door onto the same hazard.
+**The indicators are drawn, and the module still knows nothing about archetypes** ([#273]). The original objection was that which indicators are relevant is per archetype — true, and it rules out a chart that names any. It does not rule out one that draws what its `Dataset` holds: `sweep.prepare_for` builds exactly what the archetype's `ContextSpec` declares, so the dataset *is* that archetype's own statement of what its signal reads, and `chart.overlays_for(data)` turns it into a set of overlays without asking what produced it. A caller wanting three of them names three — `chart.moving_average`, `chart.bollinger`, `chart.session_vwap`, `chart.vwap_band`, `chart.higher_timeframe_average`, `chart.opening_range` — and one asking for a series the dataset does not hold gets the `ContextError` naming the spec field to set, which is the same refusal every other reader gets.
+
+Four decisions travel with it, each of which would otherwise draw a plausible and wrong picture rather than raise:
+
+- **An overlay does not widen the price domain; it is clipped to the panel.** Fitting one would let a long average sitting far from the window squash the trade it was drawn as context for — the opposite of the point. The clip is an SVG `clipPath` over the panel rect, so a line that leaves simply stops.
+- **An overlay is a per-bar series, not a path between two points**, and that is what the no-sloped-line pin becomes now that a moving average is allowed to slope. Wicks and levels stay `line` elements; an overlay is a `polyline` whose vertices sit on the bar-centre grid and step one bar at a time, so the segment from an entry fill to an exit fill cannot be drawn as an overlay either. `tests/test_chart.py` asserts the step, not the tag name.
+- **`nan` is a gap rather than a value, which is what keeps a per-session level off the session beside it.** The opening range is one fact per session; a run joining one session's level to the next's would state a level that never existed. `chart.opening_range` is null wherever `range_armed` is false, and the break falls out of that — every session has one, because a range is not armed before its window completes.
+- **The trade's own geometry is dashed and the market's context is solid.** The bracket and the excursions were already dashed; overlays are solid, cycled through six colours, and named in a legend that makes its own room above the panel. Colour is positional rather than semantic, so the legend is what identifies a line.
+
+**Price-panel series only, and that is the boundary rather than the current extent.** An ATR, an efficiency ratio, a relative volume or a compression rank is not a price and would need a second panel — which is ruled out below for volume, for the same reason. Nothing here builds a series: an overlay reads what `context.prepare` already computed.
+
+**What it deliberately does not draw**, each for its own reason: volume, because a second panel doubles the layout for a quantity `review.time_of_day` already reports properly; and notes, because §M11.5's sidecar attaches at `notes.alongside` and a chart that grew a note argument would be a fourth door onto the same hazard.
 
 ### M12 — web GUI ([#52])
 
@@ -3777,6 +3788,7 @@ ______________________________________________________________________
 [#264]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/264
 [#265]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/265
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
+[#273]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/273
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30

@@ -14,6 +14,12 @@ of charts read for that is the multiple-comparisons machine :mod:`nqbt.guard` ex
 against. :data:`CAUTION` is drawn on every chart for the reason :data:`nqbt.review.STATUS` is
 printed in every report.
 
+**Indicators are drawn, and this module still knows nothing about archetypes.** An
+:class:`Overlay` is a named series the caller hands in, and :func:`overlays_for` returns every
+one a :class:`~nqbt.context.Dataset` holds -- which is what that archetype's own ``ContextSpec``
+declared. Price-panel series only, and clipped to the panel so none of them can rescale it --
+``docs/roadmap.md`` § "Charting a trade".
+
 ``README.md`` § "Looking at one trade" is the worked example, from bars to a written file::
 
     grid = sweep.Grid(archetype=archetypes.get("InsideBar"))
@@ -31,28 +37,40 @@ from xml.sax.saxutils import escape, quoteattr
 
 import numpy as np
 
-from nqbt import annotate, stats, trades
+from nqbt import annotate, higher_timeframe, stats, trades
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     import pandas as pd
 
-    from nqbt.arrays import FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray
+    from nqbt.conditions import MovingAverageGrid
     from nqbt.context import Dataset
+    from nqbt.sessionrange import RangeKey
 
 __all__ = [
     "BARS_EITHER_SIDE",
     "BAR_WIDTH",
     "CAUTION",
+    "DEFAULT_BAND_MULTIPLE",
     "EXIT_CLASSES",
     "LEVELS",
     "PLOT_HEIGHT",
+    "SERIES_STYLES",
     "ChartError",
+    "Overlay",
     "Plot",
     "TradeChart",
+    "bollinger",
     "chart",
     "charts",
+    "higher_timeframe_average",
+    "moving_average",
+    "opening_range",
+    "overlays_for",
+    "session_vwap",
+    "vwap_band",
 ]
 
 BARS_EITHER_SIDE = 30
@@ -92,6 +110,14 @@ LEVELS = ("initial_stop", "target_price")
 so a log leaving one empty simply has no line for it.
 """
 
+SERIES_STYLES = 6
+"""Colours an overlay is drawn in, cycled by its position in the list. The legend is what
+names them, so a seventh overlay repeating the first's colour is legible rather than wrong.
+"""
+
+DEFAULT_BAND_MULTIPLE = 2.0
+"""Standard deviations a band overlay is drawn at when the caller does not say."""
+
 _NEEDED = (
     "trade_id",
     "leg",
@@ -125,6 +151,20 @@ _MARKER = 6.0
 
 _LABEL_GAP = 4.0
 """Pixels between a mark and its label."""
+
+_SWATCH = 14.0
+"""Pixels of coloured line a legend entry shows before its name."""
+
+_LEGEND_HEIGHT = 13.0
+_LEGEND_GAP = 12.0
+_LEGEND_BASELINE = 9.0
+"""Where a legend row's text sits within its own line, measured from the row's top."""
+
+_CLIP = "nqbt-panel"
+"""The clip path every overlay is drawn inside, so a long average cannot reach the header."""
+
+_OVERLAY_DIMENSIONS = 2
+"""What an overlay's values are shaped once read: rows, and one column per bar of the dataset."""
 
 _MARGIN_LEFT = 10.0
 _MARGIN_RIGHT = 64.0
@@ -164,6 +204,13 @@ _STYLE = """
   .body { stroke: #4a5567; stroke-width: 1 }
   .body.up { fill: #ffffff }
   .body.down { fill: #4a5567 }
+  .series { fill: none; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round }
+  .series.s0 { stroke: #8e44ad }
+  .series.s1 { stroke: #0e7c7b }
+  .series.s2 { stroke: #8d6e3a }
+  .series.s3 { stroke: #3f51b5 }
+  .series.s4 { stroke: #6b8e23 }
+  .series.s5 { stroke: #a64d79 }
   .level { stroke-width: 1.5; stroke-dasharray: 5 3; fill: none }
   .level.stop { stroke: #c0392b }
   .level.target { stroke: #1e8449 }
@@ -184,6 +231,7 @@ _STYLE = """
   .tick { font-size: 10px; fill: #667085 }
   .tag { font-size: 10px; paint-order: stroke; stroke: #ffffff; stroke-width: 2.5px;
          stroke-linejoin: round }
+  .legend { font-size: 10px; fill: #667085 }
   .caution { font-size: 9.5px; fill: #98531a }
 """
 
@@ -221,6 +269,33 @@ class Plot:
     def y(self, price: float) -> float:
         """Canvas y of one price. Inverted, since prices rise up the page and y grows down it."""
         return self.top + (self.price_max - price) / (self.price_max - self.price_min) * self.height
+
+
+@dataclass(frozen=True, slots=True)
+class Overlay:
+    """One named indicator drawn over the candles, in the price panel's own units.
+
+    ``values`` is one row per bar of the dataset, or ``[n_rows, n_bars]`` for a band -- one
+    colour and one legend entry whatever the row count. ``nan`` is a gap rather than a value,
+    so a series is broken across one instead of drawn through it.
+
+    Only what a price axis can carry: an ATR, an efficiency ratio or a relative volume would
+    need a second panel, which ``docs/roadmap.md`` § "Charting a trade" rules out.
+    """
+
+    label: str
+    values: FloatArray
+
+    @property
+    def rows(self) -> FloatArray:
+        """The values as ``[n_rows, n_bars]``, whichever of the two shapes they were given in."""
+        values: FloatArray = np.asarray(self.values, dtype=np.float64)
+
+        return values.reshape(1, -1) if values.ndim == 1 else values
+
+
+type _LegendRow = tuple[tuple[int, Overlay], ...]
+"""One row of the legend: each entry's place in the overlay list, which is its colour, and it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,11 +345,14 @@ def chart(
     bar_width: float = BAR_WIDTH,
     height: float = PLOT_HEIGHT,
     title: str | None = None,
+    overlays: Sequence[Overlay] = (),
 ) -> TradeChart:
     """Draw one trade of ``log`` on ``data``'s bars, with ``bars_either_side`` of context.
 
     The window is clipped to the dataset, so a trade at either end is drawn with what there is.
-    ``title`` replaces the headline; the default states the trade's own figures.
+    ``title`` replaces the headline; the default states the trade's own figures. ``overlays``
+    are the indicators drawn over the candles -- :func:`overlays_for` builds every one ``data``
+    holds, and the builders beside it take them one at a time.
 
     Draw against the bars the trade happened on -- the per-contract series for an imported log,
     never the back-adjusted continuous one, which shifts every historical price by the roll
@@ -285,15 +363,28 @@ def chart(
         msg: str = f"bars_either_side is a count of bars either side, so it cannot be {bars_either_side}"
         raise ChartError(msg)
 
+    drawn: tuple[Overlay, ...] = tuple(overlays)
+    _check_overlays(drawn, len(data))
     legs: pd.DataFrame = _legs_for(log, trade_id)
     entry_bars, exit_bars = _bars_for(legs, data)
     first, last = _window(entry_bars, exit_bars, len(data), bars_either_side)
     figures: Figures = _figures(legs, trade_id)
-    plot: Plot = _axes(legs, data, figures, first, last, bar_width=bar_width, height=height)
+    legend: tuple[_LegendRow, ...] = _legend_rows(drawn, (last - first + 1) * bar_width)
+    top: float = _HEADER + len(legend) * _LEGEND_HEIGHT
+    plot: Plot = _axes(legs, data, figures, first, last, bar_width=bar_width, height=height, top=top)
 
     return TradeChart(
         trade_id=trade_id,
-        svg=_render(legs, data, figures, plot, (first, last), (entry_bars, exit_bars), title),
+        svg=_render(
+            legs,
+            data,
+            figures,
+            plot,
+            (first, last),
+            (entry_bars, exit_bars),
+            title,
+            (drawn, legend),
+        ),
         first_bar=first,
         last_bar=last,
         entry_bars=tuple(int(bar) for bar in entry_bars),
@@ -311,12 +402,131 @@ def charts(
     bars_either_side: int = BARS_EITHER_SIDE,
     bar_width: float = BAR_WIDTH,
     height: float = PLOT_HEIGHT,
+    overlays: Sequence[Overlay] = (),
 ) -> list[TradeChart]:
-    """Draw each of ``trade_ids`` in turn, in the order given."""
+    """Draw each of ``trade_ids`` in turn, in the order given, with the same overlays on each."""
     return [
-        chart(log, data, trade_id, bars_either_side=bars_either_side, bar_width=bar_width, height=height)
+        chart(
+            log,
+            data,
+            trade_id,
+            bars_either_side=bars_either_side,
+            bar_width=bar_width,
+            height=height,
+            overlays=overlays,
+        )
         for trade_id in trade_ids
     ]
+
+
+# -- the indicators drawn over the bars ---------------------------------------
+
+
+def moving_average(data: Dataset, kind: str, period: int) -> Overlay:
+    """One moving average of ``data``, which must have been prepared keeping its values."""
+    return Overlay(label=f"{kind}({period})", values=data.ma_values(kind, period))
+
+
+def bollinger(data: Dataset, period: int, multiple: float = DEFAULT_BAND_MULTIPLE) -> Overlay:
+    """One Bollinger band as three rows: upper, midline, lower."""
+    return Overlay(
+        label=f"bb({period}, {multiple:g}sd)",
+        values=_band_rows(data.band_basis(period), multiple * data.band_stddev(period)),
+    )
+
+
+def session_vwap(data: Dataset) -> Overlay:
+    """The session-anchored VWAP as a single row."""
+    return Overlay(label="vwap", values=data.vwap_values())
+
+
+def vwap_band(data: Dataset, multiple: float = DEFAULT_BAND_MULTIPLE) -> Overlay:
+    """The session-anchored band as three rows: upper, the VWAP itself, lower."""
+    return Overlay(
+        label=f"vwap band({multiple:g}sd)",
+        values=_band_rows(data.vwap_band_basis(), multiple * data.vwap_band_stddev()),
+    )
+
+
+def higher_timeframe_average(data: Dataset, key: higher_timeframe.HigherTimeframeKey) -> Overlay:
+    """One coarse moving average as the fine bars see it -- the last *completed* coarse bar."""
+    return Overlay(
+        label=f"{higher_timeframe.KIND}({key.period}) @ {key.minutes}m",
+        values=data.higher_timeframe_values(key),
+    )
+
+
+def opening_range(data: Dataset, key: RangeKey) -> Overlay:
+    """One session range's high and low, on the bars that may read them and no others.
+
+    A range is one fact per session, so both rows are ``nan`` wherever it is not armed -- every
+    bar before its window completes included, which is the break keeping one session's level
+    off the session beside it.
+    """
+    anchor, window = key
+    armed: BoolArray = data.range_armed(key)
+    session: IndexArray = data.range_session_id()
+    levels: list[FloatArray] = [
+        np.where(armed, data.range_high(key)[session], np.nan),
+        np.where(armed, data.range_low(key)[session], np.nan),
+    ]
+
+    return Overlay(label=f"range({anchor}+{window}m)", values=np.vstack(levels))
+
+
+def overlays_for(data: Dataset, *, multiple: float = DEFAULT_BAND_MULTIPLE) -> list[Overlay]:
+    """Every price-panel series ``data`` holds, which is what its ``ContextSpec`` declared.
+
+    Nothing here reads an archetype: :func:`nqbt.sweep.prepare_for` builds the dataset from the
+    archetype's own declaration, so what the dataset holds is what that signal reads. A
+    moving-average grid keeping only its boolean gate is skipped rather than refused -- set
+    ``needs_ma_values`` to draw those.
+    """
+    drawn: list[Overlay] = []
+    for kind in sorted(data.mas):
+        grid: MovingAverageGrid = data.mas[kind]
+        if grid.values is None:  # noqa: PD011  # A MovingAverageGrid field, not a pandas one.
+            continue
+
+        drawn += [moving_average(data, kind, int(period)) for period in grid.periods]
+
+    if data.band is not None:
+        drawn += [bollinger(data, int(period), multiple) for period in data.band.periods]
+
+    # The band's basis *is* the VWAP rather than a second estimate of it, so drawing both would
+    # draw one series twice -- :class:`nqbt.bands.VwapBand`.
+    if data.vwap is not None and data.vwap_band is None:
+        drawn.append(session_vwap(data))
+
+    if data.vwap_band is not None:
+        drawn.append(vwap_band(data, multiple))
+
+    if data.higher_timeframes is not None:
+        drawn += [higher_timeframe_average(data, key) for key in data.higher_timeframes.keys]
+
+    if data.session_ranges is not None:
+        drawn += [opening_range(data, key) for key in data.session_ranges.keys]
+
+    return drawn
+
+
+def _band_rows(basis: FloatArray, width: FloatArray) -> FloatArray:
+    """A band as the three rows every chart draws it in: upper, basis, lower."""
+    return np.vstack([basis + width, basis, basis - width])
+
+
+def _check_overlays(overlays: Sequence[Overlay], bars: int) -> None:
+    """Refuse a series that is not one value per bar of the dataset it is drawn on."""
+    for overlay in overlays:
+        rows: FloatArray = overlay.rows
+        if rows.ndim == _OVERLAY_DIMENSIONS and rows.shape[1] == bars:
+            continue
+
+        msg: str = (
+            f"overlay {overlay.label!r} is shaped {np.shape(overlay.values)}; an overlay is one "
+            f"or more rows of {bars} value(s), one per bar of the dataset it is drawn on."
+        )
+        raise ChartError(msg)
 
 
 # -- the trade, and the bars it is drawn on -----------------------------------
@@ -404,11 +614,14 @@ def _axes(
     *,
     bar_width: float,
     height: float,
+    top: float,
 ) -> Plot:
     """Fit the price domain to the window and to every price the chart is about to draw.
 
     A fill outside its own bar is drawn rather than refused: that is what a back-adjusted series
-    produces, and a chart is the instrument that makes it visible.
+    produces, and a chart is the instrument that makes it visible. **An overlay is not fitted**:
+    a long average sitting far from the window would squash the trade to nothing, so it is
+    clipped to the panel instead -- ``docs/roadmap.md`` § "Charting a trade".
     """
     drawn: list[float] = [value for value in _drawn_prices(legs, figures) if np.isfinite(value)]
     low: float = min([float(data.low[first : last + 1].min()), *drawn])
@@ -421,7 +634,7 @@ def _axes(
         bars=last - first + 1,
         bar_width=bar_width,
         left=_MARGIN_LEFT,
-        top=_HEADER,
+        top=top,
         height=height,
         price_min=low - padding,
         price_max=high + padding,
@@ -469,19 +682,27 @@ def _render(
     window: tuple[int, int],
     bars: tuple[IntArray, IntArray],
     title: str | None,
+    indicators: tuple[Sequence[Overlay], Sequence[_LegendRow]],
 ) -> str:
-    """Assemble the whole document, back to front: panel, then bars, then what happened on them."""
+    """Assemble the whole document, back to front: panel, then bars, then what happened on them.
+
+    The market's own context goes under the trade's, so a level or a marker is never hidden
+    behind an average.
+    """
     first, last = window
     entry_bars, exit_bars = bars
+    overlays, legend = indicators
     width: float = _MARGIN_LEFT + plot.width + _MARGIN_RIGHT
     caution: list[str] = _wrap(CAUTION, width - 2 * _MARGIN_LEFT)
-    total: float = _HEADER + plot.height + _TIME_AXIS + _FOOTER + len(caution) * _LINE_HEIGHT
+    total: float = plot.top + plot.height + _TIME_AXIS + _FOOTER + len(caution) * _LINE_HEIGHT
     elements: list[str] = [
         f'<rect class="bg" x="0" y="0" width="{width:.2f}" height="{total:.2f}"/>',
         *_headline(legs, data, figures, bars, title, width),
+        *_legend(legend, plot),
         *_held(plot, entry_bars, exit_bars),
         *_price_axis(plot, width),
         *_candles(data, plot, first, last),
+        *_overlay_lines(overlays, plot, first, last),
         *_excursion_lines(legs, figures, plot, plot.left + plot.width),
         *_level_lines(legs, plot, entry_bars, exit_bars),
         *_markers(legs, plot, entry_bars, exit_bars),
@@ -520,6 +741,104 @@ def _candles(data: Dataset, plot: Plot, first: int, last: int) -> list[str]:
                 f'width="{body_width:.2f}" height="{max(bottom - top, _MIN_BODY):.2f}"/>'
             ),
         ]
+
+    return drawn
+
+
+def _overlay_lines(overlays: Sequence[Overlay], plot: Plot, first: int, last: int) -> list[str]:
+    """Every overlay's runs, clipped to the panel so none of them can rescale the price axis."""
+    if not overlays:
+        return []
+
+    drawn: list[str] = [
+        (
+            f'<defs><clipPath id="{_CLIP}"><rect x="{plot.left:.2f}" y="{plot.top:.2f}" '
+            f'width="{plot.width:.2f}" height="{plot.height:.2f}"/></clipPath></defs>'
+        ),
+        f'<g clip-path="url(#{_CLIP})">',
+    ]
+    for index, overlay in enumerate(overlays):
+        css: str = _series_class(index)
+        for row in overlay.rows:
+            drawn += [
+                f'<polyline class="{css}" points={quoteattr(points)}/>'
+                for points in _runs(row, plot, first, last)
+            ]
+
+    return [*drawn, "</g>"]
+
+
+def _runs(values: FloatArray, plot: Plot, first: int, last: int) -> list[str]:
+    """One point list per unbroken run of finite values, stepping one bar at a time.
+
+    ``nan`` is a gap and not a value, so a series is broken across one rather than drawn
+    through it -- which is what keeps a per-session level off the session beside it.
+    """
+    runs: list[str] = []
+    run: list[str] = []
+    for bar in range(first, last + 1):
+        if np.isfinite(values[bar]):
+            run.append(f"{plot.x(bar):.2f},{plot.y(float(values[bar])):.2f}")
+            continue
+
+        runs += _points(run)
+        run = []
+
+    return runs + _points(run)
+
+
+def _points(run: Sequence[str]) -> list[str]:
+    """One run as a point list, a lone bar repeated so a round cap still draws it."""
+    if not run:
+        return []
+
+    return [" ".join(run if len(run) > 1 else [*run, *run])]
+
+
+def _series_class(index: int) -> str:
+    """The CSS an overlay is drawn with, cycled by its place in the list -- :data:`SERIES_STYLES`."""
+    return f"series s{index % SERIES_STYLES}"
+
+
+def _legend_rows(overlays: Sequence[Overlay], width: float) -> tuple[_LegendRow, ...]:
+    """Pack the legend entries into rows no wider than the panel, in the order given."""
+    rows: list[list[tuple[int, Overlay]]] = []
+    used: float = 0.0
+    for index, overlay in enumerate(overlays):
+        span: float = _entry_width(overlay.label)
+        if not rows or used + span > width:
+            rows.append([])
+            used = 0.0
+
+        rows[-1].append((index, overlay))
+        used += span
+
+    return tuple(tuple(row) for row in rows)
+
+
+def _entry_width(label: str) -> float:
+    """Canvas width one legend entry occupies, swatch and trailing gap included."""
+    return _SWATCH + _LABEL_GAP + len(label) * _CHARACTER_WIDTH + _LEGEND_GAP
+
+
+def _legend(rows: Sequence[_LegendRow], plot: Plot) -> list[str]:
+    """A swatch and a name per overlay, between the subtitle and the panel it belongs to."""
+    drawn: list[str] = []
+    for number, row in enumerate(rows):
+        baseline: float = _HEADER + number * _LEGEND_HEIGHT + _LEGEND_BASELINE
+        x: float = plot.left
+        for index, overlay in row:
+            drawn += [
+                (
+                    f'<line class="{_series_class(index)}" x1="{x:.2f}" y1="{baseline - 3.0:.2f}" '
+                    f'x2="{x + _SWATCH:.2f}" y2="{baseline - 3.0:.2f}"/>'
+                ),
+                (
+                    f'<text class="legend" x="{x + _SWATCH + _LABEL_GAP:.2f}" y="{baseline:.2f}">'
+                    f"{escape(overlay.label)}</text>"
+                ),
+            ]
+            x += _entry_width(overlay.label)
 
     return drawn
 

@@ -8,16 +8,36 @@ between them is what bar-close OHLC does not record. **A fill outside its bar is
 than refused**, since that is what a back-adjusted series produces and a chart is the instrument
 that makes it visible. **Bars of a different series are refused**, through the same check an
 annotation applies.
+
+The overlays add two more of the same kind. **An overlay is a per-bar series and not a path
+between two points**, which is what the no-sloped-line pin becomes once a moving average is
+allowed to slope. **A per-session level is never drawn across the session beside it**, or a
+chart would state a level that never existed.
 """
 
 import re
+from itertools import pairwise
 from xml.etree import ElementTree
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import annotate, archetypes, chart, context, paths, sessions, splice, stats, sweep, trades
+from nqbt import (
+    annotate,
+    archetypes,
+    chart,
+    conditions,
+    context,
+    higher_timeframe,
+    paths,
+    sessionrange,
+    sessions,
+    splice,
+    stats,
+    sweep,
+    trades,
+)
 from nqbt.chart import ChartError
 from nqbt.context import ContextSpec, PriceBasis
 
@@ -27,19 +47,41 @@ SVG = "{http://www.w3.org/2000/svg}"
 ROUNDING = 0.005
 """Half of the last decimal the document is written to."""
 FIRST_MINUTE = "2024-01-03 14:00"
+SECOND_DAY = "2024-01-04 14:00"
+"""The next trading day, so a per-session level has a session beside it to be smeared onto."""
+LIFT = 50.0
+"""Points the second day sits above the first, so the two sessions' ranges cannot coincide."""
+RANGE_KEY = sessionrange.validate_key(sessionrange.CASH_OPEN_MINUTES, 15, 1)
+HTF_KEY = higher_timeframe.key(5, 3)
+INDICATOR_SPEC = ContextSpec(
+    ma_keys=conditions.ma_keys(ema=(9,), sma=(20,)),
+    band_periods=(20,),
+    needs_vwap=True,
+    needs_vwap_band=True,
+    higher_timeframe_keys=(HTF_KEY,),
+    range_keys=(RANGE_KEY,),
+    needs_ma_values=True,
+)
+"""Every price-panel series a chart can overlay, and nothing that is not one."""
 
 
-def bars(count: int = BARS, *, flat: bool = False) -> pd.DataFrame:
+def bars(
+    count: int = BARS,
+    *,
+    flat: bool = False,
+    start: str = FIRST_MINUTE,
+    base: float = BASE,
+) -> pd.DataFrame:
     """``count`` one-minute bars with a zig-zag close, or one flat price when ``flat``.
 
     The zig-zag gives every bar a body and a wick either side; the flat case is the degenerate
     window whose price span would otherwise be zero.
     """
-    index = pd.date_range(FIRST_MINUTE, periods=count, freq="min", tz="UTC")
+    index = pd.date_range(start, periods=count, freq="min", tz="UTC")
     close = (
-        np.full(count, BASE)
+        np.full(count, base)
         if flat
-        else BASE + 0.25 * np.cumsum(np.where((np.arange(count) // 15) % 2 == 0, 1.0, -1.0))
+        else base + 0.25 * np.cumsum(np.where((np.arange(count) // 15) % 2 == 0, 1.0, -1.0))
     )
     open_ = np.concatenate(([close[0]], close[:-1]))
     frame = pd.DataFrame(
@@ -60,6 +102,14 @@ def bars(count: int = BARS, *, flat: bool = False) -> pd.DataFrame:
 def dataset(**kwargs: int | bool) -> context.Dataset:
     """The fixture bars as a dataset. No conditions: a chart reads bars and a log, nothing else."""
     return context.prepare(bars(**kwargs), ContextSpec(), price_basis=PriceBasis.RAW)
+
+
+def with_indicators() -> tuple[context.Dataset, list[chart.Overlay]]:
+    """Two trading days of bars carrying every series a chart can overlay, and those overlays."""
+    frame = pd.concat([bars(), bars(start=SECOND_DAY, base=BASE + LIFT)])
+    data = context.prepare(frame, INDICATOR_SPEC, price_basis=PriceBasis.RAW)
+
+    return data, chart.overlays_for(data)
 
 
 def log(
@@ -147,6 +197,13 @@ def at(value: float) -> object:
     would only be asserting that rounding did not happen.
     """
     return pytest.approx(value, abs=ROUNDING)
+
+
+def vertices(element: ElementTree.Element) -> list[tuple[float, float]]:
+    """One polyline's points, in the order it draws them."""
+    points = (element.get("points") or "").split()
+
+    return [(float(x), float(y)) for x, y in (point.split(",") for point in points)]
 
 
 def number(element: ElementTree.Element, attribute: str) -> float:
@@ -274,6 +331,229 @@ def test_a_scale_out_draws_one_entry_and_one_exit_per_leg():
     assert len(elements(drawn, "polygon", "entry")) == 2
     assert len(elements(drawn, "circle", "exit")) == 2
     assert drawn.exit_bars == (108, 116)
+
+
+# -- the indicators drawn over the bars ---------------------------------------
+
+
+def test_overlays_for_draws_every_price_series_the_dataset_holds():
+    """What a dataset holds is what the archetype it was prepared for declared it reads."""
+    data, drawn = with_indicators()
+    labels = [one.label for one in drawn]
+
+    assert labels == sorted(set(labels), key=labels.index), "no series may be drawn twice"
+    assert {"ema(9)", "sma(20)"} <= set(labels), "one entry per moving-average key"
+    assert [one for one in labels if one.startswith("bb(20")], "one entry per band period"
+    assert [one for one in labels if one.startswith("ema(3) @ 5m")], "one entry per coarse average"
+    assert [one for one in labels if one.startswith("range(930")], "one entry per session range"
+    assert data.band is not None and data.session_ranges is not None
+
+
+def test_a_vwap_band_is_drawn_instead_of_the_vwap_and_never_beside_it():
+    """The band's basis is that VWAP, so drawing both would draw one series twice."""
+    data, drawn = with_indicators()
+    banded = [one.label for one in drawn]
+    bare = context.prepare(bars(), ContextSpec(needs_vwap=True), price_basis=PriceBasis.RAW)
+
+    assert "vwap" not in banded
+    assert [one for one in banded if one.startswith("vwap band")]
+    assert [one.label for one in chart.overlays_for(bare)] == ["vwap"]
+
+
+def test_a_dataset_that_declared_nothing_has_nothing_to_overlay():
+    assert chart.overlays_for(dataset()) == []
+
+
+def test_a_grid_that_kept_only_its_gate_is_skipped_rather_than_refused():
+    """``needs_ma_values`` is off by default, and a boolean gate has no line in it to draw."""
+    spec = ContextSpec(ma_keys=conditions.ma_keys(ema=(9,)))
+    data = context.prepare(bars(), spec, price_basis=PriceBasis.RAW)
+
+    assert chart.overlays_for(data) == []
+    with pytest.raises(ValueError, match="keep_values"):
+        chart.moving_average(data, "ema", 9)
+
+
+def test_asking_for_a_series_the_dataset_does_not_hold_names_the_field_to_set():
+    data = dataset()
+    with pytest.raises(context.ContextError, match="needs_vwap"):
+        chart.session_vwap(data)
+
+
+def test_an_overlay_that_is_not_one_value_per_bar_is_refused():
+    data = dataset()
+    trades_log = log([100], [110], data)
+    short = chart.Overlay(label="short", values=np.zeros(len(data) - 1))
+    cube = chart.Overlay(label="cube", values=np.zeros((2, 2, len(data))))
+
+    with pytest.raises(ChartError, match="one per bar"):
+        chart.chart(trades_log, data, 1, overlays=[short])
+
+    with pytest.raises(ChartError, match="'cube'"):
+        chart.chart(trades_log, data, 1, overlays=[cube])
+
+
+def test_an_overlay_is_a_per_bar_series_rather_than_a_path_between_two_points():
+    """The no-sloped-line pin, once a moving average is allowed to slope.
+
+    Every vertex sits on a bar centre of the window and steps one bar at a time, so a two-point
+    path from an entry fill to an exit fill cannot be drawn as an overlay either.
+    """
+    data, drawn_overlays = with_indicators()
+    drawn = chart.chart(log([100], [110], data), data, 1, overlays=drawn_overlays)
+    centres = {round(drawn.plot.x(bar), 2) for bar in range(drawn.first_bar, drawn.last_bar + 1)}
+
+    assert elements(drawn, "polyline")
+    for line in elements(drawn, "polyline"):
+        drawn_at = [round(x, 2) for x, _ in vertices(line)]
+        steps = {round(later - earlier, 2) for earlier, later in pairwise(drawn_at)}
+
+        assert set(drawn_at) <= centres, "every vertex must sit on a bar of the window"
+        assert steps <= {0.0, round(drawn.plot.bar_width, 2)}, "a series steps one bar at a time"
+
+
+def test_an_overlay_far_from_the_window_does_not_move_the_price_axis():
+    """A long average sitting off the window would squash the trade it is context for."""
+    data = dataset()
+    trades_log = log([100], [110], data)
+    adrift = chart.Overlay(label="adrift", values=np.full(len(data), BASE + 5000.0))
+    plain = chart.chart(trades_log, data, 1)
+    drawn = chart.chart(trades_log, data, 1, overlays=[adrift])
+
+    assert (drawn.plot.price_min, drawn.plot.price_max) == (plain.plot.price_min, plain.plot.price_max)
+    assert elements(drawn, "polyline"), "and it is drawn rather than dropped"
+
+
+def test_every_overlay_is_drawn_inside_the_panel_it_may_not_rescale():
+    data, drawn_overlays = with_indicators()
+    drawn = chart.chart(log([100], [110], data), data, 1, overlays=drawn_overlays)
+    root = ElementTree.fromstring(drawn.svg)
+    clip = root.find(f"{SVG}defs/{SVG}clipPath")
+    assert clip is not None, "an overlay is clipped rather than fitted"
+
+    box = clip.find(f"{SVG}rect")
+    panel = only(drawn, "rect", "panel")
+    clipped = [group for group in root.iter(f"{SVG}g") if group.get("clip-path") == f"url(#{clip.get('id')})"]
+
+    assert box is not None
+    assert [number(box, name) for name in ("x", "y", "width", "height")] == [
+        number(panel, name) for name in ("x", "y", "width", "height")
+    ]
+    inside = [line.tag for group in clipped for line in group]
+
+    assert inside == [f"{SVG}polyline"] * len(elements(drawn, "polyline"))
+
+
+def test_a_gap_in_a_series_breaks_the_line_rather_than_being_drawn_through_it():
+    data = dataset()
+    gapped = np.full(len(data), BASE)
+    gapped[105] = np.nan
+    drawn = chart.chart(
+        log([100], [110], data),
+        data,
+        1,
+        overlays=[chart.Overlay(label="gapped", values=gapped)],
+    )
+    missing = round(drawn.plot.x(105), 2)
+
+    assert len(elements(drawn, "polyline")) == 2
+    assert all(
+        missing not in [round(x, 2) for x, _ in vertices(line)] for line in elements(drawn, "polyline")
+    )
+
+
+def test_a_run_of_one_bar_is_drawn_rather_than_dropped():
+    """A range completing on a session's last bar is one bar wide, and still happened."""
+    data = dataset()
+    lone = np.full(len(data), np.nan)
+    lone[105] = BASE
+    drawn = chart.chart(log([100], [110], data), data, 1, overlays=[chart.Overlay(label="lone", values=lone)])
+    points = vertices(only(drawn, "polyline", "series"))
+
+    assert points == [(at(drawn.plot.x(105)), at(drawn.plot.y(BASE)))] * 2
+
+
+def test_a_session_range_is_never_drawn_across_the_session_beside_it():
+    """A range is one fact per session; a run joining two of them states a level that never was."""
+    data, _ = with_indicators()
+    overlay = chart.opening_range(data, RANGE_KEY)
+    drawn = chart.chart(log([100], [110], data), data, 1, bars_either_side=BARS, overlays=[overlay])
+
+    assert np.array_equal(np.isfinite(overlay.rows).all(axis=0), data.range_armed(RANGE_KEY))
+    assert len(elements(drawn, "polyline")) == 4, "a high and a low, on each of the two sessions"
+    for line in elements(drawn, "polyline"):
+        assert len({round(y, 2) for _, y in vertices(line)}) == 1, "a range does not slope"
+
+
+def test_a_band_is_one_legend_entry_and_one_colour_whatever_its_row_count():
+    data, _ = with_indicators()
+    drawn = chart.chart(log([100], [110], data), data, 1, overlays=[chart.bollinger(data, 20)])
+    lines = elements(drawn, "polyline")
+
+    assert len(lines) == 3, "upper, midline and lower"
+    assert len({line.get("class") for line in lines}) == 1
+    assert len(elements(drawn, "text", "legend")) == 1
+
+
+def test_every_overlay_is_named_in_the_legend():
+    data, drawn_overlays = with_indicators()
+    drawn = chart.chart(log([100], [110], data), data, 1, overlays=drawn_overlays)
+    named = ["".join(entry.itertext()) for entry in elements(drawn, "text", "legend")]
+
+    assert named == [one.label for one in drawn_overlays]
+
+
+def test_the_legend_makes_its_own_room_above_the_panel():
+    data, drawn_overlays = with_indicators()
+    trades_log = log([100], [110], data)
+    plain = chart.chart(trades_log, data, 1)
+    drawn = chart.chart(trades_log, data, 1, overlays=drawn_overlays)
+
+    assert drawn.plot.top > plain.plot.top
+    assert all(number(entry, "y") < drawn.plot.top for entry in elements(drawn, "text", "legend"))
+    assert float(ElementTree.fromstring(drawn.svg).get("height") or 0) > _canvas_height(plain)
+
+
+def _canvas_height(drawn: chart.TradeChart) -> float:
+    """The document's own height."""
+    return float(ElementTree.fromstring(drawn.svg).get("height") or 0)
+
+
+def test_a_legend_too_wide_for_the_panel_wraps_rather_than_running_off_it():
+    data, drawn_overlays = with_indicators()
+    drawn = chart.chart(log([100], [110], data), data, 1, bars_either_side=0, overlays=drawn_overlays)
+    rows = {number(entry, "y") for entry in elements(drawn, "text", "legend")}
+
+    assert len(rows) > 1
+    assert max(rows) < drawn.plot.top
+
+
+def test_the_trade_geometry_is_dashed_where_the_market_context_is_solid():
+    """A reader has to be able to tell what the trade carried from what the market was doing."""
+    data, _ = with_indicators()
+    drawn = chart.chart(log([100], [110], data), data, 1, overlays=[chart.session_vwap(data)])
+    style = ElementTree.fromstring(drawn.svg).find(f"{SVG}style")
+
+    assert style is not None
+    assert re.search(r"\.level \{[^}]*stroke-dasharray", style.text or "")
+    assert re.search(r"\.excursion \{[^}]*stroke-dasharray", style.text or "")
+    assert not re.search(r"\.series \{[^}]*stroke-dasharray", style.text or "")
+
+
+def test_a_chart_asked_for_no_overlays_draws_neither_a_line_nor_a_legend():
+    drawn, _, _ = case()
+
+    assert not elements(drawn, "polyline")
+    assert not elements(drawn, "text", "legend")
+    assert "clipPath" not in drawn.svg
+
+
+def test_charts_draws_the_same_overlays_on_every_trade():
+    data, drawn_overlays = with_indicators()
+    many = log([50, 100], [60, 110], data)
+    drawn = chart.charts(many, data, [1, 2], overlays=drawn_overlays)
+
+    assert [len(elements(one, "polyline")) for one in drawn] == [len(elements(drawn[0], "polyline"))] * 2
 
 
 # -- the two things a chart must not draw -------------------------------------
@@ -494,6 +774,7 @@ def test_the_readme_worked_example_names_things_that_still_exist():
         (sweep, "run_combination"),
         (archetypes, "get"),
         (chart, "charts"),
+        (chart, "overlays_for"),
     ):
         used = f"{module.__name__.removeprefix('nqbt.')}.{name}"
 
