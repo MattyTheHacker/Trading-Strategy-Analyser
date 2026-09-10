@@ -14,6 +14,10 @@ This holds the entry fixed, varies only the exit geometry, and reports both term
 The two can rank geometries in **opposite** orders, and where they disagree the excess is the
 one to believe -- ``docs/roadmap.md`` §M26, "The method that does answer the question".
 
+Three of the four schemes are §M26's; ``D-band`` is the stop on the channel the entry was
+measured against, whose distance scales with the same dispersion the entry threshold uses --
+``docs/roadmap.md`` §M26.8.
+
     ./.venv/Scripts/python.exe tools/geometry_contribution.py out.csv
 
 Archetype-agnostic in shape: rewrite :func:`geometries` for any registered archetype. The
@@ -34,6 +38,7 @@ from nqbt import archetypes, ingest, logsetup, randomentry, sweep
 from nqbt.instruments import MNQ, ContractId
 from nqbt.sim.types import (
     STOP_ATR,
+    STOP_BAND,
     STOP_CATASTROPHE,
     TARGET_R,
     TARGET_STRETCH,
@@ -52,6 +57,14 @@ STATISTICS = ("profit_factor", "expectancy")
 
 ENTRY = {"band_period": 20, "entry_std": 2.0, "min_bars_outside": 1, "band_lag": 0}
 """The middle of every entry axis, fixed so that only the geometry varies."""
+
+
+BAND_STOP_DEPTHS = (0.5, 1.0, 1.5, 2.0)
+"""How far past ``entry_std`` the band stop sits, in standard deviations.
+
+Its R is ``entry_std / (entry_std + depth)`` by construction wherever the target is the basis,
+so this axis is the one that sets the reward-to-risk directly rather than through two different
+volatility measures -- ``docs/roadmap.md`` §M26.8."""
 
 
 def geometries() -> list[tuple[str, str, ElasticBandParams]]:
@@ -86,6 +99,23 @@ def geometries() -> list[tuple[str, str, ElasticBandParams]]:
                         target_mode=TARGET_R,
                         atr_stop_multiple=stop,
                         tp_multiplier=take_profit,
+                        commission_per_contract=COMMISSION,
+                        slippage_ticks=SLIPPAGE,
+                    ),
+                ),
+            )
+    for depth in BAND_STOP_DEPTHS:
+        for level in (-0.5, 0.0, 0.5):
+            out.append(
+                (
+                    "D-band",
+                    f"stop {depth:+.1f}s, target {level:+.1f}",
+                    ElasticBandParams(
+                        **ENTRY,
+                        stop_mode=STOP_BAND,
+                        band_stop_std=depth,
+                        target_mode=TARGET_STRETCH,
+                        target_stretch_levels=(level,),
                         commission_per_contract=COMMISSION,
                         slippage_ticks=SLIPPAGE,
                     ),

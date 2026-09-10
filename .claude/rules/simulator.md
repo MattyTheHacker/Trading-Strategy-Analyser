@@ -183,6 +183,15 @@ below and is what you quote; this file is the index, not the record.
   the way to the mean would be a short entry and never a long one. Same rule as the doji's under
   `signal_shape`: one sign multiplier means the two arms have to be the same rule.
   `docs/nt8-fidelity.md` §M26.6.
+- **ElasticBand's band stop is measured *past* `entry_std`, never at an absolute number of
+  standard deviations.** `entry_std` is a swept axis, so a fixed 3σ level sits inside the entry
+  threshold wherever that axis reaches 3.0 and the minimum-risk check then declines the whole
+  cell; `band_stop_std` is the distance beyond wherever the entry was taken, which is what makes
+  cells cut by it comparable. It takes **no dollar floor**, because only a distance is floored,
+  and **no tick offset**, because `stop_offset_ticks` exists for levels the market traded at and
+  a band level is a statistic about the bars. It is also the one stop here that needs no lag
+  under `TRIGGER_RECOVERY`: the basis and the dispersion are defined on every bar, where
+  `run_extreme` is `nan` inside the band. `docs/nt8-fidelity.md` §M26.8.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.

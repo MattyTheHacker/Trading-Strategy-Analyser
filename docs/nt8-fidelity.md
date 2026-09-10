@@ -600,6 +600,32 @@ else { runBars++; runLow = Math.Min(runLow, Low[0]); runHigh = Math.Max(runHigh,
 
 **Nothing else moves.** The entry is still market-on-next-open with no trigger price, so the fill rules, the resting-order lifetime and the force-flat handling are unchanged, and `signal_shape` still reads the signal bar's own candle and composes with this rather than being replaced by it.
 
+### M26.8 — the stop on the band itself, written before the Python (#280)
+
+**One rule, and it adds a fifth place the protective stop can go.** `stop_mode` at `band` puts the stop on the channel the entry was measured against, `band_stop_std` standard deviations past the threshold that signalled. Everything else still describes the archetype: the depth threshold, the run length, the direction rule, both entry triggers, both target schemes, the market-on-next-open entry, the one-bar order lifetime and the session flatten are untouched, and `Archetype.tier2` stays `TIER1_ONLY`. The reasoning and the measurements: [roadmap.md](roadmap.md) §M26.8.
+
+**It is the level §M26 specified and never built.** That section's geometry table names the stop as "outside the band. Either `atr_bracket_distance` or `basis ∓ stop_std · σ`", and only the first of the two was written. The four modes that existed are a distance off the fill (`atr`, `catastrophe`) or a bar extreme (`excursion`, `swing`); none of them is a level on the channel, so none had a distance denominated in the units the entry threshold is written in.
+
+**The level is a stretch coordinate signed away from the basis, which is the target arithmetic with one sign flipped:**
+
+```csharp
+double level = entryStd + bandStopStd;
+double stop  = basis - dir * level * sigma;   // dir is +1 for a long, -1 for a short
+SetStopLoss(CalculationMode.Price, stop);
+```
+
+`basis` and `sigma` are the **signal** bar's, read exactly as a `TARGET_STRETCH` leg reads them — `Bollinger.Middle[0]` and `StdDev(period)` under the Bollinger source, the four running doubles of §M26.4 under the VWAP one. So the whole rule is a price the script already holds, and `SetStopLoss` against a price is what every other mode here already compiles to.
+
+**`band_stop_std` is measured past `entry_std` rather than stated as an absolute level, and that is the rule rather than a convenience.** `entry_std` is a swept axis, so a fixed 3σ stop sits *inside* the entry threshold wherever that axis reaches 3.0 and the minimum-risk check then declines the whole cell. Measuring past the threshold makes the same value the same distance beyond wherever the entry was taken, which is the property cells cut by it need to be readable against each other. It is §M26.6's `recovery_fraction` argument reached from the other side, and it is refused at `0`, where the stop is the threshold the signalling close has already passed.
+
+**No floor and no offset, for two different reasons.** The dollar floor applies to `atr` alone because only that mode is a distance rather than a level — §M26's rule, unchanged. The tick offset that `excursion` and `swing` carry is *not* applied either: those levels are prices the market traded at and can be expected to be tested to the tick, where a band level is a statistic about the bars rather than a price anything rests at.
+
+**The minimum-risk refusal is the existing one and it binds here for a new reason.** A stop at or through the price it protects is not a stop order (§M18), and `simulate_elasticband` declines the entry when `candidate_risk < STOP_MIN_TICKS × tickSize`. A band stop reaches that boundary from two directions the other modes do not: a narrow band puts the level within a tick of the fill, and a gap through the level between the signalling close and the next open puts the fill on the wrong side of it entirely.
+
+**Both entry triggers read the same band, which is what separates this stop from `excursion`.** §M26.6 had to move three reads one bar back because `run_extreme` is `nan` on a bar inside the band. The basis and the dispersion are defined on every bar, so the level is the signal bar's own under `extended` and under `recovery` alike, and no lag travels with it.
+
+**R means a fourth thing under this stop, and it is the only one that is exact.** With the target at the basis the reward-to-risk is `entry_std / (entry_std + band_stop_std)` by construction, identical on every combination sharing that pair and *always below 1*. §M26 recorded three meanings for R in this project; this is the arithmetic that section predicted for a σ stop with a basis target, arriving with the mode that finally implements it.
+
 ### M28 — the opening-range rules, written before the Python (#236)
 
 **Written down before the Python existed and the Python written to it**, as §M26 was. There is still no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as — a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later. The design and what was deferred are in [roadmap.md](roadmap.md) §M28.1; only the rules are here.

@@ -106,6 +106,13 @@ bar that closes back inside, against the shapes read on a bar still outside --
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-recovery --split \
         --strata elastic-recovery
+
+``--variants elastic-band-stop`` puts a stop on the channel the entry was measured
+against, beside the three that are a distance or a bar extreme -- ``docs/roadmap.md``
+§M26.8:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-band-stop \
+        --split --strata elastic-band-stop
 """
 
 from __future__ import annotations
@@ -161,6 +168,7 @@ from nqbt.sim.types import (
     SHAPE_REJECTION,
     SHAPE_REVERSAL,
     STOP_ATR,
+    STOP_BAND,
     STOP_CATASTROPHE,
     STOP_SWING,
     TARGET_STRETCH,
@@ -246,6 +254,7 @@ ORB_BRACKET = "orb-bracket"
 ELASTIC_SHAPE = "elastic-shape"
 ELASTIC_VOLUME = "elastic-volume"
 ELASTIC_RECOVERY = "elastic-recovery"
+ELASTIC_BAND_STOP = "elastic-band-stop"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -484,6 +493,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_SHAPE: (UNFILTERED,),
     ELASTIC_VOLUME: (UNFILTERED, VOLUME_FORMS),
     ELASTIC_RECOVERY: (UNFILTERED,),
+    ELASTIC_BAND_STOP: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -957,6 +967,75 @@ def elasticband_recovery_variants(root: str) -> list[Variant]:
             axes=axes,
         )
         for arm, (trigger, shape, depth) in ELASTIC_RECOVERY_ARMS.items()
+    ]
+
+
+ELASTIC_BAND_STOP_TARGET = "target=0.0s"
+"""The ladder every campaign since §M26.5 has read its tables on, held for the same reason: its
+eta-squared on the held-out profit factor there was 0.0000."""
+
+ELASTIC_BAND_STOP_SHAPES: dict[str, int] = {
+    "shape=any": SHAPE_ANY,
+    "shape=reversal": SHAPE_REVERSAL,
+}
+"""The entry the stop is measured over, held at two values rather than swept.
+
+The control and the one shape §M26.5 carried forward, which is §M26.9's pair. Both, because the
+question is whether a stop scheme is being ranked or the bars under it are: an entry with a
+measured excess and one without answer that from opposite ends -- ``docs/roadmap.md`` §M26.8."""
+
+ELASTIC_BAND_STOP_ARMS: dict[str, tuple[int, float]] = {
+    "stop=atr": (STOP_ATR, 1.0),
+    "stop=swing": (STOP_SWING, 1.0),
+    "stop=catastrophe": (STOP_CATASTROPHE, 1.0),
+    "stop=band@0.5": (STOP_BAND, 0.5),
+    "stop=band@1.0": (STOP_BAND, 1.0),
+    "stop=band@1.5": (STOP_BAND, 1.5),
+    "stop=band@2.0": (STOP_BAND, 2.0),
+}
+"""Where the protective stop goes, and how far past ``entry_std`` the band arm puts it.
+
+The scheme and its depth are one variant dimension for the reason every mode in this file is
+one: ``band_stop_std`` is inert under the other three schemes, so crossing them would run
+identical combinations that ``dead_axes`` cannot see. The three stops §M26.5 and §M26.9 swept
+are arms here rather than stored rows, because a stored row came out of a different grid --
+``docs/roadmap.md`` §M26.8.
+"""
+
+
+def elasticband_band_stop_variants(root: str) -> list[Variant]:
+    """§M26.8's run: a stop on the channel itself, against the three that are not.
+
+    ``stop_mode`` leaves the axes and becomes the arm, so every cell differs from its control by
+    where the stop went and nothing else. ``min_one_sided_bars`` is dropped for §M26.5's reason
+    -- a dead value at its low end and a cost at its high one -- and ``min_bars_outside`` stays
+    because half these arms carry the shape that made it a duplicate and half do not.
+    """
+    axes: dict[str, list[AxisValue]] = {
+        "entry_std": [2.0, 2.5, 3.0],
+        "min_bars_outside": [1, 2],
+        "max_hold_bars": [0, 30],
+    }
+
+    return [
+        Variant(
+            name=f"{arm} {shape_name} {ELASTIC_BAND_STOP_TARGET}",
+            archetype=archetypes.ELASTICBAND,
+            base=_costed(
+                ElasticBandParams(
+                    band_source=BAND_VWAP,
+                    signal_shape=shape,
+                    stop_mode=stop_mode,
+                    band_stop_std=depth,
+                    target_mode=TARGET_STRETCH,
+                    target_stretch_levels=ELASTIC_LADDERS[ELASTIC_BAND_STOP_TARGET],
+                ),
+                root,
+            ),
+            axes=axes,
+        )
+        for arm, (stop_mode, depth) in ELASTIC_BAND_STOP_ARMS.items()
+        for shape_name, shape in ELASTIC_BAND_STOP_SHAPES.items()
     ]
 
 
@@ -1687,6 +1766,11 @@ ELASTIC_RECOVERY_VARIANTS = {"ElasticBand": elasticband_recovery_variants}
 carry an ``entry=`` token where the stored shape rows carry none, so the two runs cannot collide
 in one database -- ``docs/roadmap.md`` §M26.6."""
 
+ELASTIC_BAND_STOP_VARIANTS = {"ElasticBand": elasticband_band_stop_variants}
+"""The §M26.8 run: the stop on the band itself against the three stops that are not, over one
+entry pair. The names carry a ``stop=`` token where every stored ElasticBand row carries none,
+so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.8."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -1696,6 +1780,7 @@ CAMPAIGN = "campaign"
 
 VARIANT_SETS = {
     CAMPAIGN,
+    ELASTIC_BAND_STOP,
     ELASTIC_RECOVERY,
     ELASTIC_SHAPE,
     ELASTIC_VOLUME,
@@ -1716,6 +1801,7 @@ lands in the same database as the campaign it follows and is still separable fro
 def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
+        ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
         ELASTIC_RECOVERY: ELASTIC_RECOVERY_VARIANTS,
         ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,
         ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,

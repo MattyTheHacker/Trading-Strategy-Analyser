@@ -223,6 +223,13 @@ paths:
   both roots — at two of the four lengths and neither of the others. **Rank within the variant
   when the variant dimension is the thing being measured**, which is what `--variant` is for.
   `docs/roadmap.md` §M28.8.
+- **An axis that is a duplicate in one arm and live in another duplicates the shortlist rather
+  than shrinking it.** `dead_axes` reports an axis nothing reads; it cannot report one whose
+  values a *different* rule in the same variant set collapses. Measured on ElasticBand's
+  §M26.8 grid: `min_bars_outside` produced byte-identical cells on 64.7% of `shape=reversal`
+  rows and 0% of `shape=any` rows, so a top-20 shortlist drawn inside a reversal arm is closer
+  to a top 10 counted twice — and the sign test over paired cells counts each pair twice with
+  it. Count the distinct cells a shortlist actually holds before quoting its size.
 - **Read `sel_top20_pf` beside `passes`.** The held-out gate is defined on the test window
   alone, so a shortlist drawn from a space containing nothing profitable can clear it by
   luck -- DeadCatBounce does, on MNQ, with a selection-window shortlist averaging 0.940.
