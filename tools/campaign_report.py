@@ -170,6 +170,29 @@ def load(name: str, windows: list[str]) -> pd.DataFrame:
     return frame[frame["window"].isin(windows)]
 
 
+def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
+    """The stored log of one combination, empty when no log has been stored for it.
+
+    ``tools/campaign_shortlist.py`` writes them and only for the rows it was pointed at. Empty
+    rather than raising, so a caller reading a whole shortlist can name the rows that have no
+    log instead of stopping at the first one.
+    """
+    if not path.exists():
+        return pd.DataFrame()
+
+    present: pd.DataFrame = results.query(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'trades'",
+        path,
+    )
+    if present.empty:
+        return pd.DataFrame()
+
+    return results.query(
+        f"SELECT * FROM trades WHERE sweep_id = {int(sweep_id)} AND combo_id = {int(combo_id)}",  # noqa: S608 - both are ints
+        path,
+    )
+
+
 def parameter_columns(frame: pd.DataFrame) -> list[str]:
     """Columns holding a parameter rather than a tag or a statistic.
 
@@ -241,8 +264,6 @@ def decompose_exits(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
     Blank for a row ``tools/campaign_shortlist.py`` has stored no log for, since a shortlist
     ranked here is not necessarily one whose logs were kept.
     """
-    from tools.campaign_shortlist import load_trades  # noqa: PLC0415 - a top-level import would cycle
-
     rows: list[dict[str, float]] = [
         exit_decomposition(load_trades(int(row["sweep_id"]), int(row["combo_id"]), path))
         for _, row in frame.iterrows()

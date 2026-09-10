@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from nqbt import archetypes, stats, trades
-from tools import campaign_shortlist
+from tools import campaign_report
 from tools.campaign_holdout import GROUP_KEYS, JOIN_KEYS, TOP, rank_correlation, verdict
 from tools.campaign_report import (
     DECOMPOSITION,
@@ -213,7 +213,7 @@ def test_the_decomposition_columns_follow_the_simulator_rather_than_the_alphabet
     """``session_close`` sorts ahead of ``stop`` and ``target``, so an alphabetical grouping
     would put the flatten before the bracket legs that decide whether it is reached."""
     log = legs(["stop", "target", "session_close"], [-2.0, 5.0, 9.0], [10, 30, 400])
-    monkeypatch.setattr(campaign_shortlist, "load_trades", lambda *_: log)
+    monkeypatch.setattr(campaign_report, "load_trades", lambda *_: log)
 
     columns = list(decompose_exits(combos(), Path("unused.duckdb")).columns)
     assert columns == [
@@ -227,7 +227,7 @@ def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(monkeypatc
     log for a chosen few, so most ranked rows have none and are still rows."""
     logged = {0: legs(["stop"], [-2.0], [10])}
     monkeypatch.setattr(
-        campaign_shortlist,
+        campaign_report,
         "load_trades",
         lambda _sweep, combo, _path: logged.get(combo, pd.DataFrame()),
     )
