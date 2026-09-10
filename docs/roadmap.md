@@ -89,7 +89,7 @@ The list is short because most of it has now been researched. Extend it rather t
 - ~~**M10.4**~~ ([#43]) — **done, and measured.** The final session phase has *structurally* forced exits, so a time-of-day stratification will show it as anomalous; **that is an artefact, not a finding**, and any result touching the last phase has to separate "this hour trades badly" from "this hour's trades were closed by the clock". `timeofday.FORCED_EXIT_PHASE` names the phase so a caller can exclude it. On costed MNQ from 2024 the effect is real and small — `session_close_share` reads 0.0016 on `CLOSE` against 0.0001 overall, because a 1-minute DeadCatBounce holds for minutes. Expect it to matter at 15 and 30 minutes.
 - **M18 and M19** ([#34], [#51]). The prediction here was that crossover, holding until an opposite cross, would take a large fraction of its exits from the clock. **Measured: 1.0%** on costed MNQ from 2024 at EMA(9)/EMA(21). The reasoning was sound and the premise was wrong — crosses on 1-minute bars are frequent enough (one signal every ~22 bars) that holds end long before the session does. Expect the share to climb with the MA periods and with bar size, and read it rather than predicting it. A squeeze rests orders, which the flatten point ends only after that bar has been tested for a fill ([#208]).
 - **Statistics.** The share of exits at `EXIT_SESSION_CLOSE` deserves to be a reported column rather than something buried in the trade log. A strategy taking 40% of its exits from the clock is not really the strategy its rules describe, and the aggregate profit factor will not say so.
-- **The prop-account simulator** ([#75]) treats the daily flat as one of the rules it replays, alongside trailing drawdown and the consistency ratio.
+- ~~**The prop-account simulator** ([#75])~~ — **done.** It treats the daily flat as one of the rules it replays, alongside the trailing drawdown, the daily loss limit and the consistency ratio. It replays them over a finished trade log and adds nothing to `nqbt/sim/`, which still models this one rule and no other — § "Replaying a prop account over the trade log".
 
 ~~**Holiday early closes are probably not handled — [#68].**~~ **Confirmed and fixed.** `force_flat_mask` derived its cutoff from the *template's* fixed 17:00 ET close, so on a CME half-day nothing reached it and the mask came back empty. It now counts down to the session's observed last bar, which is what `is_session_close` always did. The measured scale, the two things the observed end cannot distinguish, and what it did to the InsideBar reconciliation are in [nt8-fidelity.md](nt8-fidelity.md), "The session end is the observed last bar, not the template's".
 
@@ -2853,6 +2853,85 @@ That trade is worth taking on the stored numbers — net P&L rises across the ax
 
 Every figure above is a measurement of one dated run over the archive as it stands, re-derivable from `results/campaign/*.duckdb` plus `tools/campaign_shortlist.py` — not a standing property.
 
+### M28.13 — the registry read through an account, and the assumption that turned out to be a parameter ([#75])
+
+The first reading of the whole stored registry through `nqbt/propaccount.py`. It answers a question none of the gates in §M27 or §M28 can be expressed in — **not "is the edge real" but "would the account have survived it, and would it have made more than it cost"** — and it changes the ordering of the registry rather than confirming it.
+
+**Two runs, and every figure below says which it came from.** The **population** run replays all **1,066 stored held-out configurations** across all seven archetypes and both roots, capped at five attempts. The **subsample** run replays every fourth stored row in `combo_id` order — 178 configurations, InsideBar and OpeningRange only — with the attempt cap raised past what any of them reach, which is what the economics need. Both take the holdout shortlists exactly as `campaign_holdout` chose them on the selection window: **nothing here is re-ranked on the window it is then read from**, which is the trap §M28.12 records.
+
+Costs are the campaign's own — $1.50 per contract on MNQ, $4.50 on NQ, one tick of slippage, four contracts throughout. That last number turns out to be the finding.
+
+#### Survival is not the question, and reading it as one inverts the answer
+
+**No NQ configuration survives its first account, on any of the four presets: 0 of 526.** On MNQ roughly 98% of configurations breach their first Apex 50K somewhere in the ~430-day holdout. Read as a verdict that is an empty registry.
+
+It is the wrong reading, and the capped run is what makes it look right. The five-attempt cap binds on **98%** of configurations, so the population run stops while most of them are still trading and its net figures are truncated — badly enough to be **wrong in sign**. Uncapped, on the subsample, Apex 50K:
+
+|                  | n   | attempts | passes | withdrawn |    fees |          net | net > 0 |
+| ---------------- | --- | -------: | -----: | --------: | ------: | -----------: | ------: |
+| InsideBar MNQ    | 80  |       56 |      8 |   $40,292 | $13,417 | **+$26,585** | **95%** |
+| OpeningRange MNQ | 12  |       48 |    2.5 |   $26,171 | $11,635 | **+$14,045** |     75% |
+
+Medians. The accounts nearly all die; the **sequence** of accounts is overwhelmingly profitable, because a blown account costs its fees and not its trading losses. **"Did it survive" and "was it worth trading" are close to independent questions here**, and only the second one is about money.
+
+#### It re-ranks, which is what [#75] was for
+
+Spearman rank correlation of the prop verdict against the two bases the registry is currently ordered by, MNQ, 100-trade floor, population run: **+0.199 with profit factor and +0.144 with net-to-max-drawdown**. Near-orthogonal. Whatever this measures, the existing columns do not already contain it.
+
+Where it puts the two archetypes at the front is a straight reversal of their bracket reading in §M28.12. Ever-passed on the population run, MNQ: **OpeningRange 82.2% against InsideBar 43.8% on TopStep 150K** (n = 45 and 320). OpeningRange is the archetype that *funds*; InsideBar has the higher ceiling and the worse median, and is negative at the median on every preset.
+
+#### The binding constraint is position size, not the strategy
+
+Four contracts is the campaign's fixed size and it is a full-size position on NQ. The trailing threshold divided by the dollar value of a point is the entire account's room to move:
+
+| account      | threshold | 4 NQ ($80/pt) | 4 MNQ ($8/pt) |
+| ------------ | --------: | ------------: | ------------: |
+| Apex 50K     |    $2,500 |    **31 pts** |       313 pts |
+| TopStep 50K  |    $2,000 |    **25 pts** |       250 pts |
+| Apex 150K    |    $5,000 |        63 pts |       625 pts |
+| TopStep 150K |    $4,500 |        56 pts |       563 pts |
+
+Twenty-five points is smaller than a single stop at the resolutions these archetypes are swept at. The best NQ InsideBar configuration on the holdout — 668 trades, profit factor 1.229, **$320,236 net on paper** — is dead on its first trade. **That is arithmetic about contract size and says nothing about the entry rule**, and it is the reason the NQ column above is not a verdict on NQ.
+
+#### The excursion order was an assumption and is now `excursion_order`
+
+The replay could not order a trade's favourable and adverse excursions — the bars do not record which came first — and it took the harsher reading, applying the peak so that it raises the floor before the same trade's trough is tested against it. That was recorded as a deliberate assumption. Measuring it says it is not a tiebreak.
+
+Apex 50K, subsample, **only the order changes**:
+
+|                  | n   | trades before the first breach |                      net |   net > 0 |
+| ---------------- | --- | -----------------------------: | -----------------------: | --------: |
+| InsideBar MNQ    | 80  |                        17 → 17 |      +$26,585 → +$28,029 | 95% → 95% |
+| OpeningRange MNQ | 12  |                      6.5 → 6.5 |      +$14,045 → +$23,323 | 75% → 83% |
+| InsideBar NQ     | 79  |                      **1 → 5** |  **−$10,020 → +$21,540** | 42% → 77% |
+| OpeningRange NQ  | 7   |                          1 → 1 | **−$10,020 → +$303,486** |  0% → 71% |
+
+Medians, peak-first → trough-first. **On MNQ the assumption is nearly free; on NQ it decides the answer**, and the mechanism is the table above it: with 31 points of room a single trade's own peak can lock the floor above its own trough, and with 313 points it almost never can. 27% of configurations are unaffected either way.
+
+So it became a parameter rather than staying a comment. `ExcursionOrder.PEAK_FIRST` remains the default and every preset carries it, so nothing already measured moved; `TROUGH_FIRST` defers the peak past the trough test and **still records it**, so the floor it raised binds every later trade under both orders.
+
+**The earlier proxy for this overstated it.** Comparing `TrailBasis.INTRADAY` against `END_OF_DAY` changes whether *any* intraday peak reaches the high-water mark, not just the order within one trade, and read that way InsideBar NQ came out at +$61,722 against the +$21,540 the isolated parameter gives. Use the isolated figure; the proxy changes two things at once.
+
+#### The reset economics subsidise a losing strategy, so `net` is not a ranking
+
+From the subsample, uncapped, Apex 50K:
+
+| combo | trades | profit factor | attempts | passes | withdrawn |         net |
+| ----: | -----: | ------------: | -------: | -----: | --------: | ----------: |
+|    34 |  7,384 |     **0.932** |       60 |      6 |   $17,260 | **+$3,120** |
+|    42 |  7,513 |     **0.917** |       60 |      3 |   $11,030 |     −$2,219 |
+
+Combination 34 **loses money as a strategy and makes money as a business**, because each blown account caps the loss at the fee while the wins were already withdrawn. That is real prop economics rather than a modelling artefact — it is what the firms price their fees and consistency rules against — but it means **`net` rewards variance and can rank a losing configuration above a winning one.** Read it beside the profit factor and the pass rate; it does not replace either, and no gate should be expressed in it alone.
+
+#### What travels and what does not
+
+- **Position size is now a campaign axis whether or not it is swept.** Every figure in the registry is four contracts, and four contracts is a different instrument-sized bet on each root.
+- **The preset fees are list prices** and TopStep's `withdrawal_threshold` is a conservative stand-in, so every dollar total above is a floor rather than an estimate — § "Replaying a prop account over the trade log" has the provenance.
+- **OpeningRange NQ is n = 7.** Its +$303,486 is one or two configurations and is quoted as a direction, not a magnitude.
+- **The replay costs one `stats.summarise` per attempt per configuration**, which is why the uncapped run is a subsample rather than the population. Worth fixing before this becomes a routine campaign step.
+
+Every figure here is one dated run over the archive as it stands, re-derivable from `results/campaign/*.duckdb` plus `tools/campaign_shortlist.py` — not a standing property.
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
@@ -3474,6 +3553,67 @@ That run also corrected a rule this project had been carrying since the first re
 `tools/reconcile_nt8.py` is the reusable mechanism these produced. Per the standing rule that each archetype earns its own reconciliation, the next one does not start from scratch.
 
 **Settle the four order-lifetime questions** ([#67]) that reflection cannot answer — listed above. It is the only NinjaTrader item left, and it gates M19, which is queued rather than scheduled.
+
+______________________________________________________________________
+
+## Replaying a prop account over the trade log
+
+`nqbt/propaccount.py` ([#75]). Profit factor cannot say whether an account survived, and survival is what decides whether a strategy can be funded at all. The instrument replays one firm's rules over a trade log and reports what a live-trading decision actually reads: whether the account passed, where the floor sat when it died, and what the sequence of attempts was worth after fees. The measurements that pulled this forward from a reranking convenience to the go/no-go instrument are in [#75]'s own comment thread; they are dated and re-derivable from `results/campaign/*.duckdb`, so quote them from there rather than from here.
+
+**It replays account rules; it does not add any.** Nothing in this module reaches into `nqbt/sim/`, and nothing may. The simulation models exactly one prop-firm rule — flat before the session close — because that one is also NT8's behaviour, and both prop and non-prop accounts have to work. A trailing threshold is not a trading rule, it is an accounting rule applied afterwards to a log that already exists; wiring one into the simulation would make every result conditional on a funding arrangement.
+
+### Two axes, because one is not enough
+
+Firms disagree about the trailing threshold in two independent ways, and collapsing them loses the commonest real configuration.
+
+- `trail_basis` — what advances the **high-water mark**. Apex counts open equity, so a trade's best excursion raises the floor even after it gives it all back. TopStep advances it only on the day's closing balance.
+- `trail_breach` — what the **floor is tested against**. Both firms liquidate on open equity.
+
+TopStep's actual rule is the mixed case: an end-of-day high-water mark, breached intraday. One enum cannot express it, which is why there are two.
+
+`daily_loss_basis` is the same question asked of the daily loss limit, kept separate because a firm may count open equity for one limit and not for the other.
+
+### Three assumptions, all made where bar data cannot decide
+
+Each is the harsher reading. That is deliberate: this is a go/no-go instrument, and an optimistic account model is worse than no account model.
+
+1. **A trade's peak is applied before its trough** — `excursion_order`, which **defaults** to that and is the one of the three that is a parameter rather than a fixed choice. Bar-close OHLC cannot order the two, and applying the peak first raises the floor before the trough is tested against it; the other ordering can only ever be kinder. It was fixed until §M28.13 measured what it was worth and found it too load-bearing to leave hard-coded.
+2. **A trade tripping both limits at once is read as a trailing breach**, which ends the account, rather than as a daily breach, which under `DailyBreach.LOCKOUT` would not. Same reason, and the same inability to order two events inside one trade.
+3. **The adverse excursion is summed over a trade's legs**, rather than taken as the trade's worst excursion at its full entry size. A leg that scaled out early stopped accruing excursion, so the per-leg sum is the closer of the two available answers.
+
+**The excursion comes from `mae_points` and `mfe_points`, which are bar highs and lows.** Reaching into `data/tick/` for a truer open-equity path is the more-precise-than-NT8 error wearing a new hat, and it is refused for the same reason a chart may not draw a path between two fills. A rule set that reads open equity refuses a log whose excursion columns are null rather than treating "unknown" as "none" — that substitution would report a pass the account never had.
+
+### The trading day is the exchange's, not the calendar's
+
+A daily loss limit resets at the session open, so the replay groups by `sessions.classify(...).trading_day`. `stats.summarise` groups its daily totals by calendar date instead, and that is not an inconsistency to fix: Sharpe is annualised from a count of calendar days, while a daily loss limit is a session rule. The two disagree every evening between 18:00 and midnight Eastern, which is why each uses the definition its own question needs.
+
+### Passing, withdrawing, and what a blown account is still worth
+
+An account that passes **keeps trading under the same rules**, which is accurate for both firms shipped, and begins withdrawing everything above `starting_balance + withdrawal_threshold` at each day's end. That threshold is the safety net a firm requires a trader to leave behind.
+
+**A withdrawal is not stopped from breaching the account.** Withdrawing lowers the balance without lowering the high-water mark, so a rule set combining no safety net with a floor that never locks walks the balance onto its own floor, and the next trade kills it. That is what such a rule set would really do; special-casing it would hide the footgun rather than the consequence. Every shipped preset leaves a net above its locked floor, and a test pins that for all of them.
+
+The headline figure is **withdrawn minus fees**, across however many attempts `max_accounts` allows. A strategy that blows three accounts while withdrawing more than the four of them cost is profitable, and ranking it by whether any single account survived would say the opposite.
+
+### Where the preset numbers came from
+
+**Dated, and not quotable terms.** Published rules and prices move, discounts on evaluation fees are close to permanent at one of these firms, and nothing here re-checks them. Every field is overridable with `dataclasses.replace` for exactly that reason, and a decision resting on a preset should re-read the firm's current terms first.
+
+| field                                                                 | standing                                                                                                              |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| starting balance, profit target, trailing threshold, daily loss limit | published account terms, and the most stable of them                                                                  |
+| consistency ratio, minimum trading days                               | published, and the ones most often revised                                                                            |
+| Apex `withdrawal_threshold`                                           | the published safety-net balance                                                                                      |
+| TopStep `withdrawal_threshold`                                        | **a conservative stand-in** — set to the trailing threshold, since TopStep's payout policy is not a simple safety net |
+| every fee                                                             | **list prices** — override them, especially Apex's                                                                    |
+
+### What is deliberately not modelled
+
+- **TopStep's winning-day requirement** — N days each clearing a dollar floor. The consistency ratio catches the same pathology from the other side, which is a strategy that passed on one lucky session.
+- **Payout caps and cadence.** A withdrawal is taken whenever it is eligible, in full.
+- **A funded phase whose rules differ from the evaluation's.** One rule set covers both, which is accurate for the two firms shipped and would not be for a firm that changes the threshold on activation.
+- **Scaling plans and position-size limits.** Contract size is whatever the trade log says.
+- **The consistency rule at payout time.** It gates the pass only.
 
 ______________________________________________________________________
 
