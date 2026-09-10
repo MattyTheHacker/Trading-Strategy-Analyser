@@ -444,6 +444,36 @@ def test_every_overlay_is_drawn_inside_the_panel_it_may_not_rescale():
     assert inside == [f"{SVG}polyline"] * len(elements(drawn, "polyline"))
 
 
+def test_two_charts_in_one_document_are_clipped_to_their_own_panels():
+    """An SVG id is document-scoped, and a page of charts is one document.
+
+    A fixed clip-path name makes every chart after the first resolve to the first one's panel,
+    which silently draws every series as though it stopped part-way along.
+    """
+    data, drawn_overlays = with_indicators()
+    trades_log = log([100], [110], data)
+    wide = chart.chart(trades_log, data, 1, bars_either_side=BARS, overlays=drawn_overlays)
+    narrow = chart.chart(trades_log, data, 1, bars_either_side=2, overlays=drawn_overlays)
+    again = chart.chart(trades_log, data, 1, bars_either_side=BARS, overlays=drawn_overlays)
+
+    assert _clip(wide) != _clip(narrow), "two panels, two clip paths"
+    assert _clip(wide) == _clip(again), "one panel is one clip path, however often it is drawn"
+    for one in (wide, narrow):
+        box = ElementTree.fromstring(one.svg).find(f"{SVG}defs/{SVG}clipPath/{SVG}rect")
+        panel = only(one, "rect", "panel")
+
+        assert box is not None
+        assert box.attrib == {name: panel.get(name) for name in ("x", "y", "width", "height")}
+
+
+def _clip(drawn: chart.TradeChart) -> str:
+    """The id of the clip path one chart's overlays are drawn inside."""
+    found = ElementTree.fromstring(drawn.svg).find(f"{SVG}defs/{SVG}clipPath")
+    assert found is not None, "an overlaid chart clips its overlays"
+
+    return found.get("id") or ""
+
+
 def test_a_gap_in_a_series_breaks_the_line_rather_than_being_drawn_through_it():
     data = dataset()
     gapped = np.full(len(data), BASE)

@@ -31,6 +31,7 @@ declared. Price-panel series only, and clipped to the panel so none of them can 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, override
 from xml.sax.saxutils import escape, quoteattr
@@ -160,8 +161,8 @@ _LEGEND_GAP = 12.0
 _LEGEND_BASELINE = 9.0
 """Where a legend row's text sits within its own line, measured from the row's top."""
 
-_CLIP = "nqbt-panel"
-"""The clip path every overlay is drawn inside, so a long average cannot reach the header."""
+_CLIP_DIGEST = 12
+"""Hex characters of the panel's digest that name its clip path -- see :func:`_clip_id`."""
 
 _OVERLAY_DIMENSIONS = 2
 """What an overlay's values are shaped once read: rows, and one column per bar of the dataset."""
@@ -706,10 +707,7 @@ def _render(
         *_excursion_lines(legs, figures, plot, plot.left + plot.width),
         *_level_lines(legs, plot, entry_bars, exit_bars),
         *_markers(legs, plot, entry_bars, exit_bars),
-        (
-            f'<rect class="panel" x="{plot.left:.2f}" y="{plot.top:.2f}" '
-            f'width="{plot.width:.2f}" height="{plot.height:.2f}"/>'
-        ),
+        f'<rect class="panel" {_panel_box(plot)}/>',
         *_time_axis(data, plot, first, last),
         *_footer(legs, plot, caution),
     ]
@@ -750,12 +748,10 @@ def _overlay_lines(overlays: Sequence[Overlay], plot: Plot, first: int, last: in
     if not overlays:
         return []
 
+    clip: str = _clip_id(plot)
     drawn: list[str] = [
-        (
-            f'<defs><clipPath id="{_CLIP}"><rect x="{plot.left:.2f}" y="{plot.top:.2f}" '
-            f'width="{plot.width:.2f}" height="{plot.height:.2f}"/></clipPath></defs>'
-        ),
-        f'<g clip-path="url(#{_CLIP})">',
+        f'<defs><clipPath id="{clip}"><rect {_panel_box(plot)}/></clipPath></defs>',
+        f'<g clip-path="url(#{clip})">',
     ]
     for index, overlay in enumerate(overlays):
         css: str = _series_class(index)
@@ -766,6 +762,24 @@ def _overlay_lines(overlays: Sequence[Overlay], plot: Plot, first: int, last: in
             ]
 
     return [*drawn, "</g>"]
+
+
+def _panel_box(plot: Plot) -> str:
+    """The panel as SVG rectangle attributes: the frame, and what an overlay is clipped to."""
+    return f'x="{plot.left:.2f}" y="{plot.top:.2f}" width="{plot.width:.2f}" height="{plot.height:.2f}"'
+
+
+def _clip_id(plot: Plot) -> str:
+    """A clip path named after the rectangle it holds, rather than by a fixed name.
+
+    **An SVG id is document-scoped, and a page of charts is one document**: several charts
+    inlined together would every one resolve ``url(#...)`` to the first definition, and every
+    chart after the first would be clipped to the first one's panel -- silently, and looking
+    like a series that stops part-way. Naming the path after its own geometry means two ids
+    collide only where the two rectangles are identical, which is the case where sharing one
+    is correct.
+    """
+    return f"nqbt-clip-{sha256(_panel_box(plot).encode()).hexdigest()[:_CLIP_DIGEST]}"
 
 
 def _runs(values: FloatArray, plot: Plot, first: int, last: int) -> list[str]:
