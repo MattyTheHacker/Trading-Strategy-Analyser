@@ -4,6 +4,7 @@ paths:
   - "nqbt/trades.py"
   - "nqbt/annotate.py"
   - "nqbt/review.py"
+  - "nqbt/propaccount.py"
   - "nqbt/chart.py"
   - "nqbt/guard.py"
   - "nqbt/notes.py"
@@ -11,6 +12,7 @@ paths:
   - "tests/test_trades_schema.py"
   - "tests/test_annotate.py"
   - "tests/test_review.py"
+  - "tests/test_propaccount.py"
   - "tests/test_chart.py"
   - "tests/test_guard.py"
   - "tests/test_notes.py"
@@ -58,6 +60,23 @@ paths:
   widening `price_tolerance`**, and where a widening is unavoidable state it, print it, and keep
   it orders of magnitude below the roll offset so the back-adjustment guard still fires.
   `docs/roadmap.md` §M27.7.
+- **A prop-account replay defines no performance statistic, exactly as a review does not.** Every
+  figure about the *trades* is a `stats.summarise` field over the trades one account took; the
+  fields `propaccount` owns are about the *account* — where the floor sat, what was withdrawn,
+  what the attempts cost. A second definition of a win rate here would drift from the sweep's
+  silently. `docs/roadmap.md` § "Replaying a prop account over the trade log".
+- **It replays account rules and never adds one to the simulator.** `nqbt/sim/` models exactly one
+  prop-firm rule — flat before the session close — because that one is also NT8's. A trailing
+  threshold is accounting applied to a log that already exists, and moving it earlier would make
+  every result conditional on a funding arrangement.
+- **Open equity comes from `mae_points` and `mfe_points`, which are bar highs and lows.** Reaching
+  into `data/tick/` for a truer equity path is the more-precise-than-NT8 error, the same one
+  `chart` refuses when it will not draw a path between two fills. A rule set that reads open
+  equity **refuses** a log whose excursion columns are null rather than reading "unknown" as
+  "none", which would report a pass the account never had.
+- **`propaccount` groups by the exchange trading day; `summarise` groups by the calendar date.**
+  Both are right: a daily loss limit resets at the session open, and Sharpe is annualised from a
+  count of calendar days. They disagree every evening, so do not "fix" one into the other.
 - **A review is `summarise` over subsets and defines no statistic of its own.** A stratum's
   row is the summary's fields read off; a second definition of a win rate would drift from the
   sweep's silently, because both numbers would look reasonable. `docs/roadmap.md` §M11.3.

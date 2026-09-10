@@ -89,7 +89,7 @@ The list is short because most of it has now been researched. Extend it rather t
 - ~~**M10.4**~~ ([#43]) — **done, and measured.** The final session phase has *structurally* forced exits, so a time-of-day stratification will show it as anomalous; **that is an artefact, not a finding**, and any result touching the last phase has to separate "this hour trades badly" from "this hour's trades were closed by the clock". `timeofday.FORCED_EXIT_PHASE` names the phase so a caller can exclude it. On costed MNQ from 2024 the effect is real and small — `session_close_share` reads 0.0016 on `CLOSE` against 0.0001 overall, because a 1-minute DeadCatBounce holds for minutes. Expect it to matter at 15 and 30 minutes.
 - **M18 and M19** ([#34], [#51]). The prediction here was that crossover, holding until an opposite cross, would take a large fraction of its exits from the clock. **Measured: 1.0%** on costed MNQ from 2024 at EMA(9)/EMA(21). The reasoning was sound and the premise was wrong — crosses on 1-minute bars are frequent enough (one signal every ~22 bars) that holds end long before the session does. Expect the share to climb with the MA periods and with bar size, and read it rather than predicting it. A squeeze rests orders, which the flatten point ends only after that bar has been tested for a fill ([#208]).
 - **Statistics.** The share of exits at `EXIT_SESSION_CLOSE` deserves to be a reported column rather than something buried in the trade log. A strategy taking 40% of its exits from the clock is not really the strategy its rules describe, and the aggregate profit factor will not say so.
-- **The prop-account simulator** ([#75]) treats the daily flat as one of the rules it replays, alongside trailing drawdown and the consistency ratio.
+- ~~**The prop-account simulator** ([#75])~~ — **done.** It treats the daily flat as one of the rules it replays, alongside the trailing drawdown, the daily loss limit and the consistency ratio. It replays them over a finished trade log and adds nothing to `nqbt/sim/`, which still models this one rule and no other — § "Replaying a prop account over the trade log".
 
 ~~**Holiday early closes are probably not handled — [#68].**~~ **Confirmed and fixed.** `force_flat_mask` derived its cutoff from the *template's* fixed 17:00 ET close, so on a CME half-day nothing reached it and the mask came back empty. It now counts down to the session's observed last bar, which is what `is_session_close` always did. The measured scale, the two things the observed end cannot distinguish, and what it did to the InsideBar reconciliation are in [nt8-fidelity.md](nt8-fidelity.md), "The session end is the observed last bar, not the template's".
 
@@ -3474,6 +3474,67 @@ That run also corrected a rule this project had been carrying since the first re
 `tools/reconcile_nt8.py` is the reusable mechanism these produced. Per the standing rule that each archetype earns its own reconciliation, the next one does not start from scratch.
 
 **Settle the four order-lifetime questions** ([#67]) that reflection cannot answer — listed above. It is the only NinjaTrader item left, and it gates M19, which is queued rather than scheduled.
+
+______________________________________________________________________
+
+## Replaying a prop account over the trade log
+
+`nqbt/propaccount.py` ([#75]). Profit factor cannot say whether an account survived, and survival is what decides whether a strategy can be funded at all. The instrument replays one firm's rules over a trade log and reports what a live-trading decision actually reads: whether the account passed, where the floor sat when it died, and what the sequence of attempts was worth after fees. The measurements that pulled this forward from a reranking convenience to the go/no-go instrument are in [#75]'s own comment thread; they are dated and re-derivable from `results/campaign/*.duckdb`, so quote them from there rather than from here.
+
+**It replays account rules; it does not add any.** Nothing in this module reaches into `nqbt/sim/`, and nothing may. The simulation models exactly one prop-firm rule — flat before the session close — because that one is also NT8's behaviour, and both prop and non-prop accounts have to work. A trailing threshold is not a trading rule, it is an accounting rule applied afterwards to a log that already exists; wiring one into the simulation would make every result conditional on a funding arrangement.
+
+### Two axes, because one is not enough
+
+Firms disagree about the trailing threshold in two independent ways, and collapsing them loses the commonest real configuration.
+
+- `trail_basis` — what advances the **high-water mark**. Apex counts open equity, so a trade's best excursion raises the floor even after it gives it all back. TopStep advances it only on the day's closing balance.
+- `trail_breach` — what the **floor is tested against**. Both firms liquidate on open equity.
+
+TopStep's actual rule is the mixed case: an end-of-day high-water mark, breached intraday. One enum cannot express it, which is why there are two.
+
+`daily_loss_basis` is the same question asked of the daily loss limit, kept separate because a firm may count open equity for one limit and not for the other.
+
+### Three assumptions, all made where bar data cannot decide
+
+Each is the harsher reading. That is deliberate: this is a go/no-go instrument, and an optimistic account model is worse than no account model.
+
+1. **A trade's peak is applied before its trough.** Bar-close OHLC cannot order the two, and applying the peak first raises the floor before the trough is tested against it. The other ordering can only ever be kinder.
+2. **A trade tripping both limits at once is read as a trailing breach**, which ends the account, rather than as a daily breach, which under `DailyBreach.LOCKOUT` would not. Same reason, and the same inability to order two events inside one trade.
+3. **The adverse excursion is summed over a trade's legs**, rather than taken as the trade's worst excursion at its full entry size. A leg that scaled out early stopped accruing excursion, so the per-leg sum is the closer of the two available answers.
+
+**The excursion comes from `mae_points` and `mfe_points`, which are bar highs and lows.** Reaching into `data/tick/` for a truer open-equity path is the more-precise-than-NT8 error wearing a new hat, and it is refused for the same reason a chart may not draw a path between two fills. A rule set that reads open equity refuses a log whose excursion columns are null rather than treating "unknown" as "none" — that substitution would report a pass the account never had.
+
+### The trading day is the exchange's, not the calendar's
+
+A daily loss limit resets at the session open, so the replay groups by `sessions.classify(...).trading_day`. `stats.summarise` groups its daily totals by calendar date instead, and that is not an inconsistency to fix: Sharpe is annualised from a count of calendar days, while a daily loss limit is a session rule. The two disagree every evening between 18:00 and midnight Eastern, which is why each uses the definition its own question needs.
+
+### Passing, withdrawing, and what a blown account is still worth
+
+An account that passes **keeps trading under the same rules**, which is accurate for both firms shipped, and begins withdrawing everything above `starting_balance + withdrawal_threshold` at each day's end. That threshold is the safety net a firm requires a trader to leave behind.
+
+**A withdrawal is not stopped from breaching the account.** Withdrawing lowers the balance without lowering the high-water mark, so a rule set combining no safety net with a floor that never locks walks the balance onto its own floor, and the next trade kills it. That is what such a rule set would really do; special-casing it would hide the footgun rather than the consequence. Every shipped preset leaves a net above its locked floor, and a test pins that for all of them.
+
+The headline figure is **withdrawn minus fees**, across however many attempts `max_accounts` allows. A strategy that blows three accounts while withdrawing more than the four of them cost is profitable, and ranking it by whether any single account survived would say the opposite.
+
+### Where the preset numbers came from
+
+**Dated, and not quotable terms.** Published rules and prices move, discounts on evaluation fees are close to permanent at one of these firms, and nothing here re-checks them. Every field is overridable with `dataclasses.replace` for exactly that reason, and a decision resting on a preset should re-read the firm's current terms first.
+
+| field                                                                 | standing                                                                                                              |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| starting balance, profit target, trailing threshold, daily loss limit | published account terms, and the most stable of them                                                                  |
+| consistency ratio, minimum trading days                               | published, and the ones most often revised                                                                            |
+| Apex `withdrawal_threshold`                                           | the published safety-net balance                                                                                      |
+| TopStep `withdrawal_threshold`                                        | **a conservative stand-in** — set to the trailing threshold, since TopStep's payout policy is not a simple safety net |
+| every fee                                                             | **list prices** — override them, especially Apex's                                                                    |
+
+### What is deliberately not modelled
+
+- **TopStep's winning-day requirement** — N days each clearing a dollar floor. The consistency ratio catches the same pathology from the other side, which is a strategy that passed on one lucky session.
+- **Payout caps and cadence.** A withdrawal is taken whenever it is eligible, in full.
+- **A funded phase whose rules differ from the evaluation's.** One rule set covers both, which is accurate for the two firms shipped and would not be for a firm that changes the threshold on activation.
+- **Scaling plans and position-size limits.** Contract size is whatever the trade log says.
+- **The consistency rule at payout time.** It gates the pass only.
 
 ______________________________________________________________________
 
