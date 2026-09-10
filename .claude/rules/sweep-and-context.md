@@ -124,6 +124,17 @@ paths:
   read against each other across either axis. State the cut with
   `volume.thresholds_from_quantiles`, fitted on the selection window alone, and carry the tail
   size in the stratum name rather than crossing it with the thresholds. `docs/roadmap.md` §M27.8.
+- **Measure what an entry already selects before adding a filter that selects the same thing.**
+  ElasticBand's unfiltered 2σ VWAP extension already sits in `HEAVY` at 2.1× the base rate under
+  `PER_BAR` and *below* it under `SESSION_TO_DATE`, so "require volume on the break" was partly
+  already in force and partly its own reverse, decided by a form nobody had chosen. A gate's
+  overlap with the signal is one boolean AND to measure and it bounds what the sweep can find.
+  `docs/roadmap.md` §M26.9.
+- **A stratification yields one state per cell, so a multi-state mask is never among the cells.**
+  `volume_filter` is a bitmask and `NORMAL | HEAVY` is a legal value, but `_volume_cells` — and
+  every other generator in `STRATUM_GROUPS` — yields exactly one state each. A campaign that
+  finds one state helping and its neighbour hurting has therefore not tested the union of them,
+  and nothing in the table says so. `docs/roadmap.md` §M26.9.
 - **Compression is filtered on a trailing rank, never on the raw width, and that is what makes
   its raw thresholds comparable.** The width spans a factor of 17,000 across the roots,
   resolutions, forms and periods a campaign crosses, so a threshold on it is a different cut in

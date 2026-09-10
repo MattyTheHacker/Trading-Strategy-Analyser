@@ -92,6 +92,13 @@ source §M26.4 left standing, with the no-requirement control in the same pass -
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-shape --split \
         --strata elastic-shape
+
+``--variants elastic-volume`` crosses the shape §M26.5 carried forward with the volume
+states, each cell cut on its own distribution rather than on a raw pair --
+``docs/roadmap.md`` §M26.9:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-volume --split \
+        --strata elastic-volume --volume-quantiles
 """
 
 from __future__ import annotations
@@ -228,6 +235,7 @@ ORB_GEOMETRY = "orb-geometry"
 ORB_FOLLOW_THROUGH = "orb-followthrough"
 ORB_BRACKET = "orb-bracket"
 ELASTIC_SHAPE = "elastic-shape"
+ELASTIC_VOLUME = "elastic-volume"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -464,6 +472,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ORB_FOLLOW_THROUGH: (UNFILTERED,),
     ORB_BRACKET: (UNFILTERED,),
     ELASTIC_SHAPE: (UNFILTERED,),
+    ELASTIC_VOLUME: (UNFILTERED, VOLUME_FORMS),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -831,6 +840,52 @@ def elasticband_shape_variants(root: str) -> list[Variant]:
         for shape_name, (shape, fraction) in ELASTIC_SHAPES.items()
         for target_name in ELASTIC_SHAPE_TARGETS
         for levels in [ELASTIC_LADDERS[target_name]]
+    ]
+
+
+ELASTIC_VOLUME_SHAPES: dict[str, int] = {
+    "shape=any": SHAPE_ANY,
+    "shape=reversal": SHAPE_REVERSAL,
+}
+"""The control and the one shape §M26.5 carried forward, which is the pair the volume question
+is asked over. The other three shapes are not here: §M26.5 eliminated ``rejection`` on the
+held-out gate and left ``reclaim`` behind ``reversal`` on the drawdown check."""
+
+ELASTIC_VOLUME_TARGET = "target=0.0s"
+"""The ladder §M26.5 read its drawdown and null tables on. Held rather than swept because the
+target ladder's eta-squared on the held-out profit factor there was 0.0000."""
+
+
+def elasticband_volume_variants(root: str) -> list[Variant]:
+    """§M26.9's run: the shape crossed with the volume states, over a bracket held still.
+
+    Three of §M26.5's five axes are held rather than swept, so that the cells this adds are the
+    volume strata and not a wider grid: ``min_one_sided_bars`` because §M26.5 measured its low
+    end as a dead value and its high end as a cost, ``min_bars_outside`` because the reversal
+    shape makes it a duplicate on 82.7% of cells, and the target ladder above.
+    """
+    axes: dict[str, list[AxisValue]] = {
+        "entry_std": [2.0, 2.5, 3.0],
+        "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
+        "max_hold_bars": [0, 30],
+    }
+
+    return [
+        Variant(
+            name=f"break-volume {shape_name} {ELASTIC_VOLUME_TARGET}",
+            archetype=archetypes.ELASTICBAND,
+            base=_costed(
+                ElasticBandParams(
+                    band_source=BAND_VWAP,
+                    signal_shape=shape,
+                    target_mode=TARGET_STRETCH,
+                    target_stretch_levels=ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET],
+                ),
+                root,
+            ),
+            axes=axes,
+        )
+        for shape_name, shape in ELASTIC_VOLUME_SHAPES.items()
     ]
 
 
@@ -1551,6 +1606,11 @@ ELASTIC_SHAPE_VARIANTS = {"ElasticBand": elasticband_shape_variants}
 ``shape=any`` control in the same pass. Its own set rather than an edit to :data:`VARIANTS`
 for that dict's own reason -- ``docs/roadmap.md`` §M26.5."""
 
+ELASTIC_VOLUME_VARIANTS = {"ElasticBand": elasticband_volume_variants}
+"""The §M26.9 run: §M26.5's shape pair over a held bracket, so that the volume strata are
+the only cells the pass adds. The names carry ``break-volume`` where the stored shape rows
+carry none, so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.9."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -1561,6 +1621,7 @@ CAMPAIGN = "campaign"
 VARIANT_SETS = {
     CAMPAIGN,
     ELASTIC_SHAPE,
+    ELASTIC_VOLUME,
     NARROW,
     ORB,
     ORB_BRACKET,
@@ -1579,6 +1640,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
         ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,
+        ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_BRACKET: ORB_BRACKET_VARIANTS,
