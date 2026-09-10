@@ -99,6 +99,13 @@ states, each cell cut on its own distribution rather than on a raw pair --
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-volume --split \
         --strata elastic-volume --volume-quantiles
+
+``--variants elastic-recovery`` waits for the run outside the band to end and takes the
+bar that closes back inside, against the shapes read on a bar still outside --
+``docs/roadmap.md`` §M26.6:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-recovery --split \
+        --strata elastic-recovery
 """
 
 from __future__ import annotations
@@ -157,6 +164,8 @@ from nqbt.sim.types import (
     STOP_CATASTROPHE,
     STOP_SWING,
     TARGET_STRETCH,
+    TRIGGER_EXTENDED,
+    TRIGGER_RECOVERY,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
@@ -236,6 +245,7 @@ ORB_FOLLOW_THROUGH = "orb-followthrough"
 ORB_BRACKET = "orb-bracket"
 ELASTIC_SHAPE = "elastic-shape"
 ELASTIC_VOLUME = "elastic-volume"
+ELASTIC_RECOVERY = "elastic-recovery"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -473,6 +483,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ORB_BRACKET: (UNFILTERED,),
     ELASTIC_SHAPE: (UNFILTERED,),
     ELASTIC_VOLUME: (UNFILTERED, VOLUME_FORMS),
+    ELASTIC_RECOVERY: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -886,6 +897,66 @@ def elasticband_volume_variants(root: str) -> list[Variant]:
             axes=axes,
         )
         for shape_name, shape in ELASTIC_VOLUME_SHAPES.items()
+    ]
+
+
+ELASTIC_RECOVERY_TARGET = "target=0.0s"
+"""The ladder §M26.5 and §M26.9 both read their tables on, held here for the same reason: its
+eta-squared on the held-out profit factor was 0.0000."""
+
+ELASTIC_RECOVERY_ARMS: dict[str, tuple[int, int, float]] = {
+    "entry=extended shape=any": (TRIGGER_EXTENDED, SHAPE_ANY, 1.0),
+    "entry=extended shape=reversal": (TRIGGER_EXTENDED, SHAPE_REVERSAL, 1.0),
+    "entry=recovery@1.0": (TRIGGER_RECOVERY, SHAPE_ANY, 1.0),
+    "entry=recovery@0.9": (TRIGGER_RECOVERY, SHAPE_ANY, 0.9),
+    "entry=recovery@0.75": (TRIGGER_RECOVERY, SHAPE_ANY, 0.75),
+}
+"""Which bar of an extension signals, and how far back inside the recovery bar has to close.
+
+The trigger and its depth are one variant dimension for the reason every mode in this file is
+one: the depth is inert under :data:`TRIGGER_EXTENDED`, so crossing them would run identical
+combinations that ``dead_axes`` cannot see. Two controls rather than one, because §M26.5's
+question was whether requiring a reaction beats requiring nothing and this one is whether
+waiting for it beats reading it off a bar that is still outside -- ``docs/roadmap.md`` §M26.6.
+
+**A fourth depth was measured and left out.** At 0.5 the gate leaves 140 signals in 1.66M MNQ
+bars, which is the engulfing mode's failure and not a range worth sweeping -- §M26.6 has the
+counts per resolution.
+"""
+
+
+def elasticband_recovery_variants(root: str) -> list[Variant]:
+    """§M26.6's run: the recovery trigger against the shapes, over §M26.5's channel.
+
+    §M26.5's grid minus ``min_one_sided_bars``, which it measured as a dead value at its low
+    end and a cost at its high one. ``min_bars_outside`` stays, because the recovery trigger is
+    the one entry here under which it is not a duplicate of the requirement beside it.
+    """
+    axes: dict[str, list[AxisValue]] = {
+        "entry_std": [2.0, 2.5, 3.0],
+        "min_bars_outside": [1, 2],
+        "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
+        "max_hold_bars": [0, 30],
+    }
+
+    return [
+        Variant(
+            name=f"{arm} {ELASTIC_RECOVERY_TARGET}",
+            archetype=archetypes.ELASTICBAND,
+            base=_costed(
+                ElasticBandParams(
+                    band_source=BAND_VWAP,
+                    entry_trigger=trigger,
+                    recovery_fraction=depth,
+                    signal_shape=shape,
+                    target_mode=TARGET_STRETCH,
+                    target_stretch_levels=ELASTIC_LADDERS[ELASTIC_RECOVERY_TARGET],
+                ),
+                root,
+            ),
+            axes=axes,
+        )
+        for arm, (trigger, shape, depth) in ELASTIC_RECOVERY_ARMS.items()
     ]
 
 
@@ -1611,6 +1682,11 @@ ELASTIC_VOLUME_VARIANTS = {"ElasticBand": elasticband_volume_variants}
 the only cells the pass adds. The names carry ``break-volume`` where the stored shape rows
 carry none, so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.9."""
 
+ELASTIC_RECOVERY_VARIANTS = {"ElasticBand": elasticband_recovery_variants}
+"""The §M26.6 run: the recovery trigger against the shapes it replaces, in one pass. The names
+carry an ``entry=`` token where the stored shape rows carry none, so the two runs cannot collide
+in one database -- ``docs/roadmap.md`` §M26.6."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -1620,6 +1696,7 @@ CAMPAIGN = "campaign"
 
 VARIANT_SETS = {
     CAMPAIGN,
+    ELASTIC_RECOVERY,
     ELASTIC_SHAPE,
     ELASTIC_VOLUME,
     NARROW,
@@ -1639,6 +1716,7 @@ lands in the same database as the campaign it follows and is still separable fro
 def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
+        ELASTIC_RECOVERY: ELASTIC_RECOVERY_VARIANTS,
         ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,
         ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,
         NARROW: NARROW_VARIANTS,

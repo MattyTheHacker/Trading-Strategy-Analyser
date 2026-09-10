@@ -169,6 +169,20 @@ below and is what you quote; this file is the index, not the record.
   because each mirrors its own C#. This archetype has none, so a doji passes no shape on either
   side and a zero-range bar passes no rejection depth: one sign multiplier means the long and short
   arms have to be the same rule. `docs/nt8-fidelity.md` §M26.5.
+- **ElasticBand's two entry triggers are the same rules read one bar apart, and three reads have
+  to move together.** Under `TRIGGER_RECOVERY` the signal bar is *inside* the band, so
+  `min_bars_outside` counts the run ending at `i-1`, the `STOP_EXCURSION` level and
+  `exit_on_invalidation`'s reference both read `lagged(extremes, 1)`, and `max_entry_std` gates
+  the bar the run ended on. **Two of those fail silently if missed**: `run_extreme` is `nan`
+  inside the band, a `nan` stop makes the risk check false and *declines the entry*, and a `nan`
+  comparison never fires the invalidation exit — so a forgotten lag deletes every excursion-stop
+  trade and one whole exit reason without an error. `docs/nt8-fidelity.md` §M26.6.
+- **A recovery close exactly on the basis passes on neither side**, which is why
+  `returned_inside` carries `stretch != 0.0` rather than leaning on `fade_direction` — that
+  assigns a stretch of exactly zero to the **short** side, so without the clause a recovery all
+  the way to the mean would be a short entry and never a long one. Same rule as the doji's under
+  `signal_shape`: one sign multiplier means the two arms have to be the same rule.
+  `docs/nt8-fidelity.md` §M26.6.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.

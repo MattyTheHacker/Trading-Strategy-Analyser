@@ -560,6 +560,46 @@ if (oneSided < minOneSidedBars) return;
 
 **There is no engulfing mode, and the reason is a measurement rather than a preference.** It was built, run over the MNQ continuous series and removed: [roadmap.md](roadmap.md) §M26.5 has the count and the mechanism.
 
+### M26.6 — the recovery entry, written before the Python (#278)
+
+**One rule, and it replaces which bar signals rather than adding a condition to it.** `entry_trigger` says which bar of an extension schedules the entry: `extended` is every rule above — a bar that is still beyond the threshold — and `recovery` is the bar that closes back **inside** the band after the run outside has ended. `recovery_fraction` says how far back inside counts. Everything else still describes the archetype: the depth threshold, the direction rule, all four stops, both target schemes, the market-on-next-open entry, the one-bar order lifetime and the session flatten are untouched, and `Archetype.tier2` stays `TIER1_ONLY`. The reasoning and the measurements: [roadmap.md](roadmap.md) §M26.6.
+
+**Why it cannot be a fifth `signal_shape`.** Every mode in that table is evaluated on a bar that is still beyond the threshold, and the threshold is defined on the close — so a bar whose body ran back towards the basis has usually stopped being 2σ from it, which is what makes a reaction expensive to require and what removed the engulfing mode. The reaction `Trading-Docs` describes happens *after* the extension: price exceeds the level, fails to hold, and returns inside. That is a different trigger.
+
+**The whole rule is a state block captured at the end of one bar and read at the next.** Four running values rather than one, because the signal bar is inside the band and every one of them describes bars that are not:
+
+```csharp
+// read what the previous bar carried in, before this bar updates it
+if (runBars >= minBarsOutside && runSide != 0)
+{
+    double stretch = (Close[0] - basis) / sigma;
+    if (Math.Sign(stretch) == runSide
+        && Math.Abs(stretch) < entryStd
+        && Math.Abs(stretch) <= recoveryFraction * entryStd
+        && (maxEntryStd == 0 || runStretch <= maxEntryStd))
+        EnterLong();   // mirrored on the short side
+}
+
+// then update the run this bar leaves behind
+double s = (Close[0] - basis) / sigma;
+int side = Math.Abs(s) >= entryStd ? Math.Sign(s) : 0;
+if (side == 0) { runBars = 0; runSide = 0; }
+else if (side != runSide) { runBars = 1; runSide = side; runLow = Low[0]; runHigh = High[0]; runStretch = Math.Abs(s); }
+else { runBars++; runLow = Math.Min(runLow, Low[0]); runHigh = Math.Max(runHigh, High[0]); runStretch = Math.Abs(s); }
+```
+
+**`min_bars_outside` no longer includes the signal bar, and that is the rule rather than an accident.** Under `extended` the run ends *at* the signal bar; under `recovery` it ends at the bar before it. `outside_run_length(..., ends_before=True)` is the one-bar shift and `runBars` read before its own update is the NinjaScript, which is the same statement written twice.
+
+**A close exactly on the basis passes on neither side.** `Math.Sign(stretch)` is `0` there and no run carries a side of `0`, so the comparison fails on both arms. This is §M26.5's boundary rule reached again — a doji passes no shape on either side because one sign multiplier means the long and short arms have to be the same rule — and it is why the Python's `returned_inside` carries `stretch != 0.0` rather than leaning on `fade_direction`, which assigns a stretch of exactly zero to the short side. Without it a recovery all the way to the mean would be a short entry and never a long one.
+
+**`recovery_fraction` is a share of `entry_std` and not a standard deviation of its own.** `1.0` is the band edge itself, so the requirement degenerates to "back inside at all" and the two comparisons above collapse into one; anything less is a depth. A share rather than a level because `entry_std` is swept — at an absolute 1.5σ the requirement is a different fraction of the distance travelled at each depth threshold, and cells cut by it could not be read against each other. It is refused at `0`, where the close would have to sit exactly on the basis and the rule above passes nothing.
+
+**The two things that read the run's own bars are read one bar back too, and neither would have failed loudly.** `STOP_EXCURSION` hangs off the adverse extreme of the run being faded and `exit_on_invalidation` compares the close against that same extreme; `run_extreme` is `nan` on a bar that is not outside, so on a recovery signal bar both would have read `nan`. A `nan` stop makes `candidate_risk >= min_risk` false and the entry is declined — every `STOP_EXCURSION` trade silently gone rather than an error — and a `nan` comparison is false, so the invalidation exit would simply never fire. `runLow`/`runHigh` above are the NinjaScript and `lagged(extremes, 1)` is the Python.
+
+**`max_entry_std` gates the bar the extension was measured on, which under this trigger is not the signal bar.** The ceiling exists to refuse a move that has become a trend rather than a stretch, and the signal bar is inside the band by construction — so gating it would make the parameter inert at every value, which is the blind spot `.claude/rules/sweep-and-context.md` names rather than a safe default. `runStretch` is the value the C# carries for it.
+
+**Nothing else moves.** The entry is still market-on-next-open with no trigger price, so the fill rules, the resting-order lifetime and the force-flat handling are unchanged, and `signal_shape` still reads the signal bar's own candle and composes with this rather than being replaced by it.
+
 ### M28 — the opening-range rules, written before the Python (#236)
 
 **Written down before the Python existed and the Python written to it**, as §M26 was. There is still no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as — a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later. The design and what was deferred are in [roadmap.md](roadmap.md) §M28.1; only the rules are here.

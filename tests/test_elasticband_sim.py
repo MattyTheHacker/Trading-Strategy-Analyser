@@ -25,6 +25,8 @@ from nqbt.sim.elasticband import (
     fade_direction,
     lagged,
     one_sided_bars,
+    outside_run_length,
+    returned_inside,
     run_elasticband,
     run_extreme,
 )
@@ -40,6 +42,8 @@ from nqbt.sim.types import (
     STOP_SWING,
     TARGET_R,
     TARGET_STRETCH,
+    TRIGGER_EXTENDED,
+    TRIGGER_RECOVERY,
     ElasticBandParams,
 )
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
@@ -950,6 +954,176 @@ def test_an_unknown_band_source_is_refused_by_name() -> None:
 def test_a_negative_warm_up_is_refused() -> None:
     with pytest.raises(ValueError, match="vwap_min_session_bars must be >= 0"):
         ElasticBandParams(vwap_min_session_bars=-1)
+
+
+# -- which bar of an extension signals ---------------------------------------------
+
+
+def recovery_params(**kwargs):
+    """A VWAP-source recovery set, on the channel §M26.6's campaign runs."""
+    defaults = {
+        "band_source": BAND_VWAP,
+        "entry_std": 2.0,
+        "entry_trigger": TRIGGER_RECOVERY,
+        "vwap_min_session_bars": 10,
+        "bars_required_to_trade": 0,
+    }
+
+    return ElasticBandParams(**(defaults | kwargs))
+
+
+def test_the_default_trigger_is_the_bar_that_is_still_outside() -> None:
+    """The off value has to leave the signal exactly as it was, or every stored row moves."""
+    assert ElasticBandParams().entry_trigger == TRIGGER_EXTENDED
+    rng = np.random.default_rng(67)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
+    params = vwap_params()
+    data = dataset(close, params)
+    assert np.array_equal(
+        elasticband_signal(data, params),
+        beyond_band(data.vwap_band_stretch(), params),
+    )
+
+
+def test_the_recovery_trigger_fires_inside_the_band_after_a_run_outside_it() -> None:
+    rng = np.random.default_rng(71)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
+    params = recovery_params()
+    data = dataset(close, params)
+    signal = elasticband_signal(data, params)
+    stretch = data.vwap_band_stretch()
+    assert signal.any()
+    assert not signal[0]
+    # Back inside the band, and the bar before it was beyond it on the same side.
+    assert (np.abs(stretch[signal]) < 2.0).all()
+    previous = lagged(stretch, 1)[signal]
+    assert (np.abs(previous) >= 2.0).all()
+    assert (np.sign(previous) == np.sign(stretch[signal])).all()
+
+
+def test_the_two_triggers_can_never_fire_on_the_same_bar() -> None:
+    """One reads a bar beyond the threshold and the other a bar back inside it."""
+    rng = np.random.default_rng(73)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
+    extended, recovery = vwap_params(), recovery_params(vwap_min_session_bars=0)
+    data = dataset(close, extended)
+    outside = elasticband_signal(data, extended)
+    inside = elasticband_signal(data, recovery)
+    assert outside.any()
+    assert inside.any()
+    assert not (outside & inside).any()
+
+
+def test_a_deeper_recovery_is_a_subset_of_a_shallower_one() -> None:
+    rng = np.random.default_rng(79)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 1200))
+    edge, deep = recovery_params(), recovery_params(recovery_fraction=0.5)
+    data = dataset(close, edge)
+    loose, tight = elasticband_signal(data, edge), elasticband_signal(data, deep)
+    stretch = data.vwap_band_stretch()
+    assert tight.any()
+    assert (tight <= loose).all()
+    assert (tight < loose).any()
+    assert (np.abs(stretch[tight]) <= 1.0).all()
+    dropped = loose & ~tight
+    assert (np.abs(stretch[dropped]) > 1.0).all()
+
+
+def test_the_band_edge_is_the_loosest_depth_and_the_edge_itself_still_fails() -> None:
+    stretch = np.array([-2.5, -2.0, -1.99, -1.0, 0.0, 1.0, 1.99, 2.0, 2.5])
+    params = ElasticBandParams(entry_std=2.0, entry_trigger=TRIGGER_RECOVERY)
+    passed = returned_inside(stretch, params).tolist()
+    assert passed == [False, False, True, True, False, True, True, False, False]
+
+
+def test_a_close_exactly_on_the_basis_recovers_on_neither_side() -> None:
+    """One sign multiplier means the long and short arms have to be the same rule."""
+    stretch = np.array([-0.5, 0.0, 0.5])
+    half = ElasticBandParams(entry_std=2.0, entry_trigger=TRIGGER_RECOVERY, recovery_fraction=0.5)
+    assert returned_inside(stretch, half).tolist() == [True, False, True]
+
+
+def test_the_run_a_recovery_entry_reads_is_the_one_that_ended_at_the_bar_before() -> None:
+    outside = np.array([False, True, True, True, False, False, True, False])
+    assert outside_run_length(outside, ends_before=False).tolist() == [0, 1, 2, 3, 0, 0, 1, 0]
+    assert outside_run_length(outside, ends_before=True).tolist() == [0, 0, 1, 2, 3, 0, 0, 1]
+
+
+def test_a_longer_run_requirement_still_narrows_the_recovery_trigger() -> None:
+    """The one entry here under which the run length is not a duplicate of the gate beside it."""
+    rng = np.random.default_rng(83)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 1200))
+    one, three = recovery_params(), recovery_params(min_bars_outside=3)
+    data = dataset(close, one)
+    first, third = elasticband_signal(data, one), elasticband_signal(data, three)
+    assert third.any()
+    assert (third <= first).all()
+    assert (third < first).any()
+
+
+def test_the_ceiling_gates_the_bar_the_extension_was_measured_on() -> None:
+    """Under the recovery trigger the signal bar is inside the band, so the ceiling reads i-1."""
+    rng = np.random.default_rng(89)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 1200))
+    base, capped = recovery_params(), recovery_params(max_entry_std=2.5)
+    data = dataset(close, base)
+    loose, tight = elasticband_signal(data, base), elasticband_signal(data, capped)
+    stretch = data.vwap_band_stretch()
+    dropped = loose & ~tight
+    assert tight.any()
+    assert dropped.any()
+    assert (tight <= loose).all()
+    # It is the bar the run ended on that was too far out, never the signal bar itself.
+    assert (np.abs(lagged(stretch, 1)[dropped]) > 2.5).all()
+    assert (np.abs(stretch[dropped]) < 2.0).all()
+
+
+def test_the_recovery_signal_reads_only_bars_up_to_and_including_its_own() -> None:
+    """The property the archetype is worthless without, over the trigger that looks back."""
+    rng = np.random.default_rng(97)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 800))
+    params = recovery_params(min_bars_outside=2, recovery_fraction=0.75)
+    full = elasticband_signal(dataset(close, params), params)
+    for cut in (120, 455, 799):
+        assert np.array_equal(elasticband_signal(dataset(close[:cut], params), params), full[:cut])
+
+
+def test_the_excursion_stop_hangs_off_the_run_that_ended_rather_than_off_nothing() -> None:
+    """``run_extreme`` reads ``nan`` inside the band, which would refuse every trade silently."""
+    rng = np.random.default_rng(101)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
+    params = recovery_params(stop_mode=STOP_EXCURSION, max_hold_bars=10)
+    log = run_elasticband(dataset(close, params), params)
+    assert not log.empty
+    assert np.isfinite(log["initial_stop"]).all()
+    longs = log[log["direction"] == LONG]
+    assert not longs.empty
+    assert (longs["initial_stop"] < longs["entry_price"]).all()
+
+
+def test_a_recovery_run_produces_a_valid_trade_log() -> None:
+    rng = np.random.default_rng(103)
+    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
+    params = recovery_params(
+        recovery_fraction=0.75,
+        max_hold_bars=10,
+        commission_per_contract=1.5,
+        slippage_ticks=1.0,
+    )
+    log = run_elasticband(dataset(close, params), params)
+    assert not log.empty
+    validate(log)
+
+
+def test_an_unknown_entry_trigger_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match="unknown entry_trigger 5"):
+        ElasticBandParams(entry_trigger=5)
+
+
+@pytest.mark.parametrize("fraction", [-0.1, 0.0, 1.1])
+def test_a_recovery_depth_outside_the_band_is_refused(fraction) -> None:
+    with pytest.raises(ValueError, match=r"must be in \(0, 1\]"):
+        ElasticBandParams(recovery_fraction=fraction)
 
 
 # -- the archetype end to end ---------------------------------------------------
