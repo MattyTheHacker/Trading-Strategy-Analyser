@@ -163,6 +163,12 @@ below and is what you quote; this file is the index, not the record.
   bracket level, and the second is the first with C# behind it. A test guards structurally that
   DeadCatBounce, PullBackAndGo, InsideBar and `bracket.py` never produce it, *and* that the two
   that should still do.
+- **ElasticBand's signal-bar requirements are strict on both sides, and that deliberately does
+  not inherit the ported archetypes' boundaries.** `PullBackAndGo.cs` and `DeadCatBounce.cs`
+  disagree about equality — `Close[1] >= Open[1]` for green against `Close[1] < Open[1]` for red —
+  because each mirrors its own C#. This archetype has none, so a doji passes no shape on either
+  side and a zero-range bar passes no rejection depth: one sign multiplier means the long and short
+  arms have to be the same rule. `docs/nt8-fidelity.md` §M26.5.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.

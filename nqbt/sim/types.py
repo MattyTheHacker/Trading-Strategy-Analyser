@@ -1171,6 +1171,23 @@ TARGET_MODES = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
 mean-reversion geometry; ``r`` uses the shared R ladder and is comparable with EmaCrossover.
 """
 
+SHAPE_ANY = 0
+SHAPE_REVERSAL = 1
+SHAPE_RECLAIM = 2
+SHAPE_REJECTION = 3
+SHAPE_MODES = {
+    SHAPE_ANY: "any",
+    SHAPE_REVERSAL: "reversal",
+    SHAPE_RECLAIM: "reclaim",
+    SHAPE_REJECTION: "rejection",
+}
+"""What the signal bar's own candle has to look like before an extension is faded. ``any`` asks
+nothing of it; ``reversal`` needs a body closing back towards the basis; ``reclaim`` needs the
+bar to have taken out the previous bar's extreme and closed back past its close; ``rejection``
+needs the close within :attr:`ElasticBandParams.rejection_close_fraction` of the bar's range of
+the extreme it stretched to. Why there is no engulfing mode: ``docs/roadmap.md`` §M26.5.
+"""
+
 
 @dataclass(slots=True)
 class ElasticBandParams:
@@ -1214,6 +1231,26 @@ class ElasticBandParams:
 
     At ``0`` the band contains the bar being tested, which damps the signal rather than
     looking ahead -- ``docs/roadmap.md`` §M26."""
+
+    signal_shape: int = SHAPE_ANY
+    """One of :data:`SHAPE_MODES` -- what the signal bar's own candle has to look like.
+
+    A reaction at the level rather than a blind fade of it -- ``docs/roadmap.md`` §M26.5."""
+
+    rejection_close_fraction: float = 0.5
+    """Share of the signal bar's range its close must sit inside, measured from the extreme the
+    move stretched to. Read under :data:`SHAPE_REJECTION` alone, where a zero-range bar never
+    qualifies."""
+
+    min_one_sided_bars: int = 0
+    """Bars of the last :attr:`one_sided_lookback` that must have closed *with* the extension.
+
+    Off at ``0``. How one-sided the move into the band was, which is the other half of the
+    overextension gauge whose first half is how far beyond the band it went --
+    ``docs/roadmap.md`` §M26.5."""
+
+    one_sided_lookback: int = 10
+    """Window :attr:`min_one_sided_bars` counts over, read while that is above ``0``."""
 
     trade_long: bool = True
     trade_short: bool = True
@@ -1381,6 +1418,36 @@ class ElasticBandParams:
 
         if not (self.trade_long or self.trade_short):
             msg = "trade_long and trade_short are both off, so nothing can ever be entered"
+            raise ValueError(msg)
+
+        self._validate_signal_bar()
+
+    def _validate_signal_bar(self) -> None:
+        """Check the two requirements the signal bar's own candle has to meet."""
+        if self.signal_shape not in SHAPE_MODES:
+            msg: str = f"unknown signal_shape {self.signal_shape}; use one of {sorted(SHAPE_MODES)}"
+            raise ValueError(msg)
+
+        if not 0.0 <= self.rejection_close_fraction <= 1.0:
+            msg = (
+                "rejection_close_fraction is a share of the bar's range and must be in [0, 1], "
+                f"got {self.rejection_close_fraction}"
+            )
+            raise ValueError(msg)
+
+        if self.one_sided_lookback < 1:
+            msg = f"one_sided_lookback must be >= 1, got {self.one_sided_lookback}"
+            raise ValueError(msg)
+
+        if self.min_one_sided_bars < 0:
+            msg = f"min_one_sided_bars must be >= 0, got {self.min_one_sided_bars}"
+            raise ValueError(msg)
+
+        if self.min_one_sided_bars > self.one_sided_lookback:
+            msg = (
+                f"min_one_sided_bars {self.min_one_sided_bars} exceeds one_sided_lookback "
+                f"{self.one_sided_lookback}, so no bar can ever pass"
+            )
             raise ValueError(msg)
 
     def _validate_exit_scheme(self) -> None:

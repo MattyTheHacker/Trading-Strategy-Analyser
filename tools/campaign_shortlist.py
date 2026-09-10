@@ -29,11 +29,10 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_report import load, rank
-from tools.campaign_sweep import ELASTIC_LADDERS, db_path, windows
-
 from nqbt import archetypes, context, logsetup, resample, results, splice, sweep
 from nqbt.instruments import get_instrument
+from tools.campaign_report import load, rank
+from tools.campaign_sweep import db_path, elastic_ladder, windows
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Param
 
         updates[field.name] = _coerced(row[field.name], getattr(params, field.name))
     if archetype is archetypes.ELASTICBAND:
-        updates["target_stretch_levels"] = ELASTIC_LADDERS[str(row["variant"])]
+        updates["target_stretch_levels"] = elastic_ladder(str(row["variant"]))
 
     return replace(params, **updates)
 

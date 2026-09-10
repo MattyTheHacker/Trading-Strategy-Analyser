@@ -21,6 +21,10 @@ from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
 from nqbt.sim.types import (
     BAND_VWAP,
+    SHAPE_ANY,
+    SHAPE_RECLAIM,
+    SHAPE_REJECTION,
+    SHAPE_REVERSAL,
     STOP_ATR,
     STOP_EXCURSION,
     STOP_MIN_TICKS,
@@ -415,12 +419,86 @@ def beyond_band(stretch: FloatArray, params: ElasticBandParams) -> BoolArray:
     return np.abs(stretch) >= params.entry_std
 
 
+def closed_towards_basis(open_: FloatArray, close: FloatArray, direction: FloatArray) -> BoolArray:
+    """Bars whose body runs the way the fade would trade -- green below the basis, red above.
+
+    A doji runs neither way and passes on neither side, which is the symmetric boundary this
+    archetype's one sign multiplier asks for -- ``docs/nt8-fidelity.md`` §M26.5.
+    """
+    return np.asarray(direction * (close - open_) > 0.0)
+
+
+def swept_and_reclaimed(data: Dataset, direction: FloatArray) -> BoolArray:
+    """Bars that took out the previous bar's extreme against the fade and closed back past it.
+
+    The sweep-and-recovery shape rather than a body that happened to turn, which is what makes
+    it a failed break of the level -- ``docs/roadmap.md`` §M26.5. The extreme is
+    :class:`nqbt.conditions.BarGeometry`'s, already built for every dataset.
+    """
+    swept: BoolArray = np.where(
+        direction > 0.0,
+        data.geometry.made_new_low,
+        data.geometry.made_new_high,
+    )
+
+    return swept & (direction * (data.close - lagged(data.close, 1)) > 0.0)
+
+
+def closed_off_extreme(data: Dataset, direction: FloatArray, fraction: float) -> BoolArray:
+    """Bars whose close sits at least ``fraction`` of their range back from the stretched extreme.
+
+    A zero-range bar never qualifies, which is the boundary
+    :func:`nqbt.conditions.inverted_hammer` already takes for a body of zero.
+    """
+    span: FloatArray = data.high - data.low
+    recovered: FloatArray = np.where(
+        direction > 0.0,
+        data.close - data.low,
+        data.high - data.close,
+    )
+
+    return (span > 0.0) & (recovered >= fraction * span)
+
+
+def signal_bar_shape(data: Dataset, direction: FloatArray, params: ElasticBandParams) -> BoolArray:
+    """Which bars pass the candle requirement :attr:`ElasticBandParams.signal_shape` names.
+
+    All-true at :data:`SHAPE_ANY`, the one value that reads nothing off the bar at all --
+    which is why :func:`elasticband_signal` skips the conjunction there rather than ANDing it.
+    """
+    if params.signal_shape == SHAPE_REVERSAL:
+        return closed_towards_basis(data.open, data.close, direction)
+
+    if params.signal_shape == SHAPE_RECLAIM:
+        return swept_and_reclaimed(data, direction)
+
+    if params.signal_shape == SHAPE_REJECTION:
+        return closed_off_extreme(data, direction, params.rejection_close_fraction)
+
+    return np.ones(len(data), dtype=np.bool_)
+
+
+def one_sided_bars(data: Dataset, direction: FloatArray, lookback: int) -> IntArray:
+    """How many of the last ``lookback`` bars closed the way the move into the band was going.
+
+    Bodies rather than closes against the previous close, and they need not be consecutive --
+    which is what separates this from :attr:`ElasticBandParams.min_bars_outside`.
+    """
+    ran_down: IntArray = conditions.rolling_count(np.asarray(data.close < data.open), lookback)
+    ran_up: IntArray = conditions.rolling_count(np.asarray(data.close > data.open), lookback)
+
+    return np.where(direction > 0.0, ran_down, ran_up)
+
+
 def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
     """Bars whose close schedules an entry for the next bar's open.
 
-    Three conditions: the extension has lasted ``min_bars_outside`` unbroken bars on one side,
-    it clears ``entry_std``, and it is under ``max_entry_std`` where that ceiling is on. The
+    Where the extension is: it has lasted ``min_bars_outside`` unbroken bars on one side, it
+    clears ``entry_std``, and it is under ``max_entry_std`` where that ceiling is on. The
     ceiling gates the signal bar only -- a bar past it interrupts the trade, not the run.
+
+    What the bars look like: ``signal_shape`` asks the signal bar's own candle to have turned
+    and ``min_one_sided_bars`` asks the move into the band to have been one-sided.
     """
     _, _, stretch = band_series(data, params)
     beyond: BoolArray = beyond_band(stretch, params)
@@ -440,6 +518,13 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
 
     if params.band_source == BAND_VWAP:
         signal &= vwap_band_warmed_up(data, params)
+
+    if params.signal_shape != SHAPE_ANY:
+        signal &= signal_bar_shape(data, direction, params)
+
+    if params.min_one_sided_bars > 0:
+        counted: IntArray = one_sided_bars(data, direction, params.one_sided_lookback)
+        signal &= counted >= params.min_one_sided_bars
 
     return filters.apply_context_filters(signal, data, params)
 

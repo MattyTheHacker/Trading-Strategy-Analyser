@@ -85,6 +85,13 @@ same pass -- ``docs/roadmap.md`` §M28.10:
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-followthrough --split \
         --strata orb-followthrough
+
+``--variants elastic-shape`` asks what the signal bar itself has to look like, over the VWAP
+source §M26.4 left standing, with the no-requirement control in the same pass --
+``docs/roadmap.md`` §M26.5:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-shape --split \
+        --strata elastic-shape
 """
 
 from __future__ import annotations
@@ -120,6 +127,7 @@ from nqbt import (
 from nqbt.arrays import float_column
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import (
+    BAND_VWAP,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
@@ -134,6 +142,10 @@ from nqbt.sim.types import (
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
     REQUIRE_ALL,
+    SHAPE_ANY,
+    SHAPE_RECLAIM,
+    SHAPE_REJECTION,
+    SHAPE_REVERSAL,
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_SWING,
@@ -215,6 +227,7 @@ ORB_REJECTION = "orb-rejection"
 ORB_GEOMETRY = "orb-geometry"
 ORB_FOLLOW_THROUGH = "orb-followthrough"
 ORB_BRACKET = "orb-bracket"
+ELASTIC_SHAPE = "elastic-shape"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -450,6 +463,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ORB_GEOMETRY: (UNFILTERED,),
     ORB_FOLLOW_THROUGH: (UNFILTERED,),
     ORB_BRACKET: (UNFILTERED,),
+    ELASTIC_SHAPE: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -722,6 +736,21 @@ ELASTIC_LADDERS: dict[str, tuple[float, ...]] = {
 trade. A variant each because a tuple is not a sweepable axis -- ``docs/roadmap.md`` §M26."""
 
 
+def elastic_ladder(variant: str) -> tuple[float, ...]:
+    """The target ladder a stored ElasticBand variant name carries.
+
+    The ladder is a tuple and tuples are not sweepable, so it is not a stored column and has to
+    be read back off the variant name -- which carries other words in the §M26.5 set, hence the
+    token rather than the whole name.
+    """
+    for token in variant.split():
+        if token in ELASTIC_LADDERS:
+            return ELASTIC_LADDERS[token]
+
+    msg = f"no target ladder in the ElasticBand variant name {variant!r}; known: {sorted(ELASTIC_LADDERS)}"
+    raise KeyError(msg)
+
+
 def elasticband_variants(root: str) -> list[Variant]:
     """One variant per target ladder, each sweeping the entry, the stop mode and a time stop."""
     axes: dict[str, list[AxisValue]] = {
@@ -743,6 +772,65 @@ def elasticband_variants(root: str) -> list[Variant]:
             axes=axes,
         )
         for name, levels in ELASTIC_LADDERS.items()
+    ]
+
+
+ELASTIC_SHAPE_TARGETS = ("target=0.0s", "target=+1.0s")
+"""Two of :data:`ELASTIC_LADDERS`' four: the midline, and the one patience found.
+
+Named out of that dict rather than restated, so :func:`elastic_ladder` resolves a variant from
+either set and the two campaigns cannot drift apart on what a ladder name means."""
+
+ELASTIC_SHAPES: dict[str, tuple[int, float]] = {
+    "shape=any": (SHAPE_ANY, 0.5),
+    "shape=reversal": (SHAPE_REVERSAL, 0.5),
+    "shape=reclaim": (SHAPE_RECLAIM, 0.5),
+    "shape=rejection@0.4": (SHAPE_REJECTION, 0.4),
+    "shape=rejection@0.6": (SHAPE_REJECTION, 0.6),
+}
+"""What the signal bar itself has to look like, and the rejection depth where one is read.
+
+A variant rather than an axis for the reason every mode in this file is one: the fraction is
+inert under three of the four modes, so crossing them would run identical combinations that
+`dead_axes` cannot see -- ``docs/roadmap.md`` §M26.5. ``shape=any`` is the control: the same
+axes, over the entry §M26.4 left the archetype at, with no requirement on the bar at all.
+"""
+
+
+def elasticband_shape_variants(root: str) -> list[Variant]:
+    """§M26.5's run: what the signal bar looks like, over the source §M26.4 left standing.
+
+    The VWAP source alone, because §M26.4 is what established that the Bollinger one does not
+    survive a holdout -- so the question here is the signal bar and not the channel.
+    """
+    axes: dict[str, list[AxisValue]] = {
+        "entry_std": [2.0, 2.5, 3.0],
+        "min_one_sided_bars": [0, 4, 6, 8],
+        "min_bars_outside": [1, 2],
+        "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
+        "max_hold_bars": [0, 30],
+    }
+
+    return [
+        Variant(
+            name=f"{shape_name} {target_name}",
+            archetype=archetypes.ELASTICBAND,
+            base=_costed(
+                ElasticBandParams(
+                    band_source=BAND_VWAP,
+                    signal_shape=shape,
+                    rejection_close_fraction=fraction,
+                    one_sided_lookback=10,
+                    target_mode=TARGET_STRETCH,
+                    target_stretch_levels=levels,
+                ),
+                root,
+            ),
+            axes=axes,
+        )
+        for shape_name, (shape, fraction) in ELASTIC_SHAPES.items()
+        for target_name in ELASTIC_SHAPE_TARGETS
+        for levels in [ELASTIC_LADDERS[target_name]]
     ]
 
 
@@ -1458,6 +1546,11 @@ ORB_REJECTION_VARIANTS = {"OpeningRange": openingrange_rejection_variants}
 """The §M28.7 run: the rejection alone, over §M28.5's bracket, so that the two reversion
 entries differ by their entry rule and nothing else -- ``docs/roadmap.md`` §M28.7."""
 
+ELASTIC_SHAPE_VARIANTS = {"ElasticBand": elasticband_shape_variants}
+"""The §M26.5 run: the two signal-bar requirements [#221] asked for, each against the
+``shape=any`` control in the same pass. Its own set rather than an edit to :data:`VARIANTS`
+for that dict's own reason -- ``docs/roadmap.md`` §M26.5."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -1467,6 +1560,7 @@ CAMPAIGN = "campaign"
 
 VARIANT_SETS = {
     CAMPAIGN,
+    ELASTIC_SHAPE,
     NARROW,
     ORB,
     ORB_BRACKET,
@@ -1484,6 +1578,7 @@ lands in the same database as the campaign it follows and is still separable fro
 def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
+        ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_BRACKET: ORB_BRACKET_VARIANTS,

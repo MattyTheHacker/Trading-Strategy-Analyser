@@ -526,6 +526,40 @@ double variance = cumVQQ / cumV - c * (2.0 * cumVQ / cumV - c);
 
 **Every other NT8 question this archetype raises is answered above and unchanged**, including the entry mechanism, the one-bar order lifetime, the two `EXIT_SIGNAL` exits and `IsExitOnSessionCloseStrategy`. The measurements the source produced, and the standing caveats on them: [roadmap.md](roadmap.md) §M26.4.
 
+### M26.5 — what the signal bar has to look like, written before the Python (#221)
+
+**Two requirements on the bar that signals, and neither changes anything else.** `signal_shape` asks the extended bar's own candle to have turned, and `min_one_sided_bars` asks the move into the band to have been one-sided. Everything above still describes the archetype: the depth threshold, the run length, the direction rule, all four stops, both target schemes and the session flatten are untouched, and `Archetype.tier2` stays `TIER1_ONLY`. The reasoning, and the measurements each produced: [roadmap.md](roadmap.md) §M26.5.
+
+**Both read completed bars only, and both are one `if` in `OnBarUpdate` after the depth test.** They narrow which bars call `EnterLong()` / `EnterShort()`; the entry stays market-on-next-open and the one-bar order lifetime is unchanged.
+
+**`signal_shape` is three shapes and an off value**, each written against the fade's own direction so the two sides mirror exactly — `dir` below is `+1` for a long and `-1` for a short:
+
+| mode        | the rule                                                      | NinjaScript                                                          |
+| ----------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `any`       | no requirement                                                | the depth test alone                                                 |
+| `reversal`  | the body closed back towards the basis                        | `dir * (Close[0] - Open[0]) > 0`                                     |
+| `reclaim`   | took out the previous bar's extreme and closed back past it   | `Low[0] < Low[1] && Close[0] > Close[1]`, mirrored on the short side |
+| `rejection` | the close is `f` of the bar's range off the stretched extreme | `Close[0] - Low[0] >= f * (High[0] - Low[0]) && High[0] > Low[0]`    |
+
+**A doji passes no shape on either side, and that is a deliberate departure from the ported archetypes.** `PullBackAndGo.cs` and `DeadCatBounce.cs` disagree with each other about equality — `Close[1] >= Open[1]` for green against `Close[1] < Open[1]` for red — and neither boundary is inherited here, because those mirror a C# that exists and this one does not yet. The strict comparison on both sides is what the single sign multiplier asks for: a bar that closed flat ran neither way, and a rule that admitted it on one side only would make the long and short arms different rules.
+
+**A zero-range bar never passes `rejection`**, which is `_inverted_hammer`'s `body > 0` boundary applied to the range instead of the body. Without it the comparison is `0 >= f * 0` and every flat bar passes at every depth.
+
+**`reclaim` reads `conditions.BarGeometry`'s extremes rather than a second copy of them.** `made_new_low` is `Low[0] < Low[1]` and `made_new_high` is `High[0] > High[1]`, both already built parameter-free for every dataset, and the fade's direction selects which one is the adverse extreme.
+
+**`min_one_sided_bars` is a count over a window, not a run**, which is what separates it from `min_bars_outside`. In NinjaScript it is a loop over the last `oneSidedLookback` bars counting `dir * (Close[k] - Open[k]) < 0`, and the bars need not be consecutive nor outside the band at all:
+
+```csharp
+int oneSided = 0;
+for (int k = 0; k < oneSidedLookback; k++)
+    if (dir * (Close[k] - Open[k]) < 0) oneSided++;
+if (oneSided < minOneSidedBars) return;
+```
+
+`conditions.rolling_count` is the Python, and **its window is truncated at the head rather than left undefined** — an early bar counts the bars that exist, so a threshold it cannot reach simply fails. `BarsRequiredToTrade` excludes those bars either way.
+
+**There is no engulfing mode, and the reason is a measurement rather than a preference.** It was built, run over the MNQ continuous series and removed: [roadmap.md](roadmap.md) §M26.5 has the count and the mechanism.
+
 ### M28 — the opening-range rules, written before the Python (#236)
 
 **Written down before the Python existed and the Python written to it**, as §M26 was. There is still no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as — a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later. The design and what was deferred are in [roadmap.md](roadmap.md) §M28.1; only the rules are here.
