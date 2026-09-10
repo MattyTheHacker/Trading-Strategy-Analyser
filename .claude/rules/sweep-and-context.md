@@ -107,7 +107,11 @@ paths:
   against a single off value. Sweeping `atr_stop_multiple` under `STOP_EXCURSION` runs identical
   combinations and nothing will say so — same shape as `volume_rolling_bars` below. **`band_period`
   and `vwap_min_session_bars` are the same blind spot against `band_source`**, so sweeping either
-  under the source that does not read it runs identical combinations silently.
+  under the source that does not read it runs identical combinations silently. **So are the two
+  signal-bar requirements**: `rejection_close_fraction` is read under `SHAPE_REJECTION` alone and
+  `one_sided_lookback` only while `min_one_sided_bars` is above 0, which is why the shape is a
+  variant dimension in `campaign_sweep.py` and the count is an axis carrying its own off value —
+  `ELASTIC_SHAPES` is the shape. `docs/roadmap.md` §M26.5.
 - **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
   `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
   caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes
@@ -163,6 +167,12 @@ paths:
   belongs in a new variant set built from the stored list rather than a rewritten one, so the two
   tables share cells — `ORB_LADDER_FRACTIONS` is `[*ORB_FRACTIONS, ...]` for exactly that, and the
   1,024 shared rows are checked to agree exactly. `docs/roadmap.md` §M28.11.
+- **A gate can be near-empty rather than inert, and a sweep reports that as too few trades
+  rather than as a defect.** ElasticBand's engulfing shape was built, measured at **138 signals in
+  1.66M MNQ bars** and removed before it reached a grid: the extension threshold is defined on the
+  close, so a bar whose body ran the other way *and* covered its predecessor has usually stopped
+  being beyond the band. Count the signals a new entry gate leaves before crossing it with
+  anything — `MIN_TRADES` would have dropped the cells silently. `docs/roadmap.md` §M26.5.
 - **A re-sweep that adds an axis is its own variant set, never an edit to `VARIANTS`.** That dict
   is what §M27 and §M28.1 measured, so an added axis would leave the stored rows and the code
   that produced them disagreeing. `VARIANT_SETS` names them and each carries a `STRATUM_SETS`

@@ -52,6 +52,7 @@ __all__ = [
     "previous_bar_green",
     "previous_bar_red",
     "prior_bar_inside",
+    "rolling_count",
 ]
 
 
@@ -466,6 +467,30 @@ def consecutive_true(mask: BoolArray) -> IntArray:
     for i in range(n):
         run = run + 1 if mask[i] else 0
         out[i] = run
+
+    return out
+
+
+@njit(cache=True)
+def rolling_count(mask: BoolArray, lookback: int) -> IntArray:
+    """How many of the ``lookback`` bars ending at each bar are ``True``.
+
+    The window is truncated at the head rather than left undefined, so an early bar counts the
+    bars that exist and a threshold it cannot reach simply fails -- the third axis alongside
+    :func:`consecutive_true` and :func:`count_true`, which counts bars for one condition
+    without requiring them to be unbroken.
+    """
+    n = mask.size
+    out = np.zeros(n, dtype=np.int64)
+    running = 0
+    for i in range(n):
+        if mask[i]:
+            running += 1
+
+        if i >= lookback and mask[i - lookback]:
+            running -= 1
+
+        out[i] = running
 
     return out
 

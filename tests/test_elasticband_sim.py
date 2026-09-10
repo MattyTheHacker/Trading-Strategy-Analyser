@@ -18,14 +18,22 @@ from nqbt.instruments import MNQ, NQ
 from nqbt.sim import elasticband
 from nqbt.sim.elasticband import (
     beyond_band,
+    closed_off_extreme,
+    closed_towards_basis,
     elasticband_signal,
+    swept_and_reclaimed,
     fade_direction,
     lagged,
+    one_sided_bars,
     run_elasticband,
     run_extreme,
 )
 from nqbt.sim.types import (
     BAND_VWAP,
+    SHAPE_ANY,
+    SHAPE_RECLAIM,
+    SHAPE_REJECTION,
+    SHAPE_REVERSAL,
     STOP_ATR,
     STOP_CATASTROPHE,
     STOP_EXCURSION,
@@ -599,6 +607,242 @@ def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
         elasticband_signal(data, lag)[1:],
         elasticband_signal(data, live)[:-1],
     )
+
+
+# -- what the signal bar itself looks like ----------------------------------------
+
+
+def candle_frame(close, seed):
+    """A bar frame with real bodies and wicks, which :func:`frame` deliberately has neither of.
+
+    Every random value is drawn per bar out of one array, so a prefix of a series is built
+    from the same numbers as the series -- which is what the no-lookahead tests compare.
+    """
+    close = np.asarray(close, dtype=np.float64)
+    jitter = np.random.default_rng(seed).uniform(0.25, 2.0, (close.size, 3))
+    open_ = np.concatenate(([close[0] - 1.0], close[:-1] + jitter[1:, 0] - 1.125))
+    index = pd.date_range("2024-01-02 19:00", periods=close.size, freq="1min", tz="UTC")
+
+    return pd.DataFrame(
+        {
+            "open": open_,
+            "high": np.maximum(open_, close) + jitter[:, 1],
+            "low": np.minimum(open_, close) - jitter[:, 2],
+            "close": close,
+            "volume": np.ones(close.size),
+            "trading_day": index.tz_convert("America/New_York").normalize().tz_localize(None),
+        },
+        index=index,
+    )
+
+
+def candle_dataset(close, params, seed=101):
+    grid = sweep.Grid.of(params, archetype=archetypes.ELASTICBAND)
+
+    return sweep.prepare_for(candle_frame(close, seed), grid)
+
+
+def shape_params(**kwargs):
+    """A parameter set on the Bollinger source, warmed up enough for the signal path."""
+    defaults = {"band_period": 20, "entry_std": 2.0, "bars_required_to_trade": 30}
+
+    return ElasticBandParams(**(defaults | kwargs))
+
+
+def walk(seed, periods=800, step=2.0):
+    rng = np.random.default_rng(seed)
+
+    return 18000.0 + np.cumsum(rng.normal(0.0, step, periods))
+
+
+def test_the_defaults_ask_nothing_at_all_of_the_signal_bar() -> None:
+    """The off value has to leave the signal exactly as it was, or every stored row moves."""
+    close = walk(31)
+    params = shape_params()
+    data = candle_dataset(close, params)
+    assert params.signal_shape == SHAPE_ANY
+    assert params.min_one_sided_bars == 0
+    assert np.array_equal(
+        elasticband_signal(data, params),
+        beyond_band(data.band_stretch(20), params),
+    )
+
+
+def test_a_reversal_requirement_keeps_only_bars_that_closed_back_towards_the_basis() -> None:
+    close = walk(37)
+    plain, turned = shape_params(), shape_params(signal_shape=SHAPE_REVERSAL)
+    data = candle_dataset(close, plain)
+    loose, tight = elasticband_signal(data, plain), elasticband_signal(data, turned)
+    stretch = data.band_stretch(20)
+    body = data.close - data.open
+    assert tight.any()
+    assert (tight <= loose).all()
+    assert (tight < loose).any()
+    # A long below the basis wants a green bar; a short at or above it wants a red one.
+    assert (body[tight & (stretch < 0.0)] > 0.0).all()
+    assert (body[tight & (stretch >= 0.0)] < 0.0).all()
+
+
+def test_a_doji_closes_neither_way_and_passes_the_reversal_requirement_on_neither_side() -> None:
+    open_ = np.array([10.0, 10.0, 10.0, 10.0])
+    close = np.array([10.0, 10.0, 11.0, 9.0])
+    direction = np.array([LONG, SHORT, LONG, SHORT], dtype=np.float64)
+    assert closed_towards_basis(open_, close, direction).tolist() == [False, False, True, True]
+
+
+def test_reclaiming_needs_both_a_new_extreme_against_the_fade_and_a_close_back_past_it() -> None:
+    """Bar 1 is the long reclaim, bar 2 the short one, and bar 3 sweeps a low but keeps falling."""
+    params = shape_params()
+    data = candle_dataset(np.array([11.0, 11.5, 11.0, 10.0]), params)
+    data.close = np.array([11.0, 11.5, 11.0, 10.0])
+    data.geometry.made_new_low = np.array([False, True, False, True])
+    data.geometry.made_new_high = np.array([False, False, True, False])
+    long_side = np.full(4, LONG, dtype=np.float64)
+    short_side = np.full(4, SHORT, dtype=np.float64)
+    assert swept_and_reclaimed(data, long_side).tolist() == [False, True, False, False]
+    # The short side reads the other extreme and the other sign of the close.
+    assert swept_and_reclaimed(data, short_side).tolist() == [False, False, True, False]
+
+
+def test_reclaiming_is_a_subset_of_the_bars_that_took_out_the_previous_extreme() -> None:
+    close = walk(41, periods=2000)
+    plain = shape_params()
+    reclaiming = shape_params(signal_shape=SHAPE_RECLAIM)
+    data = candle_dataset(close, plain)
+    loose, tight = elasticband_signal(data, plain), elasticband_signal(data, reclaiming)
+    direction = fade_direction(data.band_stretch(20))
+    swept = np.where(direction > 0.0, data.geometry.made_new_low, data.geometry.made_new_high)
+    assert tight.any()
+    assert (tight <= loose).all()
+    assert (tight < loose).any()
+    assert swept[tight].all()
+
+
+def test_the_rejection_requirement_measures_the_close_from_the_stretched_extreme() -> None:
+    """A long fades a low, so its close is measured up from the low; a short mirrors it."""
+    params = shape_params()
+    data = candle_dataset(np.array([12.0, 12.0, 18.0, 18.0]), params)
+    data.high = np.full(4, 20.0)
+    data.low = np.full(4, 10.0)
+    data.close = np.array([12.0, 12.0, 18.0, 18.0])
+    direction = np.array([LONG, SHORT, LONG, SHORT], dtype=np.float64)
+    # 12 is 20% up from the low and 80% down from the high; 18 is the mirror of it.
+    assert closed_off_extreme(data, direction, 0.5).tolist() == [False, True, True, False]
+
+
+def test_a_zero_range_bar_never_passes_the_rejection_requirement() -> None:
+    params = shape_params()
+    data = candle_dataset(np.full(4, 15.0), params)
+    data.high = np.full(4, 15.0)
+    data.low = np.full(4, 15.0)
+    data.close = np.full(4, 15.0)
+    direction = np.array([LONG, SHORT, LONG, SHORT], dtype=np.float64)
+    assert not closed_off_extreme(data, direction, 0.0).any()
+
+
+def test_a_deeper_rejection_fraction_keeps_a_subset_of_a_shallower_one() -> None:
+    close = walk(43)
+    shallow = shape_params(signal_shape=SHAPE_REJECTION, rejection_close_fraction=0.3)
+    deep = shape_params(signal_shape=SHAPE_REJECTION, rejection_close_fraction=0.7)
+    data = candle_dataset(close, shallow)
+    loose, tight = elasticband_signal(data, shallow), elasticband_signal(data, deep)
+    assert tight.any()
+    assert (tight <= loose).all()
+    assert (tight < loose).any()
+
+
+def test_the_one_sided_count_counts_bodies_running_with_the_extension() -> None:
+    params = shape_params()
+    data = candle_dataset(np.array([10.0, 9.0, 8.0, 9.5, 9.0]), params)
+    data.open = np.array([10.0, 10.0, 9.0, 8.0, 9.5])
+    data.close = np.array([10.0, 9.0, 8.0, 9.5, 9.0])
+    # Bodies, in order: flat, down, down, up, down.
+    down_side = np.full(5, LONG, dtype=np.float64)
+    up_side = np.full(5, SHORT, dtype=np.float64)
+    assert one_sided_bars(data, down_side, 3).tolist() == [0, 1, 2, 2, 2]
+    assert one_sided_bars(data, up_side, 3).tolist() == [0, 0, 0, 1, 1]
+
+
+def test_a_larger_one_sided_requirement_keeps_a_subset_of_a_smaller_one() -> None:
+    close = walk(47)
+    light = shape_params(min_one_sided_bars=4, one_sided_lookback=10)
+    heavy = shape_params(min_one_sided_bars=7, one_sided_lookback=10)
+    data = candle_dataset(close, light)
+    loose, tight = elasticband_signal(data, light), elasticband_signal(data, heavy)
+    assert tight.any()
+    assert (tight <= loose).all()
+    assert (tight < loose).any()
+
+
+def test_the_count_is_over_a_window_rather_than_over_an_unbroken_run() -> None:
+    """What separates it from ``min_bars_outside``: the bars need not be consecutive."""
+    close = walk(53)
+    windowed = shape_params(min_one_sided_bars=3, one_sided_lookback=6)
+    unbroken = shape_params(min_one_sided_bars=3, one_sided_lookback=3)
+    data = candle_dataset(close, windowed)
+    loose, tight = elasticband_signal(data, windowed), elasticband_signal(data, unbroken)
+    assert tight.any()
+    assert (tight <= loose).all()
+    assert (tight < loose).any()
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        shape_params(signal_shape=SHAPE_REVERSAL),
+        shape_params(signal_shape=SHAPE_RECLAIM),
+        shape_params(signal_shape=SHAPE_REJECTION, rejection_close_fraction=0.6),
+        shape_params(min_one_sided_bars=5, one_sided_lookback=8),
+    ],
+)
+def test_every_signal_bar_gate_reads_only_bars_up_to_and_including_its_own(params) -> None:
+    """The property the archetype is worthless without, run once per gate that was added."""
+    close = walk(59)
+    full = elasticband_signal(candle_dataset(close, params), params)
+    for cut in (120, 455, 799):
+        prefix = elasticband_signal(candle_dataset(close[:cut], params), params)
+        assert np.array_equal(prefix, full[:cut])
+
+
+def test_an_unknown_signal_shape_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match="unknown signal_shape 9"):
+        ElasticBandParams(signal_shape=9)
+
+
+@pytest.mark.parametrize("fraction", [-0.1, 1.1])
+def test_a_rejection_fraction_outside_the_bar_is_refused(fraction) -> None:
+    with pytest.raises(ValueError, match=r"must be in \[0, 1\]"):
+        ElasticBandParams(rejection_close_fraction=fraction)
+
+
+def test_a_one_sided_window_of_no_bars_is_refused() -> None:
+    with pytest.raises(ValueError, match="one_sided_lookback must be >= 1"):
+        ElasticBandParams(one_sided_lookback=0)
+
+
+def test_a_negative_one_sided_requirement_is_refused() -> None:
+    with pytest.raises(ValueError, match="min_one_sided_bars must be >= 0"):
+        ElasticBandParams(min_one_sided_bars=-1)
+
+
+def test_a_one_sided_requirement_no_window_could_meet_is_refused() -> None:
+    with pytest.raises(ValueError, match="no bar can ever pass"):
+        ElasticBandParams(min_one_sided_bars=11, one_sided_lookback=10)
+
+
+def test_a_shaped_run_produces_a_valid_trade_log() -> None:
+    close = walk(61, periods=1200)
+    params = shape_params(
+        signal_shape=SHAPE_REJECTION,
+        rejection_close_fraction=0.4,
+        min_one_sided_bars=5,
+        one_sided_lookback=10,
+        commission_per_contract=1.5,
+        slippage_ticks=1.0,
+    )
+    log = run_elasticband(candle_dataset(close, params), params)
+    assert not log.empty
+    validate(log)
 
 
 # -- the VWAP band as the second source -------------------------------------------
