@@ -1184,12 +1184,16 @@ This is the family `.claude/rules/sweep-and-context.md` already names — `dead_
 - **The promotion criteria under "Decisions taken" are still not met, and [#170] is still not earned.** The blocking facts are the sample size, the window dependence, and everything §M26.4 already owed — the VWAP basis is still unpinned, and every number here is off the back-adjusted continuous series rather than per contract.
 - **The one-sidedness axis should not be swept again as it stands.** Its low end is a dead value and its high end is a cost. If the idea is worth another attempt it needs the count taken over closes rather than bodies, or over a window that does not overlap the one `entry_std` already measures.
 
-#### What is deferred here, and why
+#### What is deferred, and where it went
 
-- **The recovery entry**, which is what "wait for a reaction" actually asks for: the run of bars outside ends at *i−1* and bar *i* closes back **inside** the band. Every shape here is evaluated on a bar that is still beyond the threshold, which is what makes the reaction so expensive to require and what killed the engulfing mode. It is a different trigger rather than a fourth shape and it belongs in its own change.
-- **Inverting the signal**, which [#221] also asks for. It is not free here: `TARGET_R` caps every target at the basis and that cap is a mean-reversion rule, `STOP_EXCURSION` hangs off the extreme of the run being faded, and the stretch ladder would need mirroring — three exit-side changes to answer an entry-side question. Untouched by this change.
-- **A volume requirement on the break**, [#221]'s first idea, **needs no code**: `volume_filter` at `HEAVY` on the signal bar is exactly it, and §M27.8 has already swept the volume dimension across the registry. Crossing it with the shape is a stratum on a later pass, not a parameter.
-- **Targets and stops at a named level.** `TARGET_STRETCH` already places every leg on a band coordinate, so "take profit at VWAP" is `target_stretch_levels = (0.0, …)` under `BAND_VWAP` and is what half of this campaign ran. The half that does not exist is a **stop** at a band level — the outer band rather than a distance or a swing — which is a fifth `stop_mode` and a separate change.
+[#221] carried six ideas at once and has been split so each can be measured on its own, which is what the tracker is for — **read the issues rather than this list**, which records only why each one is a separate change:
+
+- **The recovery entry** ([#278]) is what "wait for a reaction" actually asks for: the run of bars outside ends at *i−1* and bar *i* closes back **inside** the band. Every shape here is evaluated on a bar that is still beyond the threshold, which is what makes the reaction so expensive to require and what killed the engulfing mode. A different trigger rather than a fourth shape.
+- **Inverting the signal** ([#279]) is not free here: `TARGET_R` caps every target at the basis and that cap is a mean-reversion rule, `STOP_EXCURSION` hangs off the extreme of the run being faded, and the stretch ladder would need mirroring — three exit-side changes to answer an entry-side question.
+- **A stop at a band level** ([#280]) is the half of "specific TP/SL points" that does not already exist. `TARGET_STRETCH` places every leg on a band coordinate, so "take profit at VWAP" is `target_stretch_levels = (0.0, …)` under `BAND_VWAP` and is what half of this campaign ran; no `stop_mode` is a level on the channel the entry was measured against.
+- **A volume requirement on the break** ([#281]) **needs no code**: `volume_filter` at `HEAVY` on the signal bar is exactly it, and §M27.8 has already swept the volume dimension across the registry. Crossing it with the shape is a stratum on a later pass, not a parameter — and it may well be the same cut twice, which is what this campaign found for the one-sidedness count against `entry_std`.
+
+Two of the six needed nothing. The **band source** landed as §M26.4, and **profit-taking aggression as a sweepable axis** was answered by §M26 — "less aggressive is better, and it is the one exit axis that matters" — over a ladder that `ELASTIC_LADDERS` still varies.
 
 ### M27 — the registry-wide campaign: every archetype, every axis ([#195], [#196])
 
@@ -3955,7 +3959,11 @@ ______________________________________________________________________
 [#265]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/265
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
 [#273]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/273
+[#278]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/278
+[#279]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/279
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
+[#280]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/280
+[#281]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/281
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
