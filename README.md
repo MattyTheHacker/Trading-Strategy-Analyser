@@ -195,7 +195,7 @@ Notes you write on a trade are stored and shown but can never enter a calculatio
 
 ## Looking at one trade
 
-`nqbt.chart` draws a single trade on the bars it happened on and writes a standalone SVG: the candles either side of it, the stop and target it was carrying, where each exit landed and why, and how far price moved in each direction while the position was open. It works for any strategy, and for real trades as readily as simulated ones.
+`nqbt.chart` draws a single trade on the bars it happened on and writes a standalone SVG: the candles either side of it, the stop and target it was carrying, where each exit landed and why, how far price moved in each direction while the position was open, and the indicators the strategy was reading at the time. It works for any strategy, and for real trades as readily as simulated ones.
 
 ```python
 from nqbt import archetypes, chart, splice, sweep
@@ -208,18 +208,22 @@ data = sweep.prepare_for(bars, grid, price_basis=PriceBasis.RAW)
 _, log = sweep.run_combination(data, grid.base, MNQ, grid.archetype)
 
 worst = log.groupby("trade_id")["net_pnl"].sum().nsmallest(5).index
-for drawn in chart.charts(log, data, worst, bars_either_side=25):
+indicators = chart.overlays_for(data)
+for drawn in chart.charts(log, data, worst, bars_either_side=25, overlays=indicators):
     drawn.save(f"results/charts/trade-{drawn.trade_id}.svg")
 ```
 
 Use `sweep.prepare_for` to build the dataset. It reads the strategy's own declaration of which price series it needs, which is the only reliable way to get that right. Assemble one by hand and you get an error naming whatever you left out.
 
-Four things worth knowing before you read a chart:
+That declaration is also what `chart.overlays_for` draws: every moving average, band, VWAP, higher-timeframe average and session range the dataset holds, and nothing else. Name them one at a time — `chart.moving_average(data, "ema", 21)`, `chart.opening_range(data, key)` — when the whole set is too much to read. Moving averages need `needs_ma_values` on the spec, since a sweep otherwise keeps only the boolean gate.
+
+Five things worth knowing before you read a chart:
 
 - **A chart can tell you whether the simulator behaved correctly. It cannot tell you whether the strategy is any good.** Reading a dozen charts and forming an opinion is exactly the trap [nqbt/guard.py](nqbt/guard.py) exists to prevent, because you will find the pattern you went looking for. Every chart carries that warning along the bottom.
 - **Draw real trades against single-contract bars**, using `annotate.contract_bars`. The back-adjusted continuous series has had all its historical prices shifted, so the lookup still succeeds while every price is quietly wrong. A fill appearing nowhere near its candle is the chart showing you this has happened. The series being drawn is named in the corner.
 - **Nothing is drawn between entry and exit.** The shaded band marks the bars the position was open for. A line from one to the other would imply a path through those bars that the data does not record.
 - **The window is measured in bars, not minutes**, so a trade held for hundreds of bars produces a very wide image. `bars_either_side` controls how much context is drawn around the trade, not the trade itself.
+- **The trade's own geometry is dashed and the market's context is solid.** An overlay is clipped to the panel rather than fitted into it, so a long average sitting far from the window cannot squash the trade you were looking at. Only price-panel series can be drawn; an ATR or a relative volume would need a second panel and there isn't one.
 
 ## Repository layout
 
