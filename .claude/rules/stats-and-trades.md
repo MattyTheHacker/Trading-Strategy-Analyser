@@ -74,6 +74,16 @@ paths:
   `chart` refuses when it will not draw a path between two fills. A rule set that reads open
   equity **refuses** a log whose excursion columns are null rather than reading "unknown" as
   "none", which would report a pass the account never had.
+- **A firm that changes its rules when the account passes ships as two presets.** One
+  `AccountRules` holds one rule set, and TakeProfitTrader trails end-of-day during its
+  evaluation and intraday once funded. `TPT_50K_TEST` and `TPT_50K_PRO` are separate accounts
+  rather than a phase-aware rule set, because the alternative is a second conditional
+  definition of the floor inside the module whose premise is that there is one.
+  `docs/roadmap.md` § "A firm that changes its rules at the pass ships as two presets".
+- **`withdrawn` is what left the account and `payout` is what reached the trader.** The firm's
+  `profit_split` separates them, and `net` is the payout minus the fees. They must stay apart:
+  the reported `consistency` is a share of what *the account* made, so crediting the trader's
+  share to `withdrawn` inflates it by the firm's cut. `1.0` is the "no rule" value, not `0.0`.
 - **`propaccount` groups by the exchange trading day; `summarise` groups by the calendar date.**
   Both are right: a daily loss limit resets at the session open, and Sharpe is annualised from a
   count of calendar days. They disagree every evening, so do not "fix" one into the other.

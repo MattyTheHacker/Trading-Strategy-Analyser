@@ -343,6 +343,82 @@ def test_a_monthly_fee_is_charged_for_every_month_the_account_is_live() -> None:
     assert result.fees_paid == pytest.approx(100.0)
 
 
+def test_a_monthly_fee_that_ends_at_the_pass_stops_billing_there() -> None:
+    """A firm charging for the evaluation and nothing afterwards."""
+    log = leg_log([(0, 3_000.0, 1.0), (40, 10.0, 1.0)])
+    fees = AccountFees(monthly_fee=50.0, monthly_fee_ends_at_pass=True)
+    result = propaccount.replay(log, PropAccount(name="Test", rules=account().rules, fees=fees))
+
+    # It passed on 2 January and traded on into February, which it is no longer billed for.
+    assert result.runs[0].passed_on == dt.date(2024, 1, 2)
+    assert result.runs[0].last_day == dt.date(2024, 2, 11)
+    assert result.fees_paid == pytest.approx(50.0)
+
+
+def test_a_monthly_fee_that_ends_at_the_pass_bills_an_attempt_that_never_passed() -> None:
+    """The half that would make the flag a discount rather than a rule."""
+    log = leg_log([(0, -100.0, 1.0), (40, -100.0, 1.0)])
+    fees = AccountFees(monthly_fee=50.0, monthly_fee_ends_at_pass=True)
+    result = propaccount.replay(log, PropAccount(name="Test", rules=account().rules, fees=fees))
+
+    assert not result.runs[0].passed
+    assert result.fees_paid == pytest.approx(100.0)
+
+
+# -- the firm's split of what is withdrawn -------------------------------------
+
+
+def paying(**overrides) -> PropAccount:
+    """A rule set that passes and then withdraws without walking onto its own floor."""
+    return account(
+        withdrawal_threshold=1_000.0,
+        trail_lock=TrailLock.AT_STARTING_BALANCE,
+        **overrides,
+    )
+
+
+def test_the_profit_split_takes_its_share_of_the_payout_and_not_of_the_balance() -> None:
+    """The account gives up the whole withdrawal; the trader receives a share of it."""
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(4)])
+    run = propaccount.replay(log, paying(profit_split=0.80)).runs[0]
+
+    assert run.withdrawn == pytest.approx(3_000.0)
+    assert run.payout == pytest.approx(2_400.0)
+    # The balance is back at the safety net, not 600 above it.
+    assert run.final_balance == pytest.approx(51_000.0)
+
+
+def test_the_net_of_an_attempt_is_the_payout_and_never_the_gross() -> None:
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(4)])
+    fees = AccountFees(evaluation_fee=100.0)
+    split = PropAccount(name="Test", rules=paying(profit_split=0.50).rules, fees=fees)
+    result = propaccount.replay(log, split)
+
+    assert result.withdrawn == pytest.approx(3_000.0)
+    assert result.payout == pytest.approx(1_500.0)
+    assert result.net == pytest.approx(1_400.0)
+
+
+def test_the_default_split_leaves_the_payout_equal_to_the_withdrawal() -> None:
+    """What makes the field additive: every preset written before it is unchanged."""
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(4)])
+    result = propaccount.replay(log, paying())
+
+    assert account().rules.profit_split == 1.0
+    assert result.payout == pytest.approx(result.withdrawn)
+
+
+def test_a_split_does_not_change_what_the_account_itself_made() -> None:
+    """The consistency figure is the account's profit, so the firm's share must not shrink it."""
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(4)])
+    halved = propaccount.replay(log, paying(profit_split=0.50)).runs[0]
+    whole = propaccount.replay(log, paying()).runs[0]
+
+    assert halved.payout == pytest.approx(1_500.0)
+    assert halved.consistency == pytest.approx(whole.consistency)
+    assert halved.consistency == pytest.approx(0.25)
+
+
 # -- resets --------------------------------------------------------------------
 
 
@@ -599,6 +675,99 @@ def test_the_two_firms_disagree_about_what_raises_the_floor() -> None:
     assert propaccount.TOPSTEP_50K.rules.trail_basis is TrailBasis.END_OF_DAY
 
 
+# TakeProfitTrader's published table, which is what these presets have to reproduce:
+# account size, profit target, maximum trailing drawdown.
+TPT_TABLE = [
+    (propaccount.TPT_25K_TEST, 25_000.0, 1_500.0, 1_500.0),
+    (propaccount.TPT_25K_PRO, 25_000.0, 0.0, 1_500.0),
+    (propaccount.TPT_50K_TEST, 50_000.0, 3_000.0, 2_000.0),
+    (propaccount.TPT_50K_PRO, 50_000.0, 0.0, 2_000.0),
+    (propaccount.TPT_150K_TEST, 150_000.0, 9_000.0, 4_500.0),
+    (propaccount.TPT_150K_PRO, 150_000.0, 0.0, 4_500.0),
+]
+
+
+@pytest.mark.parametrize(
+    ("preset", "balance", "target", "drawdown"),
+    TPT_TABLE,
+    ids=lambda value: getattr(value, "name", value),
+)
+def test_a_takeprofittrader_preset_carries_its_published_row(
+    preset,
+    balance,
+    target,
+    drawdown,
+) -> None:
+    """The three figures the firm publishes per account size, checked against the table."""
+    assert preset.rules.starting_balance == balance
+    assert preset.rules.profit_target == target
+    assert preset.rules.trailing_threshold == drawdown
+
+
+@pytest.mark.parametrize("preset", [row[0] for row in TPT_TABLE], ids=lambda a: a.name)
+def test_the_takeprofittrader_buffer_zone_is_its_own_drawdown(preset) -> None:
+    """The firm defines the withdrawal floor as the drawdown, rather than as a separate number."""
+    assert preset.rules.withdrawal_threshold == preset.rules.trailing_threshold
+    assert preset.rules.profit_split == 0.80
+    assert preset.rules.trail_lock is TrailLock.AT_STARTING_BALANCE
+    assert preset.rules.trail_breach is EquityBasis.UNREALISED
+
+
+@pytest.mark.parametrize(
+    ("test_account", "pro_account"),
+    [
+        (propaccount.TPT_25K_TEST, propaccount.TPT_25K_PRO),
+        (propaccount.TPT_50K_TEST, propaccount.TPT_50K_PRO),
+        (propaccount.TPT_150K_TEST, propaccount.TPT_150K_PRO),
+    ],
+    ids=["25K", "50K", "150K"],
+)
+def test_takeprofittrader_changes_its_rules_when_the_account_passes(
+    test_account,
+    pro_account,
+) -> None:
+    """The reason it ships as two presets: one `AccountRules` cannot hold both phases."""
+    assert test_account.rules.trail_basis is TrailBasis.END_OF_DAY
+    assert pro_account.rules.trail_basis is TrailBasis.INTRADAY
+
+    # The evaluation's two gates are the funded account's neither.
+    assert test_account.rules.consistency_ratio == 0.50
+    assert test_account.rules.minimum_trading_days == 3
+    assert pro_account.rules.consistency_ratio == 0.0
+    assert pro_account.rules.minimum_trading_days == 0
+
+
+@pytest.mark.parametrize(
+    ("test_account", "pro_account"),
+    [
+        (propaccount.TPT_25K_TEST, propaccount.TPT_25K_PRO),
+        (propaccount.TPT_50K_TEST, propaccount.TPT_50K_PRO),
+        (propaccount.TPT_150K_TEST, propaccount.TPT_150K_PRO),
+    ],
+    ids=["25K", "50K", "150K"],
+)
+def test_a_takeprofittrader_pro_account_carries_no_monthly_fee(
+    test_account,
+    pro_account,
+) -> None:
+    """The subscription is the evaluation's; the funded account pays $130 once and nothing more."""
+    assert test_account.fees.monthly_fee > 0.0
+    assert test_account.fees.monthly_fee_ends_at_pass
+    assert pro_account.fees.monthly_fee == 0.0
+    assert pro_account.fees.evaluation_fee == 130.0
+    assert pro_account.fees.activation_fee == 0.0
+
+
+def test_a_takeprofittrader_pro_account_may_withdraw_before_it_has_a_target_to_hit() -> None:
+    """A funded account withdraws above the buffer from day one, which a zero target expresses."""
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(4)])
+    run = propaccount.replay(log, propaccount.TPT_50K_PRO).runs[0]
+
+    assert run.passed_on == dt.date(2024, 1, 2)
+    assert run.withdrawn == pytest.approx(2_000.0)
+    assert run.payout == pytest.approx(1_600.0)
+
+
 def test_a_preset_is_found_by_name_case_insensitively() -> None:
     assert propaccount.preset("apex 50k") is propaccount.APEX_50K
     assert propaccount.preset("  TopStep 150K ") is propaccount.TOPSTEP_150K
@@ -643,6 +812,13 @@ def test_fewer_than_one_account_is_refused(count) -> None:
 def test_a_consistency_ratio_above_one_is_refused() -> None:
     with pytest.raises(PropAccountError, match="cannot exceed 1.0"):
         account(consistency_ratio=1.5)
+
+
+@pytest.mark.parametrize("share", [0.0, -0.5, 1.5])
+def test_a_profit_split_outside_its_range_is_refused(share) -> None:
+    """0.0 is refused rather than read as "off", which is the convention every other field uses."""
+    with pytest.raises(PropAccountError, match="profit_split"):
+        account(profit_split=share)
 
 
 @pytest.mark.parametrize(
