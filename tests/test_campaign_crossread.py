@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 
 from tools.campaign_crossread import (
-    BACKFILLED,
     CELL_KEYS,
     MISSING,
     WINDOWS,
@@ -23,9 +22,11 @@ from tools.campaign_crossread import (
     matrix,
     paired,
     pairing_columns,
+    ran_at,
 )
 from tools.campaign_report import TAGS, UNFILTERED
 
+from nqbt import archetypes
 from nqbt.sim.types import DeadCatParams, OpeningRangeParams
 
 
@@ -158,15 +159,26 @@ def test_backfilling_that_column_does_not_pair_two_different_caps() -> None:
     assert paired(frame).empty
 
 
-def test_every_backfilled_column_states_the_value_its_rows_ran_at() -> None:
-    """The default is what a row stored before the column existed ran at; a changed one lies."""
-    defaults = {
-        name: getattr(params, name)
-        for params in (DeadCatParams(), OpeningRangeParams())
-        for name in BACKFILLED
-        if hasattr(params, name)
-    }
-    assert defaults == BACKFILLED
+def test_the_defaults_are_the_archetypes_own_rather_than_a_list_to_maintain() -> None:
+    """A column added to an archetype has to reach the join key without anyone editing this."""
+    assert ran_at("OpeningRange")["follow_through_sessions"] == OpeningRangeParams().follow_through_sessions
+    assert ran_at("InsideBar")["max_hold_bars"] == DeadCatParams().max_hold_bars
+
+
+def test_an_archetype_carries_no_default_for_another_archetypes_parameter() -> None:
+    """Filling one would invent a value the rows never ran at."""
+    assert "follow_through_scaling" not in ran_at("InsideBar")
+    assert "follow_through_scaling" in ran_at("OpeningRange")
+
+
+def test_every_registered_archetype_states_its_defaults() -> None:
+    for name in archetypes.names():
+        assert ran_at(name), name
+
+
+def test_a_parameter_that_is_not_a_scalar_is_left_out_of_the_join_key() -> None:
+    """A tuple default cannot stand in for an absence, and `fillna` would raise on it."""
+    assert all(isinstance(value, bool | int | float | str) for value in ran_at("OpeningRange").values())
 
 
 def test_a_frame_with_no_unfiltered_row_pairs_nothing() -> None:
