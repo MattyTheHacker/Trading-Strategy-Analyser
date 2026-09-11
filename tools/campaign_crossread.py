@@ -82,7 +82,7 @@ def ran_at(strategy: str) -> dict[str, bool | int | float | str]:
 
     return {
         field.name: value
-        for field in fields(params)  # type: ignore[arg-type]  # Params is a Protocol, the instance is a dataclass
+        for field in fields(params)
         if isinstance(value := getattr(params, field.name), SCALARS)
     }
 
