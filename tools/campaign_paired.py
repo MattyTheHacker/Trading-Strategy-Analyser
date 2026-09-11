@@ -100,9 +100,23 @@ def cells(frame: pd.DataFrame, keys: list[str], by: str) -> pd.DataFrame:
     return pd.DataFrame({"median": grouped.median(), "best": grouped.max(), "rows": grouped.size()})
 
 
-def paired(control: pd.DataFrame, treatment: pd.DataFrame, by: str) -> pd.DataFrame:
-    """Every cell both arms are viable in, with the control and treatment values side by side."""
-    keys: list[str] = CELL_KEYS + shared_columns(control, treatment)
+def paired(
+    control: pd.DataFrame,
+    treatment: pd.DataFrame,
+    by: str,
+    cell_keys: list[str] | None = None,
+) -> pd.DataFrame:
+    """Every cell both arms are viable in, with the control and treatment values side by side.
+
+    ``cell_keys`` widens :data:`CELL_KEYS` for a caller whose two arms span several base
+    variants -- ``tools/campaign_hold.py`` pairs within each of them at once, and ``variant``
+    is a tag rather than a parameter, so nothing else would keep them apart.
+    """
+    # De-duplicated, order kept: a caller naming a column ``shared_columns`` also derives must
+    # not key on it twice, which ``reset_index`` refuses rather than ignores.
+    keys: list[str] = list(
+        dict.fromkeys((cell_keys or CELL_KEYS) + shared_columns(control, treatment)),
+    )
     joined: pd.DataFrame = cells(control, keys, by).join(
         cells(treatment, keys, by),
         how="inner",
@@ -120,13 +134,17 @@ def sign_test(improved: int, total: int) -> float:
     Exact rather than normal-approximated, and written out rather than imported: the campaign
     runs on nine pinned dependencies and this is four lines. A cell whose difference is exactly
     zero is counted as not improved, which is the conservative direction.
+
+    **The division stays in integers until the last step**, because ``2.0 ** total`` is an
+    overflow above 1,023 pairs and the quotient is always in [0, 1] -- a cell holding a whole
+    grid reaches that, and the exception is raised rather than the p-value ([#292]).
     """
     if total <= 0:
         return float("nan")
 
-    tail: float = sum(math.comb(total, k) for k in range(min(improved, total - improved) + 1))
+    tail: int = sum(math.comb(total, k) for k in range(min(improved, total - improved) + 1))
 
-    return min(1.0, 2.0 * tail / 2.0**total)
+    return min(1.0, 2.0 * (tail / 2**total))
 
 
 def verdict(frame: pd.DataFrame) -> pd.DataFrame:

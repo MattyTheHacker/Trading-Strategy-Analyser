@@ -69,6 +69,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M28.14`                                          | [M28.14 — every stratum against its unfiltered twin, and the cell that survives it](m28-14-stratum-cross-read.md)                   | all 7                                                                   | 3          | `mixed`       | [#285]                         |
 | `§M28.15`                                          | [M28.15 — the midday cell through the three reads that stopped it being a recommendation](m28-15-midday-cell.md)                    | OpeningRange                                                            | 4          | `mixed`       | [#287]                         |
 | `§M28.16`                                          | [M28.16 — the ten consistent cells through the matched null, and what a consistency score is worth](m28-16-consistent-cells.md)     | DeadCatBounce, EmaCrossover, InsideBar, InsideBarTrailing, OpeningRange | 3          | `mixed`       | [#288]                         |
+| `§M29`                                             | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)                    | all 7                                                                   | 1, 2       | `negative`    | [#292]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                       | EmaCrossover                                                            | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                               | EmaCrossover                                                            | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                       | EmaCrossover                                                            | --         | `spec`        | [#74]                          |
@@ -224,6 +225,10 @@ Ten of ten walk-forward folds are profitable out of sample and the account funds
 
 Four cells clear p = 0.05 on both roots — three OpeningRange's and one InsideBarTrailing's midday cell — and a consistency score does not order the null result, correlating −0.132 with it.
 
+**[M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)**
+
+Capping a trade's length is a cost on all seven archetypes and the cost is monotone in the cap; the selection window picks a paying rung zero times in seven, and the two ported archetypes hold too briefly to reach one at all.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -269,6 +274,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#285]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/285
 [#287]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/287
 [#288]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/288
+[#292]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/292
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41

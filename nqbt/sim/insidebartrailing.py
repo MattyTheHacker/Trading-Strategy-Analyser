@@ -74,6 +74,7 @@ class InsideBarTrailingRules(NamedTuple):
     position_update_loss_gate: float
     bars_required: int
     block_entry_at_session_close: bool
+    max_hold_bars: int
 
 
 @njit(cache=True)
@@ -247,6 +248,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     trade_id = 0
 
     in_position = False
+    pending_time_exit = False
     pending_bar = -1
     pending_direction = 0.0
 
@@ -272,7 +274,24 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
         position_changed = False
 
         # ---- the live brackets, resolved against this bar -------------------------------
-        if in_position:
+        if in_position and pending_time_exit:
+            # One market order for both lots, submitted at the close of bar i-1 and filled at
+            # this bar's first price, so the excursion stays where it was.
+            written = flatten_lots(
+                out,
+                written,
+                trade,
+                bracket.LegExit(i, bars.open_[i] - d * slippage, trades.EXIT_TIME_LIMIT, False),
+                lots,
+                legs,
+                excursion,
+                costs,
+            )
+            if written < 0:
+                return -1
+
+            in_position = False
+        elif in_position:
             excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
             before = open_lots(legs)
             written, trigger_fill = resolve_lots(
@@ -435,6 +454,8 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
 
                 in_position = False
 
+        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
+
         if in_position or i <= rules.bars_required or not signal[i]:
             continue
 
@@ -508,6 +529,7 @@ def insidebartrailing_legs(
             position_update_loss_gate=params.position_update_loss_gate,
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
+            max_hold_bars=params.max_hold_bars,
         ),
         out,
     )

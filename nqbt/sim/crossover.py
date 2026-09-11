@@ -69,6 +69,7 @@ class CrossoverRules(NamedTuple):
     bars_required: int
     exit_on_opposite_cross: bool
     block_entry_at_session_close: bool
+    max_hold_bars: int
 
 
 @njit(cache=True)
@@ -103,6 +104,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
 
     in_position = False
     pending_exit = False
+    pending_exit_reason = trades.EXIT_SIGNAL
     pending_bar = -1
     pending_direction = 0.0
 
@@ -121,23 +123,18 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
         if in_position and pending_exit:
             # The exit was submitted at the close of bar i-1 and fills at this bar's first
             # price, so the excursion stays where it was.
-            fill = bars.open_[i] - d * slippage
-            for leg in range(n_legs):
-                if legs.is_open[leg]:
-                    written = bracket.write_leg(
-                        out,
-                        written,
-                        trade,
-                        legs,
-                        leg,
-                        bracket.LegExit(i, fill, trades.EXIT_SIGNAL, False),
-                        excursion,
-                        costs,
-                    )
-                    if written < 0:
-                        return -1
+            written = bracket.flatten_position(
+                out,
+                written,
+                trade,
+                legs,
+                bracket.LegExit(i, bars.open_[i] - d * slippage, pending_exit_reason, False),
+                excursion,
+                costs,
+            )
+            if written < 0:
+                return -1
 
-                    legs.is_open[leg] = False
             in_position = False
         elif in_position:
             excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
@@ -215,6 +212,12 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
 
         if in_position and rules.exit_on_opposite_cross and direction_at[i] != d:
             pending_exit = True
+            pending_exit_reason = trades.EXIT_SIGNAL
+
+        # After the opposite cross, which would have closed the position on this bar anyway.
+        if in_position and not pending_exit and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars):
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_TIME_LIMIT
 
         if (
             i >= rules.bars_required
@@ -230,21 +233,17 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
     # Anything still open when the series runs out is liquidated at the last bar.
     if in_position:
         last = n - 1
-        exit_fill = bars.close[last] - d * slippage
-        for leg in range(n_legs):
-            if legs.is_open[leg]:
-                written = bracket.write_leg(
-                    out,
-                    written,
-                    trade,
-                    legs,
-                    leg,
-                    bracket.LegExit(last, exit_fill, trades.EXIT_END_OF_DATA, False),
-                    excursion,
-                    costs,
-                )
-                if written < 0:
-                    return -1
+        written = bracket.flatten_position(
+            out,
+            written,
+            trade,
+            legs,
+            bracket.LegExit(last, bars.close[last] - d * slippage, trades.EXIT_END_OF_DATA, False),
+            excursion,
+            costs,
+        )
+        if written < 0:
+            return -1
 
     return written
 
@@ -438,6 +437,7 @@ def crossover_legs(
             bars_required=params.bars_required_to_trade,
             exit_on_opposite_cross=params.exit_on_opposite_cross,
             block_entry_at_session_close=params.block_entry_at_session_close,
+            max_hold_bars=params.max_hold_bars,
         ),
         out,
     )

@@ -43,6 +43,7 @@ class InsideBarRules(NamedTuple):
     tp_multiplier: float
     bars_required: int
     block_entry_at_session_close: bool
+    max_hold_bars: int
 
 
 @njit(cache=True)
@@ -77,6 +78,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     trade_id = 0
 
     in_position = False
+    pending_time_exit = False
     pending_bar = -1
     pending_direction = 0.0
 
@@ -92,7 +94,23 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
     for i in range(n):
         # ---- the live bracket, resolved against this bar --------------------------------
-        if in_position:
+        if in_position and pending_time_exit:
+            # Submitted at the close of bar i-1 and filled at this bar's first price, so the
+            # excursion stays where it was.
+            written = bracket.flatten_position(
+                out,
+                written,
+                trade,
+                legs,
+                bracket.LegExit(i, bars.open_[i] - d * slippage, trades.EXIT_TIME_LIMIT, False),
+                excursion,
+                costs,
+            )
+            if written < 0:
+                return -1
+
+            in_position = False
+        elif in_position:
             excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
             written, in_position = bracket.resolve_brackets(
                 out,
@@ -178,6 +196,8 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
             pending_bar = -1
 
+        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
+
         # ---- close of bar i: schedule the next bar's entry -------------------------------
         if in_position or i <= rules.bars_required or not signal[i]:
             continue
@@ -191,21 +211,17 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     # Anything still open when the series runs out is liquidated at the last bar.
     if in_position:
         last = n - 1
-        exit_fill = bars.close[last] - d * slippage
-        for leg in range(n_legs):
-            if legs.is_open[leg]:
-                written = bracket.write_leg(
-                    out,
-                    written,
-                    trade,
-                    legs,
-                    leg,
-                    bracket.LegExit(last, exit_fill, trades.EXIT_END_OF_DATA, False),
-                    excursion,
-                    costs,
-                )
-                if written < 0:
-                    return -1
+        written = bracket.flatten_position(
+            out,
+            written,
+            trade,
+            legs,
+            bracket.LegExit(last, bars.close[last] - d * slippage, trades.EXIT_END_OF_DATA, False),
+            excursion,
+            costs,
+        )
+        if written < 0:
+            return -1
 
     return written
 
@@ -310,6 +326,7 @@ def insidebar_legs(
             tp_multiplier=params.tp_multiplier,
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
+            max_hold_bars=params.max_hold_bars,
         ),
         out,
     )

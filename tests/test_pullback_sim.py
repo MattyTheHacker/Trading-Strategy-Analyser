@@ -36,6 +36,7 @@ def run(
     instrument=MNQ,
     bars_required=0,
     ratchet_lag=1,  # PullBackAndGo.cs ratchets off Low[1]
+    max_hold_bars=0,
     fill_limit_on_touch=True,
     ambiguity_policy=0,
     round_targets=False,  # engine default here; PullBackAndGoParams ships True (M15.5)
@@ -70,6 +71,7 @@ def run(
             ratchet_lag=ratchet_lag,
             ratchet_offset_ticks=0.0,  # bare Low[1], no offset reapplied
             block_entry_at_session_close=True,
+            max_hold_bars=max_hold_bars,
             direction=LONG,
         ),
         out,
@@ -406,3 +408,22 @@ def test_a_gate_reads_whichever_kind_its_parameters_name() -> None:
     assert not np.array_equal(pullback_signal(data, base), as_hma), "the kind changed nothing"
     expected = data.geometry.hammer & data.ma_gate("hma", base.ema_period, above=True)
     assert np.array_equal(as_hma, expected)
+
+
+def test_the_hold_limit_reaches_the_shared_loop_from_pullbackandgos_parameters() -> None:
+    """The loop is DeadCatBounce's, so what is proved here is the wiring either side of it."""
+    bars = synthetic_bars()
+    params = PullBackAndGoParams(bars_required_to_trade=200, max_hold_bars=1)
+    data = context.prepare(
+        bars,
+        context.ContextSpec(
+            ma_keys=conditions.ma_keys(
+                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
+            ),
+            needs_vwap=True,
+        ),
+    )
+    log = run_pullbackandgo(data, params, MNQ)
+    assert not log.empty, "fixture produced no trades; the test proves nothing"
+    assert (log["exit_reason"] == "time_limit").any()
+    assert log["bars_held"].max() <= params.max_hold_bars + 1

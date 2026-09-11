@@ -332,3 +332,14 @@ def test_an_insidebar_grid_sweeps_end_to_end() -> None:
     assert results["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
     assert "error_margin" in results.columns
     assert "require_previous_green" not in results.columns
+
+
+def test_every_archetype_can_be_swept_on_the_maximum_hold_time() -> None:
+    """The exit every archetype owns, so a grid must be able to reach it on all of them.
+
+    A missing field would not raise -- ``sweep_axes`` would reject the axis by name, and a
+    campaign would quietly never test it.
+    """
+    for a in archetypes.all_archetypes():
+        assert "max_hold_bars" in a.sweepable, a.name
+        assert a.params_cls().max_hold_bars == 0, a.name

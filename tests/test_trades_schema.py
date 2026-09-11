@@ -73,17 +73,24 @@ def test_column_indices_address_their_own_names() -> None:
         assert trades.COLUMNS[index] == name
 
 
-def test_exit_signal_is_reserved_for_a_future_rule_driven_exit() -> None:
+def test_every_exit_code_is_distinct_and_named() -> None:
     # DeadCatBounce has no rule-driven exit -- every exit today is a bracket level or the
-    # session close. EXIT_SIGNAL exists for EMA crossover (M18) and InsideBarTrailing.cs.
-    assert trades.EXIT_REASONS[trades.EXIT_SIGNAL] == "signal"
-    other_reasons = {
+    # session close. EXIT_SIGNAL is the archetypes' own rules (M18, InsideBarTrailing.cs,
+    # ElasticBand's invalidation); EXIT_TIME_LIMIT is the maximum hold time every archetype
+    # carries, which is why it is not EXIT_SIGNAL.
+    codes = [
         trades.EXIT_STOP,
         trades.EXIT_TARGET,
         trades.EXIT_SESSION_CLOSE,
         trades.EXIT_END_OF_DATA,
-    }
-    assert trades.EXIT_SIGNAL not in other_reasons
+        trades.EXIT_SIGNAL,
+        trades.EXIT_TIME_LIMIT,
+    ]
+    assert len(set(codes)) == len(codes)
+    assert set(codes) == set(trades.EXIT_REASONS)
+    assert trades.EXIT_REASONS[trades.EXIT_SIGNAL] == "signal"
+    assert trades.EXIT_REASONS[trades.EXIT_TIME_LIMIT] == "time_limit"
+    assert len(set(trades.EXIT_REASONS.values())) == len(codes)
 
 
 def test_every_nullable_column_is_actually_in_the_schema() -> None:
@@ -331,6 +338,33 @@ def test_the_trade_schema_knows_nothing_about_bars_or_strategies() -> None:
         if m.startswith(("nqbt.sim", "nqbt.context", "nqbt.conditions", "nqbt.indicators"))
     }
     assert not offenders, f"nqbt/trades.py must stay standalone; found {offenders}"
+
+
+def references(module: str, name: str) -> bool:
+    """Whether ``module`` spends ``name``, imported either way.
+
+    ``names_used_in`` sees ``trades.EXIT_SIGNAL`` and ``imports_of`` sees
+    ``from nqbt.trades import EXIT_SIGNAL``; the loops are split across both forms.
+    """
+    return name in names_used_in(module) or f"nqbt.trades.{name}" in imports_of(module)
+
+
+def test_the_import_analysis_sees_a_constant_spent_either_way() -> None:
+    """Guards the guard below, which would otherwise pass on whichever half it cannot see."""
+    assert references("sim/deadcat.py", "EXIT_END_OF_DATA"), "the from-import form"
+    assert references("sim/crossover.py", "EXIT_END_OF_DATA"), "the attribute form"
+
+
+def test_the_maximum_hold_time_is_written_by_every_archetypes_loop() -> None:
+    """The shared exit, so the guard is the mirror image of EXIT_SIGNAL's below.
+
+    ``bracket.py`` stays out of it: the loops decide the bar, the price and the reason, and
+    the engine only writes what it is handed.
+    """
+    for module in ("deadcat", "crossover", "insidebar", "insidebartrailing", "elasticband", "openingrange"):
+        assert references(f"sim/{module}.py", "EXIT_TIME_LIMIT"), module
+
+    assert not references("sim/bracket.py", "EXIT_TIME_LIMIT")
 
 
 def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> None:

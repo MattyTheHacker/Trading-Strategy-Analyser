@@ -38,6 +38,7 @@ def run(
     direction=SHORT,
     ratchet_offset_ticks=2.0,  # DeadCatBounce.cs reapplies the entry's stop offset
     round_targets=True,  # DeadCatBounce.cs calls RoundToTickSize; PBG does not
+    max_hold_bars=0,
 ):
     """Simulate hand-written OHLC rows. ``signal_at`` lists signal bar indices."""
     arr = np.asarray(rows, dtype=np.float64)
@@ -69,6 +70,7 @@ def run(
             ratchet_lag=ratchet_lag,
             ratchet_offset_ticks=ratchet_offset_ticks,
             block_entry_at_session_close=block_entry_at_close,
+            max_hold_bars=max_hold_bars,
             direction=direction,
         ),
         out,
@@ -676,3 +678,64 @@ def test_targets_reached_first_is_direction_free() -> None:
     short_case = bracket.targets_reached_first(100.0, 104.0, 95.0, 1)
     long_case = bracket.targets_reached_first(100.0, 96.0, 105.0, 1)  # mirrored around 100
     assert short_case == long_case
+
+
+# -- the maximum hold time -----------------------------------------------------
+
+# Signal bar: low 100, high 104 -> trigger 100, stop 104.5. Bar 1 fills at 100 and the
+# bars after it are too narrow to reach either bracket level, so only the clock can exit.
+HELD = [
+    (102, 104, 100, 101),
+    (101, 102, 100, 100.5),
+    (100, 100.5, 99.5, 100),
+    (100, 100.5, 99.5, 100),
+    (100, 100.5, 99.5, 100),
+    (100, 100.5, 99.5, 100),
+]
+
+
+def test_the_hold_limit_leaves_at_the_next_bars_open() -> None:
+    trades = run(HELD, signal_at=[0], max_hold_bars=2)
+    # Filled on bar 1, so bar 3 is two bars later and the market order goes in at its close.
+    assert set(trades["exit_bar"]) == {4}
+    assert set(trades["exit_reason"]) == {"time_limit"}
+    assert set(trades["exit_price"]) == {100.0}
+    assert set(trades["bars_held"]) == {3}
+
+
+def test_the_hold_limit_closes_every_leg_at_once() -> None:
+    trades = run(HELD, signal_at=[0], max_hold_bars=2)
+    assert len(trades) == 4
+
+
+def test_a_hold_limit_of_zero_leaves_the_position_to_the_data() -> None:
+    assert set(run(HELD, signal_at=[0])["exit_reason"]) == {"end_of_data"}
+
+
+def test_slippage_worsens_the_hold_limits_fill_on_both_sides() -> None:
+    short_side = run(HELD, signal_at=[0], max_hold_bars=2, slippage=2.0)
+    # Reflected around 100, exactly as test_long_side_is_the_mirror_image_of_the_short_side.
+    long_side = run(
+        [(200 - o, 200 - low, 200 - high, 200 - c) for o, high, low, c in HELD],
+        signal_at=[0],
+        max_hold_bars=2,
+        slippage=2.0,
+        direction=LONG,
+    )
+    assert set(short_side["exit_price"]) == {100.5}
+    assert set(long_side["exit_price"]) == {99.5}
+
+
+def test_a_bracket_level_reached_inside_the_window_wins() -> None:
+    """The clock is a ceiling on the hold, not a replacement for the stop."""
+    trades = run(
+        [
+            *HELD[:2],
+            (100, 104.5, 99.5, 104),  # 2: reaches the 104.5 stop before the limit is due
+            *HELD[3:],
+        ],
+        signal_at=[0],
+        max_hold_bars=2,
+    )
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert set(trades["exit_bar"]) == {2}

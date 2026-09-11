@@ -88,6 +88,7 @@ def simulate(
     max_entries_per_session=0,
     bars_required=0,
     block_entry_at_close=True,
+    max_hold_bars=0,
     slippage=0.0,
     commission=0.0,
     instrument=MNQ,
@@ -155,6 +156,7 @@ def simulate(
             max_entries_per_session=max_entries_per_session,
             bars_required=bars_required,
             block_entry_at_session_close=block_entry_at_close,
+            max_hold_bars=max_hold_bars,
         ),
         out,
     )
@@ -735,6 +737,12 @@ def test_an_overflow_on_a_later_exit_is_reported_rather_than_written_past() -> N
     assert count == -1
 
 
+def test_an_overflow_on_the_hold_limit_is_reported_rather_than_written_past() -> None:
+    count, _ = simulate([BELOW, BREAKS, BELOW, BELOW], signal_at=(0,), max_rows=1, max_hold_bars=1, **LEGGED)
+
+    assert count == -1
+
+
 def test_only_the_legs_still_open_are_liquidated_at_the_end_of_the_data() -> None:
     """A leg that already took its target must not be written a second time."""
     trades = run([BELOW, BREAKS], signal_at=(0,), quantities=(1, 1), levels=(0.1, float("nan")))
@@ -1217,3 +1225,39 @@ def test_each_context_filter_narrows_the_signal(field: str, value: int) -> None:
 
     assert narrow.sum() < wide.sum(), field
     assert not (narrow & ~wide).any(), "a filter added signals rather than removing them"
+
+
+# -- the maximum hold time -----------------------------------------------------
+
+HELD = [BELOW, BREAKS, BELOW, BELOW, BELOW, BELOW]
+"""Fills at the range high on bar 1 and then stays inside the range, so only the clock exits."""
+
+
+def test_the_hold_limit_leaves_at_the_next_bars_open() -> None:
+    trades = run(HELD, signal_at=(0,), max_hold_bars=2)
+    # Filled on bar 1, so bar 3 is two bars later and the market order goes in at its close.
+    assert set(trades["exit_bar"]) == {4}
+    assert set(trades["exit_reason"]) == {"time_limit"}
+    assert set(trades["exit_price"]) == {100.0}
+    assert set(trades["bars_held"]) == {3}
+
+
+def test_a_hold_limit_of_zero_leaves_the_position_to_the_data() -> None:
+    assert set(run(HELD, signal_at=(0,))["exit_reason"]) == {"end_of_data"}
+
+
+def test_a_target_reached_inside_the_window_wins() -> None:
+    """The clock is a ceiling on the hold, not a replacement for the bracket."""
+    trades = run(
+        [BELOW, BREAKS, (112.0, 131.0, 111.0, 130.0), *HELD[3:]],
+        signal_at=(0,),
+        max_hold_bars=2,
+    )
+    assert set(trades["exit_reason"]) == {"target"}
+    assert set(trades["exit_bar"]) == {2}
+
+
+def test_the_order_rests_again_once_the_clock_has_flattened_the_position() -> None:
+    """Flat is flat: a level-based trigger goes back to resting, subject to the entry cap."""
+    trades = run([*HELD, BREAKS, BELOW], signal_at=(0, 5), max_hold_bars=2)
+    assert list(trades["entry_bar"]) == [1, 6]

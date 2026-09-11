@@ -94,6 +94,7 @@ class OpeningRangeRules(NamedTuple):
     max_entries_per_session: int
     bars_required: int
     block_entry_at_session_close: bool
+    max_hold_bars: int
 
 
 @njit(cache=True)
@@ -292,6 +293,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     waits_for_a_break = rules.entry_mode in ORB_BREAK_ENTRIES
 
     in_position = False
+    pending_time_exit = False
     pending_bar = -1
     pending_trigger = 0.0
     pending_stop = 0.0
@@ -313,7 +315,23 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             broken_this_session = False
 
         # ---- exits, using the stop and targets set when the order was submitted ------
-        if in_position:
+        if in_position and pending_time_exit:
+            # Submitted at the close of bar i-1 and filled at this bar's first price, so the
+            # excursion stays where it was.
+            written = bracket.flatten_position(
+                out,
+                written,
+                trade,
+                legs,
+                bracket.LegExit(i, bars.open_[i] - direction * slippage, trades.EXIT_TIME_LIMIT, False),
+                excursion,
+                costs,
+            )
+            if written < 0:
+                return -1
+
+            in_position = False
+        elif in_position:
             excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
             written, in_position = bracket.resolve_brackets(
                 out,
@@ -387,6 +405,8 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
             pending_bar = -1
 
+        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
+
         # ---- the break a fade or a retest waits for, remembered for the session ------
         # Updated whatever the submission guards below do, because a break that happens while
         # a position is open still happened.
@@ -441,21 +461,17 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     # The series can stop mid-session, so anything still open is liquidated at the last bar.
     if in_position:
         last = n - 1
-        exit_fill = bars.close[last] - direction * slippage
-        for leg in range(n_legs):
-            if legs.is_open[leg]:
-                written = bracket.write_leg(
-                    out,
-                    written,
-                    trade,
-                    legs,
-                    leg,
-                    bracket.LegExit(last, exit_fill, trades.EXIT_END_OF_DATA, False),
-                    excursion,
-                    costs,
-                )
-                if written < 0:
-                    return -1
+        written = bracket.flatten_position(
+            out,
+            written,
+            trade,
+            legs,
+            bracket.LegExit(last, bars.close[last] - direction * slippage, trades.EXIT_END_OF_DATA, False),
+            excursion,
+            costs,
+        )
+        if written < 0:
+            return -1
 
     return written
 
@@ -563,6 +579,7 @@ def openingrange_legs(
             max_entries_per_session=params.max_entries_per_session,
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
+            max_hold_bars=params.max_hold_bars,
         ),
         out,
     )

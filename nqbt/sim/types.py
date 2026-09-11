@@ -151,6 +151,13 @@ def validate_confluence(params: ContextFilterParams, required: int) -> None:
         raise ValueError(msg)
 
 
+def validate_max_hold_bars(max_hold_bars: int) -> None:
+    """Refuse a negative maximum hold time. ``0`` is how a rule set switches it off."""
+    if max_hold_bars < 0:
+        msg: str = f"max_hold_bars must be >= 0, got {max_hold_bars}"
+        raise ValueError(msg)
+
+
 @dataclass(slots=True)
 class DeadCatParams:
     """Rule set for the DeadCatBounce archetype.
@@ -311,6 +318,15 @@ class DeadCatParams:
     block_entry_at_session_close: bool = True
     """Whether a signal on the session's final bar is skipped."""
 
+    max_hold_bars: int = 0
+    """Bars a position may be held before a market exit is submitted, off at ``0``.
+
+    Absent from the NinjaScript, off by default, and on top of the session flatten every
+    archetype already has. The count is bars *since* the entry bar and the order fills at the
+    next bar's open, so a leg's ``bars_held`` reaches ``max_hold_bars + 1``. It is a bar count
+    rather than a duration, so it means a different amount of time at every resolution --
+    ``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its own exit code"."""
+
     ratchet_lag: int = 0
     """Which bar's high the trailing stop references at each bar close.
 
@@ -348,6 +364,7 @@ class DeadCatParams:
                 raise ValueError(msg)
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
+        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
 
     @property
@@ -502,6 +519,9 @@ class PullBackAndGoParams:
     block_entry_at_session_close: bool = True
     """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as DeadCatBounce."""
 
+    max_hold_bars: int = 0
+    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
+
     round_targets: bool = True
     """On, although ``PullBackAndGo.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
     anyway. See ``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
@@ -532,6 +552,7 @@ class PullBackAndGoParams:
                 raise ValueError(msg)
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
+        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
 
     @property
@@ -747,6 +768,10 @@ class EmaCrossoverParams:
 
     fill_limit_on_touch: bool = False
     block_entry_at_session_close: bool = True
+
+    max_hold_bars: int = 0
+    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -785,6 +810,7 @@ class EmaCrossoverParams:
             )
             raise ValueError(msg)
 
+        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
         validate_confluence(self, self.confluence_required)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
@@ -954,6 +980,9 @@ class InsideBarParams:
     block_entry_at_session_close: bool = True
     """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as both ports."""
 
+    max_hold_bars: int = 0
+    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
+
     round_targets: bool = True
     """On, although ``InsideBar.cs`` never calls ``RoundToTickSize``: NT8 snaps submitted
     prices anyway. **Here it covers the stop as well as the target**, which an ATR multiple
@@ -989,6 +1018,7 @@ class InsideBarParams:
             msg = f"no_entry_minutes_before_close must be >= 0, got {self.no_entry_minutes_before_close}"
             raise ValueError(msg)
 
+        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
 
     @property
@@ -1399,7 +1429,7 @@ class ElasticBandParams:
     The range broke and held, which is the mean-reversion definition of a failed trade."""
 
     max_hold_bars: int = 0
-    """Time stop in bars, off at ``0``, on top of the session flatten every archetype has."""
+    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     order_quantity: int = 4
 
@@ -1528,18 +1558,7 @@ class ElasticBandParams:
             )
             raise ValueError(msg)
 
-        if self.max_hold_bars < 0:
-            msg = f"max_hold_bars must be >= 0, got {self.max_hold_bars}"
-            raise ValueError(msg)
-
-        # Both write EXIT_SIGNAL, so a log carrying both cannot say which fired --
-        # ``docs/nt8-fidelity.md`` §M26.
-        if self.exit_on_invalidation and self.max_hold_bars > 0:
-            msg = (
-                "exit_on_invalidation and max_hold_bars both write EXIT_SIGNAL, so a trade "
-                "log with both on cannot say which exit fired; enable one per grid"
-            )
-            raise ValueError(msg)
+        validate_max_hold_bars(self.max_hold_bars)
 
     @property
     def target_levels(self) -> tuple[float, ...]:
@@ -1850,6 +1869,10 @@ class OpeningRangeParams:
 
     fill_limit_on_touch: bool = False
     block_entry_at_session_close: bool = True
+
+    max_hold_bars: int = 0
+    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -1862,6 +1885,7 @@ class OpeningRangeParams:
         self._validate_entry()
         self._validate_exit_scheme()
         self._validate_follow_through()
+        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
 
     def _validate_entry(self) -> None:

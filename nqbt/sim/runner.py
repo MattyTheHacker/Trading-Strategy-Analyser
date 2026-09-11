@@ -98,6 +98,7 @@ def deadcat_legs(
             # The ratchet reapplies the same offset as the entry.
             ratchet_offset_ticks=float(params.stop_offset_ticks),
             block_entry_at_session_close=params.block_entry_at_session_close,
+            max_hold_bars=params.max_hold_bars,
             direction=trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo does.
         ),
         out,
