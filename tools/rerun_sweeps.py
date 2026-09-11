@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 ROOTS = ("MNQ", "NQ")
 """Both roots, because NQ failing on its own years is corroboration rather than a second
-data point -- ``README.md`` § "Current finding"."""
+data point -- ``README.md`` § "What the search has found so far"."""
 
 COMMISSION = 1.50
 """Round-turn dollars per contract. The real figure, not the $0.74 the dropped rows carry."""

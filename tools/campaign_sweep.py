@@ -11,7 +11,7 @@ than six incomparable runs:
 Both roots, the spliced continuous series, resolutions 1/2/5/10/15, at the real commission for
 the root and one tick of slippage. ``--split`` re-runs the same grids on a selection window and
 a held-out window instead of the whole series, which is what makes a shortlist testable rather
-than a ranking of noise -- ``docs/roadmap.md`` § "Held out, and then the test it fails".
+than a ranking of noise -- ``docs/findings/m26-elastic-band.md`` § "Held out, and then the test it fails".
 
 **One database per archetype**, under ``results/campaign/``. A convention rather than a
 constraint since ``_append_or_create`` learned to widen a table instead of dropping what it

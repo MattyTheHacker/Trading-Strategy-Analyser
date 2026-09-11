@@ -73,7 +73,7 @@ column per statistic."""
 
 RANKINGS = ("profit_factor", "expectancy_excess", NET_TO_DRAWDOWN)
 """The orders :func:`rankings` compares. Profit factor is here to be disagreed with rather than
-to be believed -- ``docs/roadmap.md`` § "The method that does answer the question"."""
+to be believed -- ``docs/findings/m26-elastic-band.md`` § "The method that does answer the question"."""
 
 CELL_KEYS = ["root", "stratum"]
 """What one cell of a family run is. ``--resolution`` is fixed across a run rather than swept,

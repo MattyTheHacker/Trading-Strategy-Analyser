@@ -301,7 +301,7 @@ Figures are not repeated here, because they change with almost every merge. Rege
 
 ## What the search has found so far
 
-Every strategy has been swept across every setting it has, on both instruments, at realistic costs. The full method and the caveats are in `docs/roadmap.md` §M27 and §M28.1, which are worth reading before quoting any of this:
+Every strategy has been swept across every setting it has, on both instruments, at realistic costs. **[docs/findings/](docs/findings/README.md) is the short answer** — which strategies look best for a prop-firm account and for a regular one, with the parameters, the period and the caveats. Behind it: the [register](docs/findings/register.md) of every campaign, [by archetype](docs/findings/by-archetype.md) for one strategy's whole story, and [by gate](docs/findings/by-gate.md) for what has survived which check. The headlines:
 
 - **Only two strategies have ever beaten the coin flip: `InsideBar` and `OpeningRange`.** `OpeningRange` is the only one to pass the first three checks. What stops it at the fourth is not having enough trades to be sure, rather than evidence that it fails.
 - **What holds `InsideBar` back is where its exits are placed, not its entry.** The distance to the profit target matters enormously on the untouched half of the history and barely at all on the half used for choosing. The good setting exists, and there is no way to know in advance that it is the good one, which is the whole problem (§M27.3).
@@ -323,8 +323,9 @@ Every strategy has been swept across every setting it has, on both instruments, 
 
 | file                                         | what it holds                                                                        |
 | -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [docs/findings/](docs/findings/)             | every search that has been run, what it returned, and what it settles                |
 | [docs/nt8-fidelity.md](docs/nt8-fidelity.md) | every NinjaTrader rule the simulation copies, and the evidence for each one          |
-| [docs/roadmap.md](docs/roadmap.md)           | why the work happened in this order, what each stage found, and the decisions taken  |
+| [docs/roadmap.md](docs/roadmap.md)           | why the work happened in this order, the standing traps, and the decisions taken     |
 | [CONTRIBUTING.md](CONTRIBUTING.md)           | how to change the code: style, tests, commits, pull requests and the regression gate |
 | [CLAUDE.md](CLAUDE.md)                       | the same ground rules, written for an AI assistant working in this repository        |
 

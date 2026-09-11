@@ -57,7 +57,7 @@ two reports of one shortlist can be read side by side."""
 
 BY = "expectancy"
 """What a separation is measured in. Bounded by the largest win and defined where gross loss is
-zero, which profit factor is not -- ``docs/roadmap.md`` § "Reading the per-contract tally"."""
+zero, which profit factor is not -- ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally"."""
 
 SLIPPAGE_TOLERANCE = -1.0
 """``--price-tolerance`` unset: take the run's own slippage, which is the documented default.

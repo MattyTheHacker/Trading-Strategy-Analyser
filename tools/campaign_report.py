@@ -5,7 +5,7 @@
 
 Reports **distributions, not winners**. The best profit factor in a 300,000-row sweep is a
 statement about the size of the sweep; the median and the profitable share are statements about
-the strategy -- ``docs/roadmap.md`` § "Selecting on one contract is worse than not selecting".
+the strategy -- ``docs/findings/m26-elastic-band.md`` § "Selecting on one contract is worse than not selecting".
 
 **Every stored stratum is read, one dimension at a time.** §M27 swept twenty strata and reported
 one pooled row per stratum, which is how session phase and relative volume went into the campaign
@@ -128,7 +128,7 @@ def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
     """One summary's net P&L over its own worst peak-to-trough, undefined at no drawdown.
 
     Undefined rather than infinite, because an unbounded statistic wins a ranking it was never
-    measured on -- the defect ``docs/roadmap.md`` § "Reading the per-contract tally" records
+    measured on -- the defect ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally" records
     against profit factor. Rank with :func:`rank`, never with ``nlargest`` directly.
     """
     if max_drawdown <= 0.0:

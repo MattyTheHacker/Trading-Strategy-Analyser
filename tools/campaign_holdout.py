@@ -7,7 +7,7 @@ A sweep table ranks configurations; it cannot say whether the ranking means anyt
 question this answers is the one that decides whether an archetype is worth more work: **does
 picking the best 20 on the first 60% of the series beat not picking at all on the last 40%?**
 On this project's own data that has come out *below* the median of every configuration --
-``docs/roadmap.md`` § "Selecting on one contract is worse than not selecting".
+``docs/findings/m26-elastic-band.md`` § "Selecting on one contract is worse than not selecting".
 
 **One row per root and stratum**, because a stratum is its own question and its own sample --
 see :data:`GROUP_KEYS`. A stratum the split never ran simply has no row.
