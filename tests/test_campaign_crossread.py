@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from tools.campaign_crossread import (
+    BACKFILLED,
     CELL_KEYS,
     MISSING,
     WINDOWS,
@@ -139,6 +140,24 @@ def test_an_absent_parameter_still_pairs_rather_than_dropping_the_row() -> None:
 
 def test_the_sentinel_cannot_collide_with_a_real_parameter_value() -> None:
     assert MISSING < -1e6
+
+
+def test_a_column_a_sweep_predates_pairs_against_one_that_carries_its_off_value() -> None:
+    """`max_hold_bars` arrived with §M29, so every earlier row is null where a later one is 0."""
+    frame = twinned([1.4, 1.5, 1.6, 1.7], [1.0, 1.1, 1.2, 1.3])
+    frame["max_hold_bars"] = pd.array([pd.NA] * 4 + [0] * 4, dtype="Int64")
+    assert len(paired(frame)) == 4
+
+
+def test_backfilling_that_column_does_not_pair_two_different_caps() -> None:
+    """The null stands in for the off value alone; a real cap is still a parameter."""
+    frame = twinned([1.4, 1.5, 1.6, 1.7], [1.0, 1.1, 1.2, 1.3])
+    frame["max_hold_bars"] = pd.array([40] * 4 + [0] * 4, dtype="Int64")
+    assert paired(frame).empty
+
+
+def test_every_backfilled_column_states_the_value_its_rows_ran_at() -> None:
+    assert BACKFILLED == {"max_hold_bars": 0}
 
 
 def test_a_frame_with_no_unfiltered_row_pairs_nothing() -> None:

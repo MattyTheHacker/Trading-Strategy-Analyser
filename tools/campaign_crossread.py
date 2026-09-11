@@ -64,6 +64,13 @@ MISSING = -9.99e12
 """Stand-in for a NaN in a join key, because a NaN never equals itself and pandas would drop the
 pair silently. Outside every parameter's range, so it can only match another absence."""
 
+BACKFILLED = {"max_hold_bars": 0}
+"""Parameter columns added after rows were already stored, and the value those rows ran at.
+
+A sweep predating a column leaves it null, which is not the value it ran at -- so every pair
+between a row stored before the column and one stored after is dropped, silently and completely.
+``docs/findings/m30-volume-regime-recut.md`` is where that cost a campaign."""
+
 
 def probe_cuts() -> Cuts:
     """A calibration whose only job is to make the fitted stratum generators yield their axes.
@@ -142,6 +149,12 @@ def paired(frame: pd.DataFrame) -> pd.DataFrame:
 
     block: pd.DataFrame = frame[frame["variant"].isin(shared)].copy()
     keys: list[str] = [*pairing_columns(block), *CELL_KEYS, "variant"]
+    for column, ran_at in BACKFILLED.items():
+        if column not in keys:
+            continue
+
+        block[column] = block[column].fillna(ran_at)
+
     for column in keys:
         if block[column].dtype.kind == "f":
             block[column] = block[column].fillna(MISSING)
