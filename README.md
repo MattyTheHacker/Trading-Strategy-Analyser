@@ -301,7 +301,7 @@ Figures are not repeated here, because they change with almost every merge. Rege
 
 ## What the search has found so far
 
-Every strategy has been swept across every setting it has, on both instruments, at realistic costs. [docs/findings/](docs/findings/) is the register of what each search returned — [by archetype](docs/findings/by-archetype.md) if you want one strategy's whole story, [by gate](docs/findings/by-gate.md) if you want what has survived which check. The full method and the caveats are in §M27 and §M28.1, which are worth reading before quoting any of this:
+Every strategy has been swept across every setting it has, on both instruments, at realistic costs. **[docs/findings/](docs/findings/README.md) is the short answer** — which strategies look best for a prop-firm account and for a regular one, with the parameters, the period and the caveats. Behind it: the [register](docs/findings/register.md) of every campaign, [by archetype](docs/findings/by-archetype.md) for one strategy's whole story, and [by gate](docs/findings/by-gate.md) for what has survived which check. The headlines:
 
 - **Only two strategies have ever beaten the coin flip: `InsideBar` and `OpeningRange`.** `OpeningRange` is the only one to pass the first three checks. What stops it at the fourth is not having enough trades to be sure, rather than evidence that it fails.
 - **What holds `InsideBar` back is where its exits are placed, not its entry.** The distance to the profit target matters enormously on the untouched half of the history and barely at all on the half used for choosing. The good setting exists, and there is no way to know in advance that it is the good one, which is the whole problem (§M27.3).

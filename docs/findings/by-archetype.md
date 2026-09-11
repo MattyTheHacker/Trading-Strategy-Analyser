@@ -2,7 +2,7 @@
 
 # Findings by archetype
 
-The same campaigns as the [register](README.md), grouped by what they were run over. A registry-wide campaign appears under every archetype it covered.
+The same campaigns as the [register](register.md), grouped by what they were run over. A registry-wide campaign appears under every archetype it covered.
 
 ## DeadCatBounce
 

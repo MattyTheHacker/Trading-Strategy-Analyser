@@ -16,9 +16,10 @@ from tools.findings_index import (
     BY_ARCHETYPE,
     BY_GATE,
     GATES,
-    GENERATED,
+    NOT_A_FINDING,
     OUTCOMES,
     REGISTER,
+    SUMMARY,
     Finding,
     FrontMatterError,
     load,
@@ -89,7 +90,27 @@ def test_every_finding_parses_and_validates() -> None:
 def test_generated_views_are_not_read_as_findings() -> None:
     """A view carries no front matter, so loading one would raise rather than mislead."""
     slugs = {f.slug for f in load(FINDINGS)}
-    assert slugs.isdisjoint({Path(name).stem for name in GENERATED})
+    assert slugs.isdisjoint({Path(name).stem for name in NOT_A_FINDING})
+
+
+def test_the_hand_written_summary_is_never_generated(tmp_path: Path) -> None:
+    """README.md is the front door and is authored, so the tool must not touch or read it."""
+    assert SUMMARY not in views(load(FINDINGS))
+
+    write(tmp_path, "a-campaign", VALID)
+    summary = tmp_path / SUMMARY
+    summary.write_text("# Findings\n\nAuthored by hand.\n", encoding="utf-8")
+    assert main(["findings_index.py", "--directory", str(tmp_path)]) == 0
+    assert summary.read_text(encoding="utf-8") == "# Findings\n\nAuthored by hand.\n"
+
+
+def test_the_summary_points_at_the_strategies_it_names() -> None:
+    """Its two sections are the reason the directory has a front door at all."""
+    summary = (FINDINGS / SUMMARY).read_text(encoding="utf-8")
+    assert "## For a prop-firm account" in summary
+    assert "## For a regular account" in summary
+    for view in (REGISTER, BY_ARCHETYPE, BY_GATE):
+        assert f"({view})" in summary, f"the summary does not link {view}"
 
 
 def test_findings_are_ordered_by_milestone_not_by_filename() -> None:

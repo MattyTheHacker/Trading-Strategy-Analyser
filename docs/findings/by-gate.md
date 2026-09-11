@@ -2,7 +2,7 @@
 
 # Findings by gate
 
-The same campaigns as the [register](README.md), grouped by which of the four gates each one reports on. A campaign reporting on gate 3 appears here whether it passed or failed -- the `outcome` column and the file itself are what say which.
+The same campaigns as the [register](register.md), grouped by which of the four gates each one reports on. A campaign reporting on gate 3 appears here whether it passed or failed -- the `outcome` column and the file itself are what say which.
 
 ## Gate 1 -- the selection window -- does it make money at all
 

@@ -4,7 +4,8 @@
     ./.venv/Scripts/python.exe tools/findings_index.py --check
 
 ``docs/findings/`` holds one file per campaign. This reads the YAML front matter off each and
-writes ``README.md``, ``by-archetype.md`` and ``by-gate.md`` beside them. ``--check`` exits 1
+writes ``register.md``, ``by-archetype.md`` and ``by-gate.md`` beside them. ``README.md`` is
+hand-written and is not touched. ``--check`` exits 1
 when a generated file is out of date, which is what ``tests/test_findings_index.py`` runs.
 
 Generated rather than hand-maintained -- ``docs/roadmap.md`` § "Documentation must not carry a
@@ -30,12 +31,18 @@ logger = logging.getLogger(__name__)
 
 FINDINGS = Path(__file__).resolve().parent.parent / "docs" / "findings"
 
-REGISTER = "README.md"
+SUMMARY = "README.md"
+"""The hand-written front door. Never generated, and never read as a finding."""
+
+REGISTER = "register.md"
 BY_ARCHETYPE = "by-archetype.md"
 BY_GATE = "by-gate.md"
 
 GENERATED = (REGISTER, BY_ARCHETYPE, BY_GATE)
 """The views this tool writes. Skipped when loading, so they are never read as findings."""
+
+NOT_A_FINDING = (SUMMARY, *GENERATED)
+"""Everything in the directory that carries no front matter."""
 
 FIELDS = ("id", "title", "archetypes", "issues", "gates", "outcome", "verdict")
 LIST_FIELDS = ("archetypes", "issues", "gates")
@@ -164,7 +171,7 @@ def load(directory: Path = FINDINGS) -> list[Finding]:
     known = set(archetypes.names())
     findings: list[Finding] = []
     for path in sorted(directory.glob("*.md")):
-        if path.name in GENERATED:
+        if path.name in NOT_A_FINDING:
             continue
 
         fields = parse_front_matter(path.read_text(encoding="utf-8"), path.stem)
@@ -247,7 +254,7 @@ def render_register(findings: list[Finding]) -> str:
     """The register: every campaign, its verdict, and how to cite it."""
     out = [
         *_header(),
-        "# Findings",
+        "# The register",
         "",
         "Every campaign this project has run, what it measured and what it returned. One file per",
         "campaign; the prose is the campaign's own and moved here unchanged.",
@@ -256,7 +263,8 @@ def render_register(findings: list[Finding]) -> str:
         "**`results/campaign/*.duckdb` and the `tools/campaign_*.py` the file names -- not a standing**",
         "**property.** Quote the file rather than any summary of it.",
         "",
-        "Two other views of the same set: [by archetype](by-archetype.md), [by gate](by-gate.md).",
+        "Start at [the summary](README.md) for what any of this means for trading. Two other views of",
+        "the same set: [by archetype](by-archetype.md), [by gate](by-gate.md).",
         "",
         "## What the columns mean",
         "",
@@ -273,7 +281,7 @@ def render_register(findings: list[Finding]) -> str:
         "",
         *[f"- `{name}` -- {text}" for name, text in OUTCOMES.items()],
         "",
-        "## The register",
+        "## Every campaign",
         "",
         "| cite | campaign | archetypes | gates | outcome | issues |",
         "| ---- | -------- | ---------- | ----- | ------- | ------ |",
@@ -298,7 +306,7 @@ def render_by_archetype(findings: list[Finding]) -> str:
         *_header(),
         "# Findings by archetype",
         "",
-        "The same campaigns as the [register](README.md), grouped by what they were run over. A",
+        "The same campaigns as the [register](register.md), grouped by what they were run over. A",
         "registry-wide campaign appears under every archetype it covered.",
         "",
     ]
@@ -346,7 +354,7 @@ def render_by_gate(findings: list[Finding]) -> str:
         *_header(),
         "# Findings by gate",
         "",
-        "The same campaigns as the [register](README.md), grouped by which of the four gates each",
+        "The same campaigns as the [register](register.md), grouped by which of the four gates each",
         "one reports on. A campaign reporting on gate 3 appears here whether it passed or failed --",
         "the `outcome` column and the file itself are what say which.",
         "",

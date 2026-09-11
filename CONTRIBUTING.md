@@ -38,7 +38,7 @@ A pointer must name a section that exists, in the form the source already uses:
 
 A bare "see the docs" is not a pointer, and [`tests/test_doc_pointers.py`](tests/test_doc_pointers.py) fails on one that names a heading no longer there.
 
-**A campaign's result goes in `docs/findings/`, not in the roadmap.** Add a file with the front matter the others carry — `id`, `title`, `archetypes`, `issues`, `gates`, `outcome`, `verdict` — then run [`tools/findings_index.py`](tools/findings_index.py) to regenerate the three index views. They are generated, so do not edit them by hand. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
+**A campaign's result goes in `docs/findings/`, not in the roadmap.** Add a file with the front matter the others carry — `id`, `title`, `archetypes`, `issues`, `gates`, `outcome`, `verdict` — then run [`tools/findings_index.py`](tools/findings_index.py) to regenerate `register.md`, `by-archetype.md` and `by-gate.md`. Those three are generated, so do not edit them by hand; [`docs/findings/README.md`](docs/findings/README.md) is the opposite — it is the authored summary of what the evidence supports for a prop account and for a regular one, the tool never touches it, and **a campaign that changes which strategy is best is a campaign that has to update it**. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
 
 ## Naming
 
