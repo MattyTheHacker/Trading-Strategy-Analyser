@@ -50,6 +50,7 @@ def write(directory: Path, slug: str, text: str) -> Path:
     """Put one findings file on disk."""
     path = directory / f"{slug}.md"
     path.write_text(text, encoding="utf-8")
+
     return path
 
 

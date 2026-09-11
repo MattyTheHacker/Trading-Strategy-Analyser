@@ -113,7 +113,7 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 ./.venv/Scripts/ruff check .
 ./.venv/Scripts/ruff format --check .
 ./.venv/Scripts/mypy nqbt formatting
-./.venv/Scripts/python.exe -m formatting.cli --check nqbt
+./.venv/Scripts/python.exe -m formatting.cli --check .
 ./.venv/Scripts/pymarkdown scan $(git ls-files '*.md')
 ./.venv/Scripts/python.exe -m mdformat --check .
 ```
@@ -132,8 +132,8 @@ Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-li
 2. **A blank line before the last `return` in a function**, so the value a function produces is visually separated from the work that produced it.
 
 ```bash
-./.venv/Scripts/python.exe -m formatting.cli --check nqbt   # what CI runs
-./.venv/Scripts/python.exe -m formatting.cli nqbt           # rewrite in place
+./.venv/Scripts/python.exe -m formatting.cli --check .      # what CI runs
+./.venv/Scripts/python.exe -m formatting.cli .              # rewrite in place
 ```
 
 **It is independent of `ruff format`, and the order you run them in does not matter.** That is a property of the rules rather than a coincidence: they only ever *insert* a blank line, never at the top of a block, and only where there were none. Anywhere `ruff format` demands two blank lines, a source with none was already unformatted — so going from none to one cannot break it. Measured over `nqbt/` in both orders: the formatter rewrites files `ruff format` had already accepted, and `ruff format --check` still passes on every one. `tests/test_formatting.py` pins the two properties this rests on, and is the place to look if the two ever start fighting.

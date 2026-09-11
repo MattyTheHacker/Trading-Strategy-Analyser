@@ -28,12 +28,14 @@ POINTER = re.compile(r'`{1,2}([A-Za-z0-9_/.\-]+\.md)`{1,2},?\s*§?\s*"([^"]+)"')
 def normalise(text: str) -> str:
     """Collapse the differences a pointer is allowed to have from its heading."""
     text = text.replace("—", "--").replace("–", "--").replace("‑", "-")
+
     return re.sub(r"[\s#*`]+", " ", text).strip()
 
 
 def documents() -> list[Path]:
     """Every source and Markdown file that could carry a pointer."""
     found = [p for name in SEARCHED for p in (ROOT / name).rglob("*") if p.suffix in (".py", ".md")]
+
     return [*found, *[ROOT / name for name in LOOSE]]
 
 
@@ -43,6 +45,7 @@ def pointers() -> list[tuple[Path, str, str]]:
     for path in documents():
         text = path.read_text(encoding="utf-8", errors="ignore")
         out.extend((path, target, heading) for target, heading in POINTER.findall(text))
+
     return out
 
 
@@ -68,6 +71,7 @@ def test_every_pointer_names_a_section_that_exists(
     assert path.exists(), f"{source.name} points at {target}, which does not exist"
     if target not in contents:
         contents[target] = normalise(path.read_text(encoding="utf-8"))
+
     assert normalise(heading) in contents[target], (
         f'{source.name} points at {target} § "{heading}", which is not in it'
     )

@@ -87,9 +87,11 @@ class Finding:
         """Milestone order, so M7a precedes M10.1 and M26 precedes M26.4."""
         if not self.id:
             return (1, 0, 0, self.title)
+
         digits = self.id.removeprefix("M")
         major, _, minor = digits.partition(".")
         suffix = "".join(c for c in major if c.isalpha())
+
         return (0, int(major.rstrip(suffix) or 0), int(minor or 0), suffix)
 
 
@@ -98,6 +100,7 @@ def parse_front_matter(text: str, slug: str) -> dict[str, object]:
     if not text.startswith("---\n"):
         msg = f"{slug}: no front matter"
         raise FrontMatterError(msg)
+
     _, _, rest = text.partition("---\n")
     block, sep, _ = rest.partition("\n---\n")
     if not sep:
@@ -110,14 +113,17 @@ def parse_front_matter(text: str, slug: str) -> dict[str, object]:
         if line.startswith("  ") and key:
             fields[key] = f"{fields[key]} {line.strip()}".strip()
             continue
+
         name, colon, value = line.partition(":")
         if not colon:
             msg = f"{slug}: cannot parse front-matter line {line!r}"
             raise FrontMatterError(msg)
+
         key = name.strip()
         if key not in FIELDS:
             msg = f"{slug}: unknown front-matter field {key!r}; known: {list(FIELDS)}"
             raise FrontMatterError(msg)
+
         value = value.strip()
         if key in LIST_FIELDS:
             fields[key] = _parse_list(value, key, slug)
@@ -130,6 +136,7 @@ def parse_front_matter(text: str, slug: str) -> dict[str, object]:
     if missing:
         msg = f"{slug}: front matter is missing {missing}"
         raise FrontMatterError(msg)
+
     return fields
 
 
@@ -137,6 +144,7 @@ def _unquote(value: str) -> str:
     """Read a double-quoted YAML scalar, so a title may hold a quote of its own."""
     if not (value.startswith('"') and value.endswith('"') and len(value) > 1):
         return value
+
     return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
 
 
@@ -145,7 +153,9 @@ def _parse_list(value: str, key: str, slug: str) -> list[str]:
     if not (value.startswith("[") and value.endswith("]")):
         msg = f"{slug}: {key} must be a flow list, got {value!r}"
         raise FrontMatterError(msg)
+
     inner = value[1:-1].strip()
+
     return [item.strip() for item in inner.split(",")] if inner else []
 
 
@@ -156,21 +166,25 @@ def load(directory: Path = FINDINGS) -> list[Finding]:
     for path in sorted(directory.glob("*.md")):
         if path.name in GENERATED:
             continue
+
         fields = parse_front_matter(path.read_text(encoding="utf-8"), path.stem)
         named = [str(a) for a in fields["archetypes"]]  # type: ignore[union-attr]
         unknown = sorted(set(named) - known)
         if unknown:
             msg = f"{path.stem}: unknown archetypes {unknown}; registered: {sorted(known)}"
             raise FrontMatterError(msg)
+
         outcome = str(fields["outcome"])
         if outcome not in OUTCOMES:
             msg = f"{path.stem}: unknown outcome {outcome!r}; known: {sorted(OUTCOMES)}"
             raise FrontMatterError(msg)
+
         gates = [int(g) for g in fields["gates"]]  # type: ignore[union-attr]
         unknown_gates = sorted(set(gates) - set(GATES))
         if unknown_gates:
             msg = f"{path.stem}: unknown gates {unknown_gates}; known: {sorted(GATES)}"
             raise FrontMatterError(msg)
+
         findings.append(
             Finding(
                 slug=path.stem,
@@ -183,6 +197,7 @@ def load(directory: Path = FINDINGS) -> list[Finding]:
                 verdict=str(fields["verdict"]),
             )
         )
+
     return sorted(findings, key=lambda f: f.sort_key)
 
 
@@ -197,11 +212,14 @@ def _archetype_label(finding: Finding) -> str:
     covered = set(finding.archetypes)
     if not covered:
         return "--"
+
     missing = sorted(registered - covered)
     if not missing:
         return f"all {len(registered)}"
+
     if len(missing) == 1:
         return f"all but {missing[0]}"
+
     return ", ".join(finding.archetypes)
 
 
@@ -213,6 +231,7 @@ def _issues(finding: Finding) -> str:
 def _definitions(findings: list[Finding]) -> list[str]:
     """Link definitions for every issue the rendered view refers to."""
     used = sorted({n for f in findings for n in f.issues})
+
     return ["", *[f"[#{n}]: {ISSUE_URL.format(n)}" for n in used]]
 
 
@@ -269,6 +288,7 @@ def render_register(findings: list[Finding]) -> str:
     for finding in findings:
         out.extend([f"**{_link(finding)}**", "", finding.verdict, ""])
     out.extend(_definitions(findings))
+
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -288,6 +308,7 @@ def render_by_archetype(findings: list[Finding]) -> str:
         if not covering:
             out.extend(["Nothing yet.", ""])
             continue
+
         out.extend(
             [
                 "| cite | campaign | outcome | verdict |",
@@ -313,7 +334,9 @@ def render_by_archetype(findings: list[Finding]) -> str:
         out.append("")
     else:
         out.extend(["Nothing yet.", ""])
+
     out.extend(_definitions(findings))
+
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -334,6 +357,7 @@ def render_by_gate(findings: list[Finding]) -> str:
         if not reporting:
             out.extend(["Nothing yet.", ""])
             continue
+
         out.extend(
             [
                 "| cite | campaign | archetypes | outcome |",
@@ -357,7 +381,9 @@ def render_by_gate(findings: list[Finding]) -> str:
         out.append("")
     else:
         out.extend(["Nothing yet.", ""])
+
     out.extend(_definitions(findings))
+
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -395,10 +421,12 @@ def main(argv: list[str]) -> int:
         current = path.read_text(encoding="utf-8") if path.exists() else ""
         if current == content:
             continue
+
         if not args.check:
             path.write_text(content, encoding="utf-8")
             logger.info("wrote %s", path)
             continue
+
         stale.append(name)
         diff = difflib.unified_diff(
             current.splitlines(),
@@ -412,6 +440,7 @@ def main(argv: list[str]) -> int:
     if stale:
         logger.error("run tools/findings_index.py to regenerate: %s", ", ".join(stale))
         return 1
+
     return 0
 
 
