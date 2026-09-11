@@ -72,6 +72,13 @@ below and is what you quote; this file is the index, not the record.
   otherwise never reaches the cutoff and is never flattened at all, and the order resting from
   its last bar fills in the *next* session. `docs/nt8-fidelity.md`, "The session end is the
   observed last bar, not the template's".
+- **The maximum hold time is every archetype's, and it is `EXIT_TIME_LIMIT` rather than
+  `EXIT_SIGNAL`.** `max_hold_bars` is off at `0` everywhere; `bracket.hold_expired` is the one
+  comparison and `bracket.flatten_position` the one writer, so **do not fork either**. It is a
+  market exit decided in `OnBarUpdate`, so it fills at the **next bar's open** and `bars_held`
+  reaches `max_hold_bars + 1`, not `max_hold_bars`. Where a bar is both this and an
+  archetype's own signal exit, the archetype's rule takes it. `docs/nt8-fidelity.md`, "The
+  maximum hold time, and why it is its own exit code".
 - **`ExitOnSessionCloseSeconds` is per strategy, not one global 30.** Both stop-market ports set
   30 and both InsideBar scripts set 180. It lives on `Archetype` and `sweep.prepare_for` reads
   it; `context.prepare` called directly still defaults to 30 and has to be told.

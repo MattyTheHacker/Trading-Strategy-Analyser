@@ -94,6 +94,7 @@ def pullbackandgo_legs(
             ratchet_lag=params.ratchet_lag,
             ratchet_offset_ticks=float(params.ratchet_offset_ticks),
             block_entry_at_session_close=params.block_entry_at_session_close,
+            max_hold_bars=params.max_hold_bars,
             direction=trades.LONG,
         ),
         out,

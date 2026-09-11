@@ -293,6 +293,48 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
 
 
 @njit(cache=True)
+def flatten_position(
+    out: FloatArray,
+    written: int,
+    trade: OpenTrade,
+    legs: Legs,
+    leg_exit: LegExit,
+    excursion: Excursion,
+    costs: Costs,
+) -> int:
+    """Close every still-open leg at one price for one reason. Returns the new row count.
+
+    What a market order flattening the whole position writes: the maximum-hold-time exit, an
+    archetype's own signal exit, and the liquidation of anything still open when the series
+    runs out. It takes a level from nowhere, so **this is not a fill rule** -- the caller has
+    already decided the bar, the price and the reason.
+    """
+    for leg in range(legs.is_open.size):
+        if not legs.is_open[leg]:
+            continue
+
+        written = write_leg(out, written, trade, legs, leg, leg_exit, excursion, costs)
+        if written < 0:
+            return -1
+
+        legs.is_open[leg] = False
+
+    return written
+
+
+@njit(cache=True)
+def hold_expired(entry_bar: int, i: int, max_hold_bars: int) -> bool:
+    """Whether bar ``i``'s close is where the maximum-hold-time exit is submitted.
+
+    Off at ``0``. The count is bars *since* the entry bar, so the order goes in at the close
+    of bar ``entry_bar + max_hold_bars`` and fills at the next bar's open -- a leg's
+    ``bars_held`` therefore reaches ``max_hold_bars + 1``. ``docs/nt8-fidelity.md``, "The
+    maximum hold time, and why it is its own exit code".
+    """
+    return max_hold_bars > 0 and i - entry_bar >= max_hold_bars
+
+
+@njit(cache=True)
 def entry_bracket(
     high: float,
     low: float,

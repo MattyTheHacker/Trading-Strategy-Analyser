@@ -97,6 +97,7 @@ EXIT_CLASSES = {
     "session_close": "clock",
     "end_of_data": "unfinished",
     "signal": "signal",
+    "time_limit": "timed",
 }
 """Simulator exit reason -> the CSS class its marker carries, pinned equal to
 :data:`nqbt.trades.EXIT_REASONS` by a test. An imported log's own vocabulary falls through to
@@ -225,6 +226,7 @@ _STYLE = """
   .exit.clock { fill: #b9770e }
   .exit.unfinished { fill: #7f8c8d }
   .exit.signal { fill: #1f618d }
+  .exit.timed { fill: #7d3c98 }
   .exit.other { fill: #4a5567 }
   text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #2c3440 }
   .title { font-size: 14px; font-weight: 600 }

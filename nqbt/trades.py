@@ -30,7 +30,14 @@ Liquidated at the final bar's close and labelled distinctly, so the stats layer 
 rather than mistake it for a real exit.
 """
 EXIT_SIGNAL = 4.0
-"""A rule-driven exit with no bracket level of its own. Produced only by EmaCrossover."""
+"""A rule-driven exit with no bracket level of its own, on the rules an archetype owns."""
+
+EXIT_TIME_LIMIT = 5.0
+"""The maximum-hold-time exit, which every archetype owns rather than one of them.
+
+Its own code rather than :data:`EXIT_SIGNAL` so a log carrying both can say which fired --
+``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its own exit code".
+"""
 
 EXIT_REASONS = {
     EXIT_STOP: "stop",
@@ -38,6 +45,7 @@ EXIT_REASONS = {
     EXIT_SESSION_CLOSE: "session_close",
     EXIT_END_OF_DATA: "end_of_data",
     EXIT_SIGNAL: "signal",
+    EXIT_TIME_LIMIT: "time_limit",
 }
 """Reasons the *simulator* can give. An imported trade is not restricted to these --
 ``docs/roadmap.md`` §M9.

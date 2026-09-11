@@ -47,7 +47,7 @@ from nqbt.sim.types import (
     TRIGGER_RECOVERY,
     ElasticBandParams,
 )
-from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
+from nqbt.trades import EXIT_REASONS, LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
 TICK = 0.25
 
@@ -480,13 +480,50 @@ def test_the_band_is_read_from_the_signal_bar_not_the_fill_bar() -> None:
     assert trades["target_price"].iloc[0] == pytest.approx(104.0)
 
 
-# -- the two rule-driven exits, both EXIT_SIGNAL --------------------------------
+# -- the two rule-driven exits ---------------------------------------------------
 
 
 def test_the_time_stop_leaves_at_the_next_open_once_the_hold_is_reached() -> None:
     trades = run(FLAT, signal_at=[0], levels=(np.nan,), max_hold_bars=3)
     # Filled on bar 1; bar 4 is three bars later, so the order goes in at its close.
     assert trades["exit_bar"].iloc[0] == 5
+    assert trades["exit_reason"].iloc[0] == "time_limit"
+
+
+def test_both_rule_driven_exits_may_be_enabled_at_once_and_stay_distinguishable() -> None:
+    """The reason each has its own exit code: they were mutually exclusive without it."""
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        levels=(np.nan,),
+        extremes=94.0,
+        stop_mode=STOP_CATASTROPHE,
+        catastrophe_stop_ticks=80.0,
+        exit_on_invalidation=True,
+        max_hold_bars=3,
+    )
+    # The close never leaves the excursion, so only the hold limit can have fired.
+    assert trades["exit_bar"].iloc[0] == 5
+    assert trades["exit_reason"].iloc[0] == "time_limit"
+
+
+def test_the_invalidation_takes_a_bar_that_is_also_the_hold_limit() -> None:
+    trades = run(
+        [
+            (100.0, 100.5, 99.5, 100.0),  # 0: signal
+            (100.0, 100.5, 99.5, 100.0),  # 1: fill
+            (100.0, 100.5, 93.0, 93.5),  # 2: closes below the 94 extreme, and hold bar 1
+            *FLAT,
+        ],
+        signal_at=[0],
+        levels=(np.nan,),
+        extremes=94.0,
+        stop_mode=STOP_CATASTROPHE,
+        catastrophe_stop_ticks=80.0,
+        exit_on_invalidation=True,
+        max_hold_bars=1,
+    )
+    assert trades["exit_bar"].iloc[0] == 3
     assert trades["exit_reason"].iloc[0] == "signal"
 
 
@@ -1041,7 +1078,7 @@ def test_a_vwap_run_produces_a_valid_trade_log() -> None:
     params = vwap_params(vwap_min_session_bars=20, max_hold_bars=10)
     log = run_elasticband(dataset(close, params), params, MNQ)
     assert not log.empty
-    assert log["exit_reason"].isin({"stop", "target", "signal", "session_close", "end_of_data"}).all()
+    assert log["exit_reason"].isin(set(EXIT_REASONS.values())).all()
 
 
 def test_an_unknown_band_source_is_refused_by_name() -> None:
@@ -1252,7 +1289,7 @@ def test_a_full_run_produces_a_valid_trade_log_on_both_instruments() -> None:
     mnq = run_elasticband(data, params, MNQ)
     nq = run_elasticband(data, params, NQ)
     assert not mnq.empty
-    assert mnq["exit_reason"].isin({"stop", "target", "signal", "session_close", "end_of_data"}).all()
+    assert mnq["exit_reason"].isin(set(EXIT_REASONS.values())).all()
     # Identical geometry, ten times the money -- instruments.py is the only difference.
     assert nq["entry_price"].tolist() == mnq["entry_price"].tolist()
     assert nq["gross_pnl"].to_numpy() == pytest.approx(10.0 * mnq["gross_pnl"].to_numpy())

@@ -42,6 +42,7 @@ def simulate(
     instrument=MNQ,
     bars_required=-1,
     block_entry_at_close=True,
+    max_hold_bars=0,
     fill_limit_on_touch=True,
     ambiguity_policy=0,
     round_targets=True,
@@ -82,6 +83,7 @@ def simulate(
             tp_multiplier=tp_multiplier,
             bars_required=bars_required,
             block_entry_at_session_close=block_entry_at_close,
+            max_hold_bars=max_hold_bars,
         ),
         out,
     )
@@ -444,6 +446,11 @@ def test_the_buffer_overflowing_is_reported_rather_than_written_past() -> None:
     assert count == -1
 
 
+def test_the_hold_limit_reports_an_overflow_rather_than_writing_past() -> None:
+    count, _ = simulate([*FLAT, *FLAT], signal_at=[1], atr=40.0, max_hold_bars=2, max_rows=0)
+    assert count == -1
+
+
 # -- the signal, over a real prepared dataset ----------------------------------
 
 
@@ -611,3 +618,43 @@ def test_a_run_produces_a_valid_leg_log_on_both_instruments() -> None:
     assert mnq["entry_bar"].iloc[0] == 3
     assert nq["entry_price"].iloc[0] == pytest.approx(mnq["entry_price"].iloc[0])
     assert nq["gross_pnl"].iloc[0] == pytest.approx(mnq["gross_pnl"].iloc[0] * 10.0)
+
+
+# -- the maximum hold time -----------------------------------------------------
+
+
+def test_the_hold_limit_leaves_at_the_next_bars_open() -> None:
+    trades = run([*FLAT, *FLAT], signal_at=[1], atr=40.0, max_hold_bars=2)
+    # Filled at bar 2's open, so bar 4 is two bars later and the order goes in at its close.
+    assert set(trades["exit_bar"]) == {5}
+    assert set(trades["exit_reason"]) == {"time_limit"}
+    assert set(trades["bars_held"]) == {3}
+
+
+def test_a_hold_limit_of_zero_leaves_the_position_to_the_data() -> None:
+    assert set(run([*FLAT, *FLAT], signal_at=[1], atr=40.0)["exit_reason"]) == {"end_of_data"}
+
+
+def test_the_hold_limit_does_not_extend_mae_or_mfe_past_the_open() -> None:
+    """The position closed at the bar's first price, so the rest of its range never applied."""
+    trades = run(
+        [
+            *FLAT[:5],
+            (100.0, 120.0, 80.0, 100.0),  # 5: exit at the open, then a huge range
+            *FLAT,
+        ],
+        signal_at=[1],
+        atr=40.0,
+        max_hold_bars=2,
+    )
+    leg = trades.iloc[0]
+    assert leg["exit_bar"] == 5
+    assert leg["mfe_points"] < 20.0
+    assert leg["mae_points"] < 20.0
+
+
+def test_the_hold_limit_reaches_the_loop_from_the_parameters() -> None:
+    params = signalling(max_hold_bars=1)
+    log = run_insidebar(prepared(frame(BREAKOUT + [*FLAT]), params), params, MNQ)
+    assert not log.empty, "fixture produced no trades; the test proves nothing"
+    assert set(log["exit_reason"]) == {"time_limit"}

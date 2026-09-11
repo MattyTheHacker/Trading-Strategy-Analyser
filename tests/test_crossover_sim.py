@@ -52,6 +52,7 @@ def simulate(
     bars_required=0,
     exit_on_opposite_cross=True,
     block_entry_at_close=True,
+    max_hold_bars=0,
     fill_limit_on_touch=True,  # tests target exact prices; opt out explicitly
     ambiguity_policy=0,
     round_targets=True,
@@ -107,6 +108,7 @@ def simulate(
             bars_required=bars_required,
             exit_on_opposite_cross=exit_on_opposite_cross,
             block_entry_at_session_close=block_entry_at_close,
+            max_hold_bars=max_hold_bars,
         ),
         out,
     )
@@ -874,3 +876,58 @@ def test_a_count_that_is_the_conjunction_again_is_refused() -> None:
             trend_filter=trend.Trend.UP.bit,
             confluence_required=2,
         )
+
+
+# -- the maximum hold time -----------------------------------------------------
+
+
+def test_the_hold_limit_leaves_at_the_next_bars_open() -> None:
+    trades = run([*FLAT, *FLAT], signal_at=[0], max_hold_bars=2, atr=40.0)
+    # Filled at bar 1's open, so bar 3 is two bars later and the order goes in at its close.
+    assert set(trades["exit_bar"]) == {4}
+    assert set(trades["exit_reason"]) == {"time_limit"}
+    assert set(trades["bars_held"]) == {3}
+
+
+def test_a_hold_limit_of_zero_leaves_the_position_to_the_data() -> None:
+    assert set(run([*FLAT, *FLAT], signal_at=[0], atr=40.0)["exit_reason"]) == {"end_of_data"}
+
+
+def test_the_opposite_cross_takes_a_bar_that_is_also_the_hold_limit() -> None:
+    """Both submit the same market order, so the label says which rule the position lost to."""
+    trades = run(
+        [
+            *[(100.0, 100.5, 99.5, 100.0)] * 3,
+            (99.0, 99.5, 98.5, 99.0),
+            *FLAT,
+        ],
+        signal_at=[0],
+        flip_at=[2],
+        max_hold_bars=1,
+        atr=40.0,
+    )
+    assert trades["exit_bar"].iloc[0] == 3
+    assert trades["exit_reason"].iloc[0] == "signal"
+
+
+def test_a_signal_on_the_hold_limits_bar_reopens_at_the_same_price_as_the_exit() -> None:
+    """The hold limit shares ``pending_exit``, so it reaches the flip's same-bar re-entry.
+
+    Deliberate rather than incidental: a bar whose close schedules both an exit and an entry
+    is already this archetype's flip, and giving the clock a different answer on the same bar
+    would be the inconsistency -- ``docs/nt8-fidelity.md``, "The maximum hold time, and why
+    it is its own exit code".
+    """
+    trades = run(
+        [*FLAT, *FLAT],
+        signal_at=[0, 2],
+        max_hold_bars=1,
+        exit_on_opposite_cross=False,
+        atr=40.0,
+    )
+    assert list(trades["trade_id"].unique()) == [1, 2]
+    first = trades[trades["trade_id"] == 1].iloc[0]
+    second = trades[trades["trade_id"] == 2].iloc[0]
+    assert first["exit_reason"] == "time_limit"
+    assert first["exit_bar"] == second["entry_bar"] == 3
+    assert first["exit_price"] == pytest.approx(second["entry_price"])
