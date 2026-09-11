@@ -113,6 +113,12 @@ against, beside the three that are a distance or a bar extreme -- ``docs/roadmap
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-band-stop \
         --split --strata elastic-band-stop
+
+``--variants hold`` re-runs **every** archetype's stored campaign grid once per maximum hold
+time, the uncapped arm included, so the cap is the only thing that differs between two rows --
+``docs/findings/m29-maximum-hold-time.md``:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants hold --split --strata hold
 """
 
 from __future__ import annotations
@@ -255,6 +261,7 @@ ELASTIC_SHAPE = "elastic-shape"
 ELASTIC_VOLUME = "elastic-volume"
 ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
+HOLD = "hold"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -494,6 +501,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_VOLUME: (UNFILTERED, VOLUME_FORMS),
     ELASTIC_RECOVERY: (UNFILTERED,),
     ELASTIC_BAND_STOP: (UNFILTERED,),
+    HOLD: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
 }
@@ -1771,6 +1779,52 @@ ELASTIC_BAND_STOP_VARIANTS = {"ElasticBand": elasticband_band_stop_variants}
 entry pair. The names carry a ``stop=`` token where every stored ElasticBand row carries none,
 so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.8."""
 
+HOLD_BARS = (0, 5, 10, 20, 40, 80)
+"""Maximum hold times in bars, ``0`` being the uncapped arm every stored campaign ran.
+
+**A bar count and not a duration**, because that is what the parameter is -- 20 bars is 20
+minutes at one resolution and five hours at fifteen. So the ladder is never read pooled across
+resolutions: ``tools/campaign_paired.py`` reports one row per root x resolution, which is the
+same remedy a raw regime threshold gets -- ``.claude/rules/sweep-and-context.md``. The top of
+the ladder is past where the session flatten binds at the coarse resolutions, deliberately: an
+arm that cannot bind has to read as its control, and one that does not is a defect.
+"""
+
+
+def _held(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
+    """One archetype's stored campaign variants, re-emitted once per rung of the hold ladder.
+
+    The axes are §M27's otherwise untouched, so every arm holds the same number of combinations
+    and the comparison is paired rather than a best-of-more -- ``tools/campaign_paired.py``.
+
+    **``max_hold_bars`` is dropped from the axes**, because ElasticBand's campaign grid sweeps
+    it at ``[0, 30]`` and an axis beats the base it is crossed with: leaving it there would run
+    six identical arms and report the hold ladder as inert.
+    """
+
+    def variants(root: str) -> list[Variant]:
+        return [
+            replace(
+                variant,
+                name=f"{variant.name} hold={bars}",
+                base=replace(variant.base, max_hold_bars=bars),
+                axes={k: v for k, v in variant.axes.items() if k != "max_hold_bars"},
+            )
+            for variant in build(root)
+            for bars in HOLD_BARS
+        ]
+
+    return variants
+
+
+HOLD_VARIANTS = {name: _held(build) for name, build in VARIANTS.items()}
+"""The [#292] run: every archetype's stored campaign grid, once per maximum hold time.
+
+Its own set rather than an edit to :data:`VARIANTS` for that dict's own reason, and every name
+carries a ``hold=`` token no stored row has, so the two cannot collide in one database. The
+``hold=0`` arm is the stored configuration re-run, which is what makes the comparison paired and
+is also the check that generalising the cap moved nothing."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -1784,6 +1838,7 @@ VARIANT_SETS = {
     ELASTIC_RECOVERY,
     ELASTIC_SHAPE,
     ELASTIC_VOLUME,
+    HOLD,
     NARROW,
     ORB,
     ORB_BRACKET,
@@ -1805,6 +1860,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
         ELASTIC_RECOVERY: ELASTIC_RECOVERY_VARIANTS,
         ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,
         ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,
+        HOLD: HOLD_VARIANTS,
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_BRACKET: ORB_BRACKET_VARIANTS,

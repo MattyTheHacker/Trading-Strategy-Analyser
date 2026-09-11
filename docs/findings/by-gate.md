@@ -20,6 +20,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§M28.2`                                          | [M28.2 — the deferral list, built: three entry mechanisms, one stop axis, and a null over levels](m28-2-deferral-list.md)  | OpeningRange         | `mixed`    |
 | `§M28.5`                                          | [M28.5 — the fade's bracket, tightened: monotone the other way, and zero of 15,360](m28-5-fade-bracket.md)                 | OpeningRange         | `negative` |
 | `§M28.7`                                          | [M28.7 — the rejection, swept: every profitable cell is one the fill assumption decides](m28-7-rejection-swept.md)         | OpeningRange         | `negative` |
+| `§M29`                                            | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)           | all 7                | `negative` |
 | `§ "Multi-timeframe moving averages"`             | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                      | EmaCrossover         | `negative` |
 | `§ "The build spec's three loose ends, measured"` | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                           | EmaCrossover         | `negative` |
 
@@ -44,6 +45,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§M28.7`                                          | [M28.7 — the rejection, swept: every profitable cell is one the fill assumption decides](m28-7-rejection-swept.md)         | OpeningRange         | `negative` |
 | `§M28.8`                                          | [M28.8 — the range as a cross: every anchor by every length, and the hour that was missing](m28-8-range-cross.md)          | OpeningRange         | `mixed`    |
 | `§M28.11`                                         | [M28.11 — the two truncated bracket axes, swept to their end](m28-11-truncated-bracket-axes.md)                            | OpeningRange         | `negative` |
+| `§M29`                                            | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)           | all 7                | `negative` |
 | `§ "The build spec's three loose ends, measured"` | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                           | EmaCrossover         | `negative` |
 
 ## Gate 3 -- the matched null -- does the entry beat a random entry

@@ -612,6 +612,10 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 
 **Four cells clear p = 0.05 on both roots — three OpeningRange's and one InsideBarTrailing's midday cell — and a consistency score does not order the null result, correlating −0.132 with it.** Moved to [`docs/findings/m28-16-consistent-cells.md`](findings/m28-16-consistent-cells.md).
 
+### M29 — the maximum hold time, swept across the whole registry ([#292])
+
+**A cap on a trade's length is a cost on all seven archetypes, monotone in how tight it is; the selection window picks a paying rung zero times in seven, and the two ports hold too briefly to reach one.** Moved to [`docs/findings/m29-maximum-hold-time.md`](findings/m29-maximum-hold-time.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
