@@ -19,6 +19,7 @@ it, so the cut compared against is the cut the sweep ran.
 from __future__ import annotations
 
 import argparse
+import itertools
 import logging
 import math
 import sys
@@ -49,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 REGIME = "regime"
 VOLUME = "volume"
+FORMS = "forms"
 
 REGIME_ORDER = ("CONSOLIDATING", "UNCLASSIFIABLE", "DIRECTIONAL")
 VOLUME_ORDER = ("THIN", "NORMAL", "HEAVY")
@@ -106,11 +108,66 @@ def regime_rows(root: str, minutes: int, lookbacks: list[int]) -> list[pd.DataFr
     return tables
 
 
-def volume_rows(root: str, minutes: int) -> list[pd.DataFrame]:
-    """One confusion table per (form, tail size), raw pair against the fitted tails."""
-    series: tuple[volume.VolumeKey, ...] = tuple(
+def volume_series() -> tuple[volume.VolumeKey, ...]:
+    """The three relative-volume series a form stratification reads, at the campaign's windows."""
+    return tuple(
         volume.key(form, VOLUME_ROLLING_BARS, VOLUME_BASELINE_SESSIONS) for form in volume.VolumeForm
     )
+
+
+def labelled_forms(root: str, minutes: int, tails: tuple[float, float]) -> dict[str, pd.Series]:
+    """Each form's states over the same bars, every form fitted to its own distribution."""
+    series: tuple[volume.VolumeKey, ...] = volume_series()
+    frame: pd.DataFrame = resample.resample(selection_bars(root), minutes)
+    spec = context.ContextSpec(volume_keys=series, needs_time_of_day=True)
+    data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
+    states: dict[int, str] = {int(state): state.name for state in volume.VolumeState}
+    measured: BoolArray = np.all([np.isfinite(data.relative_volume(key)) for key in series], axis=0)
+    labelled: dict[str, pd.Series] = {}
+    for key in series:
+        relative: FloatArray = data.relative_volume(key)
+        cut: tuple[float, float] = volume.thresholds_from_quantiles(relative, *tails)
+        labelled[key.form.name.lower()] = named(volume.label(relative, *cut), states, measured, "fitted")
+
+    return labelled
+
+
+def form_rows(root: str, minutes: int) -> list[pd.DataFrame]:
+    """One confusion table per (tail size, form pair): whether two forms call the same bars busy.
+
+    The cut is held at one tail size across both forms, so the only thing varying is which
+    quantity "relative volume" names -- ``docs/roadmap.md`` §M10.2 decomposed it into these three.
+    """
+    tables: list[pd.DataFrame] = []
+    for tails in VOLUME_TAILS:
+        labelled: dict[str, pd.Series] = labelled_forms(root, minutes, tails)
+        for reference, other in itertools.permutations(labelled, 2):
+            left: pd.Series = labelled[reference].rename("raw")
+            right: pd.Series = labelled[other].rename("fitted")
+            logger.info(
+                "  %s %2dm q=%.2f/%.2f  %-16s vs %-16s  agree %.1f%%",
+                root,
+                minutes,
+                *tails,
+                reference,
+                other,
+                float((left.to_numpy() == right.to_numpy()).mean() * 100.0),
+            )
+            table: pd.DataFrame = confusion(left, right, VOLUME_ORDER)
+            tables.append(
+                table.assign(
+                    root=root,
+                    resolution=minutes,
+                    cut=f"q={tails[0]:.2f}/{tails[1]:.2f} {reference} -> {other}",
+                )
+            )
+
+    return tables
+
+
+def volume_rows(root: str, minutes: int) -> list[pd.DataFrame]:
+    """One confusion table per (form, tail size), raw pair against the fitted tails."""
+    series: tuple[volume.VolumeKey, ...] = volume_series()
     frame: pd.DataFrame = resample.resample(selection_bars(root), minutes)
     spec = context.ContextSpec(volume_keys=series, needs_time_of_day=True)
     data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
@@ -160,7 +217,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Raw context labels against the fitted ones.")
-    parser.add_argument("--dimension", choices=[REGIME, VOLUME], default=REGIME)
+    parser.add_argument("--dimension", choices=[REGIME, VOLUME, FORMS], default=REGIME)
     parser.add_argument("--roots", nargs="+", default=["MNQ", "NQ"])
     parser.add_argument("--resolutions", nargs="+", type=int, default=[5, 15])
     parser.add_argument("--regime-lookbacks", nargs="+", type=int, default=[5, 10, 20, 30, 50])
@@ -173,12 +230,21 @@ def main(argv: list[str]) -> int:
                 tables.extend(regime_rows(root, minutes, args.regime_lookbacks))
                 continue
 
+            if args.dimension == FORMS:
+                tables.extend(form_rows(root, minutes))
+                continue
+
             tables.extend(volume_rows(root, minutes))
 
     stacked: pd.DataFrame = pd.concat(tables)
     stacked.index.name = "raw"
+    heading: str = (
+        "where each form's state lands under another form"
+        if args.dimension == FORMS
+        else "where each raw state's bars land under the fitted cut"
+    )
     show(
-        f"{args.dimension}: where each raw state's bars land under the fitted cut, % of the raw state",
+        f"{args.dimension}: {heading}, % of the row state",
         stacked.reset_index().set_index(["root", "resolution", "cut", "raw"]),
     )
 

@@ -18,7 +18,10 @@ from tools.campaign_labels import (
     VOLUME_ORDER,
     confusion,
     named,
+    volume_series,
 )
+
+from tools.campaign_sweep import VOLUME_BASELINE_SESSIONS, VOLUME_ROLLING_BARS
 
 from nqbt import regime, volume
 from nqbt.sim.types import DeadCatParams
@@ -106,3 +109,22 @@ def test_an_unchanged_cut_is_the_identity() -> None:
     table = confusion(raw, fitted, VOLUME_ORDER).fillna(0.0)
 
     assert np.allclose(table.to_numpy(), np.diag([100.0, 100.0, 100.0]))
+
+
+# -- the three forms a form comparison reads --------------------------------------------------
+
+
+def test_one_series_per_form_at_the_windows_the_campaign_swept() -> None:
+    """`form_rows` compares these against each other, so a missing form is a missing table."""
+    series = volume_series()
+
+    assert [key.form for key in series] == list(volume.VolumeForm)
+    assert {key.baseline_sessions for key in series} == {VOLUME_BASELINE_SESSIONS}
+
+
+def test_the_rolling_window_is_dropped_from_every_form_that_does_not_read_it() -> None:
+    """`volume.key`'s own rule, pinned here because two equal keys must not label twice."""
+    rolling = [key for key in volume_series() if key.form is volume.VolumeForm.ROLLING]
+
+    assert [key.rolling_bars for key in rolling] == [VOLUME_ROLLING_BARS]
+    assert len(set(volume_series())) == len(volume.VolumeForm)
