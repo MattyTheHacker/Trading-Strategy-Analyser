@@ -15,7 +15,8 @@ import pytest
 
 from nqbt import archetypes, stats, trades
 from tools import campaign_report
-from tools.campaign_holdout import GROUP_KEYS, JOIN_KEYS, TOP, rank_correlation, verdict
+from tools import campaign_holdout
+from tools.campaign_holdout import GROUP_KEYS, JOIN_KEYS, TOP, held_out, rank_correlation, verdict
 from tools.campaign_report import (
     DECOMPOSITION,
     EXIT_ORDER,
@@ -364,6 +365,121 @@ def test_the_windows_are_paired_on_a_key_that_identifies_one_configuration() -> 
     """``combo_id`` is a position in a deterministic product, so it only means the same
     parameters within the same grid, root and resolution."""
     assert JOIN_KEYS == ["root", "resolution", "variant", "stratum", "combo_id"]
+
+
+# -- the held-out half of a pair -------------------------------------------------------------
+
+
+def windowed(window: str, profit_factor: list[float], **columns: object) -> pd.DataFrame:
+    """One window's stored rows for four configurations of one cell."""
+    return pd.DataFrame(
+        {
+            "sweep_id": 1 if window == "selection" else 2,
+            "combo_id": range(4),
+            "root": "MNQ",
+            "resolution": 5,
+            "variant": "breakout",
+            "stratum": "phase=MIDDAY",
+            "window": window,
+            "ema_period": [20, 21, 22, 23],
+            "profit_factor": profit_factor,
+            "net_pnl": [1.0, 2.0, 3.0, 4.0],
+            "max_drawdown": [1.0, 1.0, 1.0, 1.0],
+            NET_TO_DRAWDOWN: profit_factor,
+            **columns,
+        },
+    )
+
+
+def both_windows(monkeypatch, selection: pd.DataFrame, holdout: pd.DataFrame) -> None:
+    """Serve one frame per window, the way ``load`` reads the stored databases."""
+    monkeypatch.setattr(
+        campaign_holdout,
+        "load",
+        lambda _, windows: selection if windows == ["selection"] else holdout,
+    )
+
+
+def test_the_held_out_rows_are_the_ones_the_selection_window_ranked(monkeypatch) -> None:
+    """The whole point of the pair: reading the rows the holdout window ranks itself is the
+    trap §M28.12 records, and both orders look like a shortlist afterwards."""
+    both_windows(
+        monkeypatch,
+        windowed("selection", [1.9, 1.1, 1.0, 0.9]),
+        windowed("holdout", [0.5, 0.6, 0.7, 2.5]),
+    )
+    rows = held_out("OpeningRange", "MNQ", top=2)
+    assert list(rows["combo_id"]) == [0, 1], "ranked on selection, not on the window it is read on"
+    assert list(rows["profit_factor"]) == [0.5, 0.6], "and every figure returned is the holdout's"
+
+
+def test_the_held_out_half_comes_back_under_the_names_a_stored_row_carries(monkeypatch) -> None:
+    """A tool reading stored logs uses these rows where it would use a shortlist, so a
+    ``_hold`` suffix reaching one is a KeyError at every call site."""
+    both_windows(monkeypatch, windowed("selection", [1.9, 1.1, 1.0, 0.9]), windowed("holdout", [1.2] * 4))
+    rows = held_out("OpeningRange", "MNQ", top=1)
+    assert not [column for column in rows.columns if column.endswith(("_sel", "_hold"))]
+    assert set(rows["window"]) == {"holdout"}
+    assert set(rows["sweep_id"]) == {2}, "the holdout sweep, since that is where its log is filed"
+    assert rows["ema_period"].iloc[0] == 20, "the parameters travel with it"
+
+
+def test_no_selection_window_figure_survives_into_the_returned_row(monkeypatch) -> None:
+    """One row carrying two windows' statistics under one set of names is how a selected
+    maximum gets reported as a held-out result."""
+    both_windows(monkeypatch, windowed("selection", [1.9, 1.1, 1.0, 0.9]), windowed("holdout", [1.2] * 4))
+    rows = held_out("OpeningRange", "MNQ", top=4)
+    assert list(rows["profit_factor"]) == [1.2] * 4
+    assert NET_TO_DRAWDOWN in rows.columns
+    assert list(rows[NET_TO_DRAWDOWN]) == [1.2] * 4
+
+
+def test_each_confinement_narrows_the_pair_before_it_is_ranked(monkeypatch) -> None:
+    """A cell is one root x resolution x variant x stratum, and a flag that parses without
+    reaching the filter reads exactly like one that works."""
+    selection = pd.concat(
+        [windowed("selection", [1.0] * 4), windowed("selection", [9.0] * 4, resolution=15)],
+        ignore_index=True,
+    )
+    holdout = pd.concat(
+        [windowed("holdout", [1.2] * 4), windowed("holdout", [9.9] * 4, resolution=15)],
+        ignore_index=True,
+    )
+    both_windows(monkeypatch, selection, holdout)
+    assert set(held_out("OpeningRange", "MNQ", resolution=5)["profit_factor"]) == {1.2}
+    assert set(held_out("OpeningRange", "MNQ", resolution=15)["profit_factor"]) == {9.9}
+    assert len(held_out("OpeningRange", "MNQ")) == 8, "unconfined, the pair holds both"
+
+
+def test_a_cell_with_no_paired_rows_raises_rather_than_returning_nothing(monkeypatch) -> None:
+    """An empty frame reads downstream as a shortlist whose logs were never stored, which
+    sends the reader to re-run a step that would not have helped."""
+    both_windows(monkeypatch, windowed("selection", [1.0] * 4), windowed("holdout", [1.2] * 4))
+    with pytest.raises(RuntimeError, match="no paired windows"):
+        held_out("OpeningRange", "NQ")
+
+    with pytest.raises(RuntimeError, match="no paired windows"):
+        held_out("OpeningRange", "MNQ", stratum="phase=CLOSE")
+
+
+def test_a_split_that_was_never_run_raises_rather_than_pairing_nothing(monkeypatch) -> None:
+    """``paired`` returns an empty frame where one window has no rows at all, which is the
+    state before ``tools/campaign_sweep.py --split`` has ever run."""
+    both_windows(monkeypatch, windowed("selection", [1.0] * 4).iloc[:0], windowed("holdout", [1.2] * 4))
+    with pytest.raises(RuntimeError, match="no paired windows"):
+        held_out("OpeningRange", "MNQ")
+
+
+def test_a_ranking_statistic_undefined_on_every_paired_row_raises(monkeypatch) -> None:
+    """``rank`` drops the rows it cannot order, so an undefined statistic empties the
+    shortlist silently -- the defect ``rank`` exists for, one level up."""
+    both_windows(
+        monkeypatch,
+        windowed("selection", [float("nan")] * 4),
+        windowed("holdout", [1.2] * 4),
+    )
+    with pytest.raises(RuntimeError, match="no profit_factor_sel to rank on"):
+        held_out("OpeningRange", "MNQ")
 
 
 # -- rebuilding a stored row ---------------------------------------------------------------

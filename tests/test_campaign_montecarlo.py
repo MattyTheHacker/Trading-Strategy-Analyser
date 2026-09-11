@@ -211,3 +211,28 @@ def test_the_variant_flag_confines_the_shortlist_to_one_geometry(monkeypatch, st
     resampled.clear()
     assert main(argv) == 0
     assert sorted(resampled) == ["bracket", "fade"], "unrestricted, the shortlist holds both"
+
+
+def test_held_out_sizes_the_figure_a_gate_reads_rather_than_a_selected_maximum(
+    monkeypatch,
+    stocked,
+) -> None:
+    """A spread put around a figure chosen on the same window sizes the selection and calls it
+    the strategy's uncertainty -- ``docs/roadmap.md`` §M28.13."""
+    asked: list[str] = []
+    monkeypatch.setattr(
+        campaign_montecarlo,
+        "held_out",
+        lambda *_: asked.append("pair") or pd.DataFrame([stored_row()]),
+    )
+    monkeypatch.setattr(
+        campaign_montecarlo,
+        "shortlist",
+        lambda *_: asked.append("window") or pd.DataFrame([stored_row()]),
+    )
+    monkeypatch.setattr(campaign_montecarlo, "db_path", lambda _: stocked)
+
+    argv = ["campaign_montecarlo.py", "--strategy", "InsideBar", "--iterations", "50"]
+    assert main(argv) == 0
+    assert main([*argv, "--held-out"]) == 0
+    assert asked == ["window", "pair"]

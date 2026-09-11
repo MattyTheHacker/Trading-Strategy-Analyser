@@ -9,6 +9,10 @@ permutation test and a time-of-day review each need a per-trade vector, so the l
 here instead -- rebuild a stored ``combos`` row, run that one configuration again with its log
 kept, and save it under the ``(sweep_id, combo_id)`` the summary row already carries.
 
+**``--held-out`` logs the pair a gate should read**: the held-out rows of the configurations
+the *selection* window ranked highest, so nothing whose log is stored here was ranked on the
+window it is then read from -- ``docs/roadmap.md`` §M28.13.
+
 Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every campaign
 tool that starts from a stored row needs. What :func:`store_logs` wrote is read back by
 ``tools/campaign_report.py``'s ``load_trades``, beside the loader that reads the summary rows.
@@ -31,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, logsetup, resample, results, splice, sweep
 from nqbt.instruments import get_instrument
+from tools.campaign_holdout import held_out
 from tools.campaign_report import load, rank
 from tools.campaign_sweep import db_path, elastic_ladder, windows
 
@@ -236,24 +241,33 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
     parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=TOP, help="how many configurations to log")
+    parser.add_argument(
+        "--held-out",
+        action="store_true",
+        help="log the held-out rows of the configurations the selection window ranks highest",
+    )
     args = parser.parse_args(argv[1:])
 
-    rows: pd.DataFrame = shortlist(
-        args.strategy,
-        args.root,
-        args.window,
-        args.by,
-        args.top,
-        args.stratum,
-        args.resolution,
-        args.variant,
+    rows: pd.DataFrame = (
+        held_out(args.strategy, args.root, args.by, args.top, args.stratum, args.resolution, args.variant)
+        if args.held_out
+        else shortlist(
+            args.strategy,
+            args.root,
+            args.window,
+            args.by,
+            args.top,
+            args.stratum,
+            args.resolution,
+            args.variant,
+        )
     )
     logger.info(
         "%s on %s: %d configurations ranked on %s by %s",
         args.strategy,
         args.root,
         len(rows),
-        "+".join(args.window),
+        "selection" if args.held_out else "+".join(args.window),
         args.by,
     )
     stored: int = store_logs(args.strategy, rows, args.root)
