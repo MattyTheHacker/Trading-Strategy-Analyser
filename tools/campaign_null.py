@@ -2,6 +2,7 @@
 
     ./.venv/Scripts/python.exe tools/campaign_null.py --strategy ElasticBand --root MNQ
     ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
+    ./.venv/Scripts/python.exe tools/campaign_null.py --strategy OpeningRange --root MNQ NQ         --stratum volume=THIN regime=DIRECTIONAL --draw levels
 
 A sweep can say which configuration has the highest profit factor. It cannot say whether the
 **entry** earned it, because a bracket that suits the bars flatters a random entry just as much.
@@ -26,6 +27,11 @@ which session's range is traded instead of which day each signal lands on, so th
 is held fixed -- ``docs/roadmap.md`` §M28.2. The two arms ask different questions and are not
 interchangeable, which is why every measured row carries the ``draw`` it was produced under: a
 table mixing them silently would be two nulls wearing one set of names.
+
+**Several roots and several strata run as one stated family**, printed before the first cell
+rather than counted afterwards. A p-value is only readable against how many tests it was one
+of, and a cell chosen after a consistency score has already been looked at is the multiple-
+comparisons load § "Standing traps" names -- ``docs/roadmap.md`` §M28.16.
 """
 
 from __future__ import annotations
@@ -69,6 +75,16 @@ RANKINGS = ("profit_factor", "expectancy_excess", NET_TO_DRAWDOWN)
 """The orders :func:`rankings` compares. Profit factor is here to be disagreed with rather than
 to be believed -- ``docs/roadmap.md`` § "The method that does answer the question"."""
 
+CELL_KEYS = ["root", "stratum"]
+"""What one cell of a family run is. ``--resolution`` is fixed across a run rather than swept,
+because bar size is the largest lever in the campaign and pooling two of them would be one
+number over two populations -- ``docs/roadmap.md`` §M28.14."""
+
+SIGNIFICANT = 0.05
+"""The level :func:`family` counts configurations against. It is counted rather than concluded
+from: a family of cells runs one test per configuration, so the count is read against how many
+of them chance alone would put below it -- ``docs/roadmap.md`` § "Standing traps"."""
+
 
 def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
     """One configuration named by whatever actually varies across the shortlist."""
@@ -100,6 +116,7 @@ def measure_row(  # noqa: PLR0913 - each argument is a distinct axis of one meas
         # Carried so a stored table cannot mix the two arms silently: they ask different
         # questions -- ``docs/roadmap.md`` §M28.2.
         "draw": draw,
+        "root": root,
         "stratum": row["stratum"],
         "resolution": int(row["resolution"]),
         "ranked_by": float(row[NET_TO_DRAWDOWN]),
@@ -208,6 +225,44 @@ def rankings(table: pd.DataFrame) -> list[str]:
     return lines
 
 
+def family(table: pd.DataFrame) -> pd.DataFrame:
+    """One row per cell of a family run: what it beat, how often, and at what p.
+
+    The row is a range rather than a mean because ten configurations of one cell are ten
+    overlapping runs over the same bars, so their spread is the honest summary and their
+    average is not -- ``docs/roadmap.md`` §M28.16.
+    """
+    rows: list[dict[str, object]] = []
+    for keys, block in table.groupby(CELL_KEYS, sort=False):
+        cell: dict[str, object] = dict(zip(CELL_KEYS, keys, strict=True))
+        measured: pd.DataFrame = block[block["refused"].isna()]
+        if measured.empty:
+            rows.append({**cell, "measured": 0, "refused": len(block)})
+            continue
+
+        rows.append(
+            {
+                **cell,
+                "measured": len(measured),
+                "refused": len(block) - len(measured),
+                "trades_low": int(measured["trades"].min()),
+                "trades_high": int(measured["trades"].max()),
+                "profit_factor_low": measured["profit_factor"].min(),
+                "profit_factor_high": measured["profit_factor"].max(),
+                "null_low": measured["profit_factor_null"].min(),
+                "null_high": measured["profit_factor_null"].max(),
+                "excess_low": measured["profit_factor_excess"].min(),
+                "excess_high": measured["profit_factor_excess"].max(),
+                "beat_null": int((measured["profit_factor_excess"] > 0).sum()),
+                "p_under_05": int((measured["profit_factor_p"] < SIGNIFICANT).sum()),
+                "net_to_drawdown_low": measured[NET_TO_DRAWDOWN].min(),
+                "net_to_drawdown_high": measured[NET_TO_DRAWDOWN].max(),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def show(title: str, frame: pd.DataFrame) -> None:
     """Print one table under a heading, or say that it is empty."""
     logger.info("")
@@ -221,11 +276,51 @@ def show(title: str, frame: pd.DataFrame) -> None:
         logger.info("%s", frame.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
 
+def cell(
+    args: argparse.Namespace,
+    archetype: archetypes.Archetype,
+    root: str,
+    stratum: str | None,
+) -> pd.DataFrame:
+    """One root x stratum cell of a family run, shortlisted and placed against its own null."""
+    rows: pd.DataFrame = shortlist(
+        args.strategy,
+        root,
+        args.window,
+        args.by,
+        args.top,
+        stratum,
+        args.resolution,
+        args.variant,
+    )
+    logger.info("")
+    logger.info(
+        "%s on %s, stratum %s: %d of the top configurations ranked on %s by %s, tested on %s",
+        args.strategy,
+        root,
+        stratum or "any",
+        len(rows),
+        "+".join(args.window),
+        args.by,
+        args.test_window,
+    )
+
+    return measure(
+        rows,
+        archetype,
+        root,
+        args.test_window,
+        args.iterations,
+        args.n_jobs,
+        args.draw,
+    )
+
+
 def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Matched-null test of a campaign shortlist.")
     parser.add_argument("--strategy", required=True)
-    parser.add_argument("--root", default="MNQ")
+    parser.add_argument("--root", nargs="+", default=["MNQ"])
     parser.add_argument("--window", nargs="+", default=["full"], help="which stored rows rank")
     parser.add_argument(
         "--test-window",
@@ -234,7 +329,12 @@ def main(argv: list[str]) -> int:
         help="which bars the null runs on; holdout after ranking on selection is the honest pair",
     )
     parser.add_argument("--by", default="profit_factor", help="which statistic picks the rows")
-    parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
+    parser.add_argument(
+        "--stratum",
+        nargs="+",
+        default=None,
+        help="restrict the ranking to one stratum; several run as one stated family",
+    )
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
     parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=1, help="how many configurations to place")
@@ -249,34 +349,18 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[1:])
 
     archetype: archetypes.Archetype = archetypes.get(args.strategy)
-    rows: pd.DataFrame = shortlist(
-        args.strategy,
-        args.root,
-        args.window,
-        args.by,
-        args.top,
-        args.stratum,
-        args.resolution,
-        args.variant,
-    )
+    strata: list[str | None] = args.stratum or [None]
     logger.info(
-        "%s on %s: %d of the top configurations ranked on %s by %s, tested on %s",
+        "%s: %d root x stratum cells of at most %d configurations each -- the family every "
+        "p-value below is one of",
         args.strategy,
-        args.root,
-        len(rows),
-        "+".join(args.window),
-        args.by,
-        args.test_window,
+        len(args.root) * len(strata),
+        args.top,
     )
 
-    table: pd.DataFrame = measure(
-        rows,
-        archetype,
-        args.root,
-        args.test_window,
-        args.iterations,
-        args.n_jobs,
-        args.draw,
+    table: pd.DataFrame = pd.concat(
+        [cell(args, archetype, root, stratum) for root in args.root for stratum in strata],
+        ignore_index=True,
     )
     refused: pd.DataFrame = table[table["refused"].notna()]
     if len(refused) == len(table):
@@ -297,10 +381,14 @@ def main(argv: list[str]) -> int:
             "%d of %d configurations were refused a null and carry no verdict", len(refused), len(table)
         )
 
-    logger.info("")
-    logger.info("--- the rankings, side by side ---")
-    for line in rankings(table):
-        logger.info("%s", line)
+    if len(args.root) * len(strata) > 1:
+        show("the family, one row per cell", family(table))
+
+    for keys, block in table.groupby(CELL_KEYS, sort=False):
+        logger.info("")
+        logger.info("--- the rankings for %s, side by side ---", ", ".join(str(key) for key in keys))
+        for line in rankings(block):
+            logger.info("%s", line)
 
     return 0
 

@@ -14,7 +14,7 @@ import pytest
 
 from nqbt import randomentry
 from tools import campaign_null
-from tools.campaign_null import RANKINGS, STATISTICS, label_of, measure_row, rankings
+from tools.campaign_null import RANKINGS, STATISTICS, family, label_of, measure_row, rankings
 from tools.campaign_report import NET_TO_DRAWDOWN
 
 
@@ -181,3 +181,77 @@ def test_net_to_drawdown_needs_the_two_statistics_it_is_built_from() -> None:
     """``measure_row`` derives it from the observation rather than the stored row, so both have
     to be asked of ``compare`` -- and they are nearly free, since it summarises once."""
     assert {"net_pnl", "max_drawdown"} <= set(STATISTICS)
+
+
+# -- the family summary ----------------------------------------------------------------------
+
+
+def family_rows(**columns: object) -> pd.DataFrame:
+    """A table shaped like :func:`~tools.campaign_null.measure`'s output over two cells."""
+    base = {
+        "root": ["MNQ", "MNQ", "NQ", "NQ"],
+        "stratum": "phase=MIDDAY",
+        "refused": None,
+        "trades": [100, 200, 300, 400],
+        "profit_factor": [1.0, 1.2, 0.9, 1.1],
+        "profit_factor_null": [0.9, 0.9, 1.0, 1.0],
+        "profit_factor_excess": [0.1, 0.3, -0.1, 0.1],
+        "profit_factor_p": [0.01, 0.20, 0.90, 0.04],
+        NET_TO_DRAWDOWN: [0.5, 1.5, -0.5, 0.25],
+    }
+
+    return pd.DataFrame({**base, **columns})
+
+
+def test_a_family_reports_one_row_per_root_and_stratum() -> None:
+    """The cell is what a score was consistent across, so it is what a null has to be read
+    per -- ``docs/roadmap.md`` §M28.16."""
+    summary = family(family_rows())
+    assert list(summary["root"]) == ["MNQ", "NQ"]
+    assert campaign_null.CELL_KEYS == ["root", "stratum"]
+
+
+def test_a_cell_is_summarised_as_a_range_rather_than_a_mean() -> None:
+    """Ten configurations of one cell are overlapping runs over the same bars, so their spread
+    is the honest summary."""
+    summary = family(family_rows()).set_index("root")
+    assert summary.loc["MNQ", "profit_factor_low"] == pytest.approx(1.0)
+    assert summary.loc["MNQ", "profit_factor_high"] == pytest.approx(1.2)
+    assert summary.loc["NQ", "excess_low"] == pytest.approx(-0.1)
+    assert summary.loc["NQ", "net_to_drawdown_high"] == pytest.approx(0.25)
+
+
+def test_beating_the_null_and_clearing_the_level_are_counted_separately() -> None:
+    """A cell can beat its own null on every configuration and clear p on almost none, which is
+    §M28.14's ElasticBand result and the reason both columns are reported."""
+    summary = family(family_rows()).set_index("root")
+    assert summary.loc["MNQ", "beat_null"] == 2
+    assert summary.loc["MNQ", "p_under_05"] == 1
+    assert summary.loc["NQ", "beat_null"] == 1
+    assert summary.loc["NQ", "p_under_05"] == 1
+
+
+def test_the_level_the_count_is_taken_against_is_named_rather_than_inlined() -> None:
+    """It is counted rather than concluded from, so the number a reader corrects for is
+    visible."""
+    assert campaign_null.SIGNIFICANT == pytest.approx(0.05)
+
+
+def test_a_wholly_refused_cell_carries_a_count_rather_than_a_verdict() -> None:
+    """A gate that could not run is not one that passed -- the same reason
+    :data:`~tools.campaign_null.NO_NULL_AVAILABLE` exists."""
+    rows = family_rows(refused=[None, None, "dense", "dense"])
+    summary = family(rows).set_index("root")
+    assert summary.loc["NQ", "measured"] == 0
+    assert summary.loc["NQ", "refused"] == 2
+    assert pd.isna(summary.loc["NQ", "profit_factor_low"])
+
+
+def test_a_partly_refused_cell_summarises_only_what_ran() -> None:
+    """A row refused alongside rows that ran carries no verdict, so it must not reach the
+    range either."""
+    rows = family_rows(refused=[None, "dense", None, None])
+    summary = family(rows).set_index("root")
+    assert summary.loc["MNQ", "measured"] == 1
+    assert summary.loc["MNQ", "refused"] == 1
+    assert summary.loc["MNQ", "profit_factor_high"] == pytest.approx(1.0)
