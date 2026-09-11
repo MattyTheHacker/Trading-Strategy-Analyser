@@ -21,6 +21,11 @@ machinery and it is not -- it replaces the entry and holds the ordering.
 drawn over a mixture of geometries ranks the fattest tail in it rather than the one being asked
 about -- ``docs/roadmap.md`` §M28.9.
 
+**``--held-out`` sizes the figure a gate actually reads**: the held-out rows of the
+configurations the *selection* window ranked highest, rather than the ones the holdout window
+ranks itself -- a spread put around a figure chosen on the same window sizes a selected maximum
+and calls it a strategy's uncertainty, ``docs/roadmap.md`` §M28.13.
+
 Reads the logs ``tools/campaign_shortlist.py`` stored, so run that first; a row with no log is
 named and skipped rather than silently dropped.
 """
@@ -39,6 +44,7 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools.campaign_holdout import held_out
 from tools.campaign_report import load_trades
 from tools.campaign_shortlist import TOP, shortlist
 from tools.campaign_sweep import db_path
@@ -133,24 +139,33 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--top", type=int, default=TOP, help="how many configurations to resample")
     parser.add_argument("--iterations", type=int, default=montecarlo.DEFAULT_ITERATIONS)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--held-out",
+        action="store_true",
+        help="resample the held-out rows of the configurations the selection window ranks highest",
+    )
     args = parser.parse_args(argv[1:])
 
-    rows: pd.DataFrame = shortlist(
-        args.strategy,
-        args.root,
-        args.window,
-        args.by,
-        args.top,
-        args.stratum,
-        args.resolution,
-        args.variant,
+    rows: pd.DataFrame = (
+        held_out(args.strategy, args.root, args.by, args.top, args.stratum, args.resolution, args.variant)
+        if args.held_out
+        else shortlist(
+            args.strategy,
+            args.root,
+            args.window,
+            args.by,
+            args.top,
+            args.stratum,
+            args.resolution,
+            args.variant,
+        )
     )
     logger.info(
         "%s on %s: %d configurations ranked on %s by %s, %s resamples each",
         args.strategy,
         args.root,
         len(rows),
-        "+".join(args.window),
+        "selection" if args.held_out else "+".join(args.window),
         args.by,
         f"{args.iterations:,}",
     )

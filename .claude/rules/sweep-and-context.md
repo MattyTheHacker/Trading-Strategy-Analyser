@@ -230,6 +230,14 @@ paths:
   rows and 0% of `shape=any` rows, so a top-20 shortlist drawn inside a reversal arm is closer
   to a top 10 counted twice — and the sign test over paired cells counts each pair twice with
   it. Count the distinct cells a shortlist actually holds before quoting its size.
+- **A stored log read from the window that ranked it is a selected maximum, not a result.**
+  `campaign_shortlist.shortlist` ranks and reads one window at a time, so `--window holdout`
+  takes the twenty best *holdout* rows and every figure computed off their logs carries that
+  selection. `campaign_holdout.held_out` is the pair instead — the held-out rows of the
+  configurations the **selection** window ranked highest — and `--held-out` is the flag that
+  reaches it from `campaign_shortlist.py` and `campaign_montecarlo.py`.
+  `tools/campaign_propaccount.py` and `tools/campaign_exits.py` take no `--window` at all for
+  the same reason. `docs/roadmap.md` §M28.13.
 - **Read `sel_top20_pf` beside `passes`.** The held-out gate is defined on the test window
   alone, so a shortlist drawn from a space containing nothing profitable can clear it by
   luck -- DeadCatBounce does, on MNQ, with a selection-window shortlist averaging 0.940.

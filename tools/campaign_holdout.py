@@ -86,6 +86,58 @@ def paired(name: str, variant: str | None = None) -> pd.DataFrame:
     return merged
 
 
+HELD_OUT_SUFFIX = "_hold"
+"""Which half of a :func:`paired` row :func:`held_out` keeps."""
+
+
+def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a different axis
+    name: str,
+    root: str,
+    by: str = DEFAULT_BY,
+    top: int = TOP,
+    stratum: str | None = None,
+    resolution: int | None = None,
+    variant: str | None = None,
+) -> pd.DataFrame:
+    """The held-out rows of the configurations the selection window ranks highest.
+
+    Shaped like :func:`campaign_report.load`'s rows, so a tool reading stored logs can use it
+    wherever it would use :func:`campaign_shortlist.shortlist` -- and unlike that one, nothing
+    it returns was ranked on the window it is then read from -- ``docs/roadmap.md`` §M28.13.
+    """
+    merged: pd.DataFrame = paired(name, variant)
+    if not merged.empty:
+        merged = merged[merged["root"] == root]
+
+    if stratum is not None:
+        merged = merged[merged["stratum"] == stratum]
+
+    if resolution is not None:
+        merged = merged[merged["resolution"] == resolution]
+
+    if merged.empty:
+        msg: str = f"no paired windows for {name} on {root}, stratum {stratum}, variant {variant}"
+        raise RuntimeError(msg)
+
+    ranked: pd.DataFrame = rank(merged, top, f"{by}_sel")
+    if ranked.empty:
+        msg = f"{name} on {root}: every one of {len(merged)} paired rows has no {by}_sel to rank on"
+        raise RuntimeError(msg)
+
+    return _held_columns(ranked)
+
+
+def _held_columns(merged: pd.DataFrame) -> pd.DataFrame:
+    """One paired frame's held-out half, under the unsuffixed names the stored rows carry."""
+    renamed: dict[str, str] = {
+        column: column.removesuffix(HELD_OUT_SUFFIX)
+        for column in merged.columns
+        if column.endswith(HELD_OUT_SUFFIX)
+    }
+
+    return merged[[*JOIN_KEYS, *renamed]].rename(columns=renamed).reset_index(drop=True)
+
+
 def rank_correlation(block: pd.DataFrame) -> float:
     """Spearman between the two windows' profit factors, as Pearson on the ranks.
 

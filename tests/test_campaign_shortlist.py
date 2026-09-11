@@ -93,6 +93,27 @@ def test_the_best_row_is_the_first_row_of_the_shortlist(monkeypatch) -> None:
     assert best["trades"] == shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 5).iloc[0]["trades"]
 
 
+# -- which rows --held-out asks for --------------------------------------------------------
+
+
+def test_held_out_takes_the_pair_and_the_default_takes_the_ranked_window(monkeypatch) -> None:
+    """The two routes pick different rows, and a flag that parses without reaching either
+    reads exactly like one that works -- ``docs/roadmap.md`` §M28.13."""
+    asked: list[str] = []
+    monkeypatch.setattr(
+        campaign_shortlist,
+        "held_out",
+        lambda *_: asked.append("pair") or stored_rows().head(1),
+    )
+    monkeypatch.setattr(campaign_shortlist, "shortlist", lambda *_: asked.append("window") or stored_rows())
+    monkeypatch.setattr(campaign_shortlist, "store_logs", lambda *_: 0)
+
+    argv = ["campaign_shortlist.py", "--strategy", STRATEGY]
+    assert campaign_shortlist.main(argv) == 0
+    assert campaign_shortlist.main([*argv, "--held-out"]) == 0
+    assert asked == ["window", "pair"]
+
+
 # -- the bars a stored row was measured on -------------------------------------------------
 
 
