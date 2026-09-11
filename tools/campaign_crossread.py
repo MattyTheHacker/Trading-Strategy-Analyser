@@ -64,12 +64,14 @@ MISSING = -9.99e12
 """Stand-in for a NaN in a join key, because a NaN never equals itself and pandas would drop the
 pair silently. Outside every parameter's range, so it can only match another absence."""
 
-BACKFILLED = {"max_hold_bars": 0}
+BACKFILLED = {"max_hold_bars": 0, "follow_through_scaling": 0, "follow_through_sessions": 60}
 """Parameter columns added after rows were already stored, and the value those rows ran at.
 
 A sweep predating a column leaves it null, which is not the value it ran at -- so every pair
 between a row stored before the column and one stored after is dropped, silently and completely.
-``docs/findings/m30-volume-regime-recut.md`` is where that cost a campaign."""
+Each value is the archetype default, which is what a row that never saw the column ran at, and
+``tests/test_campaign_crossread.py`` pins them against it.
+``docs/findings/m30-volume-regime-recut.md`` is where this cost a campaign."""
 
 
 def probe_cuts() -> Cuts:

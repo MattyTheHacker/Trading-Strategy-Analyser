@@ -26,6 +26,8 @@ from tools.campaign_crossread import (
 )
 from tools.campaign_report import TAGS, UNFILTERED
 
+from nqbt.sim.types import DeadCatParams, OpeningRangeParams
+
 
 def rows(**columns: object) -> pd.DataFrame:
     """A results frame carrying one parameter, one context filter and the stats the tool reads."""
@@ -157,7 +159,14 @@ def test_backfilling_that_column_does_not_pair_two_different_caps() -> None:
 
 
 def test_every_backfilled_column_states_the_value_its_rows_ran_at() -> None:
-    assert BACKFILLED == {"max_hold_bars": 0}
+    """The default is what a row stored before the column existed ran at; a changed one lies."""
+    defaults = {
+        name: getattr(params, name)
+        for params in (DeadCatParams(), OpeningRangeParams())
+        for name in BACKFILLED
+        if hasattr(params, name)
+    }
+    assert defaults == BACKFILLED
 
 
 def test_a_frame_with_no_unfiltered_row_pairs_nothing() -> None:
