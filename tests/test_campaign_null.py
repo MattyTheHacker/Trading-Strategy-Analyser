@@ -109,7 +109,7 @@ def test_agreement_is_reported_when_every_ranking_picks_the_same_row() -> None:
 
 def test_a_disagreement_is_reported_rather_than_a_winner() -> None:
     """The case the exercise exists for: a bracket that suits the bars raises the observed
-    statistic and its own null together -- ``docs/roadmap.md`` § "The method that does answer
+    statistic and its own null together -- ``docs/findings/m26-elastic-band.md`` § "The method that does answer
     the question"."""
     table = measured(profit_factor=[3.0, 2.0, 1.0])
     lines = rankings(table)

@@ -12,7 +12,7 @@ This holds the entry fixed, varies only the exit geometry, and reports both term
     observed - null      what the entry rule adds at this geometry
 
 The two can rank geometries in **opposite** orders, and where they disagree the excess is the
-one to believe -- ``docs/roadmap.md`` §M26, "The method that does answer the question".
+one to believe -- ``docs/findings/m26-elastic-band.md`` § "The method that does answer the question".
 
 Three of the four schemes are §M26's; ``D-band`` is the stop on the channel the entry was
 measured against, whose distance scales with the same dispersion the entry threshold uses --

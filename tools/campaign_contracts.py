@@ -10,7 +10,7 @@ Per contract rather than spliced because ATR and the moving averages both step a
 and because a spliced series hides whether an edge is two good quarters wide.
 
 The tally is a sign count over contracts on ``expectancy``, which is bounded where a profit
-factor is not -- ``docs/roadmap.md`` § "Reading the per-contract tally".
+factor is not -- ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally".
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ def tally(frame: pd.DataFrame) -> pd.DataFrame:
     """How many contracts beat their own null, and how many simply made money.
 
     The verdict is the sign tally; the medians beside it describe the spread and never carry it.
-    ``docs/roadmap.md`` § "Reading the per-contract tally".
+    ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally".
     """
     rows: list[dict[str, object]] = []
     for root, block in frame.groupby("root"):

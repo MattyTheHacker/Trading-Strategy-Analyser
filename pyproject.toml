@@ -29,6 +29,7 @@ dev = [
     "pandas-stubs==3.0.5.260730",
     "pymarkdownlnt==0.9.39",
     "mdformat-gfm==1.0.0",
+    "mdformat-frontmatter==2.1.2",
     "libcst==1.9.0",
 ]
 
@@ -61,6 +62,15 @@ enabled = false
 # tell a bare mdformat run from a configured one. This is what catches it.
 [tool.pymarkdown.plugins.MD029]
 style = "ordered"
+
+
+# docs/findings/ files carry a front-matter `title` for tools/findings_index.py and an H1
+# holding the campaign's original heading verbatim, because that heading is what existing
+# `§ "..."` pointers name. The default, "title", would read the metadata field as the
+# document's title and then report the H1 as a second one. No front-matter field here is the
+# title, so this names one that does not exist -- an empty string is ignored.
+[tool.pymarkdown.plugins.MD025]
+front_matter_title = "no-front-matter-title"
 
 
 [tool.coverage.report]

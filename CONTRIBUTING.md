@@ -20,21 +20,25 @@ Code should be readable on its own terms. Prefer a clearer name, a smaller funct
 - **A comment is fine where something is genuinely non-obvious** — a subtle index, a deliberate deviation from what a reader would expect, a workaround. Use them sparingly, and only where the code's behaviour departs from what a competent reader would predict.
 - **Arguments, justifications, measurements, decision records, history and traps go in `docs/`**, with at most a one-line pointer from the code.
 
-Two homes, and they are not interchangeable:
+Three homes, and they are not interchangeable:
 
-| goes in                                        | what it holds                                                                     |
-| ---------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it    |
-| [`docs/roadmap.md`](docs/roadmap.md)           | planned work in dependency order, the reasoning behind it, and the standing traps |
+| goes in                                        | what it holds                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it  |
+| [`docs/findings/`](docs/findings/)             | one file per campaign: what was measured, what it returned, and what it settles |
+| [`docs/roadmap.md`](docs/roadmap.md)           | the standing constraints, the rubric, the traps and the decisions taken         |
 
 A pointer must name a section that exists, in the form the source already uses:
 
 ```text
 ``docs/roadmap.md`` §M17
+``docs/findings/m28-1-openingrange-swept.md`` § "Gate 3 -- the entry beats a random entry"
 ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer the open"
 ```
 
-A bare "see the docs" is not a pointer.
+A bare "see the docs" is not a pointer, and [`tests/test_doc_pointers.py`](tests/test_doc_pointers.py) fails on one that names a heading no longer there.
+
+**A campaign's result goes in `docs/findings/`, not in the roadmap.** Add a file with the front matter the others carry — `id`, `title`, `archetypes`, `issues`, `gates`, `outcome`, `verdict` — then run [`tools/findings_index.py`](tools/findings_index.py) to regenerate the three index views. They are generated, so do not edit them by hand. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
 
 ## Naming
 
@@ -197,7 +201,9 @@ A "ruff auto-fix" pull request once reached into an `@njit` loop and rewrote `si
 
 `MD029` is set to `ordered` to catch that second case from the other side. Its default, `one_or_ordered`, accepts both numbering styles, so `pymarkdown` alone would pass a file whose ordered lists had all been flattened to `1.`.
 
-**`.claude/rules/*.md` are excluded and must stay excluded.** They carry `paths:` front matter, no front-matter plugin is installed, and formatting them rewrites the delimiters into a thematic break and a bullet list — after which the rules stop loading for the files they cover, and nothing reports it. That exclusion is why those files are still hard-wrapped while everything else is not.
+**`mdformat-frontmatter` is what makes front matter safe, and it is a pin rather than a convenience.** Without it `mdformat` rewrites a `---` block into a thematic break and a heading, which silently destroys the metadata `docs/findings/` is indexed from. It was added for that; `.claude/rules/*.md` were the earlier casualty of the same defect.
+
+**`.claude/rules/*.md` stay excluded even so.** The plugin now preserves their `paths:` front matter, but those files are hard-wrapped where everything else is not, so formatting them would reflow every one. Unexclude them only as a deliberate change with that reflow in the diff.
 
 ## The trade-log regression gate
 
