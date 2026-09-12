@@ -72,6 +72,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M29`                                             | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)                          | all 7                                                                   | 1, 2       | `negative`    | [#292]                         |
 | `§M30`                                             | [M30 — volume and regime re-cut across the registry, and what the raw pair was reporting](m30-volume-regime-recut.md)                     | all 7                                                                   | 2          | `mixed`       | [#289]                         |
 | `§M31`                                             | [M31 — the nine calibrated cells through the matched null, and the lookback a consistency score cannot see](m31-calibrated-cells-null.md) | ElasticBand, OpeningRange                                               | 3          | `mixed`       | [#298]                         |
+| `§M31.1`                                           | [M31.1 — the gate-3 survivor through gate 4, and the hold cap inside its own stratum](m31-1-survivor-gate-4.md)                           | OpeningRange                                                            | 4          | `mixed`       | [#302]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                             | EmaCrossover                                                            | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                     | EmaCrossover                                                            | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                             | EmaCrossover                                                            | --         | `spec`        | [#74]                          |
@@ -239,6 +240,10 @@ Re-cutting turns three of six volume dimensions from inert to consistent and sor
 
 Two cells clear p = 0.05 on both roots — OpeningRange's calibrated DIRECTIONAL at lookbacks of 20 and 10, the strongest gate-3 result the registry has produced — while the five lookbacks that all score +10 span a median p from 0.010 to 0.72, and ElasticBand's mean-reversion mirror carries nothing.
 
+**[M31.1 — the gate-3 survivor through gate 4, and the hold cap inside its own stratum](m31-1-survivor-gate-4.md)**
+
+The walk-forward passes on both roots and the account funds on MNQ, but not one of the twenty configurations is profitable without its session-close legs and a hold cap does not substitute for them — every rung that binds tightly is a cost, exactly as §M29 found unfiltered.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -287,6 +292,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#289]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/289
 [#292]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/292
 [#298]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/298
+[#302]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/302
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41

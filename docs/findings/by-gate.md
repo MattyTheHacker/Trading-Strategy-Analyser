@@ -89,6 +89,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§M28.10` | [M28.10 — the geometry denominated in trailing follow-through: no, and the reason is arithmetic](m28-10-follow-through-geometry.md) | OpeningRange         | `negative` |
 | `§M28.11` | [M28.11 — the two truncated bracket axes, swept to their end](m28-11-truncated-bracket-axes.md)                                     | OpeningRange         | `negative` |
 | `§M28.15` | [M28.15 — the midday cell through the three reads that stopped it being a recommendation](m28-15-midday-cell.md)                    | OpeningRange         | `mixed`    |
+| `§M31.1`  | [M31.1 — the gate-3 survivor through gate 4, and the hold cap inside its own stratum](m31-1-survivor-gate-4.md)                     | OpeningRange         | `mixed`    |
 
 ## Reports on no gate
 
