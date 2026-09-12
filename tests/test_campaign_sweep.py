@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import math
 from dataclasses import replace
+from itertools import chain
 
 import numpy as np
 import pandas as pd
@@ -30,6 +31,7 @@ from nqbt import (
     volume,
 )
 from nqbt.sim.types import (
+    BAND_BOLLINGER,
     BAND_VWAP,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
@@ -64,6 +66,10 @@ from tools.campaign_sweep import (
     ELASTIC_BAND_STOP_SHAPES,
     ELASTIC_BAND_STOP_TARGET,
     ELASTIC_BAND_STOP_VARIANTS,
+    ELASTIC_CHANNEL,
+    ELASTIC_CHANNEL_PERIOD,
+    ELASTIC_CHANNEL_SOURCES,
+    ELASTIC_CHANNEL_VARIANTS,
     ELASTIC_LADDERS,
     ELASTIC_RECOVERY,
     ELASTIC_RECOVERY_ARMS,
@@ -71,6 +77,7 @@ from tools.campaign_sweep import (
     ELASTIC_RECOVERY_VARIANTS,
     ELASTIC_SHAPE_VARIANTS,
     ELASTIC_VOLUME,
+    ELASTIC_VOLUME_BRACKET,
     ELASTIC_VOLUME_SHAPES,
     ELASTIC_VOLUME_TARGET,
     ELASTIC_VOLUME_VARIANTS,
@@ -1550,6 +1557,153 @@ def test_the_volume_run_carries_the_roots_real_costs() -> None:
 
 def test_variants_for_selects_the_volume_grid() -> None:
     assert variants_for(ELASTIC_VOLUME) is ELASTIC_VOLUME_VARIANTS
+
+
+# -- the §M33 channel run --------------------------------------------------------------------
+
+
+def channel_variants(root: str = "MNQ") -> list[Variant]:
+    """Every arm of the channel run: both channels crossed with both shapes."""
+    return ELASTIC_CHANNEL_VARIANTS["ElasticBand"](root)
+
+
+def test_the_channel_run_asks_the_volume_question_over_the_same_cells() -> None:
+    """The point of the run is that the cells are §M26.9's and the grid is not, so a cell
+    whose sign flips flipped because of the channel."""
+    assert STRATUM_SETS[ELASTIC_CHANNEL] == STRATUM_SETS[ELASTIC_VOLUME]
+
+
+def test_the_channel_run_crosses_both_channels_with_both_shapes() -> None:
+    """Four arms rather than two, with §M26.9's pair among them as the control side."""
+    variants = channel_variants()
+
+    assert len(variants) == len(ELASTIC_CHANNEL_SOURCES) * len(ELASTIC_VOLUME_SHAPES)
+    assert {variant.base.band_source for variant in variants} == {BAND_VWAP, BAND_BOLLINGER}
+    assert {variant.base.signal_shape for variant in variants} == {SHAPE_ANY, SHAPE_REVERSAL}
+
+
+def test_every_channel_arm_differs_from_another_by_one_field_alone() -> None:
+    """The claim the campaign rests on: two arms sharing a shape differ by the channel, and two
+    sharing a channel differ by the shape -- so nothing else can explain a sign."""
+    for variant in channel_variants():
+        for other in channel_variants():
+            if variant.name == other.name:
+                continue
+
+            differ = {
+                field
+                for field in ("band_source", "signal_shape")
+                if getattr(variant.base, field) != getattr(other.base, field)
+            }
+            swapped = replace(
+                variant.base,
+                band_source=other.base.band_source,
+                signal_shape=other.base.signal_shape,
+            )
+
+            assert differ
+            assert swapped == other.base
+            assert variant.axes == other.axes
+
+
+def test_the_vwap_arm_reproduces_the_stored_volume_run_exactly() -> None:
+    """§M26.9's two variants are this set's VWAP arms, parameter for parameter, so the stored
+    rows cross-check the new ones -- the shape ``ORB_LADDER_FRACTIONS`` has for §M28.11."""
+    stored = {variant.base.signal_shape: variant for variant in volume_variants()}
+
+    matched = 0
+    for variant in channel_variants():
+        if variant.base.band_source != BAND_VWAP:
+            continue
+
+        twin = stored[variant.base.signal_shape]
+        assert variant.base == twin.base
+        assert variant.axes == twin.axes
+        matched += 1
+
+    assert matched == len(stored)
+
+
+def test_the_channel_run_pins_the_bollinger_period_rather_than_sweeping_it() -> None:
+    """``band_period`` is live under Bollinger and inert under VWAP, so sweeping it would make
+    the Bollinger arm a best-of-three and break the one-thing-differs property."""
+    for variant in channel_variants():
+        assert "band_period" not in variant.axes
+        assert variant.base.band_period == ELASTIC_CHANNEL_PERIOD
+
+
+def test_the_channel_run_holds_the_bracket_the_volume_run_held() -> None:
+    """Holding the *same* bracket is what lets the two campaigns be read against each other."""
+    for variant in channel_variants():
+        assert variant.axes == ELASTIC_VOLUME_BRACKET
+        assert variant.base.target_stretch_levels == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
+        assert variant.base.target_mode == TARGET_STRETCH
+
+
+def test_the_stored_volume_grid_is_untouched_by_naming_the_bracket() -> None:
+    """Naming the axes both sets share must not move §M26.9's own grid, whose rows are stored."""
+    for variant in volume_variants():
+        assert variant.axes == {
+            "entry_std": [2.0, 2.5, 3.0],
+            "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
+            "max_hold_bars": [0, 30],
+        }
+
+
+def test_neither_set_hands_out_the_bracket_constant_itself() -> None:
+    """Both builders copy it, so nothing downstream can mutate the axes of every set at once.
+
+    Within one builder call the variants share one dict, as every set in this module does;
+    ``grids_for`` copies before it adds a stratum, so nothing mutates it."""
+    per_set = [
+        [variant.axes for variant in build()]
+        for build in (channel_variants, volume_variants, channel_variants)
+    ]
+
+    assert all(axes is not ELASTIC_VOLUME_BRACKET for axes in chain.from_iterable(per_set))
+    assert all(axes == ELASTIC_VOLUME_BRACKET for axes in chain.from_iterable(per_set))
+    assert len({id(axes[0]) for axes in per_set}) == len(per_set)
+
+
+def test_no_channel_variant_can_collide_with_a_stored_elastic_one() -> None:
+    """One database holds every ElasticBand run and the variant name is the only thing
+    separating them, so ``campaign_holdout`` would pair two campaigns' windows together."""
+    stored: set[str] = set()
+    for build in (
+        VARIANTS,
+        ELASTIC_SHAPE_VARIANTS,
+        ELASTIC_VOLUME_VARIANTS,
+        ELASTIC_RECOVERY_VARIANTS,
+        ELASTIC_BAND_STOP_VARIANTS,
+    ):
+        stored |= {variant.name for variant in build["ElasticBand"]("MNQ")}
+
+    assert not stored & {variant.name for variant in channel_variants()}
+
+
+def test_the_ladder_is_readable_back_off_every_channel_variant_name() -> None:
+    """The ladder is a tuple and so not a stored column; the name is all a reading tool has."""
+    for variant in channel_variants():
+        assert elastic_ladder(variant.name) == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
+
+
+def test_every_channel_variant_grid_can_be_built_at_every_cell() -> None:
+    """A cell that cannot be built fails here rather than a quarter of an hour into the run."""
+    for variant in channel_variants():
+        for _, grid in grids_for(variant, ELASTIC_CHANNEL, Cuts(volume=raw_volume_cuts())):
+            assert len(grid) == variant.sized()
+            assert sum(1 for _ in grid.combinations()) == variant.sized()
+
+
+def test_the_channel_run_carries_the_roots_real_costs() -> None:
+    for root in COMMISSION:
+        for variant in channel_variants(root):
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
+
+
+def test_variants_for_selects_the_channel_grid() -> None:
+    assert variants_for(ELASTIC_CHANNEL) is ELASTIC_CHANNEL_VARIANTS
 
 
 # -- the §M26.6 recovery run -----------------------------------------------------------------

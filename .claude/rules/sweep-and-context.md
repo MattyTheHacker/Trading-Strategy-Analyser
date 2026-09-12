@@ -252,7 +252,15 @@ paths:
 - **Parallel sweeps top out around 5×, not 16×, and that is the hardware.** Per-core throughput
   drops when all physical cores are busy (mobile Ryzen, high single-core boost against a much
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —
-  don't "fix" it. Figures in `docs/roadmap.md`.
+  don't "fix" it. Figures in `README.md`, "Performance".
+- **A pool costs more than it returns below a few hundred combinations, and a campaign's
+  `--n-jobs` is set per *sweep call* rather than per run.** `campaign_sweep.run_point` opens one
+  pool per (variant × stratum), so a set crossing four arms with 28 cells at an 18-combination
+  bracket opens 112 pools of 18 — where `README.md` has said to stay single-process all along.
+  Measured at §M33's dearest point: 76.4 s at `--n-jobs 1` against 94.9 s at 8 and 105.5 s at
+  16. **Count a campaign's combinations per sweep call, not per run, before choosing
+  `--n-jobs`** — the default of 8 is wrong for every cell-heavy set.
+  `docs/findings/m33-channel-volume.md`.
 - **The `annotations` table widens by name exactly as `combos` does**, so a dataset prepared
   with one more series needs no migration and the earlier rows read null. It is keyed
   `(sweep_id, combo_id, trade_id)` and joined to the other two by `results.create_trade_view`;

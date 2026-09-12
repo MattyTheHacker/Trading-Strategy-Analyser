@@ -74,6 +74,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M31`                                             | [M31 — the nine calibrated cells through the matched null, and the lookback a consistency score cannot see](m31-calibrated-cells-null.md) | ElasticBand, OpeningRange                                               | 3          | `mixed`       | [#298]                         |
 | `§M31.1`                                           | [M31.1 — the gate-3 survivor through gate 4, and the hold cap inside its own stratum](m31-1-survivor-gate-4.md)                           | OpeningRange                                                            | 4          | `mixed`       | [#302]                         |
 | `§M32`                                             | [M32 — the two volume windows swept, and why a window is a cell rather than an axis](m32-volume-windows.md)                               | all 7                                                                   | 2          | `mixed`       | [#299]                         |
+| `§M33`                                             | [M33 — the volume answer belongs to the channel, and the two campaigns were both right](m33-channel-volume.md)                            | ElasticBand                                                             | 1, 2       | `mixed`       | [#300]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                             | EmaCrossover                                                            | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                     | EmaCrossover                                                            | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                             | EmaCrossover                                                            | --         | `spec`        | [#74]                          |
@@ -249,6 +250,10 @@ The walk-forward passes on both roots and the account funds on MNQ, but not one 
 
 Both windows move a consistency score as much as most dimensions the campaign compares, and 43 of the registry's 56 consistent volume cells sit at a rung nobody had run — but a new rung is consistent at about the same rate as the default, so the two defaults were unexamined rather than wrong, and only 6 of the 34 positive cells return a held-out profit factor above 1.0.
 
+**[M33 — the volume answer belongs to the channel, and the two campaigns were both right](m33-channel-volume.md)**
+
+Holding the bracket and the shape still and swapping the channel flips `HEAVY` from a cost to a benefit and `NORMAL` from a benefit to a cost on both roots in both windows, so a context result belongs to a configuration; the channel flips 50 of 108 held-out cuts against the shape's 36, and the arm that reproduces §M30's answer does it at a median held-out profit factor of 0.94.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -298,6 +303,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#292]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/292
 [#298]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/298
 [#299]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/299
+[#300]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/300
 [#302]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/302
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40

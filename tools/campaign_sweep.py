@@ -119,6 +119,13 @@ states, each cell cut on its own distribution rather than on a raw pair --
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-volume --split \
         --strata elastic-volume --volume-quantiles
 
+``--variants elastic-channel`` crosses that shape pair with the channel, over the same held
+bracket, so that a volume cell's sign can be attributed to one of them --
+``docs/roadmap.md`` §M33:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-channel --split \
+        --strata elastic-channel --volume-quantiles --n-jobs 1
+
 ``--variants elastic-recovery`` waits for the run outside the band to end and takes the
 bar that closes back inside, against the shapes read on a bar still outside --
 ``docs/roadmap.md`` §M26.6:
@@ -173,6 +180,7 @@ from nqbt import (
 from nqbt.arrays import float_column
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import (
+    BAND_BOLLINGER,
     BAND_VWAP,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
@@ -278,6 +286,7 @@ ORB_FOLLOW_THROUGH = "orb-followthrough"
 ORB_BRACKET = "orb-bracket"
 ELASTIC_SHAPE = "elastic-shape"
 ELASTIC_VOLUME = "elastic-volume"
+ELASTIC_CHANNEL = "elastic-channel"
 ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
 HOLD = "hold"
@@ -544,6 +553,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ORB_BRACKET: (UNFILTERED,),
     ELASTIC_SHAPE: (UNFILTERED,),
     ELASTIC_VOLUME: (UNFILTERED, VOLUME_FORMS),
+    ELASTIC_CHANNEL: (UNFILTERED, VOLUME_FORMS),
     ELASTIC_RECOVERY: (UNFILTERED,),
     ELASTIC_BAND_STOP: (UNFILTERED,),
     HOLD: (UNFILTERED,),
@@ -936,6 +946,18 @@ ELASTIC_VOLUME_TARGET = "target=0.0s"
 target ladder's eta-squared on the held-out profit factor there was 0.0000."""
 
 
+ELASTIC_VOLUME_BRACKET: dict[str, list[AxisValue]] = {
+    "entry_std": [2.0, 2.5, 3.0],
+    "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
+    "max_hold_bars": [0, 30],
+}
+"""The bracket the volume question is asked over, held by §M26.9 and by §M33.
+
+Named rather than written twice because holding *the same* bracket is what lets the two sets be
+read against each other -- ``docs/findings/m33-channel-volume.md``. Copy it into a variant
+rather than sharing the dict, so nothing downstream can mutate both sets at once."""
+
+
 def elasticband_volume_variants(root: str) -> list[Variant]:
     """§M26.9's run: the shape crossed with the volume states, over a bracket held still.
 
@@ -944,11 +966,7 @@ def elasticband_volume_variants(root: str) -> list[Variant]:
     end as a dead value and its high end as a cost, ``min_bars_outside`` because the reversal
     shape makes it a duplicate on 82.7% of cells, and the target ladder above.
     """
-    axes: dict[str, list[AxisValue]] = {
-        "entry_std": [2.0, 2.5, 3.0],
-        "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
-        "max_hold_bars": [0, 30],
-    }
+    axes: dict[str, list[AxisValue]] = dict(ELASTIC_VOLUME_BRACKET)
 
     return [
         Variant(
@@ -965,6 +983,55 @@ def elasticband_volume_variants(root: str) -> list[Variant]:
             ),
             axes=axes,
         )
+        for shape_name, shape in ELASTIC_VOLUME_SHAPES.items()
+    ]
+
+
+ELASTIC_CHANNEL_SOURCES: dict[str, int] = {
+    "channel=vwap": BAND_VWAP,
+    "channel=bollinger": BAND_BOLLINGER,
+}
+"""The two channels the volume question has been asked over, and returned opposite answers from.
+
+A variant dimension rather than an axis for the reason every mode in this file is one:
+``band_period`` is read under ``BAND_BOLLINGER`` alone and ``vwap_min_session_bars`` under
+``BAND_VWAP`` alone, so an axis crossing the source would run identical combinations that
+``dead_axes`` cannot see -- ``.claude/rules/sweep-and-context.md``."""
+
+ELASTIC_CHANNEL_PERIOD = 20
+"""The Bollinger period this set pins, where §M30 swept three.
+
+The parameter's own default and the middle rung of that ladder. Pinned so that two rows differ
+by one thing, which costs the Bollinger arm the best-of-three every §M30 cell had --
+``docs/findings/m33-channel-volume.md``."""
+
+
+def elasticband_channel_variants(root: str) -> list[Variant]:
+    """§M33's run: the channel crossed with the shape, over §M26.9's bracket.
+
+    §M26.9 and §M30 put the same nine fitted volume cuts through grids differing in three ways
+    at once and returned opposite answers. Here the channel and the shape are the only things
+    that move, so a volume cell's sign can be attributed to one of them.
+    """
+    axes: dict[str, list[AxisValue]] = dict(ELASTIC_VOLUME_BRACKET)
+
+    return [
+        Variant(
+            name=f"channel-volume {channel_name} {shape_name} {ELASTIC_VOLUME_TARGET}",
+            archetype=archetypes.ELASTICBAND,
+            base=_costed(
+                ElasticBandParams(
+                    band_source=source,
+                    band_period=ELASTIC_CHANNEL_PERIOD,
+                    signal_shape=shape,
+                    target_mode=TARGET_STRETCH,
+                    target_stretch_levels=ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET],
+                ),
+                root,
+            ),
+            axes=axes,
+        )
+        for channel_name, source in ELASTIC_CHANNEL_SOURCES.items()
         for shape_name, shape in ELASTIC_VOLUME_SHAPES.items()
     ]
 
@@ -1820,6 +1887,11 @@ ELASTIC_VOLUME_VARIANTS = {"ElasticBand": elasticband_volume_variants}
 the only cells the pass adds. The names carry ``break-volume`` where the stored shape rows
 carry none, so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.9."""
 
+ELASTIC_CHANNEL_VARIANTS = {"ElasticBand": elasticband_channel_variants}
+"""The §M33 run: §M26.9's bracket and shape pair, crossed with the channel §M30 read its
+opposite answer on. The names carry ``channel-volume`` where §M26.9's carry ``break-volume``,
+so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M33."""
+
 ELASTIC_RECOVERY_VARIANTS = {"ElasticBand": elasticband_recovery_variants}
 """The §M26.6 run: the recovery trigger against the shapes it replaces, in one pass. The names
 carry an ``entry=`` token where the stored shape rows carry none, so the two runs cannot collide
@@ -1886,6 +1958,7 @@ CAMPAIGN = "campaign"
 VARIANT_SETS = {
     CAMPAIGN,
     ELASTIC_BAND_STOP,
+    ELASTIC_CHANNEL,
     ELASTIC_RECOVERY,
     ELASTIC_SHAPE,
     ELASTIC_VOLUME,
@@ -1908,6 +1981,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
+        ELASTIC_CHANNEL: ELASTIC_CHANNEL_VARIANTS,
         ELASTIC_RECOVERY: ELASTIC_RECOVERY_VARIANTS,
         ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,
         ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,

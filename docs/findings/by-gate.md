@@ -21,6 +21,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§M28.5`                                          | [M28.5 — the fade's bracket, tightened: monotone the other way, and zero of 15,360](m28-5-fade-bracket.md)                 | OpeningRange         | `negative` |
 | `§M28.7`                                          | [M28.7 — the rejection, swept: every profitable cell is one the fill assumption decides](m28-7-rejection-swept.md)         | OpeningRange         | `negative` |
 | `§M29`                                            | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)           | all 7                | `negative` |
+| `§M33`                                            | [M33 — the volume answer belongs to the channel, and the two campaigns were both right](m33-channel-volume.md)             | ElasticBand          | `mixed`    |
 | `§ "Multi-timeframe moving averages"`             | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                      | EmaCrossover         | `negative` |
 | `§ "The build spec's three loose ends, measured"` | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                           | EmaCrossover         | `negative` |
 
@@ -48,6 +49,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§M29`                                            | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)           | all 7                | `negative` |
 | `§M30`                                            | [M30 — volume and regime re-cut across the registry, and what the raw pair was reporting](m30-volume-regime-recut.md)      | all 7                | `mixed`    |
 | `§M32`                                            | [M32 — the two volume windows swept, and why a window is a cell rather than an axis](m32-volume-windows.md)                | all 7                | `mixed`    |
+| `§M33`                                            | [M33 — the volume answer belongs to the channel, and the two campaigns were both right](m33-channel-volume.md)             | ElasticBand          | `mixed`    |
 | `§ "The build spec's three loose ends, measured"` | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                           | EmaCrossover         | `negative` |
 
 ## Gate 3 -- the matched null -- does the entry beat a random entry
