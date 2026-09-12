@@ -70,6 +70,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M28.15`                                          | [M28.15 — the midday cell through the three reads that stopped it being a recommendation](m28-15-midday-cell.md)                    | OpeningRange                                                            | 4          | `mixed`       | [#287]                         |
 | `§M28.16`                                          | [M28.16 — the ten consistent cells through the matched null, and what a consistency score is worth](m28-16-consistent-cells.md)     | DeadCatBounce, EmaCrossover, InsideBar, InsideBarTrailing, OpeningRange | 3          | `mixed`       | [#288]                         |
 | `§M29`                                             | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)                    | all 7                                                                   | 1, 2       | `negative`    | [#292]                         |
+| `§M30`                                             | [M30 — volume and regime re-cut across the registry, and what the raw pair was reporting](m30-volume-regime-recut.md)               | all 7                                                                   | 2          | `mixed`       | [#289]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                       | EmaCrossover                                                            | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                               | EmaCrossover                                                            | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                       | EmaCrossover                                                            | --         | `spec`        | [#74]                          |
@@ -229,6 +230,10 @@ Four cells clear p = 0.05 on both roots — three OpeningRange's and one InsideB
 
 Capping a trade's length is a cost on all seven archetypes and the cost is monotone in the cap; the selection window picks a paying rung zero times in seven, and the two ported archetypes hold too briefly to reach one at all.
 
+**[M30 — volume and regime re-cut across the registry, and what the raw pair was reporting](m30-volume-regime-recut.md)**
+
+Re-cutting turns three of six volume dimensions from inert to consistent and sorts the regime dimension by what each archetype is; almost none of the new cells makes money, and the raw regime labels agree with a calibrated cut about a fifth of the time at a lookback of 50.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -274,6 +279,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#285]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/285
 [#287]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/287
 [#288]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/288
+[#289]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/289
 [#292]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/292
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40

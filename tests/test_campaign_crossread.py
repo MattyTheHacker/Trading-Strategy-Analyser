@@ -22,8 +22,12 @@ from tools.campaign_crossread import (
     matrix,
     paired,
     pairing_columns,
+    ran_at,
 )
 from tools.campaign_report import TAGS, UNFILTERED
+
+from nqbt import archetypes
+from nqbt.sim.types import DeadCatParams, OpeningRangeParams
 
 
 def rows(**columns: object) -> pd.DataFrame:
@@ -139,6 +143,42 @@ def test_an_absent_parameter_still_pairs_rather_than_dropping_the_row() -> None:
 
 def test_the_sentinel_cannot_collide_with_a_real_parameter_value() -> None:
     assert MISSING < -1e6
+
+
+def test_a_column_a_sweep_predates_pairs_against_one_that_carries_its_off_value() -> None:
+    """`max_hold_bars` arrived with §M29, so every earlier row is null where a later one is 0."""
+    frame = twinned([1.4, 1.5, 1.6, 1.7], [1.0, 1.1, 1.2, 1.3])
+    frame["max_hold_bars"] = pd.array([pd.NA] * 4 + [0] * 4, dtype="Int64")
+    assert len(paired(frame)) == 4
+
+
+def test_backfilling_that_column_does_not_pair_two_different_caps() -> None:
+    """The null stands in for the off value alone; a real cap is still a parameter."""
+    frame = twinned([1.4, 1.5, 1.6, 1.7], [1.0, 1.1, 1.2, 1.3])
+    frame["max_hold_bars"] = pd.array([40] * 4 + [0] * 4, dtype="Int64")
+    assert paired(frame).empty
+
+
+def test_the_defaults_are_the_archetypes_own_rather_than_a_list_to_maintain() -> None:
+    """A column added to an archetype has to reach the join key without anyone editing this."""
+    assert ran_at("OpeningRange")["follow_through_sessions"] == OpeningRangeParams().follow_through_sessions
+    assert ran_at("InsideBar")["max_hold_bars"] == DeadCatParams().max_hold_bars
+
+
+def test_an_archetype_carries_no_default_for_another_archetypes_parameter() -> None:
+    """Filling one would invent a value the rows never ran at."""
+    assert "follow_through_scaling" not in ran_at("InsideBar")
+    assert "follow_through_scaling" in ran_at("OpeningRange")
+
+
+def test_every_registered_archetype_states_its_defaults() -> None:
+    for name in archetypes.names():
+        assert ran_at(name), name
+
+
+def test_a_parameter_that_is_not_a_scalar_is_left_out_of_the_join_key() -> None:
+    """A tuple default cannot stand in for an absence, and `fillna` would raise on it."""
+    assert all(isinstance(value, bool | int | float | str) for value in ran_at("OpeningRange").values())
 
 
 def test_a_frame_with_no_unfiltered_row_pairs_nothing() -> None:

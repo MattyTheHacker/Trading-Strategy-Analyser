@@ -250,3 +250,11 @@ paths:
   `(sweep_id, combo_id, trade_id)` and joined to the other two by `results.create_trade_view`;
   the reason a parameter may filter that view but never group it is in
   `.claude/rules/stats-and-trades.md`.
+- **A `combos` table widening by name is what breaks the paired read, and it fails silently.**
+  `campaign_crossread.paired` joins a stratum to its unfiltered twin on every parameter, so a
+  column a later campaign added is null in the earlier rows and equal to nothing — **every pair
+  across that column is dropped and the tool reports a clean zero**. It cost §M30 an entire
+  first read: ten columns across three archetypes, from §M29, §M28.10 and three §M26 campaigns.
+  `campaign_crossread.ran_at` fills a null parameter with the archetype's own default, which is
+  what a row stored before the column ran at. **Do not turn that back into a list of column
+  names** — the list was ten long after one campaign. `docs/findings/m30-volume-regime-recut.md`.

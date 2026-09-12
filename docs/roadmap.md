@@ -616,6 +616,10 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 
 **A cap on a trade's length is a cost on all seven archetypes, monotone in how tight it is; the selection window picks a paying rung zero times in seven, and the two ports hold too briefly to reach one.** Moved to [`docs/findings/m29-maximum-hold-time.md`](findings/m29-maximum-hold-time.md).
 
+### M30 — volume and regime re-cut across the registry ([#289])
+
+**Re-cutting turns three of six volume dimensions from inert to consistent and sorts the regime dimension by what each archetype is; almost none of the new cells makes money, and the raw regime labels agree with a calibrated cut about a fifth of the time at a lookback of 50.** Moved to [`docs/findings/m30-volume-regime-recut.md`](findings/m30-volume-regime-recut.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.

@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import fields
 from pathlib import Path
 
 import pandas as pd
@@ -45,7 +46,7 @@ from tools.campaign_sweep import (
     strata,
 )
 
-from nqbt import logsetup, volume
+from nqbt import archetypes, logsetup, volume
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,27 @@ GROUP_KEYS = ["strategy", "stratum"]
 MISSING = -9.99e12
 """Stand-in for a NaN in a join key, because a NaN never equals itself and pandas would drop the
 pair silently. Outside every parameter's range, so it can only match another absence."""
+
+SCALARS = (bool, int, float, str)
+"""What a parameter default has to be to stand in for an absent one in a join key."""
+
+
+def ran_at(strategy: str) -> dict[str, bool | int | float | str]:
+    """Every parameter's default for one archetype: what a row stored before it ran at.
+
+    A sweep predating a parameter leaves its column null, and null is not the value it ran at,
+    so **every pair between a row stored before the column and one stored after is dropped** --
+    silently and completely. Read off the archetype rather than listed, because the list grew by
+    ten columns across three archetypes in one campaign and the next one cannot be foreseen.
+    ``docs/findings/m30-volume-regime-recut.md`` is where this cost a campaign.
+    """
+    params: archetypes.Params = archetypes.get(strategy).params_cls()
+
+    return {
+        field.name: value
+        for field in fields(params)
+        if isinstance(value := getattr(params, field.name), SCALARS)
+    }
 
 
 def probe_cuts() -> Cuts:
@@ -141,7 +163,17 @@ def paired(frame: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     block: pd.DataFrame = frame[frame["variant"].isin(shared)].copy()
+    if block.empty:
+        return pd.DataFrame()
+
     keys: list[str] = [*pairing_columns(block), *CELL_KEYS, "variant"]
+    defaults: dict[str, bool | int | float | str] = ran_at(str(block["strategy"].iloc[0]))
+    for column in keys:
+        if column not in defaults:
+            continue
+
+        block[column] = block[column].fillna(defaults[column])
+
     for column in keys:
         if block[column].dtype.kind == "f":
             block[column] = block[column].fillna(MISSING)
