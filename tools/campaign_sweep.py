@@ -205,11 +205,15 @@ from nqbt.sim.types import (
     STOP_CATASTROPHE,
     STOP_SWING,
     TARGET_STRETCH,
+    TOUCH_ANY,
+    TOUCH_CLOSE,
+    TOUCH_WICK,
     TRIGGER_EXTENDED,
     TRIGGER_RECOVERY,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
+    EmaPullbackParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -743,6 +747,40 @@ def crossover_variants(root: str) -> list[Variant]:
             archetype=archetypes.EMACROSSOVER,
             base=_costed(EmaCrossoverParams(use_atr_stop=False), root),
             axes={**shared, "swing_lookback": [1, 3]},
+        ),
+    ]
+
+
+def emapullback_variants(root: str) -> list[Variant]:
+    """Two variants, one per exit geometry, because the trailed one reads two axes the other
+    ignores.
+
+    ``touch_mode`` is an axis rather than a variant dimension: every mode reads every other
+    axis here, so none of them is inert under another --
+    ``docs/findings/m34-ema-pullback-spec.md``. The kind axis is two rather than four because
+    §M27 measured the moving averages as nearly inert and the pullback's own axes are what this
+    is here to cross.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "fast_kind": ["ema", "hma"],
+        "fast_period": [5, 9, 13, 20],
+        "slow_period": [30, 50, 100, 200],
+        "min_bars_extended": [1, 3, 5],
+        "touch_mode": [TOUCH_WICK, TOUCH_CLOSE, TOUCH_ANY],
+    }
+
+    return [
+        Variant(
+            name="stop=slow",
+            archetype=archetypes.EMAPULLBACK,
+            base=_costed(EmaPullbackParams(), root),
+            axes=shared,
+        ),
+        Variant(
+            name="stop=slow trailed",
+            archetype=archetypes.EMAPULLBACK,
+            base=_costed(EmaPullbackParams(trail_ma_stop=True), root),
+            axes={**shared, "trail_ma_period": [20, 50]},
         ),
     ]
 
@@ -1835,6 +1873,7 @@ VARIANTS = {
     "DeadCatBounce": deadcat_variants,
     "PullBackAndGo": pullback_variants,
     "EmaCrossover": crossover_variants,
+    "EmaPullback": emapullback_variants,
     "InsideBar": insidebar_variants,
     "InsideBarTrailing": insidebartrailing_variants,
     "ElasticBand": elasticband_variants,
