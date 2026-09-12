@@ -83,6 +83,8 @@ Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts
 
 Its walk-forward passes on both roots with all ten folds profitable out of sample, at a pooled test profit factor of 1.279 on MNQ and 1.302 on NQ — though NQ picks the same configuration in all five folds, so what the folds test is barely a selection (§M28.15).
 
+**A second cut of the same archetype now has the stronger gate-3 result**, and it is not this one. Confined to a calibrated directional regime at a lookback of 20 rather than to the midday lull, OpeningRange clears p = 0.05 on **all ten configurations of both roots** at a held-out profit factor of 1.361–1.541 against a null of 0.886–0.931 — the only cell in the registry to do so (§M31). It has been through no gate 4 at all: no walk-forward, no Monte Carlo, no prop replay, and no exit-exclusion read. It also flattens 70% to 81% of its legs at the close, which is the highest band measured on any OpeningRange cell, so the caveat at the top of this page applies to it more rather than less.
+
 ### The runner-up: InsideBar on MNQ
 
 Higher median net, lower pass rate. Uncapped on Apex 50K, medians (§M28.13):
@@ -149,7 +151,7 @@ ______________________________________________________________________
 - **The best result's profit centre is an account rule.** Excluding the forced flat, nothing survives on either root (§M28.15). The lever that would change this is a bracket that closes the position before the session end, and that is untested.
 - **2026 is flat with the largest drawdown in the sample** and the walk-forward's final fold is the weakest on both roots.
 - **OpeningRange has never been checked against NinjaTrader.** It is the only archetype to pass gates 1 to 3 and **no leg of it has been diffed against a real trade list** — its stop-market entry, its measurement from the trigger rather than the fill, and its re-arming order are all unverified. `InsideBar`, `InsideBarTrailing`, `DeadCatBounce` and `PullBackAndGo` are reconciled; `OpeningRange`, `ElasticBand` and `EmaCrossover` are not.
-- **The cells were chosen after looking.** Agreement across both roots is the guard used throughout, and it is not the same thing as deciding in advance. Of 200 gate-3 tests, 46 clear p = 0.05 where chance alone would give about 10 — but they sit in four cells rather than scattering, which says *where* the significance is, not that any single cell is established (§M28.16).
+- **The cells were chosen after looking, and one family since was not.** Agreement across both roots is the guard used throughout, and it is not the same thing as deciding in advance. Of 200 gate-3 tests, 46 clear p = 0.05 where chance alone would give about 10 — but they sit in four cells rather than scattering, which says *where* the significance is, not that any single cell is established (§M28.16). §M31 is the first family written down before its run: 180 tests, 40 clear, concentrated in three cells — though its nine cells were still picked from 267 that had been scored.
 - **Bar size matters far more than any indicator setting**, and every archetype's median configuration loses money at one minute. Tune the bar size and the exit geometry, not periods.
 - **Costs are not the problem**, and neither is slippage: doubling it to two ticks moves the opening range's held-out profit factor from 1.124 to 1.115 (§M28.9).
 
