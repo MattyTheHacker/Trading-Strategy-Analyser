@@ -128,9 +128,28 @@ def test_a_rung_nothing_was_run_at_is_empty_rather_than_an_error() -> None:
 
 
 def test_reading_an_archetype_that_was_never_swept_says_so(monkeypatch) -> None:
-    monkeypatch.setattr(module, "held", lambda name, windows: pd.DataFrame())
+    monkeypatch.setattr(module, "held", lambda name, windows, stratum: pd.DataFrame())
     with pytest.raises(SystemExit, match="no --variants hold rows"):
         ladder("DeadCatBounce", ["holdout"], "profit_factor")
+
+
+def test_a_stratum_narrows_the_ladder_to_the_cell_it_was_run_in(monkeypatch) -> None:
+    """A pair only forms within a stratum, but the report pools over it -- so a ladder run inside
+    one has to be read inside one, or an unfiltered arm lands in the same row."""
+    frame = pd.DataFrame(
+        {
+            "variant": ["stop=atr hold=0", "stop=atr hold=0"],
+            "stratum": ["unfiltered", "regime=DIRECTIONAL@n=20 q=0.20/0.80"],
+            "trades": [100, 100],
+        }
+    )
+    monkeypatch.setattr(module, "load", lambda name, windows: frame)
+    assert list(held("X", ["holdout"])["stratum"]) == [
+        "unfiltered",
+        "regime=DIRECTIONAL@n=20 q=0.20/0.80",
+    ]
+    narrowed = held("X", ["holdout"], "regime=DIRECTIONAL@n=20 q=0.20/0.80")
+    assert list(narrowed["stratum"]) == ["regime=DIRECTIONAL@n=20 q=0.20/0.80"]
 
 
 def test_held_strips_the_rung_token_so_the_base_variant_survives_it(monkeypatch) -> None:

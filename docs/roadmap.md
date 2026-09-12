@@ -213,7 +213,9 @@ What every change — including every milestone below — is checked against. Th
 - **Re-measure the Numba `NamedTuple` result before relying on it.** It is a property of the installed Numba, not of the language, and `cache=True` interacts with it. `tools/numba_tuple_probe.py` is the probe.
 - **M20 may not move a number.** Every M20 item is behaviour-preserving. Anything that moves a trade log is out of scope and belongs in the milestone that intends it.
 - **A union of axis values is not a union of parameter sets**, and `Grid.of_combinations` is where the two come apart. `axis_values` collapses a combination list to one list per parameter, so any rule that reads two of them back as a *pair* gets pairs no member holds. For `OpeningRange` that is unbuildable rather than merely wasteful: a pooled shortlist asked for a 930-minute range anchored 990 minutes past the open, `sessionrange.validate_key` refused it, and the pool could not be prepared at all — so the walk-forward and Monte Carlo gates crashed on any shortlist spanning ranges. `required_context` therefore unions member by member; `axis_values` still reports the union, because the stored `axes` column describes the pool rather than specifying a build.
-- **A consistency count does not order the evidence, and the largest one is not the strongest case.** §M28.14 scored twelve context cells on how many `root x resolution` cells a filter won in both windows; §M28.16 took the ten of them that had never been nulled to a matched null and found the rank correlation between the score and the null excess to be −0.132, with the two `+10` cells at the bottom of the table. A score says a direction repeated; only a null says it was worth anything.
+- **A consistency count does not order the evidence, and the largest one is not the strongest case.** §M28.14 scored twelve context cells on how many `root x resolution` cells a filter won in both windows; §M28.16 took the ten of them that had never been nulled to a matched null and found the rank correlation between the score and the null excess to be −0.132, with the two `+10` cells at the bottom of the table. §M31 then measured it in the harder direction — five cells of one archetype tied at `+10`, spanning a median p from 0.010 to 0.72. A score says a direction repeated; only a null says it was worth anything.
+- **A stratum name has to carry the cut that defines it, or two cuts land under one name.** A fitted regime cell was `regime=DIRECTIONAL@n=20` — the lookback and not the quantile pair — so a second cell size would have been indistinguishable from the first in the same database. It now names the pair the way a volume form has always named its tail size, and §M31 re-ran the stated pair under the new name to prove the rename moved nothing.
+- **A variant set swept into a stratum changes every later shortlist of that stratum.** §M31.1 ran §M29's hold ladder inside the cell §M31 had just taken through gate 3, which took that cell from 576 stored rows to 4,032; a top-ten drawn afterwards is a mixture of the campaign grid and six hold arms, and the exclusion read over it reported four survivors that were all `hold=80` arms exiting by a different door. The earlier campaign's own numbers are untouched, but reproducing them needs `--variant`. Ask what else has been swept into a stratum before shortlisting it.
 - **A prefix of a trade log is not a sample of it.** The `explain.py` defect was justified with "50% of trades", measured over a 200-trade prefix; the whole-window rate is 35.7%. Quote whole-window rates.
 
 ______________________________________________________________________
@@ -619,6 +621,14 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 ### M30 — volume and regime re-cut across the registry ([#289])
 
 **Re-cutting turns three of six volume dimensions from inert to consistent and sorts the regime dimension by what each archetype is; almost none of the new cells makes money, and the raw regime labels agree with a calibrated cut about a fifth of the time at a lookback of 50.** Moved to [`docs/findings/m30-volume-regime-recut.md`](findings/m30-volume-regime-recut.md).
+
+### M31 — the calibrated cells through the matched null, with the family stated in advance ([#298])
+
+**Two cells clear p = 0.05 on both roots — OpeningRange's calibrated `DIRECTIONAL` at lookbacks of 20 and 10 — and five cells that all score +10 span a median p from 0.010 to 0.72, so a consistency count cannot see the lookback.** Moved to [`docs/findings/m31-calibrated-cells-null.md`](findings/m31-calibrated-cells-null.md).
+
+### M31.1 — the gate-3 survivor through gate 4, and the hold cap inside its own stratum ([#302])
+
+**The walk-forward passes on both roots and the account funds on MNQ, but none of the twenty configurations is profitable without its session-close legs, and a hold cap tight enough to replace them is the worst thing that can be done to the cell.** Moved to [`docs/findings/m31-1-survivor-gate-4.md`](findings/m31-1-survivor-gate-4.md).
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 

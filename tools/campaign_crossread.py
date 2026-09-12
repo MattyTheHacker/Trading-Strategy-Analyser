@@ -41,6 +41,7 @@ from tools.campaign_sweep import (
     VARIANTS,
     Calibration,
     Cuts,
+    RegimeCut,
     VolumeCalibration,
     VolumeCut,
     strata,
@@ -92,7 +93,7 @@ def probe_cuts() -> Cuts:
 
     The values are never run; :func:`context_columns` reads the keys alone.
     """
-    regime: Calibration = {20: (0.35, 0.75)}
+    regime: Calibration = (RegimeCut(20, 0.35, 0.75, (0.20, 0.80)),)
     volumes: VolumeCalibration = tuple(
         VolumeCut(volume.key(form, 30, 20), 0.7, 1.5, (0.2, 0.8)) for form in volume.VolumeForm
     )
