@@ -176,22 +176,24 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
 
     Called by both the in-position path and the entry-bar path; **do not fork it again**.
     """
-    n_legs = legs.is_open.size
-    direction = trade.direction
-    open_px = bars.open_[i]
+    n_legs: int = legs.is_open.size
+    direction: float = trade.direction
+    open_px: float = bars.open_[i]
+    adverse_px: float
+    favourable_px: float
     adverse_px, favourable_px = sided(bars.low[i], bars.high[i], direction)
-    slippage = slippage_points(costs)
+    slippage: float = slippage_points(costs)
     # The position was held from this bar's open unless it filled intrabar on this very bar.
-    held_from_bar_open = i > trade.entry_bar or trade.filled_at_open
+    held_from_bar_open: bool = i > trade.entry_bar or trade.filled_at_open
 
     # The stop fills at the open when the bar gapped through it, otherwise at its own price.
-    stop_fill = stop
+    stop_fill: float = stop
     if held_from_bar_open and direction * open_px < direction * stop:
         stop_fill = open_px
 
-    stop_hit = direction * adverse_px <= direction * stop
-    any_target_hit = False
-    nearest_target = 0.0
+    stop_hit: bool = direction * adverse_px <= direction * stop
+    any_target_hit: bool = False
+    nearest_target: float = 0.0
     for leg in range(n_legs):
         if legs.is_open[leg] and not np.isnan(legs.target[leg]):  # noqa: SIM102 - needs a continue guard; #146
             if limit_filled(favourable_px, legs.target[leg], fills.fill_limit_on_touch, direction):
@@ -199,8 +201,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                     nearest_target = legs.target[leg]
 
                 any_target_hit = True
-    ambiguous = stop_hit and any_target_hit
-    targets_first = ambiguous and targets_reached_first(open_px, stop, nearest_target, fills.ambiguity_policy)
+
+    ambiguous: bool = stop_hit and any_target_hit
+    targets_first: bool = ambiguous and targets_reached_first(open_px, stop, nearest_target, fills.ambiguity_policy)
 
     if stop_hit and not targets_first:
         # The whole position leaves at the stop, adverse slippage meaning a worse fill.
@@ -263,7 +266,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
 
                 legs.is_open[leg] = False
 
-    still_open = False
+    still_open: bool = False
     for leg in range(n_legs):
         if legs.is_open[leg]:
             still_open = True
@@ -293,48 +296,6 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
 
 
 @njit(cache=True)
-def flatten_position(
-    out: FloatArray,
-    written: int,
-    trade: OpenTrade,
-    legs: Legs,
-    leg_exit: LegExit,
-    excursion: Excursion,
-    costs: Costs,
-) -> int:
-    """Close every still-open leg at one price for one reason. Returns the new row count.
-
-    What a market order flattening the whole position writes: the maximum-hold-time exit, an
-    archetype's own signal exit, and the liquidation of anything still open when the series
-    runs out. It takes a level from nowhere, so **this is not a fill rule** -- the caller has
-    already decided the bar, the price and the reason.
-    """
-    for leg in range(legs.is_open.size):
-        if not legs.is_open[leg]:
-            continue
-
-        written = write_leg(out, written, trade, legs, leg, leg_exit, excursion, costs)
-        if written < 0:
-            return -1
-
-        legs.is_open[leg] = False
-
-    return written
-
-
-@njit(cache=True)
-def hold_expired(entry_bar: int, i: int, max_hold_bars: int) -> bool:
-    """Whether bar ``i``'s close is where the maximum-hold-time exit is submitted.
-
-    Off at ``0``. The count is bars *since* the entry bar, so the order goes in at the close
-    of bar ``entry_bar + max_hold_bars`` and fills at the next bar's open -- a leg's
-    ``bars_held`` therefore reaches ``max_hold_bars + 1``. ``docs/nt8-fidelity.md``, "The
-    maximum hold time, and why it is its own exit code".
-    """
-    return max_hold_bars > 0 and i - entry_bar >= max_hold_bars
-
-
-@njit(cache=True)
 def entry_bracket(
     high: float,
     low: float,
@@ -352,20 +313,21 @@ def entry_bracket(
     Shared by the jitted loop and by ``explain.py``, so the audit trail is by construction the
     arithmetic under audit. **Do not inline either copy back** -- ``docs/roadmap.md`` §M20a.
     """
+    adverse: float
+    favourable: float
     adverse, favourable = sided(low, high, direction)
-    close_based = close + direction * entry_offset
-    trigger = favourable
+    close_based: float = close + direction * entry_offset
+    trigger: float = favourable
     if direction * close_based > direction * trigger:
         trigger = close_based
 
-    stop = adverse - direction * stop_offset
-    risk = direction * (trigger - stop)
+    stop: float = adverse - direction * stop_offset
+    risk: float = direction * (trigger - stop)
 
     return trigger, stop, risk
 
 
-NO_BRACKET_FLOOR = 0.0
-"""The floor value that switches :func:`atr_bracket_distance` off, which every port passes."""
+NO_BRACKET_FLOOR: float = 0.0  # The floor value that turns :func:`atr_bracket_distance` off, which every port passes.
 
 
 @njit(cache=True)
@@ -381,13 +343,7 @@ def atr_bracket_distance(atr_value: float, multiple: float, floor_points: float)
 
 
 @njit(cache=True)
-def swing_stop(
-    bars: Bars,
-    signal_bar: int,
-    lookback: int,
-    offset: float,
-    direction: float,
-) -> float:
+def swing_stop(bars: Bars, signal_bar: int, lookback: int, offset: float, direction: float) -> float:
     """A structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
 
     The window ends at ``signal_bar`` and includes it, and never reads the bar the fill happens
@@ -398,56 +354,15 @@ def swing_stop(
     Shared by EmaCrossover's swing mode and ElasticBand's :data:`~nqbt.sim.types.STOP_SWING`.
     **Do not fork it.**
     """
-    start = signal_bar - lookback + 1
+    start: int = signal_bar - lookback + 1
     start = max(start, 0)
-    extreme = 0.0
+    extreme: float = 0.0
     for j in range(start, signal_bar + 1):
         adverse, _ = sided(bars.low[j], bars.high[j], direction)
         if j == start or direction * adverse < direction * extreme:
             extreme = adverse
 
     return extreme - direction * offset
-
-
-@njit(cache=True)
-def tightened_stop(stop: float, candidate: float, direction: float) -> float:
-    """Whichever of the two is nearer the market, which is the one ratchet in the codebase.
-
-    DeadCatBounce's candidate is a lagged bar's adverse extreme and EmaCrossover's is a moving
-    average, both already offset; all a ratchet does with either is refuse to loosen. A
-    ``nan`` candidate -- a moving average still warming up -- leaves the stop alone, because
-    every comparison against it is false. ``docs/nt8-fidelity.md``, "Ratchet reads the
-    just-closed bar".
-    """
-    if direction * candidate > direction * stop:
-        return candidate
-
-    return stop
-
-
-@njit(cache=True)
-def avoid_round_number(
-    stop: float,
-    spacing: float,
-    offset: float,
-    tick_size: float,
-    direction: float,
-) -> float:
-    """Push a stop that lands exactly on a multiple of ``spacing`` further from the entry.
-
-    ``spacing`` is a price -- 25 points, say -- and a spacing of ``0`` switches the rule off.
-    Only an exact landing moves; a zone around the level would be a second parameter
-    nobody specified. **Meaningless on a back-adjusted series**, which shifts every level by
-    the roll offsets -- ``docs/roadmap.md`` § "The build spec's three loose ends".
-    """
-    if spacing <= 0.0:
-        return stop
-
-    remainder = stop - spacing * np.floor(stop / spacing + 0.5)
-    if abs(remainder) >= 0.5 * tick_size:
-        return stop
-
-    return stop - direction * offset
 
 
 @njit(cache=True)
@@ -463,15 +378,8 @@ def sided(low: float, high: float, direction: float) -> tuple[float, float]:
     return high, low
 
 
-AMBIGUITY_WORST_CASE = 0
-AMBIGUITY_NEAREST_TO_OPEN = 1
-AMBIGUITY_BEST_CASE = 2
-"""NT8's guess, and the two outcomes it is guessing between.
-
-Only ``AMBIGUITY_NEAREST_TO_OPEN`` reproduces NT8, and it stays the default and the only one
-anything is ranked on. The other two are the ends of the band a bar cannot narrow, and they
-exist so that a diagnostic can ask which end the minute bars support -- ``nqbt/disambiguate.py``
-and ``docs/roadmap.md`` §M28.4."""
+AMBIGUITY_WORST_CASE: int = 0
+AMBIGUITY_NEAREST_TO_OPEN: int = 1
 
 
 @njit(cache=True)
@@ -479,14 +387,14 @@ def targets_reached_first(open_px: float, stop_px: float, target_px: float, poli
     """On a bar holding both the stop and a target, did price reach the target first?
 
     Bar-close OHLC cannot say, so this is an assumption. ``AMBIGUITY_NEAREST_TO_OPEN``
-    reproduces NT8; the other two answer always-no and always-yes, which are the two ends of
-    the band rather than fill rules to rank on. Evidence: ``docs/nt8-fidelity.md``, "Ambiguous
-    bars resolve to whichever level is nearer the open".
+    reproduces NT8; ``AMBIGUITY_WORST_CASE`` always answers no, which is *more* pessimistic
+    than NT8 rather than equal to it. Evidence: ``docs/nt8-fidelity.md``, "Ambiguous bars
+    resolve to whichever level is nearer the open".
     """
     if policy == AMBIGUITY_NEAREST_TO_OPEN:
         return abs(open_px - target_px) < abs(stop_px - open_px)
 
-    return policy == AMBIGUITY_BEST_CASE
+    return False
 
 
 @njit(cache=True)
@@ -519,7 +427,7 @@ def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
     if minimum <= 0.0:
         return True
 
-    best = 0.0
+    best: float = 0.0
     for k in range(target_r.size):
         if not np.isnan(target_r[k]) and target_r[k] > best:
             best = target_r[k]
@@ -542,13 +450,12 @@ def write_leg(
     if written >= out.shape[0]:
         return -1
 
-    direction = trade.direction
-    quantity = legs.quantity[leg]
-    # Positive when the trade made money, whichever side it was on.
-    pnl_per_unit = (leg_exit.price - trade.entry_price) * direction
-    gross = pnl_per_unit * quantity * costs.point_value
-    commission = costs.commission_per_contract * quantity
-    net = gross - commission
+    direction: float = trade.direction
+    quantity: int = legs.quantity[leg]
+    pnl_per_unit: float = (leg_exit.price - trade.entry_price) * direction  # always positive for a winning trade
+    gross: float = pnl_per_unit * quantity * costs.point_value
+    commission: float = costs.commission_per_contract * quantity
+    net: float = gross - commission
 
     out[written, C_TRADE_ID] = trade.trade_id
     out[written, C_LEG] = leg + 1

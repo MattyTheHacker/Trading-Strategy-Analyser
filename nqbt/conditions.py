@@ -21,13 +21,13 @@ from nqbt import indicators
 from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     import pandas as pd
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "MA_KINDS",
     "BarGeometry",
     "MovingAverageError",
@@ -52,7 +52,6 @@ __all__ = [
     "previous_bar_green",
     "previous_bar_red",
     "prior_bar_inside",
-    "rolling_count",
 ]
 
 
@@ -371,10 +370,8 @@ class MovingAverageGrid:
 
     kind: str
     periods: IntArray
-    below: BoolArray
-    """``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`."""
-    above: BoolArray
-    """``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`."""
+    below: BoolArray  # ``Close < MA``, ``[n_periods, n_bars]`` bool -- see :func:`below_series`.
+    above: BoolArray  # ``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`.
     values: FloatArray | None = None
     """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept.
 
@@ -422,7 +419,6 @@ def moving_average_grid(
     close: FloatArray,
     periods: Iterable[int],
     kind: str = "ema",
-    *,
     keep_values: bool = False,
 ) -> MovingAverageGrid:
     """Compute every distinct period one kind of average is needed at, once.
@@ -467,30 +463,6 @@ def consecutive_true(mask: BoolArray) -> IntArray:
     for i in range(n):
         run = run + 1 if mask[i] else 0
         out[i] = run
-
-    return out
-
-
-@njit(cache=True)
-def rolling_count(mask: BoolArray, lookback: int) -> IntArray:
-    """How many of the ``lookback`` bars ending at each bar are ``True``.
-
-    The window is truncated at the head rather than left undefined, so an early bar counts the
-    bars that exist and a threshold it cannot reach simply fails -- the third axis alongside
-    :func:`consecutive_true` and :func:`count_true`, which counts bars for one condition
-    without requiring them to be unbroken.
-    """
-    n = mask.size
-    out = np.zeros(n, dtype=np.int64)
-    running = 0
-    for i in range(n):
-        if mask[i]:
-            running += 1
-
-        if i >= lookback and mask[i - lookback]:
-            running -= 1
-
-        out[i] = running
 
     return out
 

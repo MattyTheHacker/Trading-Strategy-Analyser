@@ -21,9 +21,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from pathlib import Path
 
-__all__ = ["MergeResult", "build_archive", "merge_contract"]
 
-FIELDS = 6
+__all__: Sequence[str] = ["MergeResult", "build_archive", "merge_contract"]
+
+
+FIELDS: int = 6
 """``timestamp;open;high;low;close;volume``."""
 
 
@@ -147,7 +149,6 @@ def _contracts(source_dirs: Iterable[Path], root: str | None) -> dict[str, list[
 def build_archive(
     source_dirs: Sequence[Path] = paths.SOURCE_DIRS,
     archive_dir: Path = paths.ARCHIVE_DIR,
-    *,
     root: str | None = None,
 ) -> list[MergeResult]:
     """Merge every source folder into the archive and report what changed.

@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 
     from nqbt.sessions import SessionInfo
 
-RAW_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
-BAR_DTYPES = {
+RAW_COLUMNS: tuple[str, ...] = ("timestamp", "open", "high", "low", "close", "volume")
+BAR_DTYPES: Mapping[str, str] = {
     "open": "float64",
     "high": "float64",
     "low": "float64",
@@ -50,20 +50,11 @@ BAR_DTYPES = {
     "volume": "int64",
 }
 
-TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
-
-TICK_EXPORT_FIELDS = 5
-"""Semicolon-separated fields in a tick export: timestamp;last;bid;ask;volume."""
-
-TICK_STAMP_PARTS = 3
-"""Whitespace-separated parts of a tick export's timestamp, the third sub-second."""
-HASH_CHUNK_BYTES = 1 << 20
-"""Read size when hashing. Hashing is I/O bound and cheap next to parsing."""
-
-STRAY_SHARE_LIMIT = 0.01
-"""Out-of-session share above which a cached contract is a broken export, not stray prints.
-
-Comfortably above every rate measured here -- ``docs/nt8-fidelity.md``, "Sessions"."""
+TIMESTAMP_FORMAT: str = "%Y%m%d %H%M%S"
+TICK_EXPORT_FIELDS: int = 5  # Semicolon-separated fields in a tick export: timestamp;last;bid;ask;volume.
+TICK_STAMP_PARTS: int = 3  # Whitespace-separated parts of a tick export's timestamp, the third sub-second.
+HASH_CHUNK_BYTES: int = 1 << 20  # Read size when hashing. Hashing is I/O bound and cheap next to parsing.
+STRAY_SHARE_LIMIT: float = 0.01  # Threshold above which a cached contract is considered broken.
 
 
 @dataclass(slots=True)
@@ -113,8 +104,7 @@ class IngestResult:
     @override
     def __str__(self) -> str:
         return (
-            f"{self.contract.nt8_name:<12} {self.action:<11} "
-            f"+{self.rows_added:>7,} rows  ({self.rows_total:,} total)"
+            f"{self.contract.nt8_name:<12} {self.action:<11} +{self.rows_added:>7,} rows  ({self.rows_total:,} total)"
         )
 
 
@@ -140,9 +130,6 @@ class ExportScan:
 
 class IngestError(RuntimeError):
     """Raised when a raw export cannot be parsed into usable bars."""
-
-
-# -- manifest -----------------------------------------------------------------
 
 
 def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifest]:
@@ -190,9 +177,6 @@ def _hash_range(source: Path, length: int) -> str:
     return digest.hexdigest()
 
 
-# -- parsing ------------------------------------------------------------------
-
-
 def _reject_tick_export(data: bytes, source_name: str) -> None:
     """Fail early and clearly if handed a tick export instead of minute bars.
 
@@ -216,7 +200,7 @@ def _reject_tick_export(data: bytes, source_name: str) -> None:
         )
 
 
-def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
+def parse_export(data: bytes, source_name: str = "<bytes>") -> pd.DataFrame:
     """Parse raw export bytes into a validated bar frame indexed by UTC timestamp."""
     if not data.strip():
         return _empty_frame()
@@ -232,9 +216,7 @@ def parse_export(data: bytes, *, source_name: str = "<bytes>") -> pd.DataFrame:
         engine="c",
     )
 
-    ts: pd.Series[pd.Timestamp] = pd.to_datetime(
-        frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce"
-    )
+    ts: pd.Series[pd.Timestamp] = pd.to_datetime(frame["timestamp"], format=TIMESTAMP_FORMAT, utc=True, errors="coerce")
     bad: pd.Series[bool] = ts.isna()
     if bad.all():
         msg: str = f"{source_name}: no parseable timestamps; expected '{TIMESTAMP_FORMAT}'"
@@ -256,7 +238,7 @@ def _empty_frame() -> pd.DataFrame:
     return frame
 
 
-def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
+def _finalise(frame: pd.DataFrame, source_name: str) -> pd.DataFrame:
     """Sort, deduplicate, validate OHLC sanity and attach session classification."""
     frame = frame.sort_index(kind="stable")
     frame = frame[~frame.index.duplicated(keep="last")]
@@ -266,22 +248,17 @@ def _finalise(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
     body_min: pd.Series[float] = frame[["open", "close"]].min(axis=1)
     invalid: pd.Series[bool] = (highs < lows) | (highs < body_max) | (lows > body_min)
     if invalid.any():
-        msg: str = (
+        ingest_error_message: str = (
             f"{source_name}: {int(invalid.sum())} bars violate OHLC ordering, "
             f"first at {frame.index[int(invalid.argmax())]}"
         )
-        raise IngestError(
-            msg,
-        )
+        raise IngestError(ingest_error_message)
 
     info: SessionInfo = sessions.classify(pd.DatetimeIndex(frame.index))
     frame["trading_day"] = info.trading_day
     frame["in_session"] = info.in_session
 
     return frame
-
-
-# -- ingestion ----------------------------------------------------------------
 
 
 def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None) -> ExportScan:
@@ -312,7 +289,7 @@ def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR)
     return cache_dir / "bars" / contract.root / f"{contract.cache_key}.parquet"
 
 
-def drop_out_of_session(frame: pd.DataFrame, *, source_name: str) -> pd.DataFrame:
+def drop_out_of_session(frame: pd.DataFrame, source_name: str) -> pd.DataFrame:
     """Drop the stray prints NT8 would never have formed into bars.
 
     Raises :class:`IngestError` above :data:`STRAY_SHARE_LIMIT`, where the export is telling us
@@ -343,7 +320,6 @@ def load_contract(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> pd
 def ingest_contract(
     contract: ContractId,
     source: Path,
-    *,
     cache_dir: Path = paths.CACHE_DIR,
     manifest: dict[str, ContractManifest] | None = None,
     force: bool = False,
@@ -458,7 +434,6 @@ def _trim_partial_line(data: bytes) -> tuple[int, bytes]:
 
 
 def ingest_all(
-    *,
     sources: Sequence[Path] = paths.SOURCE_DIRS,
     archive_dir: Path = paths.ARCHIVE_DIR,
     data_dir: Path | None = None,

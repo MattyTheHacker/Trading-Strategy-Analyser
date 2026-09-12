@@ -400,27 +400,3 @@ def test_consecutive_true_on_uniform_and_empty_input() -> None:
     assert list(conditions.consecutive_true(np.ones(3, dtype=np.bool_))) == [1, 2, 3]
     assert list(conditions.consecutive_true(np.zeros(3, dtype=np.bool_))) == [0, 0, 0]
     assert conditions.consecutive_true(np.array([], dtype=np.bool_)).size == 0
-
-
-def test_rolling_count_counts_a_window_where_consecutive_true_counts_a_run() -> None:
-    mask = np.array([True, False, True, True, False, True])
-    assert list(conditions.rolling_count(mask, 3)) == [1, 1, 2, 2, 2, 2]
-    assert list(conditions.consecutive_true(mask)) == [1, 0, 1, 2, 0, 1]
-
-
-def test_rolling_count_at_a_window_of_one_is_the_mask_itself() -> None:
-    mask = np.array([True, False, True, True, False, True])
-    assert list(conditions.rolling_count(mask, 1)) == [1, 0, 1, 1, 0, 1]
-
-
-def test_rolling_count_truncates_its_window_at_the_head_rather_than_borrowing() -> None:
-    """A window longer than the series counts what exists, so an early threshold just fails."""
-    mask = np.array([True, False, True, True])
-    assert list(conditions.rolling_count(mask, 99)) == [1, 1, 2, 3]
-    assert list(conditions.rolling_count(mask, 99) >= 3) == [False, False, False, True]
-
-
-def test_rolling_count_on_uniform_and_empty_input() -> None:
-    assert list(conditions.rolling_count(np.ones(4, dtype=np.bool_), 2)) == [1, 2, 2, 2]
-    assert list(conditions.rolling_count(np.zeros(4, dtype=np.bool_), 2)) == [0, 0, 0, 0]
-    assert conditions.rolling_count(np.array([], dtype=np.bool_), 3).size == 0

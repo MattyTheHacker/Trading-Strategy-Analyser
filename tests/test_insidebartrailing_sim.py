@@ -32,7 +32,6 @@ FAR_TRAIL = 10.0
 def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 property
     rows,
     signal_at=(),
-    *,
     max_rows=None,
     direction=LONG,
     atr=FAR_ATR,
@@ -49,7 +48,6 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
     instrument=MNQ,
     bars_required=-1,
     block_entry_at_close=True,
-    max_hold_bars=0,
     fill_limit_on_touch=True,
     ambiguity_policy=0,
     round_targets=True,
@@ -97,7 +95,6 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
             position_update_loss_gate=loss_gate,
             bars_required=bars_required,
             block_entry_at_session_close=block_entry_at_close,
-            max_hold_bars=max_hold_bars,
         ),
         out,
     )
@@ -495,7 +492,6 @@ def test_a_signal_while_already_in_a_position_does_not_pyramid() -> None:
             {"rows": PARTIAL, "ema": VIOLATED_AT_THE_CHANGE, "trail_multiplier": 4.0},
             "the trend-violation exit",
         ),
-        ({"max_hold_bars": 2, "atr": FAR_ATR, "trail_multiplier": FAR_TRAIL}, "the hold limit"),
     ],
 )
 def test_the_buffer_overflowing_is_reported_rather_than_written_past(kwargs, path) -> None:
@@ -678,31 +674,3 @@ def test_the_split_lot_axes_are_sweepable_despite_being_inherited() -> None:
     axes = archetypes.INSIDEBARTRAILING.sweepable
     assert {"trailing_stop_multiplier", "partial_take_profit_percentage"} <= axes
     assert {"error_margin", "atr_multiplier", "phase_filter"} <= axes
-
-
-# -- the maximum hold time -----------------------------------------------------
-
-
-def test_the_hold_limit_leaves_both_lots_at_the_next_bars_open() -> None:
-    trades = run(QUIET, signal_at=[1], atr=FAR_ATR, trail_multiplier=FAR_TRAIL, max_hold_bars=2)
-    # Filled at bar 2's open, so bar 4 is two bars later and the order goes in at its close.
-    assert set(trades["leg"]) == {1, 2}
-    assert set(trades["exit_bar"]) == {5}
-    assert set(trades["exit_reason"]) == {"time_limit"}
-    assert set(trades["exit_price"]) == {100.0}
-
-
-def test_a_hold_limit_of_zero_leaves_both_lots_to_the_data() -> None:
-    trades = run(QUIET, signal_at=[1], atr=FAR_ATR, trail_multiplier=FAR_TRAIL)
-    assert set(trades["exit_reason"]) == {"end_of_data"}
-
-
-def test_a_lot_that_already_left_is_not_flattened_twice_by_the_clock() -> None:
-    trades = run(PARTIAL, signal_at=[1], atr=FAR_ATR, trail_multiplier=4.0, max_hold_bars=3)
-    runner = trades[trades["leg"] == 2].iloc[0]
-    bracketed = trades[trades["leg"] == 1].iloc[0]
-    assert len(trades) == 2
-    assert runner["exit_reason"] == "stop"
-    assert runner["exit_bar"] == 3
-    assert bracketed["exit_reason"] == "time_limit"
-    assert bracketed["exit_bar"] == 6

@@ -10,15 +10,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, conditions, context, sessionrange, sessions, sweep
+from nqbt import conditions, context, sessions, sweep
 from nqbt.context import ContextError, ContextSpec
-from nqbt.sim.types import (
-    BAND_BOLLINGER,
-    BAND_VWAP,
-    DeadCatParams,
-    ElasticBandParams,
-    PullBackAndGoParams,
-)
+from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def bars(n: int = 800, seed: int = 3) -> pd.DataFrame:
@@ -221,9 +215,7 @@ def test_needs_ma_values_keeps_the_raw_averages() -> None:
     with pytest.raises(ValueError, match="keep_values=True"):
         gates_only.ma_values("ema", 9)
 
-    with_values = context.prepare(
-        bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(9, 21)), needs_ma_values=True)
-    )
+    with_values = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(9, 21)), needs_ma_values=True))
     assert with_values.ma_values("ema", 9).shape == (len(with_values),)
 
 
@@ -253,9 +245,7 @@ def test_the_session_clock_gate_admits_a_bar_strictly_outside_the_window() -> No
         pd.to_datetime(["2024-01-16 20:59:00", "2024-01-16 21:00:00", "2024-01-16 22:00:00"], utc=True),
     )
     frame = bars(len(idx)).set_index(idx)
-    data = context.prepare(
-        frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True)
-    )
+    data = context.prepare(frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True))
 
     assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
     assert list(data.session_end_gate(60)) == [True, False, False]
@@ -269,9 +259,7 @@ def test_the_no_entry_window_follows_a_holiday_early_close_too() -> None:
         pd.to_datetime(["2024-01-15 16:59:00", "2024-01-15 17:00:00", "2024-01-15 18:00:00"], utc=True),
     )
     frame = bars(len(idx)).set_index(idx)
-    data = context.prepare(
-        frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True)
-    )
+    data = context.prepare(frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True))
 
     assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
     assert list(data.session_end_gate(60)) == [True, False, False]
@@ -303,78 +291,6 @@ def test_the_band_grid_is_built_for_exactly_the_declared_periods() -> None:
         data.band_basis(30)
 
 
-def test_an_elasticband_grid_builds_only_the_bands_its_sources_name() -> None:
-    vwap_only = sweep.Grid.of(
-        ElasticBandParams(band_source=BAND_VWAP),
-        archetype=archetypes.ELASTICBAND,
-    ).required_context()
-    # A period grid nothing reads is memory in every worker, so a pure-VWAP sweep builds none.
-    assert vwap_only.band_periods == ()
-    assert vwap_only.needs_vwap_band
-
-    bollinger_only = sweep.Grid.of(
-        ElasticBandParams(band_source=BAND_BOLLINGER),
-        archetype=archetypes.ELASTICBAND,
-    ).required_context()
-    assert bollinger_only.band_periods == (20,)
-    assert not bollinger_only.needs_vwap_band
-
-
-def test_sweeping_both_band_sources_builds_both_bands() -> None:
-    spec = sweep.Grid.of(
-        ElasticBandParams(),
-        archetype=archetypes.ELASTICBAND,
-        band_source=[BAND_BOLLINGER, BAND_VWAP],
-        band_period=[10, 20],
-    ).required_context()
-    assert spec.band_periods == (10, 20)
-    assert spec.needs_vwap_band
-
-
-def test_the_vwap_band_is_absent_unless_the_spec_asks_for_it() -> None:
-    data = context.prepare(bars(), ContextSpec(band_periods=(20,)))
-    assert data.vwap_band is None
-    for read in (
-        data.vwap_band_basis,
-        data.vwap_band_stddev,
-        data.vwap_band_stretch,
-        data.vwap_band_age,
-    ):
-        with pytest.raises(ContextError, match="needs_vwap_band"):
-            read()
-
-
-def test_the_vwap_band_is_built_without_any_period_grid_at_all() -> None:
-    data = context.prepare(bars(), ContextSpec(needs_vwap_band=True))
-    assert data.vwap_band is not None
-    assert data.vwap_band_stretch().shape == (len(data),)
-    assert data.vwap_band_age().shape == (len(data),)
-    # A session-anchored window has no period, so nothing keyed by one gets built.
-    assert data.band is None
-    assert data.mas == {}
-
-
-def test_asking_for_the_vwap_band_brings_the_vwap_it_is_anchored_on() -> None:
-    # The band's basis *is* the VWAP, so a dataset holding one and not the other would let a
-    # trade's target and its context row disagree about where the mean was.
-    data = context.prepare(bars(), ContextSpec(needs_vwap_band=True, needs_vwap=False))
-    assert data.vwap_values().tolist() == data.vwap_band_basis().tolist()
-
-
-def test_the_union_of_two_specs_carries_the_vwap_band() -> None:
-    assert (ContextSpec() | ContextSpec(needs_vwap_band=True)).needs_vwap_band
-    assert (ContextSpec(needs_vwap_band=True) | ContextSpec()).needs_vwap_band
-    assert not (ContextSpec() | ContextSpec()).needs_vwap_band
-
-
-def test_the_vwap_band_is_counted_in_the_bytes_a_worker_is_handed() -> None:
-    frame = bars()
-    with_band = context.prepare(frame, ContextSpec(needs_vwap_band=True))
-    without = context.prepare(frame, ContextSpec(needs_vwap=True))
-    # Basis, dispersion, stretch and the anchor clock, at eight bytes each.
-    assert with_band.nbytes - without.nbytes == 4 * 8 * len(frame)
-
-
 def test_the_union_of_two_specs_carries_the_band_periods() -> None:
     merged = ContextSpec(band_periods=(20,)) | ContextSpec(band_periods=(50,), atr_periods=(14,))
     assert merged.band_periods == (20, 50)
@@ -383,117 +299,5 @@ def test_the_union_of_two_specs_carries_the_band_periods() -> None:
 
 def test_the_band_grid_counts_towards_what_a_worker_is_handed() -> None:
     without = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,))))
-    with_band = context.prepare(
-        bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), band_periods=(20,))
-    )
+    with_band = context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), band_periods=(20,)))
     assert with_band.nbytes == without.nbytes + with_band.band.nbytes
-
-
-# -- session ranges ------------------------------------------------------------
-
-
-def session_bars(days: int = 3) -> pd.DataFrame:
-    """Whole sessions, so a cash-anchored range has a window to be measured over."""
-    return bars(n=days * 1440, seed=5)
-
-
-def test_the_session_ranges_are_absent_unless_the_spec_asks_for_them() -> None:
-    data = context.prepare(session_bars(), ContextSpec(needs_vwap=True))
-    assert data.session_ranges is None
-
-    key = (sessionrange.CASH_OPEN_MINUTES, 30)
-    for read in (data.range_armed, data.range_high, data.range_low):
-        with pytest.raises(ContextError, match="range_keys"):
-            read(key)
-    with pytest.raises(ContextError, match="range_keys"):
-        data.range_session_id()
-
-
-def test_a_declared_range_is_built_and_reads_back_by_its_key() -> None:
-    key = (sessionrange.CASH_OPEN_MINUTES, 30)
-    data = context.prepare(session_bars(), ContextSpec(range_keys=(key,)), bar_minutes=1)
-
-    assert data.range_armed(key).shape == (len(data),)
-    assert data.range_session_id().shape == (len(data),)
-    assert data.range_high(key).size == data.session_ranges.sessions
-    assert data.range_armed(key).any(), "the fixture never reaches a complete range"
-
-
-def test_a_range_the_bar_size_cannot_express_fails_loudly_rather_than_quietly() -> None:
-    """60-minute bars straddle the 930-minute cash anchor -- ``docs/roadmap.md`` §M28."""
-    with pytest.raises(sessionrange.RangeError, match="straddle the anchor"):
-        context.prepare(
-            session_bars(),
-            ContextSpec(range_keys=((sessionrange.CASH_OPEN_MINUTES, 60),)),
-            bar_minutes=60,
-        )
-
-
-def test_the_bar_size_is_inferred_when_prepare_is_not_told_it() -> None:
-    key = (sessionrange.CASH_OPEN_MINUTES, 30)
-    frame = session_bars()
-    stated = context.prepare(frame, ContextSpec(range_keys=(key,)), bar_minutes=1)
-    inferred = context.prepare(frame, ContextSpec(range_keys=(key,)))
-
-    assert inferred.range_armed(key).tolist() == stated.range_armed(key).tolist()
-
-
-def test_the_union_of_two_specs_carries_the_range_keys() -> None:
-    merged = ContextSpec(range_keys=((930, 30),)) | ContextSpec(range_keys=((930, 5),))
-
-    assert merged.range_keys == ((930, 5), (930, 30))
-
-
-def test_the_range_grid_counts_towards_what_a_worker_is_handed() -> None:
-    frame = session_bars()
-    key = (sessionrange.CASH_OPEN_MINUTES, 30)
-    without = context.prepare(frame, ContextSpec(needs_vwap=True))
-    with_range = context.prepare(frame, ContextSpec(needs_vwap=True, range_keys=(key,)), bar_minutes=1)
-
-    assert with_range.nbytes == without.nbytes + with_range.session_ranges.nbytes
-
-
-def test_the_follow_through_is_absent_unless_the_spec_asks_for_it() -> None:
-    key = (sessionrange.CASH_OPEN_MINUTES, 30)
-    data = context.prepare(session_bars(), ContextSpec(range_keys=(key,)), bar_minutes=1)
-    assert data.follow_through is None
-
-    with pytest.raises(ContextError, match="follow_through_sessions"):
-        data.range_follow_through(key)
-    with pytest.raises(ContextError, match="follow_through_sessions"):
-        data.range_follow_through_scale(key, 5)
-
-
-def test_a_declared_follow_through_reads_back_per_session_at_its_lookback() -> None:
-    key = (sessionrange.CASH_OPEN_MINUTES, 30)
-    spec = ContextSpec(range_keys=(key,), follow_through_sessions=(5,))
-    data = context.prepare(session_bars(days=12), spec, bar_minutes=1)
-
-    assert data.range_follow_through(key).size == data.session_ranges.sessions
-    assert data.range_follow_through_scale(key, 5).size == data.session_ranges.sessions
-    assert np.isfinite(data.range_follow_through(key)).any(), "no session was measurable"
-
-
-def test_a_follow_through_lookback_with_no_range_to_measure_is_refused() -> None:
-    """The lookback implies a range; declaring one without the other builds nothing silently."""
-    with pytest.raises(ContextError, match="no range_keys"):
-        context.prepare(session_bars(), ContextSpec(follow_through_sessions=(5,)), bar_minutes=1)
-
-
-def test_the_union_of_two_specs_carries_the_follow_through_lookbacks() -> None:
-    merged = ContextSpec(follow_through_sessions=(60,)) | ContextSpec(follow_through_sessions=(20,))
-
-    assert merged.follow_through_sessions == (20, 60)
-
-
-def test_the_follow_through_grid_counts_towards_what_a_worker_is_handed() -> None:
-    frame = session_bars(days=12)
-    key = (sessionrange.CASH_OPEN_MINUTES, 30)
-    without = context.prepare(frame, ContextSpec(range_keys=(key,)), bar_minutes=1)
-    with_scale = context.prepare(
-        frame,
-        ContextSpec(range_keys=(key,), follow_through_sessions=(5,)),
-        bar_minutes=1,
-    )
-
-    assert with_scale.nbytes == without.nbytes + with_scale.follow_through.nbytes

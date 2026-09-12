@@ -163,9 +163,7 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
     )
     both = joined[joined["_merge"] == "both"]
 
-    logger.info(
-        "  window            %s -> %s (ends excluded)", f"{lo:%Y-%m-%d %H:%M}", f"{hi:%Y-%m-%d %H:%M}"
-    )
+    logger.info("  window            %s -> %s (ends excluded)", f"{lo:%Y-%m-%d %H:%M}", f"{hi:%Y-%m-%d %H:%M}")
     logger.info("  NT8 legs          %s", f"{len(nt8_inner):,}")
     logger.info("  nqbt legs         %s", f"{len(inner):,}")
     logger.info("  joined            %s", f"{len(both):,}")

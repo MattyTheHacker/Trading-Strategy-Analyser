@@ -12,16 +12,10 @@ than a special case. Warm-up bars, which the lookback cannot reach back from, ar
 A regime set is carried as a bitmask integer so that it is a legal sweep axis, exactly as
 :mod:`nqbt.timeofday` carries a phase set. Thresholds, equality boundaries and why the window
 sum is recomputed rather than rolled: ``docs/roadmap.md`` §M10.1.
-
-**A raw threshold is not one cut across a sweep.** It is a different percentile of a random
-walk at each lookback and a different share of bars at each resolution, so
-:func:`thresholds_from_quantiles` and :func:`thresholds_from_multiples` state the cut in units
-that survive both axes -- ``docs/roadmap.md`` §M27.5.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import TYPE_CHECKING
@@ -30,11 +24,11 @@ import numpy as np
 from numba import njit
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
 
-__all__ = [
+__all__: Sequence[str] = [
     "ALL_REGIMES",
     "UNDEFINED",
     "EfficiencyRatioGrid",
@@ -45,15 +39,10 @@ __all__ = [
     "efficiency_ratio_grid",
     "gate",
     "label",
-    "random_walk_ratio",
     "regimes_in",
     "regimes_mask",
-    "thresholds_from_multiples",
-    "thresholds_from_quantiles",
     "validate_lookback",
     "validate_mask",
-    "validate_multiples",
-    "validate_quantiles",
     "validate_thresholds",
 ]
 
@@ -78,12 +67,9 @@ class Regime(IntEnum):
     The integer values ascend with the ratio, and are also the bit positions in a filter mask.
     """
 
-    CONSOLIDATING = 0
-    """Below the lower threshold: the window's net move is small against its path length."""
-    UNCLASSIFIABLE = 1
-    """Between the thresholds, both boundaries included. The deliberate no-trade state."""
-    DIRECTIONAL = 2
-    """Above the upper threshold: the window went somewhere rather than wandering."""
+    CONSOLIDATING = 0  # Below the lower threshold: the window's net move is small against its path length.
+    UNCLASSIFIABLE = 1  # Between the thresholds, both boundaries included. The deliberate no-trade state.
+    DIRECTIONAL = 2  # Above the upper threshold: the window went somewhere rather than wandering.
 
     @property
     def bit(self) -> int:
@@ -156,97 +142,8 @@ def validate_thresholds(consolidating_below: float, directional_above: float) ->
             f"consolidating_below {consolidating_below} exceeds directional_above "
             f"{directional_above}, which would put a bar in both regimes at once"
         )
+
         raise RegimeError(msg)
-
-
-def validate_quantiles(consolidating_quantile: float, directional_quantile: float) -> None:
-    """Reject quantiles that fall outside 0-1, or that would put a bar in two regimes at once."""
-    if not 0.0 <= consolidating_quantile <= 1.0:
-        msg: str = f"consolidating_quantile must lie in 0..1, got {consolidating_quantile}"
-        raise RegimeError(msg)
-
-    if not 0.0 <= directional_quantile <= 1.0:
-        msg = f"directional_quantile must lie in 0..1, got {directional_quantile}"
-        raise RegimeError(msg)
-
-    if consolidating_quantile > directional_quantile:
-        msg = (
-            f"consolidating_quantile {consolidating_quantile} exceeds directional_quantile "
-            f"{directional_quantile}, which would cross the thresholds they fit"
-        )
-        raise RegimeError(msg)
-
-
-def validate_multiples(consolidating_multiple: float, directional_multiple: float) -> None:
-    """Reject multiples of the random-walk anchor that are negative, or that cross."""
-    if consolidating_multiple < 0.0:
-        msg: str = f"consolidating_multiple must not be negative, got {consolidating_multiple}"
-        raise RegimeError(msg)
-
-    if directional_multiple < 0.0:
-        msg = f"directional_multiple must not be negative, got {directional_multiple}"
-        raise RegimeError(msg)
-
-    if consolidating_multiple > directional_multiple:
-        msg = (
-            f"consolidating_multiple {consolidating_multiple} exceeds directional_multiple "
-            f"{directional_multiple}, which would put a bar in both regimes at once"
-        )
-        raise RegimeError(msg)
-
-
-def random_walk_ratio(lookback: int) -> float:
-    """The efficiency ratio a driftless random walk averages over ``lookback`` bars: ``1/sqrt(n)``.
-
-    The anchor a raw threshold is otherwise read against by eye -- ``docs/roadmap.md`` §M27.5.
-    """
-    validate_lookback(lookback)
-
-    return 1.0 / math.sqrt(lookback)
-
-
-def thresholds_from_multiples(
-    lookback: int,
-    consolidating_multiple: float,
-    directional_multiple: float,
-) -> tuple[float, float]:
-    """Both thresholds as multiples of :func:`random_walk_ratio`, one cut across the lookback axis.
-
-    ``ER x sqrt(n)`` is scale-free under the null, so the same pair of multiples means the same
-    amount of directionality at every lookback where a raw pair does not.
-    """
-    validate_multiples(consolidating_multiple, directional_multiple)
-    anchor: float = random_walk_ratio(lookback)
-    directional_above: float = directional_multiple * anchor
-    if directional_above > 1.0:
-        msg: str = (
-            f"directional_multiple {directional_multiple} puts the threshold at "
-            f"{directional_above} over {lookback} bars, above the ratio's maximum of 1.0"
-        )
-        raise RegimeError(msg)
-
-    return consolidating_multiple * anchor, directional_above
-
-
-def thresholds_from_quantiles(
-    values: FloatArray,
-    consolidating_quantile: float,
-    directional_quantile: float,
-) -> tuple[float, float]:
-    """Both thresholds as quantiles of the ratios in ``values``, warm-up bars excluded.
-
-    Fit on the selection window alone: fitting on the whole series leaks the holdout.
-    """
-    validate_quantiles(consolidating_quantile, directional_quantile)
-    measured: FloatArray = np.asarray(values, dtype=np.float64)
-    measured = measured[np.isfinite(measured)]
-    if measured.size == 0:
-        msg: str = "no measured efficiency ratio to take a quantile of; every bar is warm-up"
-        raise RegimeError(msg)
-
-    cuts: FloatArray = np.quantile(measured, [consolidating_quantile, directional_quantile])
-
-    return float(cuts[0]), float(cuts[1])
 
 
 @njit(cache=True)
@@ -296,12 +193,7 @@ def _label(values: FloatArray, consolidating_below: float, directional_above: fl
 
 
 @njit(cache=True)
-def _gate(
-    values: FloatArray,
-    consolidating_below: float,
-    directional_above: float,
-    mask: int,
-) -> BoolArray:
+def _gate(values: FloatArray, consolidating_below: float, directional_above: float, mask: int) -> BoolArray:
     """One pass from ratio to boolean, so a sweep combination never builds a label array."""
     n = values.size
     out = np.zeros(n, dtype=np.bool_)
@@ -331,19 +223,10 @@ def label(values: FloatArray, consolidating_below: float, directional_above: flo
     """
     validate_thresholds(consolidating_below, directional_above)
 
-    return _label(
-        np.ascontiguousarray(values, dtype=np.float64),
-        float(consolidating_below),
-        float(directional_above),
-    )
+    return _label(np.ascontiguousarray(values, dtype=np.float64), float(consolidating_below), float(directional_above))
 
 
-def gate(
-    values: FloatArray,
-    mask: int,
-    consolidating_below: float,
-    directional_above: float,
-) -> BoolArray:
+def gate(values: FloatArray, mask: int, consolidating_below: float, directional_above: float) -> BoolArray:
     """Test every bar's regime against ``mask``, one boolean per bar.
 
     An :data:`UNDEFINED` bar passes nothing, :data:`ALL_REGIMES` included, which is why an
@@ -381,10 +264,7 @@ class EfficiencyRatioGrid:
         """Find the row holding ``lookback``, or say what the grid was built for."""
         idx: int = int(np.searchsorted(self.lookbacks, lookback))
         if idx >= self.lookbacks.size or self.lookbacks[idx] != lookback:
-            msg: str = (
-                f"efficiency ratio over {lookback} bars is not in this grid; "
-                f"built for {self.lookbacks.tolist()}"
-            )
+            msg: str = f"efficiency ratio over {lookback} bars is not in this grid; built for {self.lookbacks.tolist()}"
             raise KeyError(msg)
 
         return idx
@@ -393,38 +273,11 @@ class EfficiencyRatioGrid:
         """Read one lookback's efficiency ratios."""
         return np.asarray(self.values[self.row(lookback)])
 
-    def thresholds_for(
-        self,
-        lookback: int,
-        consolidating_quantile: float,
-        directional_quantile: float,
-    ) -> tuple[float, float]:
-        """Fit both thresholds to one lookback's own distribution of ratios.
-
-        See :func:`thresholds_from_quantiles` for what a fit must be fitted on.
-        """
-        return thresholds_from_quantiles(
-            self.values_for(lookback),
-            consolidating_quantile,
-            directional_quantile,
-        )
-
-    def labels_for(
-        self,
-        lookback: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> LabelArray:
+    def labels_for(self, lookback: int, consolidating_below: float, directional_above: float) -> LabelArray:
         """Label every bar at one lookback, the stratification key -- see :func:`label`."""
         return label(self.values_for(lookback), consolidating_below, directional_above)
 
-    def gate_for(
-        self,
-        lookback: int,
-        mask: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> BoolArray:
+    def gate_for(self, lookback: int, mask: int, consolidating_below: float, directional_above: float) -> BoolArray:
         """Test every bar at one lookback against ``mask``, the entry filter -- see :func:`gate`."""
         return gate(self.values_for(lookback), mask, consolidating_below, directional_above)
 

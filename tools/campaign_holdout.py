@@ -7,7 +7,7 @@ A sweep table ranks configurations; it cannot say whether the ranking means anyt
 question this answers is the one that decides whether an archetype is worth more work: **does
 picking the best 20 on the first 60% of the series beat not picking at all on the last 40%?**
 On this project's own data that has come out *below* the median of every configuration --
-``docs/findings/m26-elastic-band.md`` § "Selecting on one contract is worse than not selecting".
+``docs/roadmap.md`` § "Selecting on one contract is worse than not selecting".
 
 **One row per root and stratum**, because a stratum is its own question and its own sample --
 see :data:`GROUP_KEYS`. A stratum the split never ran simply has no row.
@@ -28,7 +28,7 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_report import NET_TO_DRAWDOWN, load, parameter_columns, rank
+from tools.campaign_report import STATISTICS, TAGS, load
 from tools.campaign_sweep import VARIANTS
 
 from nqbt import logsetup
@@ -49,28 +49,17 @@ GROUP_KEYS = ["root", "stratum"]
 """What a shortlist is chosen within. **A stratum is its own held-out test**, never pooled with
 the others: pooling lets the selection window pick the stratum as well as the parameters, and
 the twenty largest profit factors then come from whichever stratum has the fattest tail rather
-than from the one being asked about -- ``docs/roadmap.md`` §M27.4.
-
-**Variant is not here and a database holding more than one needs ``--variant``**, because the
-same argument applies to it and this does not yet make it -- ``docs/roadmap.md`` §M27.3."""
-
-DEFAULT_BY = "profit_factor"
-"""What the shortlist is chosen on unless ``--by`` says otherwise. §M27.4's table was measured
-on this one; :data:`~tools.campaign_report.NET_TO_DRAWDOWN` is what §M27.3 ranks on instead."""
+than from the one being asked about -- ``docs/roadmap.md`` §M27.4."""
 
 
-def paired(name: str, variant: str | None = None) -> pd.DataFrame:
+def paired(name: str) -> pd.DataFrame:
     """One row per configuration that cleared the trade floor in **both** windows."""
     selection: pd.DataFrame = load(name, ["selection"])
     holdout: pd.DataFrame = load(name, ["holdout"])
-    if variant is not None:
-        selection = selection[selection["variant"] == variant]
-        holdout = holdout[holdout["variant"] == variant]
-
     if selection.empty or holdout.empty:
         return pd.DataFrame()
 
-    parameters: list[str] = parameter_columns(selection)
+    parameters: list[str] = [column for column in selection.columns if column not in TAGS and column not in STATISTICS]
     merged: pd.DataFrame = selection.merge(
         holdout,
         on=JOIN_KEYS,
@@ -86,58 +75,6 @@ def paired(name: str, variant: str | None = None) -> pd.DataFrame:
     return merged
 
 
-HELD_OUT_SUFFIX = "_hold"
-"""Which half of a :func:`paired` row :func:`held_out` keeps."""
-
-
-def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a different axis
-    name: str,
-    root: str,
-    by: str = DEFAULT_BY,
-    top: int = TOP,
-    stratum: str | None = None,
-    resolution: int | None = None,
-    variant: str | None = None,
-) -> pd.DataFrame:
-    """The held-out rows of the configurations the selection window ranks highest.
-
-    Shaped like :func:`campaign_report.load`'s rows, so a tool reading stored logs can use it
-    wherever it would use :func:`campaign_shortlist.shortlist` -- and unlike that one, nothing
-    it returns was ranked on the window it is then read from -- ``docs/roadmap.md`` §M28.13.
-    """
-    merged: pd.DataFrame = paired(name, variant)
-    if not merged.empty:
-        merged = merged[merged["root"] == root]
-
-    if stratum is not None:
-        merged = merged[merged["stratum"] == stratum]
-
-    if resolution is not None:
-        merged = merged[merged["resolution"] == resolution]
-
-    if merged.empty:
-        msg: str = f"no paired windows for {name} on {root}, stratum {stratum}, variant {variant}"
-        raise RuntimeError(msg)
-
-    ranked: pd.DataFrame = rank(merged, top, f"{by}_sel")
-    if ranked.empty:
-        msg = f"{name} on {root}: every one of {len(merged)} paired rows has no {by}_sel to rank on"
-        raise RuntimeError(msg)
-
-    return _held_columns(ranked)
-
-
-def _held_columns(merged: pd.DataFrame) -> pd.DataFrame:
-    """One paired frame's held-out half, under the unsuffixed names the stored rows carry."""
-    renamed: dict[str, str] = {
-        column: column.removesuffix(HELD_OUT_SUFFIX)
-        for column in merged.columns
-        if column.endswith(HELD_OUT_SUFFIX)
-    }
-
-    return merged[[*JOIN_KEYS, *renamed]].rename(columns=renamed).reset_index(drop=True)
-
-
 def rank_correlation(block: pd.DataFrame) -> float:
     """Spearman between the two windows' profit factors, as Pearson on the ranks.
 
@@ -149,36 +86,26 @@ def rank_correlation(block: pd.DataFrame) -> float:
     )
 
 
-def verdict(name: str, merged: pd.DataFrame, by: str = DEFAULT_BY) -> pd.DataFrame:
-    """The held-out test, per root and stratum: the shortlist against not shortlisting at all.
-
-    ``by`` names the selection-window statistic the shortlist is drawn on. A row it is undefined
-    on is not shortlistable and is dropped, so ``shortlisted`` can come back below :data:`TOP`
-    and is reported rather than assumed -- :func:`campaign_report.rank`.
-    """
+def verdict(name: str, merged: pd.DataFrame) -> pd.DataFrame:
+    """The held-out test, per root and stratum: the shortlist against not shortlisting at all."""
     rows: list[dict[str, object]] = []
     for (root, stratum), block in merged.groupby(GROUP_KEYS):
-        top: pd.DataFrame = rank(block, TOP, f"{by}_sel")
+        top: pd.DataFrame = block.nlargest(TOP, "profit_factor_sel")
         shortlist_pf: float = float(top["profit_factor_hold"].mean())
         unselected_pf: float = float(block["profit_factor_hold"].median())
-        shortlist_ntd: float = float(top[f"{NET_TO_DRAWDOWN}_hold"].median())
         rows.append(
             {
                 "strategy": name,
                 "root": root,
                 "stratum": stratum,
                 "paired": len(block),
-                "shortlisted": len(top),
                 "sel_top20_pf": top["profit_factor_sel"].mean(),
                 "hold_top20_pf": shortlist_pf,
                 "hold_all_median_pf": unselected_pf,
                 "top20_profitable": int((top["profit_factor_hold"] > 1.0).sum()),
                 "hold_top20_net": top["net_pnl_hold"].mean(),
-                "hold_top20_ntd": shortlist_ntd,
-                "hold_all_median_ntd": block[f"{NET_TO_DRAWDOWN}_hold"].median(),
                 "rank_corr": rank_correlation(block),
                 "passes": shortlist_pf > 1.0 and shortlist_pf > unselected_pf,
-                "clears_drawdown": shortlist_ntd > 1.0,
             },
         )
 
@@ -202,22 +129,20 @@ def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Held-out test of a --split campaign.")
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))
-    parser.add_argument("--variant", default=None, help="restrict to one variant of each grid")
-    parser.add_argument("--by", default=DEFAULT_BY, help="selection statistic the shortlist ranks on")
     args = parser.parse_args(argv[1:])
 
     verdicts: list[pd.DataFrame] = []
     for name in args.strategies:
-        merged: pd.DataFrame = paired(name, args.variant)
+        merged: pd.DataFrame = paired(name)
         if merged.empty:
             logger.warning("no paired windows for %s; run --split first", name)
             continue
 
-        block: pd.DataFrame = verdict(name, merged, args.by)
+        block: pd.DataFrame = verdict(name, merged)
         verdicts.append(block)
-        show(f"{name}: best 20 on the selection window by {args.by}, measured on the holdout", block)
+        show(f"{name}: best 20 on the selection window, measured on the holdout", block)
 
-        top: pd.DataFrame = rank(merged, TOP, f"{args.by}_sel")
+        top: pd.DataFrame = merged.nlargest(TOP, "profit_factor_sel")
         show(
             f"{name}: the shortlist itself, top 5",
             top.head(5)[
@@ -231,7 +156,6 @@ def main(argv: list[str]) -> int:
                     "trades_hold",
                     "profit_factor_hold",
                     "net_pnl_hold",
-                    f"{NET_TO_DRAWDOWN}_hold",
                 ]
             ],
         )

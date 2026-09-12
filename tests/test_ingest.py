@@ -22,7 +22,7 @@ def session_lines(count, start="2024-03-08 18:00"):
     return [f"{ts:%Y%m%d %H%M%S};18000.25;18002.00;17999.50;18001.00;120" for ts in stamps]
 
 
-def write(path, lines, *, trailing_newline=True):
+def write(path, lines, trailing_newline=True):
     text = "\n".join(lines) + ("\n" if trailing_newline else "")
     path.write_text(text, encoding="utf-8")
 

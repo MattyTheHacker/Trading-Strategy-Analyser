@@ -1,8 +1,6 @@
 # Roadmap
 
-**Results do not live here any more.** Every campaign — what it swept, what it returned and what it settles — is one file in [`findings/`](findings/README.md), indexed three ways by `tools/findings_index.py`: the [register](findings/register.md), [by archetype](findings/by-archetype.md) and [by gate](findings/by-gate.md). They were extracted because they had grown to three quarters of this file and buried the four things below that have no other home, and because milestone order is the one order that cannot answer "what do we know about this archetype" or "what has cleared gate 3". Each `§Mxx` keeps a stub under "Milestone notes" naming its file, so an existing pointer still resolves.
-
-**How this file relates to the issue tracker.** The issues carry **everything that changes** — scope, acceptance criteria, checklists, ordering, dependencies and status. This file carries **what stays true after the work lands** — the constraints that span milestones, the traps that cost real time, and the decisions taken so they are not silently re-litigated. When the two disagree about scope or order, the issue wins; when they disagree about reasoning, this file wins.
+**How this file relates to the issue tracker.** The issues carry **everything that changes** — scope, acceptance criteria, checklists, ordering, dependencies and status. This file carries **what stays true after the work lands** — the findings, the constraints that span milestones, the traps that cost real time, and the decisions taken so they are not silently re-litigated. When the two disagree about scope or order, the issue wins; when they disagree about reasoning, this file wins.
 
 **Plans do not live here.** Ordering is GitHub's `blocked-by`/`blocking` dependency graph, status is the issue's own state, and grouping is its epic and milestone. This file used to carry a hand-maintained order-of-work table; it duplicated all three, went stale on every landing, and was removed for that reason. To see what is next, ask the tracker:
 
@@ -12,7 +10,7 @@ gh issue list --state open --milestone "Phase 3 — Review system"
 gh issue view <n>                       # blocked-by / blocking / sub-issues
 ```
 
-Four things live here and nowhere else, because an issue is the wrong home for them: the **standing constraint** and its expressibility checklist, the **order-lifetime research**, the **standing rubric**, and the **decision record**. A closed issue is not read; a rule that outlives its milestone therefore belongs in this file rather than in the issue that produced it. A *measurement* that outlives its milestone belongs in `findings/`. Everything else is a paragraph of context with a link.
+Four things live here and nowhere else, because an issue is the wrong home for them: the **standing constraint** and its expressibility checklist, the **order-lifetime research**, the **standing rubric**, and the **decision record**. A closed issue is not read; a finding that outlives its milestone therefore belongs in this file rather than in the issue that produced it. Everything else is a paragraph of context with a link.
 
 Precedence when sources disagree: [backtest_tool_spec.md](backtest_tool_spec.md) and the project's own docs first, [trading_concepts.md](trading_concepts.md) Part II second. The discretionary-practice notes are a source of framing and of numeric definitions we lack, not a source of priorities.
 
@@ -91,7 +89,7 @@ The list is short because most of it has now been researched. Extend it rather t
 - ~~**M10.4**~~ ([#43]) — **done, and measured.** The final session phase has *structurally* forced exits, so a time-of-day stratification will show it as anomalous; **that is an artefact, not a finding**, and any result touching the last phase has to separate "this hour trades badly" from "this hour's trades were closed by the clock". `timeofday.FORCED_EXIT_PHASE` names the phase so a caller can exclude it. On costed MNQ from 2024 the effect is real and small — `session_close_share` reads 0.0016 on `CLOSE` against 0.0001 overall, because a 1-minute DeadCatBounce holds for minutes. Expect it to matter at 15 and 30 minutes.
 - **M18 and M19** ([#34], [#51]). The prediction here was that crossover, holding until an opposite cross, would take a large fraction of its exits from the clock. **Measured: 1.0%** on costed MNQ from 2024 at EMA(9)/EMA(21). The reasoning was sound and the premise was wrong — crosses on 1-minute bars are frequent enough (one signal every ~22 bars) that holds end long before the session does. Expect the share to climb with the MA periods and with bar size, and read it rather than predicting it. A squeeze rests orders, which the flatten point ends only after that bar has been tested for a fill ([#208]).
 - **Statistics.** The share of exits at `EXIT_SESSION_CLOSE` deserves to be a reported column rather than something buried in the trade log. A strategy taking 40% of its exits from the clock is not really the strategy its rules describe, and the aggregate profit factor will not say so.
-- ~~**The prop-account simulator** ([#75])~~ — **done.** It treats the daily flat as one of the rules it replays, alongside the trailing drawdown, the daily loss limit and the consistency ratio. It replays them over a finished trade log and adds nothing to `nqbt/sim/`, which still models this one rule and no other — § "Replaying a prop account over the trade log".
+- **The prop-account simulator** ([#75]) treats the daily flat as one of the rules it replays, alongside trailing drawdown and the consistency ratio.
 
 ~~**Holiday early closes are probably not handled — [#68].**~~ **Confirmed and fixed.** `force_flat_mask` derived its cutoff from the *template's* fixed 17:00 ET close, so on a CME half-day nothing reached it and the mask came back empty. It now counts down to the session's observed last bar, which is what `is_session_close` always did. The measured scale, the two things the observed end cannot distinguish, and what it did to the InsideBar reconciliation are in [nt8-fidelity.md](nt8-fidelity.md), "The session end is the observed last bar, not the template's".
 
@@ -212,8 +210,6 @@ What every change — including every milestone below — is checked against. Th
 - **A type checker introduced with a strict config and 400 errors gets switched off.** Start permissive on the project's own modules and tighten; do not gate CI on it in the same change that introduces it. See [#56], [#57].
 - **Re-measure the Numba `NamedTuple` result before relying on it.** It is a property of the installed Numba, not of the language, and `cache=True` interacts with it. `tools/numba_tuple_probe.py` is the probe.
 - **M20 may not move a number.** Every M20 item is behaviour-preserving. Anything that moves a trade log is out of scope and belongs in the milestone that intends it.
-- **A union of axis values is not a union of parameter sets**, and `Grid.of_combinations` is where the two come apart. `axis_values` collapses a combination list to one list per parameter, so any rule that reads two of them back as a *pair* gets pairs no member holds. For `OpeningRange` that is unbuildable rather than merely wasteful: a pooled shortlist asked for a 930-minute range anchored 990 minutes past the open, `sessionrange.validate_key` refused it, and the pool could not be prepared at all — so the walk-forward and Monte Carlo gates crashed on any shortlist spanning ranges. `required_context` therefore unions member by member; `axis_values` still reports the union, because the stored `axes` column describes the pool rather than specifying a build.
-- **A consistency count does not order the evidence, and the largest one is not the strongest case.** §M28.14 scored twelve context cells on how many `root x resolution` cells a filter won in both windows; §M28.16 took the ten of them that had never been nulled to a matched null and found the rank correlation between the score and the null excess to be −0.132, with the two `+10` cells at the bottom of the table. A score says a direction repeated; only a null says it was worth anything.
 - **A prefix of a trade log is not a sample of it.** The `explain.py` defect was justified with "50% of trades", measured over a 200-trade prefix; the whole-window rate is 35.7%. Quote whole-window rates.
 
 ______________________________________________________________________
@@ -221,8 +217,6 @@ ______________________________________________________________________
 ## Milestone notes
 
 One paragraph of reasoning each. Scope and acceptance criteria are in the linked issue.
-
-**A milestone that produced a measurement is a stub here** — its heading, its verdict in a sentence, and a link to its file in [`findings/`](findings/README.md). The heading stays so a `§Mxx` pointer still resolves; the numbers, the tables and the caveats are in the file, and that is what to quote.
 
 ### The trade-log gate, and the two times it was wrong ([#113])
 
@@ -403,50 +397,6 @@ The first original archetype, chosen to prove M15 and M17 because it is the chea
 
 **What M19 inherits.** `EXIT_SIGNAL` is now exercised rather than reserved. The bracket engine is a set of `@njit` device functions any loop can call, so a squeeze breakout needs to write only its two-sided OCO entry. And the per-combination cost of a high-leg archetype is now known rather than assumed, which is what the numpy summary path ([#33]) was moved ahead of M18 to buy.
 
-### The build spec's three loose ends ([#74])
-
-**The trail is a ratchet over a different level, round numbers need a stated price basis, and the confluence count is refused at construction rather than gated by an axis.** Moved to [`docs/findings/build-spec-loose-ends.md`](findings/build-spec-loose-ends.md).
-
-### The build spec's three loose ends, measured ([#74])
-
-**None of the three features improves EmaCrossover; the trail costs in nineteen of twenty cells and the confluence count moves results without being edge.** Moved to [`docs/findings/build-spec-loose-ends-measured.md`](findings/build-spec-loose-ends-measured.md).
-
-### Counting the confluence a trade actually had ([#74])
-
-**The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.** Moved to [`docs/findings/confluence-count-per-trade.md`](findings/confluence-count-per-trade.md).
-
-### Filtering trades by context and configuration ([#251])
-
-**There are two questions about a condition and only one of them is the review's.** *Does this strategy work if it only trades in an uptrend* changes the strategy: `trend_filter` and its five siblings are swept, and `tools/campaign_sweep.py` measures the result. *Of the trades it took, which worked and what was true then* changes nothing, and it is the one a person actually asks first. Both existed already; what did not was any way to ask the second one as a **filter** rather than as a report — `review.stratify` cuts by one condition at a time, an annotation lived only in the Python session that built it, and three context families had no per-trade columns at all.
-
-#### Three gaps, and the third is the one that made it a query
-
-**Compression, session ranges and bands were unreviewable.** `Dataset.compression_labels`' docstring has read *"for stratifying results"* since [#51] and had no caller; `annotate.py` mentioned compression nowhere. So an entry could be gated on a condition that could never be read back off the trades it produced, and OpeningRange and ElasticBand — the two newest archetypes — could not be stratified by their own geometry at all. `_compression_conditions`, `_band_conditions` and `_range_conditions` close it, and `LabelThresholds` gains the compression pair on the same both-or-neither rule as the other two.
-
-**Nothing crossed two conditions.** `annotate.crossed` builds the composite label, and it is deliberately not a new kind of thing: the result is an ordinary condition, so `review.stratify` ranks it and `guard.screen` puts it in the same family as everything else. **No statistic is defined by it**, which is the property that keeps a cross from drifting away from the sweep's numbers.
-
-**The cardinality limit is the substance of that function, not its validation.** The product grows multiplicatively while the sample does not: trend × regime × phase is 81 strata over a few hundred trades, every one of them under `review.MIN_TRADES`, and the failure mode is a report that silently skips the condition rather than one that says why. `MAX_CROSSED_VALUES` refuses above `review.MAX_STRATA` and names the count — pinned equal to it by a test rather than imported, because `review` imports `annotate` and the dependency cannot run both ways. Same arrangement as `guard.separate` against `review.rank_conditions`.
-
-#### The parameter dimension stays in the sweeps table, and that is a measurement rather than a preference
-
-The obvious next step — pool every combination's trades and stratify by `ema_period` — is wrong, and the reason is in the data rather than in taste. **Two combinations differing in one axis share most of their entries.** A grid varying only `tp_multiplier` produces the same signals with different exits, so pooling twenty of them and treating each trade as an independent observation inflates every sample size roughly twentyfold. `guard`'s permutation test assumes exchangeable trades; near-duplicate trades from neighbouring cells are not exchangeable, and the null it draws would be far too tight. The p-value would look excellent and mean nothing.
-
-`tools/campaign_report.py`'s `axis_influence` already answers the parameter question correctly, one row per combination, and §M27's η² tables are what it produces.
-
-**The join gives the filter anyway, which is what makes the restraint cheap.** `trades` joins `combos` on `(sweep_id, combo_id)`, so `results.TRADE_VIEW` carries every parameter beside every trade. A parameter can therefore *narrow the population* — "the trades a 20-period EMA configuration took" — while the review still refuses it as a *ranking*. Filtering by a column and grouping by it are different acts, and only the second is unsound here. The view prefixes every `combos` column with `combo_`, which is not only collision avoidance: `net_pnl` means the leg's on one side and the whole combination's on the other, and a query that confused them would report a plausible number.
-
-#### What a stored annotation has to carry with it
-
-**The cut, on every row.** An annotation is meaningless without the thresholds it was labelled at — §M27.8 is the case where a whole volume ranking turned out to be decided by its cut, and a raw pair admits 28% of bars under one form and 8% under another. Two annotations written under different cuts are two populations, and a query joining them would silently report one. `save_annotation` therefore stamps the `LabelThresholds` onto each row under `results.CUT_PREFIX` rather than leaving the provenance to be remembered.
-
-There is a weaker case inside that: where a configuration's filter was inert, the stored threshold is the params-class default that nobody chose. `tools/campaign_annotate.py` reads it anyway, because *the cut this row was measured at* is the only honest answer available and the stamp is what lets a reader see that it was a default.
-
-**And the notes rail.** `annotate_trades`, `review` and `guard` are the three doors that refuse free text. Persisting to a queryable table is a fourth door onto the same data and a worse one, because a note reaching a column is one `GROUP BY` away from the perfectly circular finding §M11.5 describes — so `save_annotation` refuses it too.
-
-#### What needed no code
-
-"Profitable **and** taken in an uptrend" is `review.stratify` over the trend label: a row per state carrying win rate, expectancy and profit factor. Filtering *to* the winners and asking what they had in common is the same question read backwards, and it is the weaker direction — it cannot show whether a relationship is monotone, and it will always find something. `review.by_outcome` is the honest form of the backwards read and says so; § "Counting the confluence a trade actually had" is where that argument was first made.
-
 ### M22 — InsideBar, the third C#-backed port ([#126])
 
 The archetype earns its place on what it reaches rather than on what it might make: three parts of the fill model no other archetype touches — `IsFillLimitOnTouch = true`, a bracket anchored to the fill and the signal bar at once, and a no-entry window before the session close. Each rule, the two the port inferred wrongly, and the wall-clock trap that still has to be fixed in the NinjaScript before that one rule can be reconciled: [nt8-fidelity.md](nt8-fidelity.md) §M22 and "A no-entry window before the session close".
@@ -488,137 +438,456 @@ Two archetypes size a bracket off ATR for opposite reasons — EmaCrossover beca
 
 Queued rather than scheduled; the expensive archetype. "Squeeze" means at least three things, and fixing the definition is the first task: TTM-style (Bollinger inside Keltner — the full M16 debt), bandwidth (`(upper − lower) / mid` below a trailing percentile — Bollinger only), or structural (inside bars — no new indicators at all). **Recommend the bandwidth form first:** one indicator rather than three, it drops the Keltner parity question flagged above as most likely to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and is the only version of this strategy with C# ground truth. Its trade list also settled two questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]` means inside `OnExecutionUpdate`. The real structural cost is a two-sided OCO entry model the loop lacks; the order-lifetime research above resolves that resubmission is exactly equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate, and results that cluster by volatility regime so the aggregate PF averages two populations.
 
-### M19.1 — compression as a condition, before it is an archetype ([#51])
-
-**The condition is real and consistently ordered across seven archetypes and two roots, and it still separates no better than four dimensions the campaign already had — a reason to keep M19 parked rather than to build it.** Moved to [`docs/findings/m19-1-compression-condition.md`](findings/m19-1-compression-condition.md).
-
 ### M26 — the elastic band, the first mean-reversion archetype ([#167])
 
-**The first mean-reversion archetype: Bollinger as the band, three exit schemes as three grids, and a first measurement whose held-out behaviour does not survive the test it is put to.** Moved to [`docs/findings/m26-elastic-band.md`](findings/m26-elastic-band.md).
+Price mostly stays inside a band; when it closes far enough outside one, take the other side and target the middle. [#168] is the design and the indicator work, [#169] the Python, [#170] the port — and [#170] happens only if the Python clears the promotion criteria under "Decisions taken", not because the Python exists.
 
-### M26.4 — the VWAP band: the second source, and the first thing to survive a holdout here ([#221])
+**Why build it, when the last four archetypes were continuation rules that did not work.** DeadCatBounce, PullBackAndGo and both InsideBar ports buy strength or sell weakness, and EmaCrossover follows a regime; every result the project holds is about one family. Mean reversion is the first genuinely different hypothesis, and the machinery already leans towards it — `regime.py`'s consolidating label exists to name the state this archetype wants and every other archetype wants to avoid, so it can be gated on from the first run rather than after a rewrite. It also inverts the bracket geometry, target inside the range and stop outside it, which is a shape nothing in `bracket.py` has been exercised on.
 
-**`band_source` clears the holdout and not the matched null, so what it buys cannot be separated from the bracket; depth is the axis that separates the two sources and 2 sigma is not deep enough.** Moved to [`docs/findings/m26-4-vwap-band.md`](findings/m26-4-vwap-band.md).
+#### The band is Bollinger, and the two alternatives are rejected for different reasons
 
-### M26.5 — the signal bar's own shape: the first thing here whose excess is not the bracket's ([#221])
+**Decided: `nt8_sma` ± k · `nt8_stddev` on close**, which is the TradingView listing on [#167] line for line. It is the cheapest correct option and the best-evidenced: both halves were read out of NinjaTrader by `NqbtIndicatorProbe.cs` and agree with `indicators.py` on every bar of the probe window — [nt8-fidelity.md](nt8-fidelity.md) §M16 holds the count. NT8 exposes `Bollinger(numStdDev, period)` natively, so the eventual port has no indicator to hand-roll and no seeding question to get wrong.
 
-**Requiring the signal bar's body to have turned raises the observation while leaving the matched null where it was — the first ElasticBand excess that measures the entry rather than the bracket, and still not a pass on 34 to 56 trades.** Moved to [`docs/findings/m26-5-signal-bar-shape.md`](findings/m26-5-signal-bar-shape.md).
+**Keltner is rejected even though it is already implemented.** Its width is `offset ×` the mean high−low range and *not* ATR — it agreed with `ATR(20)` on 20 bars out of 89,330 — so a band built on it is not the band anybody reading the result would picture. The cost of that is not fidelity, which is pinned either way; it is that a promising number could not be explained to anyone, ourselves included, six months later.
 
-### M26.6 — the recovery entry: the reaction §M26.5 deferred, and the one the later window punishes ([#278])
+**VWAP ± k·σ is rejected for now and is the obvious second form.** Three costs, in order of size. It has **no pin**: `session_vwap` is reconciled, a standard-deviation band around it is not, so it needs `NqbtIndicatorProbe.cs` extended and re-run — NinjaTrader time, the scarce resource, spent before knowing whether the idea works at all. Its band width **shrinks monotonically through a session** as volume accumulates, so a fixed k is a different extremity threshold at 09:00 than at 15:00, and that confound lands on top of the session-phase artefact [#43] already records. And the anchor resets at 18:00 ET, so the first bars of every session have a band that is not yet a band. If the Bollinger form shows anything, this is the variant worth the probe; if it shows nothing, the probe was not worth booking.
 
-**A well-powered negative rather than an underpowered one: the recovery entry wins the selection window, gives all of it back held out, and pays for the reaction out of both ends of the bracket at once.** Moved to [`docs/findings/m26-6-recovery-entry.md`](findings/m26-6-recovery-entry.md).
+#### The reduction: one dimensionless series per period, and k for free
 
-### M26.8 — the stop on the band itself: the level §M26 specified and never built ([#280])
+The entry test "close is at least k standard deviations from the basis" does not need the bands as objects. `indicators.band_stretch` is `(close − basis) / stddev`, which **depends only on the period**, so a grid holds one float array per period and *every* multiple in a sweep reads the same array. **`num_std` is therefore a free axis** — no memory, no precompute, nothing for `dead_axes` to gate — which is the opposite of how `regime_lookback` or `higher_timeframe_period` behave, and is worth knowing before [#169] designs the grid. It is also what makes the entry threshold and the stop threshold different multiples at no cost, which is what the geometry below needs.
 
-**A stop at the band beats the tightest stop and never the widest; every arm beats the matched null and the stop scheme is not what moves the margin.** Moved to [`docs/findings/m26-8-stop-on-band.md`](findings/m26-8-stop-on-band.md).
+**Measured, because the two forms are not obviously identical.** `stretch >= k` and `close >= upper` are the same test algebraically and floating point does not have to agree. Over 200,000 synthetic bars at periods 10/20/50 and k of 1/2/3 they disagree on **exactly one bar in every configuration: bar 0**, where `nt8_stddev` is 0 and the bands collapse onto the close. Rounding never separated them anywhere else. `tests/test_indicators.py::test_band_stretch_crosses_a_multiple_exactly_where_the_bollinger_band_does` pins it, including that bar 0 is the only flat window, so a silently widening exclusion fails the test. `bars_required_to_trade` excludes bar 0 regardless.
 
-### M26.9 — a volume requirement on the break: the state it asks for is the one that costs ([#281])
+#### The thesis has two axes, and [#168] added the primitive each one needed
 
-**A `HEAVY` requirement is a cost on both roots under all three forms; `NORMAL` is the state that helps, which is the second archetype to answer the volume question that way.** Moved to [`docs/findings/m26-9-volume-requirement.md`](findings/m26-9-volume-requirement.md).
+[#167] says the reversion gets more likely the **further** and the **longer** price sits outside the band. Those are two separate quantities and both are now measurable:
+
+| half of the thesis | quantity                                                               | added by |
+| ------------------ | ---------------------------------------------------------------------- | -------- |
+| further            | `indicators.band_stretch` — signed extension in standard deviations    | [#168]   |
+| longer             | `conditions.consecutive_true` — unbroken run length ending at each bar | [#168]   |
+
+`consecutive_true` is the other axis from `count_true`, which counts conditions on one bar where this counts bars for one condition; the confluence pattern had no way to say "for how long". Neither is an indicator in the fidelity sense — one is a division of two pinned series, the other is arithmetic on a boolean — so **nothing in this archetype needs a new NT8 pin**, which is the main reason the Bollinger form was chosen.
+
+Both are entry *gates*, and both are worth carrying into the trade log as context as well, because "deeper extensions revert more often" is a claim the review side ([#47]) can test directly and an aggregate profit factor cannot.
+
+#### ATR is for the bracket, not for the signal — [#167]'s open question
+
+**Not in the entry rule.** ATR and a standard deviation over the same window are two measures of the same per-bar movement, and the entry is already normalised by one of them. A second would add an axis that mostly duplicates `band_period` while making the rule harder to state.
+
+**Yes in the stop, and it is not optional there.** Sizing off σ alone means a quiet window gives a near target *and* a near stop, which is the exact failure `min_bracket_dollars` exists to prevent — and mean reversion is the archetype most exposed to it, because it fires precisely when dispersion is low. `atr_bracket_distance` with the dollar floor is already the answer for a strategy with no structural swing to anchor to (§ "ATR-multiple brackets and the dollar floor") and it applies unchanged. Sweep it against a band-relative stop rather than choosing by argument.
+
+#### The geometry inverts, and that changes what R means for the third time
+
+- **Entry**: market on the next open, which is EmaCrossover's mechanism and the one with no fill-rule risk attached. A limit at the band is the more natural execution and is the second form to try — it rests, so it dies after one bar and has to trade *through* to fill, both already implemented and reconciled.
+- **Stop**: outside the band. Either `atr_bracket_distance` or `basis ∓ stop_std · σ`.
+- **Target**: the **basis** — a level, not an R multiple. Legs scale out at fractions of the way back to it, so `legs.target[leg]` is `fill + d · (basis − fill) · fraction[leg]` rather than an R multiple of risk. `bracket.py` needs nothing new for this: the archetype has always written the target prices and the engine has always just resolved them.
+- **R is therefore neither structure-scaled nor volatility-scaled.** With a σ stop and a basis target it is `entry_std / stop_std` by construction, identical on every combination sharing that ratio; with an ATR stop it is the ratio of two different volatility measures. **Elastic band results do not compare to any other archetype's at the same R**, which is the third distinct meaning R has taken — [nt8-fidelity.md](nt8-fidelity.md) §M18's last paragraph is the second.
+
+#### Three exit schemes, and they are three grids rather than three archetypes
+
+The entry rule is one hypothesis; **what to do once filled is a second one, and it is not settled by the first**. Three coherent schemes are worth sweeping, and `sweep_axes` already takes a *list of grids* as its strategy axis — so they are three grids over one `ElasticBandParams`, not three archetypes and certainly not a forked sweep. `combo_id` means the same parameters within a grid and nothing across grids, which is exactly the distinction these three need.
+
+**Evidence classes, because they are not equal.** The project's own reconciled machinery comes first, `Trading-Docs` second as framing and as numeric definitions we lack, and the outside reading below **last** — it is a source of hypotheses for the sweep, never an input to it. It is recorded because two of its findings are specific enough to be wrong in a useful way.
+
+##### A — Band Rotation: levels, not multiples
+
+- **Target ladder on chart levels.** TP1 is the basis; TP2 is the *opposite* band. This is the discretionary rotation trade written out — the `Trading-Docs` target sequence is POC then the far value-area edge, recorded there with the explicit caveat that the rotation is the whole trade rather than a launchpad — and it is where the practitioner literature lands too.
+- **Stop beyond the excursion, plus a cushion.** The adverse extreme of the bars that were outside the band, offset by the usual ticks — never *at* the level, because price sitting on a reference level is expected to get tested. The elastic band's analogue of DeadCatBounce's swing stop, and the only one of the three whose stop is structural rather than a number.
+- **A signal exit on invalidation**: price closing back outside the band beyond the excursion extreme means the range broke and held, which is `Trading-Docs`' definition of a failed trade — the conditions changed while you were in it, rather than you picking the wrong side.
+- **Why it earns a slot**: the fewest fitted numbers of the three, and every level is derived from the chart rather than optimised. **Its weakness is the cost floor**: a shallow excursion gives a stop so close that the round trip dominates, and a deep one gives the fat tail.
+
+##### B — Volatility Bracket: the existing device, applied to a new entry
+
+- **Stop is `atr_bracket_distance` off the fill**, with `min_bracket_dollars` underneath it. Nothing new: the same `@njit` device EmaCrossover and both InsideBar ports use, floor included.
+- **Targets are the existing four-leg R ladder**, capped at the basis — a target beyond the mean is not a mean-reversion target.
+- **Why it earns a slot**: it costs no new bracket code, it removes the absolute-price parameter that `Trading-Docs` flags as DeadCatBounce's overfitting fingerprint, and it is **the only scheme whose results are directly comparable with EmaCrossover's**, because the risk denominator is the same quantity. The outside reading lands in the same place from a different direction, recommending a stop roughly half to one-and-a-half ATR beyond the band that triggered the entry.
+- **Its weakness is that it is the least like the strategy being tested** — an ATR distance has nothing to do with the band, so a stop can sit inside the range the trade is betting on.
+
+##### C — Time and Mean: no strategy stop at all
+
+- **One target, the basis, for the whole position.** No ladder.
+- **No price stop except a catastrophe limit** — `max_risk_ticks`, which is a prop-account rule rather than a strategy rule.
+- **A time stop in bars**, on top of the session flatten every archetype already has.
+- **Why it earns a slot, and it is the most interesting of the three.** The strongest outside finding for mean reversion is that a stop *hurts*: on a long SPY mean-reversion system over 2000–2026, adding a 5% stop to identical entries took the annual return from 8.22% to 1.05%, took the worst drawdown from −18.63% to −41.78%, and took the win rate from 66.71% to 49.05%. The mechanism is not mysterious — the stop realises exactly the adverse excursions the strategy exists to hold through — and it is the one hypothesis `nqbt` has never tested, because every archetype so far has been bracketed by construction.
+- **The translation is not direct, and that is the point.** That result is a multi-day equity system with no session constraint. Here the position **must** be flat before the close, so a hold is bounded whether or not a stop exists: the session already plays the role "no stop" played there. C therefore tests the sharp version of the question — *does an explicit price stop add anything over the clock?* — which is answerable and which the SPY figure is not.
+- The bar count is a real axis rather than a constant: the outside rules of thumb are "if it has not reverted in about fifteen bars it is a trend, leave", and the `Trading-Docs` claim that a failed break resolves within about thirty minutes. Both are specific enough to test and neither is evidence.
+
+##### What the three have in common, and the two predictions worth writing down first
+
+**Stop and target are not independent knobs.** Leung and Li's optimal double-stopping solution for a mean-reverting price with transaction costs proves that **a higher stop-loss level always implies a lower optimal take-profit level** — the two co-move, and sweeping them as independent axes will find a downward-sloping ridge rather than a best corner. This is the analytic form of the same point `Trading-Docs` makes about R:R and win rate not being independent knobs, and it predicts the shape of the results surface before the sweep runs. Read the ridge; do not report the corner.
+
+**The entry has a ceiling as well as a floor.** The same result characterises the optimal entry region as a *bounded* interval — it is optimal to wait when price is too far as well as when it is too near — and the practitioner literature reaches it from the other end, observing that the catastrophic mean-reversion losses are almost all trades taken while a trend was accelerating. Both say the naive reading of [#167], *further is always better*, is wrong beyond some point. **`max_entry_std` is therefore an axis in all three grids**, and a design change the exit research produced rather than the entry research.
+
+**A time stop needs an exit reason and should reuse `EXIT_SIGNAL` rather than add one.** It is a strategy-decided market order at the next open, which is what that code already means, and a grid only ever enables one signal exit at a time so the scheme identifies the cause. Adding `EXIT_TIME` would move `trades.py` and therefore every stored log's schema, for a distinction the grid already carries. **If two signal exits are ever enabled together the log becomes ambiguous** — that is the cost of this choice, and it is the thing to check before enabling both.
+
+**Build B and C first.** Between them they bracket the question that matters — whether a price stop helps at all — and neither needs new bracket code beyond a level target and a bar counter. A is third: its structural stop is a new device, and its stop distance is the least controlled of the three.
+
+##### Where the outside figures came from
+
+Named so they can be checked, and so nothing here is quoted as ours. **None of it is evidence about NQ**, and the only claim below that carries a proof rather than a backtest is the first.
+
+- Leung and Li, *Optimal Mean Reversion Trading with Transaction Costs and Stop-Loss Exit* ([arXiv:1411.5062](https://arxiv.org/abs/1411.5062)) — the analytic double-stopping result: a higher stop-loss level always implies a lower optimal take-profit level, and the optimal entry region is a bounded interval. Both predictions above are this paper's.
+- [setup4alpha](https://setup4alpha.substack.com/p/stop-loss-mean-reversion-backtest) — the SPY figures. **One backtest, one instrument, daily bars, long only, no session constraint**, and a 5% stop is nothing like a bracket on 1-minute MNQ. It is quoted for the mechanism, not the numbers.
+- The band-exit conventions — middle band as first target, opposite band as second, a stop half to one-and-a-half ATR beyond the triggering band, and a bar-count time stop — are practitioner consensus rather than a result, and are consistent across [LuxAlgo](https://www.luxalgo.com/blog/mean-reversion-playbook-fade-scale-exit/), [Babypips](https://www.babypips.com/trading/system-rules-short-term-bollinger-reversion-strategy) and [QuantifiedStrategies](https://www.quantifiedstrategies.com/mean-reversion-trading-strategy/).
+- Mesfin, *Structural Limits of OHLCV-Based Intraday Signals in MNQ Futures* ([arXiv:2605.04004](https://arxiv.org/abs/2605.04004)) — **the closest thing to a matched null that exists**: fourteen signal families on 5-minute MNQ over 947 days, none clearing a two-point friction assumption, with gross edge of roughly 0.07 to 1.50 points per trade. It is momentum rather than mean reversion, so it does not test this archetype — but it is the scale of edge to expect on this instrument, and it says the friction floor is the binding constraint, which is what this project already found.
+
+#### Expressibility checklist, run before building
+
+| question                                | answer                                                    |
+| --------------------------------------- | --------------------------------------------------------- |
+| How long must an entry order rest?      | None on market-on-next-open; one bar on the limit form    |
+| Does it need a true OCO pair?           | No — the breached side picks the direction, one at a time |
+| Reverse directly from long to short?    | No — flat between trades, as EmaCrossover is              |
+| Does it hold through the session close? | **No, and this binds harder here than anywhere**          |
+| More than 4 entries per direction?      | No                                                        |
+| An indicator NT8 computes differently?  | SMA and StdDev, both already pinned                       |
+
+**The session-close row is the one to take seriously.** "Hold until price returns to the basis" is an unbounded hold, and the basis is moving while you wait. EmaCrossover took **1.0%** of its exits from the clock and the prediction that it would take many more was wrong — the mechanism there was that crosses are frequent, and that mechanism does not transfer, because nothing bounds a reversion. Expect `session_close_share` to be much higher, and read it before reading anything else: a high share means the archetype being measured is not the archetype the rules describe. Fixing it is then a design choice rather than a bug — a maximum hold in bars, a time stop, or accepting the clock as the third exit.
+
+#### Traps, in the order they are likely to bite
+
+- **Both σ and ATR step at every roll seam.** Back-adjustment cancels the contract basis exactly at the seam, so the jump a seam carries is the price move over whatever break it spans — and a standard-deviation window spanning that bar inflates exactly as True Range does ([nt8-fidelity.md](nt8-fidelity.md), "True Range at a roll boundary"). An archetype that fires on extension will therefore fire around every roll for a reason that is not a market event, and it will fade a move that never happened. **Judge it per contract** (`dispersion.py`, [#31]) before believing any continuous-series number.
+- **The band contains the bar being tested, and that damps the signal.** A large move widens σ and drags the basis towards itself, reducing its own measured stretch. This is not lookahead — every input is a completed bar at or before *i* — but it is not neutral either, and the alternative is a band from bars up to *i−1* tested against `close[i]`, which is the `[1]` index in NinjaScript. Make it a toggle and measure it; do not assume either way.
+- **Fading extension on an index future is structurally short-gamma.** Many small wins and rare large losses, which is the shape that flatters a profit factor over a short window and hides in an aggregate. The archetype will look best in exactly the sample where no trend happened. Walk-forward ([#50]) and the loss tail matter more here than anywhere; the aggregate profit factor matters less.
+- **The band is a multi-parameter family and the temptation to search it is large.** `band_period × entry_std × stop_std × target fraction` is a large grid before any of the shared context filters are switched on, and the best cell of it is the expected output of noise. Test a combination chosen for a reason, and quote the random-entry arm ([#32]) beside any number — which for a bidirectional archetype means overriding the signal and *not* the side, exactly as EmaCrossover does.
+- **`ambiguous_share` should fall rather than rise, and that is a prediction.** A near target with a far stop puts both inside one bar less often than the reverse does. Read it rather than assuming it; the mechanism is what the next decision gets made from.
+
+#### What [#169] built, and the first measurement against the null
+
+`nqbt/bands.py` holds the grid, keyed by period alone: basis, standard deviation and stretch, one row each. `ElasticBandParams` carries all three exit schemes as parameters, `nqbt/sim/elasticband.py` is the entry half, and the registry entry is `TIER1_ONLY`. `sweep_axes` takes the three schemes as three grids, which is what the strategy axis is for.
+
+**The band multiple really is free, and the archetype builds no moving-average grid at all** — the first one that does not, because the basis is the band's own.
+
+**Two things `dead_axes` cannot see here.** The stop and target axes are inert at every `stop_mode` and `target_mode` but one, and it only knows how to compare a toggle against a single off value, so sweeping `atr_stop_multiple` under `STOP_EXCURSION` runs identical combinations silently. Same shape as `volume_rolling_bars`, recorded in `.claude/rules/sweep-and-context.md` rather than worked around.
+
+**The invalidation exit and the time stop are guarded against each other rather than merely documented.** Both write `EXIT_SIGNAL`, so `__post_init__` refuses a combination with both on — a log carrying both cannot say which fired, and that was the cost this design accepted when it declined to add an exit code.
+
+##### The result: the entry beats the null on one scheme, and is still not profitable
+
+Measured on **four MNQ front-month contracts — 03-24, 09-24, 03-25 and 09-25 — per contract rather than spliced**, because both σ and ATR step at every roll seam and this archetype fires on extension. One parameter set per scheme, not a sweep. Costs are the real ones: $1.50 round trip per contract and one tick of slippage. 200 null iterations, so the smallest reachable *p* is about 0.005.
+
+| scheme           | profit factor     | expectancy    | win rate          |
+| ---------------- | ----------------- | ------------- | ----------------- |
+| A, rotation      | same on 4/4       | same on 4/4   | same on 4/4       |
+| B, ATR bracket   | same on 4/4       | same on 4/4   | **better on 3/4** |
+| C, time and mean | **better on 4/4** | better on 3/4 | **worse on 4/4**  |
+
+**Read the consistency across contracts, not the individual p-values.** Thirty-six comparisons were run; a single one clearing 0.05 is the expected output of that many. Four contracts agreeing on the sign is the part that is hard to get by chance, and it is what the table reports.
+
+**C is the finding, and its shape is the opposite of the usual mean-reversion story.** Its profit factor beats the matched null on every contract while its win rate is *worse* than the null on every contract. So the entry is not finding trades that win more often — it is finding trades whose payoff distribution is better, and the extension threshold is selecting for size rather than for frequency. Anything that tunes this archetype on win rate is tuning against the only thing it has.
+
+**Every scheme is still unprofitable at realistic costs**, which is the same result DeadCatBounce reached and for the same reason: there is signal, and it does not cover the round trip. This is a measurement of three chosen configurations rather than of the archetype — nothing has been swept yet, and the promotion criteria under "Decisions taken" are not close to met.
+
+**The null arm's trade counts do not match on two of the three schemes, and that bounds what the table can say.** The matched null holds the signal *count* fixed and randomises the day, but a drawn bar then meets a different stop geometry: under `STOP_EXCURSION` most draws fail the minimum-risk test, so A trades about 10,000 times against a null median near 1,900, and C trades about 5,800 against a null median near 8,600. **Only B is cleanly matched** — roughly 1,400 against 1,300 — which makes B's win-rate result the best-evidenced cell in the table and A's blanket "indistinguishable" the weakest. This is a property of pairing a *structural* stop with a day-randomising null, not a defect in either; it belongs on [#32]'s caveat list.
+
+##### The sweep, and why the exit geometry is not the deciding factor after all
+
+The working expectation was that the TP/SL logic would decide this archetype's profitability more than anything else — it is the one whose geometry inverts, and three whole schemes were built for it. **Measured at one minute it is not true**, and the way it fails is more useful than the expectation was. **Read this whole subsection as one-minute-only**: the full sweep below adds bar size as an axis and finds it dominates everything here, which the η² table cannot show because it holds resolution fixed.
+
+**The run.** 11,808 combinations per contract over the four MNQ front-months named above: `band_period × entry_std × min_bars_outside × max_entry_std × band_lag` crossed with each scheme's own exit axes, at $1.50 round trip and one tick. 40,672 of the 47,232 rows clear 30 trades. **6.3% of them are profitable**, and **7 of the 10,168 configurations present on all four contracts are profitable on all four**.
+
+**Which axis moves the profit factor**, as the share of PF variance a single axis explains (η², within scheme, over the ranges swept):
+
+| scheme           | entry axes | exit axes | largest single axis      |
+| ---------------- | ---------- | --------- | ------------------------ |
+| A, rotation      | 0.44       | 0.08      | `entry_std` 0.25         |
+| B, ATR bracket   | 0.06       | 0.09      | `atr_stop_multiple` 0.06 |
+| C, time and mean | 0.22       | 0.12      | `entry_std` 0.10         |
+
+`entry_std` is the largest single axis in every scheme. **η² is a property of the ranges swept, not of the strategy** — a wider `tp_multiplier` range would raise the exit column — so read the table as "over ranges a person would actually try", not as a law.
+
+**The surface only half replicates.** Spearman rank correlation of PF between contracts, over configurations present on all four: A **+0.51**, C **+0.50**, B **+0.07** (one pair negative). So B's geometry surface carries essentially no information that survives to another contract, and A's and C's carry some — most of it in the entry axes above.
+
+**Selecting on one contract is worse than not selecting.** The best 20 configurations on 03-24 average PF 1.489 there and 1.320 on 03-25, but **0.760 and 0.832** on 09-24 and 09-25 — *below the median of every configuration* on those two contracts, which is 0.839 and 0.883. This is the multiple-comparisons trap producing exactly what the standing rubric says it produces, on this project's own data, and it is worth quoting whenever a sweep result is being read.
+
+##### The method that does answer the question: excess over the matched null
+
+A sweep can say which geometry has the highest profit factor. It cannot say **whether that geometry earned it**, because a bracket that suits the bars flatters a random entry just as much. The random-entry arm splits the two, per geometry:
+
+- **`null_median`** — what this TP/SL yields on these bars with no entry edge at all. The geometry's own contribution.
+- **`observed − null_median`** — what the entry rule adds *at that geometry*. The excess.
+
+Run with the entry **fixed** at the middle of every axis, chosen before looking at any result, varying only the exit geometry, 200 iterations, MNQ 03-24:
+
+| scheme           | observed PF spread    | null PF spread        | excess spread   | verdicts                           |
+| ---------------- | --------------------- | --------------------- | --------------- | ---------------------------------- |
+| B, ATR bracket   | 0.638 → 0.990 (0.352) | 0.640 → 0.864 (0.224) | −0.003 → +0.125 | indistinguishable from random, 9/9 |
+| C, time and mean | 0.724 → 0.825 (0.101) | 0.483 → 0.802 (0.319) | +0.023 → +0.252 | better than random, 11/12          |
+
+**Observed PF correlates +0.71 with null PF across geometries.** Most of what a geometry sweep is ranking is what the geometry does to *any* entry.
+
+**B is the pure case of the trap.** Widening the bracket takes observed PF from 0.638 to 0.990 and looks like tuning; roughly two thirds of that move is present in the random arm, the excess never clears significance, and the highest cell is still under 1. This is `Trading-Docs`' "R:R and win rate are not independent knobs" measured rather than argued.
+
+**C is the finding, and it inverts the ranking.** Its observed PF barely moves across geometries while its null moves three times as much, so the excess is where all the information is — and **the excess is largest at the nearest target and smallest at the furthest**, which is the opposite order to the profit factor:
+
+| C geometry   | observed PF   | null PF | excess            |
+| ------------ | ------------- | ------- | ----------------- |
+| target −0.5σ | 0.724 (worst) | 0.483   | **+0.241 (best)** |
+| target +0.0σ | 0.740         | 0.637   | +0.103            |
+| target +0.5σ | 0.755 (best)  | 0.709   | +0.047 (worst)    |
+
+Picking the geometry on profit factor picks the one where the entry's advantage has been given away. The mechanism is that a near target is a *bad* geometry for a random entry — small wins against an unbounded stop — and a good one for an entry that genuinely reverts, so the near target is where the entry's information is worth most.
+
+**The standing instruction that follows: rank exit geometries by excess over the matched null, never by profit factor.** The two agree on B, where neither is significant, and point in opposite directions on C, where one of them is — so the case that matters is the case where profit factor misleads, and nothing in a sweep table says so. `tools/geometry_contribution.py` runs the comparison and reports the two rankings side by side with the word DISAGREE when they part.
+
+##### Two axes that do nothing, and neither is visible to `dead_axes`
+
+- **`max_entry_std` at 4.0 is inert** — mean PF moves by about 0.002 in every scheme, because the stretch rarely reaches 4 standard deviations. The ceiling from Leung and Li is a real idea and this parameterisation of it is not a test of that idea; it needs a value close to `entry_std` to bite at all.
+- **`exit_on_invalidation` is structurally unreachable under `STOP_EXCURSION` at `stop_offset_ticks = 0`.** It changes the profit factor in **0%** of cells there, against 80% at two ticks and 88% at eight: the stop sits *at* the excursion extreme, so price reaching it intrabar exits the trade before any close beyond it can be observed. Two rules that look independent are one rule plus an offset.
+
+Both are the same class as the ATR dollar floor collapsing `atr_stop_multiple`: whether an axis does anything is a property of the *data* and of another parameter, not of the grid, so `dead_axes` cannot see it and only a spread check on the realised numbers will.
+
+##### The full sweep: every contract, five resolutions, and a tight stop
+
+**The sweep above was one minute only, and that made its headline wrong.** Resolution was not an axis in it, so "the exit geometry is not the deciding factor" was measured with the largest lever held fixed. Re-run properly — **both roots, all 19 contracts each, resolutions 1, 2, 5, 10 and 15 minutes, 1,026 combinations per point, 194,940 rows** — the picture changes and the earlier η² table should be read as a within-one-minute result rather than a general one.
+
+**Bar size is the biggest lever there is.** Median profit factor, MNQ, over every combination at that resolution:
+
+| resolution | ATR stop | tight stop |
+| ---------- | -------- | ---------- |
+| 1 min      | 0.861    | 0.791      |
+| 5 min      | 0.922    | 0.884      |
+| 15 min     | 0.955    | 0.955      |
+
+Monotone in both columns, on both roots. **The mechanism is friction, and it was predicted before it was measured**: commission is a fixed sum per trade, so it is a shrinking share of a larger bar's range — median 7.6% of an average losing trade at 1 minute against 3.0% at 15. Nothing about the strategy improves with bar size; what improves is how much of it survives the round trip.
+
+##### A stop just beyond the signal candle: measured, and it does not help
+
+The idea is a cheap repeated attempt — put the stop a tick or two past the candle that signalled, so a move that keeps going costs almost nothing and the next bar can try again. It is now `STOP_SWING` and `swing_lookback = 1` is exactly that stop.
+
+**It makes no difference.** Median profit factor across the whole MNQ sweep, by how far beyond the extreme the stop sits and how many bars it looks back over:
+
+| offset, ticks | lookback 1 | lookback 2 | lookback 3 |
+| ------------- | ---------- | ---------- | ---------- |
+| 0             | 0.858      | 0.859      | 0.858      |
+| 2             | 0.866      | 0.866      | 0.866      |
+| 8             | 0.869      | 0.869      | 0.869      |
+
+Flat to three decimal places in every direction. **At one minute the tight stop is materially worse than the ATR bracket** (0.791 against 0.861) and it only pulls level by 10 minutes. The reason it cannot win is the one the cost floor already predicts: a tighter stop shrinks R while the round trip stays the same size, so it buys more attempts at a worse price each. It is a sound idea about *market* structure defeated by *cost* structure.
+
+##### Profit-taking: less aggressive is better, and it is the one exit axis that matters
+
+Median profit factor by where the target sits, in standard deviations from the basis, signed towards the trade — −1.5 exits well before the mean, +2.0 holds through it to the far band:
+
+| target | 1 min | 5 min | 15 min    | win rate at 15 min |
+| ------ | ----- | ----- | --------- | ------------------ |
+| −1.5σ  | 0.689 | 0.805 | 0.873     | 0.23               |
+| −0.5σ  | 0.773 | 0.867 | 0.949     | 0.17               |
+| +0.0σ  | 0.803 | 0.888 | 0.970     | 0.15               |
+| +1.0σ  | 0.831 | 0.917 | 1.000     | 0.13               |
+| +2.0σ  | 0.841 | 0.941 | **1.007** | 0.11               |
+
+**Monotone across every resolution**, and the only cells in the whole table that reach 1.0 are the two most patient targets at 15 minutes. So the answer to "would more or less aggressive profit taking help" is **less**: take the win rate from 23% down to 11% and hold for the bigger move. That is the opposite of the usual mean-reversion instinct, and it is the same direction §M26's earlier null decomposition found for the *observed* profit factor — with the same warning attached, that observed profit factor and excess over the null rank geometries differently.
+
+##### Held out, and then the test it fails
+
+Selecting on the oldest half of the contracts by expiry and confirming on the newest half:
+
+| root | top 20 on the selection half | the same 20 on the held-out half | all configurations |
+| ---- | ---------------------------- | -------------------------------- | ------------------ |
+| MNQ  | 1.386                        | **1.022**                        | 0.903 / 0.882      |
+| NQ   | 1.497                        | **1.202**                        | 0.970 / 0.938      |
+
+Rank correlation between the halves is **+0.79** on both roots, so the surface genuinely replicates — mostly because resolution is in it and resolution replicates. **This is a real improvement on the one-minute result**, where selection landed below the median of everything.
+
+**It still fails the null.** The configuration the split chose — 15 minutes, band period 20, entry at 3σ, stop one tick beyond the signal candle, target +0.5σ — run against a matched random entry on eight contracts per root, with trade counts matching closely enough to trust the comparison:
+
+| root                  | observed PF | null PF | excess | profitable | **beats the null** |
+| --------------------- | ----------- | ------- | ------ | ---------- | ------------------ |
+| MNQ, $1.50 round trip | 1.180       | 0.954   | +0.226 | 4/8        | **2/8**            |
+| NQ, $4.50 round trip  | 1.258       | 0.953   | +0.305 | 4/8        | **1/8**            |
+
+The mean excess is positive and it is **two quarters carrying it** — 03-23 and 09-24 both show about +0.8, and the rest sit at or below zero. Per contract the chosen configuration is profitable through 2022 and 2023 and loses through 2024 to 2026, with a $16,204 drawdown on a single MNQ contract against $42,164 of profit summed over all nineteen. That is not an edge that decayed; it is an edge that was never separable from two good quarters.
+
+##### NQ beats MNQ on the same rules, and it is arithmetic rather than edge
+
+Costed honestly — **$1.50 round trip on MNQ against $4.50 on NQ**, rather than the sweep's mistake of applying MNQ's figure to both — NQ still comes out ahead: 32.2% of combinations profitable against 21.0%, and a median profit factor above 1.0 at 15 minutes where MNQ reaches 0.955. Commission is three times larger and the point value is ten times larger, so the drag per point is about a third of MNQ's.
+
+**It buys money, not edge**: NQ beats the matched null on *fewer* contracts than MNQ, not more. Any rule this marginal is worth more on the big contract, and that is a fact about the contract rather than about the rule. It also cuts the other way for a prop account, where the position size that clears the friction floor may exceed what the account permits.
+
+**Build that grid once, because M19 reads it too.** The bandwidth form recommended above for the squeeze is `(upper − lower) / basis`, which is `2 · num_std · σ / basis` off the same two rows — so the two archetypes share one grid rather than each inventing a Bollinger of its own, which is the first item on the standing rubric.
+
+**What [#170] would be checked against is already written down**: [nt8-fidelity.md](nt8-fidelity.md) §M26 names the NinjaScript every rule becomes. **It is not earned.** The full sweep is the one the promotion criteria under "Decisions taken" asked for, and the archetype fails them: the configuration that survives held-out selection beats a matched random entry on two contracts out of eight, and its profit is two quarters wide.
 
 ### M27 — the registry-wide campaign: every archetype, every axis ([#195], [#196])
 
-**Bar size is the largest lever and the moving averages are nearly inert; four of six pass gate 1, three gate 2, one gate 3 — and what stops InsideBar is its bracket rather than its entry.** Moved to [`docs/findings/m27-registry-campaign.md`](findings/m27-registry-campaign.md).
+The first sweep that treats the registry as one question rather than six. Every archetype across bar resolution, market regime, session phase, relative volume, trend label, higher-timeframe side and every moving-average axis it owns, on both roots, at the real commission for the root — then through the three tests a sweep table cannot pass on its own.
 
-### M27.3 — InsideBar's bracket, crossed at last ([#198])
+#### In plain terms
 
-**The target is the largest axis on the holdout and almost inert on the selection window; the re-sweep is a held-out failure, and the negative rank correlation is a finding with no explanation yet.** Moved to [`docs/findings/m27-3-insidebar-bracket.md`](findings/m27-3-insidebar-bracket.md).
+Six trading strategies were each tried with every sensible combination of their settings, on five different bar sizes, in every market condition the codebase can label, on both the big and the small Nasdaq contract, with realistic commission and slippage. That is 760,960 runs.
+
+Then the obvious trap was avoided. Trying 760,960 things and keeping the best one is how you find something that worked *by luck* — the more you try, the luckier the best one looks. So three further checks were run:
+
+1. **Would you have picked it in advance?** Choose the best settings using only the first 60% of the history, then see how those same settings do on the last 40%, which the choice never saw.
+2. **Is it the entry rule, or just the exit?** Re-run the same strategy with its entry replaced by a coin flip that trades the same number of times at the same times of day. If the coin flip does just as well, the entry rule is contributing nothing and the money is coming from the stop-and-target geometry.
+3. **Could you survive trading it?** Compare the profit to the worst losing streak it went through to earn that profit.
+
+**Five of the six fail one of those. One passes the first two and fails the third**, and the reason it fails the third is a single missing parameter rather than a broken idea.
+
+The vocabulary, once:
+
+- **Profit factor** — gross winnings divided by gross losses. Above 1.0 makes money, below 1.0 loses it. It says nothing about how bumpy the ride was.
+- **Bar size / resolution** — how much time one candle covers. A 5-minute bar is five 1-minute bars added together.
+- **Regime** — whether the market is trending (DIRECTIONAL), chopping sideways (CONSOLIDATING) or neither (UNCLASSIFIABLE), measured by the efficiency ratio (§M10.1).
+- **Stratum** — one slice of the data, such as "only trending markets". Slices are taken one at a time and never crossed, so each answers its own question with a full sample behind it.
+- **The null** — the coin-flip comparison in point 2, built by `nqbt/randomentry.py` (§M7a).
+
+#### What was run
+
+760,960 combinations in about 98 minutes across four passes, on the spliced continuous series for both roots:
+
+- Six archetypes, each with the axes it owns — moving-average periods **and kinds**, entry thresholds, stop modes, target ladders, trailing multipliers.
+- Resolutions 1, 2, 5, 10 and 15 minutes.
+- Twenty strata, **one dimension at a time and never crossed**: unfiltered, three regimes, seven session phases, three relative-volume states, three trend labels and three sides of a 60-minute average.
+- Real costs, per root: **$1.50 round trip on MNQ and $4.50 on NQ**, both with one tick of slippage. Never one figure for both — the point value differs tenfold and the commission does not, so MNQ's number applied to NQ flatters it.
+
+Every figure below is re-derivable from `results/campaign/<Archetype>.duckdb` with `tools/campaign_report.py` and `tools/campaign_holdout.py`; nothing here is a figure that moves on an ordinary pull request, but all of it is a measurement of one dated run rather than a standing property.
+
+#### The four gates, and what each removed
+
+| gate                 | question                                                                                                            | survivors             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| 1 · the screen       | a majority of configurations profitable in at least one root × resolution cell                                      | 4 of 6                |
+| 2 · held out         | best 20 chosen on the first 60%, measured on the last 40%, above 1.0 **and** above the holdout median of everything | 3 of 6                |
+| 3 · the matched null | does the entry beat a random entry with the same count and time-of-session profile                                  | 1 of 6                |
+| 4 · drawdown         | does the median configuration make more than its own worst peak-to-trough                                           | 1 cell, and only just |
+
+**Gate 3 is the one that matters most and the one a sweep table never shows.** Gate 4 is where the survivor is currently stopped.
+
+#### Gate 1 — bar size is the largest lever, and the moving averages barely matter
+
+The median configuration of every archetype loses money at 1 minute on both roots, and the median net P&L over the whole campaign is negative for all six. What separates them is where they peak:
+
+- **The two ported reversal archetypes and EmaCrossover improve monotonically with bar size**, which is §M26's friction mechanism showing up outside ElasticBand for the first time: a fixed commission is a shrinking share of a larger bar's range.
+- **The two inside-bar archetypes do not.** They peak at 5 minutes and fall away by 15. That is a real optimum rather than a cost effect, and it is the first non-monotone resolution result in the project.
+
+Share of profit-factor variance a single axis explains (η², unfiltered stratum), largest first per archetype: resolution 0.76 on InsideBar, 0.56 on DeadCatBounce, 0.47 on PullBackAndGo, 0.34 on EmaCrossover; `trailing_stop_multiplier` 0.46 on InsideBarTrailing; resolution 0.14 and `stop_mode` 0.12 on ElasticBand.
+
+**Every moving-average axis on every archetype falls below 0.04, and most below 0.01** — beaten by the bar size everywhere and by the root on four of the six. All four kinds were swept on DeadCatBounce, PullBackAndGo and EmaCrossover, EMA and HMA on both inside-bar archetypes. Choosing the kind is worth roughly a fiftieth of choosing the bar size. **η² is a property of the ranges swept**, so read it as "over ranges a person would actually try" rather than as a law — but the moving-average ranges here are wide and the answer is not close.
+
+The practical consequence: **stop tuning periods.** The lever is the bar size and, after that, the exit geometry.
+
+#### Gate 2 — held out, and ElasticBand inverts
+
+The benchmark is not zero. It is the holdout median of *every* configuration, which is what you get by not selecting at all.
+
+- **InsideBar survives on both roots** — 19 of 20 shortlisted configurations still profitable out of sample, above the holdout median on both.
+- **EmaCrossover survives on both roots**, 15 of 20.
+- **InsideBarTrailing is marginal**, landing barely above 1.0.
+- **DeadCatBounce and PullBackAndGo fail**, as the standing finding says they do.
+- **ElasticBand fails hard, and the shape of the failure is the useful part.** Its shortlist averages a profit factor of 1.834 where it was chosen and 0.592 where it was not, with 1 of 20 configurations profitable on MNQ and 0 of 20 on NQ — *below* the holdout median of every configuration. It also owns the single highest profit factor in the whole campaign. **The archetype with the best number in a 760,960-row sweep is the one eliminated first.** That is the multiple-comparisons trap the standing rubric warns about, measured again on this project's own data and worth quoting whenever a sweep result is being read.
+
+**The regime filter is where InsideBar separates.** The split pass was re-run once per regime: in the DIRECTIONAL stratum **every one of the 20 shortlisted configurations stays profitable out of sample on both roots**, and the holdout median across **every** configuration in that stratum is above 1.0 on both — so it is the whole parameter space rather than a shortlist. CONSOLIDATING is the mirror image at 2 of 20. The separation is sharpest at 10 minutes, where 99.7% of the 864 DIRECTIONAL configurations are profitable on the holdout against 6.1% of the CONSOLIDATING ones.
+
+That is mechanically what an inside-bar *breakout* should do, which is the reason to believe it rather than the reason to be suspicious of it. **Read it with §M27.4 beside it**, which held out the other sixteen strata and found the same separation under two other names, on a much larger sample.
+
+#### Gate 3 — only one archetype's entry contributes anything
+
+Each configuration was chosen on the selection window and placed against its matched null on the holdout, so the choice never sees the test data. Trade counts match the null closely in every row, which is what makes these comparisons clean — unlike §M26's, where two of three exit schemes were badly mismatched.
+
+- **InsideBar: excess of about +0.17 and +0.14 profit factor over its null, at the 96th and 93rd percentile of the null distribution.** Positive on both roots, and *not* significant on either (p ≈ 0.08 and 0.16).
+- **EmaCrossover: essentially nothing** — about +0.03 and +0.05, near the 60th percentile. Its null median profit factor is close to 1.0, meaning **a random entry inside its ATR bracket is roughly break-even after real costs at 15 minutes.** Its held-out survival is the geometry, not the crossover. It remains a useful known-negative control arm and is not a candidate.
+- **InsideBarTrailing: within 0.005 of its null on both roots**, on either side of it. Read against InsideBar, which shares its entry, that says the trailing exit gives back exactly what the fixed bracket keeps.
+- **ElasticBand: worse than random**, significantly so on win rate (p = 0.01) and mean R (p = 0.04), on both roots.
+
+Per contract, which is thirty-eight samples rather than one: the InsideBar configuration beats its own null on 13 of 19 MNQ contracts and 12 of 19 NQ ones. Split honestly into the contracts the selection window covered and the ones it did not, that is **16 of 22 in sample and 9 of 16 out of sample**, with the mean excess staying positive on both roots and roughly halving.
+
+**Those signs were counted on profit-factor excess, and the tool no longer reports it that way** — § "Reading the per-contract tally" below. A re-run reports a different excess column, and may count different signs, because the two estimators separate a contract's winners from its losers by size rather than only by number.
+
+**The honest reading is "there is probably something here", not "this is established."** No null test in the campaign reaches p < 0.05 on profit factor. What InsideBar has is a consistent sign across two roots, thirty-eight contracts and a held-out window — which is more than anything else in this project has produced, and less than proof.
+
+#### Gate 4 — what stops it is the bracket, not the entry
+
+InsideBar's profit factor comes from a deliberately lopsided bracket: a stop 5–20× ATR beyond the signal bar against a target of a bare 1× ATR from the fill. Across the holdout window that produces an **85–90% win rate with an average loss three to five and a half times the average win**, and a maximum drawdown that swallows the profit — unfiltered at 5 minutes, the median configuration ends the window with less than a third of its own worst peak-to-trough in profit.
+
+Only **one cell of InsideBar's holdout** has a majority of configurations finishing with more profit than their own drawdown: DIRECTIONAL at 10 minutes, at 60% of them, and even there the median ratio is about 0.9. Net-to-drawdown was measured on InsideBar because it is the only archetype that reached this gate; the others fail an earlier one.
+
+**A profit factor above 1.0 built from an 87% win rate and a 5:1 loss-to-win size is not an edge that survives a bad quarter.** Reading profit factor without the drawdown beside it is how this cell would have been mistaken for a result.
+
+**And the reward half of that geometry was never swept, because at the time it did not exist.** `InsideBarParams` carried an `atr_multiplier` for the stop and **no multiplier at all for the target** — the 1× ATR target was hardcoded, following `InsideBar.cs`, which hardcoded it too. So the campaign moved the stop across 5×, 10× and 20× ATR and could not move the target by a tick, and half of what produces the asymmetry was structurally outside the grid. [#197] added `tp_multiplier`, defaulting to the 1× the campaign ran at so nothing above moves; [#198] is the re-sweep that uses it, and it is the single highest-value run available because Gate 4 is the only gate InsideBar fails.
+
+#### What the campaign could not test
+
+- **Sixteen of the twenty strata were never held out.** Session phase, relative volume, trend label and higher-timeframe side had full-window numbers only. [#199] has since run them through the split — §M27.4, which is where those cells' numbers now live.
+- **The DIRECTIONAL cell is too thin per contract**, leaving about 30 trades per front-month contract at 5 minutes, so the per-contract null test cannot run on the strongest cell in the campaign. [#200] carries it, and **not** by loosening the threshold to restore the sample: the cut is uncalibrated rather than merely tight (§M10.1), and choosing it by the trade count it leaves would pick the stratum's definition from the statistic the stratum is about to be tested on. The infinite profit factors seen alongside were a separate defect ([#218]), fixed in § "Reading the per-contract tally".
+- **The held-out split is a single time cut** at 60% of the bars, so it tests one regime transition rather than many. The two roots track the same index over the same dates, so the thirty-eight per-contract samples are not thirty-eight independent ones.
+- **`max_hold_bars` means a different amount of time at each resolution**, exactly as a moving-average period does. Nothing scales it, and no result here rests on it.
+- **Everything is Tier 1.** EmaCrossover and ElasticBand have no NinjaScript at all, which is why InsideBar surviving matters more than EmaCrossover surviving would have.
+
+#### The tools, and why there are five databases
+
+`tools/campaign_sweep.py` runs the sweep — `--strata core|context|regime|phase|volume|trend|htf|all` so a later pass appends the dimensions an earlier one skipped, and `--split` for the selection and holdout windows. `tools/campaign_report.py` produces the distribution tables and the η² figures, `tools/campaign_holdout.py` the held-out test, and `tools/campaign_null.py` and `tools/campaign_contracts.py` the matched null on the continuous holdout and per contract. `tools/campaign_shortlist.py` is the trade-log path: the sweep stores summary rows only, so a bootstrap, a permutation test or a time-of-day review gets its per-trade vector by re-running a shortlisted row with `keep_trades=True` and storing the log under the same `(sweep_id, combo_id)` the summary carries.
+
+**One DuckDB per archetype**, under `results/campaign/`. At the time, `results._append_or_create` wrote `combos` by name and silently dropped a column the table did not have, so six parameter classes could not share one table — appending an `InsideBarParams` row to a table created from `DeadCatParams` would have stored it with `error_margin`, `atr_length` and `atr_multiplier` thrown away and nothing would have said so. [#201] closed that: the table widens instead, so the split is now a convention rather than a constraint, and the campaign keeps it because its results are already there.
+
+Two things the sweep machinery still cannot see, both already recorded in `.claude/rules/sweep-and-context.md` and both worked around here rather than fixed: ElasticBand's stop and target axes are inert outside their own mode, and `volume_rolling_bars` has two toggles where `dead_axes` knows one. The campaign avoids both by making a stop geometry a *variant* — its own base parameters and its own axes — rather than an axis inside one grid.
+
+#### Reading the per-contract tally
+
+**A profit factor is unbounded above, so it cannot be averaged over contracts** ([#218]). A contract with no losing trade has a gross loss of zero and an infinite profit factor, and one such contract sent `tools/campaign_contracts.py`'s `mean_pf` and `mean_excess` to infinity for its whole root — silently, because an infinity in a table of ratios reads as an extreme contract rather than as a destroyed row. The excess column made it worse by construction: the non-finite draws were filtered out of the *null's* profit factor and never out of the observed one, so the two sides of the subtraction did not have the same domain.
+
+**The tally is taken on `expectancy` instead**, which `stats.Summary` already carries. Mean P&L per trade is bounded by the largest win, defined when gross loss is zero, and sits in the same units as `net_pnl`, which the row already reports. `mean_r` is the other bounded candidate and was not chosen because it is zero rather than undefined on a log with no finite planned risk, which reads as "no edge" instead of "no measurement". Profit factor is still reported *per contract*, where an infinity is visible and belongs to one contract; nothing aggregates it.
+
+**The verdict is the sign count, not the average** — `beats_null` and `profitable` over the contracts, which is what the module docstring already told the reader to do and what §M26 and Gate 3 above actually quote. The medians beside them describe the spread and can never carry it: no single contract moves a median of nineteen, however extreme it is.
+
+**There is no minimum trade count**, and removing it is the same finding rather than a second one. `MIN_TRADES = 30` was doing statistical work nothing stated — the justification in §M14 is specifically that *a profit factor* from a handful of trades dominates the quantity being measured, which is true there and does not transfer to a bounded statistic under a sign count. Every contract that traded is counted, and `median_trades` and `fewest_trades` are reported beside the signs so that a verdict resting on thin contracts says so. The one cut left is `trades > 0`, which is not a threshold: there is no statistic to count.
 
 ### M27.4 — the sixteen strata that were never held out ([#199])
 
-**The shortlist decays by about the same amount in every stratum, it is not noise, and InsideBar's DIRECTIONAL cell turns out to have two larger siblings.** Moved to [`docs/findings/m27-4-strata-held-out.md`](findings/m27-4-strata-held-out.md).
+§M27 ran twenty context strata over the full series and only four of them — unfiltered and the three regimes, and those only on the two inside-bar archetypes and EmaCrossover — through the selection/holdout split. Session phase, relative volume, trend label and higher-timeframe side had full-window numbers and no out-of-sample test at all. This is that test: **1,005,440 combinations in 73 minutes across five passes**, after which every archetype has all twenty strata on both split windows.
 
-### M27.5 — the regime threshold, calibrated rather than swept blind ([#200])
+#### Two defects came first, and the second one mattered more
 
-**The regime threshold is fitted rather than guessed, which restores the per-contract sample in most places but not everywhere; cross-resolution rows are not twins.** Moved to [`docs/findings/m27-5-regime-threshold.md`](findings/m27-5-regime-threshold.md).
+- **`--strata volume|trend|htf` did not exist.** The paragraph above advertised them and `STRATUM_SETS` carried only `unfiltered`, `regime`, `phase`, `core`, `context` and `all`, so a dimension could be added only in threes. The sets are now built from `STRATUM_GROUPS`, which makes the documented command line true and cannot drift from it again.
+- **`campaign_holdout.verdict` pooled every stratum into one shortlist.** It grouped by root alone, so `nlargest(20, profit_factor_sel)` drew from all strata at once and the fattest-tailed one supplied the shortlist that every other stratum was then reported as having. With four strata in the split that already misattributed InsideBar's DIRECTIONAL result to its unfiltered row; with twenty it would have been the dominant effect, and the tool would have answered [#199] with the opposite of the truth. **A shortlist is now chosen within one root and one stratum**, because choosing the stratum is a comparison too. The per-regime figures under Gate 2 above were derived per stratum by hand and are unaffected.
 
-### M27.6 — walk-forward and Monte Carlo, wired into the campaign ([#203])
+#### The shortlist decays by about the same amount everywhere
 
-**The shortlist becomes the candidate pool for gate 4, which `Grid` had no way to express before.** Moved to [`docs/findings/m27-6-walkforward-montecarlo.md`](findings/m27-6-walkforward-montecarlo.md).
+Mean profit factor of the best twenty, selection window against holdout, per dimension:
 
-### M27.7 — time of day: swept, never read, and the artefact is in the wrong phase ([#205])
+| dimension  | cells | selection | holdout | decay | mean rank corr |
+| ---------- | ----- | --------- | ------- | ----- | -------------- |
+| unfiltered | 12    | 1.27      | 0.94    | 0.33  | 0.46           |
+| trend      | 34    | 1.37      | 1.03    | 0.34  | 0.30           |
+| volume     | 36    | 1.42      | 1.04    | 0.38  | 0.32           |
+| htf        | 24    | 1.34      | 0.93    | 0.41  | 0.28           |
+| regime     | 36    | 1.46      | 1.04    | 0.42  | 0.32           |
+| phase      | 82    | 1.45      | 0.96    | 0.49  | 0.22           |
 
-**Against a matched random entry the edge is in the quiet phases; the forced flat lands in AFTERNOON rather than CLOSE, and InsideBar's CLOSE stratum is empty by construction.** Moved to [`docs/findings/m27-7-time-of-day.md`](findings/m27-7-time-of-day.md).
+**The decay is a property of selecting, not of the strata that had never been tested.** The whole spread is 0.17, the smallest decay belongs to a dimension §M27 had already held out and the largest to one it had not. The fear that motivated [#199] — that the untested strata were hiding ElasticBand's 1.834-to-0.592 collapse — is not what the split found.
 
-### M27.8 — volume: one form, one cut, and the answer is the cut's ([#206])
+#### It is also not noise, and that needed a null
 
-**Which volume state helps is decided by the form and the cut rather than by volume; held out it is a coin flip, and `NORMAL` is the best cell under two forms of three.** Moved to [`docs/findings/m27-8-volume.md`](findings/m27-8-volume.md).
+99 of the 224 testable cells clear Gate 2 — holdout shortlist above 1.0 **and** above the stratum's own holdout median. On its own that number says nothing, because a shortlist drawn at random from the same stratum passes the same gate some of the time. **Drawn at random, 400 times per cell: 20.1%. Chosen on the selection window: 44.2%**, with the real shortlist at the 93rd percentile of its own null in the median cell. The selection-window ranking carries real information about the holdout; it carries much less than the selection window's own numbers suggest.
 
-### M28 — the opening range: what "ORB" actually names, and what of it is expressible ([#235])
+**Twenty-six percent of cells still invert outright** — selection above 1.3, holdout below 1.0 — and **ElasticBand owns eight of the twelve worst**. Its §M27 elimination was measured on three strata and now holds across seventeen. Stratifying does not rescue it in any dimension.
 
-**Every ORB variant is a point in six axes; the outside evidence establishes less than it appears to, and the expressibility checklist says which of it NT8 can hold.** Moved to [`docs/findings/m28-opening-range-spec.md`](findings/m28-opening-range-spec.md).
+#### `htf=AT` is not a stratum
 
-### M28.1 — OpeningRange: built, swept, and the first archetype through three gates ([#236])
+It clears the thirty-trade floor for no archetype on either root, on the full window or on either split window — price sitting exactly on the 60-minute average is too rare to trade. **The higher-timeframe dimension has two states, not three**, and §M27's twenty strata are really nineteen.
 
-**The first archetype ever to pass gates 1 to 3: the stop mode splits it into a half that always passes and a half that always fails, and gate 4 is a sample-size verdict rather than a failure.** Moved to [`docs/findings/m28-1-openingrange-swept.md`](findings/m28-1-openingrange-swept.md).
+#### What changes: DIRECTIONAL has two larger siblings
 
-### M28.2 — the deferral list, built: three entry mechanisms, one stop axis, and a null over levels ([#237])
+InsideBar's separation under `regime=DIRECTIONAL`, §M27's strongest cell, reappears under two strata that were never held out, on six to nine times the sample:
 
-**The breakout reproduces §M28.1 and gains a level null; the fade fails gate 1 everywhere and is parked; the retest has no verdict because its gate-2 pass measures `ambiguity_policy` rather than a strategy.** Moved to [`docs/findings/m28-2-deferral-list.md`](findings/m28-2-deferral-list.md).
+| stratum              | holdout shortlist PF, MNQ / NQ | stratum's holdout median | of 20 profitable | median holdout trades |
+| -------------------- | ------------------------------ | ------------------------ | ---------------- | --------------------- |
+| `regime=DIRECTIONAL` | 1.38 / 1.85                    | 1.12 / 1.07              | 20 / 20          | 122 / 115             |
+| `trend=UP`           | 1.31 / 1.23                    | 1.13 / 1.13              | 20 / 20          | 857 / 784             |
+| `htf=ABOVE`          | 1.15 / 1.09                    | 1.11 / 1.08              | 20 / 20          | 1013 / 1117           |
 
-### M28.3 — the ambiguity spread: a shortlist's second arm ([#248])
+All three have a holdout median above 1.0 on both roots, which is the whole parameter space rather than a shortlist, and all three are one mechanism wearing three labels — an inside-bar breakout with the larger trend behind it. **They are one finding, not three.** What they add is sample: [#200] exists because DIRECTIONAL leaves about thirty trades per front-month contract and the per-contract null cannot run on it, and `trend=UP` and `htf=ABOVE` do not have that problem.
 
-**A ceiling on `ambiguous_share` is the wrong instrument; the spread between the two policies is reported rather than gated, and that is the decision.** Moved to [`docs/findings/m28-3-ambiguity-spread.md`](findings/m28-3-ambiguity-spread.md).
+`InsideBar phase=LONDON` is the other cell worth naming, for the opposite reason: its shortlist *rises* out of sample, 1.22 to 1.87 on MNQ and 1.47 on NQ, on 168 and 183 trades. Its stratum median is 0.91 and 0.94, so the stratum loses money and the selection picks well inside it — the reverse of the pattern everywhere else, and unexplained.
 
-### M28.4 — settling the ambiguous bar instead of bounding it ([#248])
+#### What this does not license
 
-**Minute bars settle 17% of ambiguous bars and all of them against the assumption, which bounds the retest's profit factor from above; it stays a diagnostic and never enters `nqbt/sim/`.** Moved to [`docs/findings/m28-4-settling-ambiguous-bar.md`](findings/m28-4-settling-ambiguous-bar.md).
-
-### M28.5 — the fade's bracket, tightened: monotone the other way, and zero of 15,360 ([#256])
-
-**The stop axis is monotone across the whole of 0.02 to 1.0 of the range width because the stop sits inside the bar the order fills on; the held-out test reproduces gate 1 exactly.** Moved to [`docs/findings/m28-5-fade-bracket.md`](findings/m28-5-fade-bracket.md).
-
-### M28.6 — the rejection: the fade's level, the retest's order type, and no break at all ([#255])
-
-**Four modes and three properties, built from the fade's level and the retest's order type with no new machinery.** Moved to [`docs/findings/m28-6-rejection-spec.md`](findings/m28-6-rejection-spec.md).
-
-### M28.7 — the rejection, swept: every profitable cell is one the fill assumption decides ([#255])
-
-**Profitability tracks the fill assumption and nothing else — every profitable cell in 245,760 is one the assumption decides, which is a stronger negative than the retest's no-verdict.** Moved to [`docs/findings/m28-7-rejection-swept.md`](findings/m28-7-rejection-swept.md).
-
-### M28.8 — the range as a cross: every anchor by every length, and the hour that was missing ([#258])
-
-**The anchor and the length are one cell rather than two axes; the one-hour cash range sits on a plateau with no excess on it, and §M28's 5, 15 and 30 turn out to have been the right set.** Moved to [`docs/findings/m28-8-range-cross.md`](findings/m28-8-range-cross.md).
-
-### M28.9 — the survivor, read for tradeability rather than for rank ([#261], [#262], [#263], [#264])
-
-**Held out, one cell in thirteen across the registry returns its own drawdown; the binding constraint is net-to-drawdown rather than profit factor, and the edge is absent from 2026.** Moved to [`docs/findings/m28-9-survivor-tradeability.md`](findings/m28-9-survivor-tradeability.md).
-
-### M28.10 — the geometry denominated in trailing follow-through: no, and the reason is arithmetic ([#261])
-
-**Normalising the geometry against trailing follow-through does not restore 2026 on either root; follow-through fell 18% while the median range rose 136%, so the width is what is worth normalising against.** Moved to [`docs/findings/m28-10-follow-through-geometry.md`](findings/m28-10-follow-through-geometry.md).
-
-### M28.11 — the two truncated bracket axes, swept to their end ([#262])
-
-**Both axes are now swept to their end: the wider stop fails the acceptance cell, costs two thirds of net-to-drawdown, and lowers the excess over a permuted range as `session_close_share` doubles.** Moved to [`docs/findings/m28-11-truncated-bracket-axes.md`](findings/m28-11-truncated-bracket-axes.md).
-
-### M28.12 — the bracket decomposition, read across the registry ([#264])
-
-**One archetype in seven has a bracket that pays for itself held out; InsideBar's stop is nearly inert and its forced flat hands back about 90% of what the bracket earns.** Moved to [`docs/findings/m28-12-bracket-decomposition.md`](findings/m28-12-bracket-decomposition.md).
-
-### M28.13 — the registry read through an account, and the assumption that turned out to be a parameter ([#75])
-
-**Survival is not the question and reading it as one inverts the answer; the binding constraint is position size rather than the strategy, and the excursion order was an assumption and is now `excursion_order`.** Moved to [`docs/findings/m28-13-account-read.md`](findings/m28-13-account-read.md).
-
-### M28.14 — every stratum against its unfiltered twin, and the cell that survives it ([#285])
-
-**The clock separates the registry while volume and trend mostly do not; the midday cell clears four gates and the flatten is still what earns it.** Moved to [`docs/findings/m28-14-stratum-cross-read.md`](findings/m28-14-stratum-cross-read.md).
-
-### M28.15 — the midday cell through the three reads that stopped it being a recommendation ([#287])
-
-**Ten of ten walk-forward folds are profitable out of sample and the account funds on MNQ, but without the flatten there is no book to read — and 2026 remains the weakest year.** Moved to [`docs/findings/m28-15-midday-cell.md`](findings/m28-15-midday-cell.md).
-
-### M28.16 — the ten consistent cells through the matched null, and what a consistency score is worth ([#288])
-
-**Four cells clear p = 0.05 on both roots — three OpeningRange's and one InsideBarTrailing's midday cell — and a consistency score does not order the null result, correlating −0.132 with it.** Moved to [`docs/findings/m28-16-consistent-cells.md`](findings/m28-16-consistent-cells.md).
-
-### M29 — the maximum hold time, swept across the whole registry ([#292])
-
-**A cap on a trade's length is a cost on all seven archetypes, monotone in how tight it is; the selection window picks a paying rung zero times in seven, and the two ports hold too briefly to reach one.** Moved to [`docs/findings/m29-maximum-hold-time.md`](findings/m29-maximum-hold-time.md).
-
-### M30 — volume and regime re-cut across the registry ([#289])
-
-**Re-cutting turns three of six volume dimensions from inert to consistent and sorts the regime dimension by what each archetype is; almost none of the new cells makes money, and the raw regime labels agree with a calibrated cut about a fifth of the time at a lookback of 50.** Moved to [`docs/findings/m30-volume-regime-recut.md`](findings/m30-volume-regime-recut.md).
+- **None of it has been through Gate 3.** Gate 2 is the weakest of the four, and the matched null is what eliminated two of the three that survived it last time. Nothing above is a candidate until `tools/campaign_null.py` has run on it.
+- **224 cells is a heavier multiple-comparisons load than §M27 carried**, and the best of 224 is the expected output of noise. The three strata named above are quoted because they agree with each other and with a mechanism, not because they are the largest numbers in the table — `PullBackAndGo trend=MIXED` is the largest at 2.02 on NQ and rests on 39 holdout trades.
+- **Passing on one root is a coin flip.** 38 of the 112 testable archetype × stratum pairs pass on both, and every claim above is a both-roots claim.
+- **The strata are not independent of each other.** `regime=DIRECTIONAL`, `trend=UP` and `htf=ABOVE` overlap heavily by construction, which is why they agree and why their agreement is not three confirmations.
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 
@@ -668,7 +937,53 @@ Both summary paths carried a branch for a trade log with no times: `summarise` w
 
 ### ~~M7a~~ — the random-entry control arm: done ([#32])
 
-**DeadCatBounce's entry rule is measurably better than random at p = 0.012 while still losing money, which makes the loss one of costs, hold time or bracket geometry rather than of the entry.** Moved to [`docs/findings/m7a-random-entry-control.md`](findings/m7a-random-entry-control.md).
+`nqbt/randomentry.py`. This section is the methodology, the reasoning behind it and the first result; the module carries a pointer here rather than a copy ([#105]).
+
+**A backtest reports numbers, not evidence.** "Profit factor 0.746" is only interpretable against what the *same bracket, the same costs and the same exits* would have produced with entries chosen at random, and until that arm exists three very different diagnoses look identical: *worse than random* (the rule carries real information and points the wrong way), *indistinguishable from random* (the rule contributes nothing, and further tuning is a search over noise), and *better than random but still unprofitable* (there is signal; the loss is in costs, hold time or bracket geometry). Permuting an existing trade sequence separates none of them, because it takes the entries as given.
+
+**The design principle is hold everything fixed, randomize only what is under test.** The quantity under test is *when the strategy chooses to enter*, so the null holds the bars, the instrument, the costs, the bracket geometry, the ratchet, the force-flat rule, the direction, the number of entry signals and the time-of-session distribution, and randomizes only which trading day each signal lands on.
+
+**Time-of-session matching is the load-bearing part, and it is exact rather than coarsened.** Intraday index futures have a pronounced volume and volatility seasonality, and a bracket built from fixed tick offsets has materially different hit probabilities in a volatile hour than a thin one. A null scattering entries uniformly across 23 hours would trade mostly in thin overnight bars and lose for reasons unrelated to entry quality — **it would flatter every strategy ever tested against it**. Minute-of-session is discrete and low cardinality against millions of bars, so exact matching is feasible and bucketing into session phases would leave real confounding inside each bucket. That also keeps M7a independent of M10.4 ([#43]), whose labels exist to stratify results rather than to condition a null.
+
+**The day is randomized rather than matched, deliberately.** Choosing which days to be active on is part of what an entry rule does, so it is under test; matching on it too would reduce the question to intraday timing alone.
+
+**The null runs the archetype's own `run` with a substituted signal.** `run_deadcat` and `run_pullbackandgo` gained a `signal=` override for this, and `Archetype` gained a `signal` field so the registry can hand over the real signal to match against. That is what makes the two arms share one `simulate_deadcat` call rather than two implementations that were reviewed and found to agree — the standing trap about forking the bracket applies to a control arm exactly as it does to an archetype.
+
+**Many draws, not one.** A single random-entry backtest is the folk version of this idea and is not evidence. The output is a Monte Carlo randomization test in the same shape `spread_vs_resampling` already uses. Two differences from that test, both real: this one **may** report time-dependent statistics, because every draw is a genuine simulation over real bars rather than a relabelling; and its p-value carries the add-one correction, so a statistic no draw beat reports 1/(n+1) rather than claiming zero.
+
+**The p-value is two-sided on purpose.** An entry rule reading *worse* than random is a finding — real information pointing the wrong way — and a one-sided test would report it as an unremarkable failure to beat the null.
+
+**`DEFAULT_ITERATIONS` is 200, not `spread_vs_resampling`'s 1,000.** Each draw here is a full simulation over every bar rather than a regrouping of an existing trade list, so an iteration costs two orders of magnitude more. 200 gives a p-value resolution of 0.005, finer than the decision being made with it; raise it when a result lands near the threshold. The numpy-native summary path ([#33]) is what makes a larger default affordable at all.
+
+**Drawing is without replacement within a minute, and the guarantee is structural.** The pool for a minute is *every* bar sharing it, and the real signals at that minute are a subset of that pool, so it can never be smaller than the number of draws. That is why there is no resample-on-collision loop to get subtly wrong.
+
+**The pool is deliberately not narrowed to in-session bars.** The null must face the same bar universe the strategy faced, and narrowing one side and not the other would compare two different bar universes and break the subset guarantee above. Since [#160] the question is moot on both series — `ingest.load_contract` and `build_continuous` filter alike — but the rule is the reason it stays moot rather than something to reinstate.
+
+**`SessionMinutePool` is hoisted out of the Monte Carlo loop because of a measurement.** Grouping means an argsort over the whole series, and rebuilding it per draw was **89% of an iteration** on 914,700 bars — 106 ms against the 13 ms simulation it exists to feed. Same reasoning that hoists `context.prepare` out of a sweep.
+
+**A non-finite observed statistic raises rather than being compared.** "Infinite profit factor beats the null" is an artefact of a run with no losing trade, not a result.
+
+#### What the test still does not do
+
+- **It does not correct for multiple comparisons.** Running it across a sweep and keeping the combinations that beat the null is the trap [#48] exists to guard, with an extra step. Test a combination chosen for a reason, not the best of two hundred.
+- **A small p-value is not a tradeable edge.** It says the entry timing is unlikely to be noise; profitability after costs is a separate question the module reports but does not answer.
+- **It assumes the signal count is worth matching.** A rule that fires four times is not rescued by a null that also fires four times; the trade floor still applies.
+
+#### The first result, which reframes DeadCatBounce
+
+Costed MNQ from 2024 (914,700 bars, 1.24 commission, 1 tick slippage), 500 draws:
+
+| statistic     | observed | null median | percentile | p     |
+| ------------- | -------- | ----------- | ---------- | ----- |
+| profit factor | 0.666    | 0.551       | 99.6       | 0.012 |
+| expectancy    | −10.24   | −14.78      | 99.8       | 0.008 |
+| win rate      | 32.2%    | 29.3%       | 99.8       | 0.008 |
+
+**The entry rule is better than random and still loses money.** That is the third of the three diagnoses this milestone was built to separate — *there is signal; the loss is coming from costs, hold time or bracket geometry rather than from entry selection* — and it is a different conclusion from "unprofitable, therefore worthless", which is what every previous number supported. It does **not** make DeadCatBounce tradeable and does not change its role as the test fixture; it changes what the next question about it is.
+
+Three caveats, recorded so the result is not over-read. It is **one pre-specified parameter combination on one root**, not a sweep, so no multiple-comparisons correction applies and none is implied. **The arms match on signals and diverge on fills** — 74.4% against 47.7%, because the `min(Low[0], Close[0] − 2 ticks)` trigger sits just under an inverted hammer and well below an average bar — so per-trade rates are the fair comparison and `net_pnl` is not; that is why the defaults are `RATE_STATISTICS` and why both trade counts sit on every row. And the rule being tested is *bar selection*, which carries bracket geometry with it, so "better than random" is a property of the whole rule rather than of directional timing alone.
+
+On that last point the win-rate result is the more informative one: an R-multiple bracket scales stop and target together, so win rate is close to scale-invariant and a 3-point edge is not obviously explained by the strategy's bars simply being wider. **A null that also matched the risk distribution would isolate pure directional timing** and is the natural refinement — worth doing before anyone acts on this, not before it is believed.
 
 ### M7 — the null, split into M7a and M7b ([#32], [#50])
 
@@ -676,7 +991,29 @@ Three tools answering different questions: `walkforward.py` tests whether a para
 
 ### M7b — walk-forward and Monte Carlo: done ([#50])
 
-**Walk-forward and Monte Carlo exist as the fourth gate, resampling the trade order to separate a drawdown from its ordering.** Moved to [`docs/findings/m7b-walkforward-montecarlo.md`](findings/m7b-walkforward-montecarlo.md).
+`nqbt/walkforward.py`, `nqbt/montecarlo.py` and `nqbt/costs.py`. The third is not scope creep — see below.
+
+**Costs are an argument with no default, because an uncosted walk-forward is worse than none.** Every archetype's parameter class defaults `commission_per_contract` and `slippage_ticks` to zero, which is right for NT8 reconciliation and wrong for every ranking. Selection on gross P&L selects for *trade frequency*, which is the one thing costs punish, so an uncosted walk-forward reports a clean result that inverts the moment costs are applied — a failure that looks like success. `walk_forward` therefore raises on `costs.FREE` rather than defaulting, and `costs.LIVE` carries the real account's terms. **Do not "simplify" this to a default.**
+
+The defaults themselves stay zero and must: `tools/capture_trade_logs.py` uses them for the reconciliation captures, so flipping them breaks the trade-log gate.
+
+**The split geometry is asserted as a property, not as arithmetic.** `splits()` returns half-open positions and the tests check directly that no test bar is ever a train bar and that the out-of-sample windows *tile* the tested region — the latter is what makes concatenating their trade logs legitimate rather than double-counting. A test that recomputed the arithmetic would pass over the same off-by-one it was meant to catch.
+
+**Each window is simulated independently, and that is a stated approximation.** A trade open at a boundary is not carried across it: every window starts flat. The alternative — one run with the selection changing mid-flight — cannot be measured per window at all. The cost is that a position spanning `test_start` would have blocked an entry that the sliced run now takes.
+
+**`warmup_bars` prefixes each window and its trades are discarded by entry position.** Without it every window's indicators start cold, so an SMA(200) grid measures its own warm-up for the first 200 bars of each split. `entry_bar` is already a position into the sliced frame, which is what the prefix is measured in — do not reach for `entry_time` and an index lookup.
+
+**Selection is capped to `TRADE_PNL_STATISTICS`.** Every one of them is higher-is-better, so one comparison serves both sides. Admitting `max_drawdown` would need the opposite sense and a direction bug there is invisible — it would simply select the worst combination every time.
+
+**`trade_id` restarts at 1 in every window, and pooling on it silently merges trades.** `stats.per_trade` groups on `trade_id` alone, so collapsing the concatenated log counted 5 trades where there were 14. `WalkForwardResult.pooled_pnl` groups per split *before* the leg collapse. Found by a test asserting the pooled count equals the sum of the per-split counts; without that assertion every downstream statistic would have been quietly computed over a quarter of the data.
+
+**Monte Carlo's two halves answer different questions, and the guard between them is the point.** `permutation_test` reorders the trades, which moves only `PATH_STATISTICS`; `bootstrap` resamples with replacement, which moves the values too. Permuting a `TRADE_PNL_STATISTICS` value is **refused**, because reordering cannot change profit factor, net P&L, expectancy or win rate — such a test returns `p_value` 1.0 for every input and reads exactly like a passed check. `stats.PATH_STATISTICS` is the exact complement of `TRADE_PNL_STATISTICS` and `stats.path_statistic` is the single definition, sharing `_max_drawdown` and `_max_consecutive` with `summarise`. A test pins both halves: that reordering *cannot* move a value statistic, and that it *can* move a path statistic.
+
+**Neither test says the entries are any good.** Both take the trades as given, so they cannot separate "worse than random" from "no better than random" — that is `randomentry.py`'s job ([#32]), and a Monte Carlo result quoted without it is half an argument.
+
+**Drawdown is measured from the running peak of the equity curve, which starts at the first trade rather than at zero.** Ten $10 losses followed by ten $10 wins reports 90, not 100. That is `summarise`'s existing definition and this must not fork it; a test pins the two together.
+
+**First result, and it is a confirmation rather than a finding.** Costed MNQ from 2025-01-01 (564,927 bars, `DeadCatParams`, 9 combinations, 120,000-bar train / 40,000-bar test, 11 splits): training profit factor runs a median 0.611 against a pooled out-of-sample 0.563, four different combinations win a training window across the eleven, and the bootstrap puts net P&L below zero in every resample. The permutation test reads p = 0.70 on max drawdown — **the losses are systematic, not an unlucky ordering**, which is the correct reading and the one that matters: this is the machinery reproducing a result the project already holds, on an archetype whose unprofitability is settled. Re-run it rather than quoting these numbers.
 
 ### M10 — the conditions the review needs and we lack ([#39])
 
@@ -686,23 +1023,255 @@ The review is meant to score trades against "overall trend, MAs, volume, directi
 
 ### ~~M10.4~~ — time of day: done ([#43])
 
-**The session phase label, cut on the exchange's own clock rather than the calendar's.** Moved to [`docs/findings/m10-4-time-of-day.md`](findings/m10-4-time-of-day.md).
+`nqbt/timeofday.py`. Two forms of one clock: `SessionPhase`, seven coarse Eastern-time buckets, and `bar_of_session`, the integer index from the session open. Both come out of one `classify()` pass, both go through `resample.minutes_since_open`, and neither is a second session clock.
+
+**The ET requirement is pinned by a test that states the failure, not only the behaviour.** Two sessions either side of the 2024-03-10 transition are labelled, and the test asserts both that the cash-open bars carry the same *Eastern* minutes and that their *UTC* minutes differ. Without the second half the test is a tautology and would pass over a UTC implementation on a winter window — which is exactly how this bug survives review.
+
+**The end-of-bar convention decides the boundaries.** A bar stamped 09:30 covers 09:29–09:30 and is the pre-open; the first cash-open bar is stamped 09:31. Same off-by-one M13 found in `bucket_index`, and it is invisible in aggregate — the phase totals are right and only the edges move.
+
+**Bar of session is derived from the clock, never counted off the data.** An ordinal count renumbers everything after a hole, so index *k* would mean a different time of day in different sessions — precisely the confound [#41]'s relative volume exists to divide out. It is therefore literally `resample.bucket_index`'s bucket, which is also what makes the two share a definition rather than each inventing one. `prepare` takes `bar_minutes` explicitly and `sweep_axes` passes the resolution it already knows; inference off the index's own gaps is the fallback, not the path.
+
+**The filter is a bitmask integer, and that is what makes it sweepable.** A tuple of phases would have to join `not_sweepable`; a scalar mask is one value per combination, so `phase_filter=[CASH_OPEN.bit, ALL_PHASES]` is two combinations and "does this only work at the open?" is a sweep rather than a set of hand-run backtests. `ALL_PHASES` is the default and each archetype's signal **skips the conjunction entirely** at that value, which is why adding the field to two reconciled archetypes moved nothing.
+
+That skip is not an optimisation. A bar carrying no label passes *no* mask, `ALL_PHASES` included, so ANDing the gate at the default would quietly drop those bars and move a result. The no-op has to be no call.
+
+**Gated.** All 12 captured trade logs are byte-identical (`sha256` too); the two sweep summary tables differ by the added `phase_filter` column and are identical on every pre-existing column, dtypes included — `compare_trade_logs.py --added phase_filter` reports `ALL PRE-EXISTING COLUMNS IDENTICAL`.
+
+**First result, and it is a stratification rather than a finding.** Costed MNQ from 2024 (914,700 bars, stock `DeadCatParams`, $1.24 and 1 tick), one combination run once per phase:
+
+| phase     | trades | profit factor | win rate | expectancy |
+| --------- | ------ | ------------- | -------- | ---------- |
+| OVERNIGHT | 1,550  | 0.561         | 0.297    | −9.76      |
+| LONDON    | 656    | 0.599         | 0.326    | −10.70     |
+| PRE_OPEN  | 348    | 0.665         | 0.342    | −10.88     |
+| CASH_OPEN | 151    | 0.677         | 0.325    | −23.76     |
+| MIDDAY    | 478    | **0.871**     | 0.383    | −5.57      |
+| AFTERNOON | 297    | 0.709         | 0.327    | −12.54     |
+| CLOSE     | 159    | 0.631         | 0.321    | −8.47      |
+| all       | 3,639  | 0.666         | 0.322    | −10.24     |
+
+The seven counts sum to the unfiltered 3,639 exactly, which is the property that makes this a decomposition and not seven overlapping subsets; a test pins it. **Do not read the MIDDAY row as an edge.** It is the best of seven cells chosen after looking, on the archetype [#48] exists to guard against exactly this on, and no cell reaches a profit factor of 1. What it does say is that the aggregate 0.666 was averaging populations that differ by 55%, which is the argument for the milestone rather than a result from it.
+
+**The prediction about the last phase was directionally right and quantitatively small.** `session_close_share` reads 0.0016 on CLOSE against 0.0001 overall — an order of magnitude, and still tiny, because a 1-minute DeadCatBounce holds for minutes. The artefact is real and will grow with bar size ([#30]); on this data it is not what makes the CLOSE row look the way it does. Read the column before attributing anything to the clock, and expect it to matter at 15 and 30 minutes where it does not here.
+
+**Cost.** `needs_time_of_day` is requested the way VWAP is — only when some combination actually narrows the phases — and adds three arrays (`int8`, `uint8`, `int32`) over the series. The eight-combination sweep above took 0.6 s over 914,700 bars, so the gate itself is not measurable against the simulation.
+
+**Smaller choices in `timeofday.py`, recorded here rather than in the module ([#105]):**
+
+- **Seven buckets, chosen for what happens in them rather than for equal length.** The overnight hours are one bucket because little distinguishes 20:00 from 01:00; the hour after the cash open gets one to itself because it is the most distinctive hour of the day. Fewer buckets is the point — time of day multiplies every other stratification, and seven phases against five regimes is already 35 cells, which a minimum-stratum guard on a few hundred real trades has to survive.
+- **`SessionPhase.CLOSE` is structurally anomalous**, because it contains the forced flat ([#16]). Its exits are decided by the clock rather than the rules, so a stratification will show it as different whatever the market did. `FORCED_EXIT_PHASE` names it so a caller can exclude it without working out which one it is.
+- **`OUT_OF_SESSION` is −1, not an eighth phase**, so it cannot be swept into a filter by accident and a `groupby` over the labels reads as obviously wrong rather than quietly counting stray prints as an eighth hour of the day.
+- **`PHASE_STARTS` is written as ET wall-clock times**, because that is what the boundaries mean: `time(9, 30)` is the cash open, where an offset of 930 minutes is a number nobody can check. `phase_start_minutes` converts them and validates on **every** call rather than once at import — the boundaries are relative to the template's own open, so a template opening elsewhere reorders them, and a set that no longer ascends would mislabel whole phases through `searchsorted` without raising.
+- **`infer_bar_minutes` takes the mode of the gaps**, not the minimum or the mean: every session has a one-hour break and the archive has holes, so both of those measure the gaps rather than the bars.
 
 ### ~~M10.1~~ — market regime: done ([#40])
 
-**The regime label — DIRECTIONAL, UNCLASSIFIABLE and the rest — and the thresholds that separate them.** Moved to [`docs/findings/m10-1-market-regime.md`](findings/m10-1-market-regime.md).
+`nqbt/regime.py`. Kaufman's efficiency ratio — `|close[t] − close[t−n]| / Σ|diff(close)|` over the lookback — cut by two thresholds into `CONSOLIDATING`, `UNCLASSIFIABLE` and `DIRECTIONAL`. Bounded 0–1, three lines of arithmetic, no TA-Lib dependency and therefore none of the NT8-parity work the moving averages needed. The lookback and both thresholds are sweepable and `regime_filter` is a bitmask integer, for exactly the reason `phase_filter` is one.
+
+**The band between the thresholds is a label, not a gap.** Strictly below the lower is consolidating, strictly above the upper is directional, and everything in between — **including both boundaries** — is unclassifiable. That makes the third category free rather than a special case, and it makes the equality question one decision instead of two: no bar can satisfy two regimes, and `validate_thresholds` refuses a pair that cross rather than silently ordering them.
+
+**The warm-up is `UNDEFINED`, which is not a fourth regime and not consolidating.** The house convention for an NT8 indicator is an expanding warm-up, and it is wrong here: over two bars the numerator and the denominator are the same quantity, so an expanding ratio reads exactly 1.0 and would label the start of every dataset `DIRECTIONAL`. Not measured and measured inconclusive are different states, and folding the first into the second would put unmeasured bars into a stratification cell while leaving the counts adding up — the failure that looks like a result. `UNDEFINED` is −1 for the same reason `OUT_OF_SESSION` is, and an undefined bar passes **no** mask, `ALL_REGIMES` included, so each archetype's signal skips the conjunction entirely at the default rather than ANDing a gate that would drop 20 bars from a reconciled run.
+
+**The window sum is recomputed per bar rather than maintained incrementally.** A rolling add/subtract over a million bars drifts, and this is a denominator that legitimately reaches zero: a flat window would turn a −1e−13 of accumulated error into a large negative ratio. The exact version costs 15 ms per lookback over 914,700 bars, paid once in `prepare`, which is not worth trading for that. A window that genuinely never moved scores 0.0 — the extreme of consolidation — rather than dividing by zero.
+
+**The grid holds ratios, not labels.** Both thresholds are swept as well as the lookback, so a grid keyed by all three would multiply out; `EfficiencyRatioGrid` is `[n_lookbacks, n_bars]` float64 and the thresholds are applied at gate time. That is the opposite of `MovingAverageGrid`'s default and the reason `_regime_lookbacks` returns nothing unless some combination actually narrows the filter — eight bytes per element is the most expensive thing a `ContextSpec` can ask for by accident. It is also the shape [#51]'s bandwidth squeeze wants, so the two share a scalar-plus-thresholds classifier instead of each inventing one.
+
+**One function owns the rule.** `_regime_of` is the `@njit` device function both `label` and `gate` call, so the stratification key and the entry filter cannot drift apart. The filter still never builds a label array: `gate` tests `1 << regime` against the mask inside the same pass, which reads 0.23 ms over 914,700 bars against the ~30 ms a combination of the run below costs.
+
+**`dead_axes` had to learn that a mask is off at its everything value.** `ALL_REGIMES` is 7, so the existing truthiness test read the filter as switched on and would have let `regime_lookback=[5, 20]` run every combination twice for identical rows. `archetypes.INERT_AT` states the off value where it is not `False`; nothing else changes.
+
+**Gated.** All 12 captured trade logs are byte-identical, `sha256` included; the two sweep summary tables differ by the four added parameter columns and are identical on every pre-existing column — `compare_trade_logs.py --added regime_filter regime_lookback regime_consolidating_below regime_directional_above` reports `ALL PRE-EXISTING COLUMNS IDENTICAL`.
+
+**First stratification, and it is a stratification rather than a finding.** Costed MNQ continuous from 2024-01-01 (914,700 bars), stock `DeadCatParams`, **$1.50 per contract** and 1 tick, lookback 20 and thresholds 0.3/0.5, one combination run once per regime:
+
+| regime         | bar share | trades | profit factor | win rate | expectancy |
+| -------------- | --------- | ------ | ------------- | -------- | ---------- |
+| CONSOLIDATING  | 71.3%     | 2,396  | 0.611         | 0.312    | −12.04     |
+| UNCLASSIFIABLE | 21.9%     | 975    | **0.721**     | 0.331    | −8.40      |
+| DIRECTIONAL    | 6.8%      | 270    | 0.616         | 0.296    | −14.97     |
+| all            |           | 3,639  | 0.640         | 0.316    | −11.28     |
+
+**Do not read the UNCLASSIFIABLE row as an edge**, and do not diff this table against M10.4's: that one was run at the roadmap's older $1.24. It is the best of three cells chosen after looking, on the archetype [#48] exists to guard against exactly this on, and no cell reaches a profit factor of 1. And 270 trades in `DIRECTIONAL` is where a minimum-stratum guard starts to bind — against seven session phases it is 35 cells, and this is the coarsest of the two labels.
+
+**The signals partition exactly and the trade counts do not, which is the point worth keeping.** All three single-regime filters admit 4,889 signals between them, exactly the unfiltered count, and their union is the unfiltered signal bar-for-bar. The trade lists sum to **3,641 against 3,639**. Nothing is double-counted: the simulation holds one position at a time, so removing an entry can free a later signal the unfiltered run was still in a position for. A regime label flips bar to bar where a session phase is a contiguous block, which is why M10.4's seven phases did sum exactly and these three do not. **Stratify the signal, or accept that the trade-level decomposition is approximate** — and never conclude a filter "found" trades from a count that went up.
+
+**71% of 1-minute bars are `CONSOLIDATING` at 0.3/0.5.** The thresholds are resolution-dependent — a minute of noise has a low efficiency ratio almost by construction — so the defaults are conventional starting points to be swept, not a calibration, and they will want different values at 15 and 30 minutes. Read `ambiguous_share` before believing any of the rows: it runs 0.029 / 0.041 / 0.044 against 0.033 overall, highest in `DIRECTIONAL`, which is what a regime of larger bars should do.
+
+**Worse: 0.5 is not a fixed amount of directionality, and the two axes are confounded** ([#200]). A driftless random walk has an expected efficiency ratio of `1/√n` — reproduced to three decimal places over 200,000 trials per lookback, and robust to fat tails — so a threshold held at 0.5 while the lookback is swept runs from the 59th percentile of pure noise to the 99.6th:
+
+| lookback | mean ER under a random walk | `1/√n` | P(ER > 0.5) |
+| -------- | --------------------------- | ------ | ----------- |
+| 5        | 0.453                       | 0.447  | 0.412       |
+| 10       | 0.318                       | 0.316  | 0.215       |
+| 20       | 0.224                       | 0.224  | 0.071       |
+| 30       | 0.183                       | 0.183  | 0.025       |
+| 50       | 0.141                       | 0.141  | 0.004       |
+
+**Sweeping `regime_directional_above` and `regime_lookback` as two independent axes therefore produces cells that cannot be compared with each other.** `ER × √n` is scale-free under the null — mean 1.000 at every lookback tested — so a threshold expressed as a multiple of `1/√n`, or as a quantile of the ratio's own distribution at that resolution and lookback, is one number across the axis where a raw 0.5 is not. Note also that `consolidating_below = 0.3` sits *above* the random-walk mean at a lookback of 20, so `CONSOLIDATING` as configured means "at or below what noise does" rather than chop.
+
+**And the real series is less efficient than a shuffle of its own returns**, at every resolution and lookback tested — the same 914,700 MNQ bars, lookback 20, against a null that permutes the bar-to-bar returns and preserves nothing else:
+
+| resolution | share ER > 0.5, real | same, shuffled |
+| ---------- | -------------------- | -------------- |
+| 1 m        | 0.067                | 0.160          |
+| 5 m        | 0.079                | 0.158          |
+| 10 m       | 0.091                | 0.159          |
+| 15 m       | 0.097                | 0.158          |
+| 30 m       | 0.116                | 0.154          |
+
+Short-horizon mean reversion is the ordinary explanation and nothing here isolates it. What the table settles is narrower and enough: the real share moves with resolution where the null's does not, so a fixed threshold is a different filter at each bar size as well as at each lookback, and `DIRECTIONAL` is a top-of-distribution cut rather than an unusual amount of trend. **There is no standard value to substitute** — Kaufman introduced the ratio as KAMA's smoothing input rather than as a classifier, and the 0.3 that circulates is disclaimed by the vendors publishing it on exactly this ground. Calibrate it or state it as a quantile; do not sweep it blind.
+
+**Cost.** Requested the way VWAP is, and adds one float64 series per lookback — 7.32 MB over 914,700 bars, about a sixth of the 47 MB dataset the run above was handed. `prepare` pays 15 ms per lookback and the per-combination gate 0.23 ms, so neither is measurable against the simulation.
+
+**Smaller choices, recorded here rather than in the module ([#105]):**
+
+- **Efficiency ratio rather than ADX**, which is laggier, less interpretable, and would need the same NT8-parity check the moving averages needed. ADX only if this proves inadequate.
+- **A lookback of 1 is refused**, because numerator and denominator are then the same quantity and every bar reads 1.0 — a whole axis of `DIRECTIONAL` that looks like a measurement.
+- **Three regimes, and deliberately no more.** Time of day already multiplies every other stratification; three against seven phases is 21 cells before an MA gate, and [#48]'s guard has to survive it on a few hundred real trades.
+- **The ratio is invariant to direction, level and scale**, which is what makes one pair of thresholds meaningful across both roots and across years of back-adjusted history. A test pins all three.
 
 ### ~~M10.2~~ — volume: done ([#41])
 
-**The volume label, and the choice of form and cut that §M27.8 later found to be what decides the answer.** Moved to [`docs/findings/m10-2-volume.md`](findings/m10-2-volume.md).
+`nqbt/volume.py`. **One quantity and its decomposition, not three conditions.** Absolute volume is the raw contract count, the time of day is its dominant systematic component, and relative volume is absolute with that component divided out. `VolumeForm` names the three absolute forms — per bar, a trailing *N*-bar sum, and session-cumulative-to-date — and each is divided by its own bar-of-session baseline to give the ratio the three `VolumeState` labels are cut from. `volume_filter` is a bitmask integer, for exactly the reason `phase_filter` and `regime_filter` are.
+
+**The baseline is the median of the same bar of session over a trailing window of prior sessions, and that is the whole point of the module.** Measured on the run below, a plain trailing median over the 60 *adjacent* bars labels **82% of `CLOSE` bars thin and 57% of `CASH_OPEN` bars heavy** — a table that reads as a discovery and is a clock. Against the bar-of-session baseline the same data gives a heavy share of 16–31% and a thin share of 19–30% across all seven phases. It is not flat, and it should not be: the cash open is the hour whose volume is most predictable, so it is the hour that is least often extreme. What is gone is the part that was only the time of day. A test pins both halves — a series that is a pure function of the bar of session must produce **no state at all**, and the naive normalisation over the same series must manufacture both extremes.
+
+**No bar contributes to its own baseline.** The window is the sessions strictly *before* this one, so a bar's whole session is excluded rather than merely the bar itself. A normalisation that reads the present is a lookahead that flatters every stratification taken through it, and it would be invisible in the output. Pinned as a property: rewriting the last session's volume leaves every earlier session's ratios untouched and scales that session's own ratios exactly.
+
+**Absolute volume is carried and deliberately not filtered on.** It answers the one question relative volume cannot — *can this be traded here at all?* — and it carries when in history a bar happened, which is a cross-check on [#31] rather than a duplicate of it. But it is comparable neither across roots (NQ and MNQ trade different counts for the same exposure) nor across time, so there is no absolute threshold to sweep. Expressing one as a trailing percentile just makes it relative volume again, **which is the honest conclusion rather than a workaround** — and it is why the per-instrument scale in `instruments.py` that [#41] anticipated turned out not to be needed. Two tests state the pair: relative volume is unchanged by scaling the whole series by any positive constant, and a tenfold secular drift moves the absolute series by more than 4× while the relative one spans less than 1.5×. The residual there is worth knowing — a trailing median lags a rising trend, so a strongly trending series sits *above* 1 throughout. The level shifts; the shape is removed.
+
+**It steps at every roll, and that is data rather than an event.** Prices are back-adjusted, volume is not and should not be. A step reaches relative volume for the length of the baseline window and then leaves, so a discontinuity there is dated by the roll rather than by the market. A test pins the arithmetic: an incoming contract ten times the size of the outgoing one reads exactly 10 on the roll session and exactly 1 a baseline window later.
+
+**The warm-up is `UNDEFINED`, for the reason [#40]'s is.** A baseline needs `MIN_BASELINE_SESSIONS` observations before it means anything, so the first five sessions carry no label — 0.8% of the run below, out-of-session strays included. An undefined bar passes **no** mask, `ALL_STATES` included, so each signal skips the conjunction entirely at the default.
+
+**Three forms, and they are three different statements rather than three views worth averaging.** The window a form does not read is dropped from its grid key, so sweeping `volume_rolling_bars` alongside the per-bar form builds one series rather than one per window. What `dead_axes` **cannot** catch is the other half of that: it understands one toggle per axis, so it knows the five volume axes are inert while `volume_filter` admits everything, and it does not know that `volume_rolling_bars` is inert at every form but `ROLLING`. Sweeping the window under a per-bar form runs identical combinations. Known, and not worth a second toggle mechanism for.
+
+**Gated.** All 12 captured trade logs are byte-identical, `sha256` included; the two sweep summary tables differ by the six added parameter columns and are identical on every pre-existing column — `compare_trade_logs.py --added volume_filter volume_form volume_rolling_bars volume_baseline_sessions volume_thin_below volume_heavy_above` reports `ALL PRE-EXISTING COLUMNS IDENTICAL`.
+
+**First stratification, and it is a stratification rather than a finding.** Costed MNQ continuous from 2024-01-01 (914,700 bars), stock `DeadCatParams`, $1.50 per contract and 1 tick, thresholds 0.7/1.5 over a 20-session baseline, one combination run once per state:
+
+| form            | cell   | bar share | trades | profit factor | win rate | expectancy |
+| --------------- | ------ | --------- | ------ | ------------- | -------- | ---------- |
+| per bar         | THIN   | 27.5%     | 992    | 0.534         | 0.300    | −10.54     |
+| per bar         | NORMAL | 44.3%     | 1,678  | 0.653         | 0.309    | −11.23     |
+| per bar         | HEAVY  | 27.5%     | 942    | 0.686         | 0.346    | −12.27     |
+| rolling 30      | THIN   | 18.1%     | 631    | 0.470         | 0.265    | −11.31     |
+| rolling 30      | NORMAL | 61.3%     | 2,202  | 0.665         | 0.322    | −10.50     |
+| rolling 30      | HEAVY  | 19.8%     | 775    | 0.659         | 0.342    | −13.57     |
+| session to date | THIN   | 13.4%     | 513    | 0.526         | 0.263    | −10.27     |
+| session to date | NORMAL | 69.8%     | 2,525  | 0.635         | 0.316    | −11.76     |
+| session to date | HEAVY  | 16.0%     | 571    | 0.721         | 0.368    | −10.24     |
+| any             | all    | 99.2%     | 3,639  | 0.640         | 0.316    | −11.28     |
+
+**Read those nine rows as three, and then as one.** Profit factor and win rate rise with the volume state under all three forms, which looks like three confirmations and is one: the three forms are three views of the same quantity over the same bars, and the time of day has already been divided out of all of them. That is exactly the failure [#41]'s opening table exists to prevent, and quoting it as corroboration would be the mistake it names. No cell reaches a profit factor of 1, expectancy does **not** follow profit factor — HEAVY is the best per-bar cell on profit factor and the worst on expectancy — and [#48]'s guard applies with the usual force. What the table does say is that the three forms decompose the same 3,639 trades very differently: the per-bar form splits them 27/44/28 and the session-to-date form 13/70/16, so "an unusually busy bar" and "an unusually busy session so far" are not the same statement about the same trade.
+
+**The signals partition exactly and the trade counts do not.** For every form the three single-state filters admit exactly the measured signal, bar for bar and in total — 4,841 of the unfiltered 4,889 for the per-bar form, the difference being the warm-up and the strays. The trade lists sum to 3,612 against 3,639. Same cause as [#40]'s and the same conclusion: the simulation holds one position at a time, so removing an entry moves which later signals are free, and the trade-level decomposition is approximate where the signal-level one is exact. **Stratify the signal, or accept the approximation** — and never read a count that moved as a filter having found trades.
+
+**Cost, and it is the most expensive condition so far.** `prepare` pays about 0.2 s per series over 914,700 bars against `regime`'s 15 ms per lookback, because the baseline is a sliding median down each bar-of-session column of a `[session, bar of session]` grid rather than a pass along the series. Sixteen bytes per bar per series — 14.6 MB for one and 43.9 MB for all three, against a 37.5 MB dataset without them. The per-combination gate is 0.14 ms against 3.6 ms for the combination itself, so the filter is cheap and the preparation is what to watch when a sweep asks for several series at once.
+
+**Smaller choices in `volume.py`, recorded here rather than in the module ([#105]):**
+
+- **The median, not the mean.** The baseline window straddles roll dates and holiday sessions, and a mean would carry a half-empty session or a rolled contract straight into the normalisation. A median of twenty ignores one or two of them.
+- **Out-of-session prints are not volume here, in any of the three forms.** NT8 building bars against an ETH template would never form them, so they read zero rather than entering a sum or a per-bar count. Their labels are `UNDEFINED` either way, because a bar in no session has no bar of session to be compared against.
+- **The rolling window does not reset at the session open.** "Volume over the last thirty bars" reaches back across the maintenance break at the start of a session, which is what the words mean, and the bar-of-session baseline divides out the systematic part of it exactly — the first bars of a session are compared against the first bars of other sessions.
+- **A one-bar rolling window is refused**, because it is the per-bar form under another name and would otherwise build the same series under a second key.
+- **A zero baseline is undefined rather than infinite.** A bar of session whose prior sessions traded nothing has no scale to be relative to.
+- **`MIN_BASELINE_SESSIONS` is a floor rather than a parameter**, and it is both the shortest legal window and the number of observations the window must actually hold. Holes mean the two are different questions.
+- **The thresholds are conventional starting points, not a calibration.** 0.7 and 1.5 against a median put roughly a quarter of bars in each tail on this data; they are resolution-dependent the way [#40]'s are and will want different values at 15 and 30 minutes.
 
 ### ~~M10.3~~ — the compact trend label: done ([#42])
 
-**The higher-timeframe trend label, compact enough to sweep as a stratum.** Moved to [`docs/findings/m10-3-trend-label.md`](findings/m10-3-trend-label.md).
+`nqbt/trend.py`. Three facts about one pair of EMAs — where price sits against the slow one, which way the slow one is sloping, and which way round the two are stacked — each voting `+1`, `-1` or `0`, summed into an **agreement score** and cut by `min_agreement` into `DOWN`, `MIXED` and `UP`. One `int8` per bar rather than a wall of MA booleans, and `trend_filter` is a bitmask integer for exactly the reason `phase_filter`, `regime_filter` and `volume_filter` are.
+
+**The memory switch is not switched on, and that is enforced rather than intended.** [#42] assumed the label would need `keep_values=True` on the sweep's shared moving-average grids — the 8-bytes-against-1 setting that is 285 MB of raw EMA values over the run below and grows with the period axis. It does not. `trend_grid` builds a values-carrying grid over *its own* two periods, reads the labels out of it and lets it go, so nothing outside that function ever sees an MA value and a parallel worker is handed the labels alone. Recomputing two EMAs costs milliseconds against the pass that would otherwise be paid per worker. Pinned as a property of a prepared dataset: asking for the label leaves `needs_ma_values` false, leaves every shared grid's `values` at `None`, and grows `Dataset.nbytes` by exactly the label arrays.
+
+**The averages are the label's own, not the archetype's.** Reusing whichever periods an archetype happens to gate on would make the same label name a different measurement in each one, and a stratification that is not comparable across archetypes is not a stratification. The kind is fixed at EMA for the same reason — one definition, and `TrendKey` gains a field the day an SMA label is actually wanted.
+
+**No label is ever taken off two components.** The slope cannot be measured for the first `slope_lookback` bars, and price and stack can. Letting those two decide would manufacture a trend out of a warm-up, so the score is `nan` there and the bar is `UNDEFINED` — five bars of 914,700 below, because the NT8 averages emit from bar 0 and this module adds no warm-up of its own. The components are still computed through it, since they are knowable and a review can report them.
+
+**Both agreement boundaries fall in the outer bands, which is the opposite of [#40] and [#41].** Deliberately: `min_agreement` counts components that must agree rather than cutting a continuum, so exactly that many agreeing is the case the parameter names.
+
+**And the parameter has two settings rather than three.** Two float64 averages are essentially never exactly equal, so a `0` vote essentially never happens and the score only ever takes odd values — `-3`, `-1`, `+1`, `+3`, and nothing else across all 914,700 bars below. `2` and `3` therefore produce identical labels; `1` is the distinct one, and what it does is abolish the `MIXED` band rather than widen the outer ones. Keep the parameter, because that switch is worth having, and do not read it as a resolution knob.
+
+**Gated.** 12 of the 14 captured trade logs are byte-identical, `sha256` included; the two sweep summary tables differ by the five added parameter columns and are identical on every pre-existing column — `compare_trade_logs.py --added trend_filter trend_fast_period trend_slow_period trend_slope_lookback trend_min_agreement` reports `ALL PRE-EXISTING COLUMNS IDENTICAL`.
+
+**First stratification, and the interesting number is not in the profit-factor column.** Costed MNQ continuous from 2024-01-01 (914,700 bars), stock `DeadCatParams`, $1.50 per contract and 1 tick, EMA 20 against EMA 50 with a 5-bar slope and unanimity, one combination run once per trend:
+
+| cell  | bar share | signals | trades | profit factor | win rate | expectancy |
+| ----- | --------- | ------- | ------ | ------------- | -------- | ---------- |
+| DOWN  | 37.2%     | 4,400   | 3,280  | 0.657         | 0.316    | −10.79     |
+| MIXED | 18.8%     | 461     | 335    | 0.426         | 0.304    | −17.85     |
+| UP    | 44.0%     | 28      | 24     | **1.815**     | 0.458    | **+14.27** |
+| all   | 100%      | 4,889   | 3,639  | 0.640         | 0.316    | −11.28     |
+
+**The UP row is 24 trades and it is not a finding.** It is the best of three cells chosen after looking, on the archetype [#48] exists to guard against exactly this on, and its own `DeadCatParams` already refuses to signal there: 4,400 of 4,889 signals fall on `DOWN` bars, which are 37% of the series. That is the row that matters. **The label is not independent of the gates it sits beside** — a short-only archetype filtered by close-under-EMA and close-under-SMA has already applied most of a trend filter, and stratifying it by one more measures the overlap rather than the market. The label earns its keep on the review, where the trades were not selected by these gates, and on an archetype that trades both directions.
+
+**The decomposition is exact here on both counts, and only the signal one is guaranteed.** Signals sum to 4,889 against the unfiltered 4,889, and trades to 3,639 against 3,639. The signal identity is the property — no bar is undefined, so the three filters partition every one — while the trade identity is this dataset being kind: the simulation holds one position at a time, so removing an entry frees later signals and the trade-level sum is approximate in general, exactly as [#40]'s and [#41]'s were. Do not promote it to a rule.
+
+**Cost.** 0.76 s to prepare over 914,700 bars, dominated by the two EMAs and the vote pass; 11 bytes per bar per label — one float64 score and three `int8` votes, 10.1 MB, against a 39.3 MB dataset without it. The per-combination gate is 0.16 ms. Every one of those figures is against the 285 MB the same run's shared grids would have carried had the label gone through `keep_values`.
+
+**It does not close [#73], and the sequencing note on both issues is now settled.** This is a coarse trend read as a *condition*, computed on the 1-minute averages the project already has. [#73] is a *gate* on an average computed on genuinely coarser bars, it needs [#30]'s resampler, and its hazard — stamping from the current incomplete coarse bar — does not arise here at all. They are different things and both are still wanted.
+
+**The fourth filter was one too many to keep copying.** All three signal functions ended with the same four-gate chain, and adding a fourth pushed two of them past the complexity limit — which is the lint rule doing its job rather than getting in the way. They now end with `sim/filters.py`'s `apply_context_filters`, one conjunction shared by every archetype and reached through a structural protocol, so the next condition is a single edit rather than three.
+
+**Smaller choices in `trend.py`, recorded here rather than in the module ([#105]):**
+
+- **Three states, not the eight a 3-bit composite would give.** Time of day already multiplies every other stratification, and the point of a *compact* label is to survive a minimum-stratum guard on a few hundred real trades. The components are carried separately for the review to report, which is where "*which* one dissented" belongs.
+- **`UNDEFINED` is −1, not a fourth trend**, for the reason [#40]'s and [#41]'s are: it cannot be swept into a filter by accident, and it passes no mask including `ALL_TRENDS`.
+- **A fast period that is not strictly shorter than the slow one is refused.** Equal periods make the stack permanently flat, and a longer fast period inverts what the label means without changing a single name — the kind of error that reads as a result.
+- **The slope is a sign, not a magnitude.** A threshold on it would be in points, which is neither comparable across instruments nor across eras; the sign is scale-free and the agreement count already provides the coarseness a magnitude threshold would be reaching for.
+- **Exact equality votes neither way**, so the flat case exists in the arithmetic even though float64 averages essentially never reach it. Cheaper than arguing about which side it belongs on.
 
 ### Multi-timeframe moving averages ([#73])
 
-**A higher-timeframe moving average is a condition rather than an archetype, and it does not separate.** Moved to [`docs/findings/multi-timeframe-moving-averages.md`](findings/multi-timeframe-moving-averages.md).
+`nqbt/higher_timeframe.py`. An EMA computed on bars [#30]'s resampler aggregates, then stamped back onto the fine index so that a 1-minute strategy can gate on it. "Only short below the hourly trend" is standard practice and was not expressible before this, because every average the project computes reads the 1-minute close. Price against the coarse average is one `int8` per bar — `BELOW`, `AT`, `ABOVE`, `UNDEFINED` — and `higher_timeframe_filter` is a bitmask integer for exactly the reason `phase_filter`, `regime_filter`, `volume_filter` and `trend_filter` are.
+
+**The projection rule is "the most recently *completed* coarse bar", and the boundary belongs to the completed side.** Both indices are end-of-bar, so the 1-minute bar stamped 19:00 and the 60-minute bar stamped 19:00 close at the same instant and the fine bar may read it; every fine bar strictly inside an unfinished coarse bar reads the one before. That is `searchsorted(..., side="right") - 1` and nothing else. The alternative reading of the ticket — lag the whole series by one bucket — was rejected: it throws away an hour of knowable information at every bucket close, and it is *not* the more conservative choice it looks like, because the existing 1-minute gates already compare `close[i]` against an `ma[i]` that includes it. One rule across both resolutions, not two.
+
+**The hazard is not hypothetical and the test is built to fail.** `test_a_bar_inside_an_unfinished_coarse_bar_cannot_read_it` runs a series of three flat 5-minute buckets and then one whose *close alone* sits above the fine closes before it, with the period at 1 so the coarse average is the coarse close and every expected value is readable by eye. The four bars inside that bucket must read 100.0 and label `ABOVE`; a leak reads 150.0 and labels `BELOW`. Verified by introducing the leak — six tests fail, including the projection's own comparison against an explicit loop over the coarse stamps. **That loop is deliberately not a second `searchsorted`**: a test that re-derives the answer the implementation's own way cannot catch the implementation being wrong.
+
+**`AT` is one bar in 914,700, and it is kept anyway.** Two float64 values essentially never coincide, which is the same finding [#42] recorded about a `0` vote — but "essentially never" is not "never", and giving equality its own state is cheaper than arguing about which side it belongs on. `UNDEFINED` is 59 bars, exactly the fine bars before the series' first 60-minute bar closes, and it passes no mask including `ALL_SIDES` — which is why each signal skips the gate entirely at the default rather than ANDing a no-op mask.
+
+**Two validations that exist because their failure is silent.** A 1-minute higher timeframe is the existing moving-average gate under another name and is refused at the key. And a coarse resolution that is not a *proper multiple* of the bars it aggregates from is refused at the grid, against the frame's own resolution: asking for a 7-minute average of 5-minute bars buckets across bar boundaries and produces a number rather than an error. Both are checked whatever `higher_timeframe_filter` admits, so a nonsense resolution cannot ride along inertly until the filter is swept onto it.
+
+**Gated.** 12 of the 14 captured trade logs are byte-identical, `sha256` included; the two sweep summary tables differ by the three added parameter columns and are identical on every pre-existing column — `compare_trade_logs.py --added higher_timeframe_filter higher_timeframe_minutes higher_timeframe_period` reports `ALL PRE-EXISTING COLUMNS IDENTICAL`.
+
+**Cost.** 0.22 s to prepare over 914,700 bars on top of a 0.54 s baseline, one resample per distinct resolution however many periods share it; 9 bytes per bar per average — one float64 value and one `int8` side, 8.2 MB, against a 39.3 MB dataset without it. The per-combination gate is 0.44 ms. Nothing here touches `keep_values`: the coarse average is its own series, not a row of the shared moving-average grids.
+
+**The stratification, and the reason it is more informative than [#42]'s was.** Costed MNQ continuous from 2024-01-01 (914,700 bars), stock `DeadCatParams`, $1.50 per contract and 1 tick, a 60-minute EMA(50), one combination run once per side:
+
+| cell  | bar share | signals | trades | profit factor | win rate | expectancy |
+| ----- | --------- | ------- | ------ | ------------- | -------- | ---------- |
+| BELOW | 40.9%     | 2,326   | 1,743  | 0.730         | 0.349    | −9.75      |
+| AT    | 0.0%      | 0       | 0      | —             | —        | —          |
+| ABOVE | 59.1%     | 2,563   | 1,895  | 0.528         | 0.285    | −12.71     |
+| all   | 100%      | 4,889   | 3,638  | 0.640         | 0.316    | −11.29     |
+
+**The signals split almost in proportion to the bars, and that is the point.** [#42]'s trend label put 4,400 of 4,889 signals on `DOWN` bars that were 37% of the series, because a short-only archetype already filtered by close-under-EMA and close-under-SMA has applied most of a 1-minute trend filter — stratifying by one more measured the overlap rather than the market. Here 2,326 of 4,889 signals fall on 40.9% of bars. **The coarse average is measuring something the archetype's own gates have not already applied**, which is what a higher timeframe was wanted for.
+
+**No cell clears a profit factor of 1, so there is no finding to guard.** `BELOW` at 0.730 against 0.640 unfiltered is the better half of a bad strategy and is the best of three cells chosen after looking; the standing fact that DeadCatBounce is unprofitable across every combination tested is unchanged. What the run establishes is that the mechanism works and that the side is not collinear with the gates beside it — not that the gate helps.
+
+**The decomposition is exact on both counts here, and only the signal one is guaranteed.** Signals sum to 4,889 against the unfiltered 4,889 and trades to 3,638 against 3,638. The signal identity is the property — `AT` is one bar and no signal falls on it, so the three sides partition every defined bar. The trade identity is this dataset being kind, exactly as [#40]'s, [#41]'s and [#42]'s were: the simulation holds one position at a time, so removing an entry frees later signals. Do not promote it to a rule.
+
+**The three notions of "the higher-timeframe trend" are now separated rather than overlapping.** Here the strategy runs on 1-minute bars and *consults* a coarse average. [#42] reads a coarse *condition* off 1-minute averages. [#30] runs the whole strategy on coarse bars. All three share `nqbt/resample.py` and nothing else, and the sequencing note both tickets carried is discharged: all three were wanted.
+
+**Smaller choices in `higher_timeframe.py`, recorded here rather than in the module ([#105]):**
+
+- **The kind is fixed at EMA**, for the reason `trend.KIND` is: one definition, so the same parameters mean the same measurement everywhere, and `HigherTimeframeKey` gains a field the day an SMA average is actually wanted. [#72] made the fine gates' kind sweepable and deliberately did not reach here, so that day has not arrived.
+- **The period counts coarse bars, never fine ones.** `higher_timeframe_period=50` at `higher_timeframe_minutes=60` is 50 hours, not 50 minutes. Naming it `period` rather than `bars` is deliberate: it is the same word `ema_period` uses, on a different series.
+- **`UNDEFINED` is −1, not a fourth side**, for the reason [#40]'s, [#41]'s and [#42]'s are: it cannot be swept into a filter by accident, and it passes no mask including `ALL_SIDES`.
+- **The average is projected onto every fine bar**, which is where this differs from `volume`'s baseline. A moving average is continuous across the maintenance break and across a session boundary — that is what makes it a higher timeframe — and the existing 1-minute gates do not special-case those bars either.
+- **One resample per distinct resolution, whatever periods share it.** Two periods on the hourly cost one aggregation and two EMAs over a series 60 times shorter than the archive.
+
+**The one question this cannot settle from Python, and why a trade list is the wrong tool for it.** NT8 serves a secondary series through `Closes[1][0]`, and *when* that series updates relative to a same-stamped primary bar is a property of its event ordering rather than of the arithmetic. **For an EMA the two readings are algebraically indistinguishable**: the update moves the average toward the close and never past it, so `close − EMA_new = (1 − α)(close − EMA_prev)` keeps the sign and the gate never flips. Over 914,700 MNQ bars at 5/15/60 minutes × periods 3/20/50 the label differs on exactly one bar in every configuration — the first coarse close, where the lagged reading is still in warm-up — and on zero bars where both are defined. A reconciliation would come back 100% and prove nothing. An **SMA** would: it drops the oldest value out of its window and can move past the close, giving 842 differing bars at 15-minute SMA(20), which is the case a coarse SMA would make live.
+
+**So the instrument is a per-bar probe, not a trade list — and it has been run ([#183]).** `ninjatrader-scripts/Strategies/NqbtHigherTimeframeProbe.cs` records `Times[1][0]` against `Time[0]` on every 1-minute bar and writes the coarse series NT8 built beside it, so the boundary is decided on every coarse close rather than on the zero trades that would discriminate. Over `MNQ 03-24` with a 60-minute secondary series — 1,479,760 1-minute bars, 24,826 coarse bars — **the projection agrees on 1,479,701 of 1,479,701 comparable bars, and on all 24,752 coarse closes NT8 reads the bar stamped alongside the fine bar.** Seeding agrees exactly on EMA(3), EMA(50), SMA(3) and SMA(50); the warm-up is 59 bars against 59; anchoring is exact over the 1,525 coarse bars of the front-month window, the earlier prefix being NT8's merged series. Per-question figures: `docs/nt8-fidelity.md` § "And so is the higher-timeframe average".
+
+**That the probe reports which *bar* was read, rather than what the average computed to, is what made it worth building.** The result does not depend on the arithmetic being monotone, so it settles the boundary for every moving-average kind at once and the SMA case above is answered without ever needing the trade list [#72] would have required.
+
+`tools/reconcile_higher_timeframe.py` compares the export on all four questions separately, and `tests/test_reconcile_higher_timeframe.py` exercises each check against an export perturbed in the one way that check exists to catch — for the projection check, that perturbation is the other candidate rule. Two of its own defects were found by the real export and are pinned: reading `read_csv`'s microsecond stamps as nanoseconds put the whole comparison in 1970, the trap `resample.py` already records; and counting the warm-up over the *archive* rather than the probe's own bars compared 59 leading bars against 5 and called it a disagreement.
+
+**The gate is checked whole, not only in its parts**: composing NT8's own close against NT8's own coarse EMA into a side reproduces `higher_timeframe_labels` on all 1,479,760 bars, the six `AT` bars included. A leg-for-leg trade-list diff would only re-exercise the conjunction and the bracket, which this change leaves byte-identical and which are already reconciled on other archetypes — so it is deliberately not planned rather than outstanding.
 
 ### M11 — manual trade review ([#44])
 
@@ -796,40 +1365,6 @@ The stated goal. Import real trades, annotate each against the market context at
 **A duplicate key is an error rather than a last-one-wins.** Two notes on one trade fan a join out into extra rows, and extra rows that look like more of the same data move every number computed over them.
 
 **Worth revisiting only for deliberate qualitative coding** — a fixed set of categories chosen *before* any outcome is examined. That is a different activity from what M11 does, and it would be a different column with a different provenance rather than this one relabelled.
-
-#### Charting a trade ([#239])
-
-`nqbt/chart.py` draws one trade on the bars it happened on and returns an SVG: the candles either side of it, the bracket it carried, where every leg left, and how far price ran each way while it was open. It reads a trade log and a `Dataset` and nothing else, so a simulated leg and an imported fill are drawn by the same code — which is the property `sim/explain.py` does not have and cannot be given. That module takes `DeadCatParams`, recomputes the signal and reports each gate's operands, which is a stronger answer to *why did this fire* available for exactly one archetype. The two are complements: `explain` says why the order was placed, a chart says what happened to it.
-
-**It is a debugging instrument and not a selection one, and it states that on itself.** A chart can settle whether the simulator did what the rule says — the class of question [#44] was built to be able to ask at all. It cannot settle whether the rule is any good, and trades read one at a time for that purpose are the multiple-comparisons machine [#48] exists for, in its most seductive form: a human looking at a dozen charts will produce a specific, confident, wrong conclusion that feels earned, and no p-value will ever be attached to it. `chart.CAUTION` is drawn on every chart for the reason `review.STATUS` is printed in every report — the failure mode is not a wrong picture but a right one read without its context.
-
-**No line joins an entry to its exit.** The obvious thing to draw is a segment from the entry fill to the exit fill, and it would depict the one thing bar-close OHLC does not record: the path between them. Tick data would draw it truthfully and must not be reached for here, because the prime directive's trap is precisely this — an instrument that reads the simulation more finely than the simulation ran. What joins the two ends instead is a shaded span over the bars the position was open for, which claims only the duration. `tests/test_chart.py` pins it as a property of the whole document: every line is either a vertical wick or a horizontal level, so a sloped one cannot appear without failing.
-
-**The levels span only the bars the leg carried them, and `initial_stop` is the stop as placed.** A stop line drawn across the whole window would claim a bracket that did not exist before the fill. A stop line drawn across the whole *hold* is honest for a fixed bracket and a lie for a trailing one, since a trailed stop's path is nowhere in the trade log — InsideBarTrailing is the case, and the label says "stop" rather than "the stop" for it.
-
-**The excursions are the point rather than a decoration.** MAE and MFE put the target against where price actually went while the position was open, which is the question §M27.3 left standing: InsideBar's target distance is the largest axis on the holdout and the selection window cannot point at it. A chart cannot answer that — a few dozen trades read by eye is not a measurement — but it is the cheapest way to see *what shape* the answer has before a sweep is designed around it. The caveat travels with the number: MAE and MFE here are this project's definition and not NT8's ([#70]).
-
-**A fill outside its bar is drawn rather than refused.** `annotate` refuses one, because a price hundreds of points outside its bar is what a back-adjusted series produces and every downstream comparison would be silently wrong. A chart is the instrument that makes that visible, so refusing it here would suppress exactly the picture worth looking at: the price domain is fitted to include every drawn price, and the marker lands on the panel far from its candle. The series is named in the corner of every chart from `Dataset.price_basis` for the same reason.
-
-**Bars of a different series are refused, and through the annotation's own check.** `annotate.resolve_bars` was made public rather than copied: it resolves each fill to a bar from the log's own indices where it has them and from its timestamps where it does not, and it cross-checks both against the dataset. A second copy would eventually disagree, and the disagreement would be a chart drawn over bars an annotation would have rejected — plausible at every stage and wrong at every price.
-
-**SVG, hand-written, and no plotting dependency.** Every dependency is pinned exactly and CI resolves a fresh environment on every run, so a chart library is a standing cost paid on every build for a few hundred lines of geometry. Writing the document directly also makes the output *assertable*: a test parses the XML and checks that the stop marker sits at `plot.y(stop_price)`, which is a property, where a rendered raster could only be compared against a stored image. `Plot` is public so a caller can overlay its own marks on the same axes.
-
-**No CLI command.** The CLI covers the four pipeline steps by design, and a chart takes a trade log and a prepared `Dataset` — neither of which survives being flattened into argparse flags. `chart.charts(log, data, ids)` and `TradeChart.save(path)` are the interface.
-
-**The indicators are drawn, and the module still knows nothing about archetypes** ([#273]). The original objection was that which indicators are relevant is per archetype — true, and it rules out a chart that names any. It does not rule out one that draws what its `Dataset` holds: `sweep.prepare_for` builds exactly what the archetype's `ContextSpec` declares, so the dataset *is* that archetype's own statement of what its signal reads, and `chart.overlays_for(data)` turns it into a set of overlays without asking what produced it. A caller wanting three of them names three — `chart.moving_average`, `chart.bollinger`, `chart.session_vwap`, `chart.vwap_band`, `chart.higher_timeframe_average`, `chart.opening_range` — and one asking for a series the dataset does not hold gets the `ContextError` naming the spec field to set, which is the same refusal every other reader gets.
-
-Four decisions travel with it, each of which would otherwise draw a plausible and wrong picture rather than raise:
-
-- **An overlay does not widen the price domain; it is clipped to the panel.** Fitting one would let a long average sitting far from the window squash the trade it was drawn as context for — the opposite of the point. The clip is an SVG `clipPath` over the panel rect, so a line that leaves simply stops.
-- **That clip path is named after its own rectangle, because an SVG id is document-scoped and a page of charts is one document.** A fixed name was written first and was wrong within the hour: twelve charts inlined into one contact sheet each defined `id="nqbt-panel"`, every `url(#nqbt-panel)` resolved to the first, and every chart after it was clipped to the narrowest panel on the page. The failure is silent and reads as a bug in the data — the series appear to stop a quarter of the way along, while their coordinates are correct to within a bar. Hashing the rectangle means two ids collide only where the two rectangles are identical, which is the one case where sharing a clip path is right. `tests/test_chart.py` pins it, and M12's web GUI is the reason it matters beyond a scratch page.
-- **An overlay is a per-bar series, not a path between two points**, and that is what the no-sloped-line pin becomes now that a moving average is allowed to slope. Wicks and levels stay `line` elements; an overlay is a `polyline` whose vertices sit on the bar-centre grid and step one bar at a time, so the segment from an entry fill to an exit fill cannot be drawn as an overlay either. `tests/test_chart.py` asserts the step, not the tag name.
-- **`nan` is a gap rather than a value, which is what keeps a per-session level off the session beside it.** The opening range is one fact per session; a run joining one session's level to the next's would state a level that never existed. `chart.opening_range` is null wherever `range_armed` is false, and the break falls out of that — every session has one, because a range is not armed before its window completes.
-- **The trade's own geometry is dashed and the market's context is solid.** The bracket and the excursions were already dashed; overlays are solid, cycled through six colours, and named in a legend that makes its own room above the panel. Colour is positional rather than semantic, so the legend is what identifies a line.
-
-**Price-panel series only, and that is the boundary rather than the current extent.** An ATR, an efficiency ratio, a relative volume or a compression rank is not a price and would need a second panel — which is ruled out below for volume, for the same reason. Nothing here builds a series: an overlay reads what `context.prepare` already computed.
-
-**What it deliberately does not draw**, each for its own reason: volume, because a second panel doubles the layout for a quantity `review.time_of_day` already reports properly; and notes, because §M11.5's sidecar attaches at `notes.alongside` and a chart that grew a note argument would be a fourth door onto the same hazard.
 
 ### M12 — web GUI ([#52])
 
@@ -956,92 +1491,6 @@ That run also corrected a rule this project had been carrying since the first re
 
 ______________________________________________________________________
 
-## Replaying a prop account over the trade log
-
-`nqbt/propaccount.py` ([#75]). Profit factor cannot say whether an account survived, and survival is what decides whether a strategy can be funded at all. The instrument replays one firm's rules over a trade log and reports what a live-trading decision actually reads: whether the account passed, where the floor sat when it died, and what the sequence of attempts was worth after fees. The measurements that pulled this forward from a reranking convenience to the go/no-go instrument are in [#75]'s own comment thread; they are dated and re-derivable from `results/campaign/*.duckdb`, so quote them from there rather than from here.
-
-**It replays account rules; it does not add any.** Nothing in this module reaches into `nqbt/sim/`, and nothing may. The simulation models exactly one prop-firm rule — flat before the session close — because that one is also NT8's behaviour, and both prop and non-prop accounts have to work. A trailing threshold is not a trading rule, it is an accounting rule applied afterwards to a log that already exists; wiring one into the simulation would make every result conditional on a funding arrangement.
-
-### Two axes, because one is not enough
-
-Firms disagree about the trailing threshold in two independent ways, and collapsing them loses the commonest real configuration.
-
-- `trail_basis` — what advances the **high-water mark**. Apex counts open equity, so a trade's best excursion raises the floor even after it gives it all back. TopStep advances it only on the day's closing balance.
-- `trail_breach` — what the **floor is tested against**. Both firms liquidate on open equity.
-
-TopStep's actual rule is the mixed case: an end-of-day high-water mark, breached intraday. One enum cannot express it, which is why there are two. TakeProfitTrader's evaluation is the same shape, and its funded account is Apex's.
-
-`daily_loss_basis` is the same question asked of the daily loss limit, kept separate because a firm may count open equity for one limit and not for the other.
-
-### Three assumptions, all made where bar data cannot decide
-
-Each is the harsher reading. That is deliberate: this is a go/no-go instrument, and an optimistic account model is worse than no account model.
-
-1. **A trade's peak is applied before its trough** — `excursion_order`, which **defaults** to that and is the one of the three that is a parameter rather than a fixed choice. Bar-close OHLC cannot order the two, and applying the peak first raises the floor before the trough is tested against it; the other ordering can only ever be kinder. It was fixed until §M28.13 measured what it was worth and found it too load-bearing to leave hard-coded.
-2. **A trade tripping both limits at once is read as a trailing breach**, which ends the account, rather than as a daily breach, which under `DailyBreach.LOCKOUT` would not. Same reason, and the same inability to order two events inside one trade.
-3. **The adverse excursion is summed over a trade's legs**, rather than taken as the trade's worst excursion at its full entry size. A leg that scaled out early stopped accruing excursion, so the per-leg sum is the closer of the two available answers.
-
-**The excursion comes from `mae_points` and `mfe_points`, which are bar highs and lows.** Reaching into `data/tick/` for a truer open-equity path is the more-precise-than-NT8 error wearing a new hat, and it is refused for the same reason a chart may not draw a path between two fills. A rule set that reads open equity refuses a log whose excursion columns are null rather than treating "unknown" as "none" — that substitution would report a pass the account never had.
-
-### The trading day is the exchange's, not the calendar's
-
-A daily loss limit resets at the session open, so the replay groups by `sessions.classify(...).trading_day`. `stats.summarise` groups its daily totals by calendar date instead, and that is not an inconsistency to fix: Sharpe is annualised from a count of calendar days, while a daily loss limit is a session rule. The two disagree every evening between 18:00 and midnight Eastern, which is why each uses the definition its own question needs.
-
-### Passing, withdrawing, and what a blown account is still worth
-
-An account that passes **keeps trading under the same rules**, and begins withdrawing everything above `starting_balance + withdrawal_threshold` at each day's end. That threshold is the safety net a firm requires a trader to leave behind. Accurate for Apex and TopStep; TakeProfitTrader is why "the same rules" is no longer a property of the module — see "A firm that changes its rules at the pass ships as two presets" below.
-
-**`profit_split` is what reaches the trader, and it is not what leaves the account.** The firm takes the whole withdrawal out of the balance and pays a share of it, so `AccountRun.withdrawn` is the gross and `payout` is the share, with `net = payout − fees_paid`. Keeping the two apart is load-bearing rather than tidy: the consistency ratio is a share of what *the account* made, so crediting the trader's half to `withdrawn` would inflate every reported consistency figure by the firm's cut. It defaults to `1.0` rather than `0.0`, which is the one field where "no rule" is not zero — a firm paying `0.0` would be one that pays nothing.
-
-**A withdrawal is not stopped from breaching the account.** Withdrawing lowers the balance without lowering the high-water mark, so a rule set combining no safety net with a floor that never locks walks the balance onto its own floor, and the next trade kills it. That is what such a rule set would really do; special-casing it would hide the footgun rather than the consequence. Every shipped preset leaves a net above its locked floor, and a test pins that for all of them.
-
-The headline figure is **withdrawn minus fees**, across however many attempts `max_accounts` allows. A strategy that blows three accounts while withdrawing more than the four of them cost is profitable, and ranking it by whether any single account survived would say the opposite.
-
-### Where the preset numbers came from
-
-**Dated, and not quotable terms.** Published rules and prices move, discounts on evaluation fees are close to permanent at one of these firms, and nothing here re-checks them. Every field is overridable with `dataclasses.replace` for exactly that reason, and a decision resting on a preset should re-read the firm's current terms first.
-
-| field                                                                 | standing                                                                                                              |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| starting balance, profit target, trailing threshold, daily loss limit | published account terms, and the most stable of them                                                                  |
-| consistency ratio, minimum trading days                               | published, and the ones most often revised                                                                            |
-| Apex `withdrawal_threshold`                                           | the published safety-net balance                                                                                      |
-| TopStep `withdrawal_threshold`                                        | **a conservative stand-in** — set to the trailing threshold, since TopStep's payout policy is not a simple safety net |
-| TakeProfitTrader `withdrawal_threshold`                               | the published buffer zone, which the firm defines as equal to the drawdown                                            |
-| Apex and TopStep fees                                                 | **list prices** — override them, especially Apex's                                                                    |
-| TakeProfitTrader monthly fees                                         | the **discounted** price, not the list one — see below                                                                |
-
-**TakeProfitTrader's presets carry the discounted subscription rather than the list price**, which is the opposite of the choice made for the other two firms and is deliberate. The list prices are $150 / $170 / $360 at 25K / 50K / 150K; a 40% discount code has been continuously available for years, so $90 / $102 / $216 is what an account actually costs and the list price is the fiction. Apex's discounts are as reliable and are *not* baked in, because that preset predates the decision — re-check both against the firm's current terms before a figure decides anything.
-
-**Its commission is not the project's $1.50.** TakeProfitTrader charges $4.50 per round trip per full-size contract and $1.50 per micro, so a TPT replay of an **NQ** log costed at the project's usual figure is understating commission threefold. That is the standing free-money trap arriving through a preset rather than through a default, and `propaccount` cannot catch it: costs are applied when the trade log is produced, long before an account replays it.
-
-### A firm that changes its rules at the pass ships as two presets
-
-TakeProfitTrader runs an **end-of-day** trailing drawdown during the evaluation and an **intraday** one on the funded account, with the consistency ratio and the minimum-days rule applying to the first and neither to the second. One `AccountRules` cannot hold both, and the alternative to two presets — a phase-aware rule set — would put a second, conditional definition of the floor inside the module whose whole premise is that there is one. So `TPT_50K_TEST` and `TPT_50K_PRO` are separate accounts and a full picture reads both.
-
-That difference is not cosmetic. §M28.13 measures the intraday basis and `excursion_order` as the single largest lever in the model on a full-size contract, so the funded preset is the harsher of the two by the largest margin any axis here produces.
-
-Three consequences of the split worth stating, because each looks like a defect from one side:
-
-- **The PRO preset's `profit_target` is `0.0`,** because a funded account has no target. The replay reads a pass as "eligible to withdraw", which is exactly right for a funded account that may withdraw above its buffer from day one — so a PRO run reports `passed` on its first profitable day and that is the model working, not a pass it did not earn.
-- **The $130 activation fee is the PRO preset's `evaluation_fee`,** since it is what opening that account costs, and the Test preset's `activation_fee`, since it is what passing costs. The same $130 under two field names because it is charged at the boundary the two presets share.
-- **What the Test preset does after it passes is a fiction** — it keeps trading under evaluation rules, because that is what the module does with any passed account. Read the Test preset for whether the evaluation is survivable and what it cost; read the PRO preset for what the funded account then does.
-
-**`monthly_fee_ends_at_pass` exists for the same reason.** TakeProfitTrader's subscription is cancelled the day the account passes and the funded account carries no recurring fee, where Apex's and TopStep's run for the life of the account. Without the flag a passed TPT account would be billed monthly for the remaining length of the trade log, which on a multi-year log is a larger error than every other fee in the model put together.
-
-### What is deliberately not modelled
-
-- **TopStep's winning-day requirement** — N days each clearing a dollar floor. The consistency ratio catches the same pathology from the other side, which is a strategy that passed on one lucky session.
-- **TakeProfitTrader's raised target when the consistency rule is missed.** Failing it does not end the evaluation there; it lifts the target to twice the net P&L until the best day is back inside the ratio. The replay re-tests the pass every day and never records one until every condition holds at once, which reaches the same verdict by a different route — an account that would have had its target raised simply has not passed yet.
-- **Position-size limits, which TakeProfitTrader publishes per account size** (3/6/15 minis, ten times that in micros). Contract size is whatever the trade log says, as for every other firm here.
-- **The prohibition on automated execution.** Both TakeProfitTrader's Universal Trading Policies and its PRO contract require every trade to be placed by hand. That governs how a strategy may be traded, not whether its trade log survives the account's risk rules, and the replay answers only the second.
-- **Payout caps and cadence.** A withdrawal is taken whenever it is eligible, in full.
-- **A funded phase whose rules differ from the evaluation's, *within one preset*.** One `AccountRules` covers both phases. Where a firm changes its rules at the pass, it ships as two presets instead — see above.
-- **Scaling plans and position-size limits.** Contract size is whatever the trade log says.
-- **The consistency rule at payout time.** It gates the pass only.
-
-______________________________________________________________________
-
 ## Decisions taken
 
 **True Range crosses a roll boundary unchanged, and the splice is not special-cased** ([#23]). The prediction that reached the ticket was "back-adjustment makes the gap small but not zero, so ATR steps at each of the 18 rolls". Half of that is wrong and the half that is right is right for another reason, which is why measuring it was worth the afternoon.
@@ -1102,7 +1551,7 @@ Two things the build settled, both of which were latent bugs rather than choices
 
 **Stored sweeps — dropped and re-run, stratified** ([#71]). Everything previously in `results/sweeps.duckdb` was computed against a continuous series with different roll dates, at $0.74 commission, and before the M10 labels existed. Those rows were answers to a different question, so they were dropped rather than added to. `tools/rerun_sweeps.py` is the re-run, and it is a committed tool rather than a shell session because the drop had to happen for a reason that was not obvious: `_append_or_create` wrote an existing table **by name** and silently dropped a column the table did not have, so appending stratified rows to the pre-#39 schema would have stored them with `regime_filter` and `phase_filter` thrown away. Since [#201] it would widen instead, and the drop stays for the reason above — those rows answer a different question.
 
-**Eleven strata per root, one dimension at a time.** Unfiltered, then once per regime, then once per session phase — not the 32 cells the product would give. Each label answers "no edge anywhere, or edge in one stratum drowned by the others?" on its own, and crossing them is what [#48]'s guard exists to refuse. Every stratum runs the same 96-combination grid, so the stratum is the only thing that varies between two comparable rows. **`ambiguity_policy` is not swept**: `0` is a blanket worst case, deliberately *more* pessimistic than NT8 rather than equal to it, so half the stored rows would have ranked a combination against a fill rule the prime directive rejects. The trade is that the 0.009 profit factor between the two policies came from the rows that were dropped and is no longer re-derivable from `combos`; re-add the axis to re-measure it, or re-run a shortlist under both policies, which is what §M28.3 does instead.
+**Eleven strata per root, one dimension at a time.** Unfiltered, then once per regime, then once per session phase — not the 32 cells the product would give. Each label answers "no edge anywhere, or edge in one stratum drowned by the others?" on its own, and crossing them is what [#48]'s guard exists to refuse. Every stratum runs the same 96-combination grid, so the stratum is the only thing that varies between two comparable rows. **`ambiguity_policy` is not swept**: `0` is a blanket worst case, deliberately *more* pessimistic than NT8 rather than equal to it, so half the stored rows would have ranked a combination against a fill rule the prime directive rejects. The trade is that the 0.009 profit factor between the two policies came from the rows that were dropped and is no longer re-derivable from `combos`; re-add the axis to re-measure it.
 
 **The answer is "no edge anywhere", and one cell needed ruling out to say so.** 21 of the 2,112 rows reach a profit factor above 1, and all 21 are the same cell: NQ, `phase=CLOSE`, every one of them with `use_vwap` on. Nothing else in either root, either label, crosses 1.0 — MNQ's own `CLOSE` stratum tops out at 0.954. Three reasons that cell is not a finding, in ascending order of how much they settle it:
 
@@ -1161,8 +1610,12 @@ ______________________________________________________________________
 [#160]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/160
 [#161]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/161
 [#167]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/167
+[#168]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/168
+[#169]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/169
 [#17]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/17
+[#170]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/170
 [#18]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/18
+[#183]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/183
 [#19]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/19
 [#195]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/195
 [#196]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/196
@@ -1171,35 +1624,13 @@ ______________________________________________________________________
 [#199]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/199
 [#200]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/200
 [#201]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/201
-[#203]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/203
-[#205]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/205
-[#206]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/206
 [#208]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/208
-[#221]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/221
+[#218]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/218
 [#23]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/23
-[#235]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/235
-[#236]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/236
-[#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
-[#239]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/239
 [#24]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/24
-[#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
 [#25]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/25
-[#251]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/251
-[#255]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/255
-[#256]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/256
-[#258]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/258
-[#261]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/261
-[#262]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/262
-[#263]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/263
-[#264]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/264
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
-[#273]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/273
-[#278]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/278
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
-[#280]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/280
-[#281]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/281
-[#285]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/285
-[#287]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/287
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
@@ -1241,11 +1672,9 @@ ______________________________________________________________________
 [#67]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/67
 [#68]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/68
 [#69]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/69
-[#70]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/70
 [#71]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/71
 [#72]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/72
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73
-[#74]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/74
 [#75]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/75
 [#76]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/76
 [#81]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/81

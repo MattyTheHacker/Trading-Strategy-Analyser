@@ -17,15 +17,7 @@ from nqbt import archetypes, resample, results, sessions, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import InsideBarParams
 from tools import campaign_shortlist
-from tools.campaign_report import load_trades
-from tools.campaign_shortlist import (
-    best_row,
-    shortlist,
-    source,
-    store_group,
-    store_logs,
-    verify,
-)
+from tools.campaign_shortlist import best_row, shortlist, source, store_group, store_logs, verify
 
 ROOT = "MNQ"
 STRATEGY = "InsideBar"
@@ -67,17 +59,6 @@ def test_the_shortlist_is_restricted_to_one_root_stratum_and_resolution(monkeypa
     assert list(picked["trades"]) == [100]
 
 
-def test_a_variant_restricted_shortlist_holds_only_rows_of_that_variant(monkeypatch) -> None:
-    """The selection side of the dilution: a pool drawn over a mixture of geometries ranks the
-    fattest tail in it rather than the one being asked about -- ``docs/roadmap.md`` §M28.9."""
-    frame = stored_rows(variant=["breakout", "fade", "breakout", "fade"])
-    monkeypatch.setattr(campaign_shortlist, "load", lambda *_: frame)
-    confined = shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10, None, None, "breakout")
-    assert set(confined["variant"]) == {"breakout"}
-    assert len(confined) == 2
-    assert len(shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10)) == 4
-
-
 def test_a_selection_matching_no_stored_row_raises_rather_than_ranking_nothing(monkeypatch) -> None:
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: stored_rows())
     with pytest.raises(RuntimeError, match="no stored rows"):
@@ -91,27 +72,6 @@ def test_the_best_row_is_the_first_row_of_the_shortlist(monkeypatch) -> None:
     best = best_row(STRATEGY, ROOT, ["full"], "profit_factor")
     assert best["profit_factor"] == pytest.approx(1.4)
     assert best["trades"] == shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 5).iloc[0]["trades"]
-
-
-# -- which rows --held-out asks for --------------------------------------------------------
-
-
-def test_held_out_takes_the_pair_and_the_default_takes_the_ranked_window(monkeypatch) -> None:
-    """The two routes pick different rows, and a flag that parses without reaching either
-    reads exactly like one that works -- ``docs/roadmap.md`` §M28.13."""
-    asked: list[str] = []
-    monkeypatch.setattr(
-        campaign_shortlist,
-        "held_out",
-        lambda *_: asked.append("pair") or stored_rows().head(1),
-    )
-    monkeypatch.setattr(campaign_shortlist, "shortlist", lambda *_: asked.append("window") or stored_rows())
-    monkeypatch.setattr(campaign_shortlist, "store_logs", lambda *_: 0)
-
-    argv = ["campaign_shortlist.py", "--strategy", STRATEGY]
-    assert campaign_shortlist.main(argv) == 0
-    assert campaign_shortlist.main([*argv, "--held-out"]) == 0
-    assert asked == ["window", "pair"]
 
 
 # -- the bars a stored row was measured on -------------------------------------------------
@@ -261,9 +221,9 @@ def test_a_row_the_rerun_does_not_reproduce_stores_no_log(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="trades, not the"):
         store_group(block, resample.resample(bars, 5), archetypes.INSIDEBAR, ROOT, 5, db)
-    assert not results.query(
-        "SELECT COUNT(*) c FROM information_schema.tables WHERE table_name = 'trades'", db
-    ).loc[0, "c"]
+    assert not results.query("SELECT COUNT(*) c FROM information_schema.tables WHERE table_name = 'trades'", db).loc[
+        0, "c"
+    ]
 
 
 def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_from(
@@ -286,46 +246,3 @@ def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_
     assert set(zip(stored["sweep_id"], stored["combo_id"], strict=True)) == set(
         zip(block["sweep_id"], block["combo_id"], strict=True),
     )
-
-
-# -- reading the logs back, which ``tools/campaign_report.py`` does ------------------------
-
-
-def test_a_stored_log_reads_back_as_the_log_that_was_stored(tmp_path) -> None:
-    """The read half of the same key. A bootstrap takes its per-trade vector from here, so
-    reading a neighbouring combination's rows would resample the wrong configuration."""
-    db = tmp_path / "InsideBar.duckdb"
-    bars = synthetic_bars()
-    store_point(db, bars, 5, "full")
-    block = combos(db)
-    store_group(block, resample.resample(bars, 5), archetypes.INSIDEBAR, ROOT, 5, db)
-
-    for _, row in block.iterrows():
-        mine = load_trades(int(row["sweep_id"]), int(row["combo_id"]), db)
-        assert len(mine) > 0
-        assert set(mine["combo_id"]) == {row["combo_id"]}
-        assert mine["net_pnl"].sum() == pytest.approx(row["net_pnl"])
-
-
-def test_a_combination_with_no_stored_log_reads_back_empty(tmp_path) -> None:
-    db = tmp_path / "InsideBar.duckdb"
-    bars = synthetic_bars()
-    store_point(db, bars, 5, "full")
-    store_group(combos(db).head(1), resample.resample(bars, 5), archetypes.INSIDEBAR, ROOT, 5, db)
-    assert load_trades(1, 999, db).empty
-
-
-def test_a_database_with_no_trades_table_reads_back_empty_rather_than_raising(tmp_path) -> None:
-    """``trades`` is created lazily by the first ``save_trades``, so every campaign database
-    is in this state until this tool has been run against it."""
-    db = tmp_path / "InsideBar.duckdb"
-    store_point(db, synthetic_bars(), 5, "full")
-    assert load_trades(1, 0, db).empty
-
-
-def test_a_database_that_does_not_exist_reads_back_empty_rather_than_creating_one(tmp_path) -> None:
-    """``results.connect`` creates what it opens, so a typo in the path would otherwise leave a
-    new empty database behind and report no logs."""
-    missing = tmp_path / "NoSuchArchetype.duckdb"
-    assert load_trades(1, 0, missing).empty
-    assert not missing.exists()

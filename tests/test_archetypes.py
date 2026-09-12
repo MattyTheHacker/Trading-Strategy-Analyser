@@ -20,7 +20,6 @@ from nqbt.sim.types import (
     EmaCrossoverParams,
     InsideBarParams,
     InsideBarTrailingParams,
-    OpeningRangeParams,
     PullBackAndGoParams,
 )
 
@@ -34,7 +33,6 @@ def test_every_archetype_is_registered() -> None:
         "EmaCrossover",
         "InsideBar",
         "InsideBarTrailing",
-        "OpeningRange",
         "PullBackAndGo",
     ]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
@@ -42,7 +40,6 @@ def test_every_archetype_is_registered() -> None:
     assert archetypes.get("EmaCrossover") is archetypes.EMACROSSOVER
     assert archetypes.get("InsideBar") is archetypes.INSIDEBAR
     assert archetypes.get("InsideBarTrailing") is archetypes.INSIDEBARTRAILING
-    assert archetypes.get("OpeningRange") is archetypes.OPENINGRANGE
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
 
 
@@ -76,7 +73,6 @@ def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(EmaCrossoverParams()) is archetypes.EMACROSSOVER
     assert archetypes.for_params(InsideBarParams()) is archetypes.INSIDEBAR
     assert archetypes.for_params(InsideBarTrailingParams()) is archetypes.INSIDEBARTRAILING
-    assert archetypes.for_params(OpeningRangeParams()) is archetypes.OPENINGRANGE
 
 
 def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
@@ -100,8 +96,6 @@ def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     assert archetypes.INSIDEBAR.tier2 is Tier2Status.RECONCILED
     assert archetypes.INSIDEBARTRAILING.tier2 is Tier2Status.RECONCILED
     assert archetypes.EMACROSSOVER.tier2 is Tier2Status.TIER1_ONLY
-    assert archetypes.ELASTICBAND.tier2 is Tier2Status.TIER1_ONLY
-    assert archetypes.OPENINGRANGE.tier2 is Tier2Status.TIER1_ONLY
 
 
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------
@@ -332,14 +326,3 @@ def test_an_insidebar_grid_sweeps_end_to_end() -> None:
     assert results["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
     assert "error_margin" in results.columns
     assert "require_previous_green" not in results.columns
-
-
-def test_every_archetype_can_be_swept_on_the_maximum_hold_time() -> None:
-    """The exit every archetype owns, so a grid must be able to reach it on all of them.
-
-    A missing field would not raise -- ``sweep_axes`` would reject the axis by name, and a
-    campaign would quietly never test it.
-    """
-    for a in archetypes.all_archetypes():
-        assert "max_hold_bars" in a.sweepable, a.name
-        assert a.params_cls().max_hold_bars == 0, a.name

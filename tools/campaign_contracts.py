@@ -10,7 +10,7 @@ Per contract rather than spliced because ATR and the moving averages both step a
 and because a spliced series hides whether an edge is two good quarters wide.
 
 The tally is a sign count over contracts on ``expectancy``, which is bounded where a profit
-factor is not -- ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally".
+factor is not -- ``docs/roadmap.md`` § "Reading the per-contract tally".
 """
 
 from __future__ import annotations
@@ -26,7 +26,8 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_shortlist import best_row, rebuild
+from tools.campaign_report import load
+from tools.campaign_shortlist import rebuild
 
 from nqbt import archetypes, dispersion, logsetup, randomentry, resample, stats, sweep
 from nqbt.instruments import get_instrument
@@ -41,10 +42,21 @@ def chosen(
     by: str,
     stratum: str | None = None,
     resolution: int | None = None,
-    variant: str | None = None,
 ) -> tuple[archetypes.Params, int]:
     """The configuration a window's ranking picked, and the resolution it was ranked at."""
-    row: pd.Series = best_row(name, root, window, by, stratum, resolution, variant)  # type: ignore[type-arg]  # duckdb's dtypes
+    frame: pd.DataFrame = load(name, window)
+    frame = frame[frame["root"] == root]
+    if stratum is not None:
+        frame = frame[frame["stratum"] == stratum]
+
+    if resolution is not None:
+        frame = frame[frame["resolution"] == resolution]
+
+    if frame.empty:
+        msg: str = f"no stored rows for {name} on {root} in {window}, stratum {stratum}"
+        raise RuntimeError(msg)
+
+    row: pd.Series = frame.nlargest(1, by).iloc[0]  # type: ignore[type-arg]  # duckdb's dtypes
 
     return rebuild(row, archetypes.get(name)), int(row["resolution"])
 
@@ -106,11 +118,10 @@ def run_root(
     n_jobs: int,
     stratum: str | None = None,
     resolution: int | None = None,
-    variant: str | None = None,
 ) -> pd.DataFrame:
     """Every front-month contract of one root, under the configuration the window chose."""
     archetype: archetypes.Archetype = archetypes.get(name)
-    params, minutes = chosen(name, root, window, by, stratum, resolution, variant)
+    params, minutes = chosen(name, root, window, by, stratum, resolution)
     logger.info("")
     logger.info("%s on %s at %dm, configuration ranked on %s by %s", name, root, minutes, window, by)
 
@@ -143,7 +154,7 @@ def tally(frame: pd.DataFrame) -> pd.DataFrame:
     """How many contracts beat their own null, and how many simply made money.
 
     The verdict is the sign tally; the medians beside it describe the spread and never carry it.
-    ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally".
+    ``docs/roadmap.md`` § "Reading the per-contract tally".
     """
     rows: list[dict[str, object]] = []
     for root, block in frame.groupby("root"):
@@ -175,7 +186,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--by", default="profit_factor")
     parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
-    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--n-jobs", type=int, default=8)
     args = parser.parse_args(argv[1:])
@@ -190,7 +200,6 @@ def main(argv: list[str]) -> int:
             args.n_jobs,
             args.stratum,
             args.resolution,
-            args.variant,
         )
         for root in args.roots
     ]

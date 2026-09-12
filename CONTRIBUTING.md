@@ -20,25 +20,21 @@ Code should be readable on its own terms. Prefer a clearer name, a smaller funct
 - **A comment is fine where something is genuinely non-obvious** — a subtle index, a deliberate deviation from what a reader would expect, a workaround. Use them sparingly, and only where the code's behaviour departs from what a competent reader would predict.
 - **Arguments, justifications, measurements, decision records, history and traps go in `docs/`**, with at most a one-line pointer from the code.
 
-Three homes, and they are not interchangeable:
+Two homes, and they are not interchangeable:
 
-| goes in                                        | what it holds                                                                   |
-| ---------------------------------------------- | ------------------------------------------------------------------------------- |
-| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it  |
-| [`docs/findings/`](docs/findings/)             | one file per campaign: what was measured, what it returned, and what it settles |
-| [`docs/roadmap.md`](docs/roadmap.md)           | the standing constraints, the rubric, the traps and the decisions taken         |
+| goes in                                        | what it holds                                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it    |
+| [`docs/roadmap.md`](docs/roadmap.md)           | planned work in dependency order, the reasoning behind it, and the standing traps |
 
 A pointer must name a section that exists, in the form the source already uses:
 
 ```text
 ``docs/roadmap.md`` §M17
-``docs/findings/m28-1-openingrange-swept.md`` § "Gate 3 -- the entry beats a random entry"
 ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer the open"
 ```
 
-A bare "see the docs" is not a pointer, and [`tests/test_doc_pointers.py`](tests/test_doc_pointers.py) fails on one that names a heading no longer there.
-
-**A campaign's result goes in `docs/findings/`, not in the roadmap.** Add a file with the front matter the others carry — `id`, `title`, `archetypes`, `issues`, `gates`, `outcome`, `verdict` — then run [`tools/findings_index.py`](tools/findings_index.py) to regenerate `register.md`, `by-archetype.md` and `by-gate.md`. Those three are generated, so do not edit them by hand; [`docs/findings/README.md`](docs/findings/README.md) is the opposite — it is the authored summary of what the evidence supports for a prop account and for a regular one, the tool never touches it, and **a campaign that changes which strategy is best is a campaign that has to update it**. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
+A bare "see the docs" is not a pointer.
 
 ## Naming
 
@@ -113,7 +109,7 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 ./.venv/Scripts/ruff check .
 ./.venv/Scripts/ruff format --check .
 ./.venv/Scripts/mypy nqbt formatting
-./.venv/Scripts/python.exe -m formatting.cli --check .
+./.venv/Scripts/python.exe -m formatting.cli --check nqbt
 ./.venv/Scripts/pymarkdown scan $(git ls-files '*.md')
 ./.venv/Scripts/python.exe -m mdformat --check .
 ```
@@ -132,8 +128,8 @@ Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-li
 2. **A blank line before the last `return` in a function**, so the value a function produces is visually separated from the work that produced it.
 
 ```bash
-./.venv/Scripts/python.exe -m formatting.cli --check .      # what CI runs
-./.venv/Scripts/python.exe -m formatting.cli .              # rewrite in place
+./.venv/Scripts/python.exe -m formatting.cli --check nqbt   # what CI runs
+./.venv/Scripts/python.exe -m formatting.cli nqbt           # rewrite in place
 ```
 
 **It is independent of `ruff format`, and the order you run them in does not matter.** That is a property of the rules rather than a coincidence: they only ever *insert* a blank line, never at the top of a block, and only where there were none. Anywhere `ruff format` demands two blank lines, a source with none was already unformatted — so going from none to one cannot break it. Measured over `nqbt/` in both orders: the formatter rewrites files `ruff format` had already accepted, and `ruff format --check` still passes on every one. `tests/test_formatting.py` pins the two properties this rests on, and is the place to look if the two ever start fighting.
@@ -201,9 +197,7 @@ A "ruff auto-fix" pull request once reached into an `@njit` loop and rewrote `si
 
 `MD029` is set to `ordered` to catch that second case from the other side. Its default, `one_or_ordered`, accepts both numbering styles, so `pymarkdown` alone would pass a file whose ordered lists had all been flattened to `1.`.
 
-**`mdformat-frontmatter` is what makes front matter safe, and it is a pin rather than a convenience.** Without it `mdformat` rewrites a `---` block into a thematic break and a heading, which silently destroys the metadata `docs/findings/` is indexed from. It was added for that; `.claude/rules/*.md` were the earlier casualty of the same defect.
-
-**`.claude/rules/*.md` stay excluded even so.** The plugin now preserves their `paths:` front matter, but those files are hard-wrapped where everything else is not, so formatting them would reflow every one. Unexclude them only as a deliberate change with that reflow in the diff.
+**`.claude/rules/*.md` are excluded and must stay excluded.** They carry `paths:` front matter, no front-matter plugin is installed, and formatting them rewrites the delimiters into a thematic break and a bullet list — after which the rules stop loading for the files they cover, and nothing reports it. That exclusion is why those files are still hard-wrapped while everything else is not.
 
 ## The trade-log regression gate
 
@@ -303,7 +297,6 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 - **Guard against multiple comparisons.** The best of nineteen contracts × N combinations is the *expected* output of noise. Test a combination chosen for a reason, not the best of two hundred.
 - **Say what a statistic was computed over.** Per trade or per leg, whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
 - **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse resolution.
-- **The share is not the exposure.** `ambiguous_share` says how often the fill assumption was invoked, not how much the result depends on it. Where an archetype's ambiguity varies across its own swept space, run `tools/campaign_ambiguity.py` over the shortlist: it reports the spread between the two policies, and above `disambiguate.MIN_AMBIGUOUS_SHARE` it settles what the minute bars can settle and re-summarises with the assumption corrected — [`docs/roadmap.md`](docs/roadmap.md) §M28.3 and §M28.4. **A resolved profit factor is a diagnostic and never a ranking**, and it never enters `nqbt/sim/`.
 
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
 [#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91

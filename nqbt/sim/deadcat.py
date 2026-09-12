@@ -17,7 +17,7 @@ import numpy as np
 from numba import njit
 
 from nqbt.sim import bracket
-from nqbt.trades import EXIT_END_OF_DATA, EXIT_TIME_LIMIT
+from nqbt.trades import EXIT_END_OF_DATA
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IntArray
@@ -40,10 +40,6 @@ class DeadCatRules(NamedTuple):
     ratchet_lag: int
     ratchet_offset_ticks: float
     block_entry_at_session_close: bool
-    max_hold_bars: int
-    """The one field with no NinjaScript property behind it -- see
-    :attr:`nqbt.sim.types.DeadCatParams.max_hold_bars`."""
-
     direction: float
 
 
@@ -80,7 +76,6 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
     trade_id = 0
 
     in_position = False
-    pending_time_exit = False
     pending_bar = -1  # bar whose signal placed the order now resting
     pending_trigger = 0.0
     pending_stop = 0.0
@@ -96,23 +91,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
 
     for i in range(n):
         # ---- exits, using the stop and targets set at the close of bar i-1 ----------
-        if in_position and pending_time_exit:
-            # Submitted at the close of bar i-1 and filled at this bar's first price, so the
-            # excursion stays where it was.
-            written = bracket.flatten_position(
-                out,
-                written,
-                trade,
-                legs,
-                bracket.LegExit(i, bars.open_[i] - direction * slippage, EXIT_TIME_LIMIT, False),
-                excursion,
-                costs,
-            )
-            if written < 0:
-                return -1
-
-            in_position = False
-        elif in_position:
+        if in_position:
             excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
             written, in_position = bracket.resolve_brackets(
                 out,
@@ -168,9 +147,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                         legs.target[leg] = np.nan
                     else:
                         raw = pending_trigger + direction * risk * target_r[leg] * rules.tp_multiplier
-                        legs.target[leg] = (
-                            bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
-                        )
+                        legs.target[leg] = bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
 
                 # The entry bar can reach the stop as well, and resolves like any other.
                 written, in_position = bracket.resolve_brackets(
@@ -190,19 +167,15 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
 
             pending_bar = -1  # filled or missed, and either way it does not rest a second bar
 
-        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
-
         # ---- close of bar i: ratchet, or look for a new signal ----------------------
         if in_position:
             ref = i - rules.ratchet_lag
             if ref >= 0:
                 adverse_ref, _ = bracket.sided(bars.low[ref], bars.high[ref], direction)
-                stop = bracket.tightened_stop(stop, adverse_ref - direction * ratchet_offset, direction)
-        elif (
-            i >= rules.bars_required
-            and signal[i]
-            and not (rules.block_entry_at_session_close and bars.force_flat[i])
-        ):
+                new_stop = adverse_ref - direction * ratchet_offset
+                if direction * new_stop > direction * stop:
+                    stop = new_stop
+        elif i >= rules.bars_required and signal[i] and not (rules.block_entry_at_session_close and bars.force_flat[i]):
             trigger, candidate_stop, candidate_risk = bracket.entry_bracket(
                 bars.high[i],
                 bars.low[i],
@@ -230,16 +203,20 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
     # rather than dropped.
     if in_position:
         last = n - 1
-        written = bracket.flatten_position(
-            out,
-            written,
-            trade,
-            legs,
-            bracket.LegExit(last, bars.close[last] - direction * slippage, EXIT_END_OF_DATA, False),
-            excursion,
-            costs,
-        )
-        if written < 0:
-            return -1
+        exit_fill = bars.close[last] - direction * slippage
+        for leg in range(n_legs):
+            if legs.is_open[leg]:
+                written = bracket.write_leg(
+                    out,
+                    written,
+                    trade,
+                    legs,
+                    leg,
+                    bracket.LegExit(last, exit_fill, EXIT_END_OF_DATA, False),
+                    excursion,
+                    costs,
+                )
+                if written < 0:
+                    return -1
 
     return written

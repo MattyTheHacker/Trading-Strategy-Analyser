@@ -14,7 +14,7 @@ from nqbt import dispersion, sessions, stats
 from nqbt.dispersion import DispersionError
 
 
-def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.DataFrame:
+def leg_log(pnl_per_trade, legs: int = 2, start: str = "2024-01-02") -> pd.DataFrame:
     """A leg-level log whose trades sum to ``pnl_per_trade``.
 
     Split across legs on purpose: everything here has to survive the leg -> trade collapse,

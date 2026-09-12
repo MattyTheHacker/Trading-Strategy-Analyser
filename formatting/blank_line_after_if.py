@@ -17,18 +17,12 @@ class EnsureBlankLineAfterIf(cst.CSTTransformer):
 
     @override
     def leave_IndentedBlock(
-        self,
-        original_node: cst.IndentedBlock,
-        updated_node: cst.IndentedBlock,
+        self, original_node: cst.IndentedBlock, updated_node: cst.IndentedBlock
     ) -> cst.IndentedBlock:
         return updated_node.with_changes(body=self._insert_spacing(updated_node.body))
 
     @override
-    def leave_Module(
-        self,
-        original_node: cst.Module,
-        updated_node: cst.Module,
-    ) -> cst.Module:
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         return updated_node.with_changes(body=self._insert_spacing(updated_node.body))
 
     def _insert_spacing(
@@ -46,9 +40,7 @@ class EnsureBlankLineAfterIf(cst.CSTTransformer):
                 and hasattr(stmt, "leading_lines")
                 and not has_blank_line_above(stmt.leading_lines)
             ):
-                new_stmt = stmt.with_changes(
-                    leading_lines=[cst.EmptyLine(indent=False), *list(stmt.leading_lines)]
-                )
+                new_stmt = stmt.with_changes(leading_lines=[cst.EmptyLine(indent=False), *list(stmt.leading_lines)])
 
             new_body.append(new_stmt)
 

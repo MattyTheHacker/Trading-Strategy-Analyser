@@ -9,15 +9,13 @@ it reads comes from a bar it could not have seen.
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
 
-from dataclasses import replace
-
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import conditions, context, regime, sessions, sweep, trend, volume
+from nqbt import conditions, sessions, sweep
 from nqbt.instruments import MNQ, NQ
-from nqbt.sim import crossover, filters, types
+from nqbt.sim import crossover
 from nqbt.sim.crossover import crossover_signal, regime_direction, run_crossover
 from nqbt.sim.types import EmaCrossoverParams
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
@@ -28,7 +26,6 @@ TICK = 0.25
 def simulate(
     rows,
     signal_at=(),
-    *,
     max_rows=None,
     direction=LONG,
     flip_at=(),
@@ -41,10 +38,6 @@ def simulate(
     min_bracket_dollars=0.0,
     swing_lookback=3,
     stop_offset_ticks=2.0,
-    trail_ma=None,
-    trail_offset_ticks=2.0,
-    round_number_points=0.0,
-    round_number_offset_ticks=2.0,
     tp_multiplier=1.0,
     slippage=0.0,
     commission=0.0,
@@ -52,7 +45,6 @@ def simulate(
     bars_required=0,
     exit_on_opposite_cross=True,
     block_entry_at_close=True,
-    max_hold_bars=0,
     fill_limit_on_touch=True,  # tests target exact prices; opt out explicitly
     ambiguity_policy=0,
     round_targets=True,
@@ -86,10 +78,7 @@ def simulate(
         crossover.bracket.Bars(o, h, low, c, force_flat),
         signal,
         direction_at,
-        crossover.CrossoverSeries(
-            np.full(n, atr, dtype=np.float64) if np.isscalar(atr) else np.asarray(atr, dtype=np.float64),
-            crossover.NO_TRAIL if trail_ma is None else np.asarray(trail_ma, dtype=np.float64),
-        ),
+        np.full(n, atr, dtype=np.float64) if np.isscalar(atr) else np.asarray(atr, dtype=np.float64),
         np.asarray(quantities, dtype=np.int64),
         np.asarray(targets, dtype=np.float64),
         crossover.bracket.Costs(TICK, instrument.point_value, commission, slippage),
@@ -100,15 +89,10 @@ def simulate(
             min_bracket_points=instrument.dollars_to_points(min_bracket_dollars),
             swing_lookback=swing_lookback,
             stop_offset_ticks=stop_offset_ticks,
-            trail_ma_stop=trail_ma is not None,
-            trail_offset_ticks=trail_offset_ticks,
-            round_number_points=round_number_points,
-            round_number_offset_ticks=round_number_offset_ticks,
             tp_multiplier=tp_multiplier,
             bars_required=bars_required,
             exit_on_opposite_cross=exit_on_opposite_cross,
             block_entry_at_session_close=block_entry_at_close,
-            max_hold_bars=max_hold_bars,
         ),
         out,
     )
@@ -469,11 +453,6 @@ def prepared(params: EmaCrossoverParams):
     return sweep.prepare_for(bars(), sweep.Grid.of(params))
 
 
-def basis_prepared(params: EmaCrossoverParams, basis: context.PriceBasis):
-    """:func:`prepared` for a caller that states what its prices are."""
-    return context.prepare(bars(), sweep.Grid.of(params).required_context(), price_basis=basis)
-
-
 def test_the_archetype_trades_both_sides_and_produces_signal_exits() -> None:
     params = EmaCrossoverParams(bars_required_to_trade=50)
     log = run_crossover(prepared(params), params, MNQ)
@@ -602,332 +581,3 @@ def test_trading_the_short_side_only_removes_the_long_one() -> None:
     short_only = EmaCrossoverParams(bars_required_to_trade=50, trade_long=False)
     log = run_crossover(prepared(short_only), short_only, MNQ)
     assert set(log["direction"]) == {SHORT}
-
-
-# -- the moving-average trailing stop ------------------------------------------
-
-# A trail is a ratchet over a different level: the stop moves to the average plus its
-# cushion whenever that is nearer the market than where it already is, and never back.
-
-
-def test_the_trail_tightens_the_stop_and_that_is_what_exits_the_trade() -> None:
-    rows = [
-        (100.0, 100.5, 99.5, 100.0),  # 0: signal
-        (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100, stop 60 from the ATR
-        (100.0, 100.5, 99.5, 100.0),  # 2: average 99.0 - 2 ticks -> stop 98.5
-        (100.0, 100.5, 98.0, 99.0),  # 3: trades through it
-        *FLAT,
-    ]
-    without = run(rows, signal_at=[0], atr=40.0)
-    with_trail = run(rows, signal_at=[0], atr=40.0, trail_ma=np.full(len(rows), 99.0))
-    assert set(without["exit_reason"]) == {"end_of_data"}
-    assert set(with_trail["exit_reason"]) == {"stop"}
-    assert with_trail["exit_price"].unique() == pytest.approx([98.5])
-
-
-def test_the_cushion_is_what_separates_the_stop_from_the_average() -> None:
-    rows = [
-        (100.0, 100.5, 99.5, 100.0),
-        (100.0, 100.5, 99.5, 100.0),
-        (100.0, 100.5, 99.5, 100.0),
-        (100.0, 100.5, 96.5, 99.0),  # 3: deep enough to reach either stop
-        *FLAT,
-    ]
-    ma = np.full(len(rows), 99.0)
-    tight = run(rows, signal_at=[0], atr=40.0, trail_ma=ma, trail_offset_ticks=0.0)
-    wide = run(rows, signal_at=[0], atr=40.0, trail_ma=ma, trail_offset_ticks=8.0)
-    assert tight["exit_price"].unique() == pytest.approx([99.0])
-    assert wide["exit_price"].unique() == pytest.approx([97.0])
-
-
-def test_the_trail_never_loosens_a_stop_it_already_tightened() -> None:
-    """The ratchet property: an average falling back leaves the stop where it got to."""
-    rows = [
-        (100.0, 100.5, 99.5, 100.0),  # 0: signal
-        (100.0, 100.5, 99.5, 100.0),  # 1: fill
-        (100.0, 100.5, 99.5, 100.0),  # 2: average 99.5 -> stop 99.0
-        (100.0, 100.5, 99.2, 100.0),  # 3: average back at 90, and the stop must not follow
-        (100.0, 100.5, 98.0, 99.0),  # 4: reaches 99.0 but not 89.5
-        *FLAT,
-    ]
-    ma = np.full(len(rows), 90.0)
-    ma[2] = 99.5
-    trades = run(rows, signal_at=[0], atr=40.0, trail_ma=ma)
-    assert set(trades["exit_reason"]) == {"stop"}
-    assert list(trades["exit_bar"].unique()) == [4]
-    assert trades["exit_price"].unique() == pytest.approx([99.0])
-
-
-def test_the_trail_mirrors_on_the_short_side() -> None:
-    rows = [
-        (100.0, 100.5, 99.5, 100.0),  # 0: signal
-        (100.0, 100.5, 99.5, 100.0),  # 1: fill
-        (100.0, 100.5, 99.5, 100.0),  # 2: average 100.5 -> stop 101.0
-        (100.0, 102.0, 99.5, 100.0),  # 3: trades through it
-        *FLAT,
-    ]
-    trades = run(
-        rows,
-        signal_at=[0],
-        direction=SHORT,
-        atr=40.0,
-        trail_ma=np.full(len(rows), 100.5),
-    )
-    assert set(trades["exit_reason"]) == {"stop"}
-    assert trades["exit_price"].unique() == pytest.approx([101.0])
-
-
-def test_a_warming_up_average_leaves_the_stop_exactly_where_it_was() -> None:
-    """``nan`` is what a grid holds before its period is reached, and it must move nothing."""
-    rows = [(100.0, 100.5, 99.5, 100.0), *FLAT]
-    trailed = run(rows, signal_at=[0], atr=40.0, trail_ma=np.full(len(rows), np.nan))
-    plain = run(rows, signal_at=[0], atr=40.0)
-    pd.testing.assert_frame_equal(trailed, plain)
-
-
-def test_the_trail_reads_the_third_grid_the_archetype_asked_for() -> None:
-    params = EmaCrossoverParams(bars_required_to_trade=50, trail_ma_stop=True, trail_ma_period=30)
-    data = prepared(params)
-    assert np.array_equal(
-        data.ma_values("ema", 30),
-        conditions.MA_KINDS["ema"].compute(data.close, 30),
-    )
-    assert not run_crossover(data, params, MNQ).empty
-
-
-def test_the_trail_grid_is_not_built_for_a_sweep_that_never_trails() -> None:
-    """``keep_values`` is the 8-bytes-against-1 switch, and a third grid is a third bill."""
-    off = sweep.Grid.of(EmaCrossoverParams(), fast_period=[9, 12]).required_context()
-    on = sweep.Grid.of(
-        EmaCrossoverParams(trail_ma_stop=True, trail_ma_period=77),
-        fast_period=[9, 12],
-    ).required_context()
-    assert ("ema", 77) not in off.ma_keys
-    assert ("ema", 77) in on.ma_keys
-
-
-def test_the_trail_axes_are_dead_while_nothing_trails() -> None:
-    with pytest.raises(sweep.SweepError, match="trail_ma_period"):
-        sweep.Grid.of(EmaCrossoverParams(), trail_ma_period=[20, 50])
-
-    assert sweep.Grid.of(EmaCrossoverParams(trail_ma_stop=True), trail_ma_period=[20, 50])
-
-
-# -- round-number stop avoidance -----------------------------------------------
-
-# Only an exact landing moves. A zone around the level would be a second parameter the
-# build spec never asked for -- ``docs/roadmap.md`` § "The build spec's three loose ends".
-
-
-def test_a_stop_landing_on_a_round_number_is_pushed_away_from_the_entry() -> None:
-    # An ATR of 5 off a fill of 100 puts the stop exactly on 95, a multiple of 5.
-    trades = run(FLAT, signal_at=[0], atr=5.0, round_number_points=5.0)
-    assert trades["initial_stop"].iloc[0] == pytest.approx(95.0 - 0.5)
-    assert trades["risk_points"].iloc[0] == pytest.approx(5.5)
-
-
-def test_a_stop_between_two_round_numbers_is_left_alone() -> None:
-    trades = run(FLAT, signal_at=[0], atr=6.0, round_number_points=5.0)
-    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
-
-
-def test_the_push_is_away_from_the_entry_on_the_short_side_too() -> None:
-    trades = run(FLAT, signal_at=[0], direction=SHORT, atr=5.0, round_number_points=5.0)
-    assert trades["initial_stop"].iloc[0] == pytest.approx(105.0 + 0.5)
-
-
-def test_the_rule_is_off_at_zero_spacing() -> None:
-    off = run(FLAT, signal_at=[0], atr=5.0)
-    on = run(FLAT, signal_at=[0], atr=5.0, round_number_points=5.0)
-    assert off["initial_stop"].iloc[0] == pytest.approx(95.0)
-    assert on["initial_stop"].iloc[0] == pytest.approx(94.5)
-
-
-def test_it_reaches_the_swing_stop_as_well_as_the_atr_one() -> None:
-    """Both modes place a level, so both can place one on a round number."""
-    trades = run(
-        [(100.0, 100.5, 95.5, 100.0), *FLAT],  # swing low 95.5 - 2 ticks = 95.0
-        signal_at=[0],
-        use_atr_stop=False,
-        swing_lookback=1,
-        round_number_points=5.0,
-    )
-    assert trades["initial_stop"].iloc[0] == pytest.approx(95.0 - 0.5)
-
-
-def test_it_reaches_the_trailed_stop_and_still_cannot_loosen_it() -> None:
-    """The push runs before the ratchet, so it widens the candidate and never the stop."""
-    rows = [
-        (100.0, 100.5, 99.5, 100.0),  # 0: signal
-        (100.0, 100.5, 99.5, 100.0),  # 1: fill
-        (100.0, 100.5, 99.5, 100.0),  # 2: average 95.0, pushed to 94.5
-        (100.0, 100.5, 94.0, 99.0),  # 3: trades through it
-        *FLAT,
-    ]
-    trades = run(
-        rows,
-        signal_at=[0],
-        atr=40.0,
-        trail_ma=np.full(len(rows), 95.0),
-        trail_offset_ticks=0.0,
-        round_number_points=5.0,
-    )
-    assert trades["exit_price"].unique() == pytest.approx([94.5])
-
-
-def test_round_number_avoidance_refuses_bars_that_never_said_what_they_are() -> None:
-    """It fails closed: an unstated basis is refused rather than assumed raw."""
-    params = EmaCrossoverParams(bars_required_to_trade=50, round_number_points=25.0)
-    assert prepared(params).price_basis is context.PriceBasis.UNKNOWN
-    with pytest.raises(ValueError, match="only a round number on raw prices"):
-        run_crossover(prepared(params), params, MNQ)
-
-
-def test_round_number_avoidance_refuses_a_back_adjusted_series() -> None:
-    """Back-adjustment shifts every level by the roll offsets, so 20000 is not 20000."""
-    params = EmaCrossoverParams(bars_required_to_trade=50, round_number_points=25.0)
-    with pytest.raises(ValueError, match="back-adjusted"):
-        run_crossover(basis_prepared(params, context.PriceBasis.BACK_ADJUSTED), params, MNQ)
-
-
-def test_round_number_avoidance_runs_on_raw_prices() -> None:
-    params = EmaCrossoverParams(bars_required_to_trade=50, round_number_points=25.0)
-    assert not run_crossover(basis_prepared(params, context.PriceBasis.RAW), params, MNQ).empty
-
-
-def test_a_combination_that_never_avoids_a_round_number_needs_no_basis() -> None:
-    params = EmaCrossoverParams(bars_required_to_trade=50)
-    assert not run_crossover(prepared(params), params, MNQ).empty
-
-
-@pytest.mark.parametrize(
-    ("kwargs", "match"),
-    [
-        ({"round_number_points": -1.0}, "round_number_points must be >= 0"),
-        ({"round_number_points": 25.0, "round_number_offset_ticks": 0}, "must be >= 1 while"),
-        ({"trail_ma_period": 0}, "trail_ma_period must be >= 1"),
-        ({"trail_ma_kind": "kalman"}, "kalman"),
-    ],
-)
-def test_the_new_stop_parameters_are_range_checked(kwargs, match) -> None:
-    with pytest.raises(ValueError, match=match):
-        EmaCrossoverParams(**kwargs)
-
-
-# -- confluence counting -------------------------------------------------------
-
-
-def test_require_all_is_the_plain_conjunction_exactly() -> None:
-    params = EmaCrossoverParams(
-        bars_required_to_trade=50,
-        regime_filter=regime.Regime.DIRECTIONAL.bit,
-        trend_filter=trend.Trend.UP.bit,
-    )
-    data = prepared(params)
-    ones = np.ones(len(data), dtype=np.bool_)
-    assert params.confluence_required == types.REQUIRE_ALL
-    assert np.array_equal(
-        filters.apply_confluence_filters(ones.copy(), data, params),
-        filters.apply_context_filters(ones.copy(), data, params),
-    )
-
-
-def test_a_confluence_count_admits_bars_the_conjunction_refuses() -> None:
-    strict = EmaCrossoverParams(
-        bars_required_to_trade=50,
-        regime_filter=regime.Regime.DIRECTIONAL.bit,
-        trend_filter=trend.Trend.UP.bit,
-    )
-    loose = replace(strict, confluence_required=1)
-    data = prepared(strict)
-    ones = np.ones(len(data), dtype=np.bool_)
-    both = filters.apply_confluence_filters(ones.copy(), data, strict)
-    either = filters.apply_confluence_filters(ones.copy(), data, loose)
-    assert 0 < both.sum() < either.sum()
-    # Loosening a conjunction can only add bars; it must never move one.
-    assert np.array_equal(both & either, both)
-    # And it is what the archetype's own signal goes through.
-    assert crossover_signal(data, loose).sum() > crossover_signal(data, strict).sum()
-
-
-def test_a_gate_at_its_everything_value_is_not_one_of_the_M() -> None:
-    """Otherwise "2 of 3" would quietly become "2 of 6" and admit far more."""
-    counted = EmaCrossoverParams(
-        bars_required_to_trade=50,
-        regime_filter=regime.Regime.DIRECTIONAL.bit,
-        trend_filter=trend.Trend.UP.bit,
-        volume_filter=volume.VolumeState.HEAVY.bit,
-        confluence_required=2,
-    )
-    assert types.active_context_filters(counted) == 3
-    assert len(filters.context_gates(prepared(counted), counted)) == 3
-
-
-def test_a_confluence_count_with_nothing_to_count_is_refused() -> None:
-    with pytest.raises(ValueError, match="needs at least 2 of them"):
-        EmaCrossoverParams(confluence_required=2)
-
-
-def test_a_count_that_is_the_conjunction_again_is_refused() -> None:
-    """The silent-duplicate shape ``dead_axes`` cannot see, caught at construction instead."""
-    with pytest.raises(ValueError, match="the plain conjunction under another name"):
-        EmaCrossoverParams(
-            regime_filter=regime.Regime.DIRECTIONAL.bit,
-            trend_filter=trend.Trend.UP.bit,
-            confluence_required=2,
-        )
-
-
-# -- the maximum hold time -----------------------------------------------------
-
-
-def test_the_hold_limit_leaves_at_the_next_bars_open() -> None:
-    trades = run([*FLAT, *FLAT], signal_at=[0], max_hold_bars=2, atr=40.0)
-    # Filled at bar 1's open, so bar 3 is two bars later and the order goes in at its close.
-    assert set(trades["exit_bar"]) == {4}
-    assert set(trades["exit_reason"]) == {"time_limit"}
-    assert set(trades["bars_held"]) == {3}
-
-
-def test_a_hold_limit_of_zero_leaves_the_position_to_the_data() -> None:
-    assert set(run([*FLAT, *FLAT], signal_at=[0], atr=40.0)["exit_reason"]) == {"end_of_data"}
-
-
-def test_the_opposite_cross_takes_a_bar_that_is_also_the_hold_limit() -> None:
-    """Both submit the same market order, so the label says which rule the position lost to."""
-    trades = run(
-        [
-            *[(100.0, 100.5, 99.5, 100.0)] * 3,
-            (99.0, 99.5, 98.5, 99.0),
-            *FLAT,
-        ],
-        signal_at=[0],
-        flip_at=[2],
-        max_hold_bars=1,
-        atr=40.0,
-    )
-    assert trades["exit_bar"].iloc[0] == 3
-    assert trades["exit_reason"].iloc[0] == "signal"
-
-
-def test_a_signal_on_the_hold_limits_bar_reopens_at_the_same_price_as_the_exit() -> None:
-    """The hold limit shares ``pending_exit``, so it reaches the flip's same-bar re-entry.
-
-    Deliberate rather than incidental: a bar whose close schedules both an exit and an entry
-    is already this archetype's flip, and giving the clock a different answer on the same bar
-    would be the inconsistency -- ``docs/nt8-fidelity.md``, "The maximum hold time, and why
-    it is its own exit code".
-    """
-    trades = run(
-        [*FLAT, *FLAT],
-        signal_at=[0, 2],
-        max_hold_bars=1,
-        exit_on_opposite_cross=False,
-        atr=40.0,
-    )
-    assert list(trades["trade_id"].unique()) == [1, 2]
-    first = trades[trades["trade_id"] == 1].iloc[0]
-    second = trades[trades["trade_id"] == 2].iloc[0]
-    assert first["exit_reason"] == "time_limit"
-    assert first["exit_bar"] == second["entry_bar"] == 3
-    assert first["exit_price"] == pytest.approx(second["entry_price"])

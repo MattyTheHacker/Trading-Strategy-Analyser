@@ -1,7 +1,7 @@
 """ElasticBand simulation tests on hand-built bars.
 
 The archetype has no NinjaScript, so like EmaCrossover there is no trade list to check against.
-What these pin instead are the things it introduces -- five stop schemes, a target expressed
+What these pin instead are the things it introduces -- three stop schemes, a target expressed
 as a band level rather than as an R multiple, and two rule-driven exits -- plus the property
 the whole thing is worthless without: that nothing it reads comes from a bar it could not have
 seen.
@@ -18,36 +18,22 @@ from nqbt.instruments import MNQ, NQ
 from nqbt.sim import elasticband
 from nqbt.sim.elasticband import (
     beyond_band,
-    closed_off_extreme,
-    closed_towards_basis,
     elasticband_signal,
-    swept_and_reclaimed,
     fade_direction,
     lagged,
-    one_sided_bars,
-    outside_run_length,
-    returned_inside,
     run_elasticband,
     run_extreme,
 )
 from nqbt.sim.types import (
-    BAND_VWAP,
-    SHAPE_ANY,
-    SHAPE_RECLAIM,
-    SHAPE_REJECTION,
-    SHAPE_REVERSAL,
     STOP_ATR,
-    STOP_BAND,
     STOP_CATASTROPHE,
     STOP_EXCURSION,
     STOP_SWING,
     TARGET_R,
     TARGET_STRETCH,
-    TRIGGER_EXTENDED,
-    TRIGGER_RECOVERY,
     ElasticBandParams,
 )
-from nqbt.trades import EXIT_REASONS, LONG, N_COLUMNS, SHORT, trades_to_frame, validate
+from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
 TICK = 0.25
 
@@ -55,7 +41,6 @@ TICK = 0.25
 def simulate(
     rows,
     signal_at=(),
-    *,
     max_rows=None,
     direction=LONG,
     basis=100.0,
@@ -71,8 +56,6 @@ def simulate(
     min_bracket_dollars=0.0,
     stop_offset_ticks=2.0,
     catastrophe_stop_ticks=40.0,
-    entry_std=2.0,
-    band_stop_std=1.0,
     target_mode=TARGET_STRETCH,
     tp_multiplier=1.0,
     bars_required=0,
@@ -133,8 +116,6 @@ def simulate(
             stop_offset=stop_offset_ticks * TICK,
             catastrophe_distance=catastrophe_stop_ticks * TICK,
             swing_lookback=swing_lookback,
-            entry_std=entry_std,
-            band_stop_std=band_stop_std,
             target_mode=target_mode,
             tp_multiplier=tp_multiplier,
             bars_required=bars_required,
@@ -190,7 +171,7 @@ def test_a_signal_below_bars_required_is_ignored() -> None:
     assert run(FLAT, signal_at=[0], bars_required=4).empty
 
 
-# -- the stop schemes -----------------------------------------------------------
+# -- the three stop schemes -----------------------------------------------------
 
 
 def test_the_catastrophe_stop_is_a_fixed_tick_distance_from_the_fill() -> None:
@@ -266,12 +247,8 @@ def test_a_longer_swing_lookback_reaches_further_back_for_its_extreme() -> None:
         (100.0, 100.5, 99.5, 100.0),  # 2: fill
         *FLAT,
     ]
-    one = run(
-        rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=1, stop_offset_ticks=0.0, levels=(np.nan,)
-    )
-    two = run(
-        rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=2, stop_offset_ticks=0.0, levels=(np.nan,)
-    )
+    one = run(rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=1, stop_offset_ticks=0.0, levels=(np.nan,))
+    two = run(rows, signal_at=[1], stop_mode=STOP_SWING, swing_lookback=2, stop_offset_ticks=0.0, levels=(np.nan,))
     assert one["initial_stop"].iloc[0] == pytest.approx(97.0)
     assert two["initial_stop"].iloc[0] == pytest.approx(95.0)
 
@@ -309,99 +286,6 @@ def test_the_swing_stop_is_not_floored_because_it_is_a_level() -> None:
         levels=(np.nan,),
     )
     assert trades["initial_stop"].iloc[0] == pytest.approx(99.0)
-
-
-def test_the_band_stop_is_a_level_on_the_channel_the_entry_was_measured_against() -> None:
-    # Enter at 2 sigma, stop at 3: basis 100, sigma 2, so the stop is 100 - 3 * 2.
-    trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, entry_std=2.0, band_stop_std=1.0)
-    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
-
-
-def test_the_band_stop_mirrors_on_the_short_side() -> None:
-    trades = run(
-        FLAT,
-        signal_at=[0],
-        direction=SHORT,
-        stop_mode=STOP_BAND,
-        entry_std=2.0,
-        band_stop_std=1.0,
-        levels=(0.0,),
-    )
-    assert trades["initial_stop"].iloc[0] == pytest.approx(106.0)
-
-
-def test_the_band_stop_is_measured_past_the_entry_threshold_rather_than_from_the_basis() -> None:
-    """Which is what makes cells comparable across a swept ``entry_std``: the same multiple is
-    the same distance beyond wherever the entry was taken."""
-    for entry_std in (1.5, 2.0, 3.0):
-        trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, entry_std=entry_std, band_stop_std=0.5)
-        assert trades["initial_stop"].iloc[0] == pytest.approx(100.0 - (entry_std + 0.5) * 2.0)
-
-
-def test_the_band_stops_distance_scales_with_the_dispersion_the_threshold_uses() -> None:
-    """The property it exists for -- no other stop here is denominated in the same units as
-    the entry rule."""
-    for stddev in (1.0, 2.0, 5.0):
-        trades = run(
-            FLAT,
-            signal_at=[0],
-            stop_mode=STOP_BAND,
-            stddev=stddev,
-            entry_std=2.0,
-            band_stop_std=1.0,
-        )
-        assert trades["initial_stop"].iloc[0] == pytest.approx(100.0 - 3.0 * stddev)
-
-
-def test_the_band_stop_reads_the_signal_bars_band_and_not_the_fill_bars() -> None:
-    trades = run(
-        FLAT,
-        signal_at=[0],
-        stop_mode=STOP_BAND,
-        basis=[100.0, *[90.0] * 7],
-        stddev=[2.0, *[8.0] * 7],
-        entry_std=2.0,
-        band_stop_std=1.0,
-        levels=(np.nan,),
-    )
-    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
-
-
-def test_the_band_stop_takes_no_offset_because_nothing_rests_at_a_computed_level() -> None:
-    """Unlike the excursion and swing stops, whose level is a price the market traded at."""
-    for offset in (0.0, 2.0, 20.0):
-        trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, stop_offset_ticks=offset)
-        assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
-
-
-def test_the_band_stop_is_not_floored_because_it_is_a_level() -> None:
-    # $100 per contract is 50 MNQ points and would bind on a 6-point stop if it applied.
-    trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, min_bracket_dollars=100.0)
-    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
-
-
-def test_a_band_narrow_enough_to_put_its_stop_at_the_fill_skips_the_entry() -> None:
-    """The refusal path every stop here shares: a stop at or through the price it protects is
-    not a stop order -- ``docs/nt8-fidelity.md`` §M18."""
-    assert run(FLAT, signal_at=[0], stop_mode=STOP_BAND, basis=100.0, stddev=0.0).empty
-    # A band exactly STOP_MIN_TICKS wide at the stop is the boundary, and it passes: 2 sigma
-    # of 0.125 is one tick.
-    assert not run(
-        FLAT,
-        signal_at=[0],
-        stop_mode=STOP_BAND,
-        basis=100.0,
-        stddev=0.125,
-        entry_std=1.0,
-        band_stop_std=1.0,
-        levels=(np.nan,),
-    ).empty
-
-
-def test_a_band_stop_at_or_inside_the_entry_threshold_is_refused() -> None:
-    for value in (0.0, -1.0):
-        with pytest.raises(ValueError, match="band_stop_std is how far past entry_std"):
-            ElasticBandParams(band_stop_std=value)
 
 
 def test_a_swing_stop_the_fill_has_already_passed_skips_the_entry() -> None:
@@ -480,50 +364,13 @@ def test_the_band_is_read_from_the_signal_bar_not_the_fill_bar() -> None:
     assert trades["target_price"].iloc[0] == pytest.approx(104.0)
 
 
-# -- the two rule-driven exits ---------------------------------------------------
+# -- the two rule-driven exits, both EXIT_SIGNAL --------------------------------
 
 
 def test_the_time_stop_leaves_at_the_next_open_once_the_hold_is_reached() -> None:
     trades = run(FLAT, signal_at=[0], levels=(np.nan,), max_hold_bars=3)
     # Filled on bar 1; bar 4 is three bars later, so the order goes in at its close.
     assert trades["exit_bar"].iloc[0] == 5
-    assert trades["exit_reason"].iloc[0] == "time_limit"
-
-
-def test_both_rule_driven_exits_may_be_enabled_at_once_and_stay_distinguishable() -> None:
-    """The reason each has its own exit code: they were mutually exclusive without it."""
-    trades = run(
-        FLAT,
-        signal_at=[0],
-        levels=(np.nan,),
-        extremes=94.0,
-        stop_mode=STOP_CATASTROPHE,
-        catastrophe_stop_ticks=80.0,
-        exit_on_invalidation=True,
-        max_hold_bars=3,
-    )
-    # The close never leaves the excursion, so only the hold limit can have fired.
-    assert trades["exit_bar"].iloc[0] == 5
-    assert trades["exit_reason"].iloc[0] == "time_limit"
-
-
-def test_the_invalidation_takes_a_bar_that_is_also_the_hold_limit() -> None:
-    trades = run(
-        [
-            (100.0, 100.5, 99.5, 100.0),  # 0: signal
-            (100.0, 100.5, 99.5, 100.0),  # 1: fill
-            (100.0, 100.5, 93.0, 93.5),  # 2: closes below the 94 extreme, and hold bar 1
-            *FLAT,
-        ],
-        signal_at=[0],
-        levels=(np.nan,),
-        extremes=94.0,
-        stop_mode=STOP_CATASTROPHE,
-        catastrophe_stop_ticks=80.0,
-        exit_on_invalidation=True,
-        max_hold_bars=1,
-    )
-    assert trades["exit_bar"].iloc[0] == 3
     assert trades["exit_reason"].iloc[0] == "signal"
 
 
@@ -748,536 +595,6 @@ def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
     )
 
 
-# -- what the signal bar itself looks like ----------------------------------------
-
-
-def candle_frame(close, seed):
-    """A bar frame with real bodies and wicks, which :func:`frame` deliberately has neither of.
-
-    Every random value is drawn per bar out of one array, so a prefix of a series is built
-    from the same numbers as the series -- which is what the no-lookahead tests compare.
-    """
-    close = np.asarray(close, dtype=np.float64)
-    jitter = np.random.default_rng(seed).uniform(0.25, 2.0, (close.size, 3))
-    open_ = np.concatenate(([close[0] - 1.0], close[:-1] + jitter[1:, 0] - 1.125))
-    index = pd.date_range("2024-01-02 19:00", periods=close.size, freq="1min", tz="UTC")
-
-    return pd.DataFrame(
-        {
-            "open": open_,
-            "high": np.maximum(open_, close) + jitter[:, 1],
-            "low": np.minimum(open_, close) - jitter[:, 2],
-            "close": close,
-            "volume": np.ones(close.size),
-            "trading_day": index.tz_convert("America/New_York").normalize().tz_localize(None),
-        },
-        index=index,
-    )
-
-
-def candle_dataset(close, params, seed=101):
-    grid = sweep.Grid.of(params, archetype=archetypes.ELASTICBAND)
-
-    return sweep.prepare_for(candle_frame(close, seed), grid)
-
-
-def shape_params(**kwargs):
-    """A parameter set on the Bollinger source, warmed up enough for the signal path."""
-    defaults = {"band_period": 20, "entry_std": 2.0, "bars_required_to_trade": 30}
-
-    return ElasticBandParams(**(defaults | kwargs))
-
-
-def walk(seed, periods=800, step=2.0):
-    rng = np.random.default_rng(seed)
-
-    return 18000.0 + np.cumsum(rng.normal(0.0, step, periods))
-
-
-def test_the_defaults_ask_nothing_at_all_of_the_signal_bar() -> None:
-    """The off value has to leave the signal exactly as it was, or every stored row moves."""
-    close = walk(31)
-    params = shape_params()
-    data = candle_dataset(close, params)
-    assert params.signal_shape == SHAPE_ANY
-    assert params.min_one_sided_bars == 0
-    assert np.array_equal(
-        elasticband_signal(data, params),
-        beyond_band(data.band_stretch(20), params),
-    )
-
-
-def test_a_reversal_requirement_keeps_only_bars_that_closed_back_towards_the_basis() -> None:
-    close = walk(37)
-    plain, turned = shape_params(), shape_params(signal_shape=SHAPE_REVERSAL)
-    data = candle_dataset(close, plain)
-    loose, tight = elasticband_signal(data, plain), elasticband_signal(data, turned)
-    stretch = data.band_stretch(20)
-    body = data.close - data.open
-    assert tight.any()
-    assert (tight <= loose).all()
-    assert (tight < loose).any()
-    # A long below the basis wants a green bar; a short at or above it wants a red one.
-    assert (body[tight & (stretch < 0.0)] > 0.0).all()
-    assert (body[tight & (stretch >= 0.0)] < 0.0).all()
-
-
-def test_a_doji_closes_neither_way_and_passes_the_reversal_requirement_on_neither_side() -> None:
-    open_ = np.array([10.0, 10.0, 10.0, 10.0])
-    close = np.array([10.0, 10.0, 11.0, 9.0])
-    direction = np.array([LONG, SHORT, LONG, SHORT], dtype=np.float64)
-    assert closed_towards_basis(open_, close, direction).tolist() == [False, False, True, True]
-
-
-def test_reclaiming_needs_both_a_new_extreme_against_the_fade_and_a_close_back_past_it() -> None:
-    """Bar 1 is the long reclaim, bar 2 the short one, and bar 3 sweeps a low but keeps falling."""
-    params = shape_params()
-    data = candle_dataset(np.array([11.0, 11.5, 11.0, 10.0]), params)
-    data.close = np.array([11.0, 11.5, 11.0, 10.0])
-    data.geometry.made_new_low = np.array([False, True, False, True])
-    data.geometry.made_new_high = np.array([False, False, True, False])
-    long_side = np.full(4, LONG, dtype=np.float64)
-    short_side = np.full(4, SHORT, dtype=np.float64)
-    assert swept_and_reclaimed(data, long_side).tolist() == [False, True, False, False]
-    # The short side reads the other extreme and the other sign of the close.
-    assert swept_and_reclaimed(data, short_side).tolist() == [False, False, True, False]
-
-
-def test_reclaiming_is_a_subset_of_the_bars_that_took_out_the_previous_extreme() -> None:
-    close = walk(41, periods=2000)
-    plain = shape_params()
-    reclaiming = shape_params(signal_shape=SHAPE_RECLAIM)
-    data = candle_dataset(close, plain)
-    loose, tight = elasticband_signal(data, plain), elasticband_signal(data, reclaiming)
-    direction = fade_direction(data.band_stretch(20))
-    swept = np.where(direction > 0.0, data.geometry.made_new_low, data.geometry.made_new_high)
-    assert tight.any()
-    assert (tight <= loose).all()
-    assert (tight < loose).any()
-    assert swept[tight].all()
-
-
-def test_the_rejection_requirement_measures_the_close_from_the_stretched_extreme() -> None:
-    """A long fades a low, so its close is measured up from the low; a short mirrors it."""
-    params = shape_params()
-    data = candle_dataset(np.array([12.0, 12.0, 18.0, 18.0]), params)
-    data.high = np.full(4, 20.0)
-    data.low = np.full(4, 10.0)
-    data.close = np.array([12.0, 12.0, 18.0, 18.0])
-    direction = np.array([LONG, SHORT, LONG, SHORT], dtype=np.float64)
-    # 12 is 20% up from the low and 80% down from the high; 18 is the mirror of it.
-    assert closed_off_extreme(data, direction, 0.5).tolist() == [False, True, True, False]
-
-
-def test_a_zero_range_bar_never_passes_the_rejection_requirement() -> None:
-    params = shape_params()
-    data = candle_dataset(np.full(4, 15.0), params)
-    data.high = np.full(4, 15.0)
-    data.low = np.full(4, 15.0)
-    data.close = np.full(4, 15.0)
-    direction = np.array([LONG, SHORT, LONG, SHORT], dtype=np.float64)
-    assert not closed_off_extreme(data, direction, 0.0).any()
-
-
-def test_a_deeper_rejection_fraction_keeps_a_subset_of_a_shallower_one() -> None:
-    close = walk(43)
-    shallow = shape_params(signal_shape=SHAPE_REJECTION, rejection_close_fraction=0.3)
-    deep = shape_params(signal_shape=SHAPE_REJECTION, rejection_close_fraction=0.7)
-    data = candle_dataset(close, shallow)
-    loose, tight = elasticband_signal(data, shallow), elasticband_signal(data, deep)
-    assert tight.any()
-    assert (tight <= loose).all()
-    assert (tight < loose).any()
-
-
-def test_the_one_sided_count_counts_bodies_running_with_the_extension() -> None:
-    params = shape_params()
-    data = candle_dataset(np.array([10.0, 9.0, 8.0, 9.5, 9.0]), params)
-    data.open = np.array([10.0, 10.0, 9.0, 8.0, 9.5])
-    data.close = np.array([10.0, 9.0, 8.0, 9.5, 9.0])
-    # Bodies, in order: flat, down, down, up, down.
-    down_side = np.full(5, LONG, dtype=np.float64)
-    up_side = np.full(5, SHORT, dtype=np.float64)
-    assert one_sided_bars(data, down_side, 3).tolist() == [0, 1, 2, 2, 2]
-    assert one_sided_bars(data, up_side, 3).tolist() == [0, 0, 0, 1, 1]
-
-
-def test_a_larger_one_sided_requirement_keeps_a_subset_of_a_smaller_one() -> None:
-    close = walk(47)
-    light = shape_params(min_one_sided_bars=4, one_sided_lookback=10)
-    heavy = shape_params(min_one_sided_bars=7, one_sided_lookback=10)
-    data = candle_dataset(close, light)
-    loose, tight = elasticband_signal(data, light), elasticband_signal(data, heavy)
-    assert tight.any()
-    assert (tight <= loose).all()
-    assert (tight < loose).any()
-
-
-def test_the_count_is_over_a_window_rather_than_over_an_unbroken_run() -> None:
-    """What separates it from ``min_bars_outside``: the bars need not be consecutive."""
-    close = walk(53)
-    windowed = shape_params(min_one_sided_bars=3, one_sided_lookback=6)
-    unbroken = shape_params(min_one_sided_bars=3, one_sided_lookback=3)
-    data = candle_dataset(close, windowed)
-    loose, tight = elasticband_signal(data, windowed), elasticband_signal(data, unbroken)
-    assert tight.any()
-    assert (tight <= loose).all()
-    assert (tight < loose).any()
-
-
-@pytest.mark.parametrize(
-    "params",
-    [
-        shape_params(signal_shape=SHAPE_REVERSAL),
-        shape_params(signal_shape=SHAPE_RECLAIM),
-        shape_params(signal_shape=SHAPE_REJECTION, rejection_close_fraction=0.6),
-        shape_params(min_one_sided_bars=5, one_sided_lookback=8),
-    ],
-)
-def test_every_signal_bar_gate_reads_only_bars_up_to_and_including_its_own(params) -> None:
-    """The property the archetype is worthless without, run once per gate that was added."""
-    close = walk(59)
-    full = elasticband_signal(candle_dataset(close, params), params)
-    for cut in (120, 455, 799):
-        prefix = elasticband_signal(candle_dataset(close[:cut], params), params)
-        assert np.array_equal(prefix, full[:cut])
-
-
-def test_an_unknown_signal_shape_is_refused_by_name() -> None:
-    with pytest.raises(ValueError, match="unknown signal_shape 9"):
-        ElasticBandParams(signal_shape=9)
-
-
-@pytest.mark.parametrize("fraction", [-0.1, 1.1])
-def test_a_rejection_fraction_outside_the_bar_is_refused(fraction) -> None:
-    with pytest.raises(ValueError, match=r"must be in \[0, 1\]"):
-        ElasticBandParams(rejection_close_fraction=fraction)
-
-
-def test_a_one_sided_window_of_no_bars_is_refused() -> None:
-    with pytest.raises(ValueError, match="one_sided_lookback must be >= 1"):
-        ElasticBandParams(one_sided_lookback=0)
-
-
-def test_a_negative_one_sided_requirement_is_refused() -> None:
-    with pytest.raises(ValueError, match="min_one_sided_bars must be >= 0"):
-        ElasticBandParams(min_one_sided_bars=-1)
-
-
-def test_a_one_sided_requirement_no_window_could_meet_is_refused() -> None:
-    with pytest.raises(ValueError, match="no bar can ever pass"):
-        ElasticBandParams(min_one_sided_bars=11, one_sided_lookback=10)
-
-
-def test_a_shaped_run_produces_a_valid_trade_log() -> None:
-    close = walk(61, periods=1200)
-    params = shape_params(
-        signal_shape=SHAPE_REJECTION,
-        rejection_close_fraction=0.4,
-        min_one_sided_bars=5,
-        one_sided_lookback=10,
-        commission_per_contract=1.5,
-        slippage_ticks=1.0,
-    )
-    log = run_elasticband(candle_dataset(close, params), params)
-    assert not log.empty
-    validate(log)
-
-
-# -- the VWAP band as the second source -------------------------------------------
-
-
-def vwap_params(**kwargs):
-    """A VWAP-source parameter set with the warm-up gate off unless a test sets it."""
-    defaults = {
-        "band_source": BAND_VWAP,
-        "entry_std": 2.0,
-        "vwap_min_session_bars": 0,
-        "bars_required_to_trade": 0,
-    }
-
-    return ElasticBandParams(**(defaults | kwargs))
-
-
-def test_the_vwap_source_reads_the_session_band_and_never_the_period_grid() -> None:
-    rng = np.random.default_rng(29)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
-    params = vwap_params()
-    data = dataset(close, params)
-    basis, stddev, stretch = elasticband.band_series(data, params)
-    assert basis.tolist() == data.vwap_band_basis().tolist()
-    assert stddev.tolist() == data.vwap_band_stddev().tolist()
-    assert stretch.tolist() == data.vwap_band_stretch().tolist()
-    # Nothing keyed by a period was built, so a period read would have raised.
-    assert data.band is None
-
-
-def test_the_two_sources_are_different_bands_rather_than_the_same_one_renamed() -> None:
-    rng = np.random.default_rng(31)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
-    bollinger = ElasticBandParams(band_period=20, entry_std=2.0, bars_required_to_trade=30)
-    vwap = vwap_params(bars_required_to_trade=30)
-    from_bollinger = elasticband_signal(dataset(close, bollinger), bollinger)
-    from_vwap = elasticband_signal(dataset(close, vwap), vwap)
-    assert from_bollinger.any()
-    assert from_vwap.any()
-    assert not np.array_equal(from_bollinger, from_vwap)
-
-
-def test_the_vwap_signal_fires_only_beyond_the_entry_threshold() -> None:
-    rng = np.random.default_rng(37)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
-    params = vwap_params(entry_std=2.0)
-    data = dataset(close, params)
-    signal = elasticband_signal(data, params)
-    assert signal.any()
-    assert (np.abs(data.vwap_band_stretch()[signal]) >= 2.0).all()
-
-
-def test_the_warm_up_gate_drops_the_bars_whose_session_is_too_young() -> None:
-    rng = np.random.default_rng(41)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
-    ungated = vwap_params()
-    gated = vwap_params(vwap_min_session_bars=60)
-    data = dataset(close, ungated)
-    loose, tight = elasticband_signal(data, ungated), elasticband_signal(data, gated)
-    age = data.vwap_band_age()
-    assert tight.any()
-    assert (tight <= loose).all()
-    assert (age[tight] >= 60).all()
-    dropped = loose & ~tight
-    assert dropped.any()
-    assert (age[dropped] < 60).all()
-
-
-def test_a_lagged_vwap_band_is_never_read_across_its_own_anchor() -> None:
-    # The lag is added to the requirement rather than applied to the counter, so the band a
-    # bar reads always belongs to the session that bar is in.
-    rng = np.random.default_rng(43)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
-    params = vwap_params(band_lag=3, vwap_min_session_bars=1)
-    data = dataset(close, params)
-    signal = elasticband_signal(data, params)
-    assert signal.any()
-    assert (data.vwap_band_age()[signal] >= 4).all()
-
-
-def test_the_vwap_signal_reads_only_bars_up_to_and_including_its_own() -> None:
-    """The same no-lookahead property as the Bollinger source, over the anchored window."""
-    rng = np.random.default_rng(47)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 800))
-    params = vwap_params(min_bars_outside=2, vwap_min_session_bars=10)
-    full = elasticband_signal(dataset(close, params), params)
-    for cut in (120, 455, 799):
-        assert np.array_equal(elasticband_signal(dataset(close[:cut], params), params), full[:cut])
-
-
-def test_a_vwap_run_produces_a_valid_trade_log() -> None:
-    rng = np.random.default_rng(53)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1200))
-    params = vwap_params(vwap_min_session_bars=20, max_hold_bars=10)
-    log = run_elasticband(dataset(close, params), params, MNQ)
-    assert not log.empty
-    assert log["exit_reason"].isin(set(EXIT_REASONS.values())).all()
-
-
-def test_an_unknown_band_source_is_refused_by_name() -> None:
-    with pytest.raises(ValueError, match=r"unknown band_source 7; use one of \[0, 1\]"):
-        ElasticBandParams(band_source=7)
-
-
-def test_a_negative_warm_up_is_refused() -> None:
-    with pytest.raises(ValueError, match="vwap_min_session_bars must be >= 0"):
-        ElasticBandParams(vwap_min_session_bars=-1)
-
-
-# -- which bar of an extension signals ---------------------------------------------
-
-
-def recovery_params(**kwargs):
-    """A VWAP-source recovery set, on the channel §M26.6's campaign runs."""
-    defaults = {
-        "band_source": BAND_VWAP,
-        "entry_std": 2.0,
-        "entry_trigger": TRIGGER_RECOVERY,
-        "vwap_min_session_bars": 10,
-        "bars_required_to_trade": 0,
-    }
-
-    return ElasticBandParams(**(defaults | kwargs))
-
-
-def test_the_default_trigger_is_the_bar_that_is_still_outside() -> None:
-    """The off value has to leave the signal exactly as it was, or every stored row moves."""
-    assert ElasticBandParams().entry_trigger == TRIGGER_EXTENDED
-    rng = np.random.default_rng(67)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
-    params = vwap_params()
-    data = dataset(close, params)
-    assert np.array_equal(
-        elasticband_signal(data, params),
-        beyond_band(data.vwap_band_stretch(), params),
-    )
-
-
-def test_the_recovery_trigger_fires_inside_the_band_after_a_run_outside_it() -> None:
-    rng = np.random.default_rng(71)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
-    params = recovery_params()
-    data = dataset(close, params)
-    signal = elasticband_signal(data, params)
-    stretch = data.vwap_band_stretch()
-    assert signal.any()
-    assert not signal[0]
-    # Back inside the band, and the bar before it was beyond it on the same side.
-    assert (np.abs(stretch[signal]) < 2.0).all()
-    previous = lagged(stretch, 1)[signal]
-    assert (np.abs(previous) >= 2.0).all()
-    assert (np.sign(previous) == np.sign(stretch[signal])).all()
-
-
-def test_the_two_triggers_can_never_fire_on_the_same_bar() -> None:
-    """One reads a bar beyond the threshold and the other a bar back inside it."""
-    rng = np.random.default_rng(73)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 900))
-    extended, recovery = vwap_params(), recovery_params(vwap_min_session_bars=0)
-    data = dataset(close, extended)
-    outside = elasticband_signal(data, extended)
-    inside = elasticband_signal(data, recovery)
-    assert outside.any()
-    assert inside.any()
-    assert not (outside & inside).any()
-
-
-def test_a_deeper_recovery_is_a_subset_of_a_shallower_one() -> None:
-    rng = np.random.default_rng(79)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 1200))
-    edge, deep = recovery_params(), recovery_params(recovery_fraction=0.5)
-    data = dataset(close, edge)
-    loose, tight = elasticband_signal(data, edge), elasticband_signal(data, deep)
-    stretch = data.vwap_band_stretch()
-    assert tight.any()
-    assert (tight <= loose).all()
-    assert (tight < loose).any()
-    assert (np.abs(stretch[tight]) <= 1.0).all()
-    dropped = loose & ~tight
-    assert (np.abs(stretch[dropped]) > 1.0).all()
-
-
-def test_the_band_edge_is_the_loosest_depth_and_the_edge_itself_still_fails() -> None:
-    stretch = np.array([-2.5, -2.0, -1.99, -1.0, 0.0, 1.0, 1.99, 2.0, 2.5])
-    params = ElasticBandParams(entry_std=2.0, entry_trigger=TRIGGER_RECOVERY)
-    passed = returned_inside(stretch, params).tolist()
-    assert passed == [False, False, True, True, False, True, True, False, False]
-
-
-def test_a_close_exactly_on_the_basis_recovers_on_neither_side() -> None:
-    """One sign multiplier means the long and short arms have to be the same rule."""
-    stretch = np.array([-0.5, 0.0, 0.5])
-    half = ElasticBandParams(entry_std=2.0, entry_trigger=TRIGGER_RECOVERY, recovery_fraction=0.5)
-    assert returned_inside(stretch, half).tolist() == [True, False, True]
-
-
-def test_the_run_a_recovery_entry_reads_is_the_one_that_ended_at_the_bar_before() -> None:
-    outside = np.array([False, True, True, True, False, False, True, False])
-    assert outside_run_length(outside, ends_before=False).tolist() == [0, 1, 2, 3, 0, 0, 1, 0]
-    assert outside_run_length(outside, ends_before=True).tolist() == [0, 0, 1, 2, 3, 0, 0, 1]
-
-
-def test_a_longer_run_requirement_still_narrows_the_recovery_trigger() -> None:
-    """The one entry here under which the run length is not a duplicate of the gate beside it."""
-    rng = np.random.default_rng(83)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 1200))
-    one, three = recovery_params(), recovery_params(min_bars_outside=3)
-    data = dataset(close, one)
-    first, third = elasticband_signal(data, one), elasticband_signal(data, three)
-    assert third.any()
-    assert (third <= first).all()
-    assert (third < first).any()
-
-
-def test_the_ceiling_gates_the_bar_the_extension_was_measured_on() -> None:
-    """Under the recovery trigger the signal bar is inside the band, so the ceiling reads i-1."""
-    rng = np.random.default_rng(89)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 1200))
-    base, capped = recovery_params(), recovery_params(max_entry_std=2.5)
-    data = dataset(close, base)
-    loose, tight = elasticband_signal(data, base), elasticband_signal(data, capped)
-    stretch = data.vwap_band_stretch()
-    dropped = loose & ~tight
-    assert tight.any()
-    assert dropped.any()
-    assert (tight <= loose).all()
-    # It is the bar the run ended on that was too far out, never the signal bar itself.
-    assert (np.abs(lagged(stretch, 1)[dropped]) > 2.5).all()
-    assert (np.abs(stretch[dropped]) < 2.0).all()
-
-
-def test_the_recovery_signal_reads_only_bars_up_to_and_including_its_own() -> None:
-    """The property the archetype is worthless without, over the trigger that looks back."""
-    rng = np.random.default_rng(97)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 800))
-    params = recovery_params(min_bars_outside=2, recovery_fraction=0.75)
-    full = elasticband_signal(dataset(close, params), params)
-    for cut in (120, 455, 799):
-        assert np.array_equal(elasticband_signal(dataset(close[:cut], params), params), full[:cut])
-
-
-def test_the_excursion_stop_hangs_off_the_run_that_ended_rather_than_off_nothing() -> None:
-    """``run_extreme`` reads ``nan`` inside the band, which would refuse every trade silently."""
-    rng = np.random.default_rng(101)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
-    params = recovery_params(stop_mode=STOP_EXCURSION, max_hold_bars=10)
-    log = run_elasticband(dataset(close, params), params)
-    assert not log.empty
-    assert np.isfinite(log["initial_stop"]).all()
-    longs = log[log["direction"] == LONG]
-    assert not longs.empty
-    assert (longs["initial_stop"] < longs["entry_price"]).all()
-
-
-def test_the_band_stop_reads_the_same_band_under_both_triggers() -> None:
-    """The three reads that had to move a bar back for the recovery trigger are the run's;
-    the band stop is a level on the channel itself, so it is defined on a signal bar inside
-    the band as much as on one outside it -- ``docs/nt8-fidelity.md`` §M26.8."""
-    rng = np.random.default_rng(107)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
-    params = recovery_params(stop_mode=STOP_BAND, band_stop_std=1.0, max_hold_bars=10)
-    data = dataset(close, params)
-    log = run_elasticband(data, params)
-    assert not log.empty
-    assert np.isfinite(log["initial_stop"]).all()
-    basis, stddev, _ = elasticband.band_series(data, params)
-    signal_bars = log["entry_bar"].to_numpy(dtype=int) - 1
-    expected = basis[signal_bars] - log["direction"].to_numpy() * 3.0 * stddev[signal_bars]
-    assert log["initial_stop"].to_numpy() == pytest.approx(expected)
-
-
-def test_a_recovery_run_produces_a_valid_trade_log() -> None:
-    rng = np.random.default_rng(103)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
-    params = recovery_params(
-        recovery_fraction=0.75,
-        max_hold_bars=10,
-        commission_per_contract=1.5,
-        slippage_ticks=1.0,
-    )
-    log = run_elasticband(dataset(close, params), params)
-    assert not log.empty
-    validate(log)
-
-
-def test_an_unknown_entry_trigger_is_refused_by_name() -> None:
-    with pytest.raises(ValueError, match="unknown entry_trigger 5"):
-        ElasticBandParams(entry_trigger=5)
-
-
-@pytest.mark.parametrize("fraction", [-0.1, 0.0, 1.1])
-def test_a_recovery_depth_outside_the_band_is_refused(fraction) -> None:
-    with pytest.raises(ValueError, match=r"must be in \(0, 1\]"):
-        ElasticBandParams(recovery_fraction=fraction)
-
-
 # -- the archetype end to end ---------------------------------------------------
 
 
@@ -1289,27 +606,10 @@ def test_a_full_run_produces_a_valid_trade_log_on_both_instruments() -> None:
     mnq = run_elasticband(data, params, MNQ)
     nq = run_elasticband(data, params, NQ)
     assert not mnq.empty
-    assert mnq["exit_reason"].isin(set(EXIT_REASONS.values())).all()
+    assert mnq["exit_reason"].isin({"stop", "target", "signal", "session_close", "end_of_data"}).all()
     # Identical geometry, ten times the money -- instruments.py is the only difference.
     assert nq["entry_price"].tolist() == mnq["entry_price"].tolist()
     assert nq["gross_pnl"].to_numpy() == pytest.approx(10.0 * mnq["gross_pnl"].to_numpy())
-
-
-def test_a_band_stop_run_produces_a_valid_trade_log_with_every_stop_beyond_its_fill() -> None:
-    rng = np.random.default_rng(109)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
-    params = vwap_params(
-        stop_mode=STOP_BAND,
-        band_stop_std=0.5,
-        max_hold_bars=10,
-        commission_per_contract=1.5,
-        slippage_ticks=1.0,
-    )
-    log = run_elasticband(dataset(close, params), params)
-    assert not log.empty
-    validate(log)
-    adverse = log["direction"].to_numpy() * (log["entry_price"] - log["initial_stop"]).to_numpy()
-    assert (adverse >= MNQ.tick_size).all()
 
 
 def test_the_registry_carries_it_as_tier_one_only_with_both_tuples_off_the_axes() -> None:

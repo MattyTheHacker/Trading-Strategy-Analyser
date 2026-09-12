@@ -22,22 +22,23 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
 
-from nqbt import notes, paths
+from nqbt import paths
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from logging import Logger
     from pathlib import Path
 
     import pandas as pd
 
-logger = logging.getLogger(__name__)
+logger: Logger = logging.getLogger(__name__)
 
 
 class ResultsError(ValueError):
     """Raised when a frame cannot be stored without losing something it carries."""
 
 
-AXIS_COLUMNS: dict[str, str] = {
+AXIS_COLUMNS: Mapping[str, str] = {
     "strategy": "VARCHAR",
     "resolution": "BIGINT",
     "contract": "VARCHAR",
@@ -49,7 +50,7 @@ On **both** tables: on ``sweeps`` to describe the run, on ``combos`` so a query 
 group without a join. Migrated explicitly, unlike a new statistic -- ``docs/roadmap.md`` §M17.
 """
 
-NULL_MEANS: dict[str, str] = {
+NULL_MEANS: Mapping[str, str] = {
     "strategy": "unrecorded -- written before the axis columns existed",
     "resolution": "unrecorded -- written before the axis columns existed",
     "contract": "the spliced continuous series, which is not any one contract",
@@ -99,7 +100,7 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
     frame rather than declared. Here rather than in :func:`_append_or_create` so there is one
     migration in one place.
     """
-    columns: dict[str, dict[str, str]] = {
+    columns: dict[str, Mapping[str, str]] = {
         "sweeps": {**AXIS_COLUMNS, "batch_id": "BIGINT"},
         "combos": AXIS_COLUMNS,
     }
@@ -142,9 +143,8 @@ def next_batch_id(db_path: Path = paths.SWEEPS_DB) -> int:
         con.close()
 
 
-def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has to state
+def save_sweep(  # noqa: PLR0913, PLR0917 - each keyword is a column the stored row has to state
     results: pd.DataFrame,
-    *,
     root: str,
     instrument: str,
     bars: pd.DataFrame,
@@ -216,7 +216,6 @@ def save_sweep(  # noqa: PLR0913 - each keyword is a column the stored row has t
 
 def _tag_axes(
     results: pd.DataFrame,
-    *,
     strategy: str | None,
     resolution: int | None,
     contract: str | None,
@@ -255,11 +254,7 @@ def _describe(con: duckdb.DuckDBPyConnection, relation: str) -> dict[str, str]:
     return {str(row[0]): str(row[1]) for row in con.execute(f"DESCRIBE {relation}").fetchall()}
 
 
-def _lossy_columns(
-    con: duckdb.DuckDBPyConnection,
-    stored: Mapping[str, str],
-    incoming: Mapping[str, str],
-) -> list[str]:
+def _lossy_columns(con: duckdb.DuckDBPyConnection, stored: Mapping[str, str], incoming: Mapping[str, str]) -> list[str]:
     """Which shared columns hold a value the stored column's type would not give back.
 
     A round trip through both types, so this reports *measured* loss rather than a rule about
@@ -283,12 +278,7 @@ def _lossy_columns(
     return lossy
 
 
-def _widen(
-    con: duckdb.DuckDBPyConnection,
-    table: str,
-    stored: Mapping[str, str],
-    incoming: Mapping[str, str],
-) -> None:
+def _widen(con: duckdb.DuckDBPyConnection, table: str, stored: Mapping[str, str], incoming: Mapping[str, str]) -> None:
     """Add the columns the frame carries and the table does not, leaving stored rows null."""
     for name, sql_type in incoming.items():
         if name in stored:
@@ -340,7 +330,6 @@ def save_trades(
     sweep_id: int,
     combo_id: int,
     db_path: Path = paths.SWEEPS_DB,
-    *,
     replace: bool = False,
 ) -> None:
     """Store one combination's trade log, for a shortlisted candidate worth inspecting.
@@ -363,126 +352,6 @@ def save_trades(
         _append_or_create(con, "trades", tagged)
     finally:
         con.close()
-
-
-CUT_PREFIX = "cut_"
-"""What the thresholds an annotation was labelled at are stored under.
-
-An annotation is meaningless without them: the same trades cut at two different pairs are two
-different populations, and a query that mixed them would report one -- ``docs/roadmap.md``
-§M27.8, where a whole volume ranking turned out to be decided by its cut.
-"""
-
-COMBO_PREFIX = "combo_"
-"""What a combination's own columns are prefixed with in :data:`TRADE_VIEW`.
-
-``net_pnl`` means the leg's on ``trades`` and the whole combination's on ``combos``, so the
-join needs them told apart. Prefixing every one of them also keeps the provenance visible in
-the column name, which matters because a combination's statistics are **not** properties of
-the trade beside them.
-"""
-
-TRADE_VIEW = "trade_review"
-"""The view joining a trade, the context at its bars, and the configuration that took it."""
-
-_ANNOTATION_KEYS = ("sweep_id", "combo_id", "trade_id")
-
-
-def save_annotation(
-    annotation: pd.DataFrame,
-    sweep_id: int,
-    combo_id: int,
-    thresholds: Mapping[str, float | None],
-    db_path: Path = paths.SWEEPS_DB,
-    *,
-    replace: bool = False,
-) -> None:
-    """Store one combination's per-trade market context, stamped with the cut it was labelled at.
-
-    ``annotation`` is an :attr:`nqbt.annotate.Annotation.frame`, indexed by ``trade_id``, and
-    ``thresholds`` is the :class:`nqbt.annotate.LabelThresholds` it was built with as a mapping
-    -- required rather than defaulted, because a review has to be able to state where it cut.
-
-    A fourth door onto the evaluation path, so it refuses free text exactly as
-    :func:`nqbt.annotate.annotate_trades`, :func:`nqbt.review.review` and
-    :func:`nqbt.guard.guard` do -- a note reaching a column a query can group by is the
-    circular finding ``docs/roadmap.md`` §M11.5 exists to prevent.
-    """
-    notes.check_excluded(annotation, what="an annotation being stored")
-    con: duckdb.DuckDBPyConnection = connect(db_path)
-    try:
-        if replace and _table_exists(con, "annotations"):
-            con.execute(
-                "DELETE FROM annotations WHERE sweep_id = ? AND combo_id = ?",
-                [sweep_id, combo_id],
-            )
-
-        tagged: pd.DataFrame = annotation.reset_index()
-        for name, value in thresholds.items():
-            tagged[f"{CUT_PREFIX}{name}"] = value
-
-        tagged.insert(0, "combo_id", combo_id)
-        tagged.insert(0, "sweep_id", sweep_id)
-        _append_or_create(con, "annotations", tagged)
-    finally:
-        con.close()
-
-
-def create_trade_view(db_path: Path = paths.SWEEPS_DB) -> str:
-    """Create or replace :data:`TRADE_VIEW`, and return the SQL it was defined as.
-
-    One row per leg, carrying the context at its bars and the parameters of the combination
-    that took it, so filtering trades is a query rather than a Python session. The combination's
-    columns are prefixed :data:`COMBO_PREFIX`; an annotation column the trade log already
-    carries is dropped, because the log's is the one the producer wrote.
-
-    **The parameters are a filter and never a ranking.** Two combinations differing in one axis
-    share their entries, so grouping these rows by a parameter counts the same trade many times;
-    ``tools/campaign_report.py``'s ``axis_influence`` is where that comparison belongs.
-    """
-    con: duckdb.DuckDBPyConnection = connect(db_path)
-    try:
-        wanted: tuple[str, ...] = ("trades", "annotations", "combos")
-        missing: list[str] = [name for name in wanted if not _table_exists(con, name)]
-        if missing:
-            msg: str = (
-                f"cannot build {TRADE_VIEW}: {missing} not in this database. Run "
-                f"tools/campaign_shortlist.py for the trades and tools/campaign_annotate.py "
-                f"for the annotations."
-            )
-            raise ResultsError(msg)
-
-        sql: str = _trade_view_sql(con)
-        con.execute(f"CREATE OR REPLACE VIEW {TRADE_VIEW} AS {sql}")
-
-        return sql
-    finally:
-        con.close()
-
-
-def _trade_view_sql(con: duckdb.DuckDBPyConnection) -> str:
-    """Build the join, naming every column explicitly so a collision cannot resolve silently."""
-    logged: dict[str, str] = _describe(con, "trades")
-    annotated: dict[str, str] = _describe(con, "annotations")
-    combined: dict[str, str] = _describe(con, "combos")
-    skip: set[str] = set(_ANNOTATION_KEYS) | set(logged)
-    selected: list[str] = [
-        "t.*",
-        *(f"a.{_quoted(name)}" for name in annotated if name not in skip),
-        *(
-            f"c.{_quoted(name)} AS {_quoted(COMBO_PREFIX + name)}"
-            for name in combined
-            if name not in {"sweep_id", "combo_id"}
-        ),
-    ]
-
-    joins: str = (
-        "FROM trades t "
-        "JOIN annotations a USING (sweep_id, combo_id, trade_id) "
-        "JOIN combos c USING (sweep_id, combo_id)"
-    )
-
-    return f"SELECT {', '.join(selected)} {joins}"
 
 
 def query(sql: str, db_path: Path = paths.SWEEPS_DB) -> pd.DataFrame:

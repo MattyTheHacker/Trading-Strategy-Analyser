@@ -53,7 +53,6 @@ def pullbackandgo_legs(
     data: Dataset,
     params: PullBackAndGoParams,
     instrument: Instrument = MNQ,
-    *,
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -94,7 +93,6 @@ def pullbackandgo_legs(
             ratchet_lag=params.ratchet_lag,
             ratchet_offset_ticks=float(params.ratchet_offset_ticks),
             block_entry_at_session_close=params.block_entry_at_session_close,
-            max_hold_bars=params.max_hold_bars,
             direction=trades.LONG,
         ),
         out,
@@ -110,7 +108,6 @@ def run_pullbackandgo(
     data: Dataset,
     params: PullBackAndGoParams,
     instrument: Instrument = MNQ,
-    *,
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
@@ -119,10 +116,10 @@ def run_pullbackandgo(
 
     return trades.validate(
         trades.trades_to_frame(
-            legs.matrix,
-            legs.count,
-            data.index if with_times else None,
+            matrix=legs.matrix,
+            count=legs.count,
             instrument=instrument.symbol,
+            index=data.index if with_times else None,
             source="sim",
         ),
     )

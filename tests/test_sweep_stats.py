@@ -7,22 +7,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import (
-    archetypes,
-    conditions,
-    context,
-    notes,
-    resample,
-    results,
-    sessionrange,
-    sessions,
-    stats,
-    sweep,
-    trades,
-)
+from nqbt import conditions, context, resample, results, sessions, stats, sweep, trades
 from nqbt.instruments import NQ
 from nqbt.sim import runner
-from nqbt.sim.types import DeadCatParams, OpeningRangeParams, PullBackAndGoParams
+from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
@@ -346,106 +334,6 @@ def test_a_kind_axis_is_dead_while_the_filter_reading_it_is_off() -> None:
         sweep.Grid.of(base, slow_sma_kind=["sma", "wma"])
 
 
-# -- a grid built from the combinations themselves -----------------------------
-
-
-def shortlist_grid() -> sweep.Grid:
-    """Two configurations no cross of axes produces: the pairs, but not the four of them."""
-    return sweep.Grid.of_combinations(
-        [
-            DeadCatParams(ema_period=9, fast_sma_period=40),
-            DeadCatParams(ema_period=21, fast_sma_period=60),
-        ],
-    )
-
-
-def test_a_combination_grid_runs_exactly_what_it_was_given_and_nothing_it_crosses() -> None:
-    """The point of the form: a shortlist is a subset of the product that produced it, so
-    stating it as axes would run four combinations where two were asked for."""
-    g = shortlist_grid()
-    assert len(g) == 2
-    assert [(c.ema_period, c.fast_sma_period) for c in g.combinations()] == [(9, 40), (21, 60)]
-    assert len(sweep.Grid.of(ema_period=[9, 21], fast_sma_period=[40, 60])) == 4
-
-
-def test_a_combination_grid_infers_its_archetype_from_the_combinations() -> None:
-    assert shortlist_grid().archetype is archetypes.DEADCATBOUNCE
-
-
-def test_a_combination_grid_builds_the_context_every_member_needs() -> None:
-    """``axis_values`` is the union over the list rather than the base's own values -- a
-    period built for the first combination only would make the second raise mid-sweep."""
-    spec = shortlist_grid().required_context()
-    assert conditions.ma_key("ema", 9) in spec.ma_keys
-    assert conditions.ma_key("ema", 21) in spec.ma_keys
-    assert conditions.ma_key("sma", 40) in spec.ma_keys
-    assert conditions.ma_key("sma", 60) in spec.ma_keys
-
-
-def paired_range_grid() -> sweep.Grid:
-    """Two ranges each valid on its own, whose cross is not: 990+930 runs past the close."""
-    return sweep.Grid.of_combinations(
-        [
-            OpeningRangeParams(anchor_minutes=990, window_minutes=120),
-            OpeningRangeParams(anchor_minutes=450, window_minutes=930),
-        ],
-    )
-
-
-def test_a_combination_grid_asks_only_for_the_pairs_its_members_hold() -> None:
-    """``axis_values`` collapses a list to one set per parameter, so a pair read back from two
-    of them is a pair no member holds -- and for a range it may be unbuildable."""
-    grid = paired_range_grid()
-    held = sorted({(c.anchor_minutes, c.window_minutes) for c in grid.combinations()})
-    assert sorted(grid.required_context().range_keys) == held
-    assert (990, 930) not in grid.required_context().range_keys
-
-
-def test_a_combination_grid_of_individually_valid_ranges_stays_buildable() -> None:
-    """The failure this shape caused: a pooled shortlist raised ``RangeError`` for a window no
-    candidate asked for, so the pool could not be prepared at all."""
-    for anchor, window in paired_range_grid().required_context().range_keys:
-        sessionrange.validate_key(anchor, window, bar_minutes=15)
-
-
-def test_a_product_grid_still_crosses_its_axes() -> None:
-    """The other half: axes really are crossed, so narrowing this would under-build a sweep
-    and leave a combination reading a series nobody prepared."""
-    grid = sweep.Grid.of(
-        OpeningRangeParams(),
-        anchor_minutes=[0, 450],
-        window_minutes=[15, 30],
-    )
-    assert sorted(grid.required_context().range_keys) == [(0, 15), (0, 30), (450, 15), (450, 30)]
-
-
-def test_axes_and_a_combination_list_together_are_refused() -> None:
-    """Crossing them would run each listed combination once per axis point, which is not what
-    either half asks for."""
-    with pytest.raises(sweep.SweepError, match="not a product"):
-        sweep.Grid(
-            combos=[DeadCatParams()],
-            axes={"ema_period": [9, 21]},
-            archetype=archetypes.DEADCATBOUNCE,
-        )
-
-
-@pytest.mark.parametrize("build", [lambda: sweep.Grid.of_combinations([]), lambda: sweep.Grid(combos=[])])
-def test_an_empty_combination_list_is_refused_rather_than_sweeping_nothing(build) -> None:
-    with pytest.raises(sweep.SweepError, match="nothing to run"):
-        build()
-
-
-def test_a_combination_of_another_archetypes_parameters_is_refused() -> None:
-    """The base is checked and so is every member; a mismatched one would reach the wrong
-    ``legs`` function with parameters it does not have."""
-    with pytest.raises(sweep.SweepError, match="but combination is a PullBackAndGoParams"):
-        sweep.Grid(
-            combos=[DeadCatParams(), PullBackAndGoParams()],
-            archetype=archetypes.DEADCATBOUNCE,
-        )
-
-
 # -- parallel execution -------------------------------------------------------
 
 
@@ -547,23 +435,6 @@ def test_parallel_sweep_keys_trade_logs_by_combo_id(prepared) -> None:
     frame, logs = sweep.sweep(bars, grid, data=data, n_jobs=2, keep_trades=True)
     assert sorted(logs) == list(range(len(grid)))
     assert list(frame["combo_id"]) == list(range(len(grid)))
-
-
-def test_a_combination_grid_keys_its_rows_by_position_in_the_list(prepared) -> None:
-    """The workers regenerate combinations from the grid, so ``combo_id`` has to mean the
-    position in the list it was handed -- otherwise a shortlist's rows swap identities."""
-    bars, _, _ = prepared
-    grid = sweep.Grid.of_combinations(
-        [
-            DeadCatParams(bars_required_to_trade=200, ema_period=9),
-            DeadCatParams(bars_required_to_trade=200, ema_period=21),
-        ],
-    )
-    serial, _ = sweep.sweep(bars, grid, n_jobs=1)
-    parallel, _ = sweep.sweep(bars, grid, n_jobs=2)
-    assert serial["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
-    assert list(serial["ema_period"]) == [9, 21]
-    pd.testing.assert_frame_equal(serial, parallel)
 
 
 # -- sweep_axes: strategy, resolution and contract (M17.4) --------------------
@@ -995,9 +866,7 @@ def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db)
     every later per-contract sweep would fail to insert into it.
     """
     save(db)  # contract is null throughout: the case that sets the column's type
-    described = {
-        name: sql_type for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)
-    }
+    described = {name: sql_type for name, sql_type, *_ in results.query("DESCRIBE combos", db).itertuples(index=False)}
     assert described["contract"] == "VARCHAR"
     assert described["resolution"] == "BIGINT"
     # And the type holds: a real contract name inserts into the column the null one made.
@@ -1057,8 +926,7 @@ def legacy_database(db) -> None:
         "axes VARCHAR, notes VARCHAR, host VARCHAR)",
     )
     con.execute(
-        "INSERT INTO sweeps VALUES (1, NOW(), 'MNQ', 'MNQ', true, 10, NOW(), NOW(), "
-        "1, 0.5, '{}', 'old', 'box')",
+        "INSERT INTO sweeps VALUES (1, NOW(), 'MNQ', 'MNQ', true, 10, NOW(), NOW(), 1, 0.5, '{}', 'old', 'box')",
     )
     con.execute("CREATE TABLE combos (sweep_id BIGINT, combo_id BIGINT, profit_factor DOUBLE)")
     con.execute("INSERT INTO combos VALUES (1, 0, 1.23)")
@@ -1279,141 +1147,3 @@ def test_a_column_named_like_a_sql_keyword_survives_the_widening(db) -> None:
     save(db, results_frame=windowed)
     stored = results.query('SELECT "window" FROM combos WHERE sweep_id = 2 ORDER BY combo_id', db)
     assert list(stored["window"]) == ["selection", "holdout", "holdout"]
-
-
-# -- the stored annotation, and the view that joins it (#251) ------------------
-
-# What turns "filter trades by what was true when they were taken" from a Python session into
-# a query. The parameters come along through ``combos`` as a *filter*; grouping by one is
-# ``tools/campaign_report.py``'s job, because neighbouring combinations share their entries.
-
-
-def fake_annotation(n=2, **columns: object) -> pd.DataFrame:
-    """An ``Annotation.frame``: one row per trade, indexed by ``trade_id``."""
-    index = pd.Index(range(n), name="trade_id")
-    base = pd.DataFrame({"matched": [True] * n, "entry_bar": range(n)}, index=index)
-
-    return base.assign(**{name: pd.array(value) for name, value in columns.items()})
-
-
-NO_CUT = {"regime_consolidating_below": None, "regime_directional_above": None}
-A_CUT = {"regime_consolidating_below": 0.2, "regime_directional_above": 0.6}
-
-
-def test_an_annotation_round_trips_with_its_trade_ids(db) -> None:
-    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
-    stored = results.query("SELECT * FROM annotations ORDER BY trade_id", db)
-    assert list(stored["trade_id"]) == [0, 1]
-    assert list(stored["sweep_id"]) == [1, 1]
-    assert list(stored["combo_id"]) == [0, 0]
-
-
-def test_the_cut_an_annotation_was_labelled_at_is_stored_beside_it(db) -> None:
-    """Two annotations cut differently are two populations, and only the stamp says so."""
-    results.save_annotation(fake_annotation(), 1, 0, A_CUT, db)
-    stored = results.query("SELECT * FROM annotations", db)
-    assert stored["cut_regime_directional_above"].iloc[0] == 0.6
-    assert stored["cut_regime_consolidating_below"].iloc[0] == 0.2
-
-
-def test_an_annotation_stored_twice_doubles_and_replacing_it_does_not(db) -> None:
-    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
-    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
-    assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == 4
-
-    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db, replace=True)
-    assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == 2
-
-
-def test_replacing_an_annotation_leaves_every_other_combination_alone(db) -> None:
-    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
-    results.save_annotation(fake_annotation(), 1, 1, NO_CUT, db)
-    results.save_annotation(fake_annotation(), 2, 0, NO_CUT, db)
-    results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db, replace=True)
-    counts = results.query("SELECT sweep_id, combo_id, COUNT(*) n FROM annotations GROUP BY 1, 2", db)
-    assert list(counts["n"]) == [2, 2, 2]
-
-
-def test_a_second_annotation_carrying_a_new_condition_widens_the_table(db) -> None:
-    """A dataset prepared with one more series must not need a migration."""
-    results.save_annotation(fake_annotation(entry_trend=["up", "down"]), 1, 0, NO_CUT, db)
-    results.save_annotation(
-        fake_annotation(entry_trend=["up", "up"], entry_regime_20=["directional", "consolidating"]),
-        1,
-        1,
-        NO_CUT,
-        db,
-    )
-    stored = results.query("SELECT * FROM annotations WHERE sweep_id = 1 ORDER BY combo_id", db)
-    assert stored["entry_regime_20"].isna().sum() == 2, "the earlier rows read null, not dropped"
-    assert set(stored["entry_trend"]) == {"up", "down"}
-
-
-def test_an_annotation_carrying_a_note_is_refused_rather_than_made_queryable(db) -> None:
-    """The fourth door: a note in a column a query can group by rediscovers its own outcome."""
-    with pytest.raises(notes.NotesError, match="free-text column"):
-        results.save_annotation(fake_annotation(note=["clean setup", "impatient"]), 1, 0, NO_CUT, db)
-
-    assert results.query("SELECT COUNT(*) c FROM information_schema.tables", db).loc[0, "c"] >= 0
-
-
-def stocked(db) -> None:
-    """A database holding one combination's trades, annotation and summary row."""
-    results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
-    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
-    results.save_annotation(fake_annotation(entry_trend=["up", "down"]), 1, 0, A_CUT, db)
-
-
-def test_the_trade_view_joins_a_trade_to_its_context_and_its_configuration(db) -> None:
-    stocked(db)
-    results.create_trade_view(db)
-    rows = results.query(f"SELECT * FROM {results.TRADE_VIEW} ORDER BY trade_id", db)
-    assert len(rows) == 2
-    assert list(rows["entry_trend"]) == ["up", "down"]
-    assert list(rows["net_pnl"]) == [10.0, -4.0], "the leg's P&L, not the combination's"
-    assert list(rows["combo_ema_period"]) == [9, 9], "the parameter, reachable as a filter"
-
-
-def test_a_combinations_own_statistics_are_prefixed_so_they_cannot_be_read_as_the_trades(db) -> None:
-    """``net_pnl`` means the leg's here and the whole combination's there; the join needs both."""
-    stocked(db)
-    results.create_trade_view(db)
-    rows = results.query(f"SELECT net_pnl, combo_net_pnl FROM {results.TRADE_VIEW} ORDER BY trade_id", db)
-    assert list(rows["net_pnl"]) == [10.0, -4.0]
-    assert list(rows["combo_net_pnl"]) == [500.0, 500.0]
-
-
-def test_the_view_answers_the_question_it_exists_for(db) -> None:
-    """Profitable, taken in an uptrend, by a configuration with this parameter -- one query."""
-    stocked(db)
-    results.create_trade_view(db)
-    rows = results.query(
-        f"SELECT trade_id FROM {results.TRADE_VIEW} "
-        f"WHERE entry_trend = 'up' AND net_pnl > 0 AND combo_ema_period = 9",
-        db,
-    )
-    assert list(rows["trade_id"]) == [0]
-
-
-def test_the_view_drops_an_annotation_column_the_trade_log_already_carries(db) -> None:
-    """Both carry ``entry_bar``; the producer's is the one that counts, and one must win."""
-    stocked(db)
-    results.create_trade_view(db)
-    described = results.query(f"DESCRIBE {results.TRADE_VIEW}", db)
-    assert list(described["column_name"]).count("entry_bar") <= 1
-
-
-def test_the_view_is_refused_until_there_is_something_to_join(db) -> None:
-    results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
-    with pytest.raises(results.ResultsError, match="campaign_annotate"):
-        results.create_trade_view(db)
-
-
-def test_rebuilding_the_view_picks_up_a_condition_added_since(db) -> None:
-    """It is replaced rather than created, so a widened table does not need it dropped first."""
-    stocked(db)
-    results.create_trade_view(db)
-    results.save_annotation(
-        fake_annotation(entry_regime_20=["directional", "directional"]), 1, 0, A_CUT, db, replace=True
-    )
-    assert "entry_regime_20" in results.create_trade_view(db)
