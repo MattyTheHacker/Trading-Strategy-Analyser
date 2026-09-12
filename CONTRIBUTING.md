@@ -277,7 +277,9 @@ Why ten verbs rather than a mood check: mapping every subject in this repository
 - **State how it was verified, and keep it to a line.** Name what was run and what it returned — `trade-log gate: BYTE-FOR-BYTE IDENTICAL across all 14 files`, `tools/reconcile_nt8.py` against the MNQ 03-24 export: `RECONCILED`. A claim carries its number; it does not carry the transcript that produced it. **Raw output — the gate's fourteen lines, a coverage table, a reconciliation's per-field agreement — belongs in `docs/` or nowhere**, because the body lands on `main` as the commit description and a pasted run cannot be re-checked from there anyway.
 - **Repeat the closing keyword for every issue.** `Closes #1, #2` links only `#1`. Write `Closes #1. Closes #2.` and check `closingIssuesReferences` on the pull request before merging. Alternatively, link the issues manually via the GUI.
 - **Do not quote figures that go stale.** Consider if the number is even needed in documentation or if it's better being generated or retrieved at the time it's needed. If it's definitely needed, point at the document that holds the live number.
-- **Branch off `main` and never commit to it directly.**
+- **Branch off `main` and never commit to it directly.** This is enforced by branch protection rules at the GitHub level.
+- **All PRs should target `main` as the base.** Where one PR depends on another, this should be stated in a comment or the PR body.
+- **One piece of work is one pull request.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`.
 - **Use labels to accurately describe what areas the PR covers.**
 - **PRs should ideally be as minimal as possible to make the review easier.**
 
