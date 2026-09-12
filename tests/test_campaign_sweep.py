@@ -121,6 +121,7 @@ from tools.campaign_sweep import (
     VOLUME_ROLLING_BARS,
     VOLUME_TAILS,
     Cuts,
+    RegimeCut,
     Variant,
     VolumeCut,
     calibrate,
@@ -331,7 +332,10 @@ def test_planned_combinations_multiplies_the_axes_out() -> None:
 
 # -- the calibrated regime stratum ---------------------------------------------------------
 
-FITTED = {5: (0.10, 0.70), 20: (0.05, 0.40)}
+FITTED = (
+    RegimeCut(5, 0.10, 0.70, REGIME_QUANTILES),
+    RegimeCut(20, 0.05, 0.40, REGIME_QUANTILES),
+)
 """A calibration with two lookbacks, so a cell that ignored its own row would be visible."""
 
 
@@ -365,16 +369,31 @@ def test_a_calibrated_regime_stratum_is_one_cell_per_lookback() -> None:
     """A cell rather than an axis: the thresholds move with the lookback, and a sweep crosses
     its axes, so pairing them any other way runs cells that are not comparable."""
     names = [name for name, _ in strata(REGIME, Cuts(regime=FITTED))]
-    assert names == [f"regime={state.name}@n={n}" for state in regime.Regime for n in FITTED]
+    assert names == [f"regime={state.name}@{cut.name}" for state in regime.Regime for cut in FITTED]
 
 
 def test_a_calibrated_cell_carries_the_thresholds_fitted_at_its_own_lookback() -> None:
+    at_lookback = {cut.lookback: cut for cut in FITTED}
     for name, extra in strata(REGIME, Cuts(regime=FITTED)):
-        lookback = int(name.split("@n=")[1])
-        consolidating, directional = FITTED[lookback]
+        lookback = int(name.split("@n=")[1].split(" ")[0])
+        cut = at_lookback[lookback]
         assert extra["regime_lookback"] == [lookback]
-        assert extra["regime_consolidating_below"] == [consolidating]
-        assert extra["regime_directional_above"] == [directional]
+        assert extra["regime_consolidating_below"] == [cut.consolidating_below]
+        assert extra["regime_directional_above"] == [cut.directional_above]
+
+
+def test_a_calibrated_cell_is_named_by_the_cell_size_it_was_fitted_at() -> None:
+    """Two cell sizes land in one database, so a name that carried only the lookback would put
+    two different cuts under one stratum -- ``docs/roadmap.md`` §M31."""
+    tenths = [
+        name for name, _ in strata(REGIME, Cuts(regime=calibrate(calibration_bars(), [20], (0.1, 0.9))))
+    ]
+    fifths = [
+        name for name, _ in strata(REGIME, Cuts(regime=calibrate(calibration_bars(), [20], (0.2, 0.8))))
+    ]
+    assert set(tenths).isdisjoint(fifths)
+    assert tenths[0].endswith("@n=20 q=0.10/0.90")
+    assert fifths[0].endswith("@n=20 q=0.20/0.80")
 
 
 def test_a_calibration_changes_the_regime_dimension_and_no_other() -> None:
@@ -404,8 +423,8 @@ def test_the_fit_reads_the_selection_window_and_never_the_holdout() -> None:
     """Fitting on the whole series would leak the holdout into the definition of the stratum."""
     bars = calibration_bars()
     fitted = fit_regime(bars, calibrated_args())
-    assert fitted[1][20][1] < 1.0
-    assert calibrate(bars, [20], REGIME_QUANTILES)[20][1] == pytest.approx(1.0)
+    assert fitted[1][0].directional_above < 1.0
+    assert calibrate(bars, [20], REGIME_QUANTILES)[0].directional_above == pytest.approx(1.0)
 
 
 def test_no_fit_is_taken_when_the_thresholds_are_left_raw() -> None:
@@ -668,16 +687,16 @@ def test_the_directional_group_is_calibrated_like_the_full_regime_one() -> None:
     """The prerequisite §M27.3 inherits from [#200]: the raw 0.5 cut is not one filter, so a
     group yielding a single regime cell has to be split per lookback too."""
     fitted = {name for name, _ in strata(NARROW, Cuts(regime=FITTED))}
-    assert fitted == {UNFILTERED, *(f"regime=DIRECTIONAL@n={n}" for n in FITTED)}
+    assert fitted == {UNFILTERED, *(f"regime=DIRECTIONAL@{cut.name}" for cut in FITTED)}
 
 
 def test_a_calibrated_directional_cell_carries_its_own_lookbacks_thresholds() -> None:
     cells = dict(strata(DIRECTIONAL, Cuts(regime=FITTED)))
-    for lookback, (consolidating, directional) in FITTED.items():
-        axes = cells[f"regime=DIRECTIONAL@n={lookback}"]
-        assert axes["regime_lookback"] == [lookback]
-        assert axes["regime_consolidating_below"] == [consolidating]
-        assert axes["regime_directional_above"] == [directional]
+    for cut in FITTED:
+        axes = cells[f"regime=DIRECTIONAL@{cut.name}"]
+        assert axes["regime_lookback"] == [cut.lookback]
+        assert axes["regime_consolidating_below"] == [cut.consolidating_below]
+        assert axes["regime_directional_above"] == [cut.directional_above]
 
 
 def test_the_directional_cell_is_not_swept_twice_by_the_full_set() -> None:

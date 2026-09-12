@@ -51,10 +51,18 @@ BOUND = "avg_bars_held"
 """What says whether a rung actually fired: a cap that never binds leaves the hold alone."""
 
 
-def held(name: str, windows: list[str]) -> pd.DataFrame:
-    """Every viable ``--variants hold`` row for one archetype, keyed by its base variant."""
+def held(name: str, windows: list[str], stratum: str | None = None) -> pd.DataFrame:
+    """Every viable ``--variants hold`` row for one archetype, keyed by its base variant.
+
+    ``stratum`` is what keeps :data:`~tools.campaign_paired.REPORT_KEYS` honest once the ladder
+    has been run inside one: a pair only ever forms within a stratum, but the report pools over
+    it -- ``docs/roadmap.md`` §M31.1.
+    """
     frame: pd.DataFrame = load(name, windows)
     rows: pd.DataFrame = frame[frame["variant"].str.contains("hold=", na=False)].copy()
+    if stratum is not None:
+        rows = rows[rows["stratum"] == stratum]
+
     rows[BASE_VARIANT] = rows["variant"].str.replace(HOLD_SUFFIX, "", regex=True)
 
     return rows
@@ -93,11 +101,14 @@ def rung(rows: pd.DataFrame, bars: int, by: str) -> pd.DataFrame:
     return table
 
 
-def ladder(name: str, windows: list[str], by: str) -> pd.DataFrame:
+def ladder(name: str, windows: list[str], by: str, stratum: str | None = None) -> pd.DataFrame:
     """Every rung above the control, stacked."""
-    rows: pd.DataFrame = held(name, windows)
+    rows: pd.DataFrame = held(name, windows, stratum)
     if rows.empty:
-        msg: str = f"{name}: no --variants hold rows in windows {windows}; run campaign_sweep first"
+        msg: str = (
+            f"{name}: no --variants hold rows in windows {windows}, stratum {stratum}; "
+            "run campaign_sweep first"
+        )
         raise SystemExit(msg)
 
     stacked: list[pd.DataFrame] = [rung(rows, bars, by) for bars in HOLD_BARS if bars != CONTROL_BARS]
@@ -128,11 +139,17 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--window", nargs="+", default=["holdout"], help="which stored windows to read")
     parser.add_argument("--by", default="profit_factor", help="the statistic to compare on")
+    parser.add_argument("--stratum", default=None, help="restrict the ladder to one stratum")
     args = parser.parse_args(argv[1:])
 
-    table: pd.DataFrame = ladder(args.strategy, args.window, args.by)
+    table: pd.DataFrame = ladder(args.strategy, args.window, args.by, args.stratum)
     logger.info("")
-    logger.info("%s: each hold cap against the uncapped arm, on %s", args.strategy, args.by)
+    logger.info(
+        "%s: each hold cap against the uncapped arm, on %s, stratum %s",
+        args.strategy,
+        args.by,
+        args.stratum or "any",
+    )
     logger.info("windows: %s;  %d tests in this family", ", ".join(args.window), len(table))
     logger.info("")
     shown: pd.DataFrame = table[COLUMNS]

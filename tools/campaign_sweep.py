@@ -36,9 +36,17 @@ would otherwise run their dimension twice:
 
 ``--regime-quantiles`` replaces the regime stratum's raw thresholds with a pair fitted to the
 efficiency ratio's own distribution at each ``(resolution, lookback)``, and splits the stratum
-into one cell per lookback -- ``regime=DIRECTIONAL@n=20``. The fit is taken on the selection
-window at every window, so a held-out run reads a cut it did not see. Why a raw pair cannot be
-swept against the lookback, and what the quantiles are chosen for: ``docs/roadmap.md`` §M27.5.
+into one cell per lookback -- ``regime=DIRECTIONAL@n=20 q=0.20/0.80``. The fit is taken on the
+selection window at every window, so a held-out run reads a cut it did not see. Why a raw pair
+cannot be swept against the lookback, and what the quantiles are chosen for: ``docs/roadmap.md``
+§M27.5.
+
+**The cell size is in the name, so two of them can live in one database** -- the rows §M30 wrote
+carry the earlier bare ``@n=20`` and are the stated pair, which is what ``docs/roadmap.md`` §M31
+re-ran under the name that says so:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies OpeningRange \
+        --strata directional --split --regime-quantiles 0.10 0.90 --n-jobs 8
 
 ``--variants narrow`` sweeps the §M27.3 re-sweep instead of the campaign grid -- InsideBar's
 entry held at what §M27 chose, its bracket pair crossed, and ``--strata narrow`` for the two
@@ -265,8 +273,23 @@ HOLD = "hold"
 SPEC = "spec"
 ALL_STRATA = "all"
 
-Calibration = dict[int, tuple[float, float]]
-"""Regime lookback -> the threshold pair fitted at it, one entry per swept lookback."""
+
+class RegimeCut(NamedTuple):
+    """One lookback, the threshold pair fitted at it, and the cell size that pair came from."""
+
+    lookback: int
+    consolidating_below: float
+    directional_above: float
+    quantiles: tuple[float, float]
+
+    @property
+    def name(self) -> str:
+        """What a stratum cut this way is called, which is what separates it in the table."""
+        return f"n={self.lookback} q={self.quantiles[0]:.2f}/{self.quantiles[1]:.2f}"
+
+
+Calibration = tuple[RegimeCut, ...]
+"""Every lookback a regime stratification runs, each carrying its own fitted cut."""
 
 
 class VolumeCut(NamedTuple):
@@ -298,7 +321,7 @@ class Cuts:
     dimension it owns and none of them needs the others.
     """
 
-    regime: Calibration | None = None
+    regime: Calibration = ()
     volume: VolumeCalibration = ()
 
 
@@ -518,16 +541,17 @@ def _per_lookback(
     """Split one regime cell into a cell per lookback, each carrying its own fitted thresholds.
 
     A cell rather than an axis because the thresholds move *with* the lookback, and a sweep
-    crosses its axes -- pairing them any other way runs cells that are not comparable.
+    crosses its axes -- pairing them any other way runs cells that are not comparable. The cell
+    size is in the name for the reason a volume form's is -- ``docs/roadmap.md`` §M31.
     """
-    for lookback, (consolidating, directional) in calibration.items():
+    for cut in calibration:
         yield (
-            f"{name}@n={lookback}",
+            f"{name}@{cut.name}",
             axes
             | {
-                "regime_lookback": [lookback],
-                "regime_consolidating_below": [consolidating],
-                "regime_directional_above": [directional],
+                "regime_lookback": [cut.lookback],
+                "regime_consolidating_below": [cut.consolidating_below],
+                "regime_directional_above": [cut.directional_above],
             },
         )
 
@@ -543,7 +567,7 @@ def strata(
             continue
 
         for name, axes in STRATUM_GROUPS[group]():
-            if group not in REGIME_GROUPS or cuts.regime is None:
+            if group not in REGIME_GROUPS or not cuts.regime:
                 yield name, axes
                 continue
 
@@ -558,7 +582,10 @@ def calibrate(
     """Fit a threshold pair per lookback to ``frame``'s own efficiency ratios."""
     grid: regime.EfficiencyRatioGrid = regime.efficiency_ratio_grid(float_column(frame, "close"), lookbacks)
 
-    return {lookback: grid.thresholds_for(lookback, *quantiles) for lookback in sorted(lookbacks)}
+    return tuple(
+        RegimeCut(lookback, *grid.thresholds_for(lookback, *quantiles), quantiles=quantiles)
+        for lookback in sorted(lookbacks)
+    )
 
 
 def calibrate_volume(
@@ -2005,8 +2032,10 @@ def run_point(
 
 def cell_shape(argv: argparse.Namespace) -> Cuts:
     """Cuts with the right cells and no thresholds in them, for counting cells only."""
-    regime_cells: Calibration | None = (
-        dict.fromkeys(argv.regime_lookbacks, (NAN, NAN)) if argv.regime_quantiles else None
+    regime_cells: Calibration = (
+        tuple(RegimeCut(lookback, NAN, NAN, argv.regime_quantiles) for lookback in argv.regime_lookbacks)
+        if argv.regime_quantiles
+        else ()
     )
     volume_cells: VolumeCalibration = (
         tuple(
@@ -2071,16 +2100,16 @@ def log_calibration(
     """Report the cut every stratum below was defined by, beside the anchor it is read against."""
     logger.info("  regime thresholds fitted at q=%s on %s selection bars", quantiles, f"{selection_bars:,}")
     for minutes, calibration in fitted.items():
-        for lookback, (consolidating, directional) in calibration.items():
-            anchor: float = regime.random_walk_ratio(lookback)
+        for cut in calibration:
+            anchor: float = regime.random_walk_ratio(cut.lookback)
             logger.info(
                 "    %2dm n=%-3d consolidating %.4f (%.2fx)  directional %.4f (%.2fx)",
                 minutes,
-                lookback,
-                consolidating,
-                consolidating / anchor,
-                directional,
-                directional / anchor,
+                cut.lookback,
+                cut.consolidating_below,
+                cut.consolidating_below / anchor,
+                cut.directional_above,
+                cut.directional_above / anchor,
             )
 
 
@@ -2203,7 +2232,7 @@ def main(argv: list[str]) -> int:
                         window,
                         batch_id,
                         args.strata,
-                        Cuts(regime=fitted.get(minutes), volume=volumes.get(minutes, ())),
+                        Cuts(regime=fitted.get(minutes, ()), volume=volumes.get(minutes, ())),
                         n_jobs=args.n_jobs,
                     )
     logger.info("")
