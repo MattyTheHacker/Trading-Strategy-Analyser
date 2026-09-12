@@ -126,11 +126,13 @@ from tools.campaign_sweep import (
     VolumeCut,
     calibrate,
     calibrate_volume,
+    check_volume_request,
     db_path,
     elastic_ladder,
     fit_regime,
     fit_volume,
     grids_for,
+    named_forms,
     orb_geometry_ranges,
     orb_resolutions,
     planned_combinations,
@@ -311,6 +313,15 @@ def test_each_archetype_gets_its_own_database(tmp_path, monkeypatch) -> None:
     assert all(path.parent.exists() for path in paths.values())
 
 
+VOLUME_WINDOWS = {
+    "volume_forms": tuple(volume.VolumeForm),
+    "volume_rolling_bars": [VOLUME_ROLLING_BARS],
+    "volume_baseline_sessions": [VOLUME_BASELINE_SESSIONS],
+}
+"""What the three form and window flags parse to when none of them is passed: the one series
+per form, at the windows every stored row holds."""
+
+
 def test_planned_combinations_multiplies_the_axes_out() -> None:
     args = argparse.Namespace(
         strategies=["InsideBar"],
@@ -322,6 +333,7 @@ def test_planned_combinations_multiplies_the_axes_out() -> None:
         regime_quantiles=None,
         regime_lookbacks=list(REGIME_LOOKBACKS),
         volume_quantiles=(),
+        **VOLUME_WINDOWS,
     )
     per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
     assert planned_combinations(args) == per_stratum * 2
@@ -453,6 +465,7 @@ def test_planned_combinations_counts_the_calibrated_cells() -> None:
         regime_quantiles=REGIME_QUANTILES,
         regime_lookbacks=[5, 20],
         volume_quantiles=(),
+        **VOLUME_WINDOWS,
     )
     per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
     assert planned_combinations(args) == per_stratum * len(regime.Regime) * 2
@@ -512,6 +525,7 @@ def test_planned_combinations_skips_a_resolution_a_variant_cannot_express() -> N
         regime_quantiles=None,
         regime_lookbacks=list(REGIME_LOOKBACKS),
         volume_quantiles=(),
+        **VOLUME_WINDOWS,
     )
     variants = VARIANTS["OpeningRange"]("MNQ")
     only_thirty = sum(v.sized() for v in variants if v.runs_at(10))
@@ -555,12 +569,14 @@ def volume_bars(sessions_wanted: int = 30, seed: int = 7) -> pd.DataFrame:
 
 def volume_args(**overrides: object) -> argparse.Namespace:
     """The arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
-    return argparse.Namespace(**{"resolutions": [1], "volume_quantiles": VOLUME_TAILS, **overrides})
+    return argparse.Namespace(
+        **{"resolutions": [1], "volume_quantiles": VOLUME_TAILS, **VOLUME_WINDOWS, **overrides}
+    )
 
 
 def test_the_volume_form_group_is_one_cell_per_form_tail_and_state() -> None:
     """§M27 swept three cells of one form; the axis itself is the form crossed with the cut."""
-    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS))
+    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS, volume_series()))
     names = [name for name, _ in strata(VOLUME_FORMS, cuts)]
     assert len(names) == len(volume.VolumeForm) * len(VOLUME_TAILS) * len(volume.VolumeState)
     assert len(set(names)) == len(names)
@@ -612,21 +628,21 @@ def test_the_volume_form_group_is_left_out_of_all_because_it_recuts_one_dimensio
 
 
 def test_a_volume_calibration_changes_the_volume_forms_and_no_other_dimension() -> None:
-    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS))
+    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS, volume_series()))
     assert list(strata(CORE, cuts)) == list(strata(CORE))
 
 
 def test_each_form_is_fitted_against_its_own_distribution() -> None:
     """The point of the fit: one raw pair sits at a different percentile under each form, so
     HEAVY is a different population under each -- ``docs/roadmap.md`` §M27.8."""
-    fitted = calibrate_volume(volume_bars(), 1, ((0.20, 0.80),))
+    fitted = calibrate_volume(volume_bars(), 1, ((0.20, 0.80),), volume_series())
     heavy = {cut.series.form: cut.heavy_above for cut in fitted}
     assert len(set(heavy.values())) == len(volume.VolumeForm)
 
 
 def test_every_volume_form_grid_in_the_campaign_can_be_built() -> None:
     """The fitted thresholds reach a real parameter class, which validates them on construction."""
-    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS))
+    cuts = Cuts(volume=calibrate_volume(volume_bars(), 1, VOLUME_TAILS, volume_series()))
     for variant in all_variants():
         for _, grid in grids_for(variant, VOLUME_FORMS, cuts):
             assert len(grid) == variant.sized()
@@ -637,7 +653,7 @@ def test_the_volume_fit_reads_the_selection_window_and_never_the_holdout() -> No
     bars = volume_bars()
     bars.iloc[math.floor(len(bars) * SELECTION_SHARE) :, bars.columns.get_loc("volume")] *= 100.0
     selection_fit = fit_volume(bars, volume_args())[1]
-    whole_fit = calibrate_volume(bars, 1, VOLUME_TAILS)
+    whole_fit = calibrate_volume(bars, 1, VOLUME_TAILS, volume_series())
     for fitted, leaked in zip(selection_fit, whole_fit, strict=True):
         assert fitted.series == leaked.series
         assert fitted.heavy_above != leaked.heavy_above
@@ -669,9 +685,131 @@ def test_planned_combinations_counts_the_volume_form_cells() -> None:
         regime_quantiles=None,
         regime_lookbacks=list(REGIME_LOOKBACKS),
         volume_quantiles=VOLUME_TAILS,
+        **VOLUME_WINDOWS,
     )
     per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
     cells = len(volume.VolumeForm) * len(VOLUME_TAILS) * len(volume.VolumeState)
+    assert planned_combinations(args) == per_stratum * cells
+
+
+# -- the two volume windows, one cell per rung -----------------------------------------------
+
+ROLLING = volume.VolumeForm.ROLLING
+
+
+def test_a_rolling_ladder_is_one_series_per_rung_and_no_duplicate_per_bar_one() -> None:
+    """``volume.key`` drops the window from the two forms that do not read it, so a ladder
+    crossed with every form would otherwise build one identical per-bar series per rung."""
+    series = volume_series(tuple(volume.VolumeForm), [10, 30, 90])
+    rolling = [key for key in series if key.form is ROLLING]
+    assert [key.rolling_bars for key in rolling] == [10, 30, 90]
+    assert len(series) == len(rolling) + len(volume.VolumeForm) - 1
+    assert len(set(series)) == len(series)
+
+
+def test_a_baseline_ladder_is_one_series_per_rung_under_every_form() -> None:
+    """Unlike the rolling window, every form divides by a bar-of-session baseline."""
+    series = volume_series(tuple(volume.VolumeForm), [VOLUME_ROLLING_BARS], [10, 20, 40])
+    assert len(series) == len(volume.VolumeForm) * 3
+    assert {key.baseline_sessions for key in series} == {10, 20, 40}
+
+
+def test_two_rungs_of_one_form_are_separable_in_the_results_table() -> None:
+    """A rung is a cell, so the stratum name has to carry it -- ``docs/roadmap.md`` §M31."""
+    names = {
+        VolumeCut(key, 0.5, 2.0, tails=(0.20, 0.80)).name
+        for key in volume_series((ROLLING,), [10, 90], [10, 40])
+    }
+    assert names == {
+        "rolling_10_10 q=0.20/0.80",
+        "rolling_10_40 q=0.20/0.80",
+        "rolling_90_10 q=0.20/0.80",
+        "rolling_90_40 q=0.20/0.80",
+    }
+
+
+def test_each_rung_is_fitted_against_its_own_distribution() -> None:
+    """Why a rung is a cell and not an axis: the window moves the ratio's distribution, so the
+    threshold pair moves with it and a crossed axis would read a cut fitted for another rung."""
+    fitted = calibrate_volume(volume_bars(), 1, ((0.20, 0.80),), volume_series((ROLLING,), [5, 60]))
+    heavy = {cut.series.rolling_bars: cut.heavy_above for cut in fitted}
+    assert len(set(heavy.values())) == len(heavy)
+
+
+def test_a_rolling_ladder_reaches_the_grid_at_the_rung_its_cell_names() -> None:
+    cuts = Cuts(
+        volume=calibrate_volume(volume_bars(), 1, ((0.20, 0.80),), volume_series((ROLLING,), [10, 90]))
+    )
+    for name, extra in strata(VOLUME_FORMS, cuts):
+        rung = int(name.split("@rolling_")[1].split("_")[0])
+        assert extra["volume_rolling_bars"] == [rung], name
+
+
+def test_a_window_ladder_without_a_fitted_cut_is_refused() -> None:
+    """A raw pair admits a different share of bars at each window, so the rungs could not be
+    read against each other -- ``.claude/rules/sweep-and-context.md``."""
+    with pytest.raises(SystemExit, match="different share of bars"):
+        check_volume_request(volume_args(volume_quantiles=(), volume_rolling_bars=[10, 30]))
+
+    with pytest.raises(SystemExit, match="different share of bars"):
+        check_volume_request(volume_args(volume_quantiles=(), volume_baseline_sessions=[10, 20]))
+
+
+def test_a_rolling_ladder_without_the_rolling_form_is_refused_rather_than_run_flat() -> None:
+    """``volume.key`` would collapse every rung onto one series and the pass would look like a
+    ladder while running one -- the ``dead_axes`` blind spot, made loud."""
+    with pytest.raises(SystemExit, match="ROLLING in --volume-forms"):
+        check_volume_request(
+            volume_args(volume_forms=(volume.VolumeForm.PER_BAR,), volume_rolling_bars=[10, 90])
+        )
+
+
+def test_narrowing_the_forms_without_a_fitted_cut_is_refused() -> None:
+    """An unfitted run's cells are the stored campaign's own, and the flag would be ignored."""
+    with pytest.raises(SystemExit, match="leave every form in"):
+        check_volume_request(volume_args(volume_quantiles=(), volume_forms=(ROLLING,)))
+
+
+def test_a_window_the_form_is_degenerate_at_is_refused_by_name() -> None:
+    with pytest.raises(SystemExit, match="a one-bar window is VolumeForm.PER_BAR"):
+        check_volume_request(volume_args(volume_rolling_bars=[1, 30]))
+
+    with pytest.raises(SystemExit, match="baseline must span"):
+        check_volume_request(volume_args(volume_baseline_sessions=[2, 20]))
+
+
+def test_the_default_run_is_the_one_series_per_form_every_stored_row_holds() -> None:
+    """So that a pass naming neither flag reproduces §M30 rather than appending beside it."""
+    check_volume_request(volume_args())
+    assert volume_series() == tuple(
+        volume.key(form, VOLUME_ROLLING_BARS, VOLUME_BASELINE_SESSIONS) for form in volume.VolumeForm
+    )
+
+
+def test_the_named_forms_are_deduplicated_into_enum_order() -> None:
+    assert named_forms(["SESSION_TO_DATE", "PER_BAR", "PER_BAR"]) == (
+        volume.VolumeForm.PER_BAR,
+        volume.VolumeForm.SESSION_TO_DATE,
+    )
+
+
+def test_planned_combinations_counts_a_window_ladders_cells() -> None:
+    args = argparse.Namespace(
+        strategies=["InsideBar"],
+        roots=["MNQ"],
+        strata=VOLUME_FORMS,
+        variants=CAMPAIGN,
+        resolutions=[5],
+        split=False,
+        regime_quantiles=None,
+        regime_lookbacks=list(REGIME_LOOKBACKS),
+        volume_quantiles=VOLUME_TAILS,
+        volume_forms=(ROLLING,),
+        volume_rolling_bars=[10, 90],
+        volume_baseline_sessions=[VOLUME_BASELINE_SESSIONS],
+    )
+    per_stratum = sum(variant.sized() for variant in VARIANTS["InsideBar"]("MNQ"))
+    cells = 2 * len(VOLUME_TAILS) * len(volume.VolumeState)
     assert planned_combinations(args) == per_stratum * cells
 
 

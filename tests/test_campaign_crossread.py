@@ -83,6 +83,13 @@ def test_the_fitted_regime_axes_are_context_columns_too() -> None:
     assert {"regime_lookback", "regime_consolidating_below", "regime_directional_above"} <= context_columns()
 
 
+def test_the_two_volume_windows_are_context_columns_too() -> None:
+    """A window ladder moves them off the unfiltered row's defaults, so keeping either in the
+    join key would drop every ladder pair -- §M30's defect, in a new column.
+    """
+    assert {"volume_rolling_bars", "volume_baseline_sessions"} <= context_columns()
+
+
 def test_a_context_column_is_never_part_of_the_join_key() -> None:
     """Keeping one would pair every stratum with itself and nothing else."""
     assert set(pairing_columns(rows())).isdisjoint(context_columns())

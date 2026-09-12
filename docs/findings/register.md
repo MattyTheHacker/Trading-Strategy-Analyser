@@ -73,6 +73,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M30`                                             | [M30 — volume and regime re-cut across the registry, and what the raw pair was reporting](m30-volume-regime-recut.md)                     | all 7                                                                   | 2          | `mixed`       | [#289]                         |
 | `§M31`                                             | [M31 — the nine calibrated cells through the matched null, and the lookback a consistency score cannot see](m31-calibrated-cells-null.md) | ElasticBand, OpeningRange                                               | 3          | `mixed`       | [#298]                         |
 | `§M31.1`                                           | [M31.1 — the gate-3 survivor through gate 4, and the hold cap inside its own stratum](m31-1-survivor-gate-4.md)                           | OpeningRange                                                            | 4          | `mixed`       | [#302]                         |
+| `§M32`                                             | [M32 — the two volume windows swept, and why a window is a cell rather than an axis](m32-volume-windows.md)                               | all 7                                                                   | 2          | `mixed`       | [#299]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                             | EmaCrossover                                                            | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                     | EmaCrossover                                                            | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                             | EmaCrossover                                                            | --         | `spec`        | [#74]                          |
@@ -244,6 +245,10 @@ Two cells clear p = 0.05 on both roots — OpeningRange's calibrated DIRECTIONAL
 
 The walk-forward passes on both roots and the account funds on MNQ, but not one of the twenty configurations is profitable without its session-close legs and a hold cap does not substitute for them — every rung that binds tightly is a cost, exactly as §M29 found unfiltered.
 
+**[M32 — the two volume windows swept, and why a window is a cell rather than an axis](m32-volume-windows.md)**
+
+Both windows move a consistency score as much as most dimensions the campaign compares, and 43 of the registry's 56 consistent volume cells sit at a rung nobody had run — but a new rung is consistent at about the same rate as the default, so the two defaults were unexamined rather than wrong, and only 6 of the 34 positive cells return a held-out profit factor above 1.0.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -292,6 +297,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#289]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/289
 [#292]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/292
 [#298]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/298
+[#299]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/299
 [#302]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/302
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
