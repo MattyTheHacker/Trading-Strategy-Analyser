@@ -18,10 +18,14 @@ from tools.campaign_labels import (
     VOLUME_ORDER,
     confusion,
     named,
-    volume_series,
 )
 
-from tools.campaign_sweep import VOLUME_BASELINE_SESSIONS, VOLUME_ROLLING_BARS
+from tools.campaign_sweep import (
+    VOLUME_BASELINE_SESSIONS,
+    VOLUME_ROLLING_BARS,
+    named_forms,
+    volume_series,
+)
 
 from nqbt import regime, volume
 from nqbt.sim.types import DeadCatParams
@@ -111,11 +115,11 @@ def test_an_unchanged_cut_is_the_identity() -> None:
     assert np.allclose(table.to_numpy(), np.diag([100.0, 100.0, 100.0]))
 
 
-# -- the three forms a form comparison reads --------------------------------------------------
+# -- the series a pair comparison reads -------------------------------------------------------
 
 
 def test_one_series_per_form_at_the_windows_the_campaign_swept() -> None:
-    """`form_rows` compares these against each other, so a missing form is a missing table."""
+    """`pair_rows` compares these against each other, so a missing form is a missing table."""
     series = volume_series()
 
     assert [key.form for key in series] == list(volume.VolumeForm)
@@ -128,3 +132,14 @@ def test_the_rolling_window_is_dropped_from_every_form_that_does_not_read_it() -
 
     assert [key.rolling_bars for key in rolling] == [VOLUME_ROLLING_BARS]
     assert len(set(volume_series())) == len(volume.VolumeForm)
+
+
+def test_every_series_a_window_ladder_names_is_labelled_under_its_own_key() -> None:
+    """`labelled` is keyed by `volume.describe_key` rather than by the form, because two rolling
+    rungs are the same form and would otherwise overwrite each other's labels.
+    """
+    ladder = volume_series(named_forms(["ROLLING"]), [10, 30, 90], [10, 40])
+    keys = [volume.describe_key(key) for key in ladder]
+
+    assert len(set(keys)) == len(ladder) == 6
+    assert "rolling_10_40" in keys
