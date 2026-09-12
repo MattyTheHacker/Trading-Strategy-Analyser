@@ -356,3 +356,92 @@ def test_both_windows_are_required_and_named() -> None:
 @pytest.mark.parametrize("window", WINDOWS)
 def test_each_window_is_one_the_campaign_actually_stores(window: str) -> None:
     assert window in {"selection", "holdout", "full"}
+
+
+# -- naming the variants outright ------------------------------------------------------------
+
+
+def recut_only(arm_pf: list[float], base_pf: list[float], variant: str = "channel=vwap") -> pd.DataFrame:
+    """A campaign whose every filtered stratum is a re-cut, which is §M33's shape."""
+    cell = "volume=HEAVY@per_bar_20 q=0.20/0.80"
+    arm = rows(stratum=cell, volume_filter=4, profit_factor=arm_pf, variant=variant)
+    base = rows(profit_factor=base_pf, variant=variant)
+
+    return pd.concat([base, arm], ignore_index=True)
+
+
+def test_a_recut_only_campaign_pairs_nothing_without_its_variants_named() -> None:
+    """``common_variants`` intersects the plain strata, and such a campaign has none -- which
+    is why §M33 could not be read before ``--variant`` existed."""
+    frame = recut_only([1.2, 1.2, 1.2, 1.2], [1.0, 1.0, 1.0, 1.0])
+
+    assert common_variants(frame) == set()
+    assert paired(frame).empty
+
+
+def test_naming_the_variants_pairs_a_recut_only_campaign() -> None:
+    """The caller knows the set, so stating it is what makes the pairing possible at all."""
+    frame = recut_only([1.2, 1.2, 1.2, 1.2], [1.0, 1.0, 1.0, 1.0])
+    merged = paired(frame, {"channel=vwap"})
+
+    assert len(merged) == 4
+    assert (merged["profit_factor"] - merged["profit_factor_base"]).to_list() == pytest.approx([0.2] * 4)
+
+
+def test_a_named_variant_absent_from_the_frame_pairs_nothing() -> None:
+    """Naming a set is not the same as it being there, and a typo must not read as a clean zero."""
+    frame = recut_only([1.2, 1.2, 1.2, 1.2], [1.0, 1.0, 1.0, 1.0])
+
+    assert paired(frame, {"channel=bollinger"}).empty
+
+
+def test_an_explicit_set_still_pairs_only_within_one_variant() -> None:
+    """Naming both arms must not let one channel's filtered rows pair against the other's
+    unfiltered rows -- that would report the channel as the cell's effect."""
+    vwap = recut_only([1.5, 1.5, 1.5, 1.5], [1.0, 1.0, 1.0, 1.0], variant="channel=vwap")
+    boll = recut_only([0.5, 0.5, 0.5, 0.5], [1.0, 1.0, 1.0, 1.0], variant="channel=bollinger")
+    merged = paired(pd.concat([vwap, boll], ignore_index=True), {"channel=vwap", "channel=bollinger"})
+    deltas = merged["profit_factor"] - merged["profit_factor_base"]
+
+    assert len(merged) == 8
+    assert set(merged["variant"]) == {"channel=vwap", "channel=bollinger"}
+    assert sorted(set(deltas.round(6))) == [-0.5, 0.5]
+
+
+def variant_cells(selection: float, holdout: float, variant: str) -> pd.DataFrame:
+    """One arm's paired delta in each window, as ``per_window(by_variant=True)`` reports it."""
+    return cells(selection, holdout, "volume=HEAVY@per_bar_20 q=0.20/0.80").assign(variant=variant)
+
+
+def test_scoring_by_variant_keeps_two_arms_apart() -> None:
+    """The §M33 claim needs one score per arm: pooling them is what made the two campaigns'
+    opposite answers look like one archetype's answer."""
+    block = pd.concat(
+        [variant_cells(0.2, 0.3, "channel=vwap"), variant_cells(-0.2, -0.3, "channel=bollinger")],
+        ignore_index=True,
+    )
+    scored = agreement(block, by_variant=True).set_index("variant")
+
+    assert len(scored) == 2
+    assert scored.loc["channel=vwap", "score"] == 1
+    assert scored.loc["channel=bollinger", "score"] == -1
+
+
+def test_pooling_two_opposite_arms_cancels_them_to_nothing() -> None:
+    """Which is the reading ``by_variant`` exists to prevent, pinned from the other side."""
+    block = pd.concat(
+        [variant_cells(0.2, 0.3, "channel=vwap"), variant_cells(-0.2, -0.3, "channel=bollinger")],
+        ignore_index=True,
+    )
+    scored = agreement(block)
+
+    assert len(scored) == 1
+    assert scored["score"].iloc[0] == 0
+
+
+def test_the_default_scoring_path_is_unchanged_by_the_variant_option() -> None:
+    """Every stored finding was read on the default path, so it has to stay put."""
+    block = cells(0.2, 0.3)
+
+    assert agreement(block).equals(agreement(block, by_variant=False))
+    assert "variant" not in agreement(block).columns

@@ -157,9 +157,14 @@ def common_variants(frame: pd.DataFrame) -> set[str]:
     return set.intersection(*per_stratum.to_list())
 
 
-def paired(frame: pd.DataFrame) -> pd.DataFrame:
-    """Each filtered row beside the unfiltered row of the same combination, in one window."""
-    shared: set[str] = common_variants(frame)
+def paired(frame: pd.DataFrame, variants: set[str] | None = None) -> pd.DataFrame:
+    """Each filtered row beside the unfiltered row of the same combination, in one window.
+
+    ``variants`` states the set outright where the caller knows it, which is what a campaign
+    whose every filtered stratum is a re-cut needs: :func:`common_variants` intersects the
+    *plain* strata and finds none of them, so its answer would be empty.
+    """
+    shared: set[str] = variants if variants is not None else common_variants(frame)
     if not shared:
         return pd.DataFrame()
 
@@ -189,15 +194,25 @@ def paired(frame: pd.DataFrame) -> pd.DataFrame:
     return arm.merge(base[[*keys, *carried]], on=keys, suffixes=("", "_base"), how="inner")
 
 
-def per_window(name: str) -> pd.DataFrame:
-    """The paired difference per cell, one row per stratum, cell and window."""
+def per_window(
+    name: str,
+    variants: set[str] | None = None,
+    *,
+    by_variant: bool = False,
+) -> pd.DataFrame:
+    """The paired difference per cell, one row per stratum, cell and window.
+
+    ``by_variant`` keeps the variant in the key rather than pooling the arms of one set, which
+    is what a campaign measuring the variant dimension itself needs -- ``docs/roadmap.md`` §M33.
+    """
+    keys: list[str] = ["stratum", *CELL_KEYS, *(["variant"] if by_variant else [])]
     blocks: list[pd.DataFrame] = []
     for window in WINDOWS:
         frame: pd.DataFrame = load(name, [window])
         if frame.empty:
             continue
 
-        merged: pd.DataFrame = paired(frame)
+        merged: pd.DataFrame = paired(frame, variants)
         if merged.empty:
             continue
 
@@ -208,7 +223,7 @@ def per_window(name: str) -> pd.DataFrame:
 
         merged = merged.assign(delta=merged["profit_factor"] - merged["profit_factor_base"])
         summary: pd.DataFrame = (
-            merged.groupby(["stratum", *CELL_KEYS], dropna=False)
+            merged.groupby(keys, dropna=False)
             .agg(
                 pairs=("delta", "size"),
                 delta=("delta", "median"),
@@ -226,17 +241,21 @@ def per_window(name: str) -> pd.DataFrame:
     return pd.concat(blocks, ignore_index=True)
 
 
-def agreement(cells: pd.DataFrame) -> pd.DataFrame:
+def agreement(cells: pd.DataFrame, *, by_variant: bool = False) -> pd.DataFrame:
     """Count the cells a filter won in both windows against the cells it lost in both.
 
     A cell that wins one window and loses the other counts for neither side, which is the whole
     point: the two windows are disjoint spans and agreeing across them is the claim being made.
+
+    ``by_variant`` scores each arm of a variant set separately instead of pooling them, for
+    :func:`per_window`'s reason.
     """
     if cells.empty:
         return pd.DataFrame()
 
+    carried: list[str] = [*(["variant"] if by_variant else []), *GROUP_KEYS]
     wide: pd.DataFrame = cells.pivot_table(
-        index=["strategy", "stratum", *CELL_KEYS],
+        index=["strategy", "stratum", *CELL_KEYS, *(["variant"] if by_variant else [])],
         columns="window",
         values=["delta", "profit_factor", "trades", "session_close_share"],
     ).reset_index()
@@ -253,7 +272,7 @@ def agreement(cells: pd.DataFrame) -> pd.DataFrame:
     wide["hurt"] = (wide["delta_holdout"] < 0.0) & (wide["delta_selection"] < 0.0)
 
     scored: pd.DataFrame = (
-        wide.groupby(GROUP_KEYS, dropna=False)
+        wide.groupby(carried, dropna=False)
         .agg(
             cells=("helped", "size"),
             helped=("helped", "sum"),
@@ -298,6 +317,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))
     parser.add_argument("--dimension", nargs="+", default=None, help="which context dimensions to print")
     parser.add_argument(
+        "--variant",
+        nargs="+",
+        default=None,
+        help="score these variants separately instead of the arms every plain stratum shares",
+    )
+    parser.add_argument(
         "--min-score",
         type=int,
         default=8,
@@ -305,14 +330,16 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv[1:])
 
+    wanted_variants: set[str] | None = set(args.variant) if args.variant else None
+    by_variant: bool = wanted_variants is not None
     scores: list[pd.DataFrame] = []
     for name in args.strategies:
-        cells: pd.DataFrame = per_window(name)
+        cells: pd.DataFrame = per_window(name, wanted_variants, by_variant=by_variant)
         if cells.empty:
             logger.warning("no paired strata for %s; run --split first", name)
             continue
 
-        scores.append(agreement(cells))
+        scores.append(agreement(cells, by_variant=by_variant))
 
     if not scores:
         logger.warning("nothing to read")
@@ -325,6 +352,7 @@ def main(argv: list[str]) -> int:
         show(f"{dimension}: cells won in both windows minus cells lost in both", matrix(scored, dimension))
 
     columns: list[str] = [
+        *(["variant"] if by_variant else []),
         *GROUP_KEYS,
         "cells",
         "helped",
