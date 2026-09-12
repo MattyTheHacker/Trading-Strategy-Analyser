@@ -64,9 +64,7 @@ def audited():
     data = context.prepare(
         synthetic_bars(),
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
-            ),
+            ma_keys=conditions.ma_keys(ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)),
             needs_vwap=True,
         ),
         keep_ma_values=True,
@@ -157,9 +155,7 @@ def test_explain_trades_raises_value_error_without_kept_ma_values() -> None:
     data = context.prepare(
         synthetic_bars(n=500),
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
-            ),
+            ma_keys=conditions.ma_keys(ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)),
             needs_vwap=True,
         ),
         keep_ma_values=False,
@@ -177,9 +173,7 @@ def test_explain_trades_respects_limit_parameter() -> None:
     data = context.prepare(
         synthetic_bars(n=1000),
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
-            ),
+            ma_keys=conditions.ma_keys(ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)),
             needs_vwap=True,
         ),
         keep_ma_values=True,
@@ -202,9 +196,7 @@ def test_ratchet_history_raises_keyerror_on_unknown_trade() -> None:
     data = context.prepare(
         synthetic_bars(n=500),
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
-            ),
+            ma_keys=conditions.ma_keys(ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)),
             needs_vwap=True,
         ),
         keep_ma_values=True,
@@ -224,9 +216,7 @@ def ratchet():
     data = context.prepare(
         synthetic_bars(n=1500),
         context.ContextSpec(
-            ma_keys=conditions.ma_keys(
-                ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)
-            ),
+            ma_keys=conditions.ma_keys(ema=(params.ema_period,), sma=(params.fast_sma_period, params.slow_sma_period)),
             needs_vwap=True,
         ),
         keep_ma_values=True,

@@ -8,24 +8,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, fields
-from typing import Protocol, override
+from typing import TYPE_CHECKING, Protocol, override
 
-from nqbt import (
-    bands,
-    compression,
-    conditions,
-    higher_timeframe,
-    regime,
-    sessionrange,
-    timeofday,
-    trades,
-    trend,
-    volume,
-)
+from nqbt import bands, conditions, higher_timeframe, regime, timeofday, trend, volume
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class ContextFilterParams(Protocol):
-    """The six context filters and every field behind them, as one shape.
+    """The five context filters and every field behind them, as one shape.
 
     Structural so that :func:`validate_context_filters` is one definition rather than a copy
     per parameter class. Narrower than :class:`nqbt.sim.filters.ContextFiltered`, which
@@ -43,12 +35,6 @@ class ContextFilterParams(Protocol):
     volume_baseline_sessions: int
     volume_thin_below: float
     volume_heavy_above: float
-    compression_filter: int
-    compression_form: int
-    compression_period: int
-    compression_baseline_bars: int
-    compression_compressed_below: float
-    compression_expanded_above: float
     trend_filter: int
     trend_fast_period: int
     trend_slow_period: int
@@ -74,14 +60,6 @@ def validate_context_filters(params: ContextFilterParams) -> None:
     volume.validate_rolling_bars(params.volume_rolling_bars)
     volume.validate_baseline_sessions(params.volume_baseline_sessions)
     volume.validate_thresholds(params.volume_thin_below, params.volume_heavy_above)
-    compression.validate_mask(params.compression_filter)
-    compression.validate_form(params.compression_form)
-    compression.validate_period(params.compression_period)
-    compression.validate_baseline_bars(params.compression_baseline_bars)
-    compression.validate_thresholds(
-        params.compression_compressed_below,
-        params.compression_expanded_above,
-    )
     trend.validate_mask(params.trend_filter)
     trend.validate_periods(params.trend_fast_period, params.trend_slow_period)
     trend.validate_slope_lookback(params.trend_slope_lookback)
@@ -89,73 +67,6 @@ def validate_context_filters(params: ContextFilterParams) -> None:
     higher_timeframe.validate_mask(params.higher_timeframe_filter)
     higher_timeframe.validate_minutes(params.higher_timeframe_minutes)
     higher_timeframe.validate_period(params.higher_timeframe_period)
-
-
-MIN_CONFLUENCE_FILTERS = 2
-"""Fewest active context filters a confluence count can mean anything against."""
-
-REQUIRE_ALL = 0
-"""The confluence count meaning "every active context filter must pass", which is the AND
-:func:`nqbt.sim.filters.apply_context_filters` has always applied.
-
-Zero rather than the number of gates, because how many are active is a property of the
-combination and a rule set has to be able to say "all of them" without knowing it.
-"""
-
-
-def active_context_filters(params: ContextFilterParams) -> int:
-    """How many of the six context filters this combination actually restricts anything with.
-
-    What a confluence count is measured against, and the reason it can be validated at
-    construction: a rule set knows how many gates it switched on.
-    """
-    return sum(
-        (
-            params.phase_filter != timeofday.ALL_PHASES,
-            params.regime_filter != regime.ALL_REGIMES,
-            params.volume_filter != volume.ALL_STATES,
-            params.compression_filter != compression.ALL_STATES,
-            params.trend_filter != trend.ALL_TRENDS,
-            params.higher_timeframe_filter != higher_timeframe.ALL_SIDES,
-        ),
-    )
-
-
-def validate_confluence(params: ContextFilterParams, required: int) -> None:
-    """Refuse a confluence count that is impossible, or that is the plain conjunction again.
-
-    ``REQUIRE_ALL`` is the conjunction and always legal. Anything from the number of active
-    gates upwards *is* that conjunction, or narrower than any bar can satisfy, and both are
-    silent duplicates of a combination the sweep already runs -- the shape ``dead_axes``
-    cannot see. ``docs/roadmap.md`` § "The build spec's three loose ends".
-    """
-    if required == REQUIRE_ALL:
-        return
-
-    active: int = active_context_filters(params)
-    if active < MIN_CONFLUENCE_FILTERS:
-        msg: str = (
-            f"confluence_required is {required} but this combination switches {active} "
-            f"context filters on; 'at least N of M' needs at least "
-            f"{MIN_CONFLUENCE_FILTERS} of them, and {REQUIRE_ALL} is how a rule set asks "
-            f"for every active filter"
-        )
-        raise ValueError(msg)
-
-    if required < 1 or required >= active:
-        msg = (
-            f"confluence_required must be {REQUIRE_ALL} (every active filter) or between 1 "
-            f"and {active - 1}; this combination switches {active} filters on, so {required} "
-            f"is either unsatisfiable or the plain conjunction under another name"
-        )
-        raise ValueError(msg)
-
-
-def validate_max_hold_bars(max_hold_bars: int) -> None:
-    """Refuse a negative maximum hold time. ``0`` is how a rule set switches it off."""
-    if max_hold_bars < 0:
-        msg: str = f"max_hold_bars must be >= 0, got {max_hold_bars}"
-        raise ValueError(msg)
 
 
 @dataclass(slots=True)
@@ -232,28 +143,6 @@ class DeadCatParams:
     normal band. Conventional starting points rather than measured ones, and inert while
     :attr:`volume_filter` admits everything -- ``docs/roadmap.md`` §M10.2."""
 
-    compression_filter: int = compression.ALL_STATES
-    """Which compression states an entry may be taken in, as a :mod:`nqbt.compression` bitmask.
-
-    Absent from the NinjaScript, off by default, and a bitmask for the same reason
-    :attr:`phase_filter` is. The states are cut from a **trailing rank**, never a raw width --
-    ``docs/roadmap.md`` §M19.1."""
-
-    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
-    """Which width measure the rank is taken of -- see :class:`nqbt.compression.CompressionForm`."""
-
-    compression_period: int = 20
-    """Bars the width measure spans. Both forms read it, so it is inert under neither."""
-
-    compression_baseline_bars: int = 250
-    """Bars the rank is taken against, all strictly before the bar being ranked."""
-
-    compression_compressed_below: float = 0.25
-    compression_expanded_above: float = 0.75
-    """Where the rank is cut into the three states, both boundaries falling in the normal band.
-    Quarters of a trailing window rather than measured points, and inert while
-    :attr:`compression_filter` admits everything -- ``docs/roadmap.md`` §M19.1."""
-
     trend_filter: int = trend.ALL_TRENDS
     """Which trends an entry may be taken in, as a :mod:`nqbt.trend` bitmask.
 
@@ -318,15 +207,6 @@ class DeadCatParams:
     block_entry_at_session_close: bool = True
     """Whether a signal on the session's final bar is skipped."""
 
-    max_hold_bars: int = 0
-    """Bars a position may be held before a market exit is submitted, off at ``0``.
-
-    Absent from the NinjaScript, off by default, and on top of the session flatten every
-    archetype already has. The count is bars *since* the entry bar and the order fills at the
-    next bar's open, so a leg's ``bars_held`` reaches ``max_hold_bars + 1``. It is a bar count
-    rather than a duration, so it means a different amount of time at every resolution --
-    ``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its own exit code"."""
-
     ratchet_lag: int = 0
     """Which bar's high the trailing stop references at each bar close.
 
@@ -364,22 +244,12 @@ class DeadCatParams:
                 raise ValueError(msg)
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
-        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
-
-    @property
-    def compression_key(self) -> compression.CompressionKey:
-        """Which of the dataset's compression series this combination reads."""
-        return compression.key(
-            self.compression_form,
-            self.compression_period,
-            self.compression_baseline_bars,
-        )
 
     @property
     def trend_key(self) -> trend.TrendKey:
@@ -465,18 +335,6 @@ class PullBackAndGoParams:
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
-    compression_filter: int = compression.ALL_STATES
-    """Compression states an entry may be taken in -- see
-    :attr:`DeadCatParams.compression_filter`."""
-
-    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
-    compression_period: int = 20
-    compression_baseline_bars: int = 250
-    compression_compressed_below: float = 0.25
-    compression_expanded_above: float = 0.75
-    """The width measure the rank is taken of, its two windows and its two cuts -- see
-    :attr:`DeadCatParams.compression_expanded_above`."""
-
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
 
@@ -519,9 +377,6 @@ class PullBackAndGoParams:
     block_entry_at_session_close: bool = True
     """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as DeadCatBounce."""
 
-    max_hold_bars: int = 0
-    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
-
     round_targets: bool = True
     """On, although ``PullBackAndGo.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
     anyway. See ``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
@@ -552,22 +407,12 @@ class PullBackAndGoParams:
                 raise ValueError(msg)
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
-        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
-
-    @property
-    def compression_key(self) -> compression.CompressionKey:
-        """Which of the dataset's compression series this combination reads."""
-        return compression.key(
-            self.compression_form,
-            self.compression_period,
-            self.compression_baseline_bars,
-        )
 
     @property
     def trend_key(self) -> trend.TrendKey:
@@ -656,18 +501,6 @@ class EmaCrossoverParams:
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
-    compression_filter: int = compression.ALL_STATES
-    """Compression states an entry may be taken in -- see
-    :attr:`DeadCatParams.compression_filter`."""
-
-    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
-    compression_period: int = 20
-    compression_baseline_bars: int = 250
-    compression_compressed_below: float = 0.25
-    compression_expanded_above: float = 0.75
-    """The width measure the rank is taken of, its two windows and its two cuts -- see
-    :attr:`DeadCatParams.compression_expanded_above`."""
-
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
 
@@ -686,13 +519,6 @@ class EmaCrossoverParams:
     higher_timeframe_period: int = 50
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
-
-    confluence_required: int = REQUIRE_ALL
-    """How many of the active context filters an entry needs, rather than all of them.
-
-    The only archetype that reads it, so the other six keep the plain conjunction. Legal
-    values are :data:`REQUIRE_ALL` and ``1`` up to one below the number of filters this
-    combination switches on -- :func:`validate_confluence`."""
 
     exit_on_opposite_cross: bool = True
     """Close the position at the next bar's open when the regime flips.
@@ -727,32 +553,6 @@ class EmaCrossoverParams:
     """Ticks beyond the swing extreme, matching the two ported archetypes. Not applied to
     the ATR stop, whose multiple already sets the distance."""
 
-    trail_ma_stop: bool = False
-    """Trail the stop along a moving average, on top of whichever mode placed it.
-
-    **Off by default and it must stay off in a sweep's base**: it is the only thing here that
-    needs ``keep_values``, which is the 8-bytes-against-1 memory switch every parallel worker
-    pays -- ``docs/roadmap.md`` § "The build spec's three loose ends"."""
-
-    trail_ma_kind: str = "ema"
-    trail_ma_period: int = 50
-    """The average the stop follows -- a third grid, independent of the two that cross."""
-
-    trail_offset_ticks: int = 2
-    """Ticks beyond the average the trailing stop sits, so it is not exactly on the level it
-    follows. Separate from :attr:`stop_offset_ticks` for the reason
-    ``ratchet_offset_ticks`` is separate from it in the ported archetypes."""
-
-    round_number_points: float = 0.0
-    """Spacing of the round numbers a stop may never sit exactly on, in points; ``0`` is off.
-
-    **Only meaningful on raw prices**, so a dataset must declare
-    :attr:`nqbt.context.PriceBasis.RAW` before a combination setting this will run --
-    ``docs/roadmap.md`` § "The build spec's three loose ends"."""
-
-    round_number_offset_ticks: int = 2
-    """Ticks further from the entry a stop landing on a round number is pushed."""
-
     tp_multiplier: float = 1.0
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """Per-leg targets in R, ``nan`` marking a runner.
@@ -768,10 +568,6 @@ class EmaCrossoverParams:
 
     fill_limit_on_touch: bool = False
     block_entry_at_session_close: bool = True
-
-    max_hold_bars: int = 0
-    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
-
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -784,11 +580,11 @@ class EmaCrossoverParams:
             msg: str = f"order_quantity {self.order_quantity} cannot fill {len(self.target_r_multiples)} legs"
             raise ValueError(msg)
 
-        for name in ("fast_period", "slow_period", "atr_period", "swing_lookback", "trail_ma_period"):
+        for name in ("fast_period", "slow_period", "atr_period", "swing_lookback"):
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
-        for gate in ("fast", "slow", "trail_ma"):
+        for gate in ("fast", "slow"):
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         if self.cross_lookback < 1:
             msg = f"cross_lookback must be >= 1, got {self.cross_lookback}"
@@ -798,21 +594,7 @@ class EmaCrossoverParams:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
 
-        if self.round_number_points < 0.0:
-            msg = f"round_number_points must be >= 0, got {self.round_number_points}"
-            raise ValueError(msg)
-
-        # An offset of zero would leave the stop on the round number the rule exists to avoid.
-        if self.round_number_points > 0.0 and self.round_number_offset_ticks < 1:
-            msg = (
-                f"round_number_offset_ticks must be >= 1 while round_number_points is "
-                f"{self.round_number_points}, got {self.round_number_offset_ticks}"
-            )
-            raise ValueError(msg)
-
-        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
-        validate_confluence(self, self.confluence_required)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
             msg = (
                 f"fast and slow are both {self.fast_kind}({self.fast_period}); identical "
@@ -824,15 +606,6 @@ class EmaCrossoverParams:
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
-
-    @property
-    def compression_key(self) -> compression.CompressionKey:
-        """Which of the dataset's compression series this combination reads."""
-        return compression.key(
-            self.compression_form,
-            self.compression_period,
-            self.compression_baseline_bars,
-        )
 
     @property
     def trend_key(self) -> trend.TrendKey:
@@ -938,18 +711,6 @@ class InsideBarParams:
     """The form the ratio is taken of, its two windows and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
 
-    compression_filter: int = compression.ALL_STATES
-    """Compression states an entry may be taken in -- see
-    :attr:`DeadCatParams.compression_filter`."""
-
-    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
-    compression_period: int = 20
-    compression_baseline_bars: int = 250
-    compression_compressed_below: float = 0.25
-    compression_expanded_above: float = 0.75
-    """The width measure the rank is taken of, its two windows and its two cuts -- see
-    :attr:`DeadCatParams.compression_expanded_above`."""
-
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
 
@@ -979,9 +740,6 @@ class InsideBarParams:
 
     block_entry_at_session_close: bool = True
     """``IsExitOnSessionCloseStrategy = true`` in the NinjaScript, same as both ports."""
-
-    max_hold_bars: int = 0
-    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     round_targets: bool = True
     """On, although ``InsideBar.cs`` never calls ``RoundToTickSize``: NT8 snaps submitted
@@ -1018,22 +776,12 @@ class InsideBarParams:
             msg = f"no_entry_minutes_before_close must be >= 0, got {self.no_entry_minutes_before_close}"
             raise ValueError(msg)
 
-        validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
-
-    @property
-    def compression_key(self) -> compression.CompressionKey:
-        """Which of the dataset's compression series this combination reads."""
-        return compression.key(
-            self.compression_form,
-            self.compression_period,
-            self.compression_baseline_bars,
-        )
 
     @property
     def trend_key(self) -> trend.TrendKey:
@@ -1128,8 +876,7 @@ class InsideBarTrailingParams(InsideBarParams):
 
         if self.position_update_loss_gate < 0.0:
             msg = (
-                f"position_update_loss_gate is a loss magnitude and must be >= 0, got "
-                f"{self.position_update_loss_gate}"
+                f"position_update_loss_gate is a loss magnitude and must be >= 0, got {self.position_update_loss_gate}"
             )
             raise ValueError(msg)
 
@@ -1170,13 +917,11 @@ STOP_ATR = 0
 STOP_EXCURSION = 1
 STOP_CATASTROPHE = 2
 STOP_SWING = 3
-STOP_BAND = 4
-STOP_MODES = {
+STOP_MODES: Mapping[int, str] = {
     STOP_ATR: "atr",
     STOP_EXCURSION: "excursion",
     STOP_CATASTROPHE: "catastrophe",
     STOP_SWING: "swing",
-    STOP_BAND: "band",
 }
 """Where the elastic band's protective stop goes, one per exit scheme -- ``docs/roadmap.md``
 §M26, "Three exit schemes". ``atr`` is a distance off the fill and the only floored one;
@@ -1184,53 +929,14 @@ STOP_MODES = {
 is :attr:`ElasticBandParams.catastrophe_stop_ticks` and is an account rule rather than a
 strategy stop; ``swing`` is the adverse extreme of a fixed number of bars, which at
 ``swing_lookback = 1`` is the signal candle alone and is the tightest stop the archetype can
-express; ``band`` is a level on the channel the entry was measured against, the only stop here
-whose distance scales with the dispersion the entry threshold uses -- ``docs/roadmap.md``
-§M26.8.
-"""
-
-BAND_BOLLINGER = 0
-BAND_VWAP = 1
-BAND_SOURCES = {BAND_BOLLINGER: "bollinger", BAND_VWAP: "vwap"}
-"""Which channel the extension is measured against. ``bollinger`` is ``nt8_sma`` +- k *
-``nt8_stddev`` over :attr:`ElasticBandParams.band_period`; ``vwap`` is the session VWAP and
-its volume-weighted dispersion, whose window is the session so far rather than a period --
-``docs/roadmap.md`` §M26.4.
+express.
 """
 
 TARGET_STRETCH = 0
 TARGET_R = 1
-TARGET_MODES = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
+TARGET_MODES: Mapping[int, str] = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
 """Which per-leg target tuple is read. ``stretch`` places every leg on a band level and is the
 mean-reversion geometry; ``r`` uses the shared R ladder and is comparable with EmaCrossover.
-"""
-
-SHAPE_ANY = 0
-SHAPE_REVERSAL = 1
-SHAPE_RECLAIM = 2
-SHAPE_REJECTION = 3
-SHAPE_MODES = {
-    SHAPE_ANY: "any",
-    SHAPE_REVERSAL: "reversal",
-    SHAPE_RECLAIM: "reclaim",
-    SHAPE_REJECTION: "rejection",
-}
-"""What the signal bar's own candle has to look like before an extension is faded. ``any`` asks
-nothing of it; ``reversal`` needs a body closing back towards the basis; ``reclaim`` needs the
-bar to have taken out the previous bar's extreme and closed back past its close; ``rejection``
-needs the close within :attr:`ElasticBandParams.rejection_close_fraction` of the bar's range of
-the extreme it stretched to. Why there is no engulfing mode: ``docs/roadmap.md`` §M26.5.
-"""
-
-TRIGGER_EXTENDED = 0
-TRIGGER_RECOVERY = 1
-TRIGGER_MODES = {TRIGGER_EXTENDED: "extended", TRIGGER_RECOVERY: "recovery"}
-"""Which bar of an extension schedules the entry. ``extended`` fades a bar that is still
-outside the band, which is every rule above it; ``recovery`` waits for the run outside to end
-and takes the bar that closes back inside, at a depth
-:attr:`ElasticBandParams.recovery_fraction` names. A different trigger rather than a fifth
-shape, because every :data:`SHAPE_MODES` value is read on a bar that is still beyond the
-threshold -- ``docs/roadmap.md`` §M26.6.
 """
 
 
@@ -1238,26 +944,14 @@ threshold -- ``docs/roadmap.md`` §M26.6.
 class ElasticBandParams:
     """Rule set for the ElasticBand archetype -- an original, with no NinjaScript.
 
-    The first mean-reversion archetype: fade a close far enough outside a band and target the
-    middle. :attr:`band_source` picks the channel -- Bollinger over :attr:`band_period`, or the
-    session-anchored VWAP. Every rule it implements, and the NinjaScript each would be written
-    as: ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes:
-    ``docs/roadmap.md`` §M26.
+    The first mean-reversion archetype: fade a close far enough outside a Bollinger band and
+    target the middle. Every rule it implements, and the NinjaScript each would be written as:
+    ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes: ``docs/roadmap.md``
+    §M26.
     """
 
-    band_source: int = BAND_BOLLINGER
-    """One of :data:`BAND_SOURCES` -- which channel the extension is measured against."""
-
     band_period: int = 20
-    """Period of both the basis and the standard deviation, which are one window.
-
-    Read under :data:`BAND_BOLLINGER` alone; the VWAP band's window is the session."""
-
-    vwap_min_session_bars: int = 30
-    """Bars a session's VWAP band must have before it can signal, under :data:`BAND_VWAP`.
-
-    The anchor resets at every session open, so the first bars of a session have a band built
-    from too few observations to be one -- ``docs/roadmap.md`` §M26.4."""
+    """Period of both the basis and the standard deviation, which are one window."""
 
     entry_std: float = 2.0
     """How far outside the basis a close must sit to signal, in standard deviations."""
@@ -1269,45 +963,13 @@ class ElasticBandParams:
     the entry region is bounded rather than one-sided -- ``docs/roadmap.md`` §M26."""
 
     min_bars_outside: int = 1
-    """Consecutive bars that must have been outside before an entry.
-
-    The signal bar is included under :data:`TRIGGER_EXTENDED` and is not under
-    :data:`TRIGGER_RECOVERY`, where the run ends at the bar before it."""
-
-    entry_trigger: int = TRIGGER_EXTENDED
-    """One of :data:`TRIGGER_MODES` -- which bar of an extension schedules the entry."""
-
-    recovery_fraction: float = 1.0
-    """How far back inside the band the close must come, as a share of :attr:`entry_std`.
-
-    ``1.0`` is the band edge itself and anything less is a depth. Read under
-    :data:`TRIGGER_RECOVERY` alone -- ``docs/roadmap.md`` §M26.6."""
+    """Consecutive bars that must have been outside before an entry, the signal bar included."""
 
     band_lag: int = 0
     """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one.
 
     At ``0`` the band contains the bar being tested, which damps the signal rather than
     looking ahead -- ``docs/roadmap.md`` §M26."""
-
-    signal_shape: int = SHAPE_ANY
-    """One of :data:`SHAPE_MODES` -- what the signal bar's own candle has to look like.
-
-    A reaction at the level rather than a blind fade of it -- ``docs/roadmap.md`` §M26.5."""
-
-    rejection_close_fraction: float = 0.5
-    """Share of the signal bar's range its close must sit inside, measured from the extreme the
-    move stretched to. Read under :data:`SHAPE_REJECTION` alone, where a zero-range bar never
-    qualifies."""
-
-    min_one_sided_bars: int = 0
-    """Bars of the last :attr:`one_sided_lookback` that must have closed *with* the extension.
-
-    Off at ``0``. How one-sided the move into the band was, which is the other half of the
-    overextension gauge whose first half is how far beyond the band it went --
-    ``docs/roadmap.md`` §M26.5."""
-
-    one_sided_lookback: int = 10
-    """Window :attr:`min_one_sided_bars` counts over, read while that is above ``0``."""
 
     trade_long: bool = True
     trade_short: bool = True
@@ -1335,18 +997,6 @@ class ElasticBandParams:
     volume_heavy_above: float = 1.5
     """The relative-volume series and its two cuts -- see
     :attr:`DeadCatParams.volume_heavy_above`."""
-
-    compression_filter: int = compression.ALL_STATES
-    """Compression states an entry may be taken in -- see
-    :attr:`DeadCatParams.compression_filter`."""
-
-    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
-    compression_period: int = 20
-    compression_baseline_bars: int = 250
-    compression_compressed_below: float = 0.25
-    compression_expanded_above: float = 0.75
-    """The width measure the rank is taken of, its two windows and its two cuts -- see
-    :attr:`DeadCatParams.compression_expanded_above`."""
 
     trend_filter: int = trend.ALL_TRENDS
     """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
@@ -1397,15 +1047,6 @@ class ElasticBandParams:
     Deliberately wide: it is the account's loss limit rather than a strategy stop, and the
     scheme it belongs to exists to test whether a strategy stop helps at all."""
 
-    band_stop_std: float = 1.0
-    """How far past :attr:`entry_std` the band stop sits, in standard deviations.
-
-    Read under :data:`STOP_BAND` alone, off the signal bar's basis and dispersion exactly as a
-    stretch target is: at ``entry_std = 2.0`` a value of ``1.0`` stops at the 3-sigma band. Past
-    the threshold rather than at an absolute level because :attr:`entry_std` is swept, and cells
-    cut by a level one entry depth has already passed could not be read against each other --
-    ``docs/roadmap.md`` §M26.8."""
-
     target_mode: int = TARGET_STRETCH
     """One of :data:`TARGET_MODES`."""
 
@@ -1429,7 +1070,7 @@ class ElasticBandParams:
     The range broke and held, which is the mean-reversion definition of a failed trade."""
 
     max_hold_bars: int = 0
-    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
+    """Time stop in bars, off at ``0``, on top of the session flatten every archetype has."""
 
     order_quantity: int = 4
 
@@ -1454,17 +1095,9 @@ class ElasticBandParams:
 
     def _validate_entry(self) -> None:
         """Check the band and the rule that decides which bars signal."""
-        if self.band_source not in BAND_SOURCES:
-            msg: str = f"unknown band_source {self.band_source}; use one of {sorted(BAND_SOURCES)}"
-            raise ValueError(msg)
-
         bands.validate_period(self.band_period)
-        if self.vwap_min_session_bars < 0:
-            msg = f"vwap_min_session_bars must be >= 0, got {self.vwap_min_session_bars}"
-            raise ValueError(msg)
-
         if self.entry_std <= 0.0:
-            msg = f"entry_std must be > 0, got {self.entry_std}"
+            msg: str = f"entry_std must be > 0, got {self.entry_std}"
             raise ValueError(msg)
 
         if self.max_entry_std != 0.0 and self.max_entry_std <= self.entry_std:
@@ -1478,54 +1111,12 @@ class ElasticBandParams:
             msg = f"min_bars_outside must be >= 1, got {self.min_bars_outside}"
             raise ValueError(msg)
 
-        if self.entry_trigger not in TRIGGER_MODES:
-            msg = f"unknown entry_trigger {self.entry_trigger}; use one of {sorted(TRIGGER_MODES)}"
-            raise ValueError(msg)
-
-        if not 0.0 < self.recovery_fraction <= 1.0:
-            msg = (
-                "recovery_fraction is a share of entry_std and must be in (0, 1], got "
-                f"{self.recovery_fraction}; at 0 the close would have to sit exactly on the "
-                "basis, which no bar passes"
-            )
-            raise ValueError(msg)
-
         if self.band_lag < 0:
             msg = f"band_lag must be >= 0, got {self.band_lag}"
             raise ValueError(msg)
 
         if not (self.trade_long or self.trade_short):
             msg = "trade_long and trade_short are both off, so nothing can ever be entered"
-            raise ValueError(msg)
-
-        self._validate_signal_bar()
-
-    def _validate_signal_bar(self) -> None:
-        """Check the two requirements the signal bar's own candle has to meet."""
-        if self.signal_shape not in SHAPE_MODES:
-            msg: str = f"unknown signal_shape {self.signal_shape}; use one of {sorted(SHAPE_MODES)}"
-            raise ValueError(msg)
-
-        if not 0.0 <= self.rejection_close_fraction <= 1.0:
-            msg = (
-                "rejection_close_fraction is a share of the bar's range and must be in [0, 1], "
-                f"got {self.rejection_close_fraction}"
-            )
-            raise ValueError(msg)
-
-        if self.one_sided_lookback < 1:
-            msg = f"one_sided_lookback must be >= 1, got {self.one_sided_lookback}"
-            raise ValueError(msg)
-
-        if self.min_one_sided_bars < 0:
-            msg = f"min_one_sided_bars must be >= 0, got {self.min_one_sided_bars}"
-            raise ValueError(msg)
-
-        if self.min_one_sided_bars > self.one_sided_lookback:
-            msg = (
-                f"min_one_sided_bars {self.min_one_sided_bars} exceeds one_sided_lookback "
-                f"{self.one_sided_lookback}, so no bar can ever pass"
-            )
             raise ValueError(msg)
 
     def _validate_exit_scheme(self) -> None:
@@ -1546,19 +1137,23 @@ class ElasticBandParams:
             if getattr(self, name) < 1:
                 msg = f"{name} must be >= 1"
                 raise ValueError(msg)
+
         if self.min_bracket_dollars < 0.0:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
 
-        if self.band_stop_std <= 0.0:
-            msg = (
-                "band_stop_std is how far past entry_std the stop sits and must be > 0, got "
-                f"{self.band_stop_std}; at 0 it is the entry threshold itself, which the close "
-                "that signalled has already passed"
-            )
+        if self.max_hold_bars < 0:
+            msg = f"max_hold_bars must be >= 0, got {self.max_hold_bars}"
             raise ValueError(msg)
 
-        validate_max_hold_bars(self.max_hold_bars)
+        # Both write EXIT_SIGNAL, so a log carrying both cannot say which fired --
+        # ``docs/nt8-fidelity.md`` §M26.
+        if self.exit_on_invalidation and self.max_hold_bars > 0:
+            msg = (
+                "exit_on_invalidation and max_hold_bars both write EXIT_SIGNAL, so a trade "
+                "log with both on cannot say which exit fired; enable one per grid"
+            )
+            raise ValueError(msg)
 
     @property
     def target_levels(self) -> tuple[float, ...]:
@@ -1572,461 +1167,6 @@ class ElasticBandParams:
     def volume_key(self) -> volume.VolumeKey:
         """Which of the dataset's volume series this combination reads."""
         return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
-
-    @property
-    def compression_key(self) -> compression.CompressionKey:
-        """Which of the dataset's compression series this combination reads."""
-        return compression.key(
-            self.compression_form,
-            self.compression_period,
-            self.compression_baseline_bars,
-        )
-
-    @property
-    def trend_key(self) -> trend.TrendKey:
-        """Which of the dataset's trend labels this combination reads."""
-        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
-
-    @property
-    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
-        """Which of the dataset's higher-timeframe averages this combination reads."""
-        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
-
-    @property
-    def leg_quantities(self) -> tuple[int, ...]:
-        """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
-        n: int = len(self.target_levels)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
-
-        return tuple([base] * (n - 1) + [base + remainder])
-
-    def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
-        out: dict[str, object] = {}
-        for f in fields(self):
-            value: object = getattr(self, f.name)
-            out[f.name] = list(value) if isinstance(value, tuple) else value
-
-        return out
-
-
-ORB_ENTRY_BREAKOUT = 0
-ORB_ENTRY_FADE = 1
-ORB_ENTRY_RETEST = 2
-ORB_ENTRY_REJECTION = 3
-ORB_ENTRY_MODES = {
-    ORB_ENTRY_BREAKOUT: "breakout",
-    ORB_ENTRY_FADE: "fade",
-    ORB_ENTRY_RETEST: "retest",
-    ORB_ENTRY_REJECTION: "rejection",
-}
-"""Which event at the range the entry order waits for, and therefore which order type it is.
-
-``breakout`` rests a stop beyond the extreme in the direction traded. ``fade`` waits for that
-extreme to be broken *against* the direction traded and rests a stop back inside the range, so
-a long fade buys the failed break of the low. ``retest`` waits for the break to happen in the
-direction traded and then rests a **limit** at the level it broke. ``rejection`` rests a limit
-just inside the extreme against the direction traded and waits for nothing, so a long buys the
-approach to the low that turns before breaking it. All four read the same levels --
-``docs/roadmap.md`` §M28.2 and §M28.6.
-"""
-
-ORB_OPPOSITE_EXTREME_ENTRIES = (ORB_ENTRY_FADE, ORB_ENTRY_REJECTION)
-ORB_BREAK_ENTRIES = (ORB_ENTRY_FADE, ORB_ENTRY_RETEST)
-ORB_LIMIT_ENTRIES = (ORB_ENTRY_RETEST, ORB_ENTRY_REJECTION)
-"""The three properties an entry mode is made of, each read as a membership test.
-
-Which extreme the order rests at, whether a break must already have happened, and whether the
-order is a stop or a limit. The four modes are four combinations of those rather than four
-mechanisms: ``rejection`` is the fade's level, the retest's order type and the breakout's lack
-of an arming condition -- ``docs/roadmap.md`` §M28.6.
-"""
-
-ORB_STOP_OPPOSITE = 0
-ORB_STOP_ATR = 1
-ORB_STOP_FRACTION = 2
-ORB_STOP_MODES = {
-    ORB_STOP_OPPOSITE: "opposite",
-    ORB_STOP_ATR: "atr",
-    ORB_STOP_FRACTION: "fraction",
-}
-"""Where the opening range's protective stop goes. ``opposite`` is the range's other extreme,
-which makes the stop distance the range width itself; ``atr`` is a multiple of ATR from the
-trigger and is the only one floored, because only it is a distance rather than a level;
-``fraction`` is :attr:`OpeningRangeParams.stop_range_fraction` of the range width back from the
-extreme that was broken, which puts the midpoint stop the literature also uses at ``0.5`` and
-reproduces ``opposite`` exactly at ``1.0`` -- ``docs/roadmap.md`` §M28.2.
-"""
-
-ORB_TARGET_R = 0
-ORB_TARGET_WIDTH = 1
-ORB_TARGET_MODES = {ORB_TARGET_R: "r", ORB_TARGET_WIDTH: "width"}
-"""Which per-leg target tuple is read. ``r`` is the shared R ladder, comparable with every
-other archetype; ``width`` places each leg a multiple of the **range width** past the trigger,
-which is the unit the opening range states its own geometry in.
-"""
-
-ORB_SCALE_NONE = 0
-ORB_SCALE_TARGET = 1
-ORB_SCALE_STOP = 2
-ORB_SCALE_BOTH = ORB_SCALE_TARGET | ORB_SCALE_STOP
-ORB_SCALE_MODES = {
-    ORB_SCALE_NONE: "none",
-    ORB_SCALE_TARGET: "target",
-    ORB_SCALE_STOP: "stop",
-    ORB_SCALE_BOTH: "both",
-}
-"""Which halves of the bracket are denominated in the *trailing* follow-through rather than in
-the session's own range width.
-
-A bitmask so the two halves separate: the width a leg's target is a multiple of, the width the
-fraction stop is a fraction of, either, or neither. At :data:`ORB_SCALE_NONE` the arithmetic is
-byte-for-byte what §M28.1 swept. Above it the width both halves read becomes
-``width * trailing follow-through``, which is how far price has lately gone past a range of
-that size rather than how wide the range is -- ``docs/roadmap.md`` §M28.9.
-"""
-
-
-@dataclass(slots=True)
-class OpeningRangeParams:
-    """Rule set for the OpeningRange archetype -- an original, with no NinjaScript.
-
-    The opening-range break, which the literature calls the ORB: measure the high and low of
-    :attr:`window_minutes` from :attr:`anchor_minutes` past the session open, then rest a stop
-    order at whichever extreme :attr:`direction` names. **One side per combination**, because
-    NT8's managed approach refuses the opposite-direction submission and a two-sided range is
-    not established as expressible -- ``docs/roadmap.md`` §M28.
-
-    Every rule it implements and the NinjaScript each would be written as:
-    ``docs/nt8-fidelity.md`` §M28. The design and what was deliberately left out:
-    ``docs/roadmap.md`` §M28.1.
-    """
-
-    anchor_minutes: int = sessionrange.CASH_OPEN_MINUTES
-    """Minutes past the session open at which the range starts -- the cash open by default.
-
-    :data:`nqbt.sessionrange.ETH_OPEN_MINUTES` is the overnight range's anchor. **The bar size
-    must divide it**, so this axis is constrained by the resolution rather than free --
-    :func:`nqbt.sessionrange.validate_key`."""
-
-    window_minutes: int = 30
-    """How much of the session the range measures. 5, 15 and 30 are what every source means,
-    and the bar size must divide this too."""
-
-    direction: float = trades.LONG
-    """Which break is taken: :data:`nqbt.trades.LONG` above the range, ``SHORT`` below it.
-
-    A parameter rather than two archetypes, and one side per combination rather than both live
-    at once -- ``docs/roadmap.md`` §M28, finding 1."""
-
-    entry_mode: int = ORB_ENTRY_BREAKOUT
-    """One of :data:`ORB_ENTRY_MODES` -- which event at the range the order waits for."""
-
-    entry_offset_ticks: int = 1
-    """Ticks past the level in the direction traded, read by every mode but
-    :data:`ORB_ENTRY_RETEST`.
-
-    Which side of the level that is follows from which extreme the mode rests at: outside the
-    range for a breakout, and *inside* it for the two that rest at the opposite extreme. Not
-    cosmetic under a stop entry: at ``0`` the trigger sits on the level, and a bar closing
-    exactly there cannot submit at all, because NT8 declines a stop entry at or through the
-    market -- ``docs/nt8-fidelity.md`` §M18. A limit at the level is legal, so
-    :data:`ORB_ENTRY_REJECTION` may sit at ``0``."""
-
-    break_confirm_ticks: int = 0
-    """Ticks past the level price must trade before a fade or a retest arms, read under
-    :data:`ORB_ENTRY_FADE` and :data:`ORB_ENTRY_RETEST` alone.
-
-    At ``0`` any trade through the level counts as the break. The flag it sets lasts the rest
-    of the session, so a fade re-arms after its own stop the way a breakout does.
-    :data:`ORB_ENTRY_REJECTION` waits for no break and so reads nothing here."""
-
-    retest_offset_ticks: int = 0
-    """Ticks *inside* the broken level the limit sits at, read under
-    :data:`ORB_ENTRY_RETEST` alone.
-
-    At ``0`` the limit sits on the level itself. It is a limit rather than a stop, so it fills
-    at its price or better and takes no slippage -- ``docs/nt8-fidelity.md`` §M28.2."""
-
-    max_entries_per_session: int = 1
-    """How many entries one session may fill, uncapped at ``0``.
-
-    **The default is one-shot**, which is what essentially every published opening-range result
-    measures; a level-based trigger re-arms every bar, so uncapped it re-enters after every
-    stop -- ``docs/roadmap.md`` §M28, finding 4."""
-
-    phase_filter: int = timeofday.ALL_PHASES
-    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
-
-    regime_filter: int = regime.ALL_REGIMES
-    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
-
-    regime_lookback: int = 20
-    regime_consolidating_below: float = 0.3
-    regime_directional_above: float = 0.5
-    """The efficiency-ratio lookback and its two cuts -- see
-    :attr:`DeadCatParams.regime_directional_above`."""
-
-    volume_filter: int = volume.ALL_STATES
-    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
-
-    volume_form: int = int(volume.VolumeForm.PER_BAR)
-    volume_rolling_bars: int = 30
-    volume_baseline_sessions: int = 20
-    volume_thin_below: float = 0.7
-    volume_heavy_above: float = 1.5
-    """The relative-volume series and its two cuts -- see
-    :attr:`DeadCatParams.volume_heavy_above`."""
-
-    compression_filter: int = compression.ALL_STATES
-    """Compression states an entry may be taken in -- see
-    :attr:`DeadCatParams.compression_filter`."""
-
-    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
-    compression_period: int = 20
-    compression_baseline_bars: int = 250
-    compression_compressed_below: float = 0.25
-    compression_expanded_above: float = 0.75
-    """The width measure the rank is taken of, its two windows and its two cuts -- see
-    :attr:`DeadCatParams.compression_expanded_above`."""
-
-    trend_filter: int = trend.ALL_TRENDS
-    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
-
-    trend_fast_period: int = 20
-    trend_slow_period: int = 50
-    trend_slope_lookback: int = 5
-    trend_min_agreement: int = 3
-    """The trend label's averages and its agreement threshold -- see
-    :attr:`DeadCatParams.trend_min_agreement`."""
-
-    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
-    """Sides of a coarse average an entry may be taken on -- see
-    :attr:`DeadCatParams.higher_timeframe_filter`."""
-
-    higher_timeframe_minutes: int = 60
-    higher_timeframe_period: int = 50
-    """The coarse resolution and the period averaged on it -- see
-    :attr:`DeadCatParams.higher_timeframe_period`."""
-
-    stop_mode: int = ORB_STOP_OPPOSITE
-    """One of :data:`ORB_STOP_MODES`."""
-
-    stop_offset_ticks: int = 2
-    """Ticks beyond the stop's level under :data:`ORB_STOP_OPPOSITE` and
-    :data:`ORB_STOP_FRACTION`, so the stop does not sit exactly on the level it protects."""
-
-    stop_range_fraction: float = 0.5
-    """How far back across the range the stop sits under :data:`ORB_STOP_FRACTION`, as a
-    fraction of the range width from the extreme that was broken.
-
-    ``0.5`` is the midpoint stop and ``1.0`` is :data:`ORB_STOP_OPPOSITE` exactly, offset
-    included -- so the axis contains the mode that already works rather than running beside
-    it. Values past ``1.0`` are legal and put the stop outside the range."""
-
-    atr_period: int = 14
-    atr_stop_multiple: float = 2.0
-    """Stop distance as a multiple of ATR at the signal bar, under :data:`ORB_STOP_ATR`."""
-
-    min_bracket_dollars: float = 0.0
-    """Floor on the ATR stop distance in **dollars per contract**, off at ``0``.
-
-    Applies to :data:`ORB_STOP_ATR` alone, because only it is a distance rather than a level --
-    see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
-
-    target_mode: int = ORB_TARGET_R
-    """One of :data:`ORB_TARGET_MODES`."""
-
-    target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
-    """Per-leg targets in R, read under :data:`ORB_TARGET_R`. ``nan`` marks a runner, which
-    here leaves at the session close."""
-
-    target_width_multiples: tuple[float, ...] = (1.0, float("nan"))
-    """Per-leg targets as multiples of the **range width** past the trigger, read under
-    :data:`ORB_TARGET_WIDTH`. Not scaled by :attr:`tp_multiplier`, which would be the same
-    axis twice."""
-
-    tp_multiplier: float = 1.0
-    """Scales every R target, as on the ported archetypes."""
-
-    follow_through_scaling: int = ORB_SCALE_NONE
-    """One of :data:`ORB_SCALE_MODES` -- which halves of the bracket the trailing follow-through
-    scales. Off by default, which is the geometry every stored OpeningRange row was swept on."""
-
-    follow_through_sessions: int = 60
-    """How many prior sessions the trailing follow-through is the median of.
-
-    Read under every :attr:`follow_through_scaling` but :data:`ORB_SCALE_NONE`, where it is
-    inert -- so it is a **variant dimension** rather than an axis crossed with the mode."""
-
-    order_quantity: int = 4
-
-    bars_required_to_trade: int = 200
-
-    ambiguity_policy: int = 1
-    """See :attr:`DeadCatParams.ambiguity_policy` -- same concept, same default."""
-
-    fill_limit_on_touch: bool = False
-    block_entry_at_session_close: bool = True
-
-    max_hold_bars: int = 0
-    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
-
-    round_targets: bool = True
-    """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
-
-    commission_per_contract: float = 0.0
-    slippage_ticks: float = 0.0
-    """Adverse slippage on the stop entry and both market exits. Never applied to a limit
-    target."""
-
-    def __post_init__(self) -> None:
-        self._validate_entry()
-        self._validate_exit_scheme()
-        self._validate_follow_through()
-        validate_max_hold_bars(self.max_hold_bars)
-        validate_context_filters(self)
-
-    def _validate_entry(self) -> None:
-        """Check the range and the rule that decides which bars may submit an order."""
-        if self.direction not in (trades.LONG, trades.SHORT):
-            msg: str = (
-                f"direction must be {trades.LONG} (long) or {trades.SHORT} (short), got "
-                f"{self.direction}; a range traded both ways at once is not expressible in NT8"
-            )
-            raise ValueError(msg)
-
-        if self.entry_mode not in ORB_ENTRY_MODES:
-            msg = f"unknown entry_mode {self.entry_mode}; use one of {sorted(ORB_ENTRY_MODES)}"
-            raise ValueError(msg)
-
-        # Resolution-independent only: whether the bar size can express this range is checked
-        # where the bars are, in ``sessionrange.validate_key``.
-        sessionrange.validate_key(self.anchor_minutes, self.window_minutes, bar_minutes=1)
-        if self.entry_offset_ticks < 0:
-            msg = f"entry_offset_ticks must be >= 0, got {self.entry_offset_ticks}"
-            raise ValueError(msg)
-
-        if self.break_confirm_ticks < 0:
-            msg = f"break_confirm_ticks must be >= 0, got {self.break_confirm_ticks}"
-            raise ValueError(msg)
-
-        if self.retest_offset_ticks < 0:
-            msg = f"retest_offset_ticks must be >= 0, got {self.retest_offset_ticks}"
-            raise ValueError(msg)
-
-        if self.max_entries_per_session < 0:
-            msg = f"max_entries_per_session must be >= 0, got {self.max_entries_per_session}"
-            raise ValueError(msg)
-
-    def _validate_exit_scheme(self) -> None:
-        """Check the stop and the targets against each other."""
-        if self.stop_mode not in ORB_STOP_MODES:
-            msg: str = f"unknown stop_mode {self.stop_mode}; use one of {sorted(ORB_STOP_MODES)}"
-            raise ValueError(msg)
-
-        if self.target_mode not in ORB_TARGET_MODES:
-            msg = f"unknown target_mode {self.target_mode}; use one of {sorted(ORB_TARGET_MODES)}"
-            raise ValueError(msg)
-
-        if self.entry_mode in ORB_OPPOSITE_EXTREME_ENTRIES and self.stop_mode == ORB_STOP_OPPOSITE:
-            msg = (
-                "a fade and a rejection enter at the range extreme this stop mode names, so "
-                "the stop would sit stop_offset_ticks from the entry and the mode would just "
-                f"be the fraction stop at a fraction of zero. Use stop_mode {ORB_STOP_FRACTION} "
-                f"(fraction), which measures from that same level, or {ORB_STOP_ATR} (atr)"
-            )
-            raise ValueError(msg)
-
-        if self.order_quantity < len(self.target_levels):
-            msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_levels)} legs"
-            raise ValueError(msg)
-
-        if self.atr_period < 1:
-            msg = f"atr_period must be >= 1, got {self.atr_period}"
-            raise ValueError(msg)
-
-        if self.stop_offset_ticks < 0:
-            msg = f"stop_offset_ticks must be >= 0, got {self.stop_offset_ticks}"
-            raise ValueError(msg)
-
-        if self.stop_range_fraction <= 0.0:
-            msg = f"stop_range_fraction must be > 0, got {self.stop_range_fraction}"
-            raise ValueError(msg)
-
-        if self.min_bracket_dollars < 0.0:
-            msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
-            raise ValueError(msg)
-
-    def _validate_follow_through(self) -> None:
-        """Check the trailing scale against the two bracket halves it can be applied to.
-
-        Each half is refused under a mode that states its geometry in some other unit, because
-        there is then no width for the scale to multiply and the axis would be silently inert.
-        """
-        if self.follow_through_scaling not in ORB_SCALE_MODES:
-            msg: str = (
-                f"unknown follow_through_scaling {self.follow_through_scaling}; use one of "
-                f"{sorted(ORB_SCALE_MODES)}"
-            )
-            raise ValueError(msg)
-
-        sessionrange.validate_follow_through_sessions(self.follow_through_sessions)
-        if self.follow_through_scaling & ORB_SCALE_TARGET and self.target_mode != ORB_TARGET_WIDTH:
-            msg = (
-                "follow-through can only scale a target that is a multiple of the range width; "
-                f"target_mode {self.target_mode} states its targets in R. Use target_mode "
-                f"{ORB_TARGET_WIDTH} (width) or drop {ORB_SCALE_TARGET} from "
-                "follow_through_scaling"
-            )
-            raise ValueError(msg)
-
-        if self.follow_through_scaling & ORB_SCALE_STOP and self.stop_mode != ORB_STOP_FRACTION:
-            msg = (
-                "follow-through can only scale a stop that is a fraction of the range width; "
-                f"stop_mode {self.stop_mode} places a level or an ATR distance. Use stop_mode "
-                f"{ORB_STOP_FRACTION} (fraction) or drop {ORB_SCALE_STOP} from "
-                "follow_through_scaling"
-            )
-            raise ValueError(msg)
-
-    @property
-    def range_key(self) -> sessionrange.RangeKey:
-        """Which of the dataset's session ranges this combination reads."""
-        return (self.anchor_minutes, self.window_minutes)
-
-    @property
-    def scales_target(self) -> bool:
-        """Whether a leg's target is a multiple of the trailing reach rather than of the range."""
-        return bool(self.follow_through_scaling & ORB_SCALE_TARGET)
-
-    @property
-    def scales_stop(self) -> bool:
-        """Whether the fraction stop is a fraction of the trailing reach rather than of the range."""
-        return bool(self.follow_through_scaling & ORB_SCALE_STOP)
-
-    @property
-    def target_levels(self) -> tuple[float, ...]:
-        """The per-leg target tuple this combination reads, whichever mode selected it."""
-        if self.target_mode == ORB_TARGET_WIDTH:
-            return self.target_width_multiples
-
-        return self.target_r_multiples
-
-    @property
-    def volume_key(self) -> volume.VolumeKey:
-        """Which of the dataset's volume series this combination reads."""
-        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
-
-    @property
-    def compression_key(self) -> compression.CompressionKey:
-        """Which of the dataset's compression series this combination reads."""
-        return compression.key(
-            self.compression_form,
-            self.compression_period,
-            self.compression_baseline_bars,
-        )
 
     @property
     def trend_key(self) -> trend.TrendKey:

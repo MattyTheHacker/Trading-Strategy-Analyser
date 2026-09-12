@@ -28,12 +28,12 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nqbt.arrays import BoolArray, DateArray, FloatArray, IntArray, OffsetArray
 
-EASTERN = "America/New_York"
-
-FRIDAY = 4
-"""``DatetimeIndex.dayofweek`` for the last weekday a session may end on."""
+EASTERN: str = "America/New_York"
+FRIDAY: int = 4  # ``DatetimeIndex.dayofweek`` for the last weekday a session may end on.
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +58,7 @@ class SessionTemplate:
 
 CME_US_INDEX_FUTURES_ETH = SessionTemplate(name="CME US Index Futures ETH")
 
-TEMPLATES: dict[str, SessionTemplate] = {
+TEMPLATES: Mapping[str, SessionTemplate] = {
     CME_US_INDEX_FUTURES_ETH.name: CME_US_INDEX_FUTURES_ETH,
 }
 
@@ -67,16 +67,11 @@ TEMPLATES: dict[str, SessionTemplate] = {
 class SessionInfo:
     """Per-bar session classification, aligned to the input index."""
 
-    eastern: pd.DatetimeIndex
-    """Bar end timestamps converted to exchange local time (tz-aware)."""
-    trading_day: DateArray
-    """``datetime64[D]``: the date each bar's session ends on."""
-    in_session: BoolArray
-    """Bool: bar falls inside a real session (not the break, not a weekend print)."""
-    is_session_open: BoolArray
-    """Bool: first in-session bar of its trading day."""
-    is_session_close: BoolArray
-    """Bool: last in-session bar of its trading day."""
+    eastern: pd.DatetimeIndex  # Bar end timestamps converted to exchange local time (tz-aware).
+    trading_day: DateArray  # ``datetime64[D]``: the date each bar's session ends on.
+    in_session: BoolArray  # Bool: bar falls inside a real session (not the break, not a weekend print).
+    is_session_open: BoolArray  # Bool: first in-session bar of its trading day.
+    is_session_close: BoolArray  # Bool: last in-session bar of its trading day.
 
     def __len__(self) -> int:
         return len(self.eastern)
@@ -90,10 +85,7 @@ def to_eastern(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return index.tz_convert(EASTERN)
 
 
-def classify(
-    index: pd.DatetimeIndex,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> SessionInfo:
+def classify(index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> SessionInfo:
     """Assign each bar to a trading day and flag whether it is inside a session.
 
     ``index`` holds **end-of-bar** timestamps. A bar stamped exactly at the close time
@@ -174,10 +166,7 @@ def force_flat_mask(
     return info.in_session & (seconds_to_session_end(info, template) <= float(exit_on_close_seconds))
 
 
-def seconds_to_session_end(
-    info: SessionInfo,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> FloatArray:
+def seconds_to_session_end(info: SessionInfo, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> FloatArray:
     """Seconds from each bar's end timestamp to its session's end, which is its last bar.
 
     Reaches exactly zero on that bar. The quantity both :func:`force_flat_mask` and a no-entry

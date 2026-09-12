@@ -270,9 +270,7 @@ def report(run: Run) -> bool:
 
     entry = measure_entry_lag(run)
     logger.info("callback lag on entry fills: %s", entry)
-    consistent = entry["fills"] == 0 or (
-        entry["reported_plus_one"] == entry["fills"] and entry["reported"] == 0
-    )
+    consistent = entry["fills"] == 0 or (entry["reported_plus_one"] == entry["fills"] and entry["reported"] == 0)
     if not consistent:
         logger.warning("  entry-fill lag is NOT a clean +1 in this run; every bar below is suspect")
 

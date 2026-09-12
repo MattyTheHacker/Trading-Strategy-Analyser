@@ -136,7 +136,7 @@ def test_cmd_contracts_tabulates_every_cached_contract(monkeypatch, base_args, c
 # --- splice ------------------------------------------------------------------
 
 
-def splice_args(base_args, *, diagnostics: bool):
+def splice_args(base_args, diagnostics: bool):
     base_args.root = "MNQ"
     base_args.back_adjust = False
     base_args.confirm_sessions = 1
@@ -146,7 +146,7 @@ def splice_args(base_args, *, diagnostics: bool):
     return base_args
 
 
-def spliced(monkeypatch, *, early_rolls, rolls=()):
+def spliced(monkeypatch, early_rolls, rolls=()):
     series = pd.DataFrame(
         {"close": [1.0, 2.0]},
         index=pd.to_datetime(["2024-03-01", "2024-03-02"], utc=True),
@@ -251,9 +251,7 @@ def trade_log() -> pd.DataFrame:
             "ambiguous_bar": [False, False, True],
             "exit_reason": ["target", "target", "stop"],
             "entry_time": pd.to_datetime(["2024-01-02 15:00"] * 3, utc=True),
-            "exit_time": pd.to_datetime(
-                ["2024-01-02 15:04", "2024-01-02 15:09", "2024-01-03 15:03"], utc=True
-            ),
+            "exit_time": pd.to_datetime(["2024-01-02 15:04", "2024-01-02 15:09", "2024-01-03 15:03"], utc=True),
         }
     )
 
@@ -373,9 +371,7 @@ def test_cmd_run_names_every_file_it_wrote(monkeypatch, base_args, stub_run, con
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
     detail = pd.DataFrame({"trade_id": [1, 2]})
     monkeypatch.setattr("nqbt.sim.explain.explain_trades", MagicMock(return_value=detail))
-    monkeypatch.setattr(
-        "nqbt.sim.explain.ratchet_history", MagicMock(return_value=pd.DataFrame({"bar": [1]}))
-    )
+    monkeypatch.setattr("nqbt.sim.explain.ratchet_history", MagicMock(return_value=pd.DataFrame({"bar": [1]})))
 
     args = run_args(
         base_args,

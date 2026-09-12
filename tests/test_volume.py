@@ -458,67 +458,6 @@ def test_a_grid_gate_and_a_grid_label_read_the_same_row() -> None:
     assert np.array_equal(gated, labels == VolumeState.HEAVY)
 
 
-# -- the cut, stated as a share of the measured bars ----------------------------
-
-
-def test_a_fitted_pair_admits_the_share_of_bars_the_quantiles_name() -> None:
-    """The whole point of the fit: 0.7/1.5 is a different share under each form and at each
-    resolution, so the cell it makes cannot be read against another one."""
-    index = stamps(35)
-    grid = grid_of(hump(index) + np.arange(index.size) % 31, index, PER_BAR)
-    relative = grid.relative_for(PER_BAR)
-    measured = relative[np.isfinite(relative)]
-
-    thin, heavy = grid.thresholds_for(PER_BAR, 0.25, 0.75)
-    assert float((measured < thin).mean()) == pytest.approx(0.25, abs=0.01)
-    assert float((measured > heavy).mean()) == pytest.approx(0.25, abs=0.01)
-
-
-def test_the_fit_ignores_the_bars_that_carry_no_ratio() -> None:
-    """Warm-up bars and bars in no session are ``nan``; counting them would drag both cuts."""
-    values = np.array([1.0, 2.0, 3.0, 4.0, np.nan, np.nan, np.nan], dtype=np.float64)
-    assert volume.thresholds_from_quantiles(values, 0.0, 1.0) == (1.0, 4.0)
-
-
-def test_a_series_with_no_measured_ratio_is_refused_rather_than_cut_at_nan() -> None:
-    with pytest.raises(VolumeError, match="no measured relative volume"):
-        volume.thresholds_from_quantiles(np.full(5, np.nan), 0.2, 0.8)
-
-
-@pytest.mark.parametrize(
-    ("thin", "heavy", "message"),
-    [
-        (-0.1, 0.8, "thin_quantile must lie in 0..1"),
-        (0.2, 1.5, "heavy_quantile must lie in 0..1"),
-        (0.9, 0.1, "exceeds heavy_quantile"),
-    ],
-)
-def test_an_impossible_pair_of_quantiles_is_refused(thin, heavy, message) -> None:
-    with pytest.raises(VolumeError, match=message):
-        volume.thresholds_from_quantiles(np.arange(10.0), thin, heavy)
-
-
-def test_equal_quantiles_are_legal_and_collapse_the_normal_band() -> None:
-    """The same latitude ``validate_thresholds`` already allows the thresholds themselves."""
-    thin, heavy = volume.thresholds_from_quantiles(np.arange(10.0), 0.5, 0.5)
-    assert thin == heavy
-
-
-def test_a_fitted_pair_is_a_legal_pair_of_thresholds() -> None:
-    """A fit that produced a crossed or negative pair would fail at the parameter class instead."""
-    index = stamps(35)
-    grid = grid_of(hump(index) + np.arange(index.size) % 31, index, PER_BAR, ROLLING)
-    for key in (PER_BAR, ROLLING):
-        volume.validate_thresholds(*grid.thresholds_for(key, 0.2, 0.8))
-
-
-def test_a_series_name_carries_the_window_only_where_the_form_reads_one() -> None:
-    """Two cells that differ only in the form have to be separable in a results table."""
-    assert volume.describe_key(PER_BAR) == "per_bar_20"
-    assert volume.describe_key(ROLLING) == "rolling_30_20"
-    assert volume.describe_key(SESSION_TO_DATE) == "session_to_date_20"
-
-
 def test_the_sessions_are_numbered_in_order_and_a_stray_print_belongs_to_none() -> None:
     index = stamps(12)
     trading_day, in_session, _ = clock(index)
@@ -710,10 +649,7 @@ def test_the_three_volume_filters_partition_every_measured_signal() -> None:
     """
     data = prepared(volume_keys=(PER_BAR,))
     whole = deadcat_signal(data, DeadCatParams(bars_required_to_trade=20))
-    parts = [
-        deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, volume_filter=s.bit))
-        for s in VolumeState
-    ]
+    parts = [deadcat_signal(data, DeadCatParams(bars_required_to_trade=20, volume_filter=s.bit)) for s in VolumeState]
     labels = data.volume_labels(PER_BAR, THIN, HEAVY)
     measured = whole & (labels != UNDEFINED)
 

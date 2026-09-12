@@ -15,7 +15,6 @@ each other.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from enum import StrEnum
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
@@ -23,12 +22,10 @@ import pandas as pd
 
 from nqbt import (
     bands,
-    compression,
     conditions,
     higher_timeframe,
     indicators,
     regime,
-    sessionrange,
     sessions,
     timeofday,
     trend,
@@ -37,13 +34,11 @@ from nqbt import (
 from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, LabelArray
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray, LabelArray
     from nqbt.bands import BandGrid
-    from nqbt.compression import CompressionGrid
     from nqbt.conditions import MovingAverageGrid
     from nqbt.higher_timeframe import HigherTimeframeGrid
     from nqbt.regime import EfficiencyRatioGrid
-    from nqbt.sessionrange import FollowThroughGrid, SessionRangeGrid
     from nqbt.sessions import SessionInfo
     from nqbt.timeofday import TimeOfDay
     from nqbt.trend import TrendGrid
@@ -52,24 +47,6 @@ if TYPE_CHECKING:
 
 class ContextError(KeyError):
     """Raised when a strategy reads a series :func:`prepare` was not asked to build."""
-
-
-class PriceBasis(StrEnum):
-    """Whether these bars carry the prices that traded, and it has to be stated.
-
-    Only :data:`RAW` admits a rule that reads an absolute price level -- round-number stop
-    avoidance is the one -- and :data:`UNKNOWN` is the default so that a caller who never said
-    is refused rather than assumed right. ``docs/roadmap.md`` § "The build spec's three loose ends".
-    """
-
-    RAW = "raw"
-    """The prices that traded: one contract, or a spliced series with no back-adjustment."""
-
-    BACK_ADJUSTED = "back-adjusted"
-    """Shifted at each roll so the segments join, which moves every absolute level."""
-
-    UNKNOWN = "unknown"
-    """Nobody said, so nothing may depend on the levels being real."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -94,24 +71,8 @@ class ContextSpec:
     multiple is **not** part of the key -- one period serves every multiple."""
 
     needs_vwap: bool = False
-    needs_vwap_band: bool = False
-    """Build the session-anchored VWAP band (:class:`nqbt.bands.VwapBand`). Implies
-    :attr:`needs_vwap`, because the band's basis is that VWAP rather than a second estimate
-    of it."""
-
     needs_time_of_day: bool = False
     """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
-
-    range_keys: tuple[sessionrange.RangeKey, ...] = ()
-    """Session-anchored ranges to build (:mod:`nqbt.sessionrange`), each an
-    ``(anchor_minutes, window_minutes)`` pair. Empty builds nothing, and a key the bar size
-    cannot express raises rather than being measured over a different span."""
-
-    follow_through_sessions: tuple[int, ...] = ()
-    """Trailing follow-through windows to build (:mod:`nqbt.sessionrange`), in sessions.
-
-    Empty builds nothing, and an entry implies :attr:`range_keys` -- follow-through is measured
-    against a range, so a lookback without one has nothing to measure."""
 
     regime_lookbacks: tuple[int, ...] = ()
     """Efficiency-ratio lookbacks to build (:mod:`nqbt.regime`). Empty builds nothing."""
@@ -119,10 +80,6 @@ class ContextSpec:
     volume_keys: tuple[volume.VolumeKey, ...] = ()
     """Relative-volume series to build (:mod:`nqbt.volume`). Empty builds nothing, and any
     entry implies the time-of-day labels the baseline is taken over."""
-
-    compression_keys: tuple[compression.CompressionKey, ...] = ()
-    """Compression series to build (:mod:`nqbt.compression`). Empty builds nothing, and a
-    bandwidth-form entry implies the band period it reads -- see :meth:`band_periods_needed`."""
 
     trend_keys: tuple[trend.TrendKey, ...] = ()
     """Compact trend labels to build (:mod:`nqbt.trend`). Empty builds nothing, and an entry
@@ -149,15 +106,9 @@ class ContextSpec:
             atr_periods=tuple(sorted({*self.atr_periods, *other.atr_periods})),
             band_periods=tuple(sorted({*self.band_periods, *other.band_periods})),
             needs_vwap=self.needs_vwap or other.needs_vwap,
-            needs_vwap_band=self.needs_vwap_band or other.needs_vwap_band,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
-            range_keys=tuple(sorted({*self.range_keys, *other.range_keys})),
-            follow_through_sessions=tuple(
-                sorted({*self.follow_through_sessions, *other.follow_through_sessions}),
-            ),
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
-            compression_keys=tuple(sorted({*self.compression_keys, *other.compression_keys})),
             trend_keys=tuple(sorted({*self.trend_keys, *other.trend_keys})),
             higher_timeframe_keys=tuple(
                 sorted({*self.higher_timeframe_keys, *other.higher_timeframe_keys}),
@@ -165,19 +116,6 @@ class ContextSpec:
             needs_ma_values=self.needs_ma_values or other.needs_ma_values,
             needs_session_clock=self.needs_session_clock or other.needs_session_clock,
         )
-
-    def band_periods_needed(self) -> tuple[int, ...]:
-        """Declared :attr:`band_periods`, plus the ones a bandwidth compression key reads.
-
-        A bandwidth form is defined off the band's own two rows rather than a second estimate
-        of them, so asking for one asks for the period behind it -- exactly as
-        :attr:`needs_vwap_band` implies :attr:`needs_vwap`.
-        """
-        implied: set[int] = {
-            k.period for k in self.compression_keys if k.form is compression.CompressionForm.BANDWIDTH
-        }
-
-        return tuple(sorted({*self.band_periods, *implied}))
 
     def periods_by_kind(self) -> dict[str, tuple[int, ...]]:
         """One sorted period list per kind, which is one grid call each.
@@ -217,26 +155,14 @@ class Dataset:
     vwap: FloatArray | None = None
     below_vwap: BoolArray | None = None
     above_vwap: BoolArray | None = None
-    vwap_band: bands.VwapBand | None = None
-    """Session-anchored basis, dispersion and extension, or ``None`` when nothing asked."""
-
     time_of_day: timeofday.TimeOfDay | None = None
     """Session phase and bar of session, or ``None`` when nothing asked for them."""
-
-    session_ranges: sessionrange.SessionRangeGrid | None = None
-    """Opening ranges per declared key, or ``None`` when nothing asked for them."""
-
-    follow_through: sessionrange.FollowThroughGrid | None = None
-    """Each range's follow-through and its trailing medians, or ``None`` when nothing asked."""
 
     regimes: regime.EfficiencyRatioGrid | None = None
     """Efficiency ratios per declared lookback, or ``None`` when nothing asked for them."""
 
     volumes: volume.VolumeGrid | None = None
     """Absolute and relative volume per declared series, or ``None`` when nothing asked."""
-
-    compressions: compression.CompressionGrid | None = None
-    """Width and its trailing rank per declared series, or ``None`` when nothing asked."""
 
     trends: trend.TrendGrid | None = None
     """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
@@ -247,9 +173,6 @@ class Dataset:
     seconds_to_session_end: FloatArray | None = None
     """Seconds from each bar to its session's scheduled close, or ``None`` when nothing
     asked for them."""
-
-    price_basis: PriceBasis = PriceBasis.UNKNOWN
-    """Whether these bars' absolute levels are the ones that traded -- see :class:`PriceBasis`."""
 
     day_codes: IndexArray | None = None
     """Calendar day of each bar as an integer, or ``None`` for a non-datetime index.
@@ -269,24 +192,24 @@ class Dataset:
     def grid(self, kind: str) -> MovingAverageGrid:
         """The grid for one moving-average kind, or a pointed error."""
         if kind not in self.mas:
-            msg: str = (
+            context_error_message: str = (
                 f"no {kind} grid in this dataset; prepare() was asked for "
                 f"{sorted(self.mas)}. Add it to the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.mas[kind]
 
-    def ma_gate(self, kind: str, period: int, *, above: bool) -> BoolArray:
+    def ma_gate(self, kind: str, period: int, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) ``kind(period)``?
 
         Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
         """
-        g: MovingAverageGrid = self.grid(kind)
+        ma_grid: MovingAverageGrid = self.grid(kind)
 
-        return g.above_for(period) if above else g.below_for(period)
+        return ma_grid.above_for(period) if above else ma_grid.below_for(period)
 
     def ma_values(self, kind: str, period: int) -> FloatArray:
         """Raw moving-average values, for the audit trail and the MA trailing stop."""
@@ -295,24 +218,24 @@ class Dataset:
     def atr_values(self, period: int) -> FloatArray:
         """NT8-seeded ATR for one period, or a pointed error."""
         if period not in self.atrs:
-            msg: str = (
+            context_error_message: str = (
                 f"no ATR({period}) in this dataset; prepare() was asked for "
                 f"{sorted(self.atrs)}. Add it to the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.atrs[period]
 
     def _band(self) -> BandGrid:
         if self.band is None:
-            msg: str = (
+            context_error_message: str = (
                 "no band grid in this dataset; prepare() was not asked for one. "
                 "Add the period to band_periods on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.band
@@ -329,43 +252,15 @@ class Dataset:
         """One period's signed extension in standard deviations, for gating and stratifying."""
         return self._band().stretch_for(period)
 
-    def _vwap_band(self) -> bands.VwapBand:
-        if self.vwap_band is None:
-            msg: str = (
-                "no VWAP band in this dataset; prepare() was not asked for one. "
-                "Set needs_vwap_band on the archetype's ContextSpec."
-            )
-            raise ContextError(
-                msg,
-            )
-
-        return self.vwap_band
-
-    def vwap_band_basis(self) -> FloatArray:
-        """The session VWAP, which is the band's midline and the level a reversion targets."""
-        return self._vwap_band().basis
-
-    def vwap_band_stddev(self) -> FloatArray:
-        """Volume-weighted dispersion about the VWAP -- the band's half-width at one multiple."""
-        return self._vwap_band().stddev
-
-    def vwap_band_stretch(self) -> FloatArray:
-        """Signed extension from the VWAP in those units, for gating and stratifying."""
-        return self._vwap_band().stretch
-
-    def vwap_band_age(self) -> IntArray:
-        """Completed bars since each bar's VWAP anchor -- what a warm-up gate counts."""
-        return self._vwap_band().bars_since_anchor
-
-    def vwap_gate(self, *, above: bool) -> BoolArray:
+    def vwap_gate(self, above: bool) -> BoolArray:
         """Per-bar boolean: is the close above (or below) the session VWAP?"""
         if self.below_vwap is None or self.above_vwap is None:
-            msg: str = (
+            context_error_message: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.above_vwap if above else self.below_vwap
@@ -373,24 +268,24 @@ class Dataset:
     def vwap_values(self) -> FloatArray:
         """Session VWAP per bar, or a pointed error."""
         if self.vwap is None:
-            msg: str = (
+            context_error_message: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
                 "Set needs_vwap on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.vwap
 
     def _time_of_day(self) -> timeofday.TimeOfDay:
         if self.time_of_day is None:
-            msg: str = (
+            context_error_message: str = (
                 "no time-of-day labels in this dataset; prepare() was not asked for them. "
                 "Set needs_time_of_day on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.time_of_day
@@ -411,71 +306,19 @@ class Dataset:
         """Per-bar index from the session open, the fine form of the same clock."""
         return self._time_of_day().bar_of_session
 
-    def _session_ranges(self) -> SessionRangeGrid:
-        if self.session_ranges is None:
-            msg: str = (
-                "no session ranges in this dataset; prepare() was not asked for them. "
-                "Add the (anchor, window) pair to range_keys on the archetype's ContextSpec."
-            )
-            raise ContextError(
-                msg,
-            )
-
-        return self.session_ranges
-
-    def range_armed(self, key: sessionrange.RangeKey) -> BoolArray:
-        """Per bar: whether one session range is complete and may be traded off."""
-        return self._session_ranges().armed_for(key)
-
-    def range_high(self, key: sessionrange.RangeKey) -> FloatArray:
-        """Per **session**: one range's high, read through :meth:`range_session_id`."""
-        return self._session_ranges().high_for(key)
-
-    def range_low(self, key: sessionrange.RangeKey) -> FloatArray:
-        """Per **session**: one range's low, read through :meth:`range_session_id`."""
-        return self._session_ranges().low_for(key)
-
-    def range_session_id(self) -> IndexArray:
-        """Per bar: which session it belongs to, which is the index into the range levels."""
-        return self._session_ranges().session_id
-
-    def _follow_through(self) -> FollowThroughGrid:
-        if self.follow_through is None:
-            msg: str = (
-                "no follow-through in this dataset; prepare() was not asked for it. Add the "
-                "lookback to follow_through_sessions on the archetype's ContextSpec."
-            )
-            raise ContextError(msg)
-
-        return self.follow_through
-
-    def range_follow_through(self, key: sessionrange.RangeKey) -> FloatArray:
-        """Per **session**: how far past one range price travelled, in that range's widths."""
-        return self._follow_through().raw_for(key)
-
-    def range_follow_through_scale(self, key: sessionrange.RangeKey, sessions: int) -> FloatArray:
-        """Per **session**: the trailing follow-through a bracket may be denominated against."""
-        return self._follow_through().scale_for(key, sessions)
-
     def _regimes(self) -> regime.EfficiencyRatioGrid:
         if self.regimes is None:
-            msg: str = (
+            context_error_message: str = (
                 "no efficiency ratios in this dataset; prepare() was not asked for them. "
                 "Add the lookback to regime_lookbacks on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.regimes
 
-    def regime_gate(
-        self,
-        lookback: int,
-        mask: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> BoolArray:
+    def regime_gate(self, lookback: int, mask: int, consolidating_below: float, directional_above: float) -> BoolArray:
         """Per-bar boolean: does this bar's regime pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.regime.ALL_REGIMES` -- see
@@ -487,34 +330,23 @@ class Dataset:
         """Per-bar efficiency ratio, the raw quantity behind the labels."""
         return self._regimes().values_for(lookback)
 
-    def regime_labels(
-        self,
-        lookback: int,
-        consolidating_below: float,
-        directional_above: float,
-    ) -> LabelArray:
+    def regime_labels(self, lookback: int, consolidating_below: float, directional_above: float) -> LabelArray:
         """Per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
         return self._regimes().labels_for(lookback, consolidating_below, directional_above)
 
     def _volumes(self) -> volume.VolumeGrid:
         if self.volumes is None:
-            msg: str = (
+            context_error_message: str = (
                 "no volume series in this dataset; prepare() was not asked for them. "
                 "Add the series to volume_keys on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.volumes
 
-    def volume_gate(
-        self,
-        key: volume.VolumeKey,
-        mask: int,
-        thin_below: float,
-        heavy_above: float,
-    ) -> BoolArray:
+    def volume_gate(self, key: volume.VolumeKey, mask: int, thin_below: float, heavy_above: float) -> BoolArray:
         """Per-bar boolean: whether this bar's volume state passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.volume.ALL_STATES` -- see
@@ -530,66 +362,18 @@ class Dataset:
         """Per-bar volume over its bar-of-session baseline -- the quantity behind the labels."""
         return self._volumes().relative_for(key)
 
-    def volume_labels(
-        self,
-        key: volume.VolumeKey,
-        thin_below: float,
-        heavy_above: float,
-    ) -> LabelArray:
+    def volume_labels(self, key: volume.VolumeKey, thin_below: float, heavy_above: float) -> LabelArray:
         """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
         return self._volumes().labels_for(key, thin_below, heavy_above)
 
-    def _compressions(self) -> compression.CompressionGrid:
-        if self.compressions is None:
-            msg: str = (
-                "no compression series in this dataset; prepare() was not asked for them. "
-                "Add the series to compression_keys on the archetype's ContextSpec."
-            )
-            raise ContextError(
-                msg,
-            )
-
-        return self.compressions
-
-    def compression_gate(
-        self,
-        key: compression.CompressionKey,
-        mask: int,
-        compressed_below: float,
-        expanded_above: float,
-    ) -> BoolArray:
-        """Per-bar boolean: whether this bar's compression state passes ``mask``.
-
-        Callers skip this entirely at :data:`nqbt.compression.ALL_STATES` -- see
-        :func:`nqbt.compression.gate`.
-        """
-        return self._compressions().gate_for(key, mask, compressed_below, expanded_above)
-
-    def compression_width(self, key: compression.CompressionKey) -> FloatArray:
-        """Per-bar raw width measure, in whatever unit its form is in -- for reporting only."""
-        return self._compressions().width_for(key)
-
-    def compression_rank(self, key: compression.CompressionKey) -> FloatArray:
-        """Per-bar trailing rank in ``0..1`` -- the quantity behind the labels."""
-        return self._compressions().rank_for(key)
-
-    def compression_labels(
-        self,
-        key: compression.CompressionKey,
-        compressed_below: float,
-        expanded_above: float,
-    ) -> LabelArray:
-        """Per-bar :class:`nqbt.compression.Compression`, for stratifying results."""
-        return self._compressions().labels_for(key, compressed_below, expanded_above)
-
     def _trends(self) -> trend.TrendGrid:
         if self.trends is None:
-            msg: str = (
+            context_error_message: str = (
                 "no trend labels in this dataset; prepare() was not asked for them. "
                 "Add the label to trend_keys on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.trends
@@ -616,12 +400,12 @@ class Dataset:
 
     def _higher_timeframes(self) -> higher_timeframe.HigherTimeframeGrid:
         if self.higher_timeframes is None:
-            msg: str = (
+            context_error_message: str = (
                 "no higher-timeframe averages in this dataset; prepare() was not asked for "
                 "them. Add the average to higher_timeframe_keys on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.higher_timeframes
@@ -650,12 +434,12 @@ class Dataset:
         it entirely at a window of zero.
         """
         if self.seconds_to_session_end is None:
-            msg: str = (
+            context_error_message: str = (
                 "no session clock in this dataset; prepare() was not asked for it. "
                 "Set needs_session_clock on the archetype's ContextSpec."
             )
             raise ContextError(
-                msg,
+                context_error_message,
             )
 
         return self.seconds_to_session_end > minutes * 60.0
@@ -671,27 +455,28 @@ class Dataset:
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
         total += sum(a.nbytes for a in self.atrs.values())
-        # Every optional series and grid reports its own size, so one loop rather than one
-        # branch each -- a new one is then counted by being declared.
-        for held in (
-            self.vwap,
-            self.below_vwap,
-            self.above_vwap,
-            self.seconds_to_session_end,
-            self.day_codes,
-            self.band,
-            self.vwap_band,
-            self.time_of_day,
-            self.session_ranges,
-            self.follow_through,
-            self.regimes,
-            self.volumes,
-            self.compressions,
-            self.trends,
-            self.higher_timeframes,
-        ):
-            if held is not None:
-                total += held.nbytes
+
+        if self.band is not None:
+            total += self.band.nbytes
+
+        for a in (self.vwap, self.below_vwap, self.above_vwap, self.seconds_to_session_end, self.day_codes):
+            if a is not None:
+                total += a.nbytes
+
+        if self.time_of_day is not None:
+            total += self.time_of_day.nbytes
+
+        if self.regimes is not None:
+            total += self.regimes.nbytes
+
+        if self.volumes is not None:
+            total += self.volumes.nbytes
+
+        if self.trends is not None:
+            total += self.trends.nbytes
+
+        if self.higher_timeframes is not None:
+            total += self.higher_timeframes.nbytes
 
         return total
 
@@ -731,17 +516,14 @@ class PrepareOptions(TypedDict, total=False):
     exit_on_close_seconds: int
     keep_ma_values: bool
     bar_minutes: int | None
-    price_basis: PriceBasis
 
 
 def prepare(
     bars: pd.DataFrame,
     spec: ContextSpec = DEFAULT_SPEC,
-    *,
     exit_on_close_seconds: int = 30,
     keep_ma_values: bool = False,
     bar_minutes: int | None = None,
-    price_basis: PriceBasis = PriceBasis.UNKNOWN,
 ) -> Dataset:
     """Precompute exactly the conditions ``spec`` declares.
 
@@ -749,16 +531,7 @@ def prepare(
     :meth:`nqbt.sweep.Grid.required_context` derives it from the grid, which is the only way to
     be sure it does. ``bar_minutes`` sizes the bar-of-session index and is inferred from the
     index when not given -- pass it wherever the resolution is already known.
-    ``price_basis`` is stated rather than inferred, and defaults to
-    :attr:`PriceBasis.UNKNOWN` so a rule needing raw levels refuses instead of guessing.
     """
-    if spec.follow_through_sessions and not spec.range_keys:
-        msg: str = (
-            "follow_through_sessions was declared with no range_keys; follow-through is "
-            "measured against a range, so there is nothing here to measure it over"
-        )
-        raise ContextError(msg)
-
     open_: FloatArray
     high: FloatArray
     low: FloatArray
@@ -770,24 +543,6 @@ def prepare(
     tod: TimeOfDay | None = (
         timeofday.classify(pd.DatetimeIndex(bars.index), bar_minutes=bar_minutes, info=info)
         if spec.needs_time_of_day or spec.volume_keys
-        else None
-    )
-    # The range needs a stated bar size rather than an inferred one per key, and it is the
-    # only series whose *existence* depends on it -- ``docs/roadmap.md`` §M28.
-    ranges: SessionRangeGrid | None = (
-        sessionrange.range_grid(
-            bars,
-            spec.range_keys,
-            bar_minutes
-            if bar_minutes is not None
-            else timeofday.infer_bar_minutes(pd.DatetimeIndex(bars.index)),
-        )
-        if spec.range_keys
-        else None
-    )
-    follow_through: FollowThroughGrid | None = (
-        sessionrange.follow_through_grid(high, low, ranges, spec.follow_through_sessions)
-        if ranges is not None and spec.follow_through_sessions
         else None
     )
     regimes: EfficiencyRatioGrid | None = (
@@ -811,41 +566,14 @@ def prepare(
         else None
     )
 
-    # Hoisted out of the Dataset call below because the bandwidth compression form is defined
-    # off these two rows rather than off a second Bollinger of its own.
-    band_periods: tuple[int, ...] = spec.band_periods_needed()
-    band: BandGrid | None = bands.band_grid(close, band_periods) if band_periods else None
-    compressions: CompressionGrid | None = (
-        compression.compression_grid(high, low, close, spec.compression_keys, band)
-        if spec.compression_keys
-        else None
-    )
-
-    # Built before the VWAP so that a dataset holding both takes the basis off the band rather
-    # than computing the same series a second time.
-    vwap_band: bands.VwapBand | None = (
-        bands.vwap_band(
-            high,
-            low,
-            close,
-            float_column(bars, "volume"),
-            bars["trading_day"].to_numpy(),
-        )
-        if spec.needs_vwap_band
-        else None
-    )
     vwap = below_vwap = above_vwap = None
-    if spec.needs_vwap or vwap_band is not None:
-        if vwap_band is not None:
-            vwap = vwap_band.basis
-        else:
-            typical: FloatArray = indicators.typical_price(high, low, close)
-            vwap = indicators.session_vwap(
-                typical,
-                float_column(bars, "volume"),
-                indicators.new_session_flags(bars["trading_day"].to_numpy()),
-            )
-
+    if spec.needs_vwap:
+        typical: FloatArray = indicators.typical_price(high, low, close)
+        vwap = indicators.session_vwap(
+            typical,
+            float_column(bars, "volume"),
+            indicators.new_session_flags(bars["trading_day"].to_numpy()),
+        )
         below_vwap = conditions.below_series(close, vwap)
         above_vwap = conditions.above_series(close, vwap)
 
@@ -868,20 +596,15 @@ def prepare(
             for kind, periods in spec.periods_by_kind().items()
         },
         atrs={p: indicators.nt8_atr(high, low, close, p) for p in spec.atr_periods},
-        band=band,
+        band=bands.band_grid(close, spec.band_periods) if spec.band_periods else None,
         vwap=vwap,
         below_vwap=below_vwap,
         above_vwap=above_vwap,
-        vwap_band=vwap_band,
         time_of_day=tod,
-        session_ranges=ranges,
-        follow_through=follow_through,
         regimes=regimes,
         volumes=volumes,
-        compressions=compressions,
         trends=trends,
         higher_timeframes=higher_timeframes,
         seconds_to_session_end=(sessions.seconds_to_session_end(info) if spec.needs_session_clock else None),
-        price_basis=price_basis,
         day_codes=day_codes(bars.index),
     )

@@ -16,15 +16,7 @@ below and is what you quote; this file is the index, not the record.
 - `IsFillLimitOnTouch = false`: a limit must trade **through**, so targets need `low < target`,
   not `<=`.
 - **Ambiguous bars** (stop and target both in range) resolve to whichever is **nearer the
-  open**. A blanket worst case is *more* pessimistic than NT8, not equal to it, and a blanket
-  best case is the other end; both exist only so `nqbt/disambiguate.py` has the two outcomes to
-  choose between, and **neither is ever ranked on**. **The rule is unfitted where an entry fills
-  inside the ambiguous bar** — the trade list that established it has no such bar, and the bar's
-  open is then not the price the trade was live from. `docs/roadmap.md` §M28.4.
-- **The whole position closes on an ambiguous bar under either policy** — targets-first fills
-  what it can and stops the remainder on the same bar. So the arms are the same trades leg for
-  leg, which is what lets a diagnostic select rows between them rather than recompute a price.
-  **Do not "optimise" the targets-first branch into leaving legs open.**
+  open**. A blanket worst case is *more* pessimistic than NT8, not equal to it.
 - **A stop that gaps fills at the open, not at the stop price** — a stop is a market order once
   triggered. This holds for **exits as well as entries**; the exit path missed it until M15.5.
   It does *not* apply on the entry bar: the position did not exist at that bar's open, so price
@@ -33,10 +25,6 @@ below and is what you quote; this file is the index, not the record.
   on a bar that closed on its high is not a stop order and NT8 declines it. DeadCatBounce is
   immune by construction — the `min(...)` cap puts the trigger below the close on exactly those
   bars — which is why this only surfaced once a second archetype used a bare `High[0]`.
-- **For a trigger that is a *level*, that refusal binds constantly rather than rarely.** After a
-  break most bars close past the range extreme, so OpeningRange's order is refused on them;
-  `entry_offset_ticks` defaults to **1**, because at 0 a bar closing exactly on the extreme can
-  never submit at all. `docs/nt8-fidelity.md` §M28.
 - **Entry orders are not GTC**: NT8's managed approach cancels them after one bar. That is an
   unset parameter, not a platform limit — `docs/roadmap.md` § "Order lifetime in NT8" has the
   three routes and their costs. The simulation keeps the one-bar lifetime because that is what
@@ -72,13 +60,6 @@ below and is what you quote; this file is the index, not the record.
   otherwise never reaches the cutoff and is never flattened at all, and the order resting from
   its last bar fills in the *next* session. `docs/nt8-fidelity.md`, "The session end is the
   observed last bar, not the template's".
-- **The maximum hold time is every archetype's, and it is `EXIT_TIME_LIMIT` rather than
-  `EXIT_SIGNAL`.** `max_hold_bars` is off at `0` everywhere; `bracket.hold_expired` is the one
-  comparison and `bracket.flatten_position` the one writer, so **do not fork either**. It is a
-  market exit decided in `OnBarUpdate`, so it fills at the **next bar's open** and `bars_held`
-  reaches `max_hold_bars + 1`, not `max_hold_bars`. Where a bar is both this and an
-  archetype's own signal exit, the archetype's rule takes it. `docs/nt8-fidelity.md`, "The
-  maximum hold time, and why it is its own exit code".
 - **`ExitOnSessionCloseSeconds` is per strategy, not one global 30.** Both stop-market ports set
   30 and both InsideBar scripts set 180. It lives on `Archetype` and `sweep.prepare_for` reads
   it; `context.prepare` called directly still defaults to 30 and has to be told.
@@ -115,90 +96,12 @@ below and is what you quote; this file is the index, not the record.
   entry mechanism reaches rules the others made unreachable *by construction*, and `bracket.py`
   inherits whatever is wrong — which is why each archetype earns its own reconciliation.
   `docs/roadmap.md` § "What M15.5 changed".
-- **A trigger that is a *level* rests for the whole session; one computed from the signal bar
-  does not.** Resubmitting an unchanged trigger at every bar close is route 3, and in Tier 1 that
-  is identical to a GTC order rather than an approximation of one — the fill test is the same
-  per-bar OHLC comparison. OpeningRange is the only archetype with one. Three things follow, and
-  none of them is optional: its signal is **dense** (about a third of all bars), so
-  `allocate_output`'s signal-count bound over-allocates by three orders of magnitude and
-  `entry_bound` sizes the output from the per-session cap instead; the **matched random-entry
-  null cannot be drawn on the unfiltered signal**, so `randomentry` refuses it below
-  `MIN_DRAW_FREEDOM` rather than returning the observation (a context filter that thins the
-  signal restores it); and the loop re-checks `armed` itself rather than trusting the signal,
-  because the null arm substitutes it. `docs/roadmap.md` §M28.1.
-- **OpeningRange computes its whole bracket from the trigger, never from the fill**, because the
-  trigger is the only price known when the order is submitted. A gapped fill is worse than
-  planned and its R is measured against the plan — DeadCatBounce's rule, shared deliberately.
-- **Its four entry modes are three properties combined, and only the limit entries are new fill
-  code.** Breakout, fade, retest and rejection differ in which extreme they rest at, whether
-  they wait for a break — one per-session `bool`, reset at the session boundary — and whether
-  the order is a stop or a limit. So `ORB_OPPOSITE_EXTREME_ENTRIES`, `ORB_BREAK_ENTRIES` and
-  `ORB_LIMIT_ENTRIES` are membership tests rather than a comparison per mode, and `entry_level`
-  and `break_confirmed` are both sided through `bracket.sided`. **Do not fork the loop for a
-  mode.** The registry's **only limit entries** are both here: they fill at their price or
-  better, do not fill on a touch, and **take no slippage** — three rules that already existed
-  for exits, reaching an entry for the first time. They read `bracket.limit_filled` at
-  `-direction`, because the limit is favourable from the other side. `docs/nt8-fidelity.md`
-  §M28.2 and §M28.6.
-- **A narrow bracket on a limit entry measures `ambiguity_policy`, not the strategy.** The
-  nearest-to-open rule is unfitted where an entry fills inside the ambiguous bar, and the sign
-  of its error follows the order type: a stop entry fills with the open on the stop's side and
-  a limit entry with the open on the target's side, so on the same bars the fade lands at the
-  worst-case end of the band and the rejection at the best-case end. Every profitable cell of
-  the rejection's 245,760-combination campaign is one where the assumption decides the trade.
-  **Read `ambiguous_share` before believing any OpeningRange number**, and treat a bracket
-  narrower than a one-minute bar as unmeasurable rather than as a result — §M28.4's minute-bar
-  pass cannot settle it. `docs/roadmap.md` §M28.7.
-- **A marketable limit is refused, and that is a deviation from an *unmeasured* NT8 behaviour.**
-  §M18's rule that a stop entry at or through the market is never submitted is measured; its
-  mirror for a buy limit at or above the close is not, and NT8 would most likely accept it.
-  `submittable` refuses it, so a limit entry never enters at a price the market has already
-  left. **This is the one OpeningRange rule a trade list could contradict** — §M28.2, and both
-  limit modes now rest on it.
-- **A fade and a rejection cannot take `ORB_STOP_OPPOSITE`, and the params class raises rather
-  than sweep it.** Their entry level *is* that extreme, so the stop would be the fraction stop
-  at a fraction of zero — a silent duplicate of the kind `dead_axes` cannot see.
-  `ORB_STOP_FRACTION` at `1.0` reproduces `ORB_STOP_OPPOSITE` **exactly**, offset included,
-  which is what makes the axis contain the only stop that passed §M28.1's gate 1 rather than
-  run beside it.
-- **It carries the only per-session entry cap in the registry.** Every other loop re-enters as
-  soon as it is flat; `max_entries_per_session` defaults to 1, which is the one-shot form every
-  published opening-range result measures. `docs/roadmap.md` §M28, finding 4.
 - **Stop-and-reverse is not supported.** The loop's `in_position` boolean assumes flat-to-flat
   and reversal collides with the one-bar entry lifetime. A deliberate limitation.
 - **`EXIT_SIGNAL` is spent by EmaCrossover and InsideBarTrailing** — a rule-driven exit with no
   bracket level, and the second is the first with C# behind it. A test guards structurally that
   DeadCatBounce, PullBackAndGo, InsideBar and `bracket.py` never produce it, *and* that the two
   that should still do.
-- **ElasticBand's signal-bar requirements are strict on both sides, and that deliberately does
-  not inherit the ported archetypes' boundaries.** `PullBackAndGo.cs` and `DeadCatBounce.cs`
-  disagree about equality — `Close[1] >= Open[1]` for green against `Close[1] < Open[1]` for red —
-  because each mirrors its own C#. This archetype has none, so a doji passes no shape on either
-  side and a zero-range bar passes no rejection depth: one sign multiplier means the long and short
-  arms have to be the same rule. `docs/nt8-fidelity.md` §M26.5.
-- **ElasticBand's two entry triggers are the same rules read one bar apart, and three reads have
-  to move together.** Under `TRIGGER_RECOVERY` the signal bar is *inside* the band, so
-  `min_bars_outside` counts the run ending at `i-1`, the `STOP_EXCURSION` level and
-  `exit_on_invalidation`'s reference both read `lagged(extremes, 1)`, and `max_entry_std` gates
-  the bar the run ended on. **Two of those fail silently if missed**: `run_extreme` is `nan`
-  inside the band, a `nan` stop makes the risk check false and *declines the entry*, and a `nan`
-  comparison never fires the invalidation exit — so a forgotten lag deletes every excursion-stop
-  trade and one whole exit reason without an error. `docs/nt8-fidelity.md` §M26.6.
-- **A recovery close exactly on the basis passes on neither side**, which is why
-  `returned_inside` carries `stretch != 0.0` rather than leaning on `fade_direction` — that
-  assigns a stretch of exactly zero to the **short** side, so without the clause a recovery all
-  the way to the mean would be a short entry and never a long one. Same rule as the doji's under
-  `signal_shape`: one sign multiplier means the two arms have to be the same rule.
-  `docs/nt8-fidelity.md` §M26.6.
-- **ElasticBand's band stop is measured *past* `entry_std`, never at an absolute number of
-  standard deviations.** `entry_std` is a swept axis, so a fixed 3σ level sits inside the entry
-  threshold wherever that axis reaches 3.0 and the minimum-risk check then declines the whole
-  cell; `band_stop_std` is the distance beyond wherever the entry was taken, which is what makes
-  cells cut by it comparable. It takes **no dollar floor**, because only a distance is floored,
-  and **no tick offset**, because `stop_offset_ticks` exists for levels the market traded at and
-  a band level is a statistic about the bars. It is also the one stop here that needs no lag
-  under `TRIGGER_RECOVERY`: the basis and the dispersion are defined on every bar, where
-  `run_extreme` is `nan` inside the band. `docs/nt8-fidelity.md` §M26.8.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.
@@ -221,23 +124,6 @@ below and is what you quote; this file is the index, not the record.
   and its price — not a market order at the next bar's open, which is §M18's rule for an exit
   decided in `OnBarUpdate`. Two different `EXIT_SIGNAL` semantics, and the archetype says which.
   `docs/nt8-fidelity.md` §M23.
-- **`tightened_stop` is the one ratchet, and a trail is a ratchet over a different level.**
-  DeadCatBounce's candidate is a lagged bar's adverse extreme and EmaCrossover's is a moving
-  average plus a cushion; all either does with a candidate is refuse to loosen, and a `nan`
-  candidate leaves the stop alone. **Do not write a second comparison.** EmaCrossover's trail
-  sits *on top of* whichever mode placed the initial stop rather than replacing it, so
-  `(use_atr_stop, trail_ma_stop)` is a legal 2x2 instead of a mode with a cell where one toggle
-  masks the other. `docs/roadmap.md` § "The build spec's three loose ends".
-- **Round-number stop avoidance moves only a stop that lands *exactly* on a multiple**, and it
-  is refused outright on bars that have not been declared `PriceBasis.RAW` — back-adjustment
-  shifts every level, so the rule measures nothing on a merged series while looking fine. The
-  default basis is `UNKNOWN` and the refusal is what a caller who never said gets.
-- **The confluence count is over the *active* context filters only.** A gate at its everything
-  value is absent from `filters.context_gates`, not present as an all-true row: these gates pass
-  no mask on a bar they cannot label, so counting an inactive one changes the answer on exactly
-  the bars the skip exists for. `REQUIRE_ALL` is the plain conjunction and every other archetype
-  stays on it; a count that equals or exceeds the active total raises out of
-  `validate_confluence` rather than running a combination the sweep already has.
 - **`PullBackAndGoParams`'s defaults reproduce the reconciled configuration, not the
   NinjaScript's** — `PullBackAndGo.cs` leaves seven properties uninitialised in `SetDefaults`.
   `use_vwap` stays off: nothing has checked nqbt's VWAP against `OrderFlowVWAP`.

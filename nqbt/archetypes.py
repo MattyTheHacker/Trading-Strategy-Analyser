@@ -14,28 +14,16 @@ from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
-from nqbt import compression, conditions, higher_timeframe, regime, timeofday, trend, volume
+from nqbt import conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
-from nqbt.sim import (
-    crossover,
-    elasticband,
-    insidebar,
-    insidebartrailing,
-    openingrange,
-    pullback,
-    runner,
-)
+from nqbt.sim import crossover, elasticband, insidebar, insidebartrailing, pullback, runner
 from nqbt.sim.types import (
-    BAND_VWAP,
-    ORB_SCALE_NONE,
-    ORB_STOP_ATR,
     STOP_ATR,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
     InsideBarParams,
     InsideBarTrailingParams,
-    OpeningRangeParams,
     PullBackAndGoParams,
 )
 
@@ -88,10 +76,7 @@ class Tier2Status(StrEnum):
     """No reconciliation attempted and none planned yet."""
 
 
-MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
-"""The three moving-average gates the ported archetypes share, as the prefix each pair of
-``<gate>_period`` and ``<gate>_kind`` fields is named after.
-"""
+MA_GATE_PREFIXES: tuple[str, ...] = ("ema", "fast_sma", "slow_sma")
 
 
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
@@ -126,28 +111,6 @@ def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.Volu
                 for form in values.get("volume_form", ())
                 for rolling in values.get("volume_rolling_bars", ())
                 for baseline in values.get("volume_baseline_sessions", ())
-            },
-        ),
-    )
-
-
-def _compression_keys(
-    values: Mapping[str, Sequence[AxisValue]],
-) -> tuple[compression.CompressionKey, ...]:
-    """List the compression series to build: none unless some combination filters on them.
-
-    Sixteen bytes per bar per series, plus the trailing-rank pass -- ``docs/roadmap.md`` §M19.1.
-    """
-    if not any(int(v) != compression.ALL_STATES for v in values.get("compression_filter", ())):
-        return ()
-
-    return tuple(
-        sorted(
-            {
-                compression.key(int(form), int(period), int(baseline))
-                for form in values.get("compression_form", ())
-                for period in values.get("compression_period", ())
-                for baseline in values.get("compression_baseline_bars", ())
             },
         ),
     )
@@ -228,7 +191,6 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
-        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
     )
@@ -238,23 +200,16 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
 
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
-    ``docs/roadmap.md`` §M17. The trailing average is a **third** grid and is built only where
-    some combination trails on it -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    ``docs/roadmap.md`` §M17.
     """
-    atr: set[int] = (
-        {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
-    )
-    gates: tuple[str, ...] = (
-        ("fast", "slow", "trail_ma") if any(values.get("trail_ma_stop", ())) else ("fast", "slow")
-    )
+    atr: set[int] = {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
 
     return ContextSpec(
-        ma_keys=_ma_keys(values, gates),
+        ma_keys=_ma_keys(values, ("fast", "slow")),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
-        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_ma_values=True,
@@ -262,15 +217,12 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
+    """What ElasticBand reads: a band grid per period, and an ATR only where a stop needs one.
 
     **No moving-average grid at all** -- the basis is the band's own, so this is the first
     archetype that builds none. The band multiple is not part of the key, so sweeping it is
-    free -- ``docs/roadmap.md`` §M26. A grid that never selects a Bollinger source builds no
-    period grid at all, and one that never selects the VWAP source builds no VWAP band.
+    free -- ``docs/roadmap.md`` §M26.
     """
-    sources: set[int] = {int(v) for v in values.get("band_source", ())}
-    periods: set[int] = {int(v) for v in values.get("band_period", ())} if sources != {BAND_VWAP} else set()
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())}
         if any(int(v) == STOP_ATR for v in values.get("stop_mode", ()))
@@ -278,56 +230,11 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     )
 
     return ContextSpec(
-        band_periods=tuple(sorted(periods)),
-        needs_vwap_band=BAND_VWAP in sources,
+        band_periods=tuple(sorted({int(v) for v in values.get("band_period", ())})),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
-        compression_keys=_compression_keys(values),
-        trend_keys=_trend_keys(values),
-        higher_timeframe_keys=_higher_timeframe_keys(values),
-    )
-
-
-def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What OpeningRange reads: the ranges its anchors and windows name, and an ATR under one stop.
-
-    **No moving-average grid and no band**, so this and ElasticBand are the two archetypes
-    that build neither. A range key is the anchor crossed with the window, exactly as an MA
-    key is a kind crossed with a period, and the resolution decides which of them are
-    buildable at all -- :func:`nqbt.sessionrange.validate_key`.
-
-    The trailing follow-through is built on the same terms as the ATR: only where some
-    combination selects a scaling mode that reads it.
-    """
-    atr: set[int] = (
-        {int(v) for v in values.get("atr_period", ())}
-        if any(int(v) == ORB_STOP_ATR for v in values.get("stop_mode", ()))
-        else set()
-    )
-    scaled: set[int] = (
-        {int(v) for v in values.get("follow_through_sessions", ())}
-        if any(int(v) != ORB_SCALE_NONE for v in values.get("follow_through_scaling", ()))
-        else set()
-    )
-
-    return ContextSpec(
-        range_keys=tuple(
-            sorted(
-                {
-                    (int(anchor), int(window))
-                    for anchor in values.get("anchor_minutes", ())
-                    for window in values.get("window_minutes", ())
-                },
-            ),
-        ),
-        follow_through_sessions=tuple(sorted(scaled)),
-        atr_periods=tuple(sorted(atr)),
-        needs_time_of_day=_needs_time_of_day(values),
-        regime_lookbacks=_regime_lookbacks(values),
-        volume_keys=_volume_keys(values),
-        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
     )
@@ -346,7 +253,6 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
-        compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_ma_values=True,
@@ -355,10 +261,8 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 INERT_AT: Mapping[str, object] = {
-    "round_number_points": 0.0,
     "regime_filter": regime.ALL_REGIMES,
     "volume_filter": volume.ALL_STATES,
-    "compression_filter": compression.ALL_STATES,
     "trend_filter": trend.ALL_TRENDS,
     "higher_timeframe_filter": higher_timeframe.ALL_SIDES,
 }
@@ -386,18 +290,6 @@ VOLUME_GATES: Mapping[str, str] = {
 }
 """Shared by every archetype: the five volume axes do nothing while the filter admits all
 three states. What this cannot catch: ``docs/roadmap.md`` §M10.2.
-"""
-
-COMPRESSION_GATES: Mapping[str, str] = {
-    "compression_form": "compression_filter",
-    "compression_period": "compression_filter",
-    "compression_baseline_bars": "compression_filter",
-    "compression_compressed_below": "compression_filter",
-    "compression_expanded_above": "compression_filter",
-}
-"""Shared by every archetype: the five compression axes do nothing while the filter admits all
-three states. Both forms read ``compression_period``, so unlike the volume axes none of these
-is inert under a form -- ``docs/roadmap.md`` §M19.1.
 """
 
 TREND_GATES: Mapping[str, str] = {
@@ -428,7 +320,6 @@ MA_GATES: Mapping[str, str] = {
     "slow_sma_kind": "use_slow_sma",
     **REGIME_GATES,
     **VOLUME_GATES,
-    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
@@ -437,29 +328,20 @@ CROSSOVER_GATES: Mapping[str, str] = {
     "atr_period": "use_atr_stop",
     "atr_stop_multiple": "use_atr_stop",
     "min_bracket_dollars": "use_atr_stop",
-    "trail_ma_kind": "trail_ma_stop",
-    "trail_ma_period": "trail_ma_stop",
-    "trail_offset_ticks": "trail_ma_stop",
-    "round_number_offset_ticks": "round_number_points",
     **REGIME_GATES,
     **VOLUME_GATES,
-    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
 Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17.
-``confluence_required`` is not here because it is refused at construction instead: a count
-that no combination could satisfy, or that is the plain conjunction again, raises out of
-:func:`nqbt.sim.types.validate_confluence` rather than running identical rows.
 """
 
 
 INSIDEBAR_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
-    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
@@ -471,7 +353,6 @@ context filters gate an axis.
 ELASTICBAND_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
-    **COMPRESSION_GATES,
     **TREND_GATES,
     **HIGHER_TIMEFRAME_GATES,
 }
@@ -482,26 +363,6 @@ every ``stop_mode`` but one, and ``dead_axes`` only knows how to compare a toggl
 single off value. Sweeping ``atr_stop_multiple`` under ``STOP_EXCURSION`` runs identical
 combinations and nothing will say so -- the same shape as ``volume_rolling_bars``,
 ``.claude/rules/sweep-and-context.md``.
-"""
-
-
-OPENINGRANGE_GATES: Mapping[str, str] = {
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
-}
-"""Only the shared context filters gate an axis here.
-
-**The stop axes cannot be gated and this is ElasticBand's blind spot again**: ``atr_period``,
-``atr_stop_multiple`` and ``min_bracket_dollars`` are read under :data:`~nqbt.sim.types.
-ORB_STOP_ATR` alone, ``stop_range_fraction`` under :data:`~nqbt.sim.types.ORB_STOP_FRACTION`
-alone, and ``stop_offset_ticks`` under neither of the first two, so one off value per axis
-cannot express any of them. ``follow_through_sessions`` is the same shape against
-:data:`~nqbt.sim.types.ORB_SCALE_NONE`. ``dead_axes`` will not say so; the *memory* cost is
-still avoided, because :func:`openingrange_context` builds neither the ATR nor the trailing
-follow-through unless some combination selects the mode that reads it.
 """
 
 
@@ -617,21 +478,6 @@ ELASTICBAND = Archetype(
 TIER1_ONLY until there is one. Its three exit schemes are three grids rather than three
 archetypes -- ``docs/roadmap.md`` §M26."""
 
-OPENINGRANGE = Archetype(
-    name="OpeningRange",
-    params_cls=OpeningRangeParams,
-    run=openingrange.run_openingrange,
-    legs=openingrange.openingrange_legs,
-    signal=openingrange.openingrange_signal,
-    tier2=Tier2Status.TIER1_ONLY,
-    gated_by=OPENINGRANGE_GATES,
-    context_for=openingrange_context,
-    not_sweepable=frozenset({"target_r_multiples", "target_width_multiples"}),
-)
-"""The third original and the first archetype whose trigger is a level rather than an event:
-no NinjaScript, and TIER1_ONLY until there is one. One side per combination, because a
-two-sided range is not established as expressible -- ``docs/roadmap.md`` §M28."""
-
 _REGISTRY: dict[str, Archetype] = {
     a.name: a
     for a in (
@@ -640,7 +486,6 @@ _REGISTRY: dict[str, Archetype] = {
         EMACROSSOVER,
         INSIDEBAR,
         INSIDEBARTRAILING,
-        OPENINGRANGE,
         PULLBACKANDGO,
     )
 }
@@ -689,8 +534,7 @@ def for_params(params: Params) -> Archetype:
     matches: list[Archetype] = [a for a in all_archetypes() if a.params_cls is type(params)]
     if not matches:
         msg: str = (
-            f"no registered archetype takes {type(params).__name__}; "
-            f"pass archetype= explicitly. Known: {names()}"
+            f"no registered archetype takes {type(params).__name__}; pass archetype= explicitly. Known: {names()}"
         )
         raise ArchetypeError(
             msg,

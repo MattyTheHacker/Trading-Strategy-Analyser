@@ -34,11 +34,8 @@ if TYPE_CHECKING:
     from nqbt.sim.types import InsideBarTrailingParams
     from nqbt.trades import LegMatrix
 
-BRACKETED_LOT = 0
-"""``entry1``: a fixed stop and a profit target."""
-
-TRAILING_LOT = 1
-"""``entry2``: a trailing stop and no target at all."""
+BRACKETED_LOT: int = 0  # ``entry1``: a fixed stop and a profit target.
+TRAILING_LOT: int = 1  # ``entry2``: a trailing stop and no target at all.
 
 
 class Lots(NamedTuple):
@@ -74,7 +71,6 @@ class InsideBarTrailingRules(NamedTuple):
     position_update_loss_gate: float
     bars_required: int
     block_entry_at_session_close: bool
-    max_hold_bars: int
 
 
 @njit(cache=True)
@@ -108,6 +104,7 @@ def resolve_lots(
 
         for other in range(n_lots):
             lots.mask[other] = other == lot
+
         written, _ = bracket.resolve_brackets(
             out,
             written,
@@ -248,7 +245,6 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     trade_id = 0
 
     in_position = False
-    pending_time_exit = False
     pending_bar = -1
     pending_direction = 0.0
 
@@ -274,24 +270,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
         position_changed = False
 
         # ---- the live brackets, resolved against this bar -------------------------------
-        if in_position and pending_time_exit:
-            # One market order for both lots, submitted at the close of bar i-1 and filled at
-            # this bar's first price, so the excursion stays where it was.
-            written = flatten_lots(
-                out,
-                written,
-                trade,
-                bracket.LegExit(i, bars.open_[i] - d * slippage, trades.EXIT_TIME_LIMIT, False),
-                lots,
-                legs,
-                excursion,
-                costs,
-            )
-            if written < 0:
-                return -1
-
-            in_position = False
-        elif in_position:
+        if in_position:
             excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
             before = open_lots(legs)
             written, trigger_fill = resolve_lots(
@@ -336,11 +315,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             fixed_stop = adverse - d * stop_distance
             # ``SetTrailStop`` takes a **tick count**, so the distance is computed as one
             # and converted back, exactly as the C# writes it.
-            distance = (
-                (bars.high[inside_bar] - bars.low[inside_bar])
-                / costs.tick_size
-                * rules.trailing_stop_multiplier
-            )
+            distance = (bars.high[inside_bar] - bars.low[inside_bar]) / costs.tick_size * rules.trailing_stop_multiplier
             trail_distance = distance * costs.tick_size
             trail_stop = fill - d * trail_distance
             if fills.round_targets:
@@ -454,8 +429,6 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
 
                 in_position = False
 
-        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
-
         if in_position or i <= rules.bars_required or not signal[i]:
             continue
 
@@ -488,7 +461,6 @@ def insidebartrailing_legs(
     data: Dataset,
     params: InsideBarTrailingParams,
     instrument: Instrument = MNQ,
-    *,
     signal: BoolArray | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
@@ -529,7 +501,6 @@ def insidebartrailing_legs(
             position_update_loss_gate=params.position_update_loss_gate,
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
-            max_hold_bars=params.max_hold_bars,
         ),
         out,
     )
@@ -544,7 +515,6 @@ def run_insidebartrailing(
     data: Dataset,
     params: InsideBarTrailingParams,
     instrument: Instrument = MNQ,
-    *,
     with_times: bool = True,
     signal: BoolArray | None = None,
 ) -> pd.DataFrame:
@@ -553,10 +523,10 @@ def run_insidebartrailing(
 
     return trades.validate(
         trades.trades_to_frame(
-            legs.matrix,
-            legs.count,
-            data.index if with_times else None,
+            matrix=legs.matrix,
+            count=legs.count,
             instrument=instrument.symbol,
+            index=data.index if with_times else None,
             source="sim",
         ),
     )

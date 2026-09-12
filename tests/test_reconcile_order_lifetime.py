@@ -85,9 +85,7 @@ def event(kind: str, trial: int, bar: int, signal: str, **overrides: object) -> 
     return row
 
 
-def bar(
-    index: int, high: float, *, low: float = 90.0, close: float = 95.0, **overrides: object
-) -> dict[str, object]:
+def bar(index: int, high: float, low: float = 90.0, close: float = 95.0, **overrides: object) -> dict[str, object]:
     row: dict[str, object] = dict.fromkeys(BAR_COLUMNS, "")
     row.update(
         bar=index,
@@ -139,9 +137,7 @@ def one_fill(reported_bar: int) -> list[dict[str, object]]:
             filled=1,
             average_fill_price=TRIGGER,
         ),
-        event(
-            "EXECUTION", 1, reported_bar, "probe1", order_state="Filled", filled=1, average_fill_price=TRIGGER
-        ),
+        event("EXECUTION", 1, reported_bar, "probe1", order_state="Filled", filled=1, average_fill_price=TRIGGER),
     ]
 
 
@@ -200,11 +196,7 @@ def test_a_fill_with_no_bar_row_either_side_is_counted_unresolved(tmp_path: Path
 
 
 def test_the_session_close_exit_is_measured_at_the_reported_bars_close(tmp_path: Path) -> None:
-    events = [
-        event(
-            "EXECUTION", 1, 1, rol.SESSION_CLOSE_EXIT, order_state="Filled", filled=1, average_fill_price=95.0
-        )
-    ]
+    events = [event("EXECUTION", 1, 1, rol.SESSION_CLOSE_EXIT, order_state="Filled", filled=1, average_fill_price=95.0)]
     run = rol.read_run(write_run(tmp_path, events, REACHING_BARS))
     counts = rol.measure_session_close_exit_lag(run)
     assert counts == {"exits": 1, "at_reported_close": 1, "inside_reported": 1, "unresolved": 0}

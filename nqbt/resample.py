@@ -19,12 +19,14 @@ from nqbt import sessions
 from nqbt.sessions import CME_US_INDEX_FUTURES_ETH, SessionTemplate
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nqbt.arrays import BoolArray, DateArray, IntArray, OffsetArray
     from nqbt.sessions import SessionInfo
 
-SECONDS_PER_DAY = 86_400
+SECONDS_PER_DAY: int = 86_400
 
-AGGREGATIONS: dict[str, str] = {
+AGGREGATIONS: Mapping[str, str] = {
     "open": "first",
     "high": "max",
     "low": "min",
@@ -34,18 +36,14 @@ AGGREGATIONS: dict[str, str] = {
 }
 """How each known column collapses. Associative, which is what makes this exact."""
 
-PASSTHROUGH = "last"
-"""How an unrecognised column collapses: a bucket takes the label of the bar that closed it."""
+PASSTHROUGH: str = "last"  # How an unrecognised column collapses: a bucket takes the label of the bar that closed it.
 
 
 class ResampleError(ValueError):
     """Raised when bars cannot be aggregated to the requested resolution."""
 
 
-def minutes_since_open(
-    index: pd.DatetimeIndex,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> IntArray:
+def minutes_since_open(index: pd.DatetimeIndex, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> IntArray:
     """How far each end-of-bar timestamp sits past its session's open, in minutes.
 
     Runs 1 to 1,380 over a full 18:00 -> 17:00 ET session. No DST bookkeeping is needed: US
@@ -79,7 +77,6 @@ def bucket_index(
 def resample(
     bars: pd.DataFrame,
     minutes: int,
-    *,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> pd.DataFrame:
     """Aggregate 1-minute ``bars`` to ``minutes``-minute bars, anchored to the session open.

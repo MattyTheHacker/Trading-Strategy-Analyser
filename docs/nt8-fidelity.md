@@ -168,11 +168,7 @@ When a bar contains both the stop and a target, bar-close OHLC cannot say which 
 
 7 of 7. A bar-direction rule (up bar ⇒ Open→Low→High→Close) fits only 5 of 7 — all seven bars are up bars, and the two NT8 stopped out are the ones where the stop was nearer.
 
-`ambiguity_policy` exposes this: `1` reproduces NT8 (default), `0` assumes a blanket worst case and `2` a blanket best case. Worst case is *more* pessimistic than NT8, not equal to it — a distinction that was originally stated backwards in this project and corrected only by the trade list. `0` and `2` are the two ends of the band and are never ranked on; they exist so that `nqbt/disambiguate.py` has both outcomes to select between.
-
-**The seven bars above contain no same-bar limit entry, and that is where the rule stops being fitted.** All seven are exits from a position opened on an earlier bar, so the bar's open is also the price the trade was live from. On an entry that fills *inside* the ambiguous bar the two come apart, and measuring distance from the bar's open then asks a question the trade list never answered. Measured against the minute bars on OpeningRange's retest — the registry's only limit entry — the rule was wrong on every bar that could be settled: `docs/roadmap.md` §M28.4. That is a limit on the rule's reach, not a contradiction of the trade list, and NT8 will still fill those bars its own way.
-
-**The sign of the error is set by the entry mechanism, and both signs have now been measured.** Run over one configuration at an `ambiguous_share` near 0.9, OpeningRange's fade returns a profit factor of 0.016 under this rule against 0.012 at the blanket worst case and 2.171 at the blanket best case; its rejection returns 57.953 against 0.274 and 71.654. **Neither sits in the middle of its band — each sits on an opposite end of it.** A stop entry fills as price comes back through the level, so the bar's open lies beyond the fill on the stop's side and the rule books the stop; a limit entry fills as price comes to it, so the open lies on the target's side and the rule books the target. Where an archetype's bracket is narrow enough for this to reach most of its legs, the resulting profit factor is a measurement of the assumption rather than of the strategy: [roadmap.md](roadmap.md) §M28.7.
+`ambiguity_policy` exposes this: `1` reproduces NT8 (default), `0` assumes a blanket worst case. Worst case is *more* pessimistic than NT8, not equal to it — a distinction that was originally stated backwards in this project and corrected only by the trade list.
 
 The 2024-01-11 16:11 bar is the clearest evidence: NT8 filled S1's target at 16836.00 **and** stopped S2/S3/S4 at 16842.75 on that one bar.
 
@@ -252,16 +248,6 @@ is the `n = 1` case and not the definition. `conditions.cross_above` implements 
 
 **`r_multiple` means something different.** R is `stop - entry`, so with an ATR stop the four-leg scale-out is volatility-scaled rather than structure-scaled. Crossover results are **not comparable to DeadCatBounce results at the same R numbers** — the same trap as comparing profit factor across bar resolutions. Where the dollar floor binds it is neither: R is then dollar-scaled and the same on every ATR multiple in the sweep.
 
-### The build spec's three loose ends: the trail, the round number and the count (#74)
-
-Three build-spec features, all on EmaCrossover, and like the rest of M18 none of them has a trade list behind it. Each is recorded with the NinjaScript it would be written as, and each is **off in every default**, so nothing above changes.
-
-**The moving-average trailing stop is a ratchet, not a second placement.** `SetStopLoss` is re-issued at the close of every completed bar with `ma[0] - direction * cushion`, and only when that is nearer the market than the stop already resting; NinjaScript expresses it exactly as the existing ratchet does, `if (thisStop > curStop) curStop = thisStop`, over a different level. The average is read at bar `[0]` under `Calculate.OnBarClose`, which is the just-closed bar and the same lag the ratchet already has — a trail reading an average that includes the bar it is protecting against is the lookahead this archetype exists to be able to fail. It advances at one cadence, not InsideBarTrailing's two: that one has C# behind it and this one does not, so it takes the cadence the codebase has evidence for.
-
-**A stop landing exactly on a round number is pushed away from the entry.** In NinjaScript, `if (Math.Abs(stop % spacing) < TickSize / 2) stop -= direction * offset * TickSize` before the `SetStopLoss` call — expressible, and cheap. What NT8 cannot help with is that the rule is **only meaningful on prices that traded**: a Strategy Analyzer run on a `MergeBackAdjusted` continuous series shifts every historical level, so the port has to be validated on a single contract. That is the same constraint that makes a per-contract window the cheapest Tier-2 reproduction (#31), and it is why `context.PriceBasis` refuses the rule on anything it has not been told is raw.
-
-**"At least N of M filters" is a count, and the M is the filters the rule set switched on.** NinjaScript would write it as the sum of the active gates against a `ConfluenceRequired` property, which is what `conditions.count_true` computes here. The one thing a port must not do is enter an inactive gate as `true`: each of these gates passes no mask on a bar it cannot label — a warm-up bar, a session with no volume baseline — so an inactive gate counted as satisfied changes the answer on exactly those bars. Every archetype but this one leaves `confluence_required` at `REQUIRE_ALL`, where the count and the conjunction are the same expression.
-
 ### M22 — the InsideBar rules
 
 `InsideBar.cs` exists, so unlike M18 every rule below is a reading of real C#, and every one has now been diffed against a Strategy Analyzer trade list — "Reconciliation result — InsideBar" below. It earned its place on what it reaches rather than on what it might make: three parts of the fill model no other archetype touches, and `bracket.py` inherits whatever is wrong in them. Two of the three rules the port had to infer turned out to be wrong, which is the argument for reconciling each archetype rather than trusting the shared engine because the first one passed.
@@ -298,7 +284,7 @@ Both ports place a bracket against a *trigger* the fill is defined relative to. 
 
 The correct reading is also the one that reads **no bar the fill could not have seen**, which removes the open question the port shipped with. It is a warning about the general case: `[0]` inside `OnExecutionUpdate` is not the execution's bar, and any future archetype that brackets from there inherits this indexing.
 
-**The target takes a multiplier of its own** (#197). The C# wrote `price + atr` with nothing in front of the ATR, so a sweep could move the stop across `ATRMultiplier` and not move the target by a tick — and the target is the half `docs/findings/m27-registry-campaign.md` § "Gate 4 — what stops it is the bracket, not the entry" puts the archetype's failure on. `TPMultiplier` scales that ATR target and nothing else; the stop keeps its own multiple. **Its default is `1.0`, which is exactly what the hardcoded target was**, so this reconciliation and every stored result reproduce unchanged. **A Tier 2 run at any other value needs `TPMultiplier` in `InsideBar.cs` first**: a Strategy Analyzer run of a script with no such property measures the 1x target whatever the Python was set to, and the two tiers then disagree on a parameter one of them does not have. `InsideBarTrailing.cs` hardcodes its bracketed lot's target the same way, so §M23 carries the same condition.
+**The target takes a multiplier of its own** (#197). The C# wrote `price + atr` with nothing in front of the ATR, so a sweep could move the stop across `ATRMultiplier` and not move the target by a tick — and the target is the half `docs/roadmap.md` § "Gate 4 — what stops it is the bracket, not the entry" puts the archetype's failure on. `TPMultiplier` scales that ATR target and nothing else; the stop keeps its own multiple. **Its default is `1.0`, which is exactly what the hardcoded target was**, so this reconciliation and every stored result reproduce unchanged. **A Tier 2 run at any other value needs `TPMultiplier` in `InsideBar.cs` first**: a Strategy Analyzer run of a script with no such property measures the 1x target whatever the Python was set to, and the two tiers then disagree on a parameter one of them does not have. `InsideBarTrailing.cs` hardcodes its bracketed lot's target the same way, so §M23 carries the same condition.
 
 **The geometry is lopsided at the defaults, by design.** `ATRLength = 3` with `ATRMultiplier = 10.0` puts the target 1x ATR(3) from the fill and the stop 10x ATR(3) beyond the inside bar — a high-win-rate, rare-large-loss profile whose R multiples cluster just above zero. `r_multiple` uses planned risk, so **these R numbers are not comparable to another archetype's at the same value**, with more force than the same caveat carries for an ATR stop generally. And 1x ATR(3) on a quiet bar is a target that can be smaller than the round-trip commission, which no ranking will announce.
 
@@ -490,243 +476,9 @@ All four are `SetStopLoss` / `SetProfitTarget` against a level the script alread
 
 **`r_multiple` therefore means a third thing.** Under A and C, R is set by the band geometry and is identical across every combination sharing a ratio; under B it is the ratio of two different volatility measures. Elastic band results are not comparable with DeadCatBounce's or EmaCrossover's at the same R.
 
-**Two signal exits are specified.** A's invalidation exit — price closing back outside the band beyond the excursion extreme — and C's time stop, an `int` incremented in `OnBarUpdate` against `maxHoldBars`. Both are market orders at the close of bar *i*, filled at the open of *i+1*, taking precedence over the stop and the targets on that bar because NT8's managed approach cancels a position's brackets when something else flattens it. Both wrote `EXIT_SIGNAL` and **a grid could not enable both**, because the trade log then could not say which fired: no new exit code was added here, deliberately, since one would move `trades.py` and every stored log's schema. That held until the time stop reached every archetype and earned `EXIT_TIME_LIMIT` of its own — § "The maximum hold time, and why it is its own exit code", which is also where the exclusion went. The relabel is the only thing about ElasticBand it moved.
+**Two signal exits are specified and both are `EXIT_SIGNAL`.** A's invalidation exit — price closing back outside the band beyond the excursion extreme — and C's time stop, an `int` incremented in `OnBarUpdate` against `maxHoldBars`. Both are market orders at the close of bar *i*, filled at the open of *i+1*, taking precedence over the stop and the targets on that bar because NT8's managed approach cancels a position's brackets when something else flattens it. **A grid must not enable both**, because the trade log then cannot say which fired: no new exit code was added, deliberately, since one would move `trades.py` and every stored log's schema.
 
 **Flat before the session close binds harder here than on any existing archetype**, because "hold until price returns to the basis" is an unbounded hold. `IsExitOnSessionCloseStrategy` handles it identically to every other archetype and nothing new is needed, but the expected `session_close_share` is high enough that it changes what the results mean — [roadmap.md](roadmap.md) §M26.
-
-### M26.4 — the VWAP band, the second source and the first unpinned indicator in an archetype (#221)
-
-**`band_source` picks the channel, and everything above still describes the Bollinger one.** The rules here are the ones the VWAP source changes and nothing else: entry depth, duration, direction, all three exit schemes, the target-as-a-level geometry and the session flatten are read from the same `band_stretch` coordinate and are untouched. `Archetype.tier2` stays `TIER1_ONLY`.
-
-**The basis is the session VWAP already in the codebase, and it is *not* pinned.** `indicators.session_vwap` is hand-rolled `Σ(typical × volume) / Σ(volume)` re-anchored at each 18:00 ET open — "Indicators" above records that it mirrors `OrderFlowVWAP(VWAPResolution.Standard, …)` and #167's port note records that nothing has ever checked it against NinjaTrader. **This is the first archetype rule built on an unpinned indicator**, and it is a deliberate exception to how every other entry gate here was arrived at: the Python is exploratory and the pin is owed before [#170], not before the measurement. The probe is `NqbtIndicatorProbe.cs` extended with the VWAP and its bands; what it has to settle is below.
-
-**The width is the volume-weighted population standard deviation about that basis**, over the same anchored window:
-
-```text
-sigma[i] = sqrt( Σ v_j (p_j − vwap[i])^2 / Σ v_j )   over j from the session anchor to i
-```
-
-`p` is `typical_price`, matching what the VWAP itself weights, and the divisor is the summed weight rather than a corrected one — the convention `nt8_stddev` already uses. `sigma` is 0 on an anchor bar, where one observation has no dispersion about its own mean, and `band_stretch` reads 0 rather than infinite there, so **no bar can be outside the band on the bar that anchored it**.
-
-**Written as NinjaScript this is four running doubles in `OnBarUpdate`**, reset on `Bars.IsFirstBarOfSession`, and *not* a read of `OrderFlowVWAP`'s own standard-deviation bands:
-
-```csharp
-if (Bars.IsFirstBarOfSession) { origin = Typical[0]; cumV = cumVQ = cumVQQ = 0; }
-double q = Typical[0] - origin;
-cumV += Volume[0]; cumVQ += Volume[0] * q; cumVQQ += Volume[0] * q * q;
-double c = vwap - origin;
-double variance = cumVQQ / cumV - c * (2.0 * cumVQ / cumV - c);
-```
-
-**Hand-rolling it is the point.** `OrderFlowVWAP` does expose deviation bands, but its variance definition is not readable from the C# and the plausible candidates — volume-weighted against unweighted, population against sample — differ by enough to move which bars signal. A band the script computes itself is a rule this document can state and a probe can check, where a band read off a closed indicator is an assumption. **What the probe is for is therefore the basis, not the width**: the width is ours by construction, and the width is only meaningful if the VWAP under it is NT8's.
-
-**The sums are taken about the session's first price rather than about zero**, which is the shifted-data variance algorithm and not a rearrangement anyone should undo. At a five-figure index price the unshifted form subtracts two numbers of order 4e8 to produce a variance of order 25, and loses most of the precision doing it; the shifted form agrees with the two-pass definition to under 1e-9 points over a session. `tests/test_indicators.py::test_session_vwap_dispersion_matches_the_two_pass_definition_at_index_prices` pins that against the definition written the obvious way. In NinjaScript the same subtraction is on the same two doubles, so the shift travels with the rule rather than being a Python detail.
-
-**A warm-up gate is a rule here and has no Bollinger equivalent.** `vwap_min_session_bars` is bars since the anchor, `Bars.BarsSinceNewTradingDay` in NinjaScript. `BarsRequiredToTrade` counts from the start of the series and so does nothing at a session open, where a band built from a handful of observations is narrow enough to put ordinary bars several deviations outside it. Under a band lag the requirement is `vwap_min_session_bars + band_lag`, which also stops a lagged read reaching back across its own anchor into the previous session.
-
-**Every other NT8 question this archetype raises is answered above and unchanged**, including the entry mechanism, the one-bar order lifetime, the two `EXIT_SIGNAL` exits and `IsExitOnSessionCloseStrategy`. The measurements the source produced, and the standing caveats on them: [roadmap.md](roadmap.md) §M26.4.
-
-### M26.5 — what the signal bar has to look like, written before the Python (#221)
-
-**Two requirements on the bar that signals, and neither changes anything else.** `signal_shape` asks the extended bar's own candle to have turned, and `min_one_sided_bars` asks the move into the band to have been one-sided. Everything above still describes the archetype: the depth threshold, the run length, the direction rule, all four stops, both target schemes and the session flatten are untouched, and `Archetype.tier2` stays `TIER1_ONLY`. The reasoning, and the measurements each produced: [roadmap.md](roadmap.md) §M26.5.
-
-**Both read completed bars only, and both are one `if` in `OnBarUpdate` after the depth test.** They narrow which bars call `EnterLong()` / `EnterShort()`; the entry stays market-on-next-open and the one-bar order lifetime is unchanged.
-
-**`signal_shape` is three shapes and an off value**, each written against the fade's own direction so the two sides mirror exactly — `dir` below is `+1` for a long and `-1` for a short:
-
-| mode        | the rule                                                      | NinjaScript                                                          |
-| ----------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `any`       | no requirement                                                | the depth test alone                                                 |
-| `reversal`  | the body closed back towards the basis                        | `dir * (Close[0] - Open[0]) > 0`                                     |
-| `reclaim`   | took out the previous bar's extreme and closed back past it   | `Low[0] < Low[1] && Close[0] > Close[1]`, mirrored on the short side |
-| `rejection` | the close is `f` of the bar's range off the stretched extreme | `Close[0] - Low[0] >= f * (High[0] - Low[0]) && High[0] > Low[0]`    |
-
-**A doji passes no shape on either side, and that is a deliberate departure from the ported archetypes.** `PullBackAndGo.cs` and `DeadCatBounce.cs` disagree with each other about equality — `Close[1] >= Open[1]` for green against `Close[1] < Open[1]` for red — and neither boundary is inherited here, because those mirror a C# that exists and this one does not yet. The strict comparison on both sides is what the single sign multiplier asks for: a bar that closed flat ran neither way, and a rule that admitted it on one side only would make the long and short arms different rules.
-
-**A zero-range bar never passes `rejection`**, which is `_inverted_hammer`'s `body > 0` boundary applied to the range instead of the body. Without it the comparison is `0 >= f * 0` and every flat bar passes at every depth.
-
-**`reclaim` reads `conditions.BarGeometry`'s extremes rather than a second copy of them.** `made_new_low` is `Low[0] < Low[1]` and `made_new_high` is `High[0] > High[1]`, both already built parameter-free for every dataset, and the fade's direction selects which one is the adverse extreme.
-
-**`min_one_sided_bars` is a count over a window, not a run**, which is what separates it from `min_bars_outside`. In NinjaScript it is a loop over the last `oneSidedLookback` bars counting `dir * (Close[k] - Open[k]) < 0`, and the bars need not be consecutive nor outside the band at all:
-
-```csharp
-int oneSided = 0;
-for (int k = 0; k < oneSidedLookback; k++)
-    if (dir * (Close[k] - Open[k]) < 0) oneSided++;
-if (oneSided < minOneSidedBars) return;
-```
-
-`conditions.rolling_count` is the Python, and **its window is truncated at the head rather than left undefined** — an early bar counts the bars that exist, so a threshold it cannot reach simply fails. `BarsRequiredToTrade` excludes those bars either way.
-
-**There is no engulfing mode, and the reason is a measurement rather than a preference.** It was built, run over the MNQ continuous series and removed: [roadmap.md](roadmap.md) §M26.5 has the count and the mechanism.
-
-### M26.6 — the recovery entry, written before the Python (#278)
-
-**One rule, and it replaces which bar signals rather than adding a condition to it.** `entry_trigger` says which bar of an extension schedules the entry: `extended` is every rule above — a bar that is still beyond the threshold — and `recovery` is the bar that closes back **inside** the band after the run outside has ended. `recovery_fraction` says how far back inside counts. Everything else still describes the archetype: the depth threshold, the direction rule, all four stops, both target schemes, the market-on-next-open entry, the one-bar order lifetime and the session flatten are untouched, and `Archetype.tier2` stays `TIER1_ONLY`. The reasoning and the measurements: [roadmap.md](roadmap.md) §M26.6.
-
-**Why it cannot be a fifth `signal_shape`.** Every mode in that table is evaluated on a bar that is still beyond the threshold, and the threshold is defined on the close — so a bar whose body ran back towards the basis has usually stopped being 2σ from it, which is what makes a reaction expensive to require and what removed the engulfing mode. The reaction `Trading-Docs` describes happens *after* the extension: price exceeds the level, fails to hold, and returns inside. That is a different trigger.
-
-**The whole rule is a state block captured at the end of one bar and read at the next.** Four running values rather than one, because the signal bar is inside the band and every one of them describes bars that are not:
-
-```csharp
-// read what the previous bar carried in, before this bar updates it
-if (runBars >= minBarsOutside && runSide != 0)
-{
-    double stretch = (Close[0] - basis) / sigma;
-    if (Math.Sign(stretch) == runSide
-        && Math.Abs(stretch) < entryStd
-        && Math.Abs(stretch) <= recoveryFraction * entryStd
-        && (maxEntryStd == 0 || runStretch <= maxEntryStd))
-        EnterLong();   // mirrored on the short side
-}
-
-// then update the run this bar leaves behind
-double s = (Close[0] - basis) / sigma;
-int side = Math.Abs(s) >= entryStd ? Math.Sign(s) : 0;
-if (side == 0) { runBars = 0; runSide = 0; }
-else if (side != runSide) { runBars = 1; runSide = side; runLow = Low[0]; runHigh = High[0]; runStretch = Math.Abs(s); }
-else { runBars++; runLow = Math.Min(runLow, Low[0]); runHigh = Math.Max(runHigh, High[0]); runStretch = Math.Abs(s); }
-```
-
-**`min_bars_outside` no longer includes the signal bar, and that is the rule rather than an accident.** Under `extended` the run ends *at* the signal bar; under `recovery` it ends at the bar before it. `outside_run_length(..., ends_before=True)` is the one-bar shift and `runBars` read before its own update is the NinjaScript, which is the same statement written twice.
-
-**A close exactly on the basis passes on neither side.** `Math.Sign(stretch)` is `0` there and no run carries a side of `0`, so the comparison fails on both arms. This is §M26.5's boundary rule reached again — a doji passes no shape on either side because one sign multiplier means the long and short arms have to be the same rule — and it is why the Python's `returned_inside` carries `stretch != 0.0` rather than leaning on `fade_direction`, which assigns a stretch of exactly zero to the short side. Without it a recovery all the way to the mean would be a short entry and never a long one.
-
-**`recovery_fraction` is a share of `entry_std` and not a standard deviation of its own.** `1.0` is the band edge itself, so the requirement degenerates to "back inside at all" and the two comparisons above collapse into one; anything less is a depth. A share rather than a level because `entry_std` is swept — at an absolute 1.5σ the requirement is a different fraction of the distance travelled at each depth threshold, and cells cut by it could not be read against each other. It is refused at `0`, where the close would have to sit exactly on the basis and the rule above passes nothing.
-
-**The two things that read the run's own bars are read one bar back too, and neither would have failed loudly.** `STOP_EXCURSION` hangs off the adverse extreme of the run being faded and `exit_on_invalidation` compares the close against that same extreme; `run_extreme` is `nan` on a bar that is not outside, so on a recovery signal bar both would have read `nan`. A `nan` stop makes `candidate_risk >= min_risk` false and the entry is declined — every `STOP_EXCURSION` trade silently gone rather than an error — and a `nan` comparison is false, so the invalidation exit would simply never fire. `runLow`/`runHigh` above are the NinjaScript and `lagged(extremes, 1)` is the Python.
-
-**`max_entry_std` gates the bar the extension was measured on, which under this trigger is not the signal bar.** The ceiling exists to refuse a move that has become a trend rather than a stretch, and the signal bar is inside the band by construction — so gating it would make the parameter inert at every value, which is the blind spot `.claude/rules/sweep-and-context.md` names rather than a safe default. `runStretch` is the value the C# carries for it.
-
-**Nothing else moves.** The entry is still market-on-next-open with no trigger price, so the fill rules, the resting-order lifetime and the force-flat handling are unchanged, and `signal_shape` still reads the signal bar's own candle and composes with this rather than being replaced by it.
-
-### M26.8 — the stop on the band itself, written before the Python (#280)
-
-**One rule, and it adds a fifth place the protective stop can go.** `stop_mode` at `band` puts the stop on the channel the entry was measured against, `band_stop_std` standard deviations past the threshold that signalled. Everything else still describes the archetype: the depth threshold, the run length, the direction rule, both entry triggers, both target schemes, the market-on-next-open entry, the one-bar order lifetime and the session flatten are untouched, and `Archetype.tier2` stays `TIER1_ONLY`. The reasoning and the measurements: [roadmap.md](roadmap.md) §M26.8.
-
-**It is the level §M26 specified and never built.** That section's geometry table names the stop as "outside the band. Either `atr_bracket_distance` or `basis ∓ stop_std · σ`", and only the first of the two was written. The four modes that existed are a distance off the fill (`atr`, `catastrophe`) or a bar extreme (`excursion`, `swing`); none of them is a level on the channel, so none had a distance denominated in the units the entry threshold is written in.
-
-**The level is a stretch coordinate signed away from the basis, which is the target arithmetic with one sign flipped:**
-
-```csharp
-double level = entryStd + bandStopStd;
-double stop  = basis - dir * level * sigma;   // dir is +1 for a long, -1 for a short
-SetStopLoss(CalculationMode.Price, stop);
-```
-
-`basis` and `sigma` are the **signal** bar's, read exactly as a `TARGET_STRETCH` leg reads them — `Bollinger.Middle[0]` and `StdDev(period)` under the Bollinger source, the four running doubles of §M26.4 under the VWAP one. So the whole rule is a price the script already holds, and `SetStopLoss` against a price is what every other mode here already compiles to.
-
-**`band_stop_std` is measured past `entry_std` rather than stated as an absolute level, and that is the rule rather than a convenience.** `entry_std` is a swept axis, so a fixed 3σ stop sits *inside* the entry threshold wherever that axis reaches 3.0 and the minimum-risk check then declines the whole cell. Measuring past the threshold makes the same value the same distance beyond wherever the entry was taken, which is the property cells cut by it need to be readable against each other. It is §M26.6's `recovery_fraction` argument reached from the other side, and it is refused at `0`, where the stop is the threshold the signalling close has already passed.
-
-**No floor and no offset, for two different reasons.** The dollar floor applies to `atr` alone because only that mode is a distance rather than a level — §M26's rule, unchanged. The tick offset that `excursion` and `swing` carry is *not* applied either: those levels are prices the market traded at and can be expected to be tested to the tick, where a band level is a statistic about the bars rather than a price anything rests at.
-
-**The minimum-risk refusal is the existing one and it binds here for a new reason.** A stop at or through the price it protects is not a stop order (§M18), and `simulate_elasticband` declines the entry when `candidate_risk < STOP_MIN_TICKS × tickSize`. A band stop reaches that boundary from two directions the other modes do not: a narrow band puts the level within a tick of the fill, and a gap through the level between the signalling close and the next open puts the fill on the wrong side of it entirely.
-
-**Both entry triggers read the same band, which is what separates this stop from `excursion`.** §M26.6 had to move three reads one bar back because `run_extreme` is `nan` on a bar inside the band. The basis and the dispersion are defined on every bar, so the level is the signal bar's own under `extended` and under `recovery` alike, and no lag travels with it.
-
-**R means a fourth thing under this stop, and it is the only one that is exact.** With the target at the basis the reward-to-risk is `entry_std / (entry_std + band_stop_std)` by construction, identical on every combination sharing that pair and *always below 1*. §M26 recorded three meanings for R in this project; this is the arithmetic that section predicted for a σ stop with a basis target, arriving with the mode that finally implements it.
-
-### M28 — the opening-range rules, written before the Python (#236)
-
-**Written down before the Python existed and the Python written to it**, as §M26 was. There is still no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as — a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later. The design and what was deferred are in [roadmap.md](roadmap.md) §M28.1; only the rules are here.
-
-`Archetype.tier2` is `TIER1_ONLY`, and stays there until a trade list has been diffed against it.
-
-**The range window is a wall-clock window on both sides, so the two forms are the same test.** `sessionrange` counts minutes from the *template's* 18:00 ET open, which `resample.minutes_since_open` computes from the wall clock and not from the session's observed first bar — so minute 930 is 09:30 ET on every session, and the NinjaScript form is the obvious one:
-
-```csharp
-if (Bars.IsFirstBarOfSession) { rangeHigh = double.MinValue; rangeLow = double.MaxValue; barsInRange = 0; }
-if (ToTime(Time[0]) > 93000 && ToTime(Time[0]) <= 100000)
-{ rangeHigh = Math.Max(rangeHigh, High[0]); rangeLow = Math.Min(rangeLow, Low[0]); barsInRange++; }
-```
-
-**This is the opposite of the no-entry window's trap** — "A no-entry window before the session close" above records that a rule counting back from the *observed* session end cannot be reconciled against a C# reading the wall clock. A rule counting forward from the template's open can, because that is the wall clock.
-
-**A session missing any of its window bars has no range.** `barsInRange` has to reach `windowMinutes / barMinutes` or the session is skipped. Measuring the range over whatever bars arrived would give a narrow range and so a tight stop on precisely the sessions whose data is worst.
-
-**The order rests for the session, and route 3 is what expresses it.** The trigger is a level that persists rather than a value computed from the signal bar, so `EnterLongStopMarket(rangeHigh + entryOffsetTicks * TickSize)` resubmitted at every bar close reproduces a resting order — and § "Route 3" in [roadmap.md](roadmap.md) establishes that in Tier 1 this is not an approximation of a GTC order but identical to one, because the fill test is the same per-bar OHLC comparison either way. **`entry_order_lifetime_bars` is therefore not needed and is not built.**
-
-**A stop entry at or through the market is never submitted, and here it binds constantly.** §M18's rule, from "A stop-market entry must sit strictly beyond the market": the order is refused on any bar whose close has already reached the trigger — which after a break is most of them. DeadCatBounce is immune to this by construction and the opening range is not, so `entry_offset_ticks` defaults to **1 rather than 0**: at 0 a bar closing exactly on the range extreme can never submit.
-
-**The fill test is DeadCatBounce's, unchanged.** An open at or beyond the trigger fills at the open, because a stop is a market order once triggered; otherwise the bar's favourable extreme must reach the trigger and the fill is at the trigger. `filled_at_open` is false either way, so the gapped-stop rule stays off the entry bar exactly as it does there.
-
-**The whole bracket is computed from the trigger, not from the fill.** `SetStopLoss` and `SetProfitTarget` are set when the order is submitted and the trigger is the only price known then. Risk is `trigger − stop`; a gapped fill is worse than planned and its R is measured against the plan. This is what the reconciled DeadCatBounce port already does.
-
-**Two stop schemes, and only one of them is floored:**
-
-| scheme       | stop                                                          | floored |
-| ------------ | ------------------------------------------------------------- | ------- |
-| the opposite | `rangeLow - stopOffsetTicks * TickSize`, mirrored for a short | no      |
-| ATR          | `trigger - Math.Max(atr * multiple, floor / pointValue)`      | yes     |
-
-Same rule as §M26's: **only a distance is floored, never a level.** `min_bracket_dollars` is per contract and converted through `instruments.py`, and it is inert under the opposite-extreme stop — as `stop_offset_ticks` is under the ATR stop. Neither is visible to `dead_axes`, which is ElasticBand's blind spot reached again.
-
-**Two target ladders.** The shared R ladder scaled by `tpMultiplier`, or per-leg multiples of the **range width** measured from the trigger. A width multiple is already a distance, so `tpMultiplier` is not applied to it — applying both would be one axis expressed twice. Either way the legs are prices by the time `bracket.py` sees them and nothing in the bracket engine changes.
-
-**A per-session entry cap, which no other archetype has.** An `int` reset on `Bars.IsFirstBarOfSession` and incremented in `OnExecutionUpdate`, compared against `maxEntriesPerSession` before each submission. Entirely expressible, and it is what makes the one-shot form every published opening-range result measures reachable at all — [roadmap.md](roadmap.md) §M28, finding 4.
-
-**One side per instance, and this is a limitation rather than a choice.** "The managed approach refuses the opposite-direction submission outright" above kills the classic form of both stops live with the first fill winning; §M28's finding 1 records that the probe measured route 1 and that **whether two plain opposite stops are both accepted is still untested**. Until a sixth probe scenario says otherwise the archetype is one-sided per combination, `direction` is a swept axis, and no combination ever holds two orders. The simulator has the same limit from the other side — one `pending_*` slot per loop.
-
-**Flat before the session close binds hard, and the live share is the thing to read.** A cash-anchored entry around 09:45 ET against a 17:00 close leaves the hold bounded by the geometry rather than the clock, but a runner leg with no target reaches the flatten every time: `session_close_share` runs near **half of all legs**, which changes what the results mean. It is produced by `tools/campaign_sweep.py --strategies OpeningRange --split` and read out of `results/campaign/OpeningRange.duckdb`; [roadmap.md](roadmap.md) §M28.1 has what it implies.
-
-### M28.2 — the fade, the retest and the stop fraction, written before the Python (#237)
-
-**The same discipline as §M28 and the same standing: still no NinjaScript, so nothing here is backed by a trade list.** Each item names what it would be written as. The design and what was deferred: [roadmap.md](roadmap.md) §M28.2.
-
-**The stop fraction is a level, so it is not floored.** `rangeHigh - stopRangeFraction * (rangeHigh - rangeLow) - stopOffsetTicks * TickSize`, mirrored for a short, measured from **the extreme the order rests at** rather than from the trigger. It replaces §M28's two-scheme table with one axis: at `1.0` it is the opposite-extreme stop exactly, offset included, and at `0.5` it is the midpoint stop. `min_bracket_dollars` stays inert under it for §M26's reason — only a distance is floored, never a level.
-
-**A fade and a retest need a break that already happened, which is one `bool` per session.** Reset on `Bars.IsFirstBarOfSession` and set from `High[0]`/`Low[0]` against the level plus `breakConfirmTicks`; nothing reads a bar it could not have seen, and nothing reads a *future* bar, so it is expressible as written. It is **not** reset by a fill: a session's second entry re-uses the break its first one was armed by, which is what the per-session cap is there to bound.
-
-**A fade rests its stop at the extreme it needs broken, so its trigger is the range's *other* side.** `EnterLongStopMarket(rangeLow + entryOffsetTicks * TickSize)` after price has traded below `rangeLow`. The submittability rule is §M18's unchanged — the order is only accepted while the close is still below the trigger, which is exactly the state "price is outside the range" — so no new refusal is introduced.
-
-**A fade cannot take the opposite-extreme stop, and this is refused rather than swept.** Its entry level *is* the extreme that mode names, so the stop would land `stopOffsetTicks` from the entry and the mode would be the fraction stop at a fraction of zero. `OpeningRangeParams` raises instead of running the duplicate, because a swept space with two names for one thing is the blind spot `dead_axes` cannot see.
-
-**The retest is the first limit entry in the registry, and its two halves are the stop entry's mirror:**
-
-|                           | stop entry                                | retest's limit                                       |
-| ------------------------- | ----------------------------------------- | ---------------------------------------------------- |
-| NinjaScript               | `EnterLongStopMarket(level + offset)`     | `EnterLongLimit(level - retestOffset)`               |
-| rests                     | beyond the market                         | inside the market                                    |
-| a bar that gaps past it   | fills at the open, **worse** than planned | fills at the open, **better** than planned           |
-| merely reaching the price | fills — a stop triggers on touch          | does **not** fill under `IsFillLimitOnTouch = false` |
-| slippage                  | applied                                   | **never applied**                                    |
-
-The last two rows are rules this project has already established for *exits* — "Limit orders must trade **through**, not touch" and the targets taking no slippage — reaching the entry for the first time. `bracket.limit_filled` is the one implementation and the entry reads it at `-direction`, because the limit is favourable from the other side.
-
-**A marketable limit is refused rather than filled, and this one is a decision rather than a measurement.** §M18 establishes that NT8 declines a stop entry at or through the market; the mirror — what it does with a buy limit submitted at or above the close — **has not been probed**, and NT8 would most likely accept it and fill at the market. The simulation refuses it, so a retest never enters at a price the market has already left. That is a deliberate deviation from an *unmeasured* behaviour rather than from a known one; it is the conservative side, and it is the first thing to settle if the retest ever earns a port. Booking it with the two-sided-range probe §M28 already wants is the cheap way to answer it.
-
-### M28.6 — the rejection entry, written to the same standing as §M28.2 (#255)
-
-**Still no NinjaScript, so nothing here is backed by a trade list either.** The design, and what it is waiting on before it is swept: [roadmap.md](roadmap.md) §M28.6.
-
-**The rejection is one `EnterLongLimit` at the range's own extreme, with no arming condition at all.** `EnterLongLimit(rangeLow + entryOffsetTicks * TickSize)` for a long and `EnterShortLimit(rangeHigh - entryOffsetTicks * TickSize)` for a short, resubmitted at every bar close from the bar the range completes on. There is no `bool` to reset on `Bars.IsFirstBarOfSession` and no `High[0]`/`Low[0]` comparison to make: the fill test **is** the condition, because a limit `entryOffsetTicks` inside the low fills exactly when price comes that close to the low and no closer.
-
-**Every fill rule it takes is one already written down.** §M28.2's retest table applies unchanged — fills at its price or better, does not fill on a touch under `IsFillLimitOnTouch = false`, takes no slippage, and a marketable limit is refused. That last remains a deviation from an **unmeasured** behaviour rather than from a measured one, and it now carries two entry modes rather than one.
-
-**The offset runs inward here and outward for a breakout, and it may be zero.** `entryOffsetTicks` is measured past the level in the direction traded, and this mode's level is the extreme *against* that direction. §M28's reason for defaulting it to 1 — a bar closing exactly on the level can never submit a stop entry, because NT8 declines a stop at or through the market — does not reach a limit, which is accepted from any bar that closed on the range's side of it.
-
-**It refuses the opposite-extreme stop for the fade's reason.** Its entry level is the extreme `ORB_STOP_OPPOSITE` names, so the stop would land `entryOffsetTicks + stopOffsetTicks` from the entry and the mode would be the fraction stop at a fraction of zero. `OpeningRangeParams` raises rather than sweep the duplicate.
-
-### M28.10 — the trailing follow-through, written to the same standing as M28.2 (#261)
-
-**Still no NinjaScript, so nothing here is backed by a trade list either.** The measurement that produced it and the verdict it reached: [roadmap.md](roadmap.md) M28.10.
-
-**Follow-through is a completed-session statistic, and that is what makes it expressible.** One `double` per session — the further of the two moves beyond the range, divided by the range width — accumulated over the bars past the window and closed off at the session boundary:
-
-```csharp
-if (Bars.IsFirstBarOfSession && rangeComplete)
-{ double beyond = Math.Max(reachHigh - rangeHigh, rangeLow - reachLow);
-  history.Add(Math.Max(beyond, 0) / (rangeHigh - rangeLow)); }
-reachHigh = Math.Max(reachHigh, High[0]); reachLow = Math.Min(reachLow, Low[0]);
-```
-
-**The scale a session trades on is the median of the sessions strictly before it**, so no session contributes to its own geometry. A ring buffer of the last `followThroughSessions` values, taken at the session open and held for the whole session; nothing here reads a bar it could not have seen, which is the property the whole axis is worthless without.
-
-**A session with fewer than `followThroughSessions` completed values submits no order.** The same rule as "A session missing any of its window bars has no range" one level up: a geometry that cannot be stated is refused rather than approximated from what happens to be there. On a 250-session lookback that costs the first year of the archive.
-
-**The scale multiplies the range width and reaches nothing else.** `stopRangeFraction * (rangeHigh - rangeLow) * scale` and `trigger + targetWidthMultiple * (rangeHigh - rangeLow) * scale`, each under its own half of `followThroughScaling`. It is inert against the R ladder and against the opposite-extreme stop, both of which state their geometry in another unit — `OpeningRangeParams` raises rather than sweep a combination where the axis does nothing, which is the blind spot `dead_axes` cannot see.
-
-**At `ORB_SCALE_NONE` the arithmetic is what it always was.** The scale is one everywhere and the loop multiplies rather than branches, so every stored OpeningRange row is reproducible unchanged. Checked: byte-for-byte identical over the trade-log gate's fourteen files and over 5,322 OpeningRange legs.
 
 ### The session end is the observed last bar, not the template's (#68)
 
@@ -752,20 +504,6 @@ A parameterised window, not a boolean, and **distinct from `block_entry_at_sessi
 **`Now` is the wall clock, and that is a trap the port does not reproduce.** It resolves to `Core.Globals.Now` — `Connection.PlaybackConnection` is null in Strategy Analyzer — so the C# compares the end of *today's* session against the *real current time*, whatever bar is being processed. In a backtest that makes the rule either on for every bar or off for every bar, depending on the hour the run is started. The port implements the bar's own clock, which is what the rule means and what live trading does.
 
 **So this is the one rule the two tiers cannot agree on by construction**, and a Tier-2 reconciliation of InsideBar needs `Now` replaced by `Time[0]` in the NinjaScript before it can mean anything. Until then, running the backtest more than an hour before the session close is the only configuration in which the C# and this port are testing the same rule.
-
-### The maximum hold time, and why it is its own exit code
-
-**Every archetype can cap how long a position is held**, not only ElasticBand, whose scheme C shipped one (§M26). `max_hold_bars` is off at `0` everywhere and nothing measured before this rests on it.
-
-**It is a market exit decided in `OnBarUpdate`, so it fills at the next bar's open** — §M18's rule, the same one EmaCrossover's opposite-cross exit and ElasticBand's invalidation exit already take, and not `OnPositionUpdate`'s (§M23). In NinjaScript it is an `int` incremented in `OnBarUpdate` against a `MaxHoldBars` property, or equivalently `if (BarsSinceEntryExecution() >= MaxHoldBars) { ExitLong(); ExitShort(); }`. Like every market exit it takes precedence over the stop and the targets on the bar it fills on, because NT8's managed approach cancels a position's brackets when something else flattens it.
-
-**The count is bars *since* the entry bar, and the fill is one bar after that.** The order goes in at the close of bar `entry_bar + max_hold_bars` and fills at the open of `entry_bar + max_hold_bars + 1`, so a leg's `bars_held` reaches `max_hold_bars + 1` rather than `max_hold_bars`. That is ElasticBand's arithmetic unchanged, which is why generalising it moved no stored number: `bracket.hold_expired` is now the one comparison and every loop calls it.
-
-**It is `EXIT_TIME_LIMIT`, not `EXIT_SIGNAL`.** §M26 deliberately added no exit code and made `exit_on_invalidation` and `max_hold_bars` mutually exclusive instead, because a log carrying both could not say which fired. That trade stops being affordable once the cap reaches every archetype — three of them already spend `EXIT_SIGNAL` on a rule of their own, and the question the cap exists to answer is what it is worth, which is `tools/campaign_exits.py`'s decomposition by reason. So the code was added and the exclusion dropped; the two exits are now told apart in one log. **Where a bar is both, the archetype's own rule takes it**, since it would have closed the position on that bar anyway. On EmaCrossover and ElasticBand it shares the `pending_exit` those two already carried, so on EmaCrossover a signal at the hold limit reopens at the same open the exit filled at — the flip's own behaviour, deliberately not given a second answer.
-
-**It is a bar count and not a duration**, so it means a different amount of time at each resolution exactly as a moving-average period does — [findings/m27-registry-campaign.md](findings/m27-registry-campaign.md) § "What the campaign could not test". Nothing scales it.
-
-**It does not replace the session flatten and cannot.** Flat before the session close is an account rule rather than a parameter, and a cap longer than the session simply never binds.
 
 ## Order lifetime and the session edge (#67)
 

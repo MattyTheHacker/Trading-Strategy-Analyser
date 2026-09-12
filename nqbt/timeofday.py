@@ -29,15 +29,9 @@ if TYPE_CHECKING:
 
     from nqbt.arrays import BitsArray, BoolArray, IndexArray, IntArray, LabelArray
 
-SECONDS_PER_DAY = 86_400
-
-MIN_STAMPS_FOR_A_GAP = 2
-"""Stamps needed before :func:`infer_bar_minutes` has a gap to measure."""
-
-OUT_OF_SESSION = -1
-"""Label for a bar outside any session. Negative, not an eighth phase -- ``docs/roadmap.md``
-§M10.4.
-"""
+SECONDS_PER_DAY: int = 86_400
+MIN_STAMPS_FOR_A_GAP: int = 2  # Stamps needed before :func:`infer_bar_minutes` has a gap to measure.
+OUT_OF_SESSION: int = -1  # Label for a bar outside any session. Negative, not an eighth phase.
 
 
 class TimeOfDayError(ValueError):
@@ -51,20 +45,13 @@ class SessionPhase(IntEnum):
     Why seven and why these: ``docs/roadmap.md`` §M10.4.
     """
 
-    OVERNIGHT = 0
-    """18:00-03:00 ET. The session open through the Asian hours."""
-    LONDON = 1
-    """03:00-07:00 ET, the European cash session."""
-    PRE_OPEN = 2
-    """07:00-09:30 ET. US pre-market, and where the day's economic releases land."""
-    CASH_OPEN = 3
-    """09:30-10:30 ET, the first hour of US cash trading."""
-    MIDDAY = 4
-    """10:30-14:00 ET, the midday lull."""
-    AFTERNOON = 5
-    """14:00-16:00 ET, through the cash close."""
-    CLOSE = 6
-    """16:00-17:00 ET. **Structurally anomalous**: it contains the forced flat."""
+    OVERNIGHT = 0  # 18:00-03:00 ET. The session open through the Asian hours.
+    LONDON = 1  # 03:00-07:00 ET, the European cash session.
+    PRE_OPEN = 2  # 07:00-09:30 ET. US pre-market, and where the day's economic releases land.
+    CASH_OPEN = 3  # 09:30-10:30 ET, the first hour of US cash trading.
+    MIDDAY = 4  # 10:30-14:00 ET, the midday lull.
+    AFTERNOON = 5  # 14:00-16:00 ET, through the cash close.
+    CLOSE = 6  # 16:00-17:00 ET. **Structurally anomalous**: it contains the forced flat.
 
     @property
     def bit(self) -> int:
@@ -72,8 +59,7 @@ class SessionPhase(IntEnum):
         return 1 << int(self)
 
 
-FORCED_EXIT_PHASE = SessionPhase.CLOSE
-"""The phase the session-close flatten falls in, named so a caller can exclude it."""
+FORCED_EXIT_PHASE = SessionPhase.CLOSE  # The phase the session-close flatten is in, named so a caller can exclude it.
 
 PHASE_STARTS: tuple[tuple[SessionPhase, time], ...] = (
     (SessionPhase.OVERNIGHT, time(18, 0)),
@@ -112,9 +98,7 @@ def phases_in(mask: int) -> tuple[SessionPhase, ...]:
 def validate_mask(mask: int) -> int:
     """Reject a mask that admits nothing, or that sets a bit no phase owns."""
     if mask < 0 or mask & ~ALL_PHASES:
-        msg: str = (
-            f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
-        )
+        msg: str = f"phase mask {mask} sets bits outside 0..{ALL_PHASES}; use SessionPhase.bit or phases_mask()"
         raise TimeOfDayError(msg)
 
     if mask == 0:
@@ -163,10 +147,7 @@ def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) ->
     return starts
 
 
-def phase_from_minutes(
-    minutes: IntArray,
-    template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
-) -> LabelArray:
+def phase_from_minutes(minutes: IntArray, template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> LabelArray:
     """Label each bar from its minute-of-session, as ``int8`` :class:`SessionPhase` values.
 
     ``minutes`` is :func:`nqbt.resample.minutes_since_open`, so the minute a bar *occupies* is
@@ -229,14 +210,10 @@ def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
 class TimeOfDay:
     """Both forms of the clock for one series, aligned to its index."""
 
-    phase: LabelArray
-    """``int8`` :class:`SessionPhase` per bar, :data:`OUT_OF_SESSION` outside a session."""
-    phase_bits: BitsArray
-    """``uint8`` ``1 << phase``, ``0`` out of session -- see :func:`bits_from_phase`."""
-    bar_of_session: IndexArray
-    """``int32`` zero-based bar index from the session open, :data:`OUT_OF_SESSION` outside."""
-    bar_minutes: int
-    """The bar size :attr:`bar_of_session` was computed at."""
+    phase: LabelArray  # ``int8`` :class:`SessionPhase` per bar, :data:`OUT_OF_SESSION` outside a session.
+    phase_bits: BitsArray  # ``uint8`` ``1 << phase``, ``0`` out of session -- see :func:`bits_from_phase`.
+    bar_of_session: IndexArray  # ``int32`` zero-based bar index from the session open, :data:`OUT_OF_SESSION` outside.
+    bar_minutes: int  # The bar size :attr:`bar_of_session` was computed at.
 
     def __len__(self) -> int:
         return self.phase.size
@@ -257,7 +234,6 @@ class TimeOfDay:
 
 def classify(
     index: pd.DatetimeIndex,
-    *,
     bar_minutes: int | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
     info: sessions.SessionInfo | None = None,

@@ -9,13 +9,8 @@ permutation test and a time-of-day review each need a per-trade vector, so the l
 here instead -- rebuild a stored ``combos`` row, run that one configuration again with its log
 kept, and save it under the ``(sweep_id, combo_id)`` the summary row already carries.
 
-**``--held-out`` logs the pair a gate should read**: the held-out rows of the configurations
-the *selection* window ranked highest, so nothing whose log is stored here was ranked on the
-window it is then read from -- ``docs/roadmap.md`` §M28.13.
-
 Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every campaign
-tool that starts from a stored row needs. What :func:`store_logs` wrote is read back by
-``tools/campaign_report.py``'s ``load_trades``, beside the loader that reads the summary rows.
+tool that starts from a stored row needs.
 """
 
 from __future__ import annotations
@@ -33,11 +28,11 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools.campaign_report import load
+from tools.campaign_sweep import ELASTIC_LADDERS, db_path, windows
+
 from nqbt import archetypes, context, logsetup, resample, results, splice, sweep
 from nqbt.instruments import get_instrument
-from tools.campaign_holdout import held_out
-from tools.campaign_report import load, rank
-from tools.campaign_sweep import db_path, elastic_ladder, windows
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +77,7 @@ def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Param
 
         updates[field.name] = _coerced(row[field.name], getattr(params, field.name))
     if archetype is archetypes.ELASTICBAND:
-        updates["target_stretch_levels"] = elastic_ladder(str(row["variant"]))
+        updates["target_stretch_levels"] = ELASTIC_LADDERS[str(row["variant"])]
 
     return replace(params, **updates)
 
@@ -95,12 +90,8 @@ def shortlist(
     top: int = 1,
     stratum: str | None = None,
     resolution: int | None = None,
-    variant: str | None = None,
 ) -> pd.DataFrame:
-    """The highest-ranked stored combinations for one archetype, root and stratum.
-
-    A row whose ``by`` is undefined is dropped rather than ranked -- :func:`campaign_report.rank`.
-    """
+    """The highest-ranked stored combinations for one archetype, root and stratum."""
     frame: pd.DataFrame = load(name, window)
     frame = frame[frame["root"] == root]
     if stratum is not None:
@@ -109,19 +100,11 @@ def shortlist(
     if resolution is not None:
         frame = frame[frame["resolution"] == resolution]
 
-    if variant is not None:
-        frame = frame[frame["variant"] == variant]
-
     if frame.empty:
         msg: str = f"no stored rows for {name} on {root} in windows {window}, stratum {stratum}"
         raise RuntimeError(msg)
 
-    ranked: pd.DataFrame = rank(frame, top, by)
-    if ranked.empty:
-        msg = f"{name} on {root}: every one of {len(frame)} stored rows has no {by} to rank on"
-        raise RuntimeError(msg)
-
-    return ranked
+    return frame.nlargest(top, by)
 
 
 def best_row(
@@ -131,10 +114,9 @@ def best_row(
     by: str,
     stratum: str | None = None,
     resolution: int | None = None,
-    variant: str | None = None,
 ) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
     """The highest-ranked stored combination for one archetype, root and stratum."""
-    return shortlist(name, root, window, by, 1, stratum, resolution, variant).iloc[0]
+    return shortlist(name, root, window, by, 1, stratum, resolution).iloc[0]
 
 
 def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
@@ -174,15 +156,16 @@ def store_group(
 ) -> int:
     """Store the log of every row measured on one resampled frame, and return how many.
 
-    One prepared dataset serves the whole block, built from the shortlist as a combination grid
-    so that the union over its members is :meth:`~nqbt.sweep.Grid.required_context`'s rather
-    than a second copy of it.
+    One prepared dataset serves the whole block, built from the union of the rows' own context
+    specifications the way ``tools/campaign_sweep.py`` builds one per sweep point.
     """
     rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
         (row, rebuild(row, archetype)) for _, row in block.iterrows()
     ]
-    grid: sweep.Grid = sweep.Grid.of_combinations([params for _, params in rebuilt], archetype=archetype)
-    data: context.Dataset = context.prepare(frame, grid.required_context(), bar_minutes=minutes)
+    spec: context.ContextSpec = context.ContextSpec()
+    for _, params in rebuilt:
+        spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
+    data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
 
     for row, params in rebuilt:
         summary, log = sweep.run_combination(
@@ -239,35 +222,24 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--by", default="profit_factor", help="which statistic picks the rows")
     parser.add_argument("--stratum", default=None, help="restrict the ranking to one stratum")
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
-    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=TOP, help="how many configurations to log")
-    parser.add_argument(
-        "--held-out",
-        action="store_true",
-        help="log the held-out rows of the configurations the selection window ranks highest",
-    )
     args = parser.parse_args(argv[1:])
 
-    rows: pd.DataFrame = (
-        held_out(args.strategy, args.root, args.by, args.top, args.stratum, args.resolution, args.variant)
-        if args.held_out
-        else shortlist(
-            args.strategy,
-            args.root,
-            args.window,
-            args.by,
-            args.top,
-            args.stratum,
-            args.resolution,
-            args.variant,
-        )
+    rows: pd.DataFrame = shortlist(
+        args.strategy,
+        args.root,
+        args.window,
+        args.by,
+        args.top,
+        args.stratum,
+        args.resolution,
     )
     logger.info(
         "%s on %s: %d configurations ranked on %s by %s",
         args.strategy,
         args.root,
         len(rows),
-        "selection" if args.held_out else "+".join(args.window),
+        "+".join(args.window),
         args.by,
     )
     stored: int = store_logs(args.strategy, rows, args.root)

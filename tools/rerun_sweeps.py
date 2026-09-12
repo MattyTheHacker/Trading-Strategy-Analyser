@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 ROOTS = ("MNQ", "NQ")
 """Both roots, because NQ failing on its own years is corroboration rather than a second
-data point -- ``README.md`` § "What the search has found so far"."""
+data point -- ``README.md`` § "Current finding"."""
 
 COMMISSION = 1.50
 """Round-turn dollars per contract. The real figure, not the $0.74 the dropped rows carry."""
@@ -110,7 +110,7 @@ def grids() -> list[tuple[str, sweep.Grid]]:
     ]
 
 
-def run_root(root: str, batch_id: int, *, n_jobs: int, db_path: paths.Path) -> None:
+def run_root(root: str, batch_id: int, n_jobs: int, db_path: paths.Path) -> None:
     """Sweep every stratum of one root, storing each as its own ``sweeps`` row.
 
     The eleven grids share one dataset built from the union of their specs, so the
