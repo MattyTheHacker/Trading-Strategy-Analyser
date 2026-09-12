@@ -46,6 +46,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§M28.8`                                          | [M28.8 — the range as a cross: every anchor by every length, and the hour that was missing](m28-8-range-cross.md)          | OpeningRange         | `mixed`    |
 | `§M28.11`                                         | [M28.11 — the two truncated bracket axes, swept to their end](m28-11-truncated-bracket-axes.md)                            | OpeningRange         | `negative` |
 | `§M29`                                            | [M29 — the maximum hold time: the one axis whose best value is off on every archetype](m29-maximum-hold-time.md)           | all 7                | `negative` |
+| `§M30`                                            | [M30 — volume and regime re-cut across the registry, and what the raw pair was reporting](m30-volume-regime-recut.md)      | all 7                | `mixed`    |
 | `§ "The build spec's three loose ends, measured"` | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                           | EmaCrossover         | `negative` |
 
 ## Gate 3 -- the matched null -- does the entry beat a random entry
