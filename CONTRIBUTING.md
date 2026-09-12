@@ -278,6 +278,8 @@ Why ten verbs rather than a mood check: mapping every subject in this repository
 - **Repeat the closing keyword for every issue.** `Closes #1, #2` links only `#1`. Write `Closes #1. Closes #2.` and check `closingIssuesReferences` on the pull request before merging. Alternatively, link the issues manually via the GUI.
 - **Do not quote figures that go stale.** Consider if the number is even needed in documentation or if it's better being generated or retrieved at the time it's needed. If it's definitely needed, point at the document that holds the live number.
 - **Branch off `main` and never commit to it directly.**
+- **Every pull request targets `main`, and none is ever stacked on another branch.** Where one genuinely depends on another, say so in a comment on the pull request rather than pointing its base at the other branch. A stacked pull request merges into its *base* the moment that branch moves past it — the auto-merge workflow does this without anyone asking — so the dependency is enforced by nothing and the thing that was meant to be reviewed second lands first. GitHub also refuses to create the closing reference for an issue on a pull request that does not target the default branch, so `Closes #N` silently does nothing.
+- **One piece of work is one pull request.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`.
 - **Use labels to accurately describe what areas the PR covers.**
 - **PRs should ideally be as minimal as possible to make the review easier.**
 
