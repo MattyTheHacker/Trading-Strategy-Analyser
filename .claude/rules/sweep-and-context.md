@@ -133,6 +133,14 @@ paths:
   read against each other across either axis. State the cut with
   `volume.thresholds_from_quantiles`, fitted on the selection window alone, and carry the tail
   size in the stratum name rather than crossing it with the thresholds. `docs/roadmap.md` §M27.8.
+- **The two volume windows are cells and not axes, and so is anything else the fit reads.**
+  `volume_rolling_bars` and `volume_baseline_sessions` change the ratio's own distribution, so
+  the fitted pair moves with them exactly as it moves with the lookback -- an axis crossed
+  inside one cell would read a cut fitted for a different window. `volume.describe_key` has
+  always carried both, so a ladder needs no new naming; `campaign_sweep.volume_series` takes the
+  rungs and `volume.key` drops the rolling one from the two forms that do not read it, which is
+  what keeps a rung from being one series wearing three names.
+  `docs/findings/m32-volume-windows.md`.
 - **Measure what an entry already selects before adding a filter that selects the same thing.**
   ElasticBand's unfiltered 2σ VWAP extension already sits in `HEAVY` at 2.1× the base rate under
   `PER_BAR` and *below* it under `SESSION_TO_DATE`, so "require volume on the break" was partly

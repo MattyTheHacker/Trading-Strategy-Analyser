@@ -34,6 +34,17 @@ would otherwise run their dimension twice:
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --strata volume-forms --split \
         --volume-quantiles --n-jobs 8
 
+``--volume-rolling-bars`` and ``--volume-baseline-sessions`` move the two windows every
+stored row holds at 30 and 20. **A rung is a cell and not an axis**, for the reason a regime
+lookback is: the window changes the ratio's distribution, so the threshold pair moves with
+it. The cell name already says which -- ``volume.describe_key`` has always carried both
+windows -- so a ladder needs no new naming and lands beside the stored rows rather than on
+top of them. ``--volume-forms`` narrows which forms a pass runs, which is what keeps a
+rolling ladder from re-running the two forms that do not read the window:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strata volume-forms --split \
+        --volume-quantiles --volume-forms ROLLING --volume-rolling-bars 10 90 --n-jobs 8
+
 ``--regime-quantiles`` replaces the regime stratum's raw thresholds with a pair fitted to the
 efficiency ratio's own distribution at each ``(resolution, lookback)``, and splits the stratum
 into one cell per lookback -- ``regime=DIRECTIONAL@n=20 q=0.20/0.80``. The fit is taken on the
@@ -227,7 +238,7 @@ CONSOLIDATING and DIRECTIONAL, stated ahead of the sweep rather than discovered 
 
 VOLUME_ROLLING_BARS = 30
 VOLUME_BASELINE_SESSIONS = 20
-"""The window and baseline §M27 ran at, held so that the form is what moves. Both are
+"""The window and baseline §M27 ran at, and the rung each ladder defaults to. Both are
 ``sim/types.py`` defaults, which is what makes the ``PER_BAR`` cells here the campaign's own."""
 
 VOLUME_TAILS = ((0.10, 0.90), (0.20, 0.80), (0.33, 0.67))
@@ -380,14 +391,25 @@ def _volume() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
         yield f"volume={state.name}", {"volume_filter": [state.bit]}
 
 
-def volume_series() -> tuple[volume.VolumeKey, ...]:
-    """The three relative-volume series a form stratification reads.
+def volume_series(
+    forms: Sequence[volume.VolumeForm] = tuple(volume.VolumeForm),
+    rolling_bars: Sequence[int] = (VOLUME_ROLLING_BARS,),
+    baseline_sessions: Sequence[int] = (VOLUME_BASELINE_SESSIONS,),
+) -> tuple[volume.VolumeKey, ...]:
+    """One relative-volume series per (form, rolling window, baseline), deduplicated.
 
     Built through :func:`nqbt.volume.key`, which drops the rolling window from every form but
     ``ROLLING`` -- the blind spot ``dead_axes`` cannot see, avoided rather than rediscovered.
+    Deduplicating *after* that drop is what keeps a rolling ladder from building one identical
+    per-bar series per rung -- ``docs/findings/m32-volume-windows.md``.
     """
     return tuple(
-        volume.key(form, VOLUME_ROLLING_BARS, VOLUME_BASELINE_SESSIONS) for form in volume.VolumeForm
+        dict.fromkeys(
+            volume.key(form, rolling, baseline)
+            for form in forms
+            for rolling in rolling_bars
+            for baseline in baseline_sessions
+        )
     )
 
 
@@ -592,14 +614,16 @@ def calibrate_volume(
     frame: pd.DataFrame,
     minutes: int,
     tails: Sequence[tuple[float, float]],
+    series: Sequence[volume.VolumeKey],
 ) -> VolumeCalibration:
     """Fit a threshold pair per (series, tail size) to ``frame``'s own relative volumes.
 
-    Each form is fitted against its own distribution, which is the whole point: the same raw
-    pair sits at a different percentile under each of the three -- ``docs/roadmap.md`` §M27.8.
+    Each series is fitted against its own distribution, which is the whole point: the same raw
+    pair sits at a different percentile under each form -- ``docs/roadmap.md`` §M27.8 -- and at
+    each window too, which is why a window ladder is a cut per rung rather than an axis
+    inside one -- ``docs/findings/m32-volume-windows.md``.
     """
-    series: tuple[volume.VolumeKey, ...] = volume_series()
-    spec = context.ContextSpec(volume_keys=series, needs_time_of_day=True)
+    spec = context.ContextSpec(volume_keys=tuple(series), needs_time_of_day=True)
     data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
 
     return tuple(
@@ -2039,7 +2063,9 @@ def cell_shape(argv: argparse.Namespace) -> Cuts:
     )
     volume_cells: VolumeCalibration = (
         tuple(
-            VolumeCut(key, NAN, NAN, tails=pair) for key in volume_series() for pair in argv.volume_quantiles
+            VolumeCut(key, NAN, NAN, tails=pair)
+            for key in requested_volume_series(argv)
+            for pair in argv.volume_quantiles
         )
         if argv.volume_quantiles
         else ()
@@ -2092,6 +2118,57 @@ def tail_pairs(given: list[float] | None) -> tuple[tuple[float, float], ...]:
     return tuple((given[at], given[at + 1]) for at in range(0, len(given), 2))
 
 
+def named_forms(given: list[str]) -> tuple[volume.VolumeForm, ...]:
+    """The forms a volume-form stratification runs, deduplicated into enum order."""
+    wanted: set[volume.VolumeForm] = {volume.VolumeForm[name] for name in given}
+
+    return tuple(form for form in volume.VolumeForm if form in wanted)
+
+
+def check_volume_request(argv: argparse.Namespace) -> None:
+    """Refuse a form or window selection that an unfitted run would silently ignore.
+
+    Three ways a rung says nothing, all of them quiet without this --
+    ``docs/findings/m32-volume-windows.md``.
+    """
+    ladders: dict[str, list[int]] = {
+        "--volume-rolling-bars": argv.volume_rolling_bars,
+        "--volume-baseline-sessions": argv.volume_baseline_sessions,
+    }
+    for flag, rungs in ladders.items():
+        if len(rungs) > 1 and not argv.volume_quantiles:
+            msg: str = (
+                f"{flag} takes several windows, and a raw pair admits a different share of bars "
+                "at each of them; pass --volume-quantiles so every rung is cut on its own "
+                "distribution"
+            )
+            raise SystemExit(msg)
+
+    if len(argv.volume_forms) < len(volume.VolumeForm) and not argv.volume_quantiles:
+        msg = (
+            "--volume-forms narrows a stratification whose unfitted cells are the stored "
+            "campaign's own; pass --volume-quantiles, or leave every form in"
+        )
+        raise SystemExit(msg)
+
+    if len(argv.volume_rolling_bars) > 1 and volume.VolumeForm.ROLLING not in argv.volume_forms:
+        msg = (
+            "--volume-rolling-bars is read under VolumeForm.ROLLING alone, so a ladder without "
+            "ROLLING in --volume-forms collapses to one series and every rung runs identically"
+        )
+        raise SystemExit(msg)
+
+    try:
+        requested_volume_series(argv)
+    except volume.VolumeError as refused:
+        raise SystemExit(str(refused)) from None
+
+
+def requested_volume_series(argv: argparse.Namespace) -> tuple[volume.VolumeKey, ...]:
+    """Every series the requested forms and window ladders name, the inert rungs dropped."""
+    return volume_series(argv.volume_forms, argv.volume_rolling_bars, argv.volume_baseline_sessions)
+
+
 def log_calibration(
     fitted: dict[int, Calibration],
     quantiles: tuple[float, float],
@@ -2135,9 +2212,12 @@ def fit_volume(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, Volume
     if not argv.volume_quantiles:
         return {}
 
+    series: tuple[volume.VolumeKey, ...] = requested_volume_series(argv)
     selection: pd.DataFrame = bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
     fitted: dict[int, VolumeCalibration] = {
-        minutes: calibrate_volume(resample.resample(selection, minutes), minutes, argv.volume_quantiles)
+        minutes: calibrate_volume(
+            resample.resample(selection, minutes), minutes, argv.volume_quantiles, series
+        )
         for minutes in argv.resolutions
     }
     log_volume_calibration(fitted, len(selection))
@@ -2196,10 +2276,33 @@ def main(argv: list[str]) -> int:
         default=None,
         help="fit the volume-form thresholds on the selection window; bare takes the stated tails",
     )
+    parser.add_argument(
+        "--volume-forms",
+        nargs="+",
+        choices=[form.name for form in volume.VolumeForm],
+        default=[form.name for form in volume.VolumeForm],
+        help="which relative-volume forms the volume-form strata run",
+    )
+    parser.add_argument(
+        "--volume-rolling-bars",
+        nargs="+",
+        type=int,
+        default=[VOLUME_ROLLING_BARS],
+        help="the ROLLING form's window, one cell per rung; a ladder needs --volume-quantiles",
+    )
+    parser.add_argument(
+        "--volume-baseline-sessions",
+        nargs="+",
+        type=int,
+        default=[VOLUME_BASELINE_SESSIONS],
+        help="prior sessions the baseline spans, one cell per rung; a ladder needs --volume-quantiles",
+    )
     args = parser.parse_args(argv[1:])
     args.strategies = args.strategies or list(variants_for(args.variants))
     args.regime_quantiles = quantile_pair(args.regime_quantiles)
     args.volume_quantiles = tail_pairs(args.volume_quantiles)
+    args.volume_forms = named_forms(args.volume_forms)
+    check_volume_request(args)
     # A held-out test of a stratified shortlist is a smaller sample twice over, so --split
     # defaults to the unfiltered stratum alone unless one is named.
     args.strata = args.strata or (UNFILTERED if args.split else CORE)
