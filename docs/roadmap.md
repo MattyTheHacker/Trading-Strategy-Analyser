@@ -630,6 +630,10 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 
 **The walk-forward passes on both roots and the account funds on MNQ, but none of the twenty configurations is profitable without its session-close legs, and a hold cap tight enough to replace them is the worst thing that can be done to the cell.** Moved to [`docs/findings/m31-1-survivor-gate-4.md`](findings/m31-1-survivor-gate-4.md).
 
+### M32 — the two volume windows swept ([#299])
+
+**Both windows move a consistency score as much as most dimensions the campaign compares, and 43 of the registry's 56 consistent volume cells sit at a rung nobody had run — but a new rung is consistent at about the same rate as the default, so the two defaults were unexamined rather than wrong.** Moved to [`docs/findings/m32-volume-windows.md`](findings/m32-volume-windows.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
