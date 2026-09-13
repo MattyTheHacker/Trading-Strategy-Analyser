@@ -640,6 +640,14 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 
 **Holding the bracket and the shape still and swapping the channel flips `HEAVY` from a cost to a benefit and `NORMAL` from a benefit to a cost on both roots in both windows, so §M26.9 and §M30 were both right about different configurations; the arm that reproduces §M30's answer does it at a median held-out profit factor of 0.94.** Moved to [`docs/findings/m33-channel-volume.md`](findings/m33-channel-volume.md).
 
+### M34 — EmaPullback: the pullback to the fast average, with the stop on the slow one ([#309])
+
+**A fourth original, specified and built but put to no gate: EmaCrossover's two averages read for the trend they leave behind, entered on a touch of the fast one after an extension away from it, and stopped on the slow one — which makes R structural for the first time in an original.** Moved to [`docs/findings/m34-ema-pullback-spec.md`](findings/m34-ema-pullback-spec.md).
+
+### M35 — EmaPullback swept: the entry axes hold their order and the moving averages reverse it ([#309])
+
+**Gate 1 passes in five of eight root x resolution cells and five strata clear gate 2 on both roots, but 2 of 60 matched-null tests reach p = 0.05 and both are one root of one cell; the moving-average kind is worth two points of held-out profitable share and what ordering it has inverts, while the archetype's own two entry axes are the only ones whose ordering survives the holdout.** Moved to [`docs/findings/m35-ema-pullback-swept.md`](findings/m35-ema-pullback-swept.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
@@ -1222,6 +1230,7 @@ ______________________________________________________________________
 [#287]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/287
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30
+[#309]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/309
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#33]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/33

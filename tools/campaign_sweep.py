@@ -205,11 +205,15 @@ from nqbt.sim.types import (
     STOP_CATASTROPHE,
     STOP_SWING,
     TARGET_STRETCH,
+    TOUCH_ANY,
+    TOUCH_CLOSE,
+    TOUCH_WICK,
     TRIGGER_EXTENDED,
     TRIGGER_RECOVERY,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
+    EmaPullbackParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -743,6 +747,38 @@ def crossover_variants(root: str) -> list[Variant]:
             archetype=archetypes.EMACROSSOVER,
             base=_costed(EmaCrossoverParams(use_atr_stop=False), root),
             axes={**shared, "swing_lookback": [1, 3]},
+        ),
+    ]
+
+
+def emapullback_variants(root: str) -> list[Variant]:
+    """One variant: both averages crossed over kind and period, and the entry's own three axes.
+
+    **Both kinds are swept and both periods with them**, which no earlier campaign here did --
+    EmaCrossover swept the fast kind alone. §M27 measured the moving averages as nearly inert
+    on every archetype it covered, and this is the archetype where that reading is least safe:
+    the two averages are the level price returns to and the level the stop sits on, so the kind
+    moves the entry and the bracket at once.
+
+    ``touch_mode`` and ``require_turn`` are axes rather than variant dimensions: every value
+    reads every other axis, so none of them is inert under another and ``dead_axes`` has
+    nothing to miss -- ``docs/findings/m34-ema-pullback-spec.md``. The trail is held off, so
+    this campaign varies the entry geometry and the stop's own two averages and nothing else.
+    """
+    return [
+        Variant(
+            name="stop=slow",
+            archetype=archetypes.EMAPULLBACK,
+            base=_costed(EmaPullbackParams(), root),
+            axes={
+                "fast_kind": ["ema", "sma", "wma", "hma"],
+                "fast_period": [5, 9, 13, 20],
+                "slow_kind": ["ema", "sma"],
+                "slow_period": [30, 50, 100, 200],
+                "min_bars_extended": [1, 3, 5],
+                "touch_mode": [TOUCH_WICK, TOUCH_CLOSE, TOUCH_ANY],
+                "require_turn": [False, True],
+            },
         ),
     ]
 
@@ -1835,6 +1871,7 @@ VARIANTS = {
     "DeadCatBounce": deadcat_variants,
     "PullBackAndGo": pullback_variants,
     "EmaCrossover": crossover_variants,
+    "EmaPullback": emapullback_variants,
     "InsideBar": insidebar_variants,
     "InsideBarTrailing": insidebartrailing_variants,
     "ElasticBand": elasticband_variants,

@@ -453,15 +453,6 @@ def outside_run_length(outside: BoolArray, *, ends_before: bool) -> IntArray:
     return behind
 
 
-def closed_towards_basis(open_: FloatArray, close: FloatArray, direction: FloatArray) -> BoolArray:
-    """Bars whose body runs the way the fade would trade -- green below the basis, red above.
-
-    A doji runs neither way and passes on neither side, which is the symmetric boundary this
-    archetype's one sign multiplier asks for -- ``docs/nt8-fidelity.md`` §M26.5.
-    """
-    return np.asarray(direction * (close - open_) > 0.0)
-
-
 def swept_and_reclaimed(data: Dataset, direction: FloatArray) -> BoolArray:
     """Bars that took out the previous bar's extreme against the fade and closed back past it.
 
@@ -501,7 +492,7 @@ def signal_bar_shape(data: Dataset, direction: FloatArray, params: ElasticBandPa
     which is why :func:`elasticband_signal` skips the conjunction there rather than ANDing it.
     """
     if params.signal_shape == SHAPE_REVERSAL:
-        return closed_towards_basis(data.open, data.close, direction)
+        return conditions.closed_towards(data.open, data.close, direction)
 
     if params.signal_shape == SHAPE_RECLAIM:
         return swept_and_reclaimed(data, direction)

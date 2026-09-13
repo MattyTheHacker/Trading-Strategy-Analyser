@@ -18,6 +18,7 @@ from nqbt.instruments import NQ
 from nqbt.sim.types import (
     DeadCatParams,
     EmaCrossoverParams,
+    EmaPullbackParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -32,6 +33,7 @@ def test_every_archetype_is_registered() -> None:
         "DeadCatBounce",
         "ElasticBand",
         "EmaCrossover",
+        "EmaPullback",
         "InsideBar",
         "InsideBarTrailing",
         "OpeningRange",
@@ -40,6 +42,7 @@ def test_every_archetype_is_registered() -> None:
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
     assert archetypes.get("ElasticBand") is archetypes.ELASTICBAND
     assert archetypes.get("EmaCrossover") is archetypes.EMACROSSOVER
+    assert archetypes.get("EmaPullback") is archetypes.EMAPULLBACK
     assert archetypes.get("InsideBar") is archetypes.INSIDEBAR
     assert archetypes.get("InsideBarTrailing") is archetypes.INSIDEBARTRAILING
     assert archetypes.get("OpeningRange") is archetypes.OPENINGRANGE
@@ -74,6 +77,7 @@ def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(DeadCatParams()) is archetypes.DEADCATBOUNCE
     assert archetypes.for_params(PullBackAndGoParams()) is archetypes.PULLBACKANDGO
     assert archetypes.for_params(EmaCrossoverParams()) is archetypes.EMACROSSOVER
+    assert archetypes.for_params(EmaPullbackParams()) is archetypes.EMAPULLBACK
     assert archetypes.for_params(InsideBarParams()) is archetypes.INSIDEBAR
     assert archetypes.for_params(InsideBarTrailingParams()) is archetypes.INSIDEBARTRAILING
     assert archetypes.for_params(OpeningRangeParams()) is archetypes.OPENINGRANGE
@@ -100,6 +104,7 @@ def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     assert archetypes.INSIDEBAR.tier2 is Tier2Status.RECONCILED
     assert archetypes.INSIDEBARTRAILING.tier2 is Tier2Status.RECONCILED
     assert archetypes.EMACROSSOVER.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.EMAPULLBACK.tier2 is Tier2Status.TIER1_ONLY
     assert archetypes.ELASTICBAND.tier2 is Tier2Status.TIER1_ONLY
     assert archetypes.OPENINGRANGE.tier2 is Tier2Status.TIER1_ONLY
 

@@ -9,6 +9,8 @@ It is the third entry mechanism (market-on-next-open, no trigger price), the onl
 ``EXIT_SIGNAL``, and the first archetype to take both sides within one run. It is **flat
 between trades, not stop-and-reverse**, and its ``r_multiple`` is volatility-scaled rather than
 structure-scaled. The result it produced: ``docs/roadmap.md`` §M18.
+
+The loop is shared: :mod:`nqbt.sim.emapullback` drives it too, with the level stop mode.
 """
 
 from __future__ import annotations
@@ -41,21 +43,27 @@ Numba needs an array of the right dtype whether or not the branch reading it run
 NO_TRAIL = np.zeros(0, dtype=np.float64)
 """Stand-in for the trailing average, for the same reason as :data:`NO_ATR`."""
 
+NO_LEVEL = np.zeros(0, dtype=np.float64)
+"""Stand-in for the stop level, for the same reason as :data:`NO_ATR`."""
+
 
 class CrossoverSeries(NamedTuple):
-    """The two per-bar series a stop mode may read, held together to keep the loop under ten.
+    """The three per-bar series a stop mode may read, held together to keep the loop under ten.
 
-    Each is empty in the mode that does not read it -- :data:`NO_ATR` and :data:`NO_TRAIL` --
-    because Numba needs an array of the right dtype whether or not the branch runs.
+    Each is empty in the mode that does not read it -- :data:`NO_ATR`, :data:`NO_TRAIL` and
+    :data:`NO_LEVEL` -- because Numba needs an array of the right dtype whether or not the
+    branch runs.
     """
 
     atr: FloatArray
     trail_ma: FloatArray
+    stop_level: FloatArray
 
 
 class CrossoverRules(NamedTuple):
     """The scalar rule set :func:`simulate_crossover` reads, one field per parameter."""
 
+    use_level_stop: bool
     use_atr_stop: bool
     atr_stop_multiple: float
     min_bracket_points: float
@@ -162,7 +170,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             # bar, and is flattened at its close".
             d = pending_direction
             fill = bars.open_[i] + d * slippage
-            candidate_stop = _protective_stop(bars, series.atr, pending_bar, fill, d, rules, costs)
+            candidate_stop = _protective_stop(bars, series, pending_bar, fill, d, rules, costs)
             candidate_risk = d * (fill - candidate_stop)
             # A stop at or through the price it protects is not a stop order --
             # ``docs/nt8-fidelity.md`` §M18.
@@ -251,24 +259,27 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
 @njit(cache=True)
 def _protective_stop(
     bars: bracket.Bars,
-    atr: FloatArray,
+    series: CrossoverSeries,
     signal_bar: int,
     fill: float,
     direction: float,
     rules: CrossoverRules,
     costs: bracket.Costs,
 ) -> float:
-    """Where the protective stop goes, in whichever of the two modes is selected.
+    """Where the protective stop goes, in whichever of the three modes is selected.
 
-    Both read the **signal** bar and the bars before it, never the bar the fill happens on. The
-    ATR mode hangs the stop off the fill, so planned risk is the ATR multiple or the dollar
-    floor, whichever is wider; the swing mode uses the adverse extreme of the last
-    ``swing_lookback`` completed bars plus the usual offset and is **not** floored, because its
-    stop is a structural level rather than a distance.
+    All three read the **signal** bar and the bars before it, never the bar the fill happens
+    on. The level mode puts the stop on ``series.stop_level`` plus the usual offset and takes
+    precedence over the other two; the ATR mode hangs the stop off the fill, so planned risk is
+    the ATR multiple or the dollar floor, whichever is wider; the swing mode uses the adverse
+    extreme of the last ``swing_lookback`` completed bars plus the same offset. Only the ATR
+    mode is floored -- the other two are structural levels rather than distances.
     """
-    if rules.use_atr_stop:
+    if rules.use_level_stop:
+        stop = series.stop_level[signal_bar] - direction * rules.stop_offset_ticks * costs.tick_size
+    elif rules.use_atr_stop:
         distance = bracket.atr_bracket_distance(
-            float(atr[signal_bar]),
+            float(series.atr[signal_bar]),
             rules.atr_stop_multiple,
             rules.min_bracket_points,
         )
@@ -409,7 +420,7 @@ def crossover_legs(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         direction_at,
-        CrossoverSeries(atr, trail),
+        CrossoverSeries(atr, trail, NO_LEVEL),
         quantities,
         targets,
         bracket.Costs(
@@ -424,6 +435,7 @@ def crossover_legs(
             round_targets=params.round_targets,
         ),
         CrossoverRules(
+            use_level_stop=False,
             use_atr_stop=params.use_atr_stop,
             atr_stop_multiple=params.atr_stop_multiple,
             min_bracket_points=instrument.dollars_to_points(params.min_bracket_dollars),

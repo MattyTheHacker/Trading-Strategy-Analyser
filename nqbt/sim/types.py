@@ -2055,3 +2055,249 @@ class OpeningRangeParams:
             out[f.name] = list(value) if isinstance(value, tuple) else value
 
         return out
+
+
+TOUCH_WICK = 0
+TOUCH_CLOSE = 1
+TOUCH_ANY = 2
+TOUCH_MODES = {
+    TOUCH_WICK: "wick",
+    TOUCH_CLOSE: "close",
+    TOUCH_ANY: "any",
+}
+"""How deep the pullback has to go before the bar that reaches the fast average signals.
+
+:data:`TOUCH_WICK` asks the bar to close back beyond the average it touched, :data:`TOUCH_CLOSE`
+asks it to close through it, and :data:`TOUCH_ANY` takes either -- ``docs/nt8-fidelity.md`` §M34.
+"""
+
+
+@dataclass(slots=True)
+class EmaPullbackParams:
+    """Rule set for the EmaPullback archetype -- an original, with no NinjaScript.
+
+    The two averages EmaCrossover crosses, read for the trend they leave behind rather than for
+    the cross: price runs away from the fast average, comes back to it, and the trade is taken
+    with the **slow** average as the stop. R is therefore the distance between the two averages.
+
+    Every rule it implements and the NinjaScript each would be written as:
+    ``docs/nt8-fidelity.md`` §M34. The design and the alternatives rejected:
+    ``docs/findings/m34-ema-pullback-spec.md``.
+    """
+
+    fast_period: int = 9
+    slow_period: int = 21
+    """The average price pulls back to, and the one the stop sits on."""
+
+    fast_kind: str = "ema"
+    slow_kind: str = "ema"
+    """Which average each is computed as -- one of :data:`nqbt.conditions.MA_KINDS`. The
+    archetype's name records what it was built as, not what it is limited to."""
+
+    min_bars_extended: int = 3
+    """Completed bars price must have spent entirely beyond the fast average before the touch.
+
+    The run ends on the touch itself, so this is also how long ago the last touch was."""
+
+    touch_mode: int = TOUCH_WICK
+    """One of :data:`TOUCH_MODES` -- how deep the pullback has to go to signal."""
+
+    require_slow_intact: bool = True
+    """Refuse a signal bar that has already traded through the slow average.
+
+    Off, the stop can be placed at a level the signal bar itself reached."""
+
+    require_turn: bool = False
+    """Ask the signal bar's own body to have turned back into the trend before entering.
+
+    The reaction the pullback-continuation literature makes its third step, and the step it
+    says is most often skipped -- ``docs/findings/m35-ema-pullback-swept.md``. Off by default,
+    so the archetype as specified is unchanged and a sweep measures the requirement against its
+    own control."""
+
+    trade_long: bool = True
+    trade_short: bool = True
+    """Which sides to take. Switching one off is how the two halves get measured separately."""
+
+    phase_filter: int = timeofday.ALL_PHASES
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
+
+    regime_lookback: int = 20
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """The efficiency-ratio lookback and its two cuts -- see
+    :attr:`DeadCatParams.regime_directional_above`."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    volume_rolling_bars: int = 30
+    volume_baseline_sessions: int = 20
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """The form the ratio is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.volume_heavy_above`."""
+
+    compression_filter: int = compression.ALL_STATES
+    """Compression states an entry may be taken in -- see
+    :attr:`DeadCatParams.compression_filter`."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    compression_period: int = 20
+    compression_baseline_bars: int = 250
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """The width measure the rank is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.compression_expanded_above`."""
+
+    trend_filter: int = trend.ALL_TRENDS
+    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    trend_slope_lookback: int = 5
+    trend_min_agreement: int = 3
+    """The pair the label reads, its slope lookback and how many components must agree --
+    see :attr:`DeadCatParams.trend_min_agreement`."""
+
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Which side of a coarse moving average an entry may be taken on --
+    see :attr:`DeadCatParams.higher_timeframe_filter`."""
+
+    higher_timeframe_minutes: int = 60
+    higher_timeframe_period: int = 50
+    """The coarse resolution and the period averaged over it --
+    see :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    exit_on_trend_flip: bool = False
+    """Close the position at the next bar's open when the two averages cross back.
+
+    The only producer of ``EXIT_SIGNAL`` here, and **off by default**: the strategy as specified
+    is the stop and the targets, so the flip exit is an axis rather than part of it."""
+
+    order_quantity: int = 4
+
+    stop_offset_ticks: int = 2
+    """Ticks beyond the slow average the stop sits, so it is not exactly on the level.
+
+    ``0`` puts it on the average, which is what ElasticBand's band stop does --
+    ``docs/nt8-fidelity.md`` §M34."""
+
+    trail_ma_stop: bool = False
+    """Trail the stop along a moving average once the slow one has placed it.
+
+    **Off by default and it must stay off in a sweep's base**, for the reason
+    :attr:`EmaCrossoverParams.trail_ma_stop` gives."""
+
+    trail_ma_kind: str = "ema"
+    trail_ma_period: int = 50
+    """The average the stop follows -- a third grid, independent of the two that define the
+    trend."""
+
+    trail_offset_ticks: int = 2
+    """Ticks beyond the average the trailing stop sits. Separate from
+    :attr:`stop_offset_ticks` for the reason ``ratchet_offset_ticks`` is separate from it in
+    the ported archetypes."""
+
+    tp_multiplier: float = 1.0
+    target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
+    """Per-leg targets in R, ``nan`` marking a runner.
+
+    **R is the gap between the two averages**, so these numbers are comparable neither to
+    DeadCatBounce's nor to EmaCrossover's at the same values -- ``docs/nt8-fidelity.md`` §M34."""
+
+    bars_required_to_trade: int = 200
+
+    ambiguity_policy: int = 1
+    """See :attr:`DeadCatParams.ambiguity_policy` -- same concept, same default."""
+
+    fill_limit_on_touch: bool = False
+    block_entry_at_session_close: bool = True
+
+    max_hold_bars: int = 0
+    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
+
+    round_targets: bool = True
+    """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
+
+    commission_per_contract: float = 0.0
+    slippage_ticks: float = 0.0
+    """Adverse slippage on the entry and both market exits. Never applied to a limit target."""
+
+    def __post_init__(self) -> None:
+        if self.order_quantity < len(self.target_r_multiples):
+            msg: str = f"order_quantity {self.order_quantity} cannot fill {len(self.target_r_multiples)} legs"
+            raise ValueError(msg)
+
+        for name in ("fast_period", "slow_period", "trail_ma_period"):
+            if getattr(self, name) < 1:
+                msg = f"{name} must be >= 1"
+                raise ValueError(msg)
+        for gate in ("fast", "slow", "trail_ma"):
+            conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
+        if self.min_bars_extended < 1:
+            msg = f"min_bars_extended must be >= 1, got {self.min_bars_extended}"
+            raise ValueError(msg)
+
+        if self.touch_mode not in TOUCH_MODES:
+            msg = f"touch_mode must be one of {sorted(TOUCH_MODES)}, got {self.touch_mode}"
+            raise ValueError(msg)
+
+        if self.stop_offset_ticks < 0:
+            msg = f"stop_offset_ticks must be >= 0, got {self.stop_offset_ticks}"
+            raise ValueError(msg)
+
+        validate_max_hold_bars(self.max_hold_bars)
+        validate_context_filters(self)
+        if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
+            msg = (
+                f"fast and slow are both {self.fast_kind}({self.fast_period}); one average "
+                "never separates from itself, so no bar is ever extended away from it"
+            )
+            raise ValueError(msg)
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series this combination reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
+        n: int = len(self.target_r_multiples)
+        base: int = self.order_quantity // n
+        remainder: int = self.order_quantity % n
+
+        return tuple([base] * (n - 1) + [base + remainder])
+
+    def as_dict(self) -> dict[str, object]:
+        """Flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
+        for f in fields(self):
+            value: object = getattr(self, f.name)
+            out[f.name] = list(value) if isinstance(value, tuple) else value
+
+        return out

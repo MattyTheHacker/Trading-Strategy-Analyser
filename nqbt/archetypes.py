@@ -19,6 +19,7 @@ from nqbt.context import ContextSpec
 from nqbt.sim import (
     crossover,
     elasticband,
+    emapullback,
     insidebar,
     insidebartrailing,
     openingrange,
@@ -33,6 +34,7 @@ from nqbt.sim.types import (
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
+    EmaPullbackParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -261,6 +263,29 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     )
 
 
+def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
+    """What EmaPullback reads: the two grids its trend names, their raw values, and no ATR.
+
+    :func:`crossover_context` without the ATR, because the stop is a level rather than a
+    distance. The trailing average is a **third** grid and is built only where some combination
+    trails on it -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    """
+    gates: tuple[str, ...] = (
+        ("fast", "slow", "trail_ma") if any(values.get("trail_ma_stop", ())) else ("fast", "slow")
+    )
+
+    return ContextSpec(
+        ma_keys=_ma_keys(values, gates),
+        needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
+        compression_keys=_compression_keys(values),
+        trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_ma_values=True,
+    )
+
+
 def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
 
@@ -456,6 +481,25 @@ that no combination could satisfy, or that is the plain conjunction again, raise
 """
 
 
+EMAPULLBACK_GATES: Mapping[str, str] = {
+    "trail_ma_kind": "trail_ma_stop",
+    "trail_ma_period": "trail_ma_stop",
+    "trail_offset_ticks": "trail_ma_stop",
+    **REGIME_GATES,
+    **VOLUME_GATES,
+    **COMPRESSION_GATES,
+    **TREND_GATES,
+    **HIGHER_TIMEFRAME_GATES,
+}
+"""EmaPullback reads both averages on every combination and has one stop mode, so only the
+trail and the shared context filters gate an axis.
+
+Neither entry axis can be gated and neither needs to be: ``touch_mode`` and
+``min_bars_extended`` are read on every combination, and ``require_slow_intact`` is live under
+all three touch modes -- ``docs/findings/m34-ema-pullback-spec.md``.
+"""
+
+
 INSIDEBAR_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
@@ -576,6 +620,20 @@ EMACROSSOVER = Archetype(
 )
 """The first original archetype: no NinjaScript, and TIER1_ONLY until there is one."""
 
+EMAPULLBACK = Archetype(
+    name="EmaPullback",
+    params_cls=EmaPullbackParams,
+    run=emapullback.run_emapullback,
+    legs=emapullback.emapullback_legs,
+    signal=emapullback.emapullback_signal,
+    tier2=Tier2Status.TIER1_ONLY,
+    gated_by=EMAPULLBACK_GATES,
+    context_for=emapullback_context,
+)
+"""The fourth original: EmaCrossover's two averages read for the trend rather than the cross,
+and the first stop placed on a level the shared loop is handed -- ``docs/nt8-fidelity.md``
+§M34."""
+
 INSIDEBAR = Archetype(
     name="InsideBar",
     params_cls=InsideBarParams,
@@ -638,6 +696,7 @@ _REGISTRY: dict[str, Archetype] = {
         DEADCATBOUNCE,
         ELASTICBAND,
         EMACROSSOVER,
+        EMAPULLBACK,
         INSIDEBAR,
         INSIDEBARTRAILING,
         OPENINGRANGE,

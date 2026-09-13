@@ -728,6 +728,42 @@ reachHigh = Math.Max(reachHigh, High[0]); reachLow = Math.Min(reachLow, Low[0]);
 
 **At `ORB_SCALE_NONE` the arithmetic is what it always was.** The scale is one everywhere and the loop multiplies rather than branches, so every stored OpeningRange row is reproducible unchanged. Checked: byte-for-byte identical over the trade-log gate's fourteen files and over 5,322 OpeningRange legs.
 
+### M34 — the pullback rules, written before the Python (#309)
+
+**Every rule below was written down before the Python existed, and the Python was then written to it** — §M26's order rather than §M18's. There is no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as: a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later, and the exploration is then wasted rather than merely unvalidated. The reasoning behind the choices, and the alternatives rejected, are in [`m34-ema-pullback-spec.md`](findings/m34-ema-pullback-spec.md); only the rules are here.
+
+`Archetype.tier2` is `TIER1_ONLY`, and stays there until a trade list has been diffed against it.
+
+**The trend is the comparison §M18 already makes, read on every bar instead of on the cross.** For a long it is `fast[0] > slow[0]`, each of them an `EMA(Period)` under `Calculate.OnBarClose`, and the strict inequality on both sides means two averages exactly equal are neither an uptrend nor a downtrend. That is `crossover.regime_direction`'s boundary for the *direction* series, which resolves a tie to `SHORT`; the entry never reaches the tie, because both arms test strictly.
+
+**The extension is a bar counter, not an indicator.** In NinjaScript, `if (Low[0] > ema[0] && ema[0] > slow[0]) barsExtended++; else barsExtended = 0;` at the end of `OnBarUpdate`, and the entry tests the value the *previous* bar left — equivalently `barsExtended` read before this bar's update. `conditions.consecutive_true` shifted one bar is the same series. A bar counts only if its **whole range** is beyond the average, because a bar that traded through it and closed back above it is the pullback rather than the extension.
+
+**The touch bar ends the run.** So `MinBarsExtended` also reads as "how long since price last reached the average", and a signal that some other condition refuses still resets the counter. Deliberate: a chop of repeated touches then produces at most one signal per genuine extension.
+
+**The averages are read at `[0]`, which includes the signal bar's own close.** Self-referential in exactly the sense §M26 records for the band: every input is a completed bar at or before *i*, the entry is at *i+1*'s open, and `Calculate.OnBarClose` gives NinjaScript the same value. It is not lookahead, and unlike the band there is no `[1]` variant, because an average of a pullback is not damped by the pullback the way σ is widened by the move that stretches it.
+
+**The touch is `Low[0] <= ema[0]` for a long**, with the depth the bar has to reach set by `TouchMode`: the shallow mode adds `Close[0] > ema[0]`, the deep mode `Close[0] <= ema[0]`, and the third takes either. **A close exactly on the average is a close through it** — §M26.5's doji boundary, for the same reason: one sign multiplier means the long and short arms have to be the same rule.
+
+**The trend-intact test is two rules, not one.** `Close[0] > slow[0]` is unconditional — a bar that closed through the level the stop is about to sit on has already invalidated the trade — and `RequireSlowIntact` adds `Low[0] > slow[0]`, which is the harder form and a swept toggle.
+
+**The entry is market-on-next-open, and §M18's consequences apply unchanged.** `EnterLong()` / `EnterShort()` under `Calculate.OnBarClose` submit at the close of bar *i* and NT8 fills at the open of bar *i+1*. There is no trigger price, so no "no touch, no fill" and no submittability rule; a resting order is tested for a fill on the force-flat bar and the position it opens is flattened at that bar's close.
+
+**The protective stop is the slow average as it stood on the signal bar.** `SetStopLoss(CalculationMode.Price, slow[0] - StopOffsetTicks * TickSize)`, issued in the same `OnBarUpdate` as the entry, so the level is fixed before the fill and never re-read from the bar the fill happens on. It is the shared crossover loop's third stop mode — a level it is handed rather than a distance it computes — and `nqbt` passes the slow average's own series as that level.
+
+**It takes no dollar floor.** §M18 floors the ATR stop because a quiet regime otherwise sizes a bracket smaller than the round trip costs to trade, and does not floor the swing stop because a structural level is not a distance. An average is a level, so the same reading applies, and §M26.8's band stop is the third instance of it. What replaces the floor is the refusal below.
+
+**It does take a tick offset, and that is a decision against §M26.8 rather than an oversight.** §M26.8 gives the band stop no offset on the grounds that `stop_offset_ticks` exists for levels the market traded at and a band is a statistic about the bars; a moving average is the same kind of object by that reading, and EmaCrossover's trail is the opposite precedent — two ticks, so the stop is not sitting exactly on the level it follows. The offset is kept because a well-watched average is repeatedly touched and a stop exactly on it is taken out by a touch that respected the level, and because `stop_offset_ticks = 0` reproduces §M26.8's reading exactly and is swept.
+
+**The minimum-risk refusal binds here for a third reason.** A stop at or through the price it protects is not a stop order (§M18), and the entry is declined when `candidate_risk < STOP_MIN_TICKS × tickSize`. Two averages converging put the level within a tick of the fill; a gap between the signalling close and the next open puts the fill on the wrong side of it entirely. Both are ordinary states here rather than corner cases, which is the same thing §M26.8 says about a narrow band.
+
+**R is the gap between the two averages, so it is structural.** Not volatility-scaled like EmaCrossover's ATR stop and not a fixed geometry, so **the target ladder's numbers are comparable to no other archetype's at the same values** — the same trap as comparing profit factor across bar resolutions. It also varies far more trade to trade than an ATR stop's does, because two averages converging is a routine state.
+
+**There is no round-number avoidance.** The rule is only meaningful on prices that traded and needs the `PriceBasis.RAW` refusal beside it; a stop on a continuously-varying average lands exactly on a multiple only by coincidence, so the two axes would be inert almost everywhere.
+
+**The trend-flip exit is §M18's `EXIT_SIGNAL`, and it is off by default.** `if (fast[0] < slow[0]) ExitLong();` decided in `OnBarUpdate`, so it fills at the next bar's open and takes precedence over the stop and the targets on that bar. Off by default because the strategy as specified is the stop and the targets; on, it is the same market exit EmaCrossover already produces.
+
+**The trailing stop is EmaCrossover's ratchet over a different level, unchanged.** Off by default, one cadence — the close of every completed bar — and it sits on top of the level stop rather than replacing it.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.

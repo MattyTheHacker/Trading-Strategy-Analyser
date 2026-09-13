@@ -13,13 +13,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, sweep
+from nqbt import archetypes, conditions, sweep
 from nqbt.instruments import MNQ, NQ
 from nqbt.sim import elasticband
 from nqbt.sim.elasticband import (
     beyond_band,
     closed_off_extreme,
-    closed_towards_basis,
     elasticband_signal,
     swept_and_reclaimed,
     fade_direction,
@@ -826,7 +825,7 @@ def test_a_doji_closes_neither_way_and_passes_the_reversal_requirement_on_neithe
     open_ = np.array([10.0, 10.0, 10.0, 10.0])
     close = np.array([10.0, 10.0, 11.0, 9.0])
     direction = np.array([LONG, SHORT, LONG, SHORT], dtype=np.float64)
-    assert closed_towards_basis(open_, close, direction).tolist() == [False, False, True, True]
+    assert conditions.closed_towards(open_, close, direction).tolist() == [False, False, True, True]
 
 
 def test_reclaiming_needs_both_a_new_extreme_against_the_fade_and_a_close_back_past_it() -> None:

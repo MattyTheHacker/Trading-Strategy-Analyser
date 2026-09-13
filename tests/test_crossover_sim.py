@@ -36,6 +36,7 @@ def simulate(
     force_flat_at=(),
     quantities=(1, 1, 1, 1),
     targets=(1.0, 1.5, 2.0, np.nan),
+    stop_level=None,
     use_atr_stop=True,
     atr_stop_multiple=1.0,
     min_bracket_dollars=0.0,
@@ -89,12 +90,14 @@ def simulate(
         crossover.CrossoverSeries(
             np.full(n, atr, dtype=np.float64) if np.isscalar(atr) else np.asarray(atr, dtype=np.float64),
             crossover.NO_TRAIL if trail_ma is None else np.asarray(trail_ma, dtype=np.float64),
+            crossover.NO_LEVEL if stop_level is None else np.asarray(stop_level, dtype=np.float64),
         ),
         np.asarray(quantities, dtype=np.int64),
         np.asarray(targets, dtype=np.float64),
         crossover.bracket.Costs(TICK, instrument.point_value, commission, slippage),
         crossover.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         crossover.CrossoverRules(
+            use_level_stop=stop_level is not None,
             use_atr_stop=use_atr_stop,
             atr_stop_multiple=atr_stop_multiple,
             min_bracket_points=instrument.dollars_to_points(min_bracket_dollars),
@@ -249,6 +252,83 @@ def test_an_entry_whose_stop_is_already_through_the_fill_is_skipped() -> None:
 
 def test_a_zero_atr_stop_is_skipped_rather_than_traded_at_no_risk() -> None:
     assert run(FLAT, signal_at=[0], atr=0.0).empty
+
+
+def test_the_level_stop_sits_on_the_supplied_series_at_the_signal_bar() -> None:
+    """The mode EmaPullback drives the loop with: a level per bar, read where the ATR is."""
+    trades = run(
+        [
+            (100.0, 100.5, 99.5, 100.0),
+            (100.0, 100.5, 99.5, 100.0),
+            (100.0, 100.5, 99.5, 100.0),  # 2: signal, level 96.0
+            *FLAT,
+        ],
+        signal_at=[2],
+        stop_level=[90.0, 92.0, 96.0, 99.0, 99.0, 99.0, 99.0, 99.0, 99.0],
+        stop_offset_ticks=2.0,
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(96.0 - 0.5)
+
+
+def test_the_level_stop_mirrors_for_a_short() -> None:
+    trades = run(
+        [
+            (100.0, 100.5, 99.5, 100.0),
+            (100.0, 100.5, 99.5, 100.0),
+            (100.0, 100.5, 99.5, 100.0),  # 2: signal, level 104.0
+            *FLAT,
+        ],
+        signal_at=[2],
+        direction=SHORT,
+        stop_level=[110.0, 108.0, 104.0, 101.0, 101.0, 101.0, 101.0, 101.0, 101.0],
+        stop_offset_ticks=2.0,
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(104.0 + 0.5)
+
+
+def test_a_zero_offset_puts_the_level_stop_on_the_level_itself() -> None:
+    trades = run(
+        [(100.0, 100.5, 99.5, 100.0)] * 3 + FLAT,
+        signal_at=[2],
+        stop_level=[96.0] * 9,
+        stop_offset_ticks=0.0,
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(96.0)
+
+
+def test_the_level_mode_takes_precedence_over_the_atr_mode() -> None:
+    """Both flags on is not a state the archetypes reach; the loop still has to pick one."""
+    trades = run(
+        [(100.0, 100.5, 99.5, 100.0)] * 3 + FLAT,
+        signal_at=[2],
+        stop_level=[96.0] * 9,
+        stop_offset_ticks=0.0,
+        use_atr_stop=True,
+        atr=4.0,
+        atr_stop_multiple=1.0,
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(96.0)
+
+
+def test_an_entry_whose_level_stop_has_been_gapped_through_is_skipped() -> None:
+    """The minimum-risk refusal, reached the way a level stop reaches it.
+
+    The level is below the signal bar's close and the next bar opens below it, so the stop
+    would sit at or through the price it protects -- there is no such stop order.
+    """
+    trades = run(
+        [
+            (100.0, 100.5, 99.5, 100.0),
+            (100.0, 100.5, 99.5, 100.0),
+            (100.0, 100.5, 99.5, 100.0),  # 2: signal, level 99.0
+            (95.0, 95.5, 94.5, 95.0),  # 3: gaps below the level the stop would sit on
+            *FLAT,
+        ],
+        signal_at=[2],
+        stop_level=[99.0] * 10,
+        stop_offset_ticks=0.0,
+    )
+    assert trades.empty
 
 
 # -- the hard dollar floor under the ATR bracket -------------------------------
