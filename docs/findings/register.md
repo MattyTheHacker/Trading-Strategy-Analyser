@@ -77,6 +77,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M33`                                             | [M33 — the volume answer belongs to the channel, and the two campaigns were both right](m33-channel-volume.md)                            | ElasticBand                                                                           | 1, 2       | `mixed`       | [#300]                         |
 | `§M34`                                             | [M34 — EmaPullback: the pullback to the fast average, with the stop on the slow one](m34-ema-pullback-spec.md)                            | EmaPullback                                                                           | --         | `spec`        | [#309]                         |
 | `§M35`                                             | [M35 — EmaPullback swept: the entry axes hold their order and the moving averages reverse it](m35-ema-pullback-swept.md)                  | EmaPullback                                                                           | 1, 2, 3    | `mixed`       | [#309]                         |
+| `§M36`                                             | [M36 — EmaPullback's volume dimension re-cut, and the first raw cell whose direction transfers](m36-ema-pullback-volume-recut.md)         | EmaPullback                                                                           | 2, 3       | `mixed`       | [#311]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                             | EmaCrossover                                                                          | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                     | EmaCrossover                                                                          | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                             | EmaCrossover                                                                          | --         | `spec`        | [#74]                          |
@@ -264,6 +265,10 @@ The two averages EmaCrossover already builds, read for the trend they leave behi
 
 Gate 1 passes in five of eight root x resolution cells and five strata clear gate 2 on both roots, but 2 of 60 matched-null tests reach p = 0.05 and both are one root of one cell; the moving-average kind is worth two points of held-out profitable share and what ordering it has inverts, while the archetype's own two entry axes are the only ones whose ordering survives the holdout.
 
+**[M36 — EmaPullback's volume dimension re-cut, and the first raw cell whose direction transfers](m36-ema-pullback-volume-recut.md)**
+
+Volume stays the largest context dimension at all nine fitted cuts and the raw pair understated it at five minutes; HEAVY is a cost at every cut and six fitted cells clear gate 2 on both roots where no raw cell does — and then 1 of 120 matched-null tests reaches p = 0.05, in the wrong direction, on a shortlist whose median holdout sample is 22 trades.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -316,6 +321,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#300]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/300
 [#302]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/302
 [#309]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/309
+[#311]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/311
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
