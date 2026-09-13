@@ -76,6 +76,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M32`                                             | [M32 — the two volume windows swept, and why a window is a cell rather than an axis](m32-volume-windows.md)                               | all but EmaPullback                                                                   | 2          | `mixed`       | [#299]                         |
 | `§M33`                                             | [M33 — the volume answer belongs to the channel, and the two campaigns were both right](m33-channel-volume.md)                            | ElasticBand                                                                           | 1, 2       | `mixed`       | [#300]                         |
 | `§M34`                                             | [M34 — EmaPullback: the pullback to the fast average, with the stop on the slow one](m34-ema-pullback-spec.md)                            | EmaPullback                                                                           | --         | `spec`        | [#309]                         |
+| `§M35`                                             | [M35 — EmaPullback swept: the entry axes hold their order and the moving averages reverse it](m35-ema-pullback-swept.md)                  | EmaPullback                                                                           | 1, 2, 3    | `mixed`       | [#309]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                             | EmaCrossover                                                                          | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                     | EmaCrossover                                                                          | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                             | EmaCrossover                                                                          | --         | `spec`        | [#74]                          |
@@ -258,6 +259,10 @@ Holding the bracket and the shape still and swapping the channel flips `HEAVY` f
 **[M34 — EmaPullback: the pullback to the fast average, with the stop on the slow one](m34-ema-pullback-spec.md)**
 
 The two averages EmaCrossover already builds, read for the trend they leave behind rather than for the cross; the entry is a touch of the fast average after an extension away from it and the stop is the slow average itself, which makes R structural for the first time in an original.
+
+**[M35 — EmaPullback swept: the entry axes hold their order and the moving averages reverse it](m35-ema-pullback-swept.md)**
+
+Gate 1 passes in five of eight root x resolution cells and five strata clear gate 2 on both roots, but 2 of 60 matched-null tests reach p = 0.05 and both are one root of one cell; the moving-average kind is worth two points of held-out profitable share and what ordering it has inverts, while the archetype's own two entry axes are the only ones whose ordering survives the holdout.
 
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 

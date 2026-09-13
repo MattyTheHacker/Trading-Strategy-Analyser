@@ -2107,6 +2107,14 @@ class EmaPullbackParams:
 
     Off, the stop can be placed at a level the signal bar itself reached."""
 
+    require_turn: bool = False
+    """Ask the signal bar's own body to have turned back into the trend before entering.
+
+    The reaction the pullback-continuation literature makes its third step, and the step it
+    says is most often skipped -- ``docs/findings/m35-ema-pullback-swept.md``. Off by default,
+    so the archetype as specified is unchanged and a sweep measures the requirement against its
+    own control."""
+
     trade_long: bool = True
     trade_short: bool = True
     """Which sides to take. Switching one off is how the two halves get measured separately."""

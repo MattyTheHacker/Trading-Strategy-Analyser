@@ -81,13 +81,20 @@ def side_signal(
     params: EmaPullbackParams,
     direction: float,
 ) -> BoolArray:
-    """One side's entry bars: an extension away from the fast average, then a bar back to it."""
+    """One side's entry bars: an extension away from the fast average, then a bar back to it.
+
+    ``require_turn`` adds the reaction: the signal bar's own body has to have turned back into
+    the trend, which is :func:`nqbt.conditions.closed_towards`'s doji boundary.
+    """
     adverse: FloatArray = data.low if direction == trades.LONG else data.high
     trending: BoolArray = np.asarray(direction * (fast - slow) > 0.0)
     touched: BoolArray = np.asarray(direction * (adverse - fast) <= 0.0)
     intact: BoolArray = np.asarray(direction * (data.close - slow) > 0.0)
     if params.require_slow_intact:
         intact &= direction * (adverse - slow) > 0.0
+
+    if params.require_turn:
+        intact &= conditions.closed_towards(data.open, data.close, direction)
 
     run: IntArray = extension_run(adverse, fast, slow, direction)
 

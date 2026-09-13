@@ -644,6 +644,10 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 
 **A fourth original, specified and built but put to no gate: EmaCrossover's two averages read for the trend they leave behind, entered on a touch of the fast one after an extension away from it, and stopped on the slow one — which makes R structural for the first time in an original.** Moved to [`docs/findings/m34-ema-pullback-spec.md`](findings/m34-ema-pullback-spec.md).
 
+### M35 — EmaPullback swept: the entry axes hold their order and the moving averages reverse it ([#309])
+
+**Gate 1 passes in five of eight root x resolution cells and five strata clear gate 2 on both roots, but 2 of 60 matched-null tests reach p = 0.05 and both are one root of one cell; the moving-average kind is worth two points of held-out profitable share and what ordering it has inverts, while the archetype's own two entry axes are the only ones whose ordering survives the holdout.** Moved to [`docs/findings/m35-ema-pullback-swept.md`](findings/m35-ema-pullback-swept.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.

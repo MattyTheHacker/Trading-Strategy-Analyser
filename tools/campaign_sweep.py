@@ -752,35 +752,33 @@ def crossover_variants(root: str) -> list[Variant]:
 
 
 def emapullback_variants(root: str) -> list[Variant]:
-    """Two variants, one per exit geometry, because the trailed one reads two axes the other
-    ignores.
+    """One variant: both averages crossed over kind and period, and the entry's own three axes.
 
-    ``touch_mode`` is an axis rather than a variant dimension: every mode reads every other
-    axis here, so none of them is inert under another --
-    ``docs/findings/m34-ema-pullback-spec.md``. The kind axis is two rather than four because
-    §M27 measured the moving averages as nearly inert and the pullback's own axes are what this
-    is here to cross.
+    **Both kinds are swept and both periods with them**, which no earlier campaign here did --
+    EmaCrossover swept the fast kind alone. §M27 measured the moving averages as nearly inert
+    on every archetype it covered, and this is the archetype where that reading is least safe:
+    the two averages are the level price returns to and the level the stop sits on, so the kind
+    moves the entry and the bracket at once.
+
+    ``touch_mode`` and ``require_turn`` are axes rather than variant dimensions: every value
+    reads every other axis, so none of them is inert under another and ``dead_axes`` has
+    nothing to miss -- ``docs/findings/m34-ema-pullback-spec.md``. The trail is held off, so
+    this campaign varies the entry geometry and the stop's own two averages and nothing else.
     """
-    shared: dict[str, list[AxisValue]] = {
-        "fast_kind": ["ema", "hma"],
-        "fast_period": [5, 9, 13, 20],
-        "slow_period": [30, 50, 100, 200],
-        "min_bars_extended": [1, 3, 5],
-        "touch_mode": [TOUCH_WICK, TOUCH_CLOSE, TOUCH_ANY],
-    }
-
     return [
         Variant(
             name="stop=slow",
             archetype=archetypes.EMAPULLBACK,
             base=_costed(EmaPullbackParams(), root),
-            axes=shared,
-        ),
-        Variant(
-            name="stop=slow trailed",
-            archetype=archetypes.EMAPULLBACK,
-            base=_costed(EmaPullbackParams(trail_ma_stop=True), root),
-            axes={**shared, "trail_ma_period": [20, 50]},
+            axes={
+                "fast_kind": ["ema", "sma", "wma", "hma"],
+                "fast_period": [5, 9, 13, 20],
+                "slow_kind": ["ema", "sma"],
+                "slow_period": [30, 50, 100, 200],
+                "min_bars_extended": [1, 3, 5],
+                "touch_mode": [TOUCH_WICK, TOUCH_CLOSE, TOUCH_ANY],
+                "require_turn": [False, True],
+            },
         ),
     ]
 

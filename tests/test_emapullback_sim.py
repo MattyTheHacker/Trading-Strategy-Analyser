@@ -145,6 +145,39 @@ def test_a_bar_that_never_reaches_the_fast_average_signals_under_no_mode() -> No
         assert not signal_for(away, params(touch_mode=mode)).any(), mode
 
 
+# -- the reaction the pullback literature asks for -----------------------------
+
+
+def test_the_turn_requirement_asks_the_signal_bars_own_body_to_have_turned() -> None:
+    green = [*UPTREND[:3], (101.0, 103.0, 99.0, 102.0)]
+    red = [*UPTREND[:3], (103.0, 103.5, 99.0, 102.0)]
+    assert signal_for(green, params(require_turn=True))[3]
+    assert not signal_for(red, params(require_turn=True)).any()
+    assert signal_for(red, params(require_turn=False))[3]
+
+
+def test_a_doji_signal_bar_passes_the_turn_requirement_on_neither_side() -> None:
+    """The boundary one sign multiplier asks for -- not the ported archetypes' green/red pair."""
+    doji = [*UPTREND[:3], (102.0, 103.0, 99.0, 102.0)]
+    assert not signal_for(doji, params(require_turn=True)).any()
+    assert not signal_for(
+        mirrored(doji),
+        params(require_turn=True),
+        slow=200.0 - SLOW,
+        direction=SHORT,
+    ).any()
+
+
+def test_the_turn_requirement_only_ever_narrows_the_signal() -> None:
+    loose = EmaPullbackParams(bars_required_to_trade=50, touch_mode=TOUCH_ANY)
+    strict = replace(loose, require_turn=True)
+    data = walk_dataset(loose)
+    wide = emapullback_signal(data, loose)
+    narrow = emapullback_signal(data, strict)
+    assert narrow.sum() < wide.sum()
+    assert (narrow <= wide).all()
+
+
 # -- the trend the stop is placed against --------------------------------------
 
 

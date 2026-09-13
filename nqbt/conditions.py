@@ -209,6 +209,16 @@ def above_series(close: FloatArray, series: FloatArray) -> BoolArray:
     return ~(close < series)
 
 
+def closed_towards(open_: FloatArray, close: FloatArray, direction: FloatArray | float) -> BoolArray:
+    """Bars whose body runs the way ``direction`` trades -- green for a long, red for a short.
+
+    A doji runs neither way and passes on neither side, which is the symmetric boundary one
+    sign multiplier asks for -- ``docs/nt8-fidelity.md`` §M26.5. Deliberately **not** the ported
+    archetypes' boundary, which treats equality as green and not as red.
+    """
+    return np.asarray(direction * (close - open_) > 0.0)
+
+
 @njit(cache=True)
 def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> BoolArray:
     """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?"""
