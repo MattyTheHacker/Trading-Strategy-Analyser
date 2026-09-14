@@ -43,9 +43,9 @@ A bare "see the docs" is not a pointer, and [`tests/test_doc_pointers.py`](tests
 
 [`docs/findings/README.md`](docs/findings/README.md) is the opposite — it is the authored summary of what the evidence supports for a prop account and for a regular one, the tool never touches it, and **a campaign that changes which strategy is best is a campaign that has to update it**. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
 
-All PRs should undertake a review of all documentation (not just those listed above) to ensure that the changes in that PR don't make any documentation go stale, out of date, inaccurate or misleading. Any respective documentation updates should be part of the same PR as the changes. 
+All PRs should undertake a review of all documentation (not just those listed above) to ensure that the changes in that PR don't make any documentation go stale, out of date, inaccurate or misleading. Any respective documentation updates should be part of the same PR as the changes.
 
-When this review turns up unrelated changes that need to be made, this should be left as is and raised as an Issue to be resolved separately. PR scope should not be expanded to fix unrelated problems. 
+When this review turns up unrelated changes that need to be made, this should be left as is and raised as an Issue to be resolved separately. PR scope should not be expanded to fix unrelated problems.
 
 ## Naming
 
