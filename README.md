@@ -155,15 +155,16 @@ All seven strategies are driven through these checks by the scripts in [tools/](
 
 An **archetype** is one strategy's shape, not one set of its settings. Changing a number gives you another run of the same archetype; changing the logic gives you a new one. Add new ones to [nqbt/archetypes.py](nqbt/archetypes.py) rather than copying the sweep code.
 
-| archetype           | what it does                                                        | checked against NinjaTrader? |
-| ------------------- | ------------------------------------------------------------------- | ---------------------------- |
-| `DeadCatBounce`     | sells a failed bounce during a downtrend                            | yes                          |
-| `PullBackAndGo`     | the same idea upside down: buys a dip during an uptrend             | yes                          |
-| `InsideBar`         | trades a breakout from a quiet bar, whichever way it breaks         | yes                          |
-| `InsideBarTrailing` | the same entry, but half the position runs with a trailing stop     | yes                          |
-| `EmaCrossover`      | the textbook moving-average cross, kept as a known-bad control      | no                           |
-| `ElasticBand`       | fades a move that has stretched too far, expecting a snap back      | no                           |
-| `OpeningRange`      | trades a break out of the range set in the first minutes of the day | no                           |
+| archetype           | what it does                                                          | checked against NinjaTrader? |
+| ------------------- | --------------------------------------------------------------------- | ---------------------------- |
+| `DeadCatBounce`     | sells a failed bounce during a downtrend                              | yes                          |
+| `PullBackAndGo`     | the same idea upside down: buys a dip during an uptrend               | yes                          |
+| `InsideBar`         | trades a breakout from a quiet bar, whichever way it breaks           | yes                          |
+| `InsideBarTrailing` | the same entry, but half the position runs with a trailing stop       | yes                          |
+| `EmaCrossover`      | the textbook moving-average cross, kept as a known-bad control        | no                           |
+| `ElasticBand`       | fades a move that has stretched too far, expecting a snap back        | no                           |
+| `OpeningRange`      | trades a break out of the range set in the first minutes of the day   | no                           |
+| `EmaPullback`       | trades an `EmaCrossover`, waiting for a pullback to the fast MA first | no                           |
 
 **That last column is load-bearing.** A *yes* means the Python was compared exit by exit against a real Strategy Analyzer export and matched it. A *no* means the rules are written down and believed but never verified, because no NinjaScript version exists yet. The status appears in the results table on purpose, so a verified strategy is never silently compared against an unverified one.
 
@@ -311,7 +312,7 @@ Every strategy has been swept across every setting it has, on both instruments, 
 
 ## Known limitations
 
-- **Every position closes before the session ends.** This comes from the prop firm's account rules, so it is not something you can switch off, and it matches what NinjaTrader does anyway. The consequence is that nothing here can hold overnight, so any strategy needing a multi-day hold cannot be built. It is also the *only* prop-firm rule modelled, because the tool has to work for ordinary accounts too.
+- **Every position closes before the session ends.** This comes from two places: prop firm account rules, and the fact that holding out of session introduces different margin requirements, and was therefore decided to be the base assumption. The consequence is that nothing here can hold overnight, so any strategy needing a multi-day hold cannot be built. This may become a toggle in future.
 - **Entry orders last exactly one bar.** If the order does not fill on the next bar, NinjaTrader cancels it. NinjaTrader can be told otherwise, so this is a default and not a hard limit. The simulation copies it because it is what the live strategies do.
 - **Thin trading sessions are left visible.** For one day before most contract handovers, NinjaTrader holds only the Sunday evening hour. Those gaps are real, and they used to be hidden because the wrong contract was being used. Filling them from the neighbouring contract would splice two different prices into one day.
 - **Contract handover dates are worked out from the data and deliberately not matched to NinjaTrader's.** NinjaTrader uses dates typed into a preferences window, which makes them somebody's choice, not a measurement. The cost is that results very close to a handover may not reproduce bar for bar.
