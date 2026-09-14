@@ -71,7 +71,7 @@ def annotate(trade, bars):             def annotate(trade, bars):
 - **`return`, `continue`, `break` and `raise` are all guards.** Inside a loop, `if not leg_open[leg]: continue` beats wrapping the body in `if leg_open[leg]:`.
 - **No `else` after a branch that leaves.** ruff's `RET505`–`RET508` rules will usually catch this, but worth being aware of in terms of general code style.
 - **Validate first, then work.** Every `raise` for a bad argument belongs above the first line of real work — `validate_thresholds` in `nqbt/regime.py` is the shape.
-- **Indentation is a signal, not just a fault.** Deep indentation is usually indicative of a method or function doing too many things. Where possible repeated or reusable code should be extracted to helper functions. 
+- **Indentation is a signal, not just a fault.** Deep indentation is usually indicative of a method or function doing too many things. Where possible repeated or reusable code should be extracted to helper functions.
 
 Two exceptions, both deliberate:
 
@@ -272,7 +272,6 @@ Two things the rules above do not say, each of which has already cost a commit:
 
 **A Conventional Commits prefix is accepted but not recommended.** `fix(sim): derive the session end` passes and raises a warning; one of the ten verbs is the house style. Only the eleven types the spec names are recognised — `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`. **The type stands in for the verb**, so the word after the colon is unconstrained; `fix(sim): derive the session end` is fine even though `derive` is not one of the ten. Anything else before a colon is not a prefix at all, it is a subject that fails to start with one of the ten.
 
-
 ## Pull requests
 
 - **The body briefly explains the change**: what moved, and the reasoning a reviewer would otherwise have to reconstruct. Detailed argument still belongs in `docs/` — link to the section rather than duplicating it.
@@ -284,7 +283,7 @@ Two things the rules above do not say, each of which has already cost a commit:
 - **One piece of work is one pull request.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`.
 - **Use labels to accurately describe what areas the PR covers.**
 - **PRs should ideally be as minimal as possible to make the review easier.**
-- **PRs should have a linked issue in most cases**, so that additional reasonings and explanations can be placed there instead of in the PR body. This can be excepted though, for example simple version bumps or simple documentation updates. 
+- **PRs should have a linked issue in most cases**, so that additional reasonings and explanations can be placed there instead of in the PR body. This can be excepted though, for example simple version bumps or simple documentation updates.
 
 ## Data and generated files
 
