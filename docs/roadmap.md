@@ -14,7 +14,7 @@ gh issue view <n>                       # blocked-by / blocking / sub-issues
 
 Four things live here and nowhere else, because an issue is the wrong home for them: the **standing constraint** and its expressibility checklist, the **order-lifetime research**, the **standing rubric**, and the **decision record**. A closed issue is not read; a rule that outlives its milestone therefore belongs in this file rather than in the issue that produced it. A *measurement* that outlives its milestone belongs in `findings/`. Everything else is a paragraph of context with a link.
 
-Precedence when sources disagree: [backtest_tool_spec.md](backtest_tool_spec.md) and the project's own docs first, [trading_concepts.md](trading_concepts.md) Part II second. The discretionary-practice notes are a source of framing and of numeric definitions we lack, not a source of priorities.
+Precedence when sources disagree: [backtest_tool_spec.md](backtest_tool_spec.md) and the project's own docs first, [Trading-Docs](../Trading-Docs/) Part II second. The discretionary-practice notes are a source of framing and of numeric definitions we lack, not a source of priorities.
 
 ______________________________________________________________________
 
@@ -80,7 +80,7 @@ The list is short because most of it has now been researched. Extend it rather t
 
 ### Flat before the session close is a hard constraint, not a detail
 
-**Every position must be flat before the session close.** This is a prop-firm account rule, so it is not a preference, a parameter, or something a promising strategy gets to negotiate with. It also matches NT8, where every strategy in the submodule sets `IsExitOnSessionCloseStrategy = true`, so Tier 1 and Tier 2 agree on it today. `ExitOnSessionCloseSeconds` varies between them — 30 on both stop-market ports, 180 on both InsideBar scripts — and **a backtest ignores the difference**, flattening on the session's last bar either way, so it stays one default rather than a per-archetype setting ([nt8-fidelity.md](nt8-fidelity.md) §M22).
+**Every position must be flat before the session close.** This is both a prop firm rule, but also would introduce different margin requirements in a live trading account, so is currently locked out. It also matches NT8s default behaviour, where every strategy in the submodule sets `IsExitOnSessionCloseStrategy = true`, so Tier 1 and Tier 2 agree on it today. `ExitOnSessionCloseSeconds` varies between them — 30 on both stop-market ports, 180 on both InsideBar scripts — and **a backtest ignores the difference**, flattening on the session's last bar either way, so it stays one default rather than a per-archetype setting ([nt8-fidelity.md](nt8-fidelity.md) §M22).
 
 **It is already implemented — do not "add" it.** `sessions.force_flat_mask` produces the per-bar mask, the `@njit` loop exits everything still open at `EXIT_SESSION_CLOSE`, and `block_entry_at_session_close` stops a signal firing on a bar that would immediately be flattened. The maintenance break falls out of the same machinery: sessions are the unit, so no position can span 17:00–18:00 ET, and none can span the Friday-to-Sunday weekend.
 

@@ -17,7 +17,8 @@ This governs `nqbt/sim/` and everything feeding it. Before changing anything the
 Code should be readable on its own terms. Prefer a clearer name, a smaller function or an intermediate variable over a comment explaining an unclear one.
 
 - **Docstrings say *what* a thing is and how to use it**, and stay short. One line is often enough; a paragraph is plenty.
-- **A comment is fine where something is genuinely non-obvious** — a subtle index, a deliberate deviation from what a reader would expect, a workaround. Use them sparingly, and only where the code's behaviour departs from what a competent reader would predict.
+- **Comments should be confined to unintuitive or unexpected behaviour** — a subtle index, a deliberate deviation from what a reader would expect, a workaround. Use them sparingly, and only where the code's behaviour departs from what a competent reader would predict.
+- **Code should generally be self-documenting**, by using clear variable names and logical flow, comments and long explanations should be few and far between. A large quantity of comments or doc strings suggest the code is unreadable, unintuitive, or that the comments are not needed.
 - **Arguments, justifications, measurements, decision records, history and traps go in `docs/`**, with at most a one-line pointer from the code.
 
 Three homes, and they are not interchangeable:
@@ -38,7 +39,9 @@ A pointer must name a section that exists, in the form the source already uses:
 
 A bare "see the docs" is not a pointer, and [`tests/test_doc_pointers.py`](tests/test_doc_pointers.py) fails on one that names a heading no longer there.
 
-**A campaign's result goes in `docs/findings/`, not in the roadmap.** Add a file with the front matter the others carry — `id`, `title`, `archetypes`, `issues`, `gates`, `outcome`, `verdict` — then run [`tools/findings_index.py`](tools/findings_index.py) to regenerate `register.md`, `by-archetype.md` and `by-gate.md`. Those three are generated, so do not edit them by hand; [`docs/findings/README.md`](docs/findings/README.md) is the opposite — it is the authored summary of what the evidence supports for a prop account and for a regular one, the tool never touches it, and **a campaign that changes which strategy is best is a campaign that has to update it**. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
+**Campaign results should go in `docs/findings/`.** Add a file with the front matter the others carry — `id`, `title`, `archetypes`, `issues`, `gates`, `outcome`, `verdict` — then run [`tools/findings_index.py`](tools/findings_index.py) to regenerate `register.md`, `by-archetype.md` and `by-gate.md`. Those three are generated and should not be edited by hand.
+
+[`docs/findings/README.md`](docs/findings/README.md) is the opposite — it is the authored summary of what the evidence supports for a prop account and for a regular one, the tool never touches it, and **a campaign that changes which strategy is best is a campaign that has to update it**. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
 
 ## Naming
 
@@ -53,7 +56,7 @@ Match the surrounding code's idiom. A module written one way should not acquire 
 
 ## Control flow
 
-**Guard clauses, not nesting.** Invert the condition and leave early, so the work a function exists to do sits at one indent level instead of inside an `if`.
+**Guard clauses are preferred to nesting.** Invert the condition and leave early, so the work a function exists to do sits at one indent level instead of inside an `if`. This improves efficiency and readability.
 
 ```python
 # not this                             # this
@@ -66,9 +69,9 @@ def annotate(trade, bars):             def annotate(trade, bars):
 ```
 
 - **`return`, `continue`, `break` and `raise` are all guards.** Inside a loop, `if not leg_open[leg]: continue` beats wrapping the body in `if leg_open[leg]:`.
-- **No `else` after a branch that leaves.** ruff's `RET505`–`RET508` catch this one form and report zero on `nqbt/` today; keep it that way. **They catch nothing else in this section** — a body wrapped in a positive `if` is invisible to every lint rule, so review is the only check on it.
+- **No `else` after a branch that leaves.** ruff's `RET505`–`RET508` rules will usually catch this, but worth being aware of in terms of general code style.
 - **Validate first, then work.** Every `raise` for a bad argument belongs above the first line of real work — `validate_thresholds` in `nqbt/regime.py` is the shape.
-- **Depth is a signal, not only a fault.** Three levels usually means the function is doing two things, and extracting the inner one beats flipping conditions around it.
+- **Indentation is a signal, not just a fault.** Deep indentation is usually indicative of a method or function doing too many things. Where possible repeated or reusable code should be extracted to helper functions.
 
 Two exceptions, both deliberate:
 
@@ -77,13 +80,15 @@ Two exceptions, both deliberate:
 
 ## Tests
 
-**Everything is tested unless there is a good reason not to**, and the reason goes in the test file or the pull request, not left implicit.
+**Everything (nqbt, tools, formatting etc...) is tested unless there is a very good reason not to**, and the reason must be clearly documented somewhere.
 
 Aim to cover three kinds of case for anything non-trivial:
 
 1. **Normal operation** — the input the function exists for.
 2. **Unusual operation** — an empty series, a single bar, a session with a hole, a period longer than the data, a boundary where two conditions are exactly equal.
 3. **Exception operation** — the inputs that must raise, asserted on the *specific* exception type and, where the message is the point, on its content.
+
+Meeting all 3 of these should generally cover all possible failure modes, though where another failure mode is discovered that isn't covered, additional tests should also be written to account for these.
 
 Further expectations:
 
@@ -120,9 +125,9 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 
 CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead. `mdformat` takes a bare `.` in both places because its exclusions live in [`.mdformat.toml`](.mdformat.toml) rather than on the command line.
 
-**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt formatting`, `ruff format --check .` and `mypy nqbt formatting`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated; running them over the whole tree is still worth doing, but only the package's and the formatter's counts have to stay at zero.
+**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt formatting`, `ruff format --check .` and `mypy nqbt formatting`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated, though where writing new code you should generally aim not to introduce and new errors or warnings to make future remediation works easier.
 
-Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` carries a one-line reason, and so does every `# noqa` and every `# type: ignore`. Add none of them without one. Put the reason **after the pragma on the same line, however long that makes the line**, so that grepping for a bare `# noqa: X$` finds anything undocumented. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
+Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` should carry a one-line reason, along with every `# noqa` and every `# type: ignore`. These types of ignores should only be left without a dedicated explanatory comment where the purpose is obvious or well documented elsewhere. Put the reason **after the pragma on the same line, however long that makes the line**, so that grepping for a bare `# noqa: X$` finds anything undocumented. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
 
 ### The custom formatting rules
 
@@ -267,10 +272,6 @@ Two things the rules above do not say, each of which has already cost a commit:
 
 **A Conventional Commits prefix is accepted but not recommended.** `fix(sim): derive the session end` passes and raises a warning; one of the ten verbs is the house style. Only the eleven types the spec names are recognised — `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`. **The type stands in for the verb**, so the word after the colon is unconstrained; `fix(sim): derive the session end` is fine even though `derive` is not one of the ten. Anything else before a colon is not a prefix at all, it is a subject that fails to start with one of the ten.
 
-Why accepted rather than required: measured over the last 100 commits of 32 major repositories, adoption is bimodal and tracks tooling rather than quality. The JavaScript and TypeScript projects that generate changelogs and semver bumps from commit types sit at 91-100%; everything else — Django, Rails, Go, Rust, NumPy, pandas, scikit-learn, Kafka, the kernel — sits at or near zero. `nqbt` publishes nothing and has no changelog, so the prefix buys nothing here.
-
-Why ten verbs rather than a mood check: mapping every subject in this repository's history onto a canonical set condensed 83% of them into these ten, and the residue was the milestone-tagged subjects that carry no verb at all. Five verbs — `Add`, `Document`, `Update`, `Bump`, `Refactor` — covered 70 of the 80 that mapped.
-
 ## Pull requests
 
 - **The body briefly explains the change**: what moved, and the reasoning a reviewer would otherwise have to reconstruct. Detailed argument still belongs in `docs/` — link to the section rather than duplicating it.
@@ -282,6 +283,7 @@ Why ten verbs rather than a mood check: mapping every subject in this repository
 - **One piece of work is one pull request.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`.
 - **Use labels to accurately describe what areas the PR covers.**
 - **PRs should ideally be as minimal as possible to make the review easier.**
+- **PRs should have a linked issue in most cases**, so that additional reasonings and explanations can be placed there instead of in the PR body. This can be excepted though, for example simple version bumps or simple documentation updates.
 
 ## Data and generated files
 
