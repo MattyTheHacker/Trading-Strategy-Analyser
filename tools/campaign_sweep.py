@@ -8,6 +8,10 @@ than six incomparable runs:
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --n-jobs 8
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --strata phase --n-jobs 8
 
+``--n-jobs`` is applied to each sweep call, one per (variant x stratum), and a call smaller than
+:data:`SERIAL_BELOW_COMBINATION_BARS` stays in-process whatever it asks for --
+``docs/roadmap.md`` § "A sweep call's worker count".
+
 Both roots, the spliced continuous series, resolutions 1/2/5/10/15, at the real commission for
 the root and one tick of slippage. ``--split`` re-runs the same grids on a selection window and
 a held-out window instead of the whole series, which is what makes a shortlist testable rather
@@ -124,7 +128,7 @@ bracket, so that a volume cell's sign can be attributed to one of them --
 ``docs/roadmap.md`` §M33:
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-channel --split \
-        --strata elastic-channel --volume-quantiles --n-jobs 1
+        --strata elastic-channel --volume-quantiles
 
 ``--variants elastic-recovery`` waits for the run outside the band to end and takes the
 bar that closes back inside, against the shapes read on a bar still outside --
@@ -274,6 +278,12 @@ form is what moves. Both are ``sim/types.py`` defaults -- ``docs/roadmap.md`` §
 
 MIN_TRADES = 30
 """The floor ``sweep.rank`` applies, repeated here for the per-sweep progress line."""
+
+SERIAL_BELOW_COMBINATION_BARS = 20_000_000
+"""Combinations x bars below which a sweep call stays in-process whatever ``--n-jobs`` asks for.
+
+``--n-jobs`` is applied per sweep call rather than per run, and below this a pool costs more
+than its workers return -- ``docs/roadmap.md`` § "A sweep call's worker count"."""
 
 CAMPAIGN_DIR = paths.RESULTS_DIR / "campaign"
 
@@ -2156,6 +2166,14 @@ def _merged_axes(grids: list[sweep.Grid]) -> dict[str, list[AxisValue]]:
     return merged
 
 
+def workers_for(combinations: int, bars: int, n_jobs: int) -> int:
+    """The joblib worker count for one sweep call of ``combinations`` over ``bars``."""
+    if combinations * bars < SERIAL_BELOW_COMBINATION_BARS:
+        return 1
+
+    return n_jobs
+
+
 def run_point(
     frame: pd.DataFrame,
     variants: list[Variant],
@@ -2198,7 +2216,13 @@ def run_point(
     tables: list[pd.DataFrame] = []
     started = time.perf_counter()
     for variant_name, stratum, grid in named:
-        table, _ = sweep.sweep(frame, grid, get_instrument(root), data=data, n_jobs=n_jobs)
+        table, _ = sweep.sweep(
+            frame,
+            grid,
+            get_instrument(root),
+            data=data,
+            n_jobs=workers_for(len(grid), len(frame), n_jobs),
+        )
         table.insert(0, "variant", variant_name)
         table.insert(1, "stratum", stratum)
         table.insert(2, "window", window)
@@ -2441,7 +2465,15 @@ def fit_regime(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, Calibr
 def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Sweep every archetype across resolution and context.")
-    parser.add_argument("--n-jobs", type=int, default=8, help="joblib workers; 1 stays in-process")
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=8,
+        help=(
+            f"joblib workers for a sweep call of at least {SERIAL_BELOW_COMBINATION_BARS:,} "
+            "combinations x bars; smaller ones stay in-process"
+        ),
+    )
     parser.add_argument("--split", action="store_true", help="selection and held-out windows")
     parser.add_argument("--roots", nargs="+", default=list(ROOTS))
     parser.add_argument("--strategies", nargs="+", default=None)

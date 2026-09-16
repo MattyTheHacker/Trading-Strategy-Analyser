@@ -124,6 +124,7 @@ from tools.campaign_sweep import (
     REGIME_QUANTILES,
     RESOLUTIONS,
     SELECTION_SHARE,
+    SERIAL_BELOW_COMBINATION_BARS,
     SLIPPAGE_TICKS,
     STRATUM_SETS,
     UNFILTERED,
@@ -150,11 +151,13 @@ from tools.campaign_sweep import (
     planned_combinations,
     quantile_pair,
     raw_volume_cuts,
+    run_point,
     strata,
     tail_pairs,
     variants_for,
     volume_series,
     windows,
+    workers_for,
 )
 
 EVERY_STATE = {
@@ -335,6 +338,59 @@ def test_each_archetype_gets_its_own_database(tmp_path, monkeypatch) -> None:
     paths = {name: db_path(name) for name in VARIANTS}
     assert len(set(paths.values())) == len(VARIANTS)
     assert all(path.parent.exists() for path in paths.values())
+
+
+# -- the worker count ----------------------------------------------------------------------
+
+
+def test_a_sweep_call_below_the_threshold_stays_in_process() -> None:
+    assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS - 1, 8) == 1
+    assert workers_for(18, 1_000_000, 16) == 1
+
+
+def test_a_sweep_call_at_the_threshold_gets_the_workers_it_asked_for() -> None:
+    assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS, 8) == 8
+    assert workers_for(432, 1_000_000, 16) == 16
+
+
+def test_the_same_combination_count_is_pooled_on_fine_bars_and_not_on_coarse_ones() -> None:
+    """A combination costs roughly in proportion to the bars it runs over, and a pool's overhead
+    does not shrink with it, so a count alone cannot say which side of the threshold a call is."""
+    assert workers_for(64, 1_000_000, 8) == 8
+    assert workers_for(64, 70_000, 8) == 1
+
+
+def test_a_call_over_no_bars_stays_in_process() -> None:
+    assert workers_for(2304, 0, 8) == 1
+
+
+def test_a_request_is_passed_through_in_joblibs_own_convention() -> None:
+    """``-1`` is every core to joblib, so it has to reach joblib rather than be read as a count."""
+    assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS, -1) == -1
+    assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS, 1) == 1
+
+
+def test_each_sweep_call_gets_the_worker_count_its_own_grid_earns(tmp_path, monkeypatch) -> None:
+    """Chosen per (variant x stratum) rather than once per run, which is the unit a pool is
+    opened at -- a run of many small calls is not a large call."""
+    (wide,) = VARIANTS["InsideBar"]("MNQ")
+    narrow = replace(wide, name="narrow", axes={"atr_multiplier": [5.0, 10.0]})
+    frame = pd.DataFrame(index=range(SERIAL_BELOW_COMBINATION_BARS // 100))
+    called: list[tuple[int, int]] = []
+
+    def record(bars, grid, instrument, *, data, n_jobs):
+        called.append((len(grid), n_jobs))
+
+        return pd.DataFrame({"trades": [0] * len(grid), "profit_factor": [math.nan] * len(grid)}), {}
+
+    monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
+    monkeypatch.setattr("nqbt.context.prepare", lambda *args, **kwargs: None)
+    monkeypatch.setattr("nqbt.results.save_sweep", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(sweep, "sweep", record)
+    run_point(frame, [narrow, wide], "MNQ", 5, "selection", 1, UNFILTERED, NO_CUTS, n_jobs=8)
+
+    assert called == [(2, 1), (wide.sized(), 8)]
+    assert narrow.sized() * len(frame) < SERIAL_BELOW_COMBINATION_BARS <= wide.sized() * len(frame)
 
 
 VOLUME_WINDOWS = {
