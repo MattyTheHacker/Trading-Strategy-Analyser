@@ -25,6 +25,7 @@ from nqbt import (
     regime,
     sessionrange,
     sessions,
+    sweep,
     timeofday,
     trades,
     trend,
@@ -58,6 +59,8 @@ from tools.campaign_sweep import (
     CAMPAIGN,
     COMMISSION,
     CONTEXT,
+    EMAPULLBACK_TRAIL,
+    EMAPULLBACK_TRAIL_VARIANTS,
     CORE,
     CONSOLIDATING,
     DIRECTIONAL,
@@ -603,8 +606,11 @@ def test_a_volume_form_cell_names_the_series_and_the_cut_it_reads() -> None:
 
 
 def test_the_rolling_window_is_set_only_under_the_form_that_reads_it() -> None:
-    """``dead_axes`` knows one toggle per axis and this one has two, so a cross of form x window
-    would run duplicate combinations silently -- ``.claude/rules/sweep-and-context.md``."""
+    """A cross of form x window would run duplicate combinations that ``dead_axes`` cannot see.
+
+    It knows one inert value per toggle and this axis is inert at two forms --
+    ``.claude/rules/sweep-and-context.md``.
+    """
     for name, extra in strata(VOLUME_FORMS):
         rolling = "@rolling_" in name
         assert ("volume_rolling_bars" in extra) is rolling, name
@@ -1938,3 +1944,55 @@ def test_the_band_stop_run_carries_the_roots_real_costs() -> None:
 
 def test_variants_for_selects_the_band_stop_grid() -> None:
     assert variants_for(ELASTIC_BAND_STOP) is ELASTIC_BAND_STOP_VARIANTS
+
+
+# -- the [#313] trail on the slow average --------------------------------------------------
+
+
+def trail_variants(root: str = "MNQ") -> list[Variant]:
+    """Both arms of the trail run, the fixed stop first."""
+    return EMAPULLBACK_TRAIL_VARIANTS["EmaPullback"](root)
+
+
+def test_the_trail_run_states_its_strata_before_it_runs_and_they_are_the_campaigns() -> None:
+    """The control reproduces §M35's stored rows, so it runs every cell they were run in and no other."""
+    assert variants_for(EMAPULLBACK_TRAIL) is EMAPULLBACK_TRAIL_VARIANTS
+    assert [name for name, _ in strata(EMAPULLBACK_TRAIL)] == [name for name, _ in strata(ALL_STRATA)]
+
+
+def test_the_trail_arms_differ_from_the_stored_campaign_by_the_trail_alone() -> None:
+    """Every axis and every other field of the base is §M35's.
+
+    Which is what makes the control a reproduction and ``campaign_paired`` readable over the two.
+    """
+    for root in COMMISSION:
+        (campaign,) = VARIANTS["EmaPullback"](root)
+        control, treatment = trail_variants(root)
+
+        assert control.base == campaign.base
+        assert treatment.base == replace(campaign.base, trail_ma_stop=True, trail_on_slow=True)
+        assert control.axes == campaign.axes == treatment.axes
+
+
+def test_no_trail_variant_can_collide_with_a_stored_emapullback_one() -> None:
+    """One database holds every EmaPullback run and the variant name is all that separates them."""
+    stored = {variant.name for variant in VARIANTS["EmaPullback"]("MNQ")}
+    names = [variant.name for variant in trail_variants()]
+
+    assert not stored & set(names)
+    assert names == ["stop=slow trail=off", "stop=slow trail=slow"]
+
+
+def test_every_trail_variant_grid_can_be_built_at_every_cell() -> None:
+    """A grid that swept an axis the slow trail leaves unread is refused here, not an hour into the run."""
+    for variant in trail_variants():
+        for _, grid in grids_for(variant, EMAPULLBACK_TRAIL):
+            assert len(grid) == variant.sized()
+            assert conditions_free_of_the_third_grid(grid)
+
+
+def conditions_free_of_the_third_grid(grid: sweep.Grid) -> bool:
+    """Neither arm builds the trail's own grid: one never trails and the other trails on ``slow``."""
+    periods = {period for _, period in grid.required_context().ma_keys}
+
+    return periods == set(grid.axes["fast_period"]) | set(grid.axes["slow_period"])

@@ -764,6 +764,12 @@ reachHigh = Math.Max(reachHigh, High[0]); reachLow = Math.Min(reachLow, Low[0]);
 
 **The trailing stop is EmaCrossover's ratchet over a different level, unchanged.** Off by default, one cadence — the close of every completed bar — and it sits on top of the level stop rather than replacing it.
 
+**It can trail the slow average that placed the stop, at the offset that placed it** (#313). With `trail_on_slow` the ratchet's level is `slow[0] - direction * StopOffsetTicks * TickSize` rather than the third average and `trail_offset_ticks`, so in NinjaScript it is the fixed stop's own `SetStopLoss(CalculationMode.Price, …)` re-issued from `OnBarUpdate` whenever that level is nearer the market than the stop resting — EmaCrossover's cadence and EmaCrossover's comparison. Three choices, made rather than inherited, and argued in [`m37-ema-pullback-trail-on-slow.md`](findings/m37-ema-pullback-trail-on-slow.md):
+
+- **It is a ratchet, not a follow.** An average that retreats leaves the stop where it got to; a stop that followed it back would let a losing trade widen its own risk.
+- **The offset is `StopOffsetTicks`.** An average that has not moved therefore leaves the stop exactly where it was placed; reading `trail_offset_ticks` instead would move it on the first trailed bar with the average unmoved. `trail_ma_kind`, `trail_ma_period` and `trail_offset_ticks` are unread in this mode, and `dead_axes` refuses them as axes.
+- **It arms at the entry bar's close**, the first completed bar after the fill — where the average has moved one bar since the signal bar placed the stop. Arming after the first target instead is a different rule and not this one.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.

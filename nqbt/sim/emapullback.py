@@ -120,6 +120,26 @@ def emapullback_signal(data: Dataset, params: EmaPullbackParams) -> BoolArray:
     return filters.apply_context_filters(signal, data, params)
 
 
+def trailed_level(
+    data: Dataset,
+    slow: FloatArray,
+    params: EmaPullbackParams,
+) -> tuple[FloatArray, float]:
+    """The average the stop trails and its offset in ticks.
+
+    The average is :data:`~nqbt.sim.crossover.NO_TRAIL` while the trail is off. On the slow
+    average both are the initial stop's own, so an average that has not moved leaves the stop
+    where it was placed -- ``docs/nt8-fidelity.md`` §M34.
+    """
+    if not params.trail_ma_stop:
+        return crossover.NO_TRAIL, float(params.trail_offset_ticks)
+
+    if params.trail_on_slow:
+        return slow, float(params.stop_offset_ticks)
+
+    return data.ma_values(params.trail_ma_kind, params.trail_ma_period), float(params.trail_offset_ticks)
+
+
 def emapullback_legs(
     data: Dataset,
     params: EmaPullbackParams,
@@ -138,11 +158,7 @@ def emapullback_legs(
     signal = emapullback_signal(data, params) if signal is None else signal
     quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
-    trail: FloatArray = (
-        data.ma_values(params.trail_ma_kind, params.trail_ma_period)
-        if params.trail_ma_stop
-        else crossover.NO_TRAIL
-    )
+    trail, trail_offset_ticks = trailed_level(data, slow, params)
     out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
 
     count: int = crossover.simulate_crossover(
@@ -172,7 +188,7 @@ def emapullback_legs(
             swing_lookback=1,
             stop_offset_ticks=float(params.stop_offset_ticks),
             trail_ma_stop=params.trail_ma_stop,
-            trail_offset_ticks=float(params.trail_offset_ticks),
+            trail_offset_ticks=trail_offset_ticks,
             # No round-number avoidance: an average is a statistic rather than a level the
             # market traded at -- ``docs/nt8-fidelity.md`` §M34.
             round_number_points=0.0,

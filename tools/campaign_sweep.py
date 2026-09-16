@@ -145,6 +145,13 @@ time, the uncapped arm included, so the cap is the only thing that differs betwe
 ``docs/findings/m29-maximum-hold-time.md``:
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants hold --split --strata hold
+
+``--variants emapullback-trail`` re-runs EmaPullback's stored campaign grid with its stop fixed
+and with it trailed on the slow average that placed it, in one pass over §M35's strata --
+``docs/findings/m37-ema-pullback-trail-on-slow.md``:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-trail --split \
+        --strata emapullback-trail --resolutions 2 5 10 15 --n-jobs 12
 """
 
 from __future__ import annotations
@@ -293,6 +300,7 @@ ELASTIC_VOLUME = "elastic-volume"
 ELASTIC_CHANNEL = "elastic-channel"
 ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
+EMAPULLBACK_TRAIL = "emapullback-trail"
 HOLD = "hold"
 SPEC = "spec"
 ALL_STRATA = "all"
@@ -537,6 +545,9 @@ dimension under all three forms and a fitted cut; ``compression-forms`` is the c
 dimension under both of its forms. Any of them inside ``all`` would run its dimension twice
 under two sets of names."""
 
+EVERY_DIMENSION = tuple(group for group in STRATUM_GROUPS if group not in RECUTS)
+"""Each context dimension once, at the cut the campaign ran -- what ``all`` names."""
+
 ORB_REVERSION_STRATA = (UNFILTERED, CONSOLIDATING)
 """The two cells both reversion entries are asked about, stated before either run.
 
@@ -560,9 +571,10 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_CHANNEL: (UNFILTERED, VOLUME_FORMS),
     ELASTIC_RECOVERY: (UNFILTERED,),
     ELASTIC_BAND_STOP: (UNFILTERED,),
+    EMAPULLBACK_TRAIL: EVERY_DIMENSION,
     HOLD: (UNFILTERED,),
     SPEC: (UNFILTERED,),
-    ALL_STRATA: tuple(group for group in STRATUM_GROUPS if group not in RECUTS),
+    ALL_STRATA: EVERY_DIMENSION,
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
 skipped rather than re-running it. Every dimension is also selectable on its own, which is what
@@ -1985,6 +1997,32 @@ carries a ``hold=`` token no stored row has, so the two cannot collide in one da
 ``hold=0`` arm is the stored configuration re-run, which is what makes the comparison paired and
 is also the check that generalising the cap moved nothing."""
 
+EMAPULLBACK_TRAILS: dict[str, dict[str, bool]] = {
+    "trail=off": {"trail_ma_stop": False},
+    "trail=slow": {"trail_ma_stop": True, "trail_on_slow": True},
+}
+"""The fixed stop, and the stop trailed on the slow average at the offset that placed it.
+
+The ``trail=off`` arm is §M35's grid under a name no stored row carries, so it is the control
+run on the same bars in the same pass *and* the check that adding the mode moved no stored row.
+"""
+
+
+def emapullback_trail_variants(root: str) -> list[Variant]:
+    """§M35's variant once per stop, so the two arms share every axis and differ by the trail."""
+    (campaign,) = emapullback_variants(root)
+
+    return [
+        replace(campaign, name=f"{campaign.name} {trail_name}", base=replace(campaign.base, **trail))
+        for trail_name, trail in EMAPULLBACK_TRAILS.items()
+    ]
+
+
+EMAPULLBACK_TRAIL_VARIANTS = {"EmaPullback": emapullback_trail_variants}
+"""The [#313] run: EmaPullback's stored grid with the stop fixed and trailed on the slow average.
+Every name carries a ``trail=`` token no stored row has, so the two runs cannot collide in one
+database -- ``docs/findings/m37-ema-pullback-trail-on-slow.md``."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -1995,6 +2033,7 @@ CAMPAIGN = "campaign"
 VARIANT_SETS = {
     CAMPAIGN,
     ELASTIC_BAND_STOP,
+    EMAPULLBACK_TRAIL,
     ELASTIC_CHANNEL,
     ELASTIC_RECOVERY,
     ELASTIC_SHAPE,
@@ -2018,6 +2057,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
+        EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,
         ELASTIC_CHANNEL: ELASTIC_CHANNEL_VARIANTS,
         ELASTIC_RECOVERY: ELASTIC_RECOVERY_VARIANTS,
         ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,

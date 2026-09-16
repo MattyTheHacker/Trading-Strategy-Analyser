@@ -53,6 +53,10 @@ if TYPE_CHECKING:
 type AxisValue = float | str
 """One value a swept parameter may take: any number, or a name."""
 
+type Gate = str | tuple[str, ...]
+"""The toggle, or toggles, an axis is read under. With several, any one of them can leave it
+unread."""
+
 
 @runtime_checkable
 class Params(Protocol):
@@ -268,11 +272,13 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
     :func:`crossover_context` without the ATR, because the stop is a level rather than a
     distance. The trailing average is a **third** grid and is built only where some combination
-    trails on it -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    trails on it rather than on the slow average -- ``docs/roadmap.md`` § "The build spec's
+    three loose ends".
     """
-    gates: tuple[str, ...] = (
-        ("fast", "slow", "trail_ma") if any(values.get("trail_ma_stop", ())) else ("fast", "slow")
+    trails_on_third_grid: bool = any(values.get("trail_ma_stop", ())) and not all(
+        values.get("trail_on_slow", (False,)),
     )
+    gates: tuple[str, ...] = ("fast", "slow", "trail_ma") if trails_on_third_grid else ("fast", "slow")
 
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
@@ -381,17 +387,25 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 INERT_AT: Mapping[str, object] = {
     "round_number_points": 0.0,
+    "trail_on_slow": True,
     "regime_filter": regime.ALL_REGIMES,
     "volume_filter": volume.ALL_STATES,
     "compression_filter": compression.ALL_STATES,
     "trend_filter": trend.ALL_TRENDS,
     "higher_timeframe_filter": higher_timeframe.ALL_SIDES,
 }
-"""What a toggle's off value is, where it is not simply ``False``.
+"""The value at which a toggle leaves its axes unread, where that is not simply ``False``.
 
 A filter mask is off at the value that admits everything, so ``dead_axes`` has to compare
 against that rather than test truthiness -- ``ALL_REGIMES`` is 7 and would read as on.
+``trail_on_slow`` is the one toggle that leaves axes unread by being on.
 """
+
+
+def gate_toggles(gate: Gate) -> tuple[str, ...]:
+    """Every toggle one :data:`Gate` names, as a tuple whether it names one or several."""
+    return (gate,) if isinstance(gate, str) else gate
+
 
 REGIME_GATES: Mapping[str, str] = {
     "regime_lookback": "regime_filter",
@@ -481,10 +495,11 @@ that no combination could satisfy, or that is the plain conjunction again, raise
 """
 
 
-EMAPULLBACK_GATES: Mapping[str, str] = {
-    "trail_ma_kind": "trail_ma_stop",
-    "trail_ma_period": "trail_ma_stop",
-    "trail_offset_ticks": "trail_ma_stop",
+EMAPULLBACK_GATES: Mapping[str, Gate] = {
+    "trail_ma_kind": ("trail_ma_stop", "trail_on_slow"),
+    "trail_ma_period": ("trail_ma_stop", "trail_on_slow"),
+    "trail_offset_ticks": ("trail_ma_stop", "trail_on_slow"),
+    "trail_on_slow": "trail_ma_stop",
     **REGIME_GATES,
     **VOLUME_GATES,
     **COMPRESSION_GATES,
@@ -492,7 +507,8 @@ EMAPULLBACK_GATES: Mapping[str, str] = {
     **HIGHER_TIMEFRAME_GATES,
 }
 """EmaPullback reads both averages on every combination and has one stop mode, so only the
-trail and the shared context filters gate an axis.
+trail and the shared context filters gate an axis. The third grid's three axes are unread with
+the trail off *and* with it on the slow average, so they name both toggles.
 
 Neither entry axis can be gated and neither needs to be: ``touch_mode`` and
 ``min_bars_extended`` are read on every combination, and ``require_slow_intact`` is live under
@@ -571,8 +587,9 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     signal: Callable[..., BoolArray]  # type: ignore[explicit-any]  # the signature differs per archetype
     """Compute this archetype's per-bar entry signal from a :class:`Dataset`."""
 
-    gated_by: Mapping[str, str] = field(default_factory=lambda: MA_GATES)
-    """Axis -> the toggle that has to be on for it to change anything. Feeds ``dead_axes``."""
+    gated_by: Mapping[str, Gate] = field(default_factory=lambda: MA_GATES)
+    """Axis -> the toggle, or toggles, that have to be on for it to change anything. Feeds
+    ``dead_axes``."""
 
     context_for: Callable[[Mapping[str, Sequence[AxisValue]]], ContextSpec] = moving_average_context
     """Which precomputed series this archetype's signal reads."""

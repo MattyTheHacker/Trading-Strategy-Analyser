@@ -18,12 +18,14 @@ import pytest
 
 from nqbt import archetypes, conditions, regime, sessions, sweep, trend
 from nqbt.instruments import MNQ, NQ
+from nqbt.sim import crossover, emapullback
 from nqbt.sim.emapullback import (
     emapullback_signal,
     extension_run,
     pullback_averages,
     run_emapullback,
     side_signal,
+    trailed_level,
 )
 from nqbt.sim.types import TOUCH_ANY, TOUCH_CLOSE, TOUCH_WICK, EmaPullbackParams
 from nqbt.trades import LONG, SHORT
@@ -339,6 +341,172 @@ def test_a_context_filter_narrows_the_signal_and_never_widens_it() -> None:
     assert (narrow <= wide).all()
 
 
+# -- the trail on the slow average ---------------------------------------------
+
+# A long from bar 0's signal fills at bar 1's open of 100.0. The slow average is stated per bar,
+# so the stop starts at 95.0 less two ticks and every trailed level is readable in the row.
+
+TRAILED = [
+    (100.0, 100.5, 99.5, 100.0),  # 0: signal
+    (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100.0, stop 94.5
+    (100.0, 100.5, 99.5, 100.0),  # 2: the average has risen to 97.0 -> stop 96.5
+    (100.0, 100.5, 96.8, 99.0),  # 3: short of 96.5
+    (99.0, 99.5, 96.0, 97.0),  # 4: through 96.5, not through 94.5
+    *[(97.0, 97.5, 96.9, 97.0)] * 3,
+]
+
+RISING = [95.0, 95.0, 97.0, 97.0, 97.0, 97.0, 97.0, 97.0]
+
+type Row = tuple[float, float, float, float]
+
+
+def trade_on_slow(
+    monkeypatch: pytest.MonkeyPatch,
+    rows: list[Row],
+    slow: list[float],
+    *,
+    direction: float = LONG,
+    **overrides: object,
+) -> pd.DataFrame:
+    """One runner leg traded from a signal on bar 0, with the slow average stated per bar.
+
+    The averages are substituted rather than computed, so the rule is read against levels the
+    test chose; the fast one sits five points on the trend's side of the slow one.
+    """
+    slow_series = np.asarray(slow, dtype=np.float64)
+    fast_series = slow_series + direction * 5.0
+    monkeypatch.setattr(emapullback, "pullback_averages", lambda _data, _params: (fast_series, slow_series))
+    combination = params(
+        **{
+            "trail_ma_stop": True,
+            "trail_on_slow": True,
+            "target_r_multiples": (float("nan"),),
+            "order_quantity": 1,
+            **overrides,
+        },
+    )
+    signal = np.zeros(len(rows), dtype=np.bool_)
+    signal[0] = True
+
+    return run_emapullback(dataset(rows, combination), combination, MNQ, signal=signal)
+
+
+def test_the_stop_follows_the_slow_average_and_exits_where_it_got_to(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bar 2's average sets a stop at 96.5 that bar 4 trades through; the fixed stop stays at 94.5."""
+    trailed = trade_on_slow(monkeypatch, TRAILED, RISING)
+    fixed = trade_on_slow(monkeypatch, TRAILED, RISING, trail_ma_stop=False)
+    assert trailed["initial_stop"].tolist() == pytest.approx([94.5])
+    assert trailed[["exit_reason", "exit_bar"]].to_numpy().tolist() == [["stop", 4]]
+    assert trailed["exit_price"].tolist() == pytest.approx([96.5])
+    assert "stop" not in set(fixed["exit_reason"])
+
+
+def test_the_trail_on_the_short_side_is_the_long_side_reflected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One sign multiplier, so the mirrored bars and average give the mirrored exit."""
+    long_side = trade_on_slow(monkeypatch, TRAILED, RISING)
+    short_side = trade_on_slow(
+        monkeypatch,
+        mirrored(TRAILED),
+        [200.0 - level for level in RISING],
+        direction=SHORT,
+    )
+    assert short_side[["exit_reason", "exit_bar"]].to_numpy().tolist() == [["stop", 4]]
+    assert short_side["initial_stop"].tolist() == pytest.approx([200.0 - 94.5])
+    assert short_side["exit_price"].tolist() == pytest.approx([200.0 - v for v in long_side["exit_price"]])
+
+
+def test_an_average_that_retreats_leaves_the_stop_where_it_got_to(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ratchet: the average falling back does not take the stop back with it.
+
+    Bar 3's average is below where the stop started, and bar 4 still exits at the level bar 2 set.
+    """
+    retreating = [95.0, 95.0, 97.0, 93.0, 93.0, 93.0, 93.0, 93.0]
+    trades = trade_on_slow(monkeypatch, TRAILED, retreating)
+    assert trades[["exit_reason", "exit_bar"]].to_numpy().tolist() == [["stop", 4]]
+    assert trades["exit_price"].tolist() == pytest.approx([96.5])
+
+
+def test_an_unmoved_average_leaves_the_stop_where_it_was_placed_whatever_the_trail_offset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The trail reads the stop's own offset, so ``trail_offset_ticks`` cannot make it jump.
+
+    Bar 2 trades to 94.8: through a trail at no offset on 95.0, short of the stop at 94.5.
+    """
+    rows = [
+        (100.0, 100.5, 99.5, 100.0),
+        (100.0, 100.5, 99.5, 100.0),
+        (100.0, 100.5, 94.8, 99.0),
+        *[(99.0, 99.5, 98.5, 99.0)] * 3,
+    ]
+    flat_slow = [95.0] * len(rows)
+    fixed = trade_on_slow(monkeypatch, rows, flat_slow, trail_ma_stop=False)
+    assert "stop" not in set(fixed["exit_reason"])
+    for offset in (0, 8):
+        trailed = trade_on_slow(monkeypatch, rows, flat_slow, trail_offset_ticks=offset)
+        pd.testing.assert_frame_equal(trailed, fixed)
+
+
+def test_trailing_on_the_slow_average_is_the_third_grid_pointed_at_it() -> None:
+    """One boolean for what took a pinned ``(kind, period, offset)`` triple, and nothing else."""
+    tied = EmaPullbackParams(
+        bars_required_to_trade=50,
+        slow_kind="sma",
+        slow_period=40,
+        stop_offset_ticks=3,
+        trail_ma_stop=True,
+        trail_on_slow=True,
+    )
+    pinned = replace(tied, trail_on_slow=False, trail_ma_kind="sma", trail_ma_period=40, trail_offset_ticks=3)
+    fixed = replace(tied, trail_ma_stop=False)
+    data = sweep.prepare_for(
+        walk_bars(),
+        sweep.Grid.of_combinations([tied, pinned, fixed], archetype=archetypes.EMAPULLBACK),
+    )
+    trailed = run_emapullback(data, tied, MNQ)
+    pd.testing.assert_frame_equal(trailed, run_emapullback(data, pinned, MNQ))
+    assert not trailed.equals(run_emapullback(data, fixed, MNQ))
+
+
+def test_the_slow_average_mode_does_nothing_while_the_trail_is_off() -> None:
+    """It chooses which level the trail reads, so with nothing trailing there is nothing to choose."""
+    fixed = EmaPullbackParams(bars_required_to_trade=50)
+    data = walk_dataset(fixed)
+    pd.testing.assert_frame_equal(
+        run_emapullback(data, replace(fixed, trail_on_slow=True), MNQ),
+        run_emapullback(data, fixed, MNQ),
+    )
+
+
+STOP_OFFSET = 3
+TRAIL_OFFSET = 7
+
+
+def test_the_trailed_level_is_the_series_and_offset_each_mode_names() -> None:
+    """Off and on the third grid the trail keeps its own offset; on the slow average it takes the stop's."""
+    combination = EmaPullbackParams(
+        stop_offset_ticks=STOP_OFFSET,
+        trail_offset_ticks=TRAIL_OFFSET,
+        trail_ma_period=30,
+    )
+    data = walk_dataset(replace(combination, trail_ma_stop=True))
+    _, slow = pullback_averages(data, combination)
+
+    off_series, off_offset = trailed_level(data, slow, combination)
+    grid_series, grid_offset = trailed_level(data, slow, replace(combination, trail_ma_stop=True))
+    slow_series, slow_offset = trailed_level(
+        data,
+        slow,
+        replace(combination, trail_ma_stop=True, trail_on_slow=True),
+    )
+    assert off_series is crossover.NO_TRAIL
+    assert off_offset == TRAIL_OFFSET
+    assert np.array_equal(grid_series, data.ma_values("ema", 30))
+    assert grid_offset == TRAIL_OFFSET
+    assert slow_series is slow
+    assert slow_offset == STOP_OFFSET
+
+
 # -- what the sweep has to build for it ----------------------------------------
 
 
@@ -370,6 +538,43 @@ def test_the_trail_axes_are_dead_while_the_trail_is_off() -> None:
     base = EmaPullbackParams(trail_ma_stop=False)
     with pytest.raises(sweep.SweepError, match="trail_ma_period"):
         sweep.Grid.of(base, trail_ma_period=[20, 50], archetype=archetypes.EMAPULLBACK)
+
+    with pytest.raises(sweep.SweepError, match="trail_on_slow"):
+        sweep.Grid.of(base, trail_on_slow=[False, True], archetype=archetypes.EMAPULLBACK)
+
+
+@pytest.mark.parametrize("axis", ["trail_ma_kind", "trail_ma_period", "trail_offset_ticks"])
+def test_the_third_grid_axes_are_dead_while_the_trail_is_on_the_slow_average(axis: str) -> None:
+    """The mode leaves all three unread, and sweeping the mode itself brings them back."""
+    values = {"trail_ma_kind": ["ema", "sma"], "trail_ma_period": [20, 50], "trail_offset_ticks": [2, 8]}
+    on_slow = EmaPullbackParams(trail_ma_stop=True, trail_on_slow=True)
+    with pytest.raises(sweep.SweepError, match=rf"{axis} \(inert while trail_on_slow is True\)"):
+        sweep.Grid.of(on_slow, archetype=archetypes.EMAPULLBACK, **{axis: values[axis]})
+
+    live = sweep.Grid.of(
+        on_slow,
+        archetype=archetypes.EMAPULLBACK,
+        trail_on_slow=[False, True],
+        **{axis: values[axis]},
+    )
+    assert live.dead_axes() == {}
+
+
+def test_the_trail_grid_is_not_built_where_every_combination_trails_on_the_slow_average() -> None:
+    """The slow average is already built, so a sweep trailing only on it pays for no third grid."""
+    axes = {
+        "fast_kind": ["ema"],
+        "fast_period": [9],
+        "slow_kind": ["ema"],
+        "slow_period": [21],
+        "trail_ma_kind": ["ema"],
+        "trail_ma_period": [50],
+        "trail_ma_stop": [True],
+    }
+    on_slow = archetypes.EMAPULLBACK.context_for({**axes, "trail_on_slow": [True]})
+    mixed = archetypes.EMAPULLBACK.context_for({**axes, "trail_on_slow": [False, True]})
+    assert set(on_slow.ma_keys) == {conditions.ma_key("ema", 9), conditions.ma_key("ema", 21)}
+    assert conditions.ma_key("ema", 50) in mixed.ma_keys
 
 
 # -- the parameter set ---------------------------------------------------------

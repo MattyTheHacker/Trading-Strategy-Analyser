@@ -137,21 +137,23 @@ class Grid:
             raise SweepError(msg)
 
     def dead_axes(self) -> dict[str, str]:
-        """Swept periods whose filter is off for every combination.
+        """Swept axes some toggle leaves unread on every combination, each with that toggle.
 
         Easy to do by accident: sweeping ``slow_sma_period`` while ``use_slow_sma`` is false
         everywhere yields identical rows and a proportional runtime bill. A toggle that is a
         mask rather than a boolean is off at its everything value -- :data:`nqbt.archetypes.INERT_AT`.
         """
         dead: dict[str, str] = {}
-        for axis, toggle in self.archetype.gated_by.items():
+        for axis, gate in self.archetype.gated_by.items():
             if axis not in self.axes:
                 continue
 
-            inert: object = archetypes.INERT_AT.get(toggle, False)
-            values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
-            if all(value == inert for value in values):
-                dead[axis] = toggle
+            for toggle in archetypes.gate_toggles(gate):
+                inert: object = archetypes.INERT_AT.get(toggle, False)
+                values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
+                if all(value == inert for value in values):
+                    dead[axis] = toggle
+                    break
 
         return dead
 
