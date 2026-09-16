@@ -165,6 +165,7 @@ An **archetype** is one strategy's shape, not one set of its settings. Changing 
 | `ElasticBand`       | fades a move that has stretched too far, expecting a snap back        | no                           |
 | `OpeningRange`      | trades a break out of the range set in the first minutes of the day   | no                           |
 | `EmaPullback`       | trades an `EmaCrossover`, waiting for a pullback to the fast MA first | no                           |
+| `SqueezeBreakout`   | trades a break out of a stretch where the range was unusually narrow  | no                           |
 
 **That last column is load-bearing.** A *yes* means the Python was compared exit by exit against a real Strategy Analyzer export and matched it. A *no* means the rules are written down and believed but never verified, because no NinjaScript version exists yet. The status appears in the results table on purpose, so a verified strategy is never silently compared against an unverified one.
 

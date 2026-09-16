@@ -54,6 +54,7 @@ __all__ = [
     "CompressionForm",
     "CompressionGrid",
     "CompressionKey",
+    "WindowRangeGrid",
     "bandwidth",
     "compression_grid",
     "describe_key",
@@ -62,6 +63,7 @@ __all__ = [
     "key",
     "label",
     "range_to_atr",
+    "rolling_extremes",
     "states_in",
     "states_mask",
     "thresholds_from_quantiles",
@@ -72,6 +74,7 @@ __all__ = [
     "validate_period",
     "validate_quantiles",
     "validate_thresholds",
+    "window_range_grid",
 ]
 
 UNDEFINED = -1
@@ -301,24 +304,34 @@ def key(form: int, period: int, baseline_bars: int) -> CompressionKey:
 
 
 @njit(cache=True)
-def _rolling_range(high: FloatArray, low: FloatArray, period: int) -> FloatArray:
-    """Highest high less lowest low over ``period`` bars, ``nan`` until that many exist.
+def _rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[FloatArray, FloatArray]:
+    """Highest high and lowest low over the ``period`` bars ending at each bar, ``nan`` until that many exist.
 
     Recomputed per bar rather than maintained: a running extreme cannot be un-extended when the
     bar holding it leaves the window, so the state a rolling form would need is the window
     itself -- the same reasoning ``docs/roadmap.md`` §M10.1 records for the efficiency ratio.
     """
     n = high.size
-    out = np.full(n, np.nan, dtype=np.float64)
+    top_out = np.full(n, np.nan, dtype=np.float64)
+    bottom_out = np.full(n, np.nan, dtype=np.float64)
     for i in range(period - 1, n):
         top = high[i]
         bottom = low[i]
         for j in range(i - period + 1, i):
             top = max(top, high[j])
             bottom = min(bottom, low[j])
-        out[i] = top - bottom
+        top_out[i] = top
+        bottom_out[i] = bottom
 
-    return out
+    return top_out, bottom_out
+
+
+@njit(cache=True)
+def _rolling_range(high: FloatArray, low: FloatArray, period: int) -> FloatArray:
+    """Highest high less lowest low over ``period`` bars -- :func:`_rolling_extremes`' window."""
+    top, bottom = _rolling_extremes(high, low, period)
+
+    return top - bottom
 
 
 @njit(cache=True)
@@ -432,6 +445,20 @@ def range_to_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: i
     return _ratio(
         _rolling_range(high, low, int(period)),
         indicators.nt8_atr(high, low, np.ascontiguousarray(close, dtype=np.float64), int(period)),
+    )
+
+
+def rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[FloatArray, FloatArray]:
+    """The highest high and lowest low of the ``period`` bars ending at each bar, that bar included.
+
+    The window :func:`range_to_atr` measures, as two levels rather than a width.
+    """
+    validate_period(period)
+
+    return _rolling_extremes(
+        np.ascontiguousarray(high, dtype=np.float64),
+        np.ascontiguousarray(low, dtype=np.float64),
+        int(period),
     )
 
 
@@ -599,3 +626,55 @@ def compression_grid(
         rank[i] = trailing_rank(measured, wanted.baseline_bars)
 
     return CompressionGrid(keys=ordered, width=width, rank=rank)
+
+
+@dataclass(frozen=True, slots=True)
+class WindowRangeGrid:
+    """The high and low of every window a sweep reads, keyed by its length alone.
+
+    The levels a break of a compressed window trades at -- :func:`rolling_extremes` once per
+    period, so no combination recomputes them.
+    """
+
+    periods: tuple[int, ...]
+    high: FloatArray
+    """``[n_periods, n_bars]``: the highest high of the window ending at each bar."""
+    low: FloatArray
+    """``[n_periods, n_bars]``: the lowest low of the same window."""
+
+    def row(self, period: int) -> int:
+        """Find the row holding ``period``, or say what the grid was built for."""
+        try:
+            return self.periods.index(period)
+        except ValueError:
+            msg: str = f"window of {period} bars is not in this grid; built for {list(self.periods)}"
+            raise KeyError(msg) from None
+
+    def high_for(self, period: int) -> FloatArray:
+        """The highest high of the ``period`` bars ending at each bar."""
+        return np.asarray(self.high[self.row(period)])
+
+    def low_for(self, period: int) -> FloatArray:
+        """The lowest low of the ``period`` bars ending at each bar."""
+        return np.asarray(self.low[self.row(period)])
+
+    @property
+    def nbytes(self) -> int:
+        """Bytes the levels occupy -- what a parallel worker is handed."""
+        return self.high.nbytes + self.low.nbytes
+
+
+def window_range_grid(high: FloatArray, low: FloatArray, periods: Iterable[int]) -> WindowRangeGrid:
+    """Compute every window's high and low a sweep needs, once. Sixteen bytes per bar per period."""
+    ordered: tuple[int, ...] = tuple(sorted({validate_period(int(p)) for p in periods}))
+    if not ordered:
+        msg: str = "no window periods supplied"
+        raise CompressionError(msg)
+
+    n_bars: int = int(np.asarray(high).size)
+    top: FloatArray = np.empty((len(ordered), n_bars), dtype=np.float64)
+    bottom: FloatArray = np.empty((len(ordered), n_bars), dtype=np.float64)
+    for i, period in enumerate(ordered):
+        top[i], bottom[i] = rolling_extremes(high, low, period)
+
+    return WindowRangeGrid(periods=ordered, high=top, low=bottom)

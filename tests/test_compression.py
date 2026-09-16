@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, compression, conditions, context, sessions, sweep
+from nqbt import archetypes, compression, conditions, context, indicators, sessions, sweep
 from nqbt.compression import (
     ALL_STATES,
     MIN_BASELINE_BARS,
@@ -128,6 +128,43 @@ def test_range_to_atr_is_undefined_through_its_own_warm_up() -> None:
     measured = compression.range_to_atr(high, low, close, PERIOD)
     assert np.isnan(measured[: PERIOD - 1]).all(), "a window that has not filled has not been measured"
     assert np.isfinite(measured[PERIOD:]).all()
+
+
+# -- the window a width is measured over ---------------------------------------
+
+
+def test_the_window_extremes_include_the_bar_they_are_stamped_on() -> None:
+    high = np.array([10.0, 12.0, 11.0, 15.0, 9.0])
+    low = np.array([8.0, 7.0, 9.0, 10.0, 5.0])
+    top, bottom = compression.rolling_extremes(high, low, 3)
+
+    assert np.isnan(top[:2]).all(), "a window that has not filled has no extreme"
+    assert np.isnan(bottom[:2]).all()
+    np.testing.assert_array_equal(top[2:], [12.0, 15.0, 15.0])
+    np.testing.assert_array_equal(bottom[2:], [7.0, 7.0, 5.0])
+
+
+def test_an_extreme_leaves_the_window_when_its_bar_does() -> None:
+    """A running maximum would keep 20.0 forever; the window forgets it after three bars."""
+    high = np.array([20.0, 11.0, 12.0, 13.0, 11.0])
+    top, _ = compression.rolling_extremes(high, high - 1.0, 3)
+
+    np.testing.assert_array_equal(top[2:], [20.0, 13.0, 13.0])
+
+
+def test_range_to_atr_measures_the_window_the_extremes_bound() -> None:
+    """One definition of the window, so a squeeze's levels and the width it ranks cannot drift apart."""
+    frame = bars(days=2)
+    high, low, close = (frame[c].to_numpy() for c in ("high", "low", "close"))
+    top, bottom = compression.rolling_extremes(high, low, PERIOD)
+    measured = compression.range_to_atr(high, low, close, PERIOD)
+    live = np.isfinite(measured)
+
+    assert live.sum() > 0, "nothing was measured; the test proves nothing"
+    np.testing.assert_array_equal(
+        measured[live],
+        ((top - bottom) / indicators.nt8_atr(high, low, close, PERIOD))[live],
+    )
 
 
 # -- the trailing rank ---------------------------------------------------------
@@ -283,6 +320,8 @@ def test_a_raw_threshold_cuts_the_rank_and_says_nothing_about_the_width() -> Non
         (lambda: compression.validate_quantiles(0.9, 0.1), "which would cross the thresholds"),
         (lambda: compression.validate_quantiles(1.2, 0.1), "must lie in 0..1"),
         (lambda: compression.validate_quantiles(0.1, 1.2), "must lie in 0..1"),
+        (lambda: compression.rolling_extremes(np.ones(5), np.ones(5), 1), "must span >= 2 bars"),
+        (lambda: compression.window_range_grid(np.ones(5), np.ones(5), ()), "no window periods supplied"),
     ],
 )
 def test_an_impossible_argument_raises_and_says_which(call, fragment) -> None:
@@ -328,6 +367,24 @@ def test_the_grid_reports_the_bytes_a_worker_is_handed() -> None:
     high, low, close = widening()
     grid = compression.compression_grid(high, low, close, (RANGE_TO_ATR,))
     assert grid.nbytes == grid.width.nbytes + grid.rank.nbytes
+
+
+def test_the_window_grid_deduplicates_sorts_and_reads_each_period_back() -> None:
+    high, low, _ = widening()
+    grid = compression.window_range_grid(high, low, (5, PERIOD, 5))
+    top, bottom = compression.rolling_extremes(high, low, PERIOD)
+
+    assert grid.periods == (5, PERIOD)
+    np.testing.assert_array_equal(grid.high_for(PERIOD), top)
+    np.testing.assert_array_equal(grid.low_for(PERIOD), bottom)
+    assert grid.nbytes == grid.high.nbytes + grid.low.nbytes
+
+
+def test_reading_a_window_the_grid_was_not_built_for_says_what_it_holds() -> None:
+    high, low, _ = widening()
+    grid = compression.window_range_grid(high, low, (PERIOD,))
+    with pytest.raises(KeyError, match="is not in this grid"):
+        grid.high_for(PERIOD + 1)
 
 
 def test_a_key_names_its_form_and_both_windows() -> None:
@@ -397,6 +454,25 @@ def test_the_grid_is_counted_in_what_a_worker_is_handed() -> None:
     bare = prepared()
     withheld = prepared(compression_keys=(RANGE_TO_ATR,))
     assert withheld.nbytes > bare.nbytes
+
+
+def test_the_window_levels_are_absent_unless_a_spec_declares_them() -> None:
+    bare = prepared()
+    assert bare.window_ranges is None
+    for read in (lambda: bare.window_high(PERIOD), lambda: bare.window_low(PERIOD)):
+        with pytest.raises(ContextError, match="window_range_periods"):
+            read()
+
+    declared = prepared(window_range_periods=(PERIOD,))
+    top, bottom = compression.rolling_extremes(declared.high, declared.low, PERIOD)
+    np.testing.assert_array_equal(declared.window_high(PERIOD), top)
+    np.testing.assert_array_equal(declared.window_low(PERIOD), bottom)
+    assert declared.nbytes == bare.nbytes + declared.window_ranges.nbytes
+
+
+def test_two_specs_merge_their_window_periods() -> None:
+    merged = ContextSpec(window_range_periods=(40,)) | ContextSpec(window_range_periods=(10, 40))
+    assert merged.window_range_periods == (10, 40)
 
 
 # -- the sweep and the archetypes ----------------------------------------------

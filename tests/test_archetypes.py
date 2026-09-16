@@ -23,6 +23,7 @@ from nqbt.sim.types import (
     InsideBarTrailingParams,
     OpeningRangeParams,
     PullBackAndGoParams,
+    SqueezeBreakoutParams,
 )
 
 # -- the registry -------------------------------------------------------------
@@ -38,6 +39,7 @@ def test_every_archetype_is_registered() -> None:
         "InsideBarTrailing",
         "OpeningRange",
         "PullBackAndGo",
+        "SqueezeBreakout",
     ]
     assert archetypes.get("DeadCatBounce") is archetypes.DEADCATBOUNCE
     assert archetypes.get("ElasticBand") is archetypes.ELASTICBAND
@@ -47,11 +49,12 @@ def test_every_archetype_is_registered() -> None:
     assert archetypes.get("InsideBarTrailing") is archetypes.INSIDEBARTRAILING
     assert archetypes.get("OpeningRange") is archetypes.OPENINGRANGE
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
+    assert archetypes.get("SqueezeBreakout") is archetypes.SQUEEZEBREAKOUT
 
 
 def test_an_unknown_name_lists_the_known_ones() -> None:
     with pytest.raises(ArchetypeError, match="DeadCatBounce"):
-        archetypes.get("SqueezeBreakout")
+        archetypes.get("VolatilityCrush")
 
 
 def test_registering_a_duplicate_name_is_refused() -> None:
@@ -81,6 +84,7 @@ def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(InsideBarParams()) is archetypes.INSIDEBAR
     assert archetypes.for_params(InsideBarTrailingParams()) is archetypes.INSIDEBARTRAILING
     assert archetypes.for_params(OpeningRangeParams()) is archetypes.OPENINGRANGE
+    assert archetypes.for_params(SqueezeBreakoutParams()) is archetypes.SQUEEZEBREAKOUT
 
 
 def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
@@ -107,6 +111,7 @@ def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     assert archetypes.EMAPULLBACK.tier2 is Tier2Status.TIER1_ONLY
     assert archetypes.ELASTICBAND.tier2 is Tier2Status.TIER1_ONLY
     assert archetypes.OPENINGRANGE.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.SQUEEZEBREAKOUT.tier2 is Tier2Status.TIER1_ONLY
 
 
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------

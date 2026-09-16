@@ -225,6 +225,7 @@ from nqbt.sim.types import (
     InsideBarTrailingParams,
     OpeningRangeParams,
     PullBackAndGoParams,
+    SqueezeBreakoutParams,
 )
 
 if TYPE_CHECKING:
@@ -1264,6 +1265,45 @@ def openingrange_variants(root: str) -> list[Variant]:
     ]
 
 
+def squeeze_variants(root: str) -> list[Variant]:
+    """One variant per (stop, target), for OpeningRange's reason: each pair reads axes the others do not.
+
+    The squeeze's own axes are shared by all four. Both forms read the period, the baseline and
+    the threshold, so the form is an axis rather than a variant dimension --
+    ``docs/findings/m19-2-squeeze-breakout-spec.md``.
+    """
+    shared: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "squeeze_form": [
+            int(compression.CompressionForm.BANDWIDTH),
+            int(compression.CompressionForm.RANGE_TO_ATR),
+        ],
+        "squeeze_period": [10, 20, 40],
+        "squeeze_below": [0.05, 0.1, 0.25],
+        "min_squeeze_bars": [1, 5],
+        "entry_offset_ticks": [1, 4],
+    }
+    stops: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
+        "stop=opposite": (ORB_STOP_OPPOSITE, {"stop_offset_ticks": [1, 8]}),
+        "stop=atr": (ORB_STOP_ATR, {"atr_stop_multiple": [1.0, 2.0]}),
+    }
+    targets: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
+        "target=R": (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]}),
+        "target=width": (ORB_TARGET_WIDTH, {}),
+    }
+
+    return [
+        Variant(
+            name=f"{stop_name} {target_name}",
+            archetype=archetypes.SQUEEZEBREAKOUT,
+            base=_costed(SqueezeBreakoutParams(stop_mode=stop_mode, target_mode=target_mode), root),
+            axes={**shared, **stop_axes, **target_axes},
+        )
+        for stop_name, (stop_mode, stop_axes) in stops.items()
+        for target_name, (target_mode, target_axes) in targets.items()
+    ]
+
+
 LONDON_OPEN_MINUTES = sessionrange.anchor_for(timeofday.SessionPhase.LONDON)
 """Minutes from the 18:00 ET session open to the 03:00 ET European open -- §M28's third anchor."""
 
@@ -1888,6 +1928,7 @@ VARIANTS = {
     "InsideBarTrailing": insidebartrailing_variants,
     "ElasticBand": elasticband_variants,
     "OpeningRange": openingrange_variants,
+    "SqueezeBreakout": squeeze_variants,
 }
 """Archetype name -> the variants swept for it, built per root so costs are the root's.
 

@@ -39,7 +39,9 @@ from nqbt.sim.types import (
     ORB_ENTRY_REJECTION,
     ORB_ENTRY_RETEST,
     ORB_SCALE_NONE,
+    ORB_STOP_ATR,
     ORB_STOP_FRACTION,
+    ORB_STOP_OPPOSITE,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
     SHAPE_ANY,
@@ -274,6 +276,18 @@ def test_the_crossover_variants_sweep_disjoint_stop_axes() -> None:
     assert atr.base.use_atr_stop and not swing.base.use_atr_stop
     assert "atr_stop_multiple" in atr.axes and "atr_stop_multiple" not in swing.axes
     assert "swing_lookback" in swing.axes and "swing_lookback" not in atr.axes
+
+
+def test_the_squeeze_variants_split_the_stop_axes_and_share_the_squeeze() -> None:
+    """Each stop reads an axis the other ignores, and ``dead_axes`` cannot see either."""
+    variants = VARIANTS["SqueezeBreakout"]("MNQ")
+    by_stop = {v.base.stop_mode: v for v in variants}
+    assert set(by_stop) == {ORB_STOP_OPPOSITE, ORB_STOP_ATR}
+    for variant in variants:
+        reads_atr = variant.base.stop_mode == ORB_STOP_ATR
+        assert ("atr_stop_multiple" in variant.axes) is reads_atr, variant.name
+        assert ("stop_offset_ticks" in variant.axes) is not reads_atr, variant.name
+        assert {"squeeze_form", "squeeze_period", "squeeze_below", "direction"} <= set(variant.axes)
 
 
 def test_every_elastic_ladder_is_distinct_and_ends_in_a_runner() -> None:

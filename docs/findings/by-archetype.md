@@ -169,6 +169,12 @@ The same campaigns as the [register](register.md), grouped by what they were run
 | `§M30`    | [M30 — volume and regime re-cut across the registry, and what the raw pair was reporting](m30-volume-regime-recut.md)         | `mixed`       | Re-cutting turns three of six volume dimensions from inert to consistent and sorts the regime dimension by what each archetype is; almost none of the new cells makes money, and the raw regime labels agree with a calibrated cut about a fifth of the time at a lookback of 50.                                                                                                    |
 | `§M32`    | [M32 — the two volume windows swept, and why a window is a cell rather than an axis](m32-volume-windows.md)                   | `mixed`       | Both windows move a consistency score as much as most dimensions the campaign compares, and 43 of the registry's 56 consistent volume cells sit at a rung nobody had run — but a new rung is consistent at about the same rate as the default, so the two defaults were unexamined rather than wrong, and only 6 of the 34 positive cells return a held-out profit factor above 1.0. |
 
+## SqueezeBreakout
+
+| cite     | campaign                                                                                                        | outcome | verdict                                                                                                                                                                                                                                                               |
+| -------- | --------------------------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `§M19.2` | [M19.2 — SqueezeBreakout: a break of the compressed window, one side at a time](m19-2-squeeze-breakout-spec.md) | `spec`  | The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that same window's extreme through OpeningRange's loop; one side per combination, because a two-sided managed entry is still not established as expressible. |
+
 ## Not about one archetype
 
 Condition labels, thresholds and gate machinery. Every archetype is read through these, so a result that turns on one of them is really a result about the label.

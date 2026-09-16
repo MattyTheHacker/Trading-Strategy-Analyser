@@ -168,6 +168,8 @@ The earlier note said the squeeze's resting orders "may simply not be expressibl
 
 So the M19 design question is no longer "can this be built" but **"do I actually need native OCO, or is resubmission enough"** — and for a Tier-1 research backtester the answer is resubmission, with the OCO question deferred to a live port.
 
+**§M28's finding 1 corrected that answer, and §M19.2 is built to the correction.** The probe below measured route 1; whether route 3's two plain opposite stops are both accepted is still unprobed, so the squeeze is traded one side per combination and its two-sided form stays unbuilt.
+
 ### What reflection could not settle, and what did
 
 The API surface above is fact. **None of the behaviour below was**, and it was settled by a probe rather than by a trade list — `NqbtOrderLifetimeProbe.cs`, which places no bracket and writes its own `OnOrderUpdate` log. A Trades export was the wrong instrument for three of the four: they are questions about **cancels**, and a trade list carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. That is worth keeping stated, because [#67] originally specified a Trades export for all four.
@@ -491,11 +493,15 @@ Two archetypes size a bracket off ATR for opposite reasons — EmaCrossover beca
 
 ### M19 — squeeze breakout ([#51])
 
-Queued rather than scheduled; the expensive archetype. "Squeeze" means at least three things, and fixing the definition is the first task: TTM-style (Bollinger inside Keltner — the full M16 debt), bandwidth (`(upper − lower) / mid` below a trailing percentile — Bollinger only), or structural (inside bars — no new indicators at all). **Recommend the bandwidth form first:** one indicator rather than three, it drops the Keltner parity question flagged above as most likely to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and is the only version of this strategy with C# ground truth. Its trade list also settled two questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]` means inside `OnExecutionUpdate`. The real structural cost is a two-sided OCO entry model the loop lacks; the order-lifetime research above resolves that resubmission is exactly equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate, and results that cluster by volatility regime so the aggregate PF averages two populations.
+Built one side at a time at §M19.2; the two-sided form is still unbuilt. "Squeeze" means at least three things, and fixing the definition is the first task: TTM-style (Bollinger inside Keltner — the full M16 debt), bandwidth (`(upper − lower) / mid` below a trailing percentile — Bollinger only), or structural (inside bars — no new indicators at all). **Recommend the bandwidth form first:** one indicator rather than three, it drops the Keltner parity question flagged above as most likely to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and is the only version of this strategy with C# ground truth. Its trade list also settled two questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]` means inside `OnExecutionUpdate`. The real structural cost is a two-sided OCO entry model the loop lacks; the order-lifetime research above resolves that resubmission is exactly equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate, and results that cluster by volatility regime so the aggregate PF averages two populations.
 
 ### M19.1 — compression as a condition, before it is an archetype ([#51])
 
 **The condition is real and consistently ordered across seven archetypes and two roots, and it still separates no better than four dimensions the campaign already had — a reason to keep M19 parked rather than to build it.** Moved to [`docs/findings/m19-1-compression-condition.md`](findings/m19-1-compression-condition.md).
+
+### M19.2 — SqueezeBreakout: a break of the compressed window, one side at a time ([#51])
+
+**The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that window's extreme through OpeningRange's loop; one side per combination, because a two-sided managed entry is still not established as expressible.** Moved to [`docs/findings/m19-2-squeeze-breakout-spec.md`](findings/m19-2-squeeze-breakout-spec.md).
 
 ### M26 — the elastic band, the first mean-reversion archetype ([#167])
 
@@ -993,7 +999,7 @@ That run also corrected a rule this project had been carrying since the first re
 
 `tools/reconcile_nt8.py` is the reusable mechanism these produced. Per the standing rule that each archetype earns its own reconciliation, the next one does not start from scratch.
 
-**Settle the four order-lifetime questions** ([#67]) that reflection cannot answer — listed above. It is the only NinjaTrader item left, and it gates M19, which is queued rather than scheduled.
+**Settle the four order-lifetime questions** ([#67]) that reflection cannot answer — listed above. It is the only NinjaTrader item left, and it gated M19, whose two-sided form §M19.2 still leaves unbuilt.
 
 ______________________________________________________________________
 

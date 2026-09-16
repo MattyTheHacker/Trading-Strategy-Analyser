@@ -262,6 +262,51 @@ Three build-spec features, all on EmaCrossover, and like the rest of M18 none of
 
 **"At least N of M filters" is a count, and the M is the filters the rule set switched on.** NinjaScript would write it as the sum of the active gates against a `ConfluenceRequired` property, which is what `conditions.count_true` computes here. The one thing a port must not do is enter an inactive gate as `true`: each of these gates passes no mask on a bar it cannot label — a warm-up bar, a session with no volume baseline — so an inactive gate counted as satisfied changes the answer on exactly those bars. Every archetype but this one leaves `confluence_required` at `REQUIRE_ALL`, where the count and the conjunction are the same expression.
 
+### M19.2 — the squeeze-breakout rules, written before the Python (#51)
+
+**Written down before the Python existed and the Python written to it**, as §M28 was. There is no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as. The reasoning and the alternatives rejected are in [`m19-2-squeeze-breakout-spec.md`](findings/m19-2-squeeze-breakout-spec.md); only the rules are here.
+
+`Archetype.tier2` is `TIER1_ONLY`, and stays there until a trade list has been diffed against it.
+
+**The width is one of §M19.1's two forms, and every indicator behind them is already pinned or trivial.** Bandwidth is two standard deviations over the moving average — Bollinger's width over its middle up to a constant factor no rank can see — and `StdDev` and `SMA` are both pinned at M16; range-to-ATR is the window's range over an `ATR` of the same length, which is pinned, and `MAX` and `MIN` are a comparison each:
+
+```csharp
+double bandwidth  = 2 * StdDev(Close, Period)[0] / SMA(Close, Period)[0];
+double rangeToAtr = (MAX(High, Period)[0] - MIN(Low, Period)[0]) / ATR(Period)[0];
+```
+
+**The rank is a loop over a `Series<double>`, and it never reads the bar it ranks:**
+
+```csharp
+double below = 0;
+for (int k = 1; k <= BaselineBars; k++)
+    below += width[k] < width[0] ? 1.0 : width[k] == width[0] ? 0.5 : 0.0;
+bool squeezed = below / BaselineBars < SqueezeBelow;
+```
+
+evaluated only once `BaselineBars` measured widths sit behind the bar. **Strictly below**, so a rank exactly at the threshold is not a squeeze, which is `Compression.COMPRESSED`'s boundary.
+
+**The duration is a bar counter.** `squeezedBars = squeezed ? squeezedBars + 1 : 0;`, compared against `MinSqueezeBars` on the same bar.
+
+**The order is a one-bar stop, resubmitted at the window's current extreme**, under `Calculate.OnBarClose` on every bar the squeeze holds:
+
+```csharp
+if (squeezedBars >= MinSqueezeBars)
+    EnterLongStopMarket(MAX(High, Period)[0] + EntryOffsetTicks * TickSize);
+```
+
+The three-argument overload, so each order lives for the next bar only (§ "Order lifetime and the session edge"), and the trigger is re-read at every close, so a level that moves as the window rolls is followed. **This is not route 3**, whose trigger is unchanged between submissions, and it needs no `isLiveUntilCancelled` order.
+
+**§M18's refusal applies unchanged.** A stop entry at or through the close is never submitted, so a bar closing on its own window's high cannot submit at `EntryOffsetTicks = 0`; the default is 1, as it is for §M28.
+
+**The fill, the bracket and the targets are §M28's, read against the window.** The fill test is DeadCatBounce's. The bracket is computed from the trigger — the window's other extreme less `StopOffsetTicks` for the opposite-extreme stop, the stop fraction of `MAX - MIN` back from the broken extreme, or the floored ATR distance from the trigger, each set with `SetStopLoss(CalculationMode.Price, …)` — and the targets are the R ladder or multiples of the window's width. All of it is issued in the `OnBarUpdate` that submits the entry, so every level is the signal bar's.
+
+**A window that has not filled has no level.** No order is submitted while `CurrentBar < Period - 1`. NinjaTrader's own `MAX` would read the bars there are, so the two can disagree only before bar `Period - 1` — which `BarsRequiredToTrade` at its default of 200 excludes for every period the campaign grid sweeps.
+
+**One side per instance, for §M28's reason.** The classic squeeze entry is both stops live with the first fill winning, and whether NT8 accepts two plain opposite stops submitted on one bar is still unprobed. `direction` is a swept axis and no combination ever holds two orders.
+
+**No per-session cap and no break flag.** A break usually widens the window out of the squeeze, so the order stops being resubmitted without a counter. A resting order is tested for a fill on the force-flat bar and `BlockEntryAtSessionClose` guards a new one there, as for every archetype.
+
 ### M22 — the InsideBar rules
 
 `InsideBar.cs` exists, so unlike M18 every rule below is a reading of real C#, and every one has now been diffed against a Strategy Analyzer trade list — "Reconciliation result — InsideBar" below. It earned its place on what it reaches rather than on what it might make: three parts of the fill model no other archetype touches, and `bracket.py` inherits whatever is wrong in them. Two of the three rules the port had to infer turned out to be wrong, which is the argument for reconciling each archetype rather than trusting the shared engine because the first one passed.
