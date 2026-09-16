@@ -123,6 +123,9 @@ The coarse `shape=reversal` cells are the thin ones in both channels, and every 
 
 **None of that is new, which is the finding.** `README.md` § "Performance" has said "starting workers costs a second and a half, so leave it single-process below a few hundred combinations" since long before this campaign, and `campaign_sweep.py` defaults `--n-jobs` to 8 regardless. The rule was documented, the default contradicts it, and the reason nobody noticed is that **`--n-jobs` is per *sweep call* and a campaign is counted per run**: 40,320 combinations sounds like a job for eight workers and is actually 112 jobs of 18. Every cell-heavy set in `STRATUM_SETS` has been paying this — §M26.9 at 56 pools per point ran 938 ms per call against the 682 ms measured here. That is a default to change rather than a figure to quote, and it is not in conflict with the 5× all-core ceiling above: that one measures a pool already open.
 
+**[#308] has since made the flag unnecessary.** `campaign_sweep.py` now chooses the worker count for each sweep call from its combinations × bars, which on the archive as it stands keeps every call this set makes in-process at the default `--n-jobs` — `docs/roadmap.md` § "A sweep call's worker count".
+
 Every figure here is one dated run over the archive as it stands, re-derivable from `results/campaign/ElasticBand.duckdb` plus `tools/campaign_sweep.py` and `tools/campaign_crossread.py` — not a standing property.
 
 [#300]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/300
+[#308]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/308

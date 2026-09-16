@@ -941,6 +941,39 @@ It was, and the premise came back mostly false. Profiling one combination over 1
 
 The ceiling is unchanged and the loop's share of a combination is now most of it, so **M8 is still not scheduled**: re-profile before believing any figure here, and do it only if the loop is genuinely what a real sweep is waiting on.
 
+### A sweep call's worker count ([#308])
+
+**`--n-jobs` is applied per sweep call, not per run**, and `campaign_sweep.run_point` makes one call per (variant × stratum) — so §M33's 40,320 combinations were 112 calls of 18, and eight workers made that run slower than one ([`findings/m33-channel-volume.md`](findings/m33-channel-volume.md)). `workers_for` now decides per call: in-process below `SERIAL_BELOW_COMBINATION_BARS`, and the requested `--n-jobs` unchanged above it.
+
+**The line is drawn in combinations × bars, because a combination count alone cannot find it.** Measured on the MNQ selection window, one call timed in-process and at eight workers, median of three, over 4 to 512 combinations drawn from each archetype's own campaign grids. The first size at which the pool won:
+
+| archetype    | grid                         | 1m  | 5m  | 15m  |
+| ------------ | ---------------------------- | --- | --- | ---- |
+| ElasticBand  | §M33, 28 cells × 18          | 64  | 128 | >512 |
+| InsideBar    | §M27, one cell × 432         | 32  | 128 | 512  |
+| OpeningRange | §M28.1, one cell × 16 and 32 | 128 | 256 | 256  |
+| EmaPullback  | §M35, one cell × 2,304       | 8   | 64  | 256  |
+
+A combination costs roughly in proportion to the bars it runs over, and a pool's overhead does not: it grows with the number of chunks, one per combination up to four per worker, and stays at a few hundred milliseconds even on 15-minute bars. So the crossover moves by an order of magnitude with resolution, and a count tuned to 1-minute bars is up to five times too slow on 15-minute ones. Scored over those 96 calls against always picking the faster of the two:
+
+| rule                      | time lost | worst call |
+| ------------------------- | --------- | ---------- |
+| always pool (the old way) | 12.7%     | 18.3×      |
+| combinations < 64         | 5.3%      | 5.4×       |
+| combinations × bars < 20M | 1.5%      | 1.6×       |
+
+Both thresholds are the lowest-loss value of their kind on this grid. **What is left is the archetype**: at one minute a combination costs 11 ms on OpeningRange and 105 ms on EmaPullback, and nothing `run_point` knows before the call separates them.
+
+**The rows are identical either way** — `sweep.sweep` sorts its chunks back into `combo_id` order. `run_point` was run both ways at three MNQ selection-window points, twice each, and the two tables compared exactly:
+
+| point                            | every call pooled | per call |
+| -------------------------------- | ----------------- | -------- |
+| §M33 at 1m, 112 calls of 18      | 97 s              | 74 s     |
+| §M33 at 15m, 112 calls of 18     | 49 s              | 3.7 s    |
+| OpeningRange's §M28.1 grid at 1m | 6.5 s             | 4.9 s    |
+
+Two things this does not settle: the threshold was measured at eight workers, where more workers mean more chunks and a later crossover, and the chunk count itself is what a small call pays for, which is a change to `nqbt/sweep.py` rather than to the campaign.
+
 ### M20b — typing and tooling ([#53])
 
 **Done.** `ruff` and `mypy` both report zero on `nqbt/` and both gate CI; `CONTRIBUTING.md` §"Linting and typing" is the rule and the workflow is the live check. What is recorded here is the reasoning that outlives the counts.
@@ -1254,6 +1287,7 @@ ______________________________________________________________________
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30
 [#307]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/307
+[#308]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/308
 [#309]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/309
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
 [#311]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/311
