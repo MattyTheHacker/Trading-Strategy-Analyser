@@ -227,7 +227,10 @@ below and is what you quote; this file is the index, not the record.
   candidate leaves the stop alone. **Do not write a second comparison.** EmaCrossover's trail
   sits *on top of* whichever mode placed the initial stop rather than replacing it, so
   `(use_atr_stop, trail_ma_stop)` is a legal 2x2 instead of a mode with a cell where one toggle
-  masks the other. `docs/roadmap.md` § "The build spec's three loose ends".
+  masks the other. `docs/roadmap.md` § "The build spec's three loose ends". EmaPullback's
+  `trail_on_slow` points the same ratchet at the slow average and the stop's own offset;
+  `emapullback.trailed_level` picks the series and offset, and the loop is unchanged.
+  `docs/nt8-fidelity.md` §M34.
 - **Round-number stop avoidance moves only a stop that lands *exactly* on a multiple**, and it
   is refused outright on bars that have not been declared `PriceBasis.RAW` — back-adjustment
   shifts every level, so the rule measures nothing on a merged series while looking fine. The

@@ -121,9 +121,11 @@ paths:
   there. **Do not carry an axis's measured deadness across to a variant set with a different
   entry rule** — re-measure it, because the interaction that killed it was with the rule and not
   with the axis. `docs/roadmap.md` §M26.6.
-- **`dead_axes` knows one toggle per axis, and `volume_rolling_bars` has two.** It is inert while
-  `volume_filter` admits everything *and* at every `volume_form` but `ROLLING`; only the first is
-  caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes
+- **`dead_axes` knows one inert value per toggle, and `volume_rolling_bars` needs two.** An axis
+  may name several toggles and is dead where any one of them is inert everywhere -- EmaPullback's
+  third-grid trail axes name `trail_ma_stop` and `trail_on_slow` -- but each toggle is compared
+  against one value. `volume_rolling_bars` is inert while `volume_filter` admits everything *and*
+  at every `volume_form` but `ROLLING`; only the first is caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes
   through `volume.key`** wherever a sweep crosses the form with the window — it drops the window
   from every form that does not read it, so the axis cannot vary where it is inert;
   `campaign_sweep._volume_axes` is the shape.
