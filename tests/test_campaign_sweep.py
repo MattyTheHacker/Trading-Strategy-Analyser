@@ -606,9 +606,11 @@ def test_a_volume_form_cell_names_the_series_and_the_cut_it_reads() -> None:
 
 
 def test_the_rolling_window_is_set_only_under_the_form_that_reads_it() -> None:
-    """``dead_axes`` knows one inert value per toggle and this axis is inert at two forms, so a
-    cross of form x window would run duplicate combinations silently --
-    ``.claude/rules/sweep-and-context.md``."""
+    """A cross of form x window would run duplicate combinations that ``dead_axes`` cannot see.
+
+    It knows one inert value per toggle and this axis is inert at two forms --
+    ``.claude/rules/sweep-and-context.md``.
+    """
     for name, extra in strata(VOLUME_FORMS):
         rolling = "@rolling_" in name
         assert ("volume_rolling_bars" in extra) is rolling, name

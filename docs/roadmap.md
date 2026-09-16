@@ -652,6 +652,10 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 
 **Volume is the largest context dimension at all nine fitted cuts and the raw pair understated it, `HEAVY` is a cost at every one of them and six fitted cells clear gate 2 on both roots where no raw cell does — and then 1 of 120 matched-null tests reaches p = 0.05, in the wrong direction, on a shortlist whose median holdout sample is 22 trades.** Moved to [`docs/findings/m36-ema-pullback-volume-recut.md`](findings/m36-ema-pullback-volume-recut.md).
 
+### M37 — EmaPullback's stop trailed on the slow average ([#313])
+
+**Trailing the stop on the slow average that placed it cuts session-close exits and holding time in every cell, but its profit-factor effect takes the window's sign — a cost on the selection window in seven of eight root x resolution cells and a gain on the holdout in six — so it clears the pre-registered paired bar in none, and gate 3 fails for both arms.** Moved to [`docs/findings/m37-ema-pullback-trail-on-slow.md`](findings/m37-ema-pullback-trail-on-slow.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
@@ -1237,6 +1241,7 @@ ______________________________________________________________________
 [#309]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/309
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
 [#311]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/311
+[#313]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/313
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#33]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/33
 [#34]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/34
