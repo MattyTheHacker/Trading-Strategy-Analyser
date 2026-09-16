@@ -216,8 +216,9 @@ What every change — including every milestone below — is checked against. Th
 - **A consistency count does not order the evidence, and the largest one is not the strongest case.** §M28.14 scored twelve context cells on how many `root x resolution` cells a filter won in both windows; §M28.16 took the ten of them that had never been nulled to a matched null and found the rank correlation between the score and the null excess to be −0.132, with the two `+10` cells at the bottom of the table. §M31 then measured it in the harder direction — five cells of one archetype tied at `+10`, spanning a median p from 0.010 to 0.72. A score says a direction repeated; only a null says it was worth anything.
 - **A stratum name has to carry the cut that defines it, or two cuts land under one name.** A fitted regime cell was `regime=DIRECTIONAL@n=20` — the lookback and not the quantile pair — so a second cell size would have been indistinguishable from the first in the same database. It now names the pair the way a volume form has always named its tail size, and §M31 re-ran the stated pair under the new name to prove the rename moved nothing.
 - **A variant set swept into a stratum changes every later shortlist of that stratum.** §M31.1 ran §M29's hold ladder inside the cell §M31 had just taken through gate 3, which took that cell from 576 stored rows to 4,032; a top-ten drawn afterwards is a mixture of the campaign grid and six hold arms, and the exclusion read over it reported four survivors that were all `hold=80` arms exiting by a different door. The earlier campaign's own numbers are untouched, but reproducing them needs `--variant`. Ask what else has been swept into a stratum before shortlisting it.
-- **A stratum figure belongs to the grid it was run at, and the entry's own definition is enough to reverse it.** §M26.9 measured ElasticBand's `HEAVY` as a cost on both roots at all nine fitted cuts and §M30 measured it as a benefit at all nine; §M33 held the bracket and the shape still, varied the channel alone, and reproduced both — so neither campaign was wrong and neither was measuring the archetype. Quote a stratum result against its configuration, and treat an archetype-level claim about a context dimension as unproven until the grid has been varied under it.
+- **A stratum figure belongs to the grid it was run at, and the entry's own definition is enough to reverse it.** §M26.9 measured ElasticBand's `HEAVY` as a cost on both roots at all nine fitted cuts and §M30 measured it as a benefit at all nine; §M33 held the bracket and the shape still, varied the channel alone, and reproduced both — so neither campaign was wrong and neither was measuring the archetype. Quote a stratum result against its configuration, and treat an archetype-level claim about a context dimension as unproven until the grid has been varied under it. §M38 found the same of a gate-3 result: OpeningRange's calibrated `DIRECTIONAL` cell holds at every range window and target under the opposite-extreme stop and reaches p = 0.05 on none of twenty configurations under the ATR stop.
 - **A paired read that joins on every parameter reports a clean zero when a column is newer than one side.** §M30 lost a whole first read to it across ten columns; §M33's cross-check against §M26.9 hit the same three columns and reported `exact` on an empty frame before `ran_at` was used. A paired tool has to print its pair count, and a reader has to refuse to conclude from zero pairs.
+- **A stored campaign row belongs to the archive it was swept on, and a matched-null re-read does not check that.** The archive was extended on 2026-09-16, which moved the 60/40 split under every campaign stored before it. `tools/campaign_null.py` rebuilds a stored row and runs it on today's bars without comparing the result with anything, so a gate-3 read of an older campaign silently measures a different holdout; §M37 and §M38 both found it only because each had a control that failed to reproduce. Before re-reading a stored campaign, compare its `sweeps` table's `first_bar` and `last_bar` with the current series ([#320]).
 - **A prefix of a trade log is not a sample of it.** The `explain.py` defect was justified with "50% of trades", measured over a 200-trade prefix; the whole-window rate is 35.7%. Quote whole-window rates.
 
 ______________________________________________________________________
@@ -655,6 +656,10 @@ Queued rather than scheduled; the expensive archetype. "Squeeze" means at least 
 ### M37 — EmaPullback's stop trailed on the slow average ([#313])
 
 **Trailing the stop on the slow average that placed it cuts session-close exits and holding time in every cell, but its profit-factor effect takes the window's sign — a cost on the selection window in seven of eight root x resolution cells and a gain on the holdout in six — so it clears the pre-registered paired bar in none, and gate 3 fails for both arms.** Moved to [`docs/findings/m37-ema-pullback-trail-on-slow.md`](findings/m37-ema-pullback-trail-on-slow.md).
+
+### M38 — OpeningRange's gate-3 cell read under the configurations it was never read under ([#307])
+
+**With the opposite-extreme stop the cell holds at all three range windows and under both targets; with the ATR stop the entry beats its null on all twenty configurations and reaches p = 0.05 on none, so §M31's result belongs to the stop mode.** Moved to [`docs/findings/m38-openingrange-cell-across-configurations.md`](findings/m38-openingrange-cell-across-configurations.md).
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 
@@ -1238,11 +1243,13 @@ ______________________________________________________________________
 [#287]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/287
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30
+[#307]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/307
 [#309]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/309
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
 [#311]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/311
 [#313]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/313
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
+[#320]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/320
 [#33]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/33
 [#34]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/34
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
