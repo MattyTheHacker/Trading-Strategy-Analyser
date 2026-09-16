@@ -79,6 +79,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M35`                                             | [M35 — EmaPullback swept: the entry axes hold their order and the moving averages reverse it](m35-ema-pullback-swept.md)                  | EmaPullback                                                                           | 1, 2, 3    | `mixed`       | [#309]                         |
 | `§M36`                                             | [M36 — EmaPullback's volume dimension re-cut, and the first raw cell whose direction transfers](m36-ema-pullback-volume-recut.md)         | EmaPullback                                                                           | 2, 3       | `mixed`       | [#311]                         |
 | `§M37`                                             | [M37 — EmaPullback's stop trailed on the slow average: the effect takes the window's sign](m37-ema-pullback-trail-on-slow.md)             | EmaPullback                                                                           | 1, 2, 3    | `mixed`       | [#313]                         |
+| `§M38`                                             | [M38 — OpeningRange's gate-3 cell belongs to the stop mode, not the window or target](m38-openingrange-cell-across-configurations.md)     | OpeningRange                                                                          | 3          | `mixed`       | [#307]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                             | EmaCrossover                                                                          | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                     | EmaCrossover                                                                          | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                             | EmaCrossover                                                                          | --         | `spec`        | [#74]                          |
@@ -274,6 +275,10 @@ Volume stays the largest context dimension at all nine fitted cuts and the raw p
 
 Trailing the stop on the slow average cuts session-close exits and holding time in every cell, but its profit-factor effect takes the window's sign — a cost on the selection window in seven of eight root x resolution cells and a gain on the holdout in six — so it clears the pre-registered paired bar in none; seven strata clear gate 2 on both roots against the fixed stop's four, and gate 3 fails for both arms at 1 of 60.
 
+**[M38 — OpeningRange's gate-3 cell belongs to the stop mode, not the window or target](m38-openingrange-cell-across-configurations.md)**
+
+With the opposite-extreme stop the calibrated DIRECTIONAL cell clears p = 0.05 on at least eight of ten configurations on both roots at all three range windows and both targets. With the ATR stop its entry beats a matched random entry on all twenty configurations and reaches p = 0.05 on none, so §M31's result belongs to the stop mode rather than to the archetype.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -325,6 +330,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#299]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/299
 [#300]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/300
 [#302]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/302
+[#307]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/307
 [#309]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/309
 [#311]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/311
 [#313]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/313
