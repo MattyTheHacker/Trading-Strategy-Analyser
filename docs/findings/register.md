@@ -82,6 +82,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M36`                                             | [M36 — EmaPullback's volume dimension re-cut, and the first raw cell whose direction transfers](m36-ema-pullback-volume-recut.md)                        | EmaPullback                                                                                         | 2, 3       | `mixed`       | [#311]                         |
 | `§M37`                                             | [M37 — EmaPullback's stop trailed on the slow average: the effect takes the window's sign](m37-ema-pullback-trail-on-slow.md)                            | EmaPullback                                                                                         | 1, 2, 3    | `mixed`       | [#313]                         |
 | `§M38`                                             | [M38 — OpeningRange's gate-3 cell belongs to the stop mode, not the window or target](m38-openingrange-cell-across-configurations.md)                    | OpeningRange                                                                                        | 3          | `mixed`       | [#307]                         |
+| `§M39`                                             | [M39 — EmaPullback's confirmation entry](m39-ema-pullback-confirmation-entry.md)                                                                         | EmaPullback                                                                                         | 1, 2, 3    | `mixed`       | [#311]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                                            | EmaCrossover                                                                                        | --         | `spec`        | [#74]                          |
@@ -288,6 +289,10 @@ Trailing the stop on the slow average cuts session-close exits and holding time 
 **[M38 — OpeningRange's gate-3 cell belongs to the stop mode, not the window or target](m38-openingrange-cell-across-configurations.md)**
 
 With the opposite-extreme stop the calibrated DIRECTIONAL cell clears p = 0.05 on at least eight of ten configurations on both roots at all three range windows and both targets. With the ATR stop its entry beats a matched random entry on all twenty configurations and reaches p = 0.05 on none, so §M31's result belongs to the stop mode rather than to the archetype.
+
+**[M39 — EmaPullback's confirmation entry](m39-ema-pullback-confirmation-entry.md)**
+
+Pending: the campaign is running, and the reading plan below was committed before it finished.
 
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 

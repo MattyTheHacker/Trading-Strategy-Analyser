@@ -61,6 +61,9 @@ from tools.campaign_sweep import (
     CAMPAIGN,
     COMMISSION,
     CONTEXT,
+    EMAPULLBACK_CONFIRM,
+    EMAPULLBACK_CONFIRM_VARIANTS,
+    EMAPULLBACK_HELD_KINDS,
     EMAPULLBACK_TRAIL,
     EMAPULLBACK_TRAIL_VARIANTS,
     CORE,
@@ -2066,3 +2069,54 @@ def conditions_free_of_the_third_grid(grid: sweep.Grid) -> bool:
     periods = {period for _, period in grid.required_context().ma_keys}
 
     return periods == set(grid.axes["fast_period"]) | set(grid.axes["slow_period"])
+
+
+# -- the [#311] confirmation entry ---------------------------------------------------------
+
+
+def confirm_variants(root: str = "MNQ") -> list[Variant]:
+    """All three arms of the confirmation run, the market entry first."""
+    return EMAPULLBACK_CONFIRM_VARIANTS["EmaPullback"](root)
+
+
+def test_the_confirmation_run_states_its_strata_before_it_runs_and_they_are_the_campaigns() -> None:
+    assert variants_for(EMAPULLBACK_CONFIRM) is EMAPULLBACK_CONFIRM_VARIANTS
+    assert [name for name, _ in strata(EMAPULLBACK_CONFIRM)] == [name for name, _ in strata(ALL_STRATA)]
+
+
+def test_the_confirmation_arms_differ_from_the_stored_campaign_by_the_entry_and_the_held_kinds() -> None:
+    """Every other axis and field is §M35's, so the arms pair cell for cell under ``campaign_paired``."""
+    for root in COMMISSION:
+        (campaign,) = VARIANTS["EmaPullback"](root)
+        market, one_bar, three_bars = confirm_variants(root)
+        shared = {
+            axis: values for axis, values in campaign.axes.items() if axis not in EMAPULLBACK_HELD_KINDS
+        }
+
+        assert market.base == campaign.base
+        assert one_bar.base == replace(campaign.base, confirm_entry=True)
+        assert three_bars.base == replace(campaign.base, confirm_entry=True, entry_order_lifetime_bars=3)
+        assert market.axes == one_bar.axes == three_bars.axes == shared
+        assert (campaign.base.fast_kind, campaign.base.slow_kind) == ("ema", "ema")
+
+
+def test_no_confirmation_variant_can_collide_with_a_stored_emapullback_one() -> None:
+    stored = {variant.name for variant in VARIANTS["EmaPullback"]("MNQ")} | {
+        variant.name for variant in EMAPULLBACK_TRAIL_VARIANTS["EmaPullback"]("MNQ")
+    }
+    names = [variant.name for variant in confirm_variants()]
+
+    assert not stored & set(names)
+    assert names == [
+        "stop=slow entry=market",
+        "stop=slow entry=confirm life=1",
+        "stop=slow entry=confirm life=3",
+    ]
+
+
+def test_every_confirmation_variant_grid_can_be_built_at_every_cell() -> None:
+    """A grid sweeping an axis the entry leaves unread is refused here, not an hour into the run."""
+    for variant in confirm_variants():
+        for _, grid in grids_for(variant, EMAPULLBACK_CONFIRM):
+            assert len(grid) == variant.sized()
+            assert conditions_free_of_the_third_grid(grid)

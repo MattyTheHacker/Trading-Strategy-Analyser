@@ -2115,6 +2115,21 @@ class EmaPullbackParams:
     so the archetype as specified is unchanged and a sweep measures the requirement against its
     own control."""
 
+    confirm_entry: bool = False
+    """Rest a stop order beyond the signal bar's extreme instead of entering at the next open.
+
+    The trade is then taken only if the trend resumes past the touch bar, and never where price
+    keeps going -- the strong form of :attr:`require_turn`. Off by default, so the archetype as
+    specified is unchanged -- ``docs/nt8-fidelity.md`` §M39."""
+
+    entry_offset_ticks: int = 1
+    """Ticks beyond the signal bar's extreme the confirmation order's trigger sits. Read only
+    under :attr:`confirm_entry`; at ``0`` a bar closing on its own extreme can never submit."""
+
+    entry_order_lifetime_bars: int = 1
+    """Bars the confirmation order rests for, the first being the bar after the signal. Read
+    only under :attr:`confirm_entry`."""
+
     trade_long: bool = True
     trade_short: bool = True
     """Which sides to take. Switching one off is how the two halves get measured separately."""
@@ -2258,6 +2273,7 @@ class EmaPullbackParams:
             msg = f"stop_offset_ticks must be >= 0, got {self.stop_offset_ticks}"
             raise ValueError(msg)
 
+        self._validate_confirmation()
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
@@ -2265,6 +2281,15 @@ class EmaPullbackParams:
                 f"fast and slow are both {self.fast_kind}({self.fast_period}); one average "
                 "never separates from itself, so no bar is ever extended away from it"
             )
+            raise ValueError(msg)
+
+    def _validate_confirmation(self) -> None:
+        if self.entry_offset_ticks < 0:
+            msg: str = f"entry_offset_ticks must be >= 0, got {self.entry_offset_ticks}"
+            raise ValueError(msg)
+
+        if self.entry_order_lifetime_bars < 1:
+            msg = f"entry_order_lifetime_bars must be >= 1, got {self.entry_order_lifetime_bars}"
             raise ValueError(msg)
 
     @property

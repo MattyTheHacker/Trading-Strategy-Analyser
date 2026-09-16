@@ -119,6 +119,7 @@ max-args = 10
 "nqbt/sim/crossover.py" = ["FBT003"]
 "nqbt/sim/deadcat.py" = ["FBT003"]
 "nqbt/sim/elasticband.py" = ["FBT003"]
+"nqbt/sim/emapullback.py" = ["FBT003"]
 "nqbt/sim/insidebar.py" = ["FBT003"]
 "nqbt/sim/insidebartrailing.py" = ["FBT003"]
 "nqbt/sim/openingrange.py" = ["FBT003"]
