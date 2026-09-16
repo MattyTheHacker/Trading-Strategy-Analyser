@@ -675,7 +675,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M39 — EmaPullback's confirmation entry ([#311])
 
-**A stop order beyond the signal bar's extreme, built as a mode on EmaPullback rather than an archetype of its own and swept against the market entry in one pass.** Moved to [`docs/findings/m39-ema-pullback-confirmation-entry.md`](findings/m39-ema-pullback-confirmation-entry.md).
+**A stop order beyond the signal bar's extreme, built as a mode rather than an archetype, raises profit factor on the selection window in all eight root x resolution cells and costs at 2 and 5 minutes held out, so it clears its pre-registered paired bar in none; a three-bar lifetime is worse than one, and gate 3 fails for all three arms.** Moved to [`docs/findings/m39-ema-pullback-confirmation-entry.md`](findings/m39-ema-pullback-confirmation-entry.md).
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 
