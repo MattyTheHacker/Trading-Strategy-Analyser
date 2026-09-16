@@ -39,7 +39,7 @@ from nqbt.arrays import float_column, ohlc
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, LabelArray
     from nqbt.bands import BandGrid
-    from nqbt.compression import CompressionGrid
+    from nqbt.compression import CompressionGrid, WindowRangeGrid
     from nqbt.conditions import MovingAverageGrid
     from nqbt.higher_timeframe import HigherTimeframeGrid
     from nqbt.regime import EfficiencyRatioGrid
@@ -124,6 +124,10 @@ class ContextSpec:
     """Compression series to build (:mod:`nqbt.compression`). Empty builds nothing, and a
     bandwidth-form entry implies the band period it reads -- see :meth:`band_periods_needed`."""
 
+    window_range_periods: tuple[int, ...] = ()
+    """Rolling windows whose high and low to build (:func:`nqbt.compression.rolling_extremes`),
+    in bars. Empty builds nothing."""
+
     trend_keys: tuple[trend.TrendKey, ...] = ()
     """Compact trend labels to build (:mod:`nqbt.trend`). Empty builds nothing, and an entry
     does **not** imply :attr:`needs_ma_values` -- the averages behind a label are built and
@@ -158,6 +162,7 @@ class ContextSpec:
             regime_lookbacks=tuple(sorted({*self.regime_lookbacks, *other.regime_lookbacks})),
             volume_keys=tuple(sorted({*self.volume_keys, *other.volume_keys})),
             compression_keys=tuple(sorted({*self.compression_keys, *other.compression_keys})),
+            window_range_periods=tuple(sorted({*self.window_range_periods, *other.window_range_periods})),
             trend_keys=tuple(sorted({*self.trend_keys, *other.trend_keys})),
             higher_timeframe_keys=tuple(
                 sorted({*self.higher_timeframe_keys, *other.higher_timeframe_keys}),
@@ -237,6 +242,9 @@ class Dataset:
 
     compressions: compression.CompressionGrid | None = None
     """Width and its trailing rank per declared series, or ``None`` when nothing asked."""
+
+    window_ranges: compression.WindowRangeGrid | None = None
+    """Rolling-window highs and lows per declared period, or ``None`` when nothing asked."""
 
     trends: trend.TrendGrid | None = None
     """Compact trend labels per declared key, or ``None`` when nothing asked for them."""
@@ -582,6 +590,24 @@ class Dataset:
         """Per-bar :class:`nqbt.compression.Compression`, for stratifying results."""
         return self._compressions().labels_for(key, compressed_below, expanded_above)
 
+    def _window_ranges(self) -> compression.WindowRangeGrid:
+        if self.window_ranges is None:
+            msg: str = (
+                "no rolling-window levels in this dataset; prepare() was not asked for them. "
+                "Add the period to window_range_periods on the archetype's ContextSpec."
+            )
+            raise ContextError(msg)
+
+        return self.window_ranges
+
+    def window_high(self, period: int) -> FloatArray:
+        """Per bar: the highest high of the ``period`` bars ending at it."""
+        return self._window_ranges().high_for(period)
+
+    def window_low(self, period: int) -> FloatArray:
+        """Per bar: the lowest low of the ``period`` bars ending at it."""
+        return self._window_ranges().low_for(period)
+
     def _trends(self) -> trend.TrendGrid:
         if self.trends is None:
             msg: str = (
@@ -687,6 +713,7 @@ class Dataset:
             self.regimes,
             self.volumes,
             self.compressions,
+            self.window_ranges,
             self.trends,
             self.higher_timeframes,
         ):
@@ -820,6 +847,11 @@ def prepare(
         if spec.compression_keys
         else None
     )
+    window_ranges: WindowRangeGrid | None = (
+        compression.window_range_grid(high, low, spec.window_range_periods)
+        if spec.window_range_periods
+        else None
+    )
 
     # Built before the VWAP so that a dataset holding both takes the basis off the band rather
     # than computing the same series a second time.
@@ -879,6 +911,7 @@ def prepare(
         regimes=regimes,
         volumes=volumes,
         compressions=compressions,
+        window_ranges=window_ranges,
         trends=trends,
         higher_timeframes=higher_timeframes,
         seconds_to_session_end=(sessions.seconds_to_session_end(info) if spec.needs_session_clock else None),

@@ -126,6 +126,13 @@ below and is what you quote; this file is the index, not the record.
   `MIN_DRAW_FREEDOM` rather than returning the observation (a context filter that thins the
   signal restores it); and the loop re-checks `armed` itself rather than trusting the signal,
   because the null arm substitutes it. `docs/roadmap.md` §M28.1.
+- **SqueezeBreakout runs OpeningRange's loop with one level row per bar, not a loop of its own.**
+  Its level is a rolling window's extreme, so it moves as the window rolls and is re-read at every
+  close rather than resting; `squeeze_levels` passes `session_id = arange(n)`, the breakout mode,
+  the per-session cap off and no follow-through, and the per-session reset firing on every bar is
+  inert under those. **Do not fork the loop for it, and do not read `session_id` as a session
+  anywhere new** -- for this caller it is a bar. Its signal leaves the null over bars room to draw,
+  and `entry_bound` sizes the output from bars that could fill. `docs/nt8-fidelity.md` §M19.2.
 - **OpeningRange computes its whole bracket from the trigger, never from the fill**, because the
   trigger is the only price known when the order is submitted. A gapped fill is worse than
   planned and its R is measured against the plan — DeadCatBounce's rule, shared deliberately.

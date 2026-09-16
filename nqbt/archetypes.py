@@ -25,6 +25,7 @@ from nqbt.sim import (
     openingrange,
     pullback,
     runner,
+    squeeze,
 )
 from nqbt.sim.types import (
     BAND_VWAP,
@@ -39,6 +40,7 @@ from nqbt.sim.types import (
     InsideBarTrailingParams,
     OpeningRangeParams,
     PullBackAndGoParams,
+    SqueezeBreakoutParams,
 )
 
 if TYPE_CHECKING:
@@ -364,6 +366,37 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
     )
 
 
+def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
+    """What SqueezeBreakout reads: its squeeze's series, that window's levels, and an ATR under one stop.
+
+    The squeeze's own compression series and window levels are built for every combination,
+    unlike the compression *filter's*, which :func:`_compression_keys` builds only where some
+    combination filters on them. A bandwidth squeeze implies its band period, as the filter's does.
+    """
+    squeezes: set[compression.CompressionKey] = {
+        compression.key(int(form), int(period), int(baseline))
+        for form in values.get("squeeze_form", ())
+        for period in values.get("squeeze_period", ())
+        for baseline in values.get("squeeze_baseline_bars", ())
+    }
+    atr: set[int] = (
+        {int(v) for v in values.get("atr_period", ())}
+        if any(int(v) == ORB_STOP_ATR for v in values.get("stop_mode", ()))
+        else set()
+    )
+
+    return ContextSpec(
+        atr_periods=tuple(sorted(atr)),
+        needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
+        compression_keys=tuple(sorted({*squeezes, *_compression_keys(values)})),
+        window_range_periods=tuple(sorted({int(v) for v in values.get("squeeze_period", ())})),
+        trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
+    )
+
+
 def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """What InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
 
@@ -565,6 +598,21 @@ follow-through unless some combination selects the mode that reads it.
 """
 
 
+SQUEEZE_GATES: Mapping[str, str] = {
+    **REGIME_GATES,
+    **VOLUME_GATES,
+    **COMPRESSION_GATES,
+    **TREND_GATES,
+    **HIGHER_TIMEFRAME_GATES,
+}
+"""Only the shared context filters gate an axis here.
+
+The squeeze's own axes are read on every combination, so none of them is gated. **The stop axes
+carry OpeningRange's blind spot unchanged** -- see :data:`OPENINGRANGE_GATES` -- because they are
+the same fields read by the same loop.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callables below
     """How to sweep one strategy. Frozen, so a lookup cannot mutate the registry."""
@@ -705,7 +753,22 @@ OPENINGRANGE = Archetype(
 )
 """The third original and the first archetype whose trigger is a level rather than an event:
 no NinjaScript, and TIER1_ONLY until there is one. One side per combination, because a
-two-sided range is not established as expressible -- ``docs/roadmap.md`` §M28."""
+two-sided range is not expressible -- ``docs/roadmap.md`` §M28."""
+
+SQUEEZEBREAKOUT = Archetype(
+    name="SqueezeBreakout",
+    params_cls=SqueezeBreakoutParams,
+    run=squeeze.run_squeeze,
+    legs=squeeze.squeeze_legs,
+    signal=squeeze.squeeze_signal,
+    tier2=Tier2Status.TIER1_ONLY,
+    gated_by=SQUEEZE_GATES,
+    context_for=squeeze_context,
+    not_sweepable=frozenset({"target_r_multiples", "target_width_multiples"}),
+)
+"""The fifth original: OpeningRange's resting breakout with the level taken from a compressed
+rolling window rather than a session's range. One side per combination, for OpeningRange's
+reason -- ``docs/findings/m19-2-squeeze-breakout-spec.md``."""
 
 _REGISTRY: dict[str, Archetype] = {
     a.name: a
@@ -718,6 +781,7 @@ _REGISTRY: dict[str, Archetype] = {
         INSIDEBARTRAILING,
         OPENINGRANGE,
         PULLBACKANDGO,
+        SQUEEZEBREAKOUT,
     )
 }
 

@@ -16,6 +16,7 @@ from nqbt.sim.types import (
     InsideBarParams,
     OpeningRangeParams,
     PullBackAndGoParams,
+    SqueezeBreakoutParams,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "InsideBarParams",
     "OpeningRangeParams",
     "PullBackAndGoParams",
+    "SqueezeBreakoutParams",
 ]

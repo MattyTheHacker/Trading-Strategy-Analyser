@@ -262,6 +262,51 @@ Three build-spec features, all on EmaCrossover, and like the rest of M18 none of
 
 **"At least N of M filters" is a count, and the M is the filters the rule set switched on.** NinjaScript would write it as the sum of the active gates against a `ConfluenceRequired` property, which is what `conditions.count_true` computes here. The one thing a port must not do is enter an inactive gate as `true`: each of these gates passes no mask on a bar it cannot label — a warm-up bar, a session with no volume baseline — so an inactive gate counted as satisfied changes the answer on exactly those bars. Every archetype but this one leaves `confluence_required` at `REQUIRE_ALL`, where the count and the conjunction are the same expression.
 
+### M19.2 — the squeeze-breakout rules, written before the Python (#51)
+
+**Written down before the Python existed and the Python written to it**, as §M28 was. There is no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as. The reasoning and the alternatives rejected are in [`m19-2-squeeze-breakout-spec.md`](findings/m19-2-squeeze-breakout-spec.md); only the rules are here.
+
+`Archetype.tier2` is `TIER1_ONLY`, and stays there until a trade list has been diffed against it.
+
+**The width is one of §M19.1's two forms, and every indicator behind them is already pinned or trivial.** Bandwidth is two standard deviations over the moving average — Bollinger's width over its middle up to a constant factor no rank can see — and `StdDev` and `SMA` are both pinned at M16; range-to-ATR is the window's range over an `ATR` of the same length, which is pinned, and `MAX` and `MIN` are a comparison each:
+
+```csharp
+double bandwidth  = 2 * StdDev(Close, Period)[0] / SMA(Close, Period)[0];
+double rangeToAtr = (MAX(High, Period)[0] - MIN(Low, Period)[0]) / ATR(Period)[0];
+```
+
+**The rank is a loop over a `Series<double>`, and it never reads the bar it ranks:**
+
+```csharp
+double below = 0;
+for (int k = 1; k <= BaselineBars; k++)
+    below += width[k] < width[0] ? 1.0 : width[k] == width[0] ? 0.5 : 0.0;
+bool squeezed = below / BaselineBars < SqueezeBelow;
+```
+
+evaluated only once `BaselineBars` measured widths sit behind the bar. **Strictly below**, so a rank exactly at the threshold is not a squeeze, which is `Compression.COMPRESSED`'s boundary.
+
+**The duration is a bar counter.** `squeezedBars = squeezed ? squeezedBars + 1 : 0;`, compared against `MinSqueezeBars` on the same bar.
+
+**The order is a one-bar stop, resubmitted at the window's current extreme**, under `Calculate.OnBarClose` on every bar the squeeze holds:
+
+```csharp
+if (squeezedBars >= MinSqueezeBars)
+    EnterLongStopMarket(MAX(High, Period)[0] + EntryOffsetTicks * TickSize);
+```
+
+The three-argument overload, so each order lives for the next bar only (§ "Order lifetime and the session edge"), and the trigger is re-read at every close, so a level that moves as the window rolls is followed. **This is not route 3**, whose trigger is unchanged between submissions, and it needs no `isLiveUntilCancelled` order.
+
+**§M18's refusal applies unchanged.** A stop entry at or through the close is never submitted, so a bar closing on its own window's high cannot submit at `EntryOffsetTicks = 0`; the default is 1, as it is for §M28.
+
+**The fill, the bracket and the targets are §M28's, read against the window.** The fill test is DeadCatBounce's. The bracket is computed from the trigger — the window's other extreme less `StopOffsetTicks` for the opposite-extreme stop, the stop fraction of `MAX - MIN` back from the broken extreme, or the floored ATR distance from the trigger, each set with `SetStopLoss(CalculationMode.Price, …)` — and the targets are the R ladder or multiples of the window's width. All of it is issued in the `OnBarUpdate` that submits the entry, so every level is the signal bar's.
+
+**A window that has not filled has no level.** No order is submitted while `CurrentBar < Period - 1`. NinjaTrader's own `MAX` would read the bars there are, so the two can disagree only before bar `Period - 1` — which `BarsRequiredToTrade` at its default of 200 excludes for every period the campaign grid sweeps.
+
+**One side per instance, because the managed approach allows no other.** The classic squeeze entry is both stops live with the first fill winning, and NinjaTrader ignores whichever of two opposite entries is submitted second, re-issued every bar or not — "The managed approach refuses the opposite-direction submission outright" below. `direction` is a swept axis and no combination ever holds two orders; a two-sided squeeze would have to be written unmanaged.
+
+**No per-session cap and no break flag.** A break usually widens the window out of the squeeze, so the order stops being resubmitted without a counter. A resting order is tested for a fill on the force-flat bar and `BlockEntryAtSessionClose` guards a new one there, as for every archetype.
+
 ### M22 — the InsideBar rules
 
 `InsideBar.cs` exists, so unlike M18 every rule below is a reading of real C#, and every one has now been diffed against a Strategy Analyzer trade list — "Reconciliation result — InsideBar" below. It earned its place on what it reaches rather than on what it might make: three parts of the fill model no other archetype touches, and `bracket.py` inherits whatever is wrong in them. Two of the three rules the port had to infer turned out to be wrong, which is the argument for reconciling each archetype rather than trusting the shared engine because the first one passed.
@@ -665,7 +710,7 @@ Same rule as §M26's: **only a distance is floored, never a level.** `min_bracke
 
 **A per-session entry cap, which no other archetype has.** An `int` reset on `Bars.IsFirstBarOfSession` and incremented in `OnExecutionUpdate`, compared against `maxEntriesPerSession` before each submission. Entirely expressible, and it is what makes the one-shot form every published opening-range result measures reachable at all — [roadmap.md](roadmap.md) §M28, finding 4.
 
-**One side per instance, and this is a limitation rather than a choice.** "The managed approach refuses the opposite-direction submission outright" above kills the classic form of both stops live with the first fill winning; §M28's finding 1 records that the probe measured route 1 and that **whether two plain opposite stops are both accepted is still untested**. Until a sixth probe scenario says otherwise the archetype is one-sided per combination, `direction` is a swept axis, and no combination ever holds two orders. The simulator has the same limit from the other side — one `pending_*` slot per loop.
+**One side per instance, and this is a limitation rather than a choice.** "The managed approach refuses the opposite-direction submission outright" below kills the classic form of both stops live with the first fill winning. §M28's finding 1 left route 3's plain stops untested, and a sixth probe scenario has since measured them refused the same way (#51), so the archetype is one-sided per combination, `direction` is a swept axis, and no combination ever holds two orders. The simulator has the same limit from the other side — one `pending_*` slot per loop.
 
 **Flat before the session close binds hard, and the live share is the thing to read.** A cash-anchored entry around 09:45 ET against a 17:00 close leaves the hold bounded by the geometry rather than the clock, but a runner leg with no target reaches the flatten every time: `session_close_share` runs near **half of all legs**, which changes what the results mean. It is produced by `tools/campaign_sweep.py --strategies OpeningRange --split` and read out of `results/campaign/OpeningRange.duckdb`; [roadmap.md](roadmap.md) §M28.1 has what it implies.
 
@@ -848,7 +893,16 @@ Neither of the two readings #67 proposed. It does not cancel the resting opposit
 
 **It is about direction, not count.** Re-running at `EntriesPerDirection = 2` produced a file differing from the `= 1` run only in NinjaTrader's execution-id counter.
 
-So a two-sided managed OCO is **not expressible**, and #51's squeeze entry must use resubmission (route 3) or go unmanaged (route 2) — see [roadmap.md](roadmap.md) § "Order lifetime in NT8".
+**Resubmission does not get round it either (#51).** Scenario 3's orders were `isLiveUntilCancelled`, so scenario 6 repeats it with plain ones: a three-argument buy stop above the bar's high and sell stop below its low, both re-issued at the new levels on every flat bar. The refusal lands on the first bar of every trial, before anything has been re-issued, so it holds for route 3's unchanged trigger and for §M19.2's moving one alike. Two runs over `MNQ 12-26`, 1 minute, `2026-01-01` → `2026-09-15`, `EntriesPerDirection = 2`, one per submission order:
+
+| submitted first | first side                         | second side                       |
+| --------------- | ---------------------------------- | --------------------------------- |
+| buy stop        | accepted on 500 trials, 499 filled | 1,142 submissions, 0 acknowledged |
+| sell stop       | accepted on 500 trials, 499 filled | 1,229 submissions, 0 acknowledged |
+
+**Submission order decides which side is refused.** Whichever entry goes in second is ignored, and re-issuing the working one every bar keeps the other out for the whole trial. This is documented behaviour rather than a Strategy Analyzer quirk: the help guide's internal order handling rules ignore an entry method when "the strategy position is flat and an order submitted by an enter method … is active and the order is used to open a position in the opposite direction" ([Managed Approach](https://ninjatrader.com/support/helpguides/nt8/managed_approach.htm)). `EntriesPerDirection = 1` was not re-run for plain orders; it caps entries on one side, and the refused order is always the other side.
+
+So a two-sided entry is **not expressible on the managed approach by any route**. An archetype that needs both sides resting at once has to be written unmanaged (route 2), which gives up `SetStopLoss` and `SetProfitTarget` — see [roadmap.md](roadmap.md) § "Order lifetime in NT8".
 
 ### A resting entry fills on the force-flat bar, and is flattened at its close
 

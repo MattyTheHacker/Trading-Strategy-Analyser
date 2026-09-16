@@ -169,6 +169,16 @@ paths:
   `session_id`. Stamping the level per bar instead costs 16 bytes a bar **per window**, which
   every parallel worker pays; as stored it is about 5 bytes a bar whatever a sweep asks for. Do
   not "simplify" it into a per-bar level. `docs/roadmap.md` §M28.1.
+- **A rolling window's high and low are per bar, because the window moves every bar**, and keyed
+  by period alone like the band grid: `compression.window_range_grid` builds them once per
+  `squeeze_period`, and
+  `compression.rolling_extremes` is the one window `range_to_atr` also reads. SqueezeBreakout's
+  context builds its squeeze's own compression series on every combination; the shared compression
+  filter's stay conditional on the filter. **Its stop axes carry OpeningRange's blind spot
+  unchanged**, which is why `squeeze_variants` makes the stop mode a variant dimension. **The
+  campaign's compression stratum reads the 20-bar bandwidth**, which is the squeeze's own series
+  for a sixth of its grid, so `compression=NORMAL` and `EXPANDED` trade nothing there by
+  construction. `docs/findings/m19-3-squeeze-breakout-swept.md`.
 - **The range window and anchor are not free axes: the bar size has to divide both.** A
   cash-anchored range needs `N | 930`, which with §M13's `N | 60` leaves **`N | 30`** and rules
   60-minute bars out entirely. `sessionrange.validate_key` raises rather than measuring a window
