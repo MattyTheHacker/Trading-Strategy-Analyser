@@ -6,7 +6,7 @@ issues: [51]
 gates: []
 outcome: spec
 verdict: >-
-  The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that same window's extreme through OpeningRange's loop; one side per combination, because a two-sided managed entry is still not established as expressible.
+  The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that same window's extreme through OpeningRange's loop; one side per combination, because the managed approach refuses a two-sided entry.
 ---
 
 # M19.2 — SqueezeBreakout: a break of the compressed window, one side at a time ([#51])
@@ -43,7 +43,7 @@ The window rolls, so the level moves whenever a bar enters or leaves it and **th
 
 ### One side per combination
 
-The squeeze is directionless, and the classic entry rests both stops with the first fill winning. **[§M28](m28-opening-range-spec.md)'s expressibility finding 1 still stands against that**: [#67] measured the managed approach refusing an opposite-direction submission of `isLiveUntilCancelled` orders, and whether two plain opposite stops submitted on one bar are both accepted is still unprobed — the likely answer is that they are not. The simulator has the same limit from its side, one pending slot per loop. So `direction` is an axis and long and short are separate grids, as they are for OpeningRange. A two-sided form stays the open item on [#51], and it would also need an entry-side ambiguity rule NT8 has no answer to: a bar that trades through both levels.
+The squeeze is directionless, and the classic entry rests both stops with the first fill winning. **The managed approach does not allow it.** [#67] measured it refusing an opposite-direction submission of `isLiveUntilCancelled` orders, which left [§M28](m28-opening-range-spec.md)'s expressibility finding 1 open for plain ones; a sixth probe scenario has since measured those refused the same way, whichever side goes in first — [`nt8-fidelity.md`](../nt8-fidelity.md) § "The managed approach refuses the opposite-direction submission outright". The simulator has the same limit from its side, one pending slot per loop. So `direction` is an axis and long and short are separate grids, as they are for OpeningRange. **A two-sided squeeze has to be written unmanaged**, and it would also need an entry-side rule for a bar that trades through both levels.
 
 **Resting on whichever side the close is nearer was considered and rejected.** It holds one order at a time, but on the bar the side flips, the previous bar's order is still live through that bar's close — the cancel lands at the start of the next pass ([`nt8-fidelity.md`](../nt8-fidelity.md) § "An order is live through the bar at whose close its cancel is issued") — so the flip submits the opposite-direction order the probe saw refused.
 
@@ -64,7 +64,7 @@ The output is sized from the bars that could fill — a squeezed, armed bar foll
 | question                                             | answer for SqueezeBreakout                                                                                     |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | How long must an entry order rest?                   | One bar, resubmitted at the window's current extreme — the three-argument overload                             |
-| Does it need a true OCO pair?                        | Its classic form does, and that is not established as expressible; one side per combination                    |
+| Does it need a true OCO pair?                        | Its classic form does, and the managed approach refuses it; one side per combination                           |
 | Does it need to reverse directly from long to short? | No. Flat between trades                                                                                        |
 | Does it hold through the session close?              | No, and it must not                                                                                            |
 | Does it need more than 4 entries per direction?      | No. One position at a time                                                                                     |

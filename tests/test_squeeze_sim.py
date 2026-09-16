@@ -419,7 +419,7 @@ def test_a_level_draw_is_refused_because_there_is_no_session_range() -> None:
 
 
 def test_a_window_traded_both_ways_cannot_be_asked_for() -> None:
-    with pytest.raises(ValueError, match="not established as expressible in NT8"):
+    with pytest.raises(ValueError, match="not expressible in NT8's managed approach"):
         SqueezeBreakoutParams(direction=0.0)
 
 

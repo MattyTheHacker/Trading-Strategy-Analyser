@@ -123,7 +123,7 @@ Read on a **balanced panel**: a level counts only where every level of that axis
 
 - **Gate 4 was not run on `trend=UP`.** Thirty-one held-out trades is §M28.1's sample-size verdict before a walk-forward is asked anything, and the cell was one entry chosen on each root's own selection window.
 - **The volume and regime strata used the raw threshold pairs.** §M30 is why a raw-cut gate result does not transfer to the label; `volume=THIN` and `regime=DIRECTIONAL` are raw-cut cells.
-- **The two-sided entry is still unbuilt**, and the long/short split above is why it matters: a squeeze taken on whichever side breaks first would pool a side that pays with a side that does not.
+- **The two-sided entry was not measured, and on the managed approach it cannot be built**: NinjaTrader ignores whichever opposite entry is submitted second — [`nt8-fidelity.md`](../nt8-fidelity.md) § "The managed approach refuses the opposite-direction submission outright". The long/short split above says what it would have measured unmanaged: a squeeze taken on whichever side breaks first pools a side that pays with a side that does not.
 - **Per-year and per-contract dispersion were not read.** §M19.2 asked for them before a pooled figure is believed; nothing here reached the gate that reads them.
 - **One minute was not swept**, and the latched squeeze §M19.2 deferred is still deferred.
 - **Nothing here is a Tier-2 measurement.** `Tier2Status` is `TIER1_ONLY` and no NinjaScript exists.

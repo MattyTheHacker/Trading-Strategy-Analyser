@@ -753,7 +753,7 @@ OPENINGRANGE = Archetype(
 )
 """The third original and the first archetype whose trigger is a level rather than an event:
 no NinjaScript, and TIER1_ONLY until there is one. One side per combination, because a
-two-sided range is not established as expressible -- ``docs/roadmap.md`` §M28."""
+two-sided range is not expressible -- ``docs/roadmap.md`` §M28."""
 
 SQUEEZEBREAKOUT = Archetype(
     name="SqueezeBreakout",

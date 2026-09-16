@@ -1696,7 +1696,7 @@ class OpeningRangeParams:
     :attr:`window_minutes` from :attr:`anchor_minutes` past the session open, then rest a stop
     order at whichever extreme :attr:`direction` names. **One side per combination**, because
     NT8's managed approach refuses the opposite-direction submission and a two-sided range is
-    not established as expressible -- ``docs/roadmap.md`` §M28.
+    not expressible -- ``docs/roadmap.md`` §M28.
 
     Every rule it implements and the NinjaScript each would be written as:
     ``docs/nt8-fidelity.md`` §M28. The design and what was deliberately left out:
@@ -2467,8 +2467,8 @@ class SqueezeBreakoutParams:
         if self.direction not in (trades.LONG, trades.SHORT):
             msg: str = (
                 f"direction must be {trades.LONG} (long) or {trades.SHORT} (short), got "
-                f"{self.direction}; a window traded both ways at once is not established as "
-                "expressible in NT8"
+                f"{self.direction}; a window traded both ways at once is not expressible in NT8's "
+                "managed approach"
             )
             raise ValueError(msg)
 

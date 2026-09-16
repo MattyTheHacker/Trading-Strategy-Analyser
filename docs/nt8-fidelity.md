@@ -303,7 +303,7 @@ The three-argument overload, so each order lives for the next bar only (§ "Orde
 
 **A window that has not filled has no level.** No order is submitted while `CurrentBar < Period - 1`. NinjaTrader's own `MAX` would read the bars there are, so the two can disagree only before bar `Period - 1` — which `BarsRequiredToTrade` at its default of 200 excludes for every period the campaign grid sweeps.
 
-**One side per instance, for §M28's reason.** The classic squeeze entry is both stops live with the first fill winning, and whether NT8 accepts two plain opposite stops submitted on one bar is still unprobed. `direction` is a swept axis and no combination ever holds two orders.
+**One side per instance, because the managed approach allows no other.** The classic squeeze entry is both stops live with the first fill winning, and NinjaTrader ignores whichever of two opposite entries is submitted second, re-issued every bar or not — "The managed approach refuses the opposite-direction submission outright" below. `direction` is a swept axis and no combination ever holds two orders; a two-sided squeeze would have to be written unmanaged.
 
 **No per-session cap and no break flag.** A break usually widens the window out of the squeeze, so the order stops being resubmitted without a counter. A resting order is tested for a fill on the force-flat bar and `BlockEntryAtSessionClose` guards a new one there, as for every archetype.
 
@@ -710,7 +710,7 @@ Same rule as §M26's: **only a distance is floored, never a level.** `min_bracke
 
 **A per-session entry cap, which no other archetype has.** An `int` reset on `Bars.IsFirstBarOfSession` and incremented in `OnExecutionUpdate`, compared against `maxEntriesPerSession` before each submission. Entirely expressible, and it is what makes the one-shot form every published opening-range result measures reachable at all — [roadmap.md](roadmap.md) §M28, finding 4.
 
-**One side per instance, and this is a limitation rather than a choice.** "The managed approach refuses the opposite-direction submission outright" above kills the classic form of both stops live with the first fill winning; §M28's finding 1 records that the probe measured route 1 and that **whether two plain opposite stops are both accepted is still untested**. Until a sixth probe scenario says otherwise the archetype is one-sided per combination, `direction` is a swept axis, and no combination ever holds two orders. The simulator has the same limit from the other side — one `pending_*` slot per loop.
+**One side per instance, and this is a limitation rather than a choice.** "The managed approach refuses the opposite-direction submission outright" below kills the classic form of both stops live with the first fill winning. §M28's finding 1 left route 3's plain stops untested, and a sixth probe scenario has since measured them refused the same way (#51), so the archetype is one-sided per combination, `direction` is a swept axis, and no combination ever holds two orders. The simulator has the same limit from the other side — one `pending_*` slot per loop.
 
 **Flat before the session close binds hard, and the live share is the thing to read.** A cash-anchored entry around 09:45 ET against a 17:00 close leaves the hold bounded by the geometry rather than the clock, but a runner leg with no target reaches the flatten every time: `session_close_share` runs near **half of all legs**, which changes what the results mean. It is produced by `tools/campaign_sweep.py --strategies OpeningRange --split` and read out of `results/campaign/OpeningRange.duckdb`; [roadmap.md](roadmap.md) §M28.1 has what it implies.
 
@@ -893,7 +893,16 @@ Neither of the two readings #67 proposed. It does not cancel the resting opposit
 
 **It is about direction, not count.** Re-running at `EntriesPerDirection = 2` produced a file differing from the `= 1` run only in NinjaTrader's execution-id counter.
 
-So a two-sided managed OCO is **not expressible**, and #51's squeeze entry must use resubmission (route 3) or go unmanaged (route 2) — see [roadmap.md](roadmap.md) § "Order lifetime in NT8".
+**Resubmission does not get round it either (#51).** Scenario 3's orders were `isLiveUntilCancelled`, so scenario 6 repeats it with plain ones: a three-argument buy stop above the bar's high and sell stop below its low, both re-issued at the new levels on every flat bar. The refusal lands on the first bar of every trial, before anything has been re-issued, so it holds for route 3's unchanged trigger and for §M19.2's moving one alike. Two runs over `MNQ 12-26`, 1 minute, `2026-01-01` → `2026-09-15`, `EntriesPerDirection = 2`, one per submission order:
+
+| submitted first | first side                         | second side                       |
+| --------------- | ---------------------------------- | --------------------------------- |
+| buy stop        | accepted on 500 trials, 499 filled | 1,142 submissions, 0 acknowledged |
+| sell stop       | accepted on 500 trials, 499 filled | 1,229 submissions, 0 acknowledged |
+
+**Submission order decides which side is refused.** Whichever entry goes in second is ignored, and re-issuing the working one every bar keeps the other out for the whole trial. This is documented behaviour rather than a Strategy Analyzer quirk: the help guide's internal order handling rules ignore an entry method when "the strategy position is flat and an order submitted by an enter method … is active and the order is used to open a position in the opposite direction" ([Managed Approach](https://ninjatrader.com/support/helpguides/nt8/managed_approach.htm)). `EntriesPerDirection = 1` was not re-run for plain orders; it caps entries on one side, and the refused order is always the other side.
+
+So a two-sided entry is **not expressible on the managed approach by any route**. An archetype that needs both sides resting at once has to be written unmanaged (route 2), which gives up `SetStopLoss` and `SetProfitTarget` — see [roadmap.md](roadmap.md) § "Order lifetime in NT8".
 
 ### A resting entry fills on the force-flat bar, and is flattened at its close
 

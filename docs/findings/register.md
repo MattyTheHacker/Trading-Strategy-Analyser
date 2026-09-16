@@ -119,7 +119,7 @@ The condition is real and consistently ordered across seven archetypes and two r
 
 **[M19.2 — SqueezeBreakout: a break of the compressed window, one side at a time](m19-2-squeeze-breakout-spec.md)**
 
-The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that same window's extreme through OpeningRange's loop; one side per combination, because a two-sided managed entry is still not established as expressible.
+The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that same window's extreme through OpeningRange's loop; one side per combination, because the managed approach refuses a two-sided entry.
 
 **[M19.3 — SqueezeBreakout swept: the squeeze's depth is nearly inert, and one short pocket clears the null on 31 trades](m19-3-squeeze-breakout-swept.md)**
 

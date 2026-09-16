@@ -156,7 +156,8 @@ The draw over **bars** refused on both roots with the message §M28.1 wrote, and
 
 ## What is still deferred
 
-The **noise-area form**, which §M28 put on ElasticBand's thread and which stays there. The **two-sided range**, which is not a parameter but a probe — §M28's finding 1, unanswered. The **marketable-limit question** above, which is the same booking. And a **null over the level's kind rather than its identity**, which is the thing neither null asks.
+The **noise-area form**, which §M28 put on ElasticBand's thread and which stays there. The **two-sided range**, which is not a parameter but a probe — §M28's finding 1, since answered by [#51]: the managed approach refuses it, so it would have to be written unmanaged. The **marketable-limit question** above, which is the same booking. And a **null over the level's kind rather than its identity**, which is the thing neither null asks.
 
 [#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
 [#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
+[#51]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/51

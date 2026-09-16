@@ -67,14 +67,14 @@ The review side takes real fills, which are genuinely tick-precise, and that is 
 
 **Expressibility checklist, to be run against a new archetype's design before building it.** Each item is somewhere NT8's managed approach constrains what a strategy can be:
 
-| question                                             | current answer                                                 |
-| ---------------------------------------------------- | -------------------------------------------------------------- |
-| How long must an entry order rest?                   | Any lifetime is expressible — see "Order lifetime in NT8"      |
-| Does it need a true OCO pair?                        | Only via the unmanaged approach, which costs the whole bracket |
-| Does it need to reverse directly from long to short? | Not supported by the simulator either; see [#13]               |
-| Does it hold through the session close?              | **It cannot.** Flat before the close is mandatory — see below  |
-| Does it need more than 4 entries per direction?      | `EntriesPerDirection` is a strategy property, not a limit      |
-| Does it need an indicator NT8 computes differently?  | Assume yes until pinned — see [#19]                            |
+| question                                             | current answer                                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| How long must an entry order rest?                   | Any lifetime is expressible — see "Order lifetime in NT8"                                              |
+| Does it need a true OCO pair?                        | Only via the unmanaged approach, which costs the whole bracket; resubmitting both sides is refused too |
+| Does it need to reverse directly from long to short? | Not supported by the simulator either; see [#13]                                                       |
+| Does it hold through the session close?              | **It cannot.** Flat before the close is mandatory — see below                                          |
+| Does it need more than 4 entries per direction?      | `EntriesPerDirection` is a strategy property, not a limit                                              |
+| Does it need an indicator NT8 computes differently?  | Assume yes until pinned — see [#19]                                                                    |
 
 The list is short because most of it has now been researched. Extend it rather than rediscovering an item the hard way.
 
@@ -146,7 +146,7 @@ Confirmed, including the `oco` parameter; `Order.Oco` is a string tag and two or
 
 **The cost is large and it is not a flag.** `IsUnmanaged = true` gives up `SetStopLoss`, `SetProfitTarget`, `EntriesPerDirection`, `EntryHandling` and managed position tracking. `DeadCatBounce.cs` uses **all** of them — four `SetStopLoss` calls, three `SetProfitTarget`, `EntriesPerDirection = 4`, `EntryHandling.AllEntries`. Going unmanaged means hand-rolling the entire four-leg bracket, which is a rewrite of the strategy, not a change of order call.
 
-**Recommendation: never go unmanaged for lifetime alone** — route 1 covers that completely. Reserve it for a genuine two-sided OCO requirement, and even then check route 3 first.
+**Recommendation: never go unmanaged for lifetime alone** — route 1 covers that completely. Reserve it for a genuine two-sided OCO requirement, where it is the only route: resubmitting both sides (route 3) is refused as well.
 
 ### Route 3 — resubmit each bar, and why it is exactly equivalent for Tier 1
 
@@ -168,7 +168,7 @@ The earlier note said the squeeze's resting orders "may simply not be expressibl
 
 So the M19 design question is no longer "can this be built" but **"do I actually need native OCO, or is resubmission enough"** — and for a Tier-1 research backtester the answer is resubmission, with the OCO question deferred to a live port.
 
-**§M28's finding 1 corrected that answer, and §M19.2 is built to the correction.** The probe below measured route 1; whether route 3's two plain opposite stops are both accepted is still unprobed, so the squeeze is traded one side per combination and its two-sided form stays unbuilt.
+**§M28's finding 1 corrected that answer, and a probe has since closed it.** The probe below measured route 1, and a sixth scenario then measured route 3: NinjaTrader ignores whichever of two plain opposite stops is submitted second, re-issued every bar or not ([#51]). **A two-sided entry is route 2 or nothing**, so §M19.2's squeeze is traded one side per combination, and any later archetype that needs both sides resting at once has to be written unmanaged — [nt8-fidelity.md](nt8-fidelity.md) § "The managed approach refuses the opposite-direction submission outright".
 
 ### What reflection could not settle, and what did
 
@@ -179,7 +179,7 @@ The findings and their evidence are in [nt8-fidelity.md](nt8-fidelity.md) § "Or
 - **Strategy Analyzer honours `isLiveUntilCancelled`.** An unreachable LUC order rested 199,669 bars across 146 session opens with the session-close handler off.
 - **The cancel lands at the start of the next bar's pass**, so an order is live from submit+1 *through* the bar at whose close its cancel was issued. The three-argument overload reproduces `deadcat.py`'s `pending_bar == i - 1` exactly, which makes `entry_order_lifetime_bars = 1` byte-for-byte compatible.
 - **`IsExitOnSessionCloseStrategy` is what ends a resting entry, not the session boundary.** With it false, nothing cancels. That collapses "until cancelled" and "cancel at the force-flat point" into the same behaviour here, because flat-before-close is not negotiable — but the cancel lands *after* that bar's fills, not before ([#208]).
-- **The managed approach refuses an opposite-direction submission outright** — the second order is never accepted, at either `EntriesPerDirection`. So route 1 cannot express a two-sided OCO at all, and M19 falls to route 3 or route 2.
+- **The managed approach refuses an opposite-direction submission outright** — the second order is never accepted, at either `EntriesPerDirection`. So route 1 cannot express a two-sided OCO at all, and M19 falls to route 3 or route 2. Route 3 was then probed and refused the same way ([#51]), which leaves route 2.
 
 **Two things the probe found that nobody asked it for.** Order callbacks report the bar *before* the one a fill resolved against, which shifts every reading by a bar if taken at face value; and a resting entry **can** fill on the force-flat bar, which every entry loop refused. The second was a defect rather than a rule and was fixed by [#208]; the InsideBar trade list had been carrying an unjoined leg of exactly that shape the whole time.
 
@@ -493,7 +493,7 @@ Two archetypes size a bracket off ATR for opposite reasons — EmaCrossover beca
 
 ### M19 — squeeze breakout ([#51])
 
-Built one side at a time at §M19.2; the two-sided form is still unbuilt. "Squeeze" means at least three things, and fixing the definition is the first task: TTM-style (Bollinger inside Keltner — the full M16 debt), bandwidth (`(upper − lower) / mid` below a trailing percentile — Bollinger only), or structural (inside bars — no new indicators at all). **Recommend the bandwidth form first:** one indicator rather than three, it drops the Keltner parity question flagged above as most likely to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and is the only version of this strategy with C# ground truth. Its trade list also settled two questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]` means inside `OnExecutionUpdate`. The real structural cost is a two-sided OCO entry model the loop lacks; the order-lifetime research above resolves that resubmission is exactly equivalent for Tier 1. Traps: lookahead (bands must come from *completed* bars — this is the second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate, and results that cluster by volatility regime so the aggregate PF averages two populations.
+Built one side at a time at §M19.2, and closed there: the two-sided form is not expressible on the managed approach, so an archetype that needs it has to be written unmanaged — [nt8-fidelity.md](nt8-fidelity.md) § "The managed approach refuses the opposite-direction submission outright". "Squeeze" means at least three things, and fixing the definition is the first task: TTM-style (Bollinger inside Keltner — the full M16 debt), bandwidth (`(upper − lower) / mid` below a trailing percentile — Bollinger only), or structural (inside bars — no new indicators at all). **Recommend the bandwidth form first:** one indicator rather than three, it drops the Keltner parity question flagged above as most likely to be silently wrong, and it is the same quantity M10.1's regime classifier wants anyway, so the two share it instead of each inventing one. **`InsideBar.cs` is ported ahead of either** (M22 below) — it is the same compression-then-break idea, needs no new indicator work beyond ATR, and is the only version of this strategy with C# ground truth. Its trade list also settled two questions M19 would otherwise inherit: the `IsFillLimitOnTouch = true` branch, and what `[0]` means inside `OnExecutionUpdate`. The real structural cost was a two-sided OCO entry model the loop lacks, and the order-lifetime probes above found the managed approach does not allow one at all. Traps: lookahead (bands must come from *completed* bars — this is the second-easiest place in the project to manufacture a fictional edge), a high ambiguous-bar rate, and results that cluster by volatility regime so the aggregate PF averages two populations.
 
 ### M19.1 — compression as a condition, before it is an archetype ([#51])
 
@@ -501,7 +501,7 @@ Built one side at a time at §M19.2; the two-sided form is still unbuilt. "Squee
 
 ### M19.2 — SqueezeBreakout: a break of the compressed window, one side at a time ([#51])
 
-**The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that window's extreme through OpeningRange's loop; one side per combination, because a two-sided managed entry is still not established as expressible.** Moved to [`docs/findings/m19-2-squeeze-breakout-spec.md`](findings/m19-2-squeeze-breakout-spec.md).
+**The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that window's extreme through OpeningRange's loop; one side per combination, because the managed approach refuses a two-sided entry.** Moved to [`docs/findings/m19-2-squeeze-breakout-spec.md`](findings/m19-2-squeeze-breakout-spec.md).
 
 ### M19.3 — SqueezeBreakout swept: the squeeze's depth is nearly inert, and one short pocket clears the null on 31 trades ([#51])
 
@@ -1003,7 +1003,7 @@ That run also corrected a rule this project had been carrying since the first re
 
 `tools/reconcile_nt8.py` is the reusable mechanism these produced. Per the standing rule that each archetype earns its own reconciliation, the next one does not start from scratch.
 
-**Settle the four order-lifetime questions** ([#67]) that reflection cannot answer — listed above. It is the only NinjaTrader item left, and it gated M19, whose two-sided form §M19.2 still leaves unbuilt.
+**Settle the four order-lifetime questions** ([#67]) that reflection cannot answer — listed above. It is the only NinjaTrader item left, and it gated M19, whose two-sided form a sixth scenario has since shown the managed approach refuses ([#51]).
 
 ______________________________________________________________________
 
