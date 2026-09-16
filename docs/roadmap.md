@@ -503,6 +503,10 @@ Built one side at a time at §M19.2; the two-sided form is still unbuilt. "Squee
 
 **The squeeze is the compression filter's own rank cut at one threshold, and the order rests a tick beyond that window's extreme through OpeningRange's loop; one side per combination, because a two-sided managed entry is still not established as expressible.** Moved to [`docs/findings/m19-2-squeeze-breakout-spec.md`](findings/m19-2-squeeze-breakout-spec.md).
 
+### M19.3 — SqueezeBreakout swept: the squeeze's depth is nearly inert, and one short pocket clears the null on 31 trades ([#51])
+
+**Unfiltered, the break beats a random entry on neither root, so compression adds nothing measurable to it; the one cell clearing gate 3 on both roots is a single short entry on about 31 held-out trades.** Moved to [`docs/findings/m19-3-squeeze-breakout-swept.md`](findings/m19-3-squeeze-breakout-swept.md).
+
 ### M26 — the elastic band, the first mean-reversion archetype ([#167])
 
 **The first mean-reversion archetype: Bollinger as the band, three exit schemes as three grids, and a first measurement whose held-out behaviour does not survive the test it is put to.** Moved to [`docs/findings/m26-elastic-band.md`](findings/m26-elastic-band.md).
