@@ -2203,6 +2203,13 @@ class EmaPullbackParams:
     :attr:`stop_offset_ticks` for the reason ``ratchet_offset_ticks`` is separate from it in
     the ported archetypes."""
 
+    trail_on_slow: bool = False
+    """Trail on the slow average at :attr:`stop_offset_ticks`, the level and offset that placed
+    the stop, instead of on the third grid.
+
+    Read only while :attr:`trail_ma_stop` is on, and it leaves ``trail_ma_kind``,
+    ``trail_ma_period`` and ``trail_offset_ticks`` unread -- ``docs/nt8-fidelity.md`` §M34."""
+
     tp_multiplier: float = 1.0
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """Per-leg targets in R, ``nan`` marking a runner.

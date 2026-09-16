@@ -200,9 +200,30 @@ def test_every_gate_names_a_real_field_on_its_own_params_class() -> None:
     """
     for a in archetypes.all_archetypes():
         known = {f.name for f in fields(a.params_cls)}
-        for axis, toggle in a.gated_by.items():
+        for axis, gate in a.gated_by.items():
             assert axis in known, f"{a.name}: gated axis {axis!r} is not a field"
-            assert toggle in known, f"{a.name}: gate {toggle!r} is not a field"
+            for toggle in archetypes.gate_toggles(gate):
+                assert toggle in known, f"{a.name}: gate {toggle!r} is not a field"
+
+
+def test_a_gate_naming_one_toggle_and_one_naming_several_read_the_same_way() -> None:
+    """Every reader of ``gated_by`` iterates the toggles, so a bare name must not iterate as letters."""
+    assert archetypes.gate_toggles("use_ema") == ("use_ema",)
+    assert archetypes.gate_toggles(("trail_ma_stop", "trail_on_slow")) == ("trail_ma_stop", "trail_on_slow")
+
+
+def test_an_axis_naming_two_toggles_is_dead_while_either_leaves_it_unread() -> None:
+    """Each toggle is checked on its own, so the axis is live only where both let it be read."""
+    trail_off = EmaPullbackParams(trail_ma_stop=False, trail_on_slow=False)
+    on_slow = EmaPullbackParams(trail_ma_stop=True, trail_on_slow=True)
+    on_grid = EmaPullbackParams(trail_ma_stop=True, trail_on_slow=False)
+    with pytest.raises(sweep.SweepError, match=r"trail_ma_period \(inert while trail_ma_stop is False\)"):
+        sweep.Grid.of(trail_off, trail_ma_period=[20, 50])
+
+    with pytest.raises(sweep.SweepError, match=r"trail_ma_period \(inert while trail_on_slow is True\)"):
+        sweep.Grid.of(on_slow, trail_ma_period=[20, 50])
+
+    assert sweep.Grid.of(on_grid, trail_ma_period=[20, 50]).dead_axes() == {}
 
 
 def test_the_bracket_floor_is_dead_while_the_swing_stop_is_selected() -> None:
