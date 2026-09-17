@@ -156,6 +156,13 @@ and with it trailed on the slow average that placed it, in one pass over §M35's
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-trail --split \
         --strata emapullback-trail --resolutions 2 5 10 15 --n-jobs 12
+
+``--variants emapullback-confirm`` runs EmaPullback's market entry against its confirmation entry
+at two order lifetimes, in one pass over §M35's strata with both kind axes held at ``ema`` --
+``docs/findings/m39-ema-pullback-confirmation-entry.md``:
+
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-confirm --split \
+        --strata emapullback-confirm --resolutions 2 5 10 15 --n-jobs 12
 """
 
 from __future__ import annotations
@@ -312,6 +319,7 @@ ELASTIC_CHANNEL = "elastic-channel"
 ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
 EMAPULLBACK_TRAIL = "emapullback-trail"
+EMAPULLBACK_CONFIRM = "emapullback-confirm"
 HOLD = "hold"
 SPEC = "spec"
 ALL_STRATA = "all"
@@ -583,6 +591,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_RECOVERY: (UNFILTERED,),
     ELASTIC_BAND_STOP: (UNFILTERED,),
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
+    EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
     HOLD: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: EVERY_DIMENSION,
@@ -2074,6 +2083,42 @@ EMAPULLBACK_TRAIL_VARIANTS = {"EmaPullback": emapullback_trail_variants}
 Every name carries a ``trail=`` token no stored row has, so the two runs cannot collide in one
 database -- ``docs/findings/m37-ema-pullback-trail-on-slow.md``."""
 
+EMAPULLBACK_ENTRIES: dict[str, dict[str, bool | int]] = {
+    "entry=market": {"confirm_entry": False},
+    "entry=confirm life=1": {"confirm_entry": True, "entry_order_lifetime_bars": 1},
+    "entry=confirm life=3": {"confirm_entry": True, "entry_order_lifetime_bars": 3},
+}
+"""The market entry, and the stop order beyond the signal bar resting for one bar and for three.
+
+The ``entry=market`` arm is the control, run on the same bars in the same pass."""
+
+EMAPULLBACK_HELD_KINDS = ("fast_kind", "slow_kind")
+"""The two axes the confirmation run holds at the archetype's own ``ema``.
+
+§M35 measured both as inert and inverting across the split, and holding them is what keeps three
+arms inside §M35's run time -- ``docs/findings/m39-ema-pullback-confirmation-entry.md``."""
+
+
+def emapullback_confirm_variants(root: str) -> list[Variant]:
+    """§M35's variant once per entry, so the three arms share every axis and differ by the order."""
+    (campaign,) = emapullback_variants(root)
+    axes: dict[str, list[AxisValue]] = {
+        axis: values for axis, values in campaign.axes.items() if axis not in EMAPULLBACK_HELD_KINDS
+    }
+
+    return [
+        replace(
+            campaign, name=f"{campaign.name} {entry_name}", base=replace(campaign.base, **entry), axes=axes
+        )
+        for entry_name, entry in EMAPULLBACK_ENTRIES.items()
+    ]
+
+
+EMAPULLBACK_CONFIRM_VARIANTS = {"EmaPullback": emapullback_confirm_variants}
+"""The [#311] run: EmaPullback's market entry against its confirmation entry. Every name carries an
+``entry=`` token no stored row has, so the runs cannot collide in one database --
+``docs/findings/m39-ema-pullback-confirmation-entry.md``."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -2084,6 +2129,7 @@ CAMPAIGN = "campaign"
 VARIANT_SETS = {
     CAMPAIGN,
     ELASTIC_BAND_STOP,
+    EMAPULLBACK_CONFIRM,
     EMAPULLBACK_TRAIL,
     ELASTIC_CHANNEL,
     ELASTIC_RECOVERY,
@@ -2108,6 +2154,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """The variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
+        EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
         EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,
         ELASTIC_CHANNEL: ELASTIC_CHANNEL_VARIANTS,
         ELASTIC_RECOVERY: ELASTIC_RECOVERY_VARIANTS,

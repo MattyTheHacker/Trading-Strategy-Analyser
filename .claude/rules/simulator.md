@@ -40,7 +40,9 @@ below and is what you quote; this file is the index, not the record.
 - **Entry orders are not GTC**: NT8's managed approach cancels them after one bar. That is an
   unset parameter, not a platform limit — `docs/roadmap.md` § "Order lifetime in NT8" has the
   three routes and their costs. The simulation keeps the one-bar lifetime because that is what
-  the C# does.
+  the C# does. EmaPullback's confirmation entry is the one loop with `entry_order_lifetime_bars`,
+  live on bars `i+1 … i+k` and cancelled on the force-flat bar after its fill test.
+  `docs/nt8-fidelity.md` §M39.
 - **`IsFillLimitOnTouch = true` is InsideBar's, and its branch now has a trade list behind it.**
   Both other ports set `false`, so their targets need `low < target`; InsideBar needs
   `low <= target`. `docs/nt8-fidelity.md` §M22.
@@ -171,6 +173,13 @@ below and is what you quote; this file is the index, not the record.
 - **It carries the only per-session entry cap in the registry.** Every other loop re-enters as
   soon as it is flat; `max_entries_per_session` defaults to 1, which is the one-shot form every
   published opening-range result measures. `docs/roadmap.md` §M28, finding 4.
+- **EmaPullback's confirmation entry is its own entry loop, not a mode of `simulate_crossover`.**
+  That loop has no trigger price and is EmaCrossover's control too; OpeningRange's takes one side
+  per combination, and EmaPullback reads its side per bar. `simulate_confirmation` holds the
+  pending order only; the fill test is `bracket.stop_entry_fill`, which OpeningRange's stop
+  entries share, and **the bracket is computed from the trigger**, so its R is not the market
+  entry's. It submits only when flat at the close and refuses an entry on the other side of an
+  order still working. `docs/nt8-fidelity.md` §M39.
 - **Stop-and-reverse is not supported.** The loop's `in_position` boolean assumes flat-to-flat
   and reversal collides with the one-bar entry lifetime. A deliberate limitation.
 - **`EXIT_SIGNAL` is spent by EmaCrossover and InsideBarTrailing** — a rule-driven exit with no

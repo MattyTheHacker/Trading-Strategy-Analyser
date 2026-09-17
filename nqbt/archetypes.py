@@ -529,6 +529,8 @@ that no combination could satisfy, or that is the plain conjunction again, raise
 
 
 EMAPULLBACK_GATES: Mapping[str, Gate] = {
+    "entry_offset_ticks": "confirm_entry",
+    "entry_order_lifetime_bars": "confirm_entry",
     "trail_ma_kind": ("trail_ma_stop", "trail_on_slow"),
     "trail_ma_period": ("trail_ma_stop", "trail_on_slow"),
     "trail_offset_ticks": ("trail_ma_stop", "trail_on_slow"),
@@ -540,7 +542,8 @@ EMAPULLBACK_GATES: Mapping[str, Gate] = {
     **HIGHER_TIMEFRAME_GATES,
 }
 """EmaPullback reads both averages on every combination and has one stop mode, so only the
-trail and the shared context filters gate an axis. The third grid's three axes are unread with
+confirmation entry, the trail and the shared context filters gate an axis. The stop order's
+offset and lifetime are unread at the market entry. The third grid's three axes are unread with
 the trail off *and* with it on the slow average, so they name both toggles.
 
 Neither entry axis can be gated and neither needs to be: ``touch_mode`` and

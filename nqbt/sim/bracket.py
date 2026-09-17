@@ -364,6 +364,30 @@ def entry_bracket(
     return trigger, stop, risk
 
 
+@njit(cache=True)
+def stop_entry_fill(
+    bars: Bars,
+    i: int,
+    trigger: float,
+    slippage: float,
+    direction: float,
+) -> tuple[bool, float]:
+    """Whether a resting stop-market entry fills on bar ``i``, and at what price.
+
+    A market order once triggered, so a gap through the trigger fills at the open; otherwise the
+    bar's favourable extreme has to reach it and the fill is the trigger. Shared by OpeningRange's
+    stop entries and EmaPullback's confirmation entry -- ``docs/nt8-fidelity.md``, "Fill".
+    """
+    if direction * bars.open_[i] >= direction * trigger:
+        return True, bars.open_[i] + direction * slippage
+
+    _, touch = sided(bars.low[i], bars.high[i], direction)
+    if direction * touch >= direction * trigger:
+        return True, trigger + direction * slippage
+
+    return False, 0.0
+
+
 NO_BRACKET_FLOOR = 0.0
 """The floor value that switches :func:`atr_bracket_distance` off, which every port passes."""
 

@@ -162,6 +162,8 @@ Live, they are not identical: each resubmission is a new order, so queue positio
 
 Same gate as every other change to this loop: at `entry_order_lifetime_bars = 1`, every existing trade log must come back **byte-identical**. Do not build it before M19 needs it ([#16] says so explicitly).
 
+**Built since in one loop, not in this one.** EmaPullback's confirmation entry holds `pending_until` and keeps its order live while `i <= pending_until`, from a lifetime of 1 upward; "until cancelled" is not offered. `deadcat.py` still carries the single equality ([nt8-fidelity.md](nt8-fidelity.md) §M39).
+
 ### What this changes about M19
 
 The earlier note said the squeeze's resting orders "may simply not be expressible in NT8". **That is resolved — they are expressible**, and the trap downgrades accordingly: a one-sided rest is route 1, cheap and managed; a true two-sided OCO is route 2 and costs the unmanaged rewrite; route 3 gets the two-sided behaviour with no NT8 work at all in backtest and differs only live.
@@ -670,6 +672,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 ### M38 — OpeningRange's gate-3 cell read under the configurations it was never read under ([#307])
 
 **With the opposite-extreme stop the cell holds at all three range windows and under both targets; with the ATR stop the entry beats its null on all twenty configurations and reaches p = 0.05 on none, so §M31's result belongs to the stop mode.** Moved to [`docs/findings/m38-openingrange-cell-across-configurations.md`](findings/m38-openingrange-cell-across-configurations.md).
+
+### M39 — EmaPullback's confirmation entry ([#311])
+
+**A stop order beyond the signal bar's extreme, built as a mode rather than an archetype, raises profit factor on the selection window in all eight root x resolution cells and costs at 2 and 5 minutes held out, so it clears its pre-registered paired bar in none; a three-bar lifetime is worse than one, and gate 3 fails for all three arms.** Moved to [`docs/findings/m39-ema-pullback-confirmation-entry.md`](findings/m39-ema-pullback-confirmation-entry.md).
 
 ### ~~The numpy-native summary path~~ — done ([#33])
 

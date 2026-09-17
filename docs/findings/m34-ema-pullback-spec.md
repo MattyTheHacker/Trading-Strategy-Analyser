@@ -63,6 +63,8 @@ Two separate requirements, and they are separate because they fail differently. 
 
 The obvious fifth choice — rest a stop order above the touch bar's high and enter only if the trend resumes — is deliberately absent. It is a different entry mechanism (a resting stop order with a trigger price, a submittability rule and a one-bar lifetime), which means a different null and a different set of fill semantics; folding it in as a mode would make the archetype two archetypes wearing one name, which is the thing this file has already argued against once. It is the natural second campaign, not part of the first.
 
+**Built since as a mode rather than an archetype, and the argument above was the half that did not hold** — [§M39](m39-ema-pullback-confirmation-entry.md) § "A mode on EmaPullback, not an archetype of its own".
+
 ## The stop, and the two precedents that disagree about the offset
 
 **The stop is the slow average at the signal bar**, never the fill bar's. Every other read in the archetype is from the signal bar and this is the one that matters most: the average moves, and reading the bar the fill happens on would place a stop against information the order did not have.

@@ -4,21 +4,24 @@
 down rather than reconciled -- ``docs/nt8-fidelity.md`` §M34 names the NinjaScript each would
 become. The design and the alternatives rejected: ``docs/findings/m34-ema-pullback-spec.md``.
 
-Reuses :func:`nqbt.sim.crossover.simulate_crossover` itself, not a fork of it: the entry is the
-same market-on-next-open, the side comes from the same :func:`~nqbt.sim.crossover.regime_direction`,
-and the stop is the shared loop's level mode reading the slow average.
+The market entry reuses :func:`nqbt.sim.crossover.simulate_crossover` itself, not a fork of it:
+the entry is the same market-on-next-open, the side comes from the same
+:func:`~nqbt.sim.crossover.regime_direction`, and the stop is the shared loop's level mode
+reading the slow average. The confirmation entry is a stop order resting beyond the signal bar,
+so it is its own entry loop over the same bracket engine -- ``docs/nt8-fidelity.md`` §M39.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
+from numba import njit
 
 from nqbt import conditions, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, crossover, filters
-from nqbt.sim.types import TOUCH_ANY, TOUCH_WICK
+from nqbt.sim.types import STOP_MIN_TICKS, TOUCH_ANY, TOUCH_WICK
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -140,6 +143,289 @@ def trailed_level(
     return data.ma_values(params.trail_ma_kind, params.trail_ma_period), float(params.trail_offset_ticks)
 
 
+class ConfirmationSeries(NamedTuple):
+    """The per-bar series :func:`simulate_confirmation` reads beside the bars."""
+
+    direction_at: FloatArray
+    """Which side the averages are on -- :func:`nqbt.sim.crossover.regime_direction`."""
+
+    stop_level: FloatArray
+    """The slow average, which the protective stop is placed on."""
+
+    trail_ma: FloatArray
+    """The average the stop trails, and :data:`~nqbt.sim.crossover.NO_TRAIL` while it does not."""
+
+
+class ConfirmationRules(NamedTuple):
+    """The scalar rule set :func:`simulate_confirmation` reads, one field per parameter."""
+
+    entry_offset_ticks: float
+    stop_offset_ticks: float
+    entry_order_lifetime_bars: int
+    trail_ma_stop: bool
+    trail_offset_ticks: float
+    tp_multiplier: float
+    bars_required: int
+    exit_on_trend_flip: bool
+    block_entry_at_session_close: bool
+    max_hold_bars: int
+
+
+@njit(cache=True)
+def confirmation_bracket(
+    bars: bracket.Bars,
+    signal_bar: int,
+    series: ConfirmationSeries,
+    rules: ConfirmationRules,
+    tick_size: float,
+) -> tuple[float, float, float, float]:
+    """One signal bar's order arithmetic: side, trigger, initial stop, planned risk.
+
+    The trigger sits ``entry_offset_ticks`` beyond the signal bar's favourable extreme and the
+    stop ``stop_offset_ticks`` beyond the slow average at that bar, so the whole bracket is known
+    when the order is submitted and risk is measured from the trigger rather than the fill.
+    """
+    direction = series.direction_at[signal_bar]
+    _, favourable = bracket.sided(bars.low[signal_bar], bars.high[signal_bar], direction)
+    trigger = favourable + direction * rules.entry_offset_ticks * tick_size
+    stop = series.stop_level[signal_bar] - direction * rules.stop_offset_ticks * tick_size
+
+    return direction, trigger, stop, direction * (trigger - stop)
+
+
+@njit(cache=True)
+def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, in bar order
+    bars: bracket.Bars,
+    signal: BoolArray,
+    series: ConfirmationSeries,
+    leg_quantities: IntArray,
+    target_r: FloatArray,
+    costs: bracket.Costs,
+    fills: bracket.FillRules,
+    rules: ConfirmationRules,
+    out: FloatArray,
+) -> int:
+    """Run the confirmation entry over one dataset, writing one row per leg exit.
+
+    ``signal`` marks bars whose close submits a stop order beyond that bar's extreme, live for
+    the next ``entry_order_lifetime_bars`` bars. The exits are the market entry's: the stop,
+    the targets, the trail, the trend-flip exit and the maximum hold time.
+
+    Returns the number of rows written, or ``-1`` if ``out`` overflowed.
+    """
+    n = bars.close.size
+    n_legs = leg_quantities.size
+    slippage = bracket.slippage_points(costs)
+    min_risk = STOP_MIN_TICKS * costs.tick_size
+    trail_offset = rules.trail_offset_ticks * costs.tick_size
+
+    written = 0
+    trade_id = 0
+
+    in_position = False
+    pending_exit = False
+    pending_exit_reason = trades.EXIT_SIGNAL
+    pending_until = -1  # the last bar the resting order is live on; -1 while none rests
+    pending_direction = 0.0
+    pending_trigger = 0.0
+    pending_stop = 0.0
+
+    d = 0.0
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, False)
+    stop = 0.0
+    excursion = bracket.Excursion(0.0, 0.0)
+    legs = bracket.Legs(
+        np.zeros(n_legs, dtype=np.bool_),
+        np.zeros(n_legs, dtype=np.float64),
+        leg_quantities,
+    )
+
+    for i in range(n):
+        # ---- exits ------------------------------------------------------------------
+        if in_position and pending_exit:
+            # Submitted at the close of bar i-1 and filled at this bar's first price, so the
+            # excursion stays where it was.
+            written = bracket.flatten_position(
+                out,
+                written,
+                trade,
+                legs,
+                bracket.LegExit(i, bars.open_[i] - d * slippage, pending_exit_reason, False),
+                excursion,
+                costs,
+            )
+            if written < 0:
+                return -1
+
+            in_position = False
+        elif in_position:
+            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
+            written, in_position = bracket.resolve_brackets(
+                out,
+                written,
+                trade,
+                stop,
+                legs,
+                excursion,
+                bars,
+                i,
+                costs,
+                fills,
+            )
+            if written < 0:
+                return -1
+
+        # ---- the resting entry order, tested against this bar ------------------------
+        elif i <= pending_until:
+            # A force-flat bar is tested for a fill like any other; the session-close handler
+            # runs after -- ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat
+            # bar, and is flattened at its close".
+            filled, fill = bracket.stop_entry_fill(bars, i, pending_trigger, slippage, pending_direction)
+            if filled:
+                d = pending_direction
+                trade_id += 1
+                risk = d * (pending_trigger - pending_stop)
+                trade = bracket.OpenTrade(
+                    trade_id=trade_id,
+                    entry_bar=i,
+                    entry_price=fill,
+                    initial_stop=pending_stop,
+                    risk=risk,
+                    direction=d,
+                    # Entered intrabar: the position did not exist at this bar's open.
+                    filled_at_open=False,
+                )
+                stop = pending_stop
+                excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                for leg in range(n_legs):
+                    legs.is_open[leg] = True
+                    if np.isnan(target_r[leg]):
+                        legs.target[leg] = np.nan
+                    else:
+                        raw = pending_trigger + d * risk * target_r[leg] * rules.tp_multiplier
+                        legs.target[leg] = (
+                            bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
+                        )
+
+                # The entry bar can reach the stop as well, and resolves like any other.
+                written, in_position = bracket.resolve_brackets(
+                    out,
+                    written,
+                    trade,
+                    stop,
+                    legs,
+                    excursion,
+                    bars,
+                    i,
+                    costs,
+                    fills,
+                )
+                if written < 0:
+                    return -1
+
+            # A fill ends the order, and so does the session-close handler.
+            if filled or bars.force_flat[i]:
+                pending_until = -1
+
+        pending_exit = False
+
+        # ---- close of bar i: trail the stop, then decide the next bar's orders --------
+        if in_position and rules.trail_ma_stop:
+            stop = bracket.tightened_stop(stop, series.trail_ma[i] - d * trail_offset, d)
+
+        if in_position and rules.exit_on_trend_flip and series.direction_at[i] != d:
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_SIGNAL
+
+        if in_position and not pending_exit and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars):
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_TIME_LIMIT
+
+        # Flat at this close, not flat by the next open: a stop entry submitted beside a pending
+        # exit is an entry against an open position -- ``docs/nt8-fidelity.md`` §M39.
+        if in_position or i < rules.bars_required or not signal[i]:
+            continue
+
+        if rules.block_entry_at_session_close and bars.force_flat[i]:
+            continue
+
+        direction, trigger, candidate_stop, candidate_risk = confirmation_bracket(
+            bars,
+            i,
+            series,
+            rules,
+            costs.tick_size,
+        )
+        # NT8 ignores an entry on the other side of an order still working on this bar.
+        if i <= pending_until and direction != pending_direction:
+            continue
+
+        if candidate_risk < min_risk or direction * trigger <= direction * bars.close[i]:
+            continue
+
+        pending_until = i + rules.entry_order_lifetime_bars
+        pending_direction = direction
+        pending_trigger = trigger
+        pending_stop = candidate_stop
+
+    # Anything still open when the series runs out is liquidated at the last bar.
+    if in_position:
+        last = n - 1
+        written = bracket.flatten_position(
+            out,
+            written,
+            trade,
+            legs,
+            bracket.LegExit(last, bars.close[last] - d * slippage, trades.EXIT_END_OF_DATA, False),
+            excursion,
+            costs,
+        )
+        if written < 0:
+            return -1
+
+    return written
+
+
+def confirmation_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> ConfirmationRules:
+    """The confirmation loop's rule set for one combination."""
+    return ConfirmationRules(
+        entry_offset_ticks=float(params.entry_offset_ticks),
+        stop_offset_ticks=float(params.stop_offset_ticks),
+        entry_order_lifetime_bars=params.entry_order_lifetime_bars,
+        trail_ma_stop=params.trail_ma_stop,
+        trail_offset_ticks=trail_offset_ticks,
+        tp_multiplier=params.tp_multiplier,
+        bars_required=params.bars_required_to_trade,
+        exit_on_trend_flip=params.exit_on_trend_flip,
+        block_entry_at_session_close=params.block_entry_at_session_close,
+        max_hold_bars=params.max_hold_bars,
+    )
+
+
+def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crossover.CrossoverRules:
+    """The shared crossover loop's rule set for one combination, in its level-stop mode."""
+    return crossover.CrossoverRules(
+        use_level_stop=True,
+        # The three fields the other two stop modes read, and this archetype exposes neither.
+        use_atr_stop=False,
+        atr_stop_multiple=0.0,
+        min_bracket_points=0.0,
+        swing_lookback=1,
+        stop_offset_ticks=float(params.stop_offset_ticks),
+        trail_ma_stop=params.trail_ma_stop,
+        trail_offset_ticks=trail_offset_ticks,
+        # No round-number avoidance: an average is a statistic rather than a level the
+        # market traded at -- ``docs/nt8-fidelity.md`` §M34.
+        round_number_points=0.0,
+        round_number_offset_ticks=0.0,
+        tp_multiplier=params.tp_multiplier,
+        bars_required=params.bars_required_to_trade,
+        exit_on_opposite_cross=params.exit_on_trend_flip,
+        block_entry_at_session_close=params.block_entry_at_session_close,
+        max_hold_bars=params.max_hold_bars,
+    )
+
+
 def emapullback_legs(
     data: Dataset,
     params: EmaPullbackParams,
@@ -151,7 +437,8 @@ def emapullback_legs(
 
     ``signal`` overrides the computed entry signal for the random-entry control arm; the side
     and the stop level are *not* overridden, so a drawn bar is taken on whichever side the
-    averages were on and stopped at the slow one.
+    averages were on and stopped at the slow one. Under the confirmation entry a drawn bar
+    submits the same stop order a signal bar would.
     """
     fast, slow = pullback_averages(data, params)
     direction_at: FloatArray = crossover.regime_direction(fast, slow)
@@ -160,47 +447,46 @@ def emapullback_legs(
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
     trail, trail_offset_ticks = trailed_level(data, slow, params)
     out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
-
-    count: int = crossover.simulate_crossover(
-        bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
-        signal,
-        direction_at,
-        crossover.CrossoverSeries(crossover.NO_ATR, trail, slow),
-        quantities,
-        targets,
-        bracket.Costs(
-            tick_size=instrument.tick_size,
-            point_value=instrument.point_value,
-            commission_per_contract=params.commission_per_contract,
-            slippage_ticks=params.slippage_ticks,
-        ),
-        bracket.FillRules(
-            fill_limit_on_touch=params.fill_limit_on_touch,
-            ambiguity_policy=params.ambiguity_policy,
-            round_targets=params.round_targets,
-        ),
-        crossover.CrossoverRules(
-            use_level_stop=True,
-            # The three fields the other two stop modes read, and this archetype exposes neither.
-            use_atr_stop=False,
-            atr_stop_multiple=0.0,
-            min_bracket_points=0.0,
-            swing_lookback=1,
-            stop_offset_ticks=float(params.stop_offset_ticks),
-            trail_ma_stop=params.trail_ma_stop,
-            trail_offset_ticks=trail_offset_ticks,
-            # No round-number avoidance: an average is a statistic rather than a level the
-            # market traded at -- ``docs/nt8-fidelity.md`` §M34.
-            round_number_points=0.0,
-            round_number_offset_ticks=0.0,
-            tp_multiplier=params.tp_multiplier,
-            bars_required=params.bars_required_to_trade,
-            exit_on_opposite_cross=params.exit_on_trend_flip,
-            block_entry_at_session_close=params.block_entry_at_session_close,
-            max_hold_bars=params.max_hold_bars,
-        ),
-        out,
+    bars = bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat)
+    costs = bracket.Costs(
+        tick_size=instrument.tick_size,
+        point_value=instrument.point_value,
+        commission_per_contract=params.commission_per_contract,
+        slippage_ticks=params.slippage_ticks,
     )
+    fills = bracket.FillRules(
+        fill_limit_on_touch=params.fill_limit_on_touch,
+        ambiguity_policy=params.ambiguity_policy,
+        round_targets=params.round_targets,
+    )
+
+    count: int
+    if params.confirm_entry:
+        count = simulate_confirmation(
+            bars,
+            signal,
+            ConfirmationSeries(direction_at, slow, trail),
+            quantities,
+            targets,
+            costs,
+            fills,
+            confirmation_rules(params, trail_offset_ticks),
+            out,
+        )
+    else:
+        count = crossover.simulate_crossover(
+            bars,
+            signal,
+            direction_at,
+            crossover.CrossoverSeries(crossover.NO_ATR, trail, slow),
+            quantities,
+            targets,
+            costs,
+            fills,
+            market_rules(params, trail_offset_ticks),
+            out,
+        )
+
     if count < 0:  # pragma: no cover - allocation is a proven upper bound
         msg: str = "trade buffer overflowed; allocate_output's signal-count bound was violated"
         raise RuntimeError(msg)

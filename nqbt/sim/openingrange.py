@@ -150,21 +150,6 @@ def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
 
 
 @njit(cache=True)
-def _stop_entry_fill(
-    bars: bracket.Bars, i: int, trigger: float, slippage: float, direction: float
-) -> tuple[bool, float]:
-    """DeadCatBounce's stop-entry test: a market order once triggered, so a gap fills at the open."""
-    if direction * bars.open_[i] >= direction * trigger:
-        return True, bars.open_[i] + direction * slippage
-
-    _, touch = bracket.sided(bars.low[i], bars.high[i], direction)
-    if direction * touch >= direction * trigger:
-        return True, trigger + direction * slippage
-
-    return False, 0.0
-
-
-@njit(cache=True)
 def _limit_entry_fill(
     bars: bracket.Bars, i: int, trigger: float, fills: bracket.FillRules, direction: float
 ) -> tuple[bool, float]:
@@ -199,7 +184,7 @@ def entry_fill(
     if rules.entry_mode in ORB_LIMIT_ENTRIES:
         return _limit_entry_fill(bars, i, trigger, fills, rules.direction)
 
-    return _stop_entry_fill(bars, i, trigger, slippage, rules.direction)
+    return bracket.stop_entry_fill(bars, i, trigger, slippage, rules.direction)
 
 
 @njit(cache=True)

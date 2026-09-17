@@ -114,7 +114,7 @@ EnterShortStopMarket(int barsInProgressIndex, bool isLiveUntilCancelled, int qua
 
 **`TimeInForce` and `isLiveUntilCancelled` are different layers**, which is why setting `TimeInForce.Gtc` on the strategy changed nothing. `NinjaTrader.Cbi.TimeInForce` (`Day, Gtc, Ioc, Opg, Gtd`) instructs the *exchange* how long to keep a working order; `isLiveUntilCancelled` governs whether *NT8* submits a cancel of its own at bar close. One does not imply the other.
 
-The simulation reproduces the one-bar lifetime because that is what `DeadCatBounce.cs` does, and it stays that way. The generalisation to longer-lived orders — needed by future archetypes, and the three routes to it — is specified in [roadmap.md](roadmap.md) under "Order lifetime in NT8". **Reflection established the API only; the behaviour was settled separately** by a probe rather than a trade list — when the cancel lands, whether Strategy Analyzer honours a resting order at all, and how one interacts with the session-close flat. See "Order lifetime and the session edge" below.
+The simulation reproduces the one-bar lifetime because that is what `DeadCatBounce.cs` does, and it stays that way. The generalisation to longer-lived orders — needed by future archetypes, and the three routes to it — is specified in [roadmap.md](roadmap.md) under "Order lifetime in NT8", and EmaPullback's confirmation entry (§M39) is the first loop to carry it. **Reflection established the API only; the behaviour was settled separately** by a probe rather than a trade list — when the cancel lands, whether Strategy Analyzer honours a resting order at all, and how one interacts with the session-close flat. See "Order lifetime and the session edge" below.
 
 ### Trigger is capped below the close
 
@@ -814,6 +814,32 @@ reachHigh = Math.Max(reachHigh, High[0]); reachLow = Math.Min(reachLow, Low[0]);
 - **It is a ratchet, not a follow.** An average that retreats leaves the stop where it got to; a stop that followed it back would let a losing trade widen its own risk.
 - **The offset is `StopOffsetTicks`.** An average that has not moved therefore leaves the stop exactly where it was placed; reading `trail_offset_ticks` instead would move it on the first trailed bar with the average unmoved. `trail_ma_kind`, `trail_ma_period` and `trail_offset_ticks` are unread in this mode, and `dead_axes` refuses them as axes.
 - **It arms at the entry bar's close**, the first completed bar after the fill — where the average has moved one bar since the signal bar placed the stop. Arming after the first target instead is a different rule and not this one.
+
+### M39 — the pullback's confirmation entry (#311)
+
+**The same standing as §M34: no NinjaScript, so nothing here is backed by a trade list**, and each rule names the NinjaScript it would be written as. Why it is a mode on EmaPullback rather than an archetype of its own, and what the campaign measured: [`m39-ema-pullback-confirmation-entry.md`](findings/m39-ema-pullback-confirmation-entry.md).
+
+With `confirm_entry` on, the signal is §M34's unchanged and only the order changes. **Every rule below is an existing one reaching this archetype**, and the fill test is `bracket.stop_entry_fill`, which OpeningRange's stop entries already call.
+
+**The order is a stop beyond the signal bar's extreme.** `EnterLongStopMarket(High[0] + EntryOffsetTicks * TickSize)` for a long, submitted in the same `OnBarUpdate` the market entry would have been, and mirrored through the low for a short. The side is §M34's trend comparison at the signal bar.
+
+**A stop entry at or through the market is never submitted** — §M18's rule, "A stop entry must sit beyond the market to be submitted". It binds on a signal bar that closed on its own extreme, which is why `entry_offset_ticks` defaults to **1**, as OpeningRange's does: at 0 that bar can never submit.
+
+**The fill is DeadCatBounce's.** A gap through the trigger fills at the open, otherwise the bar has to reach the trigger and fills there, and no touch is no fill. `filled_at_open` is false either way, so the gapped-stop rule stays off the entry bar.
+
+**The whole bracket is computed from the trigger, not the fill.** `SetStopLoss(CalculationMode.Price, slow[0] - StopOffsetTicks * TickSize)` and the targets are set before the order is submitted, from the signal bar's slow average and from the trigger. Risk is `trigger − stop` and a gapped fill is worse than planned, which is OpeningRange's rule and the reconciled DeadCatBounce port's. **So R here is not the market entry's R**: it is measured from a price at least a tick beyond the signal bar's extreme rather than from the next open, and it is the wider of the two on every trade that fills.
+
+**The minimum-risk refusal is §M34's**, applied at submission: a stop within `STOP_MIN_TICKS` of the trigger is not submitted.
+
+**The order rests for `entry_order_lifetime_bars`, live on the bars after the signal bar through that many.** At 1 it is the three-argument overload's lifetime. Above 1 it is route 1 with a bar counter and `CancelOrder`, or route 3 resubmitting the unchanged trigger, and § "An order is live through the bar at whose close its cancel is issued" is the measurement that makes the two the same. **It is tested on the force-flat bar and cancelled there**, which is § "`isLiveUntilCancelled` is honoured, and the session-close handler is what ends it", so no order rests into the next session.
+
+**A later signal on the same side moves the resting order to its own bar** — a new trigger, a new stop and a new lifetime — and one refused as unsubmittable leaves the resting order alone. A NinjaScript does this by re-calling the entry method under the same signal name.
+
+**An entry on the other side is ignored while an order is still working**, which is § "The managed approach refuses the opposite-direction submission outright". "Working" is the order's live bars, the signal bar's close through the last one, so it binds only above a one-bar lifetime: a signal on the bar after a signal bar cannot exist, because the signal bar reached the fast average and so ended the extension the next signal would need.
+
+**An order is submitted only when flat at the signal bar's close.** The market entry may schedule an entry on a bar whose trend-flip or hold-limit exit is still pending, because both fill at the same open. A stop order submitted then would be an entry against an open position on the managed approach, which nothing here has measured, so the confirmation entry does not submit one. `if (Position.MarketPosition == MarketPosition.Flat)` is the guard, and § "The position guard has to read `Position`, not `PositionAccount`" is why it reads `Position`. Both exits are off in every campaign that has run this entry.
+
+**The exits are the market entry's**: the stop and targets through `resolve_brackets`, the trail arming at the entry bar's close, and the trend-flip and hold-limit exits filling at the next open.
 
 ### The session end is the observed last bar, not the template's (#68)
 
