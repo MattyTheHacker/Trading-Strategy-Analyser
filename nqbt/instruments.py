@@ -185,7 +185,7 @@ GC = Instrument(
     name="Gold",
     tick_size=0.10,
     point_value=100.0,
-    contract_months=months_from_codes("GJMQVZ"),
+    contract_months=months_from_codes("GJMQZ"),
     exchange="COMEX",
 )
 
@@ -219,7 +219,7 @@ MGC = Instrument(
     name="Micro Gold",
     tick_size=0.10,
     point_value=10.0,
-    contract_months=months_from_codes("GJMQVZ"),
+    contract_months=months_from_codes("GJMQZ"),
     exchange="COMEX",
 )
 

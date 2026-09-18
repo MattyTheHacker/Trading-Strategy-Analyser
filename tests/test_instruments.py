@@ -96,9 +96,18 @@ def test_contract_id_rejects_a_month_its_root_does_not_list() -> None:
     with pytest.raises(ValueError, match=r"MNQ lists \[3, 6, 9, 12\] \(HMUZ\)"):
         ContractId(year=2024, month=1, root="MNQ")
 
-    # March is quarterly, but gold lists the even months instead.
-    with pytest.raises(ValueError, match=r"GC lists .* \(GJMQVZ\)"):
+    # March is quarterly, but gold lists even months instead -- all but October.
+    with pytest.raises(ValueError, match=r"GC lists .* \(GJMQZ\)"):
         ContractId.parse("GC 03-26")
+
+
+@pytest.mark.parametrize("root", ["GC", "MGC"])
+def test_gold_does_not_list_october(root: str) -> None:
+    """October is in the CME cycle and NinjaTrader will not serve it: the Historical Data
+    download refuses ``GC 10-25`` as an invalid instrument, for every year. Accepting it here
+    would mean a contract that parses, validates and can never have bars behind it."""
+    with pytest.raises(ValueError, match=rf"{root} lists .* not month 10"):
+        ContractId.parse(f"{root} 10-25")
 
 
 def test_contract_id_rejects_a_root_that_is_not_registered() -> None:

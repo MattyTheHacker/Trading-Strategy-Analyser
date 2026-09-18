@@ -1149,3 +1149,35 @@ The roll moves from 2026-06-12 to 2026-06-15 — the coverage boundary was three
 **Volume comparison must be bar-aligned, not calendar-aligned.** Comparing whole-day volume compares a truncated session against a full one and manufactures a crossover that isn't there; this produced a false "crossover on 2024-03-11" early in development.
 
 Back-adjustment offsets are economically sound as a sanity check: −204 to −296 points in 2024–2026, and +2.00 / −31.50 / −75.00 across 2022, tracking the Fed hiking cycle. The residual jump at each roll equals the back contract's own move across the weekend gap exactly — real market movement, correctly preserved.
+
+### Deferred months trade too thinly to decide a roll
+
+**A full-length session is not the same thing as a traded one, and the stub guard above only catches the first.** `conclusive` originally asked whether a session held enough shared bars to be a session at all, which is the right question for NT8's near-empty Sunday-evening hole. It is the wrong question for two deferred months, which print all day on a few hundred lots months before either becomes the front contract. The lead changes hands there on noise, and the first such session decides the roll.
+
+**Gold is where this surfaced, because its listed months overlap far longer than the equity index quarterlies do.** GC 02-22 and GC 04-22 share 46 sessions beginning 2021-10-11, while GC 12-21 is still the front contract. On 2021-10-12 the pair traded 228 lots against 256 over 90 shared bars — enough bars to pass the stub test — and the roll landed fifteen weeks early, out of order with its own neighbour. `_check_roll_monotonicity` caught it, so the failure was a refused splice rather than a wrong series, but the detection was what needed fixing.
+
+The genuine handover is 2022-01-27, at 132,769 against 139,479 over 1,375 shared bars.
+
+**`ACTIVE_VOLUME_FRACTION` adds the missing half of the test: a session decides a roll only if the pair's combined volume reaches 5% of its busiest shared session.** The floor is measured against the busiest session rather than the median because for these pairs the median *is* a deferred-month session — the same contamination that made the bar-count test insufficient. Three rolls move, and the separation is two orders of magnitude rather than a judgement call:
+
+| roll                                     | combined volume on the chosen session | share of the pair's busiest session |
+| ---------------------------------------- | ------------------------------------- | ----------------------------------- |
+| GC 02-22 → 04-22                         | 484                                   | 0.0014                              |
+| GC 04-22 → 06-22                         | 851                                   | 0.0027                              |
+| MGC 02-22 → 04-22                        | 1,003                                 | 0.0139                              |
+| weakest healthy roll in either gold root | ~55,000                               | 0.160                               |
+| weakest healthy roll in NQ               | 411,516                               | 0.373                               |
+
+**No roll in NQ, MNQ, ES or MES moves**, which is what makes this safe to land against stored campaign results: the guard is measured over all 144 adjacent pairs across the six roots and changes exactly the three above.
+
+**The two gold roots corroborate each other the way the index roots do.** After the fix GC and MGC agree exactly on 18 of 29 rolls and the remaining 11 differ by a single session, which is the micro rolling a day later — NQ/MNQ disagree on 2 of 19 and ES/MES on 1 of 24, all by one session. Before the fix the three bad rolls disagreed by three to fifteen weeks.
+
+**NinjaTrader will not serve an October gold contract, and it is alone in that.** GC and MGC therefore run Feb/Apr/Jun/Aug/Dec here, and the December contract carries a double window — about 120,000 bars against 60,000 for the others. The Historical Data download refuses `GC 10-25` as an invalid instrument, for every year, so there is nothing to ingest rather than something not yet ingested.
+
+**October is a regular COMEX delivery month, not a thin serial one.** CME lists GC for delivery in any February, April, June, August, **October** and December within a 24-month window, plus three consecutive serial months on top. Databento's GC catalog carries `GCV6`, Barchart publishes `GCV25` and `GCV26`, and TradingView lists the full monthly chain. `contract_months` originally carried `GJMQVZ` for exactly that reason and it was right about the exchange.
+
+**It is dropped anyway, because the month set here answers "what can this pipeline obtain", not "what does COMEX list".** A month NinjaTrader will not serve is a `ContractId` that parses, validates and can never have bars behind it — the failure mode #69 introduced the check to prevent. Both gold roots therefore list `GJMQZ`, and that is a statement about the data source rather than about gold. #333 carries the other direction: a source that does serve October would need this reverted and the month set made per-source.
+
+**Nothing is missing from the continuous series, and the splice shows why.** `GC 12-25` is the front month continuously from August through November 2025 — 28,948, 30,203, 31,620 and 22,079 bars — so the window where October would sit is covered by December rather than left empty. Gold's volume concentrates in the even months regardless of what is listed, which is what makes the curated cycle the right splice and not a degraded one.
+
+**The same has not been checked for the other COMEX and NYMEX roots.** SI, SIL, CL and MCL are registered in `nqbt/instruments.py` and none has been ingested, so their month sets are the CME cycle as written down rather than anything NinjaTrader has confirmed.

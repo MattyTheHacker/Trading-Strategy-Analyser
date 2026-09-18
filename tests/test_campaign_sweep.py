@@ -22,6 +22,7 @@ from nqbt import (
     archetypes,
     compression,
     higher_timeframe,
+    instruments,
     regime,
     sessionrange,
     sessions,
@@ -270,9 +271,18 @@ def test_every_base_carries_its_roots_real_costs() -> None:
                 assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS), (name, root)
 
 
-def test_the_two_roots_are_not_costed_the_same() -> None:
-    """One figure for both flatters NQ: the point value differs tenfold, the commission does not."""
-    assert COMMISSION["NQ"] > COMMISSION["MNQ"]
+def test_every_costed_root_is_a_registered_instrument() -> None:
+    """A typo in the table reaches the sweep as a bare KeyError, one root into a long run."""
+    for root in COMMISSION:
+        assert instruments.get_instrument(root).symbol == root
+
+
+@pytest.mark.parametrize(("micro", "full_size"), [("MNQ", "NQ"), ("MES", "ES"), ("MGC", "GC")])
+def test_each_micro_is_costed_below_the_root_it_micros(micro: str, full_size: str) -> None:
+    """One figure for both flatters the full-size root: the point value differs tenfold
+    between a micro and its sibling, and the commission does not."""
+    assert instruments.get_instrument(micro).point_value < instruments.get_instrument(full_size).point_value
+    assert COMMISSION[micro] < COMMISSION[full_size]
 
 
 def test_the_crossover_variants_sweep_disjoint_stop_axes() -> None:
