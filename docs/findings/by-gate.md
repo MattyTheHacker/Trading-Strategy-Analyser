@@ -113,20 +113,21 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 
 Specifications, calibrations and tooling -- the work a gated campaign is built on.
 
-| cite                                    | campaign                                                                                                                      | outcome       |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `§M10.1`                                | [M10.1 — market regime: done](m10-1-market-regime.md)                                                                         | `calibration` |
-| `§M10.2`                                | [M10.2 — volume: done](m10-2-volume.md)                                                                                       | `calibration` |
-| `§M10.3`                                | [M10.3 — the compact trend label: done](m10-3-trend-label.md)                                                                 | `calibration` |
-| `§M10.4`                                | [M10.4 — time of day: done](m10-4-time-of-day.md)                                                                             | `calibration` |
-| `§M19.2`                                | [M19.2 — SqueezeBreakout: a break of the compressed window, one side at a time](m19-2-squeeze-breakout-spec.md)               | `spec`        |
-| `§M27.5`                                | [M27.5 — the regime threshold, calibrated rather than swept blind](m27-5-regime-threshold.md)                                 | `calibration` |
-| `§M28`                                  | [M28 — the opening range: what "ORB" actually names, and what of it is expressible](m28-opening-range-spec.md)                | `spec`        |
-| `§M28.3`                                | [M28.3 — the ambiguity spread: a shortlist's second arm](m28-3-ambiguity-spread.md)                                           | `tooling`     |
-| `§M28.4`                                | [M28.4 — settling the ambiguous bar instead of bounding it](m28-4-settling-ambiguous-bar.md)                                  | `tooling`     |
-| `§M28.6`                                | [M28.6 — the rejection: the fade's level, the retest's order type, and no break at all](m28-6-rejection-spec.md)              | `spec`        |
-| `§M28.12`                               | [M28.12 — the bracket decomposition, read across the registry](m28-12-bracket-decomposition.md)                               | `mixed`       |
-| `§M28.13`                               | [M28.13 — the registry read through an account, and the assumption that turned out to be a parameter](m28-13-account-read.md) | `mixed`       |
-| `§M34`                                  | [M34 — EmaPullback: the pullback to the fast average, with the stop on the slow one](m34-ema-pullback-spec.md)                | `spec`        |
-| `§M40`                                  | [M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)                  | `mixed`       |
-| `§ "The build spec's three loose ends"` | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                 | `spec`        |
+| cite                                                                                 | campaign                                                                                                                      | outcome       |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `§M10.1`                                                                             | [M10.1 — market regime: done](m10-1-market-regime.md)                                                                         | `calibration` |
+| `§M10.2`                                                                             | [M10.2 — volume: done](m10-2-volume.md)                                                                                       | `calibration` |
+| `§M10.3`                                                                             | [M10.3 — the compact trend label: done](m10-3-trend-label.md)                                                                 | `calibration` |
+| `§M10.4`                                                                             | [M10.4 — time of day: done](m10-4-time-of-day.md)                                                                             | `calibration` |
+| `§M19.2`                                                                             | [M19.2 — SqueezeBreakout: a break of the compressed window, one side at a time](m19-2-squeeze-breakout-spec.md)               | `spec`        |
+| `§M27.5`                                                                             | [M27.5 — the regime threshold, calibrated rather than swept blind](m27-5-regime-threshold.md)                                 | `calibration` |
+| `§M28`                                                                               | [M28 — the opening range: what "ORB" actually names, and what of it is expressible](m28-opening-range-spec.md)                | `spec`        |
+| `§M28.3`                                                                             | [M28.3 — the ambiguity spread: a shortlist's second arm](m28-3-ambiguity-spread.md)                                           | `tooling`     |
+| `§M28.4`                                                                             | [M28.4 — settling the ambiguous bar instead of bounding it](m28-4-settling-ambiguous-bar.md)                                  | `tooling`     |
+| `§M28.6`                                                                             | [M28.6 — the rejection: the fade's level, the retest's order type, and no break at all](m28-6-rejection-spec.md)              | `spec`        |
+| `§M28.12`                                                                            | [M28.12 — the bracket decomposition, read across the registry](m28-12-bracket-decomposition.md)                               | `mixed`       |
+| `§M28.13`                                                                            | [M28.13 — the registry read through an account, and the assumption that turned out to be a parameter](m28-13-account-read.md) | `mixed`       |
+| `§M34`                                                                               | [M34 — EmaPullback: the pullback to the fast average, with the stop on the slow one](m34-ema-pullback-spec.md)                | `spec`        |
+| `§M40`                                                                               | [M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)                  | `mixed`       |
+| `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"` | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                      | `mixed`       |
+| `§ "The build spec's three loose ends"`                                              | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                 | `spec`        |

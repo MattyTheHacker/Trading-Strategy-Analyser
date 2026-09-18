@@ -13,9 +13,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, resample, results, sessions, sweep
+from nqbt import archetypes, context, resample, results, sessions, sweep
 from nqbt.instruments import get_instrument
-from nqbt.sim.types import InsideBarParams
+from nqbt.sim.types import EmaCrossoverParams, InsideBarParams
 from tools import campaign_shortlist
 from tools.campaign_report import load_trades
 from tools.campaign_shortlist import (
@@ -234,6 +234,38 @@ def test_a_stored_log_is_filed_under_the_row_that_produced_it(tmp_path) -> None:
         mine = stored[(stored["sweep_id"] == row["sweep_id"]) & (stored["combo_id"] == row["combo_id"])]
         assert len(mine) > 0
         assert mine["net_pnl"].sum() == pytest.approx(row["net_pnl"])
+
+
+def test_a_round_number_configuration_can_be_stored_rather_than_refused(tmp_path) -> None:
+    """``store_logs`` reads raw bars and used to declare them ``UNKNOWN``, so a rule reading an
+    absolute level was refused by the safety default and the §M40 EmaCrossover cell failed
+    outright ([#330]). The sweep can measure what the shortlist cannot re-run is the defect."""
+    db = tmp_path / "EmaCrossover.duckdb"
+    bars = synthetic_bars()
+    frame = resample.resample(bars, 5)
+    grid = sweep.Grid.of(
+        EmaCrossoverParams(round_number_points=25.0, bars_required_to_trade=60),
+        atr_stop_multiple=[2.0, 3.0],
+    )
+    data = context.prepare(frame, grid.required_context(), bar_minutes=5, price_basis=context.PriceBasis.RAW)
+    table, _ = sweep.sweep(frame, grid, get_instrument(ROOT), data=data)
+    table.insert(0, "variant", "stop=atr")
+    table.insert(1, "stratum", "unfiltered")
+    table.insert(2, "window", "full")
+    table["combo_id"] = range(len(table))
+    results.save_sweep(
+        table,
+        root=ROOT,
+        instrument=ROOT,
+        bars=frame,
+        axes=grid.axis_values(),
+        strategy="EmaCrossover",
+        resolution=5,
+        db_path=db,
+    )
+    block = combos(db)
+
+    assert store_group(block, frame, archetypes.EMACROSSOVER, ROOT, 5, db) == len(block)
 
 
 def test_storing_a_shortlist_twice_replaces_each_log_rather_than_doubling_it(tmp_path) -> None:

@@ -219,7 +219,7 @@ def store_group(
 ) -> int:
     """Store the log of every row measured on one resampled frame, and return how many."""
     stored: int = 0
-    for row, summary, log in rerun_group(block, frame, archetype, root, minutes):
+    for row, summary, log in rerun_group(block, frame, archetype, root, minutes, context.PriceBasis.RAW):
         verify(row, summary)
         results.save_trades(log, int(row["sweep_id"]), int(row["combo_id"]), path, replace=True)
         stored += 1
@@ -243,6 +243,10 @@ def store_logs(name: str, rows: pd.DataFrame, root: str) -> int:
     Grouped by window and resolution, because the resample and the prepared dataset are the
     expensive parts and every row sharing those two shares both. A stored log replaces whatever
     sits under the same ``(sweep_id, combo_id)``, so a second run refreshes rather than doubles.
+
+    The bars are :data:`~nqbt.context.PriceBasis.RAW`, which is what ``load_continuous`` returns
+    here and what the sweep measured them as, so a rule reading an absolute level re-runs rather
+    than being refused -- ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     archetype: archetypes.Archetype = archetypes.get(name)
     path: Path = db_path(name)

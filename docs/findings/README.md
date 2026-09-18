@@ -14,6 +14,8 @@ ______________________________________________________________________
 
 **And the sample cannot exclude a loss.** Not one of the 40 shortlisted configurations has a bootstrap 5th percentile above a profit factor of 1.0 or above zero net; about one resample in eight of a configuration's own trades loses money (§M28.15).
 
+**Most of what a tuned configuration is worth turns out to be selection rather than strategy, and a second market now says so.** Running each archetype's top 200 unchanged on ES, MES, GC and MGC — markets nothing here was fitted on — costs far less than the move from the selection window to the holdout already cost: the selection step takes 0.24 to 0.54 of profit factor and the instrument step takes 0.00 to 0.29, and for the two inside-bar archetypes it takes nothing at all. Nothing clears a median profit factor of 1.1 on any new root, and no gate has been run there (§ "Do the shortlists travel?").
+
 With that said, the two sections below are what the evidence supports, and they differ — because a prop account and your own account are scored on different things.
 
 ______________________________________________________________________
