@@ -86,6 +86,9 @@ def paired(name: str, variant: str | None = None) -> pd.DataFrame:
     return merged
 
 
+SELECTION_SUFFIX = "_sel"
+"""Which half of a :func:`paired` row the selection window measured."""
+
 HELD_OUT_SUFFIX = "_hold"
 """Which half of a :func:`paired` row :func:`held_out` keeps."""
 
@@ -105,6 +108,22 @@ def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a diff
     wherever it would use :func:`campaign_shortlist.shortlist` -- and unlike that one, nothing
     it returns was ranked on the window it is then read from -- ``docs/roadmap.md`` §M28.13.
     """
+    return half(ranked_pairs(name, root, by, top, stratum, resolution, variant), HELD_OUT_SUFFIX)
+
+
+def ranked_pairs(
+    name: str,
+    root: str,
+    by: str = DEFAULT_BY,
+    top: int | None = TOP,
+    stratum: str | None = None,
+    resolution: int | None = None,
+    variant: str | None = None,
+) -> pd.DataFrame:
+    """The :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
+
+    ``top`` of ``None`` ranks every row.
+    """
     merged: pd.DataFrame = paired(name, variant)
     if not merged.empty:
         merged = merged[merged["root"] == root]
@@ -119,20 +138,18 @@ def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a diff
         msg: str = f"no paired windows for {name} on {root}, stratum {stratum}, variant {variant}"
         raise RuntimeError(msg)
 
-    ranked: pd.DataFrame = rank(merged, top, f"{by}_sel")
+    ranked: pd.DataFrame = rank(merged, len(merged) if top is None else top, f"{by}{SELECTION_SUFFIX}")
     if ranked.empty:
         msg = f"{name} on {root}: every one of {len(merged)} paired rows has no {by}_sel to rank on"
         raise RuntimeError(msg)
 
-    return _held_columns(ranked)
+    return ranked
 
 
-def _held_columns(merged: pd.DataFrame) -> pd.DataFrame:
-    """One paired frame's held-out half, under the unsuffixed names the stored rows carry."""
+def half(merged: pd.DataFrame, suffix: str) -> pd.DataFrame:
+    """One half of a paired frame, under the unsuffixed names the stored rows carry."""
     renamed: dict[str, str] = {
-        column: column.removesuffix(HELD_OUT_SUFFIX)
-        for column in merged.columns
-        if column.endswith(HELD_OUT_SUFFIX)
+        column: column.removesuffix(suffix) for column in merged.columns if column.endswith(suffix)
     }
 
     return merged[[*JOIN_KEYS, *renamed]].rename(columns=renamed).reset_index(drop=True)

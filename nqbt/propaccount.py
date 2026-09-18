@@ -577,6 +577,9 @@ class AccountRun:
     withdrawn: float
     """Taken out of the account, before the firm's split."""
 
+    first_withdrawal_on: dt.date | None
+    """The trading day of the first withdrawal. ``None`` when nothing was withdrawn."""
+
     payout: float
     """What reached the trader: :attr:`withdrawn` times ``rules.profit_split``."""
 
@@ -598,6 +601,8 @@ class AccountRun:
         row["first_day"] = self.first_day.isoformat()
         row["last_day"] = self.last_day.isoformat()
         row["passed_on"] = self.passed_on.isoformat() if self.passed_on else None
+        first_withdrawal: dt.date | None = self.first_withdrawal_on
+        row["first_withdrawal_on"] = first_withdrawal.isoformat() if first_withdrawal else None
 
         return row
 
@@ -679,6 +684,7 @@ class _AccountState:
     locked_out_days: int = 0
     skipped: int = 0
     passed_on: dt.date | None = None
+    first_withdrawal_on: dt.date | None = None
     taken: list[int] = field(default_factory=list)
     daily: list[float] = field(default_factory=list)
 
@@ -970,7 +976,7 @@ def _close_day(table: _TradeTable, day: int, rules: AccountRules, state: _Accoun
         state.high_water = max(state.high_water, state.balance)
 
     _check_pass(table, day, rules, state)
-    _withdraw(rules, state)
+    _withdraw(table, day, rules, state)
 
     return Outcome.SURVIVED
 
@@ -1009,7 +1015,7 @@ def _consistent(daily: list[float], profit: float, ratio: float) -> bool:
     return max(daily) <= ratio * profit
 
 
-def _withdraw(rules: AccountRules, state: _AccountState) -> None:
+def _withdraw(table: _TradeTable, day: int, rules: AccountRules, state: _AccountState) -> None:
     """Take everything above the safety net, once the account has passed."""
     if state.passed_on is None:
         return
@@ -1017,6 +1023,9 @@ def _withdraw(rules: AccountRules, state: _AccountState) -> None:
     excess: float = state.balance - rules.starting_balance - rules.withdrawal_threshold
     if excess <= 0.0:
         return
+
+    if state.first_withdrawal_on is None:
+        state.first_withdrawal_on = _as_date(table.days[day])
 
     state.balance -= excess
     state.withdrawn += excess
@@ -1078,6 +1087,7 @@ def _finish(
         worst_day=min(state.daily) if state.daily else 0.0,
         consistency=(max(state.daily) / profit) if state.daily and profit > 0.0 else 0.0,
         withdrawn=state.withdrawn,
+        first_withdrawal_on=state.first_withdrawal_on,
         payout=state.payout,
         fees_paid=fees,
         net=state.payout - fees,

@@ -677,6 +677,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **A stop order beyond the signal bar's extreme, built as a mode rather than an archetype, raises profit factor on the selection window in all eight root x resolution cells and costs at 2 and 5 minutes held out, so it clears its pre-registered paired bar in none; a three-bar lifetime is worse than one, and gate 3 fails for all three arms.** Moved to [`docs/findings/m39-ema-pullback-confirmation-entry.md`](findings/m39-ema-pullback-confirmation-entry.md).
 
+### M40 — Prop accounts ranked by what they are scored on ([#326])
+
+**Ranking the selection window by pass rate, fees per pass, time to the first payout or funded life beats ranking by profit factor at each objective held out, in all four cases at p < 0.05, and the largest part of the gain is that the account gets funded at all — 42 pairs to 1 for the cost of a pass; only time to the first payout also raises net, and every objective's held-out level is far below the window that chose it.** Moved to [`docs/findings/m40-prop-objectives.md`](findings/m40-prop-objectives.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.
@@ -1300,6 +1304,7 @@ ______________________________________________________________________
 [#313]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/313
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#320]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/320
+[#326]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/326
 [#33]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/33
 [#34]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/34
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35

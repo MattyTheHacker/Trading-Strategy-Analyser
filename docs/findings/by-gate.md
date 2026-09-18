@@ -128,4 +128,5 @@ Specifications, calibrations and tooling -- the work a gated campaign is built o
 | `§M28.12`                               | [M28.12 — the bracket decomposition, read across the registry](m28-12-bracket-decomposition.md)                               | `mixed`       |
 | `§M28.13`                               | [M28.13 — the registry read through an account, and the assumption that turned out to be a parameter](m28-13-account-read.md) | `mixed`       |
 | `§M34`                                  | [M34 — EmaPullback: the pullback to the fast average, with the stop on the slow one](m34-ema-pullback-spec.md)                | `spec`        |
+| `§M40`                                  | [M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)                  | `mixed`       |
 | `§ "The build spec's three loose ends"` | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                 | `spec`        |
