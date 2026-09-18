@@ -1149,3 +1149,27 @@ The roll moves from 2026-06-12 to 2026-06-15 — the coverage boundary was three
 **Volume comparison must be bar-aligned, not calendar-aligned.** Comparing whole-day volume compares a truncated session against a full one and manufactures a crossover that isn't there; this produced a false "crossover on 2024-03-11" early in development.
 
 Back-adjustment offsets are economically sound as a sanity check: −204 to −296 points in 2024–2026, and +2.00 / −31.50 / −75.00 across 2022, tracking the Fed hiking cycle. The residual jump at each roll equals the back contract's own move across the weekend gap exactly — real market movement, correctly preserved.
+
+### Deferred months trade too thinly to decide a roll
+
+**A full-length session is not the same thing as a traded one, and the stub guard above only catches the first.** `conclusive` originally asked whether a session held enough shared bars to be a session at all, which is the right question for NT8's near-empty Sunday-evening hole. It is the wrong question for two deferred months, which print all day on a few hundred lots months before either becomes the front contract. The lead changes hands there on noise, and the first such session decides the roll.
+
+**Gold is where this surfaced, because its listed months overlap far longer than the equity index quarterlies do.** GC 02-22 and GC 04-22 share 46 sessions beginning 2021-10-11, while GC 12-21 is still the front contract. On 2021-10-12 the pair traded 228 lots against 256 over 90 shared bars — enough bars to pass the stub test — and the roll landed fifteen weeks early, out of order with its own neighbour. `_check_roll_monotonicity` caught it, so the failure was a refused splice rather than a wrong series, but the detection was what needed fixing.
+
+The genuine handover is 2022-01-27, at 132,769 against 139,479 over 1,375 shared bars.
+
+**`ACTIVE_VOLUME_FRACTION` adds the missing half of the test: a session decides a roll only if the pair's combined volume reaches 5% of its busiest shared session.** The floor is measured against the busiest session rather than the median because for these pairs the median *is* a deferred-month session — the same contamination that made the bar-count test insufficient. Three rolls move, and the separation is two orders of magnitude rather than a judgement call:
+
+| roll                                     | combined volume on the chosen session | share of the pair's busiest session |
+| ---------------------------------------- | ------------------------------------- | ----------------------------------- |
+| GC 02-22 → 04-22                         | 484                                   | 0.0014                              |
+| GC 04-22 → 06-22                         | 851                                   | 0.0027                              |
+| MGC 02-22 → 04-22                        | 1,003                                 | 0.0139                              |
+| weakest healthy roll in either gold root | ~55,000                               | 0.160                               |
+| weakest healthy roll in NQ               | 411,516                               | 0.373                               |
+
+**No roll in NQ, MNQ, ES or MES moves**, which is what makes this safe to land against stored campaign results: the guard is measured over all 144 adjacent pairs across the six roots and changes exactly the three above.
+
+**The two gold roots corroborate each other the way the index roots do.** After the fix GC and MGC agree exactly on 18 of 29 rolls and the remaining 11 differ by a single session, which is the micro rolling a day later — NQ/MNQ disagree on 2 of 19 and ES/MES on 1 of 24, all by one session. Before the fix the three bad rolls disagreed by three to fifteen weeks.
+
+**Gold lists no October contract in this archive**, so GC and MGC run Feb/Apr/Jun/Aug/Dec and the December contract carries a double window — about 120,000 bars against 60,000 for the others. That is the listing, not a gap in the data.

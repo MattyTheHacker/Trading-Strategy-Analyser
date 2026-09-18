@@ -43,13 +43,20 @@ paths:
 
 - **Handover ratios must be read against `shared_bars`.** A ratio computed off a 60-bar stub is
   not a session and has been mistaken for one.
-- **A stub session cannot decide a roll.** Both roots hold only the Sunday 18:00-19:00 ET hour
-  for one trading day a few days before most rolls, and that lands exactly where the crossover
-  is judged. Sessions below half the median shared-bar count are marked `conclusive=False` and
-  skipped.
-- **Run the two roots against each other.** They roll identically almost everywhere, and the
-  one disagreement was the stub bug above. It is the cheapest correctness check available and
-  needs no NT8.
+- **A stub session cannot decide a roll.** Both index roots hold only the Sunday 18:00-19:00 ET
+  hour for one trading day a few days before most rolls, and that lands exactly where the
+  crossover is judged. Sessions below half the median shared-bar count are marked
+  `conclusive=False` and skipped.
+- **Nor can a session neither contract is really trading.** Two deferred months print full
+  sessions on a few hundred lots long before either is the front contract, so the lead changes
+  hands on noise; gold's listed months overlap far longer than the index quarterlies and this
+  rolled GC fifteen weeks early. A session below `ACTIVE_VOLUME_FRACTION` of the pair's busiest
+  is marked `conclusive=False` too. `docs/nt8-fidelity.md`, "Deferred months trade too thinly
+  to decide a roll".
+- **Run the paired roots against each other.** GC/MGC, NQ/MNQ and ES/MES roll identically
+  almost everywhere, and every disagreement so far has been one of the two guards above or a
+  single session of micro-rolls-later. It is the cheapest correctness check available and needs
+  no NT8.
 - **Correct roll dates cost bars.** The front contract now supplies days an early roll gave to
   the back contract, and NT8's data has holes there. They were always missing; an early roll
   hid them behind the wrong contract. **Do not fill them from the neighbouring contract** —

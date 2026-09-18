@@ -82,7 +82,7 @@ nqbt splice --root MNQ --back-adjust --diagnostics
 nqbt run --root MNQ --commission 1.50 --slippage 1 --explain 10
 ```
 
-**Why `splice` exists.** Futures contracts expire every three months, so five years of history is really twenty separate contracts sitting end to end. `splice` works out the day traders moved from one contract to the next and joins them into a single series. `--back-adjust` additionally shifts the older prices so the joins line up smoothly, which matters because each new contract starts at a slightly different price.
+**Why `splice` exists.** Futures contracts expire on a cycle — every three months for the index roots, five times a year for gold — so five years of history is really twenty to thirty separate contracts sitting end to end. `splice` works out the day traders moved from one contract to the next and joins them into a single series. `--back-adjust` additionally shifts the older prices so the joins line up smoothly, which matters because each new contract starts at a slightly different price.
 
 **What `--explain` gives you.** It writes a step-by-step record of the first N trades: what the signal bar looked like, what each condition was checking and whether it passed, how the entry and stop prices were worked out, how the order filled, and where each exit landed. If `nqbt` and NinjaTrader ever disagree, this is what turns "the numbers are different" into "this specific rule is wrong".
 

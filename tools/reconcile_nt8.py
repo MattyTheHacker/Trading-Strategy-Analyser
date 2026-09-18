@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from nqbt import archetypes, context, ingest, logsetup
-from nqbt.instruments import MNQ, NQ, ContractId
+from nqbt.instruments import ContractId
 from nqbt.sim.types import (
     DeadCatParams,
     InsideBarParams,
@@ -134,10 +134,10 @@ def parse_nt8(path: Path) -> pd.DataFrame:
 def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
     archetype = archetypes.get(archetype_name)
     params = CONFIGS[archetype_name]
-    bars = ingest.load_contract(ContractId.parse(contract))
-    instrument = NQ if contract.startswith("NQ") else MNQ
+    contract_id = ContractId.parse(contract)
+    bars = ingest.load_contract(contract_id)
     data = context.prepare(bars, archetype.context_for({k: [v] for k, v in params.as_dict().items()}))
-    log = archetype.run(data, params, instrument)
+    log = archetype.run(data, params, contract_id.instrument)
 
     return log.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 

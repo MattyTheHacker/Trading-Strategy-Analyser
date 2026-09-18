@@ -248,9 +248,19 @@ logger = logging.getLogger(__name__)
 
 ROOTS = ("MNQ", "NQ")
 
-COMMISSION: dict[str, float] = {"MNQ": 1.50, "NQ": 4.50}
+COMMISSION: dict[str, float] = {
+    "MNQ": 1.50,
+    "NQ": 4.50,
+    "MES": 1.50,
+    "ES": 4.50,
+    "MGC": 1.50,
+    "GC": 4.50,
+}
 """Round-turn dollars per contract, per root. Never one figure for both -- the point value
-differs tenfold and the commission does not, so MNQ's number applied to NQ flatters it."""
+differs tenfold and the commission does not, so MNQ's number applied to NQ flatters it.
+
+The micros take MNQ's figure and the full-size roots take NQ's -- ``docs/roadmap.md``
+§ "Commission on the roots beyond NQ"."""
 
 SLIPPAGE_TICKS = 1.0
 

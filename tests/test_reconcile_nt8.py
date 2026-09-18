@@ -9,6 +9,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "reconcile_nt8.py"
@@ -143,3 +144,46 @@ def test_a_loss_stays_a_loss_in_either_of_nt8s_sign_conventions(tool, tmp_path, 
 
 def test_a_profit_is_left_alone(tool, tmp_path) -> None:
     assert tool.parse_nt8(export(tmp_path, "entry", profit="$1080.00"))["net_pnl"].iloc[0] == 1080.0
+
+
+@pytest.mark.parametrize(
+    ("contract", "point_value"),
+    [
+        ("NQ 03-24", 20.0),
+        ("MNQ 03-24", 2.0),
+        ("ES 03-24", 50.0),
+        ("MES 03-24", 5.0),
+        ("GC 02-24", 100.0),
+        ("MGC 02-24", 10.0),
+    ],
+)
+def test_the_instrument_comes_from_the_contract_root(tool, monkeypatch, contract, point_value) -> None:
+    """Every root but NQ was reconciled as MNQ.
+
+    Chosen off a ``startswith("NQ")`` test, ES priced at $2 a point instead of $50 does not
+    fail -- it just disagrees with the trade list.
+    """
+    seen = {}
+
+    class SpyArchetype:
+        def context_for(self, axes):
+            return None
+
+        def run(self, data, params, instrument):
+            seen["instrument"] = instrument
+
+            return pd.DataFrame({"entry_time": [], "leg": []})
+
+    monkeypatch.setattr(tool.ingest, "load_contract", lambda contract_id: None)
+    monkeypatch.setattr(tool.context, "prepare", lambda bars, spec: None)
+    monkeypatch.setattr(tool.archetypes, "get", lambda name: SpyArchetype())
+
+    tool.run_nqbt("DeadCatBounce", contract)
+
+    assert seen["instrument"].symbol == contract.split()[0]
+    assert seen["instrument"].point_value == point_value
+
+
+def test_an_unknown_root_is_refused_rather_than_priced_as_something_else(tool) -> None:
+    with pytest.raises(ValueError, match="unknown root"):
+        tool.run_nqbt("DeadCatBounce", "ZZ 03-24")

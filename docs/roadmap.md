@@ -1235,6 +1235,10 @@ So the tracker keeps them: an archetype that fails a campaign is **not deleted, 
 
 ______________________________________________________________________
 
+**Commission on the roots beyond NQ: the micros take MNQ's figure and the full-size roots take NQ's.** ES, MES, GC and MGC were ingested with no commission of their own, and `COMMISSION[root]` in `tools/campaign_sweep.py` raised a bare `KeyError` one root into any sweep that named them. The figures set are $1.50 round turn per contract on MES and MGC, matching MNQ, and $4.50 on ES and GC, matching NQ.
+
+**These are the NQ/MNQ figures carried across, not a broker quote for each root**, so they are a starting point rather than a measurement. `CLAUDE.md` already warns that costs default to zero and that a free-money result will not announce itself; a campaign on these roots inherits that warning with the extra caveat that the per-root number has not been checked against a statement. Gold in particular clears through COMEX rather than CME and its exchange and clearing fees differ. Anything that turns on the cost floor — and `docs/findings/m26-elastic-band.md` § "NQ beats MNQ on the same rules, and it is arithmetic rather than edge" shows how much does — should be re-read once the real figures are known.
+
 ## Still open
 
 - **Sample size.** How many real trades exist determines whether [#48]'s guard leaves anything standing. A few dozen will not support stratification by more than one or two conditions at a time, and knowing that early sets expectations for what the review can honestly deliver.

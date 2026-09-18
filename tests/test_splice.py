@@ -107,6 +107,44 @@ def test_a_full_session_still_decides_the_roll_on_its_first_win() -> None:
     assert roll.roll_day == pd.Timestamp("2024-03-06")
 
 
+def test_a_thinly_traded_session_cannot_decide_the_roll() -> None:
+    # Two deferred months both printing a full session on a few hundred lots, months before
+    # either becomes the front contract. GC 02-22 -> 04-22 read 228 against 256 on
+    # 2021-10-12 and rolled fifteen weeks early, out of order with its own neighbour.
+    # The floor is a share of the pair's busiest session, not of its median: the median here
+    # is itself a deferred-month session, and measuring against it would accept this one.
+    week = ["2024-03-05", "2024-03-06", "2024-03-07"]
+    front = make_frame(week, 100.0, dict(zip(week, [200, 220, 90_000], strict=True)))
+    back = make_frame(week, 110.0, dict(zip(week, [180, 260, 95_000], strict=True)))
+
+    table = splice.overlap_volume(front, back)
+    assert table.loc[pd.Timestamp("2024-03-06"), "back_wins"]
+    assert not table.loc[pd.Timestamp("2024-03-06"), "conclusive"]
+
+    roll = splice.detect_roll(FRONT, BACK, front, back)
+    assert roll.method == splice.METHOD_VOLUME
+    assert roll.roll_day == pd.Timestamp("2024-03-07")
+
+
+def test_a_session_exactly_at_the_activity_floor_still_decides_the_roll() -> None:
+    # The floor is inclusive, so a session sitting exactly on it is inside and not outside.
+    week = ["2024-03-05", "2024-03-06", "2024-03-07"]
+    busiest = 100_000
+    at_floor = int(busiest * splice.ACTIVE_VOLUME_FRACTION)
+    front_share = at_floor // 2 - 100
+    front = make_frame(week, 100.0, dict(zip(week, [60_000, front_share, 10], strict=True)))
+    back = make_frame(week, 110.0, dict(zip(week, [40_000, at_floor - front_share, 20], strict=True)))
+
+    table = splice.overlap_volume(front, back)
+    deciding = table.loc[pd.Timestamp("2024-03-06")]
+    assert deciding["front_volume"] + deciding["back_volume"] == busiest * splice.ACTIVE_VOLUME_FRACTION
+    assert deciding["back_wins"]
+    assert deciding["conclusive"]
+
+    roll = splice.detect_roll(FRONT, BACK, front, back)
+    assert roll.roll_day == pd.Timestamp("2024-03-06")
+
+
 def test_rolls_at_the_coverage_boundary_when_the_crossover_is_missing() -> None:
     front = make_frame(DAYS, 100.0, dict.fromkeys(DAYS, 900), bars={"2024-03-08": 2})
     back = make_frame(DAYS, 110.0, dict.fromkeys(DAYS, 300))

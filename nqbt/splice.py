@@ -41,6 +41,14 @@ if TYPE_CHECKING:
 FULL_SESSION_FRACTION = 0.5
 """Share of a contract's median session length below which a session counts as partial."""
 
+ACTIVE_VOLUME_FRACTION = 0.05
+"""Share of the pair's busiest shared session below which neither contract is trading enough
+for their relative volume to decide a roll.
+
+A full-length session is not the same thing as a traded one: two deferred months can both
+print all day on a few hundred lots, where the lead changes hands on noise.
+``docs/nt8-fidelity.md``, "Deferred months trade too thinly to decide a roll"."""
+
 METHOD_VOLUME = "volume_crossover"
 METHOD_COVERAGE = "coverage_boundary"
 
@@ -174,7 +182,10 @@ def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
     # A verdict is only as good as the window it was measured over. NT8's data has a
     # near-empty session a few days before most rolls -- typically the Sunday 18:00-19:00
     # ET hour and nothing else -- which lands squarely where the crossover is decided.
-    table["conclusive"] = table["shared_bars"] >= (table["shared_bars"].median() * FULL_SESSION_FRACTION)
+    combined = table["front_volume"] + table["back_volume"]
+    full_session = table["shared_bars"] >= (table["shared_bars"].median() * FULL_SESSION_FRACTION)
+    both_trading = combined >= (combined.max() * ACTIVE_VOLUME_FRACTION)
+    table["conclusive"] = full_session & both_trading
 
     return table
 
