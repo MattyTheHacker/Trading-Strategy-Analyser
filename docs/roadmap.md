@@ -1171,7 +1171,7 @@ Three things this buys and one it costs, all worth recording:
 
 **Contract validity is the instrument registry's answer** ([#69]). Whether a file in `data/archive/` names a contract used to be decided in three places, and the one that fired first was the one least related to whether the thing is tradeable here. `ContractId.__post_init__` checked the month against a module-level quarterly set; the root was never checked at all. So `NG 02-26` was rejected for **being February**, not for being natural gas — and `NG 03-26` passed every gate, was cached under `cache/bars/NG/`, and failed only much later at `contract.instrument`, as a `KeyError`, at the point something asked for its money spec.
 
-Validity is now one question asked of `INSTRUMENTS`: the root must be a registered `Instrument`, and the month must be one that root's `contract_months` lists. `MONTH_CODES` carries all twelve CME letters, because `cache_key` needs them regardless, and the *listed* cycle moved onto the instrument where it varies — the equity index roots list `HMUZ`, gold `GJMQVZ`, silver `FHKNUZ`, crude all twelve. Adding a root is one `Instrument(...)` entry and nothing else.
+Validity is now one question asked of `INSTRUMENTS`: the root must be a registered `Instrument`, and the month must be one that root's `contract_months` lists. `MONTH_CODES` carries all twelve CME letters, because `cache_key` needs them regardless, and the cycle moved onto the instrument where it varies — the equity index roots list `HMUZ`, gold `GJMQZ`, silver `FHKNUZ`, crude all twelve. **What it lists is what the data source will serve, which for gold is narrower than what COMEX lists** — October is a regular delivery month that NinjaTrader alone omits, and `docs/nt8-fidelity.md` § "Deferred months trade too thinly to decide a roll" has the evidence and [#333] the consequence. Adding a root is one `Instrument(...)` entry and nothing else.
 
 ES, GC, SI and CL are registered on that basis, together with the micro beside each full-size root — MES, MGC, SIL and MCL. Each entry's `tick_size` × `point_value` reproduces the tick value CME publishes — $12.50, $10.00, $25.00 and $10.00 full-size, $1.25, $1.00, $5.00 and $1.00 micro — which cross-checks both figures at once, and `tests/test_instruments.py` pins them.
 
@@ -1310,6 +1310,7 @@ ______________________________________________________________________
 [#320]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/320
 [#326]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/326
 [#33]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/33
+[#333]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/333
 [#34]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/34
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
 [#36]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/36
