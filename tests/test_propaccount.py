@@ -518,6 +518,18 @@ def test_nothing_is_withdrawn_before_the_account_passes() -> None:
     assert not run.passed
     assert run.withdrawn == 0.0
     assert run.final_balance == pytest.approx(51_000.0)
+    assert run.first_withdrawal_on is None
+    assert run.as_dict()["first_withdrawal_on"] is None
+
+
+def test_the_first_withdrawal_is_dated_by_the_day_it_was_taken_and_not_by_the_pass() -> None:
+    """The pass on day 0 leaves nothing above the safety net, so the first money out is day 2's."""
+    log = leg_log([(0, 3_000.0, 1.0), (1, -500.0, 1.0), (2, 2_000.0, 1.0), (3, 1_000.0, 1.0)])
+    run = propaccount.replay(log, account(withdrawal_threshold=3_000.0)).runs[0]
+
+    assert run.passed_on == dt.date(2024, 1, 2)
+    assert run.first_withdrawal_on == dt.date(2024, 1, 4)
+    assert run.as_dict()["first_withdrawal_on"] == "2024-01-04"
 
 
 # -- the daily loss limit ------------------------------------------------------

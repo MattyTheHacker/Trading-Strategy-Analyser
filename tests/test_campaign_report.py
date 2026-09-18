@@ -16,7 +16,16 @@ import pytest
 from nqbt import archetypes, stats, trades
 from tools import campaign_report
 from tools import campaign_holdout
-from tools.campaign_holdout import GROUP_KEYS, JOIN_KEYS, TOP, held_out, rank_correlation, verdict
+from tools.campaign_holdout import (
+    GROUP_KEYS,
+    JOIN_KEYS,
+    TOP,
+    half,
+    held_out,
+    rank_correlation,
+    ranked_pairs,
+    verdict,
+)
 from tools.campaign_report import (
     DECOMPOSITION,
     EXIT_ORDER,
@@ -449,6 +458,21 @@ def test_each_confinement_narrows_the_pair_before_it_is_ranked(monkeypatch) -> N
     assert set(held_out("OpeningRange", "MNQ", resolution=5)["profit_factor"]) == {1.2}
     assert set(held_out("OpeningRange", "MNQ", resolution=15)["profit_factor"]) == {9.9}
     assert len(held_out("OpeningRange", "MNQ")) == 8, "unconfined, the pair holds both"
+
+
+def test_a_ranking_with_no_top_keeps_every_pair_in_selection_order_and_both_halves(monkeypatch) -> None:
+    """A pool filtered after ranking needs the whole ranking, or it ends smaller than asked."""
+    both_windows(
+        monkeypatch, windowed("selection", [1.1, 1.9, 0.9, 1.0]), windowed("holdout", [0.5, 0.6, 0.7, 2.5])
+    )
+    ranked = ranked_pairs("OpeningRange", "MNQ", top=None)
+    assert list(ranked["combo_id"]) == [1, 0, 3, 2]
+
+    selection = half(ranked, "_sel")
+    held = half(ranked, "_hold")
+    assert list(selection["profit_factor"]) == [1.9, 1.1, 1.0, 0.9]
+    assert list(held["profit_factor"]) == [0.6, 0.5, 2.5, 0.7], "the same configurations, held out"
+    assert set(selection["window"]) == {"selection"}
 
 
 def test_a_cell_with_no_paired_rows_raises_rather_than_returning_nothing(monkeypatch) -> None:

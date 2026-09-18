@@ -257,7 +257,14 @@ paths:
   configurations the **selection** window ranked highest — and `--held-out` is the flag that
   reaches it from `campaign_shortlist.py` and `campaign_montecarlo.py`.
   `tools/campaign_propaccount.py` and `tools/campaign_exits.py` take no `--window` at all for
-  the same reason. `docs/roadmap.md` §M28.13.
+  the same reason, and `tools/campaign_propobjectives.py` ranks on selection and reads the
+  holdout in one pass. `docs/roadmap.md` §M28.13.
+- **A pool ranked on profit factor is a pool ranked on `ambiguous_share`.** Not a tendency —
+  §M28.7 measured it and §M40 walked into it: OpeningRange's unfiltered top 500 came back
+  100% above `disambiguate.MIN_AMBIGUOUS_SHARE` on both roots, at a median share of 0.879 and
+  profit factors between 28 and 266, every one an `entry=rejection` arm. Filter the pool by the
+  stored share **before** ranking it, not after reading the result.
+  `docs/findings/m40-prop-objectives.md` § "The pool, and the archive it was re-run on".
 - **Read `sel_top20_pf` beside `passes`.** The held-out gate is defined on the test window
   alone, so a shortlist drawn from a space containing nothing profitable can clear it by
   luck -- DeadCatBounce does, on MNQ, with a selection-window shortlist averaging 0.940.

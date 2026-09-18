@@ -96,6 +96,34 @@ Higher median net, lower pass rate. Uncapped on Apex 50K, medians (§M28.13):
 
 **OpeningRange is the archetype that *funds*; InsideBar has the higher ceiling and the worse median.** On ever-passed over the full population run, OpeningRange reaches 82.2% against InsideBar's 43.8% on TopStep 150K. InsideBar also has the advantage of being **reconciled against a real NT8 trade list**, which OpeningRange is not.
 
+### If you are optimising for something other than net
+
+**Everything above ranks configurations by profit factor and reads them for net. A prop account can be scored on other things**, and §M40 ranks the selection window by four of them directly — the pass rate, what a funded account costs in fees, how long until the first payout, and how long a funded account lasts — then reads each shortlist on the holdout beside the profit-factor one.
+
+**All four orderings transfer, and none of the levels do.** Each objective beats the profit-factor shortlist at its own objective held out, on sign tests clearing 0.05 in all four cases; held out, a funded account then lasts 12 trading days where the selection window promised 138. **Pick a configuration with these; do not quote the number it was picked at.**
+
+| if you want                     | rank by          | what it buys held out                                                                                                 | what it costs                     |
+| ------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| **to be paid soonest**          | `days_to_payout` | +0.208 on the share of shortlists ever funded, and it is **the only one that also raises net**, by a median of $1,862 | nothing measurable                |
+| **the cheapest funded account** | `fees_per_pass`  | +0.214 on the same share, and $283 off the cost of a pass                                                             | net unchanged (p = 0.07)          |
+| **the highest pass rate**       | `pass_rate`      | +0.061 on that share                                                                                                  | net unchanged                     |
+| **the longest funded account**  | `funded_days`    | +0.051 on that share, the weakest of the four                                                                         | **loses net more often than not** |
+
+Paired by cell and preset on MNQ (§M40). **The largest part of the gain is that the account gets funded at all**: where the shortlists differ, 42 pairs have a cost-per-pass under the objective ranking and none under the control, against 1 the other way.
+
+**Two of the four reward the wrong thing if read alone.** A held-out pass rate of 1.000 is **one attempt** — DeadCatBounce cells trading 82 to 93 times in the whole holdout, two of the three net-negative. The longest funded lives are **mostly censoring**: 501 trading days on TakeProfitTrader 150K PRO is one account, 95% of it cut off by the end of the window, at a profit factor of 0.922. Read `attempts` beside a pass rate and `censored_share` beside a funded life; the tool reports both.
+
+**Where each objective lands best on MNQ** — chosen after the holdout was read, so this is a description and not a recommendation:
+
+| objective        | best cell                                            |
+| ---------------- | ---------------------------------------------------- |
+| `pass_rate`      | InsideBarTrailing midday, on every preset that funds |
+| `fees_per_pass`  | InsideBarTrailing midday, then InsideBar unfiltered  |
+| `days_to_payout` | InsideBarTrailing unfiltered                         |
+| `funded_days`    | scattered, and every leader is heavily censored      |
+
+**None of this changes which strategy is best**, since the pool it ranks is the same stored registry. It changes which configurations inside one you would pick, and on what basis.
+
 ### Three traps specific to prop accounts
 
 - **`net` rewards variance and can rank a losing strategy above a winning one.** One configuration in the sample runs a profit factor of **0.932** and still nets +$3,120, because each blown account caps the loss at the fee while the wins were already withdrawn. That is real prop economics, not a modelling artefact — but read net beside the profit factor and the pass rate, never instead of them (§M28.13).
@@ -164,6 +192,7 @@ Every number above comes out of the stored campaign databases and the campaign t
 ./.venv/Scripts/python.exe tools/campaign_propaccount.py  # the prop-account replay
 ./.venv/Scripts/python.exe tools/campaign_exits.py        # P&L with one exit reason removed
 ./.venv/Scripts/python.exe tools/campaign_null.py         # gate 3, against a matched random entry
+./.venv/Scripts/python.exe tools/campaign_propobjectives.py  # shortlists ranked by an account objective
 ```
 
 `results/` is not committed. Follow the `§Mxx` pointer beside any figure to the campaign that produced it, which names the tool and the arguments it was run under.

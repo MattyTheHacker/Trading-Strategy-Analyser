@@ -83,6 +83,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M37`                                             | [M37 — EmaPullback's stop trailed on the slow average: the effect takes the window's sign](m37-ema-pullback-trail-on-slow.md)                            | EmaPullback                                                                                         | 1, 2, 3    | `mixed`       | [#313]                         |
 | `§M38`                                             | [M38 — OpeningRange's gate-3 cell belongs to the stop mode, not the window or target](m38-openingrange-cell-across-configurations.md)                    | OpeningRange                                                                                        | 3          | `mixed`       | [#307]                         |
 | `§M39`                                             | [M39 — EmaPullback's confirmation entry: it wins the selection window and not the holdout](m39-ema-pullback-confirmation-entry.md)                       | EmaPullback                                                                                         | 1, 2, 3    | `mixed`       | [#311]                         |
+| `§M40`                                             | [M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)                                             | all 9                                                                                               | --         | `mixed`       | [#326]                         |
 | `§ "Counting the confluence a trade actually had"` | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Multi-timeframe moving averages"`              | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
 | `§ "The build spec's three loose ends"`            | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                                            | EmaCrossover                                                                                        | --         | `spec`        | [#74]                          |
@@ -294,6 +295,10 @@ With the opposite-extreme stop the calibrated DIRECTIONAL cell clears p = 0.05 o
 
 A stop order beyond the signal bar's extreme, built as a mode rather than an archetype, takes about three of the market entry's five trades and raises profit factor on the selection window in all eight root x resolution cells, but held out it costs at 2 and 5 minutes and gains insignificantly at 10 and 15, so it clears the pre-registered paired bar in none; resting it three bars is worse than one on the selection window everywhere, and gate 3 fails for all three arms with nothing clearing on both roots.
 
+**[M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)**
+
+Ranking the selection window by pass rate, fees per pass, time to the first payout or funded life beats ranking by profit factor at each objective held out, on sign tests clearing 0.05 in all four; the largest part of the gain is that the account gets funded at all, 42 pairs to 1 for fees per pass. Only time to the first payout also improves net (+$1,862 median on MNQ); funded life loses money more often than not. Every objective's held-out level is far below the window that chose it -- a funded account lasts 12 trading days against the 138 selection showed -- so the ordering transfers and the number does not.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -350,6 +355,7 @@ None of the three features improves EmaCrossover; the trail costs in nineteen of
 [#311]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/311
 [#313]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/313
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
+[#326]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/326
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42

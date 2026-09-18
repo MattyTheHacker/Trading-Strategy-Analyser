@@ -26,8 +26,12 @@ import math
 import sys
 from dataclasses import fields, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
@@ -164,25 +168,31 @@ def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[
         raise RuntimeError(msg)
 
 
-def store_group(
+def rerun_group(
     block: pd.DataFrame,
     frame: pd.DataFrame,
     archetype: archetypes.Archetype,
     root: str,
     minutes: int,
-    path: Path,
-) -> int:
-    """Store the log of every row measured on one resampled frame, and return how many.
+    price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
+) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:  # type: ignore[type-arg]  # duckdb's dtypes
+    """Re-run every row measured on one resampled frame, yielding each with its summary and log.
 
     One prepared dataset serves the whole block, built from the shortlist as a combination grid
     so that the union over its members is :meth:`~nqbt.sweep.Grid.required_context`'s rather
-    than a second copy of it.
+    than a second copy of it. ``price_basis`` says what the bars are; a rule reading an absolute
+    level refuses the default -- ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
         (row, rebuild(row, archetype)) for _, row in block.iterrows()
     ]
     grid: sweep.Grid = sweep.Grid.of_combinations([params for _, params in rebuilt], archetype=archetype)
-    data: context.Dataset = context.prepare(frame, grid.required_context(), bar_minutes=minutes)
+    data: context.Dataset = context.prepare(
+        frame,
+        grid.required_context(),
+        bar_minutes=minutes,
+        price_basis=price_basis,
+    )
 
     for row, params in rebuilt:
         summary, log = sweep.run_combination(
@@ -192,12 +202,27 @@ def store_group(
             archetype,
             keep_trades=True,
         )
-        verify(row, summary)
         if log is None:  # pragma: no cover - keep_trades always returns a log
             msg: str = "run_combination kept no log with keep_trades set"
             raise RuntimeError(msg)
 
+        yield row, summary, log
+
+
+def store_group(
+    block: pd.DataFrame,
+    frame: pd.DataFrame,
+    archetype: archetypes.Archetype,
+    root: str,
+    minutes: int,
+    path: Path,
+) -> int:
+    """Store the log of every row measured on one resampled frame, and return how many."""
+    stored: int = 0
+    for row, summary, log in rerun_group(block, frame, archetype, root, minutes):
+        verify(row, summary)
         results.save_trades(log, int(row["sweep_id"]), int(row["combo_id"]), path, replace=True)
+        stored += 1
         logger.info(
             "  sweep %-4d combo %-6d %2dm %-9s %-24s %5d legs  PF %.3f",
             int(row["sweep_id"]),
@@ -209,7 +234,7 @@ def store_group(
             float(row["profit_factor"]),
         )
 
-    return len(rebuilt)
+    return stored
 
 
 def store_logs(name: str, rows: pd.DataFrame, root: str) -> int:
