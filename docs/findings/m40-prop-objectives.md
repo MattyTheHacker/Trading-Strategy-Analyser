@@ -110,6 +110,109 @@ Two-sided sign tests, ties dropped. **This is four tests on one family and every
 
 **Funded life is mostly censoring.** Its best MNQ cell per preset runs to 501 trading days on TakeProfitTrader 150K PRO — one attempt, 95% of it cut off by the end of the window, on a profit factor of 0.922 and a net of −$130. Every `funded_days` figure carries `censored_share` for that reason.
 
+## The configurations behind each objective
+
+**Every cell below was chosen after the holdout was read**, by taking each objective's best held-out value per preset and asking which cell it came from. That makes this a description of where the values landed, not a selection anything survived. The shortlist is a different twenty per preset, since each preset ranks its own; a parameter listed as swept is one the union of those shortlists varies over.
+
+### `fees_per_pass` and `pass_rate`: InsideBarTrailing, `phase=MIDDAY`, 5 minutes
+
+One cell leads both objectives, on three of the seven MNQ presets each. It is §M28.16's cell — the strongest gate-3 result outside OpeningRange, and the one that leans least on the forced flat.
+
+| held fixed across every shortlisted configuration                                                                                               | swept                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `order_quantity` 6, `atr_multiplier` 10.0, `tp_multiplier` 1.0, `slow_sma_period` 125, `phase_filter` MIDDAY, `variant` trailing, 5-minute bars | `ema_period` 11/22/44, `fast_sma_period` 20/35/50, `error_margin` 0.05/0.1, `atr_length` 3/14, `partial_take_profit_percentage` 0.3/0.5/0.6/0.8, `trailing_stop_multiplier` 2.0/5.0/10.0 |
+
+Ranked by `fees_per_pass`, medians over each preset's twenty:
+
+| root | preset                     |     cost | attempts | passes |    fees |                  net | ever passed | net > 0 | profit factor |
+| ---- | -------------------------- | -------: | -------: | -----: | ------: | -------------------: | ----------: | ------: | ------------: |
+| MNQ  | TakeProfitTrader 25K Test  | **$444** |     44.5 |     16 |  $7,205 |         **+$24,917** |        100% |    100% |         1.388 |
+| MNQ  | TakeProfitTrader 50K Test  |     $617 |     29.5 |     10 |  $5,955 |         **+$29,038** |        100% |    100% |         1.493 |
+| MNQ  | TopStep 50K                |     $800 |     78.5 |      7 |  $5,600 |         **+$18,211** |        100% |    100% |         1.418 |
+| MNQ  | Apex 50K                   |   $1,233 |       23 |    6.5 |  $7,943 |         **+$22,652** |        100% |    100% |         1.297 |
+| MNQ  | TakeProfitTrader 150K Test |   $2,722 |        4 |      2 |  $5,660 |         **+$23,143** |        100% |    100% |         1.428 |
+| MNQ  | TopStep 150K               |   $3,129 |       18 |      2 |  $6,109 |          **+$9,860** |        100% |    100% |         1.299 |
+| MNQ  | Apex 150K                  |   $8,149 |        3 |      1 |  $7,852 |         **+$25,538** |         75% |     65% |         1.412 |
+| NQ   | TakeProfitTrader 50K Test  |   $1,707 |    184.5 |   12.5 | $20,773 |        **+$135,342** |        100% |    100% |         1.384 |
+| NQ   | TakeProfitTrader 150K Test |   $1,738 |    127.5 |     18 | $32,300 |        **+$202,019** |        100% |    100% |         1.450 |
+| NQ   | TakeProfitTrader 25K Test  |   $1,746 |      205 |   11.5 | $20,125 |        **+$123,025** |        100% |    100% |         1.586 |
+| NQ   | TopStep 150K               |   $6,929 |      172 |      4 | $27,267 |         **+$29,856** |        100% |    100% |         1.400 |
+| NQ   | Apex 150K                  |  $68,440 |      230 |      1 | $69,693 |         **+$14,562** |         90% |     85% |         1.287 |
+| NQ   | Apex 50K, TopStep 50K      |      inf |  237–290 |      0 |       — | −$11,760 to −$48,514 |        0–5% |      0% |    1.31, 1.40 |
+
+**Every MNQ preset's median configuration is profitable after fees**, and six of the seven fund all twenty; Apex 150K funds 15 of 20, having the least room of any preset at six contracts. On NQ it splits exactly where §M28.13's room arithmetic says it must: the presets with 56 points or more fund it, and Apex 50K and TopStep 50K never pass in twenty configurations.
+
+**The single cheapest pass held out** is TakeProfitTrader 25K Test at **$395 per funded account** — 44 attempts, 19 passes, +$26,064 net at a profit factor of 1.630 over 308 trades — on `ema_period` 22, `fast_sma_period` 35, `error_margin` 0.05, `atr_length` 14, `partial_take_profit_percentage` 0.8, `trailing_stop_multiplier` 5.0.
+
+Ranked by `pass_rate` the same cell returns 0.097 to 0.536 on MNQ, at nets of +$12,436 to +$28,254 and profit factors of 1.19 to 1.52. **Its best single configuration passes both accounts it opens** — `pass_rate` 1.000 on Apex 150K from two attempts, +$27,100 at 1.549 over 288 trades — which is the same one-attempt caveat the DeadCatBounce cell shows below, in a milder form.
+
+**The 150K presets are cheaper per pass on `InsideBar` unfiltered**, at $1,560 (TakeProfitTrader 150K Test, +$40,962) and $1,788 (TopStep 150K, +$37,971) over 1,600 to 1,900 trades rather than 300, and at least 80% of its shortlist is funded on every preset on both roots, which no other cell here manages. Its profit factor is 1.06 to 1.09 against this cell's 1.30 to 1.49.
+
+### `days_to_payout`: InsideBarTrailing, `unfiltered`
+
+The same archetype with the phase filter off, leading five of the seven MNQ presets. The shortlist spans every bar size — 39% at 5 minutes, 27% at 10, 18% at 15, 16% at 1 and 2 — and the axes are the same six.
+
+| root | preset                     | days | attempts | passes |     fees |                    net | ever passed | net > 0 | profit factor |
+| ---- | -------------------------- | ---: | -------: | -----: | -------: | ---------------------: | ----------: | ------: | ------------: |
+| MNQ  | TakeProfitTrader 25K Test  |   21 |      133 |     20 |  $15,865 |           **+$68,666** |        100% |    100% |     **1.034** |
+| MNQ  | TakeProfitTrader 50K Test  |   22 |    103.5 |     19 |  $14,283 |           **+$48,002** |        100% |    100% |     **0.991** |
+| MNQ  | TopStep 50K                |   24 |    174.5 |   11.5 |  $11,423 |           **+$17,736** |        100% |     90% |     **1.007** |
+| MNQ  | Apex 50K                   | 35.5 |     98.5 |    9.5 |  $20,756 |           **+$20,515** |        100% |     95% |     **0.990** |
+| MNQ  | TakeProfitTrader 150K Test | 51.5 |     54.5 |      8 |  $17,046 |           **+$49,293** |        100% |    100% |     **0.987** |
+| MNQ  | TopStep 150K               |   53 |       80 |      8 |  $16,167 |           **+$54,332** |        100% |    100% |     **0.951** |
+| MNQ  | Apex 150K                  |  113 |       47 |      4 |  $20,438 |           **+$20,041** |        100% |     95% |     **0.946** |
+| NQ   | TakeProfitTrader 150K Test |   27 |    275.5 |     17 |  $64,462 |          **+$403,064** |        100% |    100% |     **0.932** |
+| NQ   | TakeProfitTrader 25K/50K   |   35 |  361–394 |   9–12 |  $37–39k | +$161,571 to +$195,718 |        100% |    100% |  0.996, 1.059 |
+| NQ   | Apex 150K                  |   41 |    462.5 |      1 | $137,790 |               −$85,594 |         80% |     20% |         1.104 |
+| NQ   | Apex 50K, TopStep 50K      |  inf |  450–481 |  0–0.5 |  $22–80k |   −$15,119 to −$80,244 |       0–50% |      0% |  1.083, 1.115 |
+
+**The profit factor is the column to read.** This is the fastest route to a first withdrawal anywhere in the register and it is **below 1.0 on five of seven MNQ presets and on the best NQ preset**. §M28.13's reset economics are the whole mechanism: the accounts die faster than the strategy makes money, and the withdrawals taken before each death outrun the fees. **A first payout in 21 trading days at a profit factor of 1.034 is not an edge**, it is a sequence of accounts whose losses the firm caps.
+
+**The single fastest payout held out is 3 trading days**, on EmaPullback's unfiltered cell at 10 minutes on TakeProfitTrader 25K Test — 26 attempts, 4 passes, +$4,695 net at a **profit factor of 0.579**. That is the same reading in its sharpest form.
+
+### `funded_days`: ElasticBand, `unfiltered`, and the case against the objective
+
+It leads only two of seven presets, which is itself the finding — no cell leads this objective the way one cell leads the other three.
+
+| held fixed                                                                                                      | swept                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `order_quantity` 4, `atr_stop_multiple` 2.0, `atr_period` 14, `tp_multiplier` 1.0, `catastrophe_stop_ticks` 400 | `band_source`, `band_period` 10/20, `entry_std` 2.0/2.5/3.0, `stop_mode`, `signal_shape`, `min_bars_outside`, `recovery_fraction`, `max_hold_bars` 0/30 |
+
+| root | preset                    |  days | attempts | passes |   fees |               net | ever passed | net > 0 |
+| ---- | ------------------------- | ----: | -------: | -----: | -----: | ----------------: | ----------: | ------: |
+| MNQ  | TakeProfitTrader 150K PRO |   135 |        3 |      2 |   $390 |           +$1,116 |        100% |     65% |
+| MNQ  | TakeProfitTrader 50K PRO  |    96 |        4 |      2 |   $520 |             +$716 |        100% |     55% |
+| MNQ  | TopStep 50K               |    61 |        4 |      1 | $1,472 |             +$424 |         80% |     65% |
+| MNQ  | Apex 50K                  |    60 |        4 |      1 | $4,556 |             +$962 |         70% |     60% |
+| MNQ  | TakeProfitTrader 25K PRO  | 30.25 |        6 |      3 |   $780 |              +$20 |         95% |     50% |
+| MNQ  | Apex 150K                 |     0 |      2.5 |      0 | $7,639 |       **−$7,425** |         25% |     25% |
+| MNQ  | TopStep 150K              |     0 |        2 |      0 | $3,725 |       **−$3,725** |         35% |     35% |
+| NQ   | TopStep 150K              |    15 |       18 |    0.5 | $5,066 |           +$1,669 |         50% |     50% |
+| NQ   | every other preset        |   0–4 |   24–183 |    0–3 | $3–31k | −$112 to −$26,730 |      25–90% |   0–50% |
+
+**The two largest accounts never get funded at all on MNQ and lose their fees**, the five that do are worth $20 to $1,116, and on NQ every preset is negative. **The longest lives are mostly censoring**: the 135-day figure is 95% cut off by the end of the holdout, and the single longest funded life in the whole campaign — **502 trading days**, ElasticBand at 2 minutes on TakeProfitTrader 150K PRO — is **one account that never breached**, at +$2,032 on 235 trades.
+
+That is the objective's defect rather than this cell's bad luck. A long funded life is either an account that survived the window, which is censoring, or an account that was never risked, which is a strategy that barely trades. Neither is a reason to choose a configuration, and the paired test agrees: `funded_days` is the one objective that loses net more often than it gains it.
+
+### The pass rate's own trap: DeadCatBounce, `unfiltered`
+
+DeadCatBounce leads `pass_rate` on three MNQ presets, at exactly 1.000, and the mechanism is worth stating in full because the number looks like the best result in the campaign.
+
+| held fixed                                                                                                            | swept                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `order_quantity` 4, `bars_required_to_trade` 200, `stop_offset_ticks` 2, `entry_offset_ticks` 2, `max_risk_ticks` 250 | `ema_period` 9/15/21/30, `fast_sma_period` 40/60/80, `ema_kind` ema/hma/sma/wma, `use_vwap`, `tp_multiplier` 1.0/1.5/2.0, 5/10/15-minute bars |
+
+| root | preset                                      | pass rate | attempts | passes |    fees |                net | ever passed | net > 0 |
+| ---- | ------------------------------------------- | --------: | -------: | -----: | ------: | -----------------: | ----------: | ------: |
+| MNQ  | TakeProfitTrader 25K Test                   | **1.000** |      1.5 |      1 |  $1,025 |              +$622 |        100% |     70% |
+| MNQ  | TakeProfitTrader 50K Test                   | **1.000** |        1 |      1 |  $2,221 |        **−$1,125** |         60% |     30% |
+| MNQ  | TopStep 50K                                 | **1.000** |        1 |      1 |  $1,276 |               −$98 |         55% |     45% |
+| MNQ  | Apex 50K, Apex 150K, TopStep 150K, TPT 150K |     0.000 |        1 |      0 | $3.5–7k | −$3,841 to −$6,980 |       0–45% |      0% |
+
+**The whole shortlist opens one account.** Its configurations take 82 to 93 trades across the entire holdout, so a single account either passes and is never breached, or never passes at all — and the pass rate is 1.000 or 0.000 accordingly. Net is negative on five of the seven presets, and the cell's held-out profit factor of 1.57 to 1.70 is measured on those 82 trades.
+
+**So a pass rate has to be read with `attempts` beside it**, which is why the tool reports both and why this section gives attempts in every table. The objective is still the one that transfers most strongly of the four (63 better against 10 worse, p = 1.6e-10); what it cannot do alone is tell a reliable account from a rare one.
+
 ## What travels and what does not
 
 - **The comparison is between rankings, not a gate.** Nothing here is put to a matched random entry or a bootstrap; a shortlist chosen by pass rate is still a shortlist chosen from the same pool, and the pool's own edge is whatever the rest of the register says it is.
