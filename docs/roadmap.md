@@ -685,6 +685,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
 
+### Pre-registration: does EmaCrossover's gold result survive stratification?
+
+**Written before the matched null runs on 136 stratified cells: EmaCrossover's gold cells must clear at a higher rate than its own S&P cells and at least 4 of 16 gold pairs must clear on both roots, or the unfiltered result is one lucky cell of twenty-three.** Moved to [`docs/findings/gold-strata-preregistration.md`](findings/gold-strata-preregistration.md).
+
 ### ~~The numpy-native summary path~~ — done ([#33])
 
 `stats.summarise_legs` reads the simulation's raw `LegMatrix` and never builds a DataFrame. `stats.summarise` stays exactly where it was, as the reference; `tests/test_numpy_summary.py` is what says the two agree.

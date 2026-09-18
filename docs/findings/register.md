@@ -87,6 +87,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§ "Counting the confluence a trade actually had"`                                   | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"` | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                                                 | all 9                                                                                               | --         | `mixed`       | [#330]                         |
 | `§ "Multi-timeframe moving averages"`                                                | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
+| `§ "Pre-registration: does EmaCrossover's gold result survive stratification?"`      | [Pre-registration: does EmaCrossover's gold result survive stratification?](gold-strata-preregistration.md)                                              | EmaCrossover, InsideBar, InsideBarTrailing, SqueezeBreakout, EmaPullback, ElasticBand               | 3, 4       | `spec`        | --                             |
 | `§ "The build spec's three loose ends"`                                              | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                                            | EmaCrossover                                                                                        | --         | `spec`        | [#74]                          |
 | `§ "The build spec's three loose ends, measured"`                                    | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                                                         | EmaCrossover                                                                                        | 1, 2, 3    | `negative`    | [#74]                          |
 
@@ -311,6 +312,10 @@ Most of what a shortlist loses is selection rather than instrument — the drop 
 **[Multi-timeframe moving averages](multi-timeframe-moving-averages.md)**
 
 A higher-timeframe moving average is a condition rather than an archetype, and it does not separate.
+
+**[Pre-registration: does EmaCrossover's gold result survive stratification?](gold-strata-preregistration.md)**
+
+Written before the matched null runs on 136 stratified cells: EmaCrossover's gold cells must clear at a higher rate than its own S&P cells and at least 4 of 16 gold pairs must clear on both roots, or the unfiltered result is one lucky cell of twenty-three.
 
 **[The build spec's three loose ends](build-spec-loose-ends.md)**
 
