@@ -85,6 +85,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M39`                                                                               | [M39 — EmaPullback's confirmation entry: it wins the selection window and not the holdout](m39-ema-pullback-confirmation-entry.md)                       | EmaPullback                                                                                         | 1, 2, 3    | `mixed`       | [#311]                         |
 | `§M40`                                                                               | [M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)                                             | all 9                                                                                               | --         | `mixed`       | [#326]                         |
 | `§M41`                                                                               | [M41 — the live flatten timing: the one divergence a backtest cannot show, measured](m41-flatten-timing.md)                                              | InsideBarTrailing, OpeningRange                                                                     | --         | `negative`    | [#346], [#193]                 |
+| `§M42`                                                                               | [M42 — InsideBarTrailing's midday cell through the exclusion test and gate 4](m42-insidebartrailing-gate-4.md)                                           | InsideBarTrailing                                                                                   | 4          | `mixed`       | [#345]                         |
 | `§ "Counting the confluence a trade actually had"`                                   | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"` | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                                                 | all 9                                                                                               | --         | `mixed`       | [#330]                         |
 | `§ "Multi-timeframe moving averages"`                                                | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
@@ -307,6 +308,10 @@ Ranking the selection window by pass rate, fees per pass, time to the first payo
 
 At the candidate's bar size the live 180-second cutoff selects exactly the same bars as the backtested 30, so the divergence is zero by arithmetic rather than small by measurement; a whole bar earlier costs 1.4% of net on MNQ and gains 0.4% on NQ, and a whole 15-minute bar earlier moves held-out profit factor by at most 0.040 with the sign belonging to the archetype.
 
+**[M42 — InsideBarTrailing's midday cell through the exclusion test and gate 4](m42-insidebartrailing-gate-4.md)**
+
+The first cell in the registry to survive the exclusion at all — 5 of 10 configurations on MNQ and 4 of 10 on NQ are profitable without their session-close legs — and the first to put a bootstrap 5th percentile above a profit factor of 1.0, on all ten MNQ configurations; the walk-forward passes on both roots, and on each root one bracket axis separates every surviving configuration from every failing one.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -378,6 +383,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#326]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/326
 [#330]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/330
+[#345]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/345
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41

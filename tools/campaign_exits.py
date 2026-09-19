@@ -25,6 +25,9 @@ read from the window that chose it -- ``docs/roadmap.md`` §M28.13.
 
 Reads the logs ``tools/campaign_shortlist.py --held-out`` stored, so run that first; a row with
 no log is named and skipped rather than silently dropped.
+
+**``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
+what a campaign the archive has moved under needs -- ``tools/campaign_swept.py``.
 """
 
 from __future__ import annotations
@@ -34,8 +37,12 @@ import logging
 import math
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 # Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
@@ -43,9 +50,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import LABEL_COLUMNS
-from tools.campaign_report import NET_TO_DRAWDOWN, load_trades, ratio_to_drawdown
+from tools.campaign_report import NET_TO_DRAWDOWN, log_key, ratio_to_drawdown, stored_logs
 from tools.campaign_shortlist import NET_PNL_TOLERANCE, TOP
 from tools.campaign_sweep import db_path
+from tools.campaign_swept import logs_for
 
 from nqbt import logsetup, stats, trades
 
@@ -105,10 +113,19 @@ def measure_row(
     row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
     log: pd.DataFrame,
     reason: str,
+    *,
+    require_stored: bool = True,
 ) -> dict[str, object]:
-    """One configuration's whole book, the legs one reason took, and what is left without them."""
+    """One configuration's whole book, the legs one reason took, and what is left without them.
+
+    ``require_stored`` is what a stored log is held to and a re-run one is not: the archive can
+    have moved under the row since it was swept, and ``tools/campaign_swept.py`` reports that
+    disagreement rather than refusing it.
+    """
     whole: dict[str, float] = summary_of(log)
-    verify(row, whole)
+    if require_stored:
+        verify(row, whole)
+
     removed, residual = split_on(log, reason)
     figures: dict[str, float] = summary_of(residual)
     measured: dict[str, object] = {
@@ -135,11 +152,17 @@ def measure_row(
     return measured
 
 
-def measure(rows: pd.DataFrame, path: Path, reason: str) -> pd.DataFrame:
+def measure(
+    rows: pd.DataFrame,
+    logs: Mapping[tuple[int, int], pd.DataFrame],
+    reason: str,
+    *,
+    require_stored: bool = True,
+) -> pd.DataFrame:
     """Every shortlisted configuration split on ``reason``, one row each."""
     measured: list[dict[str, object]] = []
     for _, row in rows.iterrows():
-        log: pd.DataFrame = load_trades(int(row["sweep_id"]), int(row["combo_id"]), path)
+        log: pd.DataFrame = logs.get(log_key(row), pd.DataFrame())
         if log.empty:
             logger.warning(
                 "  sweep %-4d combo %-6d has no stored log; run tools/campaign_shortlist.py --held-out first",
@@ -148,7 +171,7 @@ def measure(rows: pd.DataFrame, path: Path, reason: str) -> pd.DataFrame:
             )
             continue
 
-        measured.append(measure_row(row, log, reason))
+        measured.append(measure_row(row, log, reason, require_stored=require_stored))
 
     return pd.DataFrame(measured)
 
@@ -202,6 +225,11 @@ def main(argv: list[str]) -> int:
         default=stats.SESSION_CLOSE,
         help="which exit reason's legs come out",
     )
+    parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="re-run the shortlist on the bars it was swept on rather than reading a stored log",
+    )
     args = parser.parse_args(argv[1:])
 
     rows: pd.DataFrame = held_out(
@@ -222,7 +250,15 @@ def main(argv: list[str]) -> int:
         args.reason,
     )
 
-    table: pd.DataFrame = measure(rows, db_path(args.strategy), args.reason)
+    logs: Mapping[tuple[int, int], pd.DataFrame]
+    if args.rerun:
+        reconciled: pd.DataFrame
+        logs, reconciled = logs_for(args.strategy, rows, args.root)
+        show(f"{args.strategy} {args.root} -- what the re-run reproduced of its stored rows", reconciled)
+    else:
+        logs = stored_logs(rows, db_path(args.strategy))
+
+    table: pd.DataFrame = measure(rows, logs, args.reason, require_stored=not args.rerun)
     if table.empty:
         logger.warning("no stored trade logs for this shortlist; nothing to re-summarise")
 

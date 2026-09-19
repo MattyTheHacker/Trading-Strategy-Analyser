@@ -28,6 +28,9 @@ and calls it a strategy's uncertainty, ``docs/roadmap.md`` §M28.13.
 
 Reads the logs ``tools/campaign_shortlist.py`` stored, so run that first; a row with no log is
 named and skipped rather than silently dropped.
+
+**``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
+what a campaign the archive has moved under needs -- ``tools/campaign_swept.py``.
 """
 
 from __future__ import annotations
@@ -45,13 +48,16 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out
-from tools.campaign_report import load_trades
+from tools.campaign_report import log_key, stored_logs
 from tools.campaign_shortlist import TOP, shortlist
 from tools.campaign_sweep import db_path
+from tools.campaign_swept import logs_for
 
 from nqbt import logsetup, montecarlo
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nqbt.arrays import FloatArray
 
 logger = logging.getLogger(__name__)
@@ -76,12 +82,11 @@ def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # 
 
 def resample_row(
     row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
-    path: Path,
+    log: pd.DataFrame,
     iterations: int,
     seed: int,
 ) -> tuple[dict[str, object], pd.DataFrame] | None:
     """One configuration's permutation row and bootstrap table, or ``None`` with no log."""
-    log: pd.DataFrame = load_trades(int(row["sweep_id"]), int(row["combo_id"]), path)
     if log.empty:
         logger.warning(
             "  sweep %-4d combo %-6d has no stored log; run tools/campaign_shortlist.py first",
@@ -144,6 +149,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="resample the held-out rows of the configurations the selection window ranks highest",
     )
+    parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="re-run the shortlist on the bars it was swept on rather than reading a stored log",
+    )
     args = parser.parse_args(argv[1:])
 
     rows: pd.DataFrame = (
@@ -170,10 +180,20 @@ def main(argv: list[str]) -> int:
         f"{args.iterations:,}",
     )
 
-    path: Path = db_path(args.strategy)
+    logs: Mapping[tuple[int, int], pd.DataFrame]
+    if args.rerun:
+        reconciled: pd.DataFrame
+        logs, reconciled = logs_for(args.strategy, rows, args.root)
+        show(f"{args.strategy} {args.root} -- what the re-run reproduced of its stored rows", reconciled)
+    else:
+        logs = stored_logs(rows, db_path(args.strategy))
+
     resampled: list[tuple[dict[str, object], pd.DataFrame]] = [
         result
-        for result in (resample_row(row, path, args.iterations, args.seed) for _, row in rows.iterrows())
+        for result in (
+            resample_row(row, logs.get(log_key(row), pd.DataFrame()), args.iterations, args.seed)
+            for _, row in rows.iterrows()
+        )
         if result is not None
     ]
     if not resampled:

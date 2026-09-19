@@ -43,11 +43,13 @@ from tools.campaign_report import (
     eta_squared,
     exit_decomposition,
     in_dimension,
+    log_key,
     net_to_drawdown,
     parameter_columns,
     profile,
     rank,
     ratio_to_drawdown,
+    stored_logs,
     swept_axes,
 )
 from tools.campaign_shortlist import rebuild
@@ -247,6 +249,23 @@ def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(monkeypatc
     assert list(decomposed.index) == list(frame.index)
     assert decomposed["stop_net"].iloc[0] == pytest.approx(-2.0)
     assert decomposed["stop_net"].iloc[1:].isna().all()
+
+
+def test_a_shortlists_logs_are_keyed_by_the_ids_its_rows_carry(monkeypatch) -> None:
+    """The mapping every gate-4 tool works from, so a stored log and one re-run by
+    ``tools/campaign_swept.py`` are read through the same loop."""
+    logged = {0: legs(["stop"], [-2.0], [10])}
+    monkeypatch.setattr(
+        campaign_report,
+        "load_trades",
+        lambda _sweep, combo, _path: logged.get(combo, pd.DataFrame()),
+    )
+    frame = combos()
+    stored = stored_logs(frame, Path("unused.duckdb"))
+
+    assert set(stored) == {log_key(row) for _, row in frame.iterrows()}
+    assert stored[log_key(frame.iloc[0])]["net_pnl"].iloc[0] == pytest.approx(-2.0)
+    assert stored[log_key(frame.iloc[1])].empty, "a row with no log is absent rather than invented"
 
 
 def test_the_one_table_that_ranks_carries_the_shares_the_decomposition_sits_beside() -> None:

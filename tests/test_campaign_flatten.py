@@ -14,24 +14,22 @@ import pandas as pd
 import pytest
 
 import tools.campaign_flatten as module
-from nqbt import archetypes, sessions
+from nqbt import archetypes, resample, sessions
 from tests.test_campaign_shortlist import synthetic_bars
+from tests.test_campaign_swept import stored_frame, stored_row
 from tools.campaign_flatten import (
     CONTROL,
     CUTOFF,
     CUTOFFS,
     SWEPT_BARS,
-    bars_for,
     ladder,
-    last_swept,
     measure,
-    on_swept_bars,
     reconcile,
     resolutions_for,
     rung,
     shortlisted,
 )
-from tools.campaign_holdout import JOIN_KEYS
+from tools.campaign_shortlist import source
 
 
 def arm(seconds: int, **columns: object) -> pd.DataFrame:
@@ -231,93 +229,6 @@ def argparse_namespace(**overrides: object):  # noqa: ANN201 - argparse's own na
     return argparse.Namespace(**{**base, **overrides})
 
 
-# -- which bars a rung runs on -------------------------------------------------------------
-
-
-def stored_frame(bars: pd.DataFrame, first: int, last: int) -> pd.DataFrame:
-    """A stored-rows frame keyed the way ``campaign_null.stored_rows`` keys one."""
-    frame = pd.DataFrame(
-        [
-            {
-                "root": "MNQ",
-                "resolution": 5,
-                "variant": "bracket",
-                "stratum": "unfiltered",
-                "combo_id": 0,
-                "sweep_id": 1,
-                "trades": 0,
-                "net_pnl": 0.0,
-                "first_bar": bars.index[first].tz_localize(None),
-                "last_bar": bars.index[last].tz_localize(None),
-            },
-        ],
-    )
-
-    return frame.set_index(JOIN_KEYS, drop=False)
-
-
-def stored_row() -> pd.DataFrame:
-    """The one shortlisted row those stored bars belong to."""
-    return pd.DataFrame(
-        [
-            {
-                "root": "MNQ",
-                "resolution": 5,
-                "variant": "bracket",
-                "stratum": "unfiltered",
-                "window": "holdout",
-                "sweep_id": 1,
-                "combo_id": 0,
-                "trades": 0,
-                "net_pnl": 0.0,
-                "atr_multiplier": 5.0,
-            },
-        ],
-    )
-
-
-def test_the_stored_stamp_is_read_back_into_the_archives_own_zone() -> None:
-    """``save_sweep`` stores it naive and the spliced series is tz-aware, so a bare compare
-    would raise rather than cut."""
-    bars = synthetic_bars(n=200)
-    stored = stored_frame(bars, 0, 150)
-
-    assert last_swept(stored, bars) == bars.index[150]
-
-
-def test_a_cell_is_run_on_the_window_its_rows_were_swept_on_where_that_survives() -> None:
-    bars = synthetic_bars(n=3000)
-    holdout = module.source(bars, module.HELD_OUT)
-    frame = module.resample.resample(holdout, 5)
-    stored = stored_frame(frame, 0, len(frame) - 1)
-    chosen, swept = bars_for((bars,), stored, stored_row(), 5)
-
-    assert swept is True
-    assert chosen.index[0] == frame.index[0]
-    assert chosen.index[-1] == frame.index[-1]
-
-
-def test_a_window_no_truncation_recovers_falls_back_and_says_so() -> None:
-    """NQ gained history earlier than its tail, so its 60/40 split moved and nothing recovers
-    it -- the run still happens and the cell is reported as not being on the swept bars."""
-    bars = synthetic_bars(n=3000)
-    stored = stored_frame(bars, 0, 10)
-    chosen, swept = bars_for((bars,), stored, stored_row(), 5)
-
-    assert swept is False
-    assert len(chosen) > 0
-
-
-def test_a_row_with_no_stored_counterpart_is_not_counted_as_agreeing() -> None:
-    """A check that could not run is not a check that passed."""
-    bars = module.resample.resample(synthetic_bars(n=3000), 5)
-    stored = stored_frame(bars, 0, len(bars) - 1)
-    other = stored_row()
-    other.loc[0, "combo_id"] = 99
-
-    assert on_swept_bars(stored, other, bars) is False
-
-
 # -- the measured rows ----------------------------------------------------------------------
 
 
@@ -326,7 +237,7 @@ def test_every_configuration_is_measured_once_per_cutoff_and_carries_which(monke
     cutoff it was run at and with what the sweep stored for it."""
     bars = synthetic_bars(n=6000)
     monkeypatch.setattr(module.splice, "load_continuous", lambda root: bars)
-    frame = module.resample.resample(module.source(bars, module.HELD_OUT), 5)
+    frame = resample.resample(source(bars, module.HELD_OUT), 5)
     monkeypatch.setattr(
         module,
         "stored_rows",

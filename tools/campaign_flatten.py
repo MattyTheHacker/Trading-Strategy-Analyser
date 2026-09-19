@@ -45,12 +45,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import labelled
-from tools.campaign_null import series_moved, stored_for, stored_rows
+from tools.campaign_null import stored_rows
 from tools.campaign_paired import sign_test
 from tools.campaign_report import NET_TO_DRAWDOWN, load, ratio_to_drawdown
-from tools.campaign_shortlist import NET_PNL_TOLERANCE, TOP, rerun_group, source, swept_series
+from tools.campaign_shortlist import TOP, rerun_group
+from tools.campaign_swept import (
+    CELL_KEYS,
+    HELD_OUT,
+    SWEPT_BARS,
+    bars_for,
+    candidate_bars,
+    reconciliation,
+    stored_figures,
+)
 
-from nqbt import archetypes, context, logsetup, resample, sessions, splice
+from nqbt import archetypes, context, logsetup, sessions, splice
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +78,6 @@ flattened" -- ``docs/findings/m41-flatten-timing.md``.
 CONTROL = sessions.EXIT_ON_CLOSE_SECONDS
 """The rung every other one is read against, which is also the simulation's one default."""
 
-HELD_OUT = "holdout"
-"""The window ``held_out`` returns rows from, and so the bars every rung has to run on."""
-
 CUTOFF = "exit_on_close_seconds"
 """The column naming which rung a measured row belongs to."""
 
@@ -86,12 +92,6 @@ REPORTED = (
 """What each rung reports. The first three are the question; the last three say *how* a rung
 changed the book rather than only by how much."""
 
-CELL_KEYS = ["root", "resolution"]
-"""What one reported row pools over.
-
-**Never pooled across resolutions**, because the cutoff is a duration and a bar is not: the
-same 180 seconds is three whole bars at one resolution and none at another."""
-
 PAIR_KEYS = ["root", "resolution", "variant", "stratum", "sweep_id", "combo_id"]
 """What identifies the same configuration in two rungs. Exact rather than derived: the arms are
 the same stored rows re-run, so nothing about the parameters can differ between them."""
@@ -100,55 +100,6 @@ MOVED_ON = "net_pnl"
 """What says a rung actually fired. A cutoff that picks the same bars as the control reproduces
 it exactly, so an unchanged net P&L is an arm that never bound rather than one that did
 nothing."""
-
-SWEPT_BARS = "swept_bars"
-"""Whether a cell ran on the bars its stored rows were swept on, which an archive that gained
-history earlier than its tail makes unrecoverable."""
-
-RECONCILED = ("trades", "net_pnl")
-"""What the control rung is read back against in the row the sweep stored for it.
-
-**Reported and not required**, which is a deliberate weakening of the guard
-``tools/campaign_shortlist.py``'s ``verify`` puts on a stored log. Nothing is filed here
-against a stored summary: the ladder pairs two rungs of one run, so a control that no longer
-reproduces makes this campaign's levels its own rather than making its differences wrong.
-``docs/findings/m41-flatten-timing.md`` § "The stored rows no longer reproduce".
-"""
-
-
-def last_swept(stored: pd.DataFrame, bars: pd.DataFrame) -> pd.Timestamp:
-    """The newest bar any of these stored rows was swept on, in the archive's own zone.
-
-    ``save_sweep`` stores the stamp naive, and the spliced series is tz-aware.
-    """
-    return pd.Timestamp(stored["last_bar"].max()).tz_localize(bars.index.tz)
-
-
-def on_swept_bars(stored: pd.DataFrame, block: pd.DataFrame, frame: pd.DataFrame) -> bool:
-    """Whether every row in ``block`` was swept on exactly the bars ``frame`` holds."""
-    references = [stored_for(stored, row) for _, row in block.iterrows()]
-
-    return all(ref is not None and not series_moved(ref, frame) for ref in references)
-
-
-def bars_for(
-    candidates: tuple[pd.DataFrame, ...],
-    stored: pd.DataFrame,
-    block: pd.DataFrame,
-    minutes: int,
-) -> tuple[pd.DataFrame, bool]:
-    """The held-out frame to run, preferring the one these rows were swept on.
-
-    An archive that only grew at the end is recovered by cutting it back; one that gained
-    history earlier moves the 60/40 split and cannot be. Neither is refused -- the ladder pairs
-    two rungs of one run -- but which bars a cell ran on is reported beside it.
-    """
-    frames: list[pd.DataFrame] = [resample.resample(source(bars, HELD_OUT), minutes) for bars in candidates]
-    for frame in frames:
-        if on_swept_bars(stored, block, frame):
-            return frame, True
-
-    return frames[-1], False
 
 
 def measure_group(
@@ -180,8 +131,7 @@ def measure_group(
             float(summary["net_pnl"]),
             float(summary["max_drawdown"]),
         )
-        stored: dict[str, object] = {f"stored_{field}": row[field] for field in RECONCILED}
-        measured.append({**labelled(row), **stored, CUTOFF: seconds, **figures})
+        measured.append({**labelled(row), **stored_figures(row), CUTOFF: seconds, **figures})
 
     return measured
 
@@ -200,10 +150,7 @@ def measure(
     """
     stored: pd.DataFrame = stored_rows(archetype.name, root, HELD_OUT)
     archive: pd.DataFrame = splice.load_continuous(root)
-    candidates: tuple[pd.DataFrame, ...] = (
-        swept_series(archive, last_swept(stored, archive)),
-        archive,
-    )
+    candidates: tuple[pd.DataFrame, ...] = candidate_bars(stored, archive)
 
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
@@ -245,28 +192,15 @@ def reconcile(table: pd.DataFrame) -> pd.DataFrame:
     Read it before the ladder: a cell reproducing nothing is a cell whose *levels* belong to
     this run, while the differences between its rungs still belong to the cutoff.
     """
-    control: pd.DataFrame = table[table[CUTOFF] == CONTROL]
-    rows: list[dict[str, object]] = []
-    for keys, group in control.groupby(CELL_KEYS, dropna=False, observed=True):
-        same_net: pd.Series[bool] = (group["net_pnl"] - group["stored_net_pnl"]).abs() <= (
-            group["stored_net_pnl"].abs() * NET_PNL_TOLERANCE
-        )
-        rows.append(
-            {
-                **dict(zip(CELL_KEYS, keys, strict=True)),
-                "rows": len(group),
-                SWEPT_BARS: bool(group[SWEPT_BARS].all()),
-                "same_trades": int((group["trades"] == group["stored_trades"]).sum()),
-                "same_net": int(same_net.sum()),
-                "net_gap": float((group["net_pnl"] - group["stored_net_pnl"]).abs().max()),
-            },
-        )
-
-    return pd.DataFrame(rows)
+    return reconciliation(table[table[CUTOFF] == CONTROL], CELL_KEYS)
 
 
 def rung(table: pd.DataFrame, seconds: int, by: str) -> pd.DataFrame:
-    """One cutoff against the control, per root x resolution."""
+    """One cutoff against the control, per root x resolution.
+
+    **Never pooled across resolutions**, because the cutoff is a duration and a bar is not: the
+    same 180 seconds is three whole bars at one resolution and none at another.
+    """
     control: pd.DataFrame = table[table[CUTOFF] == CONTROL].set_index(PAIR_KEYS)
     treatment: pd.DataFrame = table[table[CUTOFF] == seconds].set_index(PAIR_KEYS)
     if control.empty or treatment.empty:
