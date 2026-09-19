@@ -87,7 +87,7 @@ At 5 minutes, medians over the 20 held-out configurations:
 
 **Three of the four are a cost and one is a gain**, and InsideBarTrailing's two roots disagree in sign — 2 of 20 configurations improved on MNQ against 17 of 20 on NQ, both at p ≤ 0.003. An effect whose sign is the root's is noise dressed as a finding, and at this size that is the honest reading of all four rows.
 
-**The trade count never moves.** 298 trades at every rung on MNQ at 5 minutes, 242 for OpeningRange; the flatten changes how legs end, not how many are taken, so `block_entry_at_session_close` is not doing anything here.
+**The flatten changes how legs end far more than how many are taken.** At 5 minutes the median trade count is identical at every rung — 298 for InsideBarTrailing on MNQ, 242 for OpeningRange — and it moves at all only where the mask grows by whole bars: at most five fewer trades at the 900-second rung on NQ at one minute, and one at 10 and 15 minutes. `block_entry_at_session_close` is doing almost nothing here.
 
 ## Moving it fifteen minutes does move it, and the two archetypes go opposite ways
 
