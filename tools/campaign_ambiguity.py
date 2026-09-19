@@ -158,7 +158,12 @@ def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> p
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
-        data: context.Dataset = context.prepare(frame, spec, bar_minutes=int(minutes))
+        data: context.Dataset = context.prepare(
+            frame,
+            spec,
+            bar_minutes=int(minutes),
+            price_basis=context.PriceBasis.RAW,
+        )
 
         measured.extend(measure_row(row, data, archetype, root, label_of(row, axes)) for row, _ in rebuilt)
 
@@ -265,7 +270,12 @@ def settle(
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
-        data: context.Dataset = context.prepare(coarse, spec, bar_minutes=int(minutes))
+        data: context.Dataset = context.prepare(
+            coarse,
+            spec,
+            bar_minutes=int(minutes),
+            price_basis=context.PriceBasis.RAW,
+        )
 
         for row, _ in rebuilt:
             headline, table = settle_row(

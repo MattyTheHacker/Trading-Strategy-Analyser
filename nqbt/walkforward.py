@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from nqbt import stats, sweep
+from nqbt.context import PriceBasis
 from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import MNQ
 
@@ -191,12 +192,13 @@ def _window_log(
     combination: sweep.Grid,
     instrument: Instrument,
     warmup: int,
+    price_basis: PriceBasis = PriceBasis.UNKNOWN,
 ) -> pd.DataFrame:
     """Run a one-combination grid over ``window``, dropping trades entered in the warm-up."""
     start, end = window
     lead: int = max(0, start - warmup)
     slice_: pd.DataFrame = bars.iloc[lead:end]
-    data: Dataset = sweep.prepare_for(slice_, combination)
+    data: Dataset = sweep.prepare_for(slice_, combination, price_basis=price_basis)
     _, log = sweep.run_combination(
         data,
         combination.base,
@@ -237,6 +239,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
     warmup_bars: int = 0,
     min_trades: int = MIN_TRADES,
     n_jobs: int = 1,
+    price_basis: PriceBasis = PriceBasis.UNKNOWN,
 ) -> WalkForwardResult:
     """Select on each training window, measure on the window that follows, and report both.
 
@@ -249,6 +252,10 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
 
     ``grid`` may be a product of axes or a :meth:`~nqbt.sweep.Grid.of_combinations` shortlist;
     the candidate set is whatever it enumerates, and the costs reach every member of it.
+
+    ``price_basis`` says what ``bars`` are, and reaches both halves of every fold: a rule
+    reading an absolute level has to be selectable as well as measurable --
+    ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     if select_by not in stats.TRADE_PNL_STATISTICS:
         msg: str = (
@@ -287,7 +294,10 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
     rows, logs = [], []
     for split in windows:
         train: pd.DataFrame = bars.iloc[max(0, split.train_start - warmup_bars) : split.train_end]
-        table, _ = sweep.sweep(train, costed, instrument, n_jobs=n_jobs)
+        # ``data`` rather than a keyword: ``sweep.sweep`` deliberately does not forward a price
+        # basis -- ``.claude/rules/sweep-and-context.md``.
+        trained: Dataset = sweep.prepare_for(train, costed, price_basis=price_basis)
+        table, _ = sweep.sweep(train, costed, instrument, data=trained, n_jobs=n_jobs)
         viable: pd.DataFrame = table[table["trades"] >= min_trades]
         finite: pd.DataFrame = viable[np.isfinite(viable[select_by].to_numpy(dtype=float))]
 
@@ -320,6 +330,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             sweep.Grid(base=combos[combo_id], archetype=costed.archetype),
             instrument,
             warmup_bars,
+            price_basis,
         )
         test_stat, test_trades = _statistic(test_log, select_by)
         if not test_log.empty:

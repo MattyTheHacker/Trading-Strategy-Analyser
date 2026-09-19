@@ -478,6 +478,7 @@ def sweep_axes(
     n_jobs: int = 1,
     chunk_size: int | None = None,
     progress_every: int = 0,
+    price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
 ) -> tuple[pd.DataFrame, dict[tuple[AxisPoint, int], pd.DataFrame]]:
     """Run one or more grids across strategy, resolution and contract.
 
@@ -490,6 +491,11 @@ def sweep_axes(
     :class:`AxisPoint`, and ``logs`` is keyed by ``(AxisPoint, combo_id)``. **``combo_id`` is
     the grid's own index, so it means the same thing at every axis point** -- but not across
     grids, which is why ``strategy`` is part of the key.
+
+    ``price_basis`` says what the bars are. It is forwarded here and **not** by :func:`sweep`,
+    because that one takes a prepared ``data`` and this one builds a dataset per axis point
+    that a caller cannot reach into -- ``docs/roadmap.md`` § "The build spec's three loose
+    ends".
 
     Comparing a profit factor across resolutions at the same period number is meaningless
     unless the periods are scaled with the bar size. Reasoning: ``docs/roadmap.md`` §M17.
@@ -524,7 +530,12 @@ def sweep_axes(
         for minutes in resolutions:
             frame: pd.DataFrame = resample.resample(source, minutes)
             # ``bar_minutes`` is stated rather than inferred: this loop already knows it.
-            data: Dataset = context.prepare(frame, spec, bar_minutes=minutes)
+            data: Dataset = context.prepare(
+                frame,
+                spec,
+                bar_minutes=minutes,
+                price_basis=price_basis,
+            )
             for grid in grid_list:
                 point: AxisPoint = AxisPoint(
                     strategy=grid.archetype.name,

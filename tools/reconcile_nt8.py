@@ -136,7 +136,11 @@ def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
     params = CONFIGS[archetype_name]
     contract_id = ContractId.parse(contract)
     bars = ingest.load_contract(contract_id)
-    data = context.prepare(bars, archetype.context_for({k: [v] for k, v in params.as_dict().items()}))
+    data = context.prepare(
+        bars,
+        archetype.context_for({k: [v] for k, v in params.as_dict().items()}),
+        price_basis=context.PriceBasis.RAW,
+    )
     log = archetype.run(data, params, contract_id.instrument)
 
     return log.sort_values(["entry_time", "leg"]).reset_index(drop=True)

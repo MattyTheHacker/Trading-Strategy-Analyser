@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from nqbt import ingest, paths, sessions, splice, stats, sweep
+from nqbt.context import PriceBasis
 from nqbt.instruments import MNQ, ContractId, Instrument
 
 if TYPE_CHECKING:
@@ -140,6 +141,10 @@ def sweep_contracts(
     :func:`spread_vs_resampling` needs.
 
     A table, not a ranking -- use :func:`dispersion`.
+
+    The frames are :attr:`~nqbt.context.PriceBasis.RAW` whatever ``back_adjust`` says: it
+    picks the front-month windows, while :func:`nqbt.ingest.load_contract` always returns one
+    contract's own prices, and a single contract is never adjusted.
     """
     frames: dict[str, pd.DataFrame] = contract_frames(
         root, full_life=full_life, back_adjust=back_adjust, cache_dir=cache_dir
@@ -148,7 +153,14 @@ def sweep_contracts(
 
     # No empty-table guard: a sweep always returns one row per combination, and
     # ``contract_frames`` has already refused an empty set of contracts.
-    results, axis_logs = sweep.sweep_axes(frames, grid, instrument, keep_trades=keep_trades, n_jobs=n_jobs)
+    results, axis_logs = sweep.sweep_axes(
+        frames,
+        grid,
+        instrument,
+        keep_trades=keep_trades,
+        n_jobs=n_jobs,
+        price_basis=PriceBasis.RAW,
+    )
     contract_column: pd.Series[str] = results.pop("contract")
     results.insert(0, "contract", contract_column)
     logs = {(point.contract, combo_id): log for (point, combo_id), log in axis_logs.items()}
