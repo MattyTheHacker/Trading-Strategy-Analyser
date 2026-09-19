@@ -8,9 +8,9 @@ ______________________________________________________________________
 
 ## Read this first
 
-**Nothing here is a recommendation, and one number explains why.** The best cell in the registry makes its money from the forced flat at the session close: exclude those legs and its profit factor falls from 1.216 to 0.371, and **none of its 40 configurations is profitable without them** (§M28.15). The flatten is an account rule, not a strategy — so what has been found is closer to "a directional hold that the clock closes at a good time" than to the breakout the strategy is named after.
+**Nothing here is a recommendation, and one number explains why.** The cell that led this register until §M43 makes its money from the forced flat at the session close: exclude those legs and its profit factor falls from 1.216 to 0.371, and **none of its 40 configurations is profitable without them** (§M28.15). The flatten is an account rule, not a strategy — so what has been found is closer to "a directional hold that the clock closes at a good time" than to the breakout the strategy is named after.
 
-**One cell has since broken that, partly.** InsideBarTrailing confined to midday is the first in the registry where the exclusion leaves anything standing — nine of twenty configurations are profitable without their session-close legs, and on MNQ every one of the ten has a bootstrap 5th percentile above a profit factor of 1.0, which nothing in the project had ever managed (§M42). Its median configuration still fails the exclusion, so this is a question with a positive answer in it rather than a settled one.
+**One cell has since broken that, partly.** InsideBarTrailing confined to midday is the first in the registry where the exclusion leaves anything standing — nine of twenty configurations are profitable without their session-close legs, and on MNQ every one of the ten has a bootstrap 5th percentile above a profit factor of 1.0, which nothing in the project had ever managed (§M42). Its median configuration still fails the exclusion, so this is a question with a positive answer in it rather than a settled one — and it is on that, rather than on the account objectives it was ranked by, that **§M43 chose it as the cell to port**.
 
 **The edge is also absent from the most recent year.** The survivor returns a profit factor of 1.008 in 2026 on its largest drawdown in the sample, against 1.14–1.26 in every prior year (§M28.9). Normalising the geometry against trailing follow-through does not restore it, and the arithmetic says why: the median 30-minute range has more than doubled since 2023 while price now travels less than one range width beyond it (§M28.10). **Trading any of this is a bet that a regime returns.**
 
@@ -58,7 +58,39 @@ Twenty-five points is smaller than a single stop at these resolutions. **No NQ c
 
 **So on a prop account at this size, trade MNQ.** NQ needs either a smaller position or a 150K account, and position size is an axis no campaign has ever swept.
 
-### The best cell: OpeningRange, midday, on MNQ
+### The best cell: InsideBarTrailing, midday, on MNQ
+
+The break of an inside bar, confined to the midday lull, with a trailing runner. **This is what [#344]'s Phase 0 chose to port** (§M43), and it displaced the OpeningRange cell below on evidence rather than on the tie-breaker that was expected to decide it.
+
+|            |                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| **Entry**  | the break of an inside bar, whichever way it breaks                                          |
+| **When**   | `phase=MIDDAY` only, 10:30 to 14:00 ET                                                       |
+| **Stop**   | 10 × ATR, with the trailing half following the high-water mark at 5 × the inside bar's range |
+| **Target** | one R, taken on 60% of the position; the rest runs on the trailing stop                      |
+| **Bars**   | 5 minutes                                                                                    |
+| **Size**   | 6 contracts, this archetype's default                                                        |
+| **Exit**   | whatever the bracket does not close is flattened before the session close                    |
+
+Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts uncapped, six contracts — median net, beside the cell it displaced at four contracts (§M43):
+
+| preset                     | InsideBarTrailing | OpeningRange |
+| -------------------------- | ----------------: | -----------: |
+| Apex 50K                   |       **+30,045** |      +17,718 |
+| Apex 150K                  |       **+24,396** |      +21,327 |
+| TopStep 50K                |       **+14,872** |       +9,919 |
+| TopStep 150K               |           +12,208 |  **+26,982** |
+| TakeProfitTrader 25K Test  |       **+31,564** |      +22,085 |
+| TakeProfitTrader 50K Test  |       **+29,223** |      +17,601 |
+| TakeProfitTrader 150K Test |       **+21,856** |      +19,945 |
+
+**It nets more on nine of the ten presets**, at a median held-out profit factor of 1.49 against 1.22, and every configuration of both is funded on every preset but one. **Ranked on what a prop account is actually scored on, the two are level** — 4–3 to it on time to the first payout across the seven MNQ presets and 4–3 against it on the cost of a pass — so what decides it is what those objectives have to be read beside: profit factor in all fourteen cells, net in eleven, and a session-close share of 0.09–0.49 against 0.65–0.66 (§M43).
+
+**The configuration to port**, chosen among the ten §M42 put through gate 4, restricted to those that survive the exclusion, and ranked by `days_to_payout`: `ema_period` 44, `fast_sma_period` 20, `slow_sma_period` 125, `error_margin` 0.05, `atr_length` 14, `atr_multiplier` 10.0, `tp_multiplier` 1.0, `partial_take_profit_percentage` 0.6, `trailing_stop_multiplier` 5.0, 6 contracts, 5-minute bars, chosen for TakeProfitTrader 25K Test. Held out it takes 300 trades at a profit factor of 1.553 and a net-to-drawdown of 4.143, and **+$13,507 at 1.465 with its session-close legs removed** — the best residual in the registry. §M43 has every parameter and the per-preset figures.
+
+**Two warnings travel with it.** The choice rule was applied to a table that had already been read, so "it leads `days_to_payout` among the survivors" is a description rather than a result. And inside this cell the two objectives barely agree with each other (rho −0.085 over ten configurations) and point opposite ways at the exclusion — a cheap pass goes *against* a book that stands up without the forced flat, which is the one reading that would have picked the wrong configuration.
+
+### The one it displaces: OpeningRange, midday, on MNQ
 
 The opening range's break, confined to the midday lull. This is the only cell in the registry to clear gates 2, 3 and 4 on both roots (§M28.14, §M28.15).
 
@@ -89,7 +121,7 @@ Its walk-forward passes on both roots with all ten folds profitable out of sampl
 
 **A second cut of the same archetype has the stronger gate-3 result and the worse case for trading.** Confined to a calibrated directional regime at a lookback of 20 rather than to the midday lull, OpeningRange clears p = 0.05 on **all ten configurations of both roots** — the only cell in the registry to do so (§M31). Gate 4 then split (§M31.1): the walk-forward passes on both roots at a pooled test profit factor of 1.439 and 1.459, and every MNQ preset funds, but **not one of its twenty configurations is profitable without its session-close legs** — 1.43 to 0.24 on MNQ, 1.46 to 0.24 on NQ — and its prop-account net runs +772 to +5,088 against the midday cell's +9,919 to +26,982. **The cell that best beats a random entry is the one that leans hardest on the account rule**, so the midday cell above remains the better candidate. **That gate-3 result belongs to the opposite-extreme stop** (§M38): it holds at every range window and under both targets, and under the ATR stop the entry beats its null on all twenty configurations and clears p = 0.05 on none.
 
-### The runner-up: InsideBar on MNQ
+### The other one worth knowing: InsideBar on MNQ
 
 Higher median net, lower pass rate. Uncapped on Apex 50K, medians (§M28.13):
 
@@ -250,6 +282,8 @@ Median net-to-drawdown across each archetype's shortlist of 20, unfiltered (§M2
 | NQ   | 1.316     | 0.939               | **4 of 10**           | 4 of 10                    | passes, pooled 1.451 |
 
 Every earlier run of that read returned zero — 0 of 40 on the OpeningRange midday cell and 0 of 20 on the gate-3 survivor — and no configuration anywhere had previously put a bootstrap floor above a profit factor of 1.0. **On each root one bracket axis separates every survivor from every failure**: on MNQ taking 60% off at one R rather than 50%, on NQ trailing at 5× the inside bar's range rather than 10×. Both were found by reading a table of ten rows, so they are what to pre-register next rather than settings to trade. **NQ's half of this is on a holdout that moved** — the archive was extended after the campaign was swept, and cutting it back recovers MNQ's window exactly and NQ's not at all (§M41, §M42).
+
+**One configuration of it is now named in full** — §M43 picked it for the prop account and it is the same cell, so a regular account reading this section can take the parameter set from there rather than the range.
 
 Note what this contradicts: read unfiltered, InsideBarTrailing sits within 0.005 of its own null, and the trailing exit was measured as giving back exactly what the fixed bracket keeps (§M27). Confined to a fifth of the session it runs well clear of it. Same archetype, different slice.
 

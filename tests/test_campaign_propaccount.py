@@ -16,6 +16,7 @@ import pytest
 
 from nqbt import propaccount, results
 from tools import campaign_propaccount
+from tools.campaign_report import stored_logs
 from tools.campaign_propaccount import (
     CONTRACTS,
     REPORTED,
@@ -239,22 +240,32 @@ def test_a_refusal_costs_only_its_own_rule_set(tmp_path) -> None:
     dropped both would read as a firm nobody offered."""
     db = tmp_path / "OpeningRange.duckdb"
     results.save_trades(trade_log(excursions=False), SWEEP_ID, COMBO_ID, db)
-    table = replay_shortlist(pd.DataFrame([stored_row()]), db, [apex(), closed_book()], 5)
+    rows = pd.DataFrame([stored_row()])
+    table = replay_shortlist(rows, stored_logs(rows, db), [apex(), closed_book()], 5)
     assert list(table["account_name"]) == ["Closed-book"]
 
 
 def test_a_row_with_no_stored_log_is_skipped_rather_than_replayed(stocked) -> None:
     """Silently dropping it leaves a report that looks like the whole shortlist."""
     rows = pd.DataFrame([stored_row(), stored_row(combo_id=999)])
-    table = replay_shortlist(rows, stocked, [apex()], 5)
+    table = replay_shortlist(rows, stored_logs(rows, stocked), [apex()], 5)
     assert list(table["combo_id"]) == [COMBO_ID]
 
 
 def test_every_configuration_meets_every_rule_set(stocked) -> None:
     rows = pd.DataFrame([stored_row(), stored_row(combo_id=COMBO_ID)])
     accounts = [apex(), propaccount.preset("TopStep 150K")]
-    table = replay_shortlist(rows, stocked, accounts, 5)
+    table = replay_shortlist(rows, stored_logs(rows, stocked), accounts, 5)
     assert len(table) == len(rows) * len(accounts)
+
+
+def test_a_re_run_log_is_replayed_where_no_stored_one_exists() -> None:
+    """``--rerun`` exists for a campaign the archive has moved under, whose rows can have no
+    stored log at all -- ``tools/campaign_swept.py``."""
+    rows = pd.DataFrame([stored_row()])
+    logs = {(SWEEP_ID, COMBO_ID): trade_log()}
+    table = replay_shortlist(rows, logs, [apex()], 5)
+    assert list(table["combo_id"]) == [COMBO_ID]
 
 
 # -- the excursion order, which is a parameter because it decides the answer ------------------
@@ -325,6 +336,23 @@ def test_a_shortlist_with_no_stored_logs_fails_rather_than_printing_an_empty_tab
 ) -> None:
     """An empty report is indistinguishable from a cell with nothing to say."""
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), tmp_path / "OpeningRange.duckdb") == 1
+
+
+def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(monkeypatch, tmp_path) -> None:
+    """The flag a campaign the archive has moved under needs: no log can be stored for it at all,
+    so the shortlist is re-run and the disagreement reported -- ``tools/campaign_swept.py``."""
+    monkeypatch.setattr(
+        campaign_propaccount,
+        "logs_for",
+        lambda name, rows, root: (
+            {(SWEEP_ID, COMBO_ID): trade_log()},
+            pd.DataFrame([{"root": root, "rows": 1}]),
+        ),
+    )
+    monkeypatch.setattr(campaign_propaccount, "stored_logs", lambda *_: pytest.fail("read a stored log"))
+    empty = tmp_path / "OpeningRange.duckdb"
+
+    assert run_main(monkeypatch, pd.DataFrame([stored_row()]), empty, "--rerun") == 0
 
 
 def test_the_shortlist_is_the_held_out_pair_and_never_the_window_that_chose_it(
