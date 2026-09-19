@@ -32,6 +32,13 @@ table mixing them silently would be two nulls wearing one set of names.
 rather than counted afterwards. A p-value is only readable against how many tests it was one
 of, and a cell chosen after a consistency score has already been looked at is the multiple-
 comparisons load § "Standing traps" names -- ``docs/roadmap.md`` §M28.16.
+
+**A stored row belongs to the archive it was swept on, and a re-run that is not on those bars
+is refused.** Every configuration is placed against what the **test window** stored for it:
+the bars its sweep ran on before the simulations, then its trade count and net P&L after.
+Extending the archive moves the 60/40 split under every campaign stored before it, so a gate-3
+read of an older one silently measured a different holdout -- ``docs/roadmap.md`` § "Standing
+traps".
 """
 
 from __future__ import annotations
@@ -47,10 +54,12 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools.campaign_holdout import JOIN_KEYS
 from tools.campaign_report import NET_TO_DRAWDOWN, rank, ratio_to_drawdown, swept_axes
-from tools.campaign_shortlist import rebuild, shortlist, source
+from tools.campaign_shortlist import rebuild, shortlist, source, verify
+from tools.campaign_sweep import db_path
 
-from nqbt import archetypes, context, logsetup, randomentry, resample, splice, sweep
+from nqbt import archetypes, context, logsetup, randomentry, resample, results, splice, sweep
 from nqbt.instruments import get_instrument
 
 logger = logging.getLogger(__name__)
@@ -84,6 +93,123 @@ SIGNIFICANT = 0.05
 """The level :func:`family` counts configurations against. It is counted rather than concluded
 from: a family of cells runs one test per configuration, so the count is read against how many
 of them chance alone would put below it -- ``docs/roadmap.md`` § "Standing traps"."""
+
+STORED_SQL = """
+    SELECT c.sweep_id, c.combo_id, c.variant, c.stratum, c.resolution,
+           c.trades, c.net_pnl, s.root, s.first_bar, s.last_bar
+    FROM combos c JOIN sweeps s USING (sweep_id)
+    WHERE c."window" = '{window}'
+"""
+"""What a re-run is checked against: what one configuration measured, and the bars the sweep
+that stored it ran on.
+
+**Not :func:`~tools.campaign_report.load`**, and for two separate reasons. That loader drops
+every row below :data:`~tools.campaign_sweep.MIN_TRADES`, and a shortlist ranked on the
+selection window routinely lands under the floor in the holdout --
+``docs/findings/m36-ema-pullback-volume-recut.md`` § "Gate 3 -- 1 of 120, and it is in the
+wrong direction" -- so the check would be the one that never runs. The bar range is read here
+rather than added to that frame because it is neither a parameter nor a statistic, and
+``tools/campaign_holdout.py``'s ``paired`` compares parameter columns window by window and
+would call these two a disagreement."""
+
+
+def stored_rows(name: str, root: str, window: str) -> pd.DataFrame:
+    """Every row one archetype stored for a root and window, with the bars its sweep ran on.
+
+    Keyed by :data:`~tools.campaign_holdout.JOIN_KEYS`, which is what identifies the same
+    configuration in two windows. ``tools/campaign_holdout.py`` pairs the windows one-to-one on
+    those keys, so a duplicate is refused here rather than picked between.
+    """
+    frame: pd.DataFrame = results.query(STORED_SQL.format(window=window), db_path(name))
+    keyed: pd.DataFrame = frame[frame["root"] == root].set_index(JOIN_KEYS, drop=False)
+    if keyed.index.has_duplicates:
+        msg: str = (
+            f"{name} on {root}: the {window} window stores more than one row under the same "
+            f"{JOIN_KEYS}, so a re-run cannot be checked against any of them"
+        )
+        raise RuntimeError(msg)
+
+    return keyed
+
+
+def stored_for(stored: pd.DataFrame, row: pd.Series) -> pd.Series | None:  # type: ignore[type-arg]  # duckdb's dtypes
+    """The stored row of one configuration in the window the null runs on, or ``None``.
+
+    ``None`` where that window never swept it, which a shortlist spanning two variant sets can
+    reach -- a check that could not run is not a check that passed, so it is said out loud in
+    :func:`verify_bars` rather than being taken for agreement.
+    """
+    key: tuple[object, ...] = tuple(row[column] for column in JOIN_KEYS)
+    if key not in stored.index:
+        return None
+
+    return stored.loc[key]
+
+
+def _naive(when: pd.Timestamp) -> pd.Timestamp:
+    """One bar stamp without its zone, which is how :func:`nqbt.results.save_sweep` stores it."""
+    if when.tz is None:
+        return when
+
+    return when.tz_localize(None)
+
+
+def series_moved(reference: pd.Series, frame: pd.DataFrame) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
+    """Which ends of the series a stored sweep ran on have moved, empty where neither has."""
+    ends: list[str] = [
+        f"{end} bar was {stored}, now {current}"
+        for end, stored, current in (
+            ("first", reference["first_bar"], _naive(frame.index[0])),
+            ("last", reference["last_bar"], _naive(frame.index[-1])),
+        )
+        if pd.Timestamp(stored) != current
+    ]
+
+    return "; ".join(ends)
+
+
+def verify_bars(
+    reference: pd.Series | None,  # type: ignore[type-arg]  # duckdb's dtypes
+    frame: pd.DataFrame,
+    label: str,
+    window: str,
+) -> None:
+    """Refuse a re-run whose bars are not the ones the stored row was swept on.
+
+    Before the simulations rather than after, because an archive extended under a stored
+    campaign moves the split under every row of the run at once -- ``docs/roadmap.md``
+    § "Standing traps".
+    """
+    if reference is None:
+        logger.warning("  %-44s no stored %s row, so the re-run is unchecked", label, window)
+
+        return
+
+    moved: str = series_moved(reference, frame)
+    if not moved:
+        return
+
+    msg: str = (
+        f"{label} was swept on a different series: {moved}. Re-sweep the campaign before "
+        f"reading a null off its stored rows"
+    )
+    raise RuntimeError(msg)
+
+
+def verify_observation(
+    reference: pd.Series | None,  # type: ignore[type-arg]  # duckdb's dtypes
+    measured: dict[str, object],
+) -> None:
+    """Refuse an observation that did not reproduce the row the sweep stored for these bars.
+
+    ``tools/campaign_shortlist.py``'s ``verify`` is the predicate, so the two tools agree on
+    what reproducing means. :func:`verify_bars` has already passed by here, so a mismatch is the
+    bars themselves having been revised or the simulation having moved, not the window.
+    """
+    if reference is None or measured["refused"] is not None:
+        return
+
+    verify(reference, measured)
 
 
 def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
@@ -176,9 +302,14 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
 
     Grouped by resolution because the resample and the prepared dataset are the expensive parts,
     exactly as ``tools/campaign_shortlist.store_group`` groups them.
+
+    Each configuration is checked against what the **test window** stored for it, so a stored
+    campaign cannot be re-read on an archive that has moved under it -- :func:`verify_bars` and
+    :func:`verify_observation`.
     """
     axes: list[str] = swept_axes(rows)
     tested: pd.DataFrame = source(splice.load_continuous(root), test_window)
+    stored: pd.DataFrame = stored_rows(archetype.name, root, test_window)
 
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
@@ -186,15 +317,27 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
         rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
             (row, rebuild(row, archetype)) for _, row in block.iterrows()
         ]
+        for row, _ in rebuilt:
+            verify_bars(stored_for(stored, row), frame, label_of(row, axes), test_window)
+
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
         data: context.Dataset = context.prepare(frame, spec, bar_minutes=int(minutes))
 
-        measured.extend(
-            measure_row(row, data, archetype, root, label_of(row, axes), iterations, n_jobs, draw)
-            for row, _ in rebuilt
-        )
+        for row, _ in rebuilt:
+            result: dict[str, object] = measure_row(
+                row,
+                data,
+                archetype,
+                root,
+                label_of(row, axes),
+                iterations,
+                n_jobs,
+                draw,
+            )
+            verify_observation(stored_for(stored, row), result)
+            measured.append(result)
 
     return pd.DataFrame(measured)
 
