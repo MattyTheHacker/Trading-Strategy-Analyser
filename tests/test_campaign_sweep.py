@@ -2136,7 +2136,7 @@ def test_every_confirmation_variant_grid_can_be_built_at_every_cell() -> None:
 
 
 SOURCE = Path(campaign_sweep.__file__)
-FINDINGS_README = SOURCE.parent.parent / "docs" / "findings" / "README.md"
+FINDINGS = SOURCE.parent.parent / "docs" / "findings"
 
 
 def prepared_price_bases() -> list[str]:
@@ -2171,8 +2171,19 @@ def test_the_campaign_runs_on_the_prices_that_traded() -> None:
 
 def test_the_findings_readme_names_the_basis_the_campaign_actually_ran_on() -> None:
     """It said back-adjusted, which reads as EmaCrossover's round-number arm never having run ([#334])."""
-    rows = FINDINGS_README.read_text(encoding="utf-8").splitlines()
+    rows = (FINDINGS / "README.md").read_text(encoding="utf-8").splitlines()
     (instruments,) = [row for row in rows if row.startswith("| **Instruments**")]
 
     assert "raw" in instruments
     assert "back-adjusted" not in instruments
+
+
+def test_no_findings_file_calls_the_campaigns_series_back_adjusted() -> None:
+    """Five carried it as a caveat, which is the README row's error one document further down ([#337])."""
+    named = [
+        path.name
+        for path in sorted(FINDINGS.glob("*.md"))
+        if "back-adjusted continuous series" in path.read_text(encoding="utf-8")
+    ]
+
+    assert named == []
