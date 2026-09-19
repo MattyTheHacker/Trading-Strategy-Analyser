@@ -15,7 +15,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import randomentry, results
+from nqbt import archetypes, context, randomentry, resample, results, sessions, sweep
+from nqbt.instruments import get_instrument
+from nqbt.sim.types import EmaCrossoverParams
 from tools import campaign_null, campaign_report
 from tools.campaign_holdout import JOIN_KEYS
 from tools.campaign_null import (
@@ -550,3 +552,74 @@ def test_a_configuration_the_draw_refused_is_not_checked_against_a_stored_row() 
 
 def test_an_unstored_configuration_leaves_the_observation_unchecked() -> None:
     verify_observation(None, {"refused": None, "trades": 1, "net_pnl": 0.0})
+
+
+# -- what the bars are ------------------------------------------------------------------------
+
+
+def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
+    """A random walk at index prices, so a round number is a round number."""
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
+    close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
+    open_ = np.concatenate([[close[0]], close[:-1]])
+    frame = pd.DataFrame(
+        {
+            "open": open_,
+            "high": np.maximum(open_, close) + np.abs(rng.normal(0, 2.0, n)),
+            "low": np.minimum(open_, close) - np.abs(rng.normal(0, 2.0, n)),
+            "close": close,
+            "volume": rng.integers(1, 500, n).astype(float),
+        },
+        index=idx,
+    )
+    frame["trading_day"] = sessions.classify(idx).trading_day
+
+    return frame
+
+
+def test_a_round_number_configuration_is_placed_against_its_null_rather_than_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``measure`` reads raw bars and used to declare them ``UNKNOWN``, so a rule reading an
+    absolute level was refused by the safety default and gate 3 could not be run on
+    EmaCrossover's ``round=on`` variant at all ([#340]). The same defect [#330] fixed in
+    ``campaign_shortlist.store_logs``, in the tool that was not covered by it."""
+    db = tmp_path / "EmaCrossover.duckdb"
+    bars = synthetic_bars()
+    frame = resample.resample(bars, 5)
+    params = EmaCrossoverParams(round_number_points=25.0, bars_required_to_trade=60)
+    grid = sweep.Grid.of(params, archetype=archetypes.EMACROSSOVER, atr_stop_multiple=[2.0])
+    data = context.prepare(
+        frame,
+        grid.required_context(),
+        bar_minutes=5,
+        price_basis=context.PriceBasis.RAW,
+    )
+    table, _ = sweep.sweep(frame, grid, get_instrument("MNQ"), data=data)
+    table.insert(0, "variant", "stop=atr round=on")
+    table.insert(1, "stratum", "unfiltered")
+    table.insert(2, "window", "full")
+    table["combo_id"] = range(len(table))
+    results.save_sweep(
+        table,
+        root="MNQ",
+        instrument="MNQ",
+        bars=frame,
+        axes=grid.axis_values(),
+        strategy="EmaCrossover",
+        resolution=5,
+        db_path=db,
+    )
+    monkeypatch.setattr(campaign_null, "db_path", lambda _: db)
+    monkeypatch.setattr(campaign_report, "db_path", lambda _: db)
+    monkeypatch.setattr(campaign_null.splice, "load_continuous", lambda *_a, **_k: bars)
+
+    rows = campaign_report.load("EmaCrossover", ["full"])
+    assert not rows.empty, "the fixture cleared no row past the trade floor; it proves nothing"
+
+    measured = campaign_null.measure(rows, archetypes.EMACROSSOVER, "MNQ", "full", 4, 1)
+
+    assert len(measured) == len(rows)
+    assert measured["refused"].isna().all(), "the null was refused, so nothing was placed"

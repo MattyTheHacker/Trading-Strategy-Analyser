@@ -306,6 +306,11 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
     Each configuration is checked against what the **test window** stored for it, so a stored
     campaign cannot be re-read on an archive that has moved under it -- :func:`verify_bars` and
     :func:`verify_observation`.
+
+    The bars are :data:`~nqbt.context.PriceBasis.RAW`, which is what ``load_continuous`` returns
+    here and what the sweep measured them as, so a rule reading an absolute level is placed
+    against its null rather than refused -- ``docs/roadmap.md`` § "The build spec's three loose
+    ends".
     """
     axes: list[str] = swept_axes(rows)
     tested: pd.DataFrame = source(splice.load_continuous(root), test_window)
@@ -323,7 +328,12 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
-        data: context.Dataset = context.prepare(frame, spec, bar_minutes=int(minutes))
+        data: context.Dataset = context.prepare(
+            frame,
+            spec,
+            bar_minutes=int(minutes),
+            price_basis=context.PriceBasis.RAW,
+        )
 
         for row, _ in rebuilt:
             result: dict[str, object] = measure_row(
