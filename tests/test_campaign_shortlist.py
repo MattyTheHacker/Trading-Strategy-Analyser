@@ -20,10 +20,12 @@ from tools import campaign_shortlist
 from tools.campaign_report import load_trades
 from tools.campaign_shortlist import (
     best_row,
+    rerun_group,
     shortlist,
     source,
     store_group,
     store_logs,
+    swept_series,
     verify,
 )
 
@@ -125,6 +127,44 @@ def test_the_full_window_is_every_bar_and_the_split_windows_partition_them() -> 
     selection, holdout = source(bars, "selection"), source(bars, "holdout")
     assert len(selection) + len(holdout) == len(bars)
     assert pd.concat([selection, holdout]).index.equals(bars.index)
+
+
+def test_the_swept_series_is_cut_back_to_where_the_archive_stood() -> None:
+    """An extended archive moves the 60/40 split under every row stored before it, so a re-run
+    over the whole series reads a holdout the stored row never measured."""
+    bars = synthetic_bars(n=1000)
+    stored_last = bars.index[799]
+    cut = swept_series(bars, stored_last)
+
+    assert cut.index[-1] == stored_last
+    assert len(cut) == 800
+    assert source(cut, "holdout").index[0] != source(bars, "holdout").index[0]
+
+
+def test_a_series_that_has_not_moved_is_returned_untouched() -> None:
+    bars = synthetic_bars(n=1000)
+
+    assert swept_series(bars, bars.index[-1]) is bars
+
+
+def test_the_rerun_takes_the_flatten_cutoff_it_is_given(monkeypatch) -> None:
+    """``tools/campaign_flatten.py`` is the one caller that moves it off the one default, and a
+    cutoff that never reached ``prepare`` would read as a ladder that binds nothing."""
+    asked: list[int] = []
+    real = context.prepare
+
+    def spy(frame, spec, **kwargs):
+        asked.append(kwargs["exit_on_close_seconds"])
+
+        return real(frame, spec, **kwargs)
+
+    monkeypatch.setattr(campaign_shortlist.context, "prepare", spy)
+    bars = resample.resample(synthetic_bars(n=3000), 5)
+    block = pd.DataFrame([{"atr_multiplier": 5.0}])
+    list(rerun_group(block, bars, archetypes.INSIDEBAR, ROOT, 5, context.PriceBasis.RAW))
+    list(rerun_group(block, bars, archetypes.INSIDEBAR, ROOT, 5, context.PriceBasis.RAW, 180))
+
+    assert asked == [sessions.EXIT_ON_CLOSE_SECONDS, 180]
 
 
 # -- refusing a re-run that did not reproduce the row --------------------------------------

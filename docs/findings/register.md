@@ -84,6 +84,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M38`                                                                               | [M38 — OpeningRange's gate-3 cell belongs to the stop mode, not the window or target](m38-openingrange-cell-across-configurations.md)                    | OpeningRange                                                                                        | 3          | `mixed`       | [#307]                         |
 | `§M39`                                                                               | [M39 — EmaPullback's confirmation entry: it wins the selection window and not the holdout](m39-ema-pullback-confirmation-entry.md)                       | EmaPullback                                                                                         | 1, 2, 3    | `mixed`       | [#311]                         |
 | `§M40`                                                                               | [M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)                                             | all 9                                                                                               | --         | `mixed`       | [#326]                         |
+| `§M41`                                                                               | [M41 — the live flatten timing: the one divergence a backtest cannot show, measured](m41-flatten-timing.md)                                              | InsideBarTrailing, OpeningRange                                                                     | --         | `negative`    | [#346], [#193]                 |
 | `§ "Counting the confluence a trade actually had"`                                   | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"` | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                                                 | all 9                                                                                               | --         | `mixed`       | [#330]                         |
 | `§ "Multi-timeframe moving averages"`                                                | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
@@ -302,6 +303,10 @@ A stop order beyond the signal bar's extreme, built as a mode rather than an arc
 
 Ranking the selection window by pass rate, fees per pass, time to the first payout or funded life beats ranking by profit factor at each objective held out, on sign tests clearing 0.05 in all four; the largest part of the gain is that the account gets funded at all, 42 pairs to 1 for fees per pass. Only time to the first payout also improves net (+$1,862 median on MNQ); funded life loses money more often than not. Every objective's held-out level is far below the window that chose it -- a funded account lasts 12 trading days against the 138 selection showed -- so the ordering transfers and the number does not.
 
+**[M41 — the live flatten timing: the one divergence a backtest cannot show, measured](m41-flatten-timing.md)**
+
+At the candidate's bar size the live 180-second cutoff selects exactly the same bars as the backtested 30, so the divergence is zero by arithmetic rather than small by measurement; a whole bar earlier costs 1.4% of net on MNQ and gains 0.4% on NQ, and a whole 15-minute bar earlier moves held-out profit factor by at most 0.040 with the sign belonging to the archetype.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -333,6 +338,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#167]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/167
 [#168]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/168
 [#169]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/169
+[#193]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/193
 [#195]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/195
 [#196]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/196
 [#198]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/198
@@ -372,6 +378,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#326]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/326
 [#330]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/330
+[#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42

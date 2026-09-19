@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nqbt import archetypes, context, logsetup, resample, results, splice, sweep
+from nqbt import archetypes, context, logsetup, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
 from tools.campaign_holdout import held_out
 from tools.campaign_report import load, rank
@@ -149,6 +149,20 @@ def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
     return dict(windows(bars, split=True))[window]
 
 
+def swept_series(bars: pd.DataFrame, last_bar: pd.Timestamp) -> pd.DataFrame:
+    """The archive cut back to where it stood when a campaign was stored.
+
+    An extended archive moves the 60/40 split under every row swept before it, so a re-run over
+    the whole series reads a holdout the stored row never measured -- ``docs/roadmap.md``
+    § "Standing traps". Cutting first makes :func:`source` name the same window again, and the
+    control arm reproducing the stored figures is what says the earlier bars are also unchanged.
+    """
+    if last_bar >= bars.index[-1]:
+        return bars
+
+    return bars.loc[:last_bar]
+
+
 def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[type-arg]  # duckdb's dtypes
     """Refuse a re-run that did not reproduce the trade count and net P&L the sweep stored.
 
@@ -175,6 +189,7 @@ def rerun_group(
     root: str,
     minutes: int,
     price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
+    exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
 ) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:  # type: ignore[type-arg]  # duckdb's dtypes
     """Re-run every row measured on one resampled frame, yielding each with its summary and log.
 
@@ -182,6 +197,9 @@ def rerun_group(
     so that the union over its members is :meth:`~nqbt.sweep.Grid.required_context`'s rather
     than a second copy of it. ``price_basis`` says what the bars are; a rule reading an absolute
     level refuses the default -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+
+    ``exit_on_close_seconds`` moves the forced flat off the value every stored row was swept at,
+    which is what ``tools/campaign_flatten.py`` needs and what nothing else should pass.
     """
     rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
         (row, rebuild(row, archetype)) for _, row in block.iterrows()
@@ -192,6 +210,7 @@ def rerun_group(
         grid.required_context(),
         bar_minutes=minutes,
         price_basis=price_basis,
+        exit_on_close_seconds=exit_on_close_seconds,
     )
 
     for row, params in rebuilt:
