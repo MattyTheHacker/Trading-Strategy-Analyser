@@ -16,6 +16,7 @@ import pytest
 from nqbt import montecarlo, results, stats, trades
 from tools import campaign_montecarlo, campaign_shortlist
 from tools.campaign_montecarlo import PERMUTED, STATISTICS, labelled, main, resample_row
+from tools.campaign_report import load_trades, log_key
 
 SWEEP_ID = 30
 COMBO_ID = 417
@@ -35,6 +36,15 @@ def stored_row(**columns: object) -> pd.Series:
     }
 
     return pd.Series({**base, **columns})
+
+
+def resample_stored(row: pd.Series, db, iterations: int, seed: int):  # noqa: ANN001, ANN201 - a path and the function's own return
+    """:func:`resample_row` over whatever log ``db`` holds for that row.
+
+    Loading is the caller's job now, so that ``--rerun`` can hand it a freshly re-run log
+    instead -- ``tools/campaign_swept.py``.
+    """
+    return resample_row(row, load_trades(*log_key(row), db), iterations, seed)
 
 
 def trade_log(n: int = 120, seed: int = 3) -> pd.DataFrame:
@@ -90,7 +100,7 @@ def test_a_row_missing_a_tag_column_is_labelled_with_what_it_has() -> None:
 def test_every_bootstrap_row_names_the_configuration_it_was_drawn_from(stocked) -> None:
     """One report holds several configurations' percentiles, so a row that does not say which
     is a number attributed by position in a table."""
-    permutation, spread = resample_row(stored_row(), stocked, 50, 0)
+    permutation, spread = resample_stored(stored_row(), stocked, 50, 0)
     assert set(spread["statistic"]) == set(STATISTICS)
     assert set(spread["combo_id"]) == {COMBO_ID}
     assert set(spread["stratum"]) == {"unfiltered"}
@@ -103,7 +113,7 @@ def test_every_bootstrap_row_names_the_configuration_it_was_drawn_from(stocked) 
 def test_the_permutation_test_asks_about_the_path_and_not_about_the_value(stocked) -> None:
     """Reordering cannot move a profit factor, so permuting one returns 1.0 for every input
     and reads like a passed check -- ``docs/roadmap.md`` §M7b."""
-    permutation, _ = resample_row(stored_row(), stocked, 50, 0)
+    permutation, _ = resample_stored(stored_row(), stocked, 50, 0)
     assert permutation["statistic"] == PERMUTED
     assert PERMUTED in stats.PATH_STATISTICS
     assert PERMUTED not in stats.TRADE_PNL_STATISTICS
@@ -113,7 +123,7 @@ def test_the_permutation_test_asks_about_the_path_and_not_about_the_value(stocke
 def test_the_bootstrap_reports_the_observed_figure_beside_its_percentiles(stocked) -> None:
     """The point of the table: a drawdown with no spread beside it is the reading §M27's Gate 4
     could not check."""
-    _, spread = resample_row(stored_row(), stocked, 200, 0)
+    _, spread = resample_stored(stored_row(), stocked, 200, 0)
     for _, row in spread.iterrows():
         assert row["p05"] <= row["median"] <= row["p95"]
         assert np.isfinite(row["observed"])
@@ -122,7 +132,7 @@ def test_the_bootstrap_reports_the_observed_figure_beside_its_percentiles(stocke
 def test_the_observed_figure_is_the_log_s_own_and_not_a_resample_of_it(stocked) -> None:
     """A bootstrap median is close to the observation and is not it; quoting the median as the
     result would report a figure the strategy never produced."""
-    _, spread = resample_row(stored_row(), stocked, 200, 0)
+    _, spread = resample_stored(stored_row(), stocked, 200, 0)
     pnl = montecarlo.trade_pnl(trade_log())
     observed = spread.set_index("statistic")["observed"]
     assert observed["net_pnl"] == pytest.approx(float(pnl.sum()))
@@ -130,8 +140,8 @@ def test_the_observed_figure_is_the_log_s_own_and_not_a_resample_of_it(stocked) 
 
 
 def test_the_same_seed_reproduces_the_same_percentiles(stocked) -> None:
-    once, _ = resample_row(stored_row(), stocked, 100, 7)
-    twice, _ = resample_row(stored_row(), stocked, 100, 7)
+    once, _ = resample_stored(stored_row(), stocked, 100, 7)
+    twice, _ = resample_stored(stored_row(), stocked, 100, 7)
     assert once == twice
 
 
@@ -140,7 +150,7 @@ def test_the_same_seed_reproduces_the_same_percentiles(stocked) -> None:
 
 def test_a_row_with_no_stored_log_is_skipped_rather_than_resampled(stocked) -> None:
     """Silently dropping it would leave a report that looks like the whole shortlist."""
-    assert resample_row(stored_row(combo_id=999), stocked, 50, 0) is None
+    assert resample_stored(stored_row(combo_id=999), stocked, 50, 0) is None
 
 
 def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path) -> None:
@@ -148,14 +158,14 @@ def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path) ->
     to read at all -- which must not be an exception halfway through a report."""
     empty = tmp_path / "InsideBar.duckdb"
     results.query("SELECT 1", empty)
-    assert resample_row(stored_row(), empty, 50, 0) is None
+    assert resample_stored(stored_row(), empty, 50, 0) is None
 
 
 def test_a_log_too_short_to_resample_is_skipped_rather_than_reported(tmp_path) -> None:
     """One trade has no ordering to permute, and :mod:`nqbt.montecarlo` raises on it."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(n=1), SWEEP_ID, COMBO_ID, db)
-    assert resample_row(stored_row(), db, 50, 0) is None
+    assert resample_stored(stored_row(), db, 50, 0) is None
 
 
 # -- the report over a whole shortlist ------------------------------------------------------
@@ -166,6 +176,22 @@ def run_main(monkeypatch, rows: pd.DataFrame, db) -> int:
     monkeypatch.setattr(campaign_montecarlo, "db_path", lambda _: db)
 
     return main(["campaign_montecarlo.py", "--strategy", "InsideBar", "--iterations", "50"])
+
+
+def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(monkeypatch, stocked) -> None:
+    """The flag a campaign the archive has moved under needs: no log can be stored for it at all,
+    so the shortlist is re-run and the disagreement reported -- ``tools/campaign_swept.py``."""
+    monkeypatch.setattr(
+        campaign_montecarlo,
+        "logs_for",
+        lambda name, rows, root: ({(SWEEP_ID, COMBO_ID): trade_log()}, pd.DataFrame([{"root": root}])),
+    )
+    monkeypatch.setattr(campaign_montecarlo, "stored_logs", lambda *_: pytest.fail("read a stored log"))
+    rows = pd.DataFrame([stored_row()])
+    monkeypatch.setattr(campaign_montecarlo, "shortlist", lambda *_: rows)
+    monkeypatch.setattr(campaign_montecarlo, "db_path", lambda _: stocked)
+
+    assert main(["campaign_montecarlo.py", "--strategy", "InsideBar", "--iterations", "50", "--rerun"]) == 0
 
 
 def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch, stocked) -> None:
@@ -198,10 +224,10 @@ def test_the_variant_flag_confines_the_shortlist_to_one_geometry(monkeypatch, st
     resampled: list[str] = []
     measure = campaign_montecarlo.resample_row
 
-    def spy(row, path, iterations, seed):
+    def spy(row, log, iterations, seed):
         resampled.append(str(row["variant"]))
 
-        return measure(row, path, iterations, seed)
+        return measure(row, log, iterations, seed)
 
     monkeypatch.setattr(campaign_montecarlo, "resample_row", spy)
     argv = ["campaign_montecarlo.py", "--strategy", "InsideBar", "--iterations", "50"]

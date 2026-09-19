@@ -193,6 +193,21 @@ def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
     )
 
 
+def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[type-arg]  # duckdb's dtypes
+    """The ``(sweep_id, combo_id)`` a configuration's log is filed under."""
+    return int(row["sweep_id"]), int(row["combo_id"])
+
+
+def stored_logs(rows: pd.DataFrame, path: Path) -> dict[tuple[int, int], pd.DataFrame]:
+    """Every shortlisted row's stored log, keyed by :func:`log_key`, absent where none was stored.
+
+    The mapping a tool reading a shortlist works from, so the same loop serves a stored log and
+    one re-run by ``tools/campaign_swept.py`` -- and a row with no log is named by the caller
+    rather than silently dropped here.
+    """
+    return {log_key(row): load_trades(*log_key(row), path) for _, row in rows.iterrows()}
+
+
 def parameter_columns(frame: pd.DataFrame) -> list[str]:
     """Columns holding a parameter rather than a tag or a statistic.
 

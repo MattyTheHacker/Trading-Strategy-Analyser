@@ -18,6 +18,7 @@ import pytest
 
 from nqbt import results, stats, trades
 from tools import campaign_exits
+from tools.campaign_report import stored_logs
 from tools.campaign_exits import (
     PASS_MARK,
     REPORTED,
@@ -215,7 +216,17 @@ def test_a_measured_row_carries_the_tags_of_the_configuration_it_came_from() -> 
 def test_a_row_with_no_stored_log_is_skipped_rather_than_re_summarised(stocked) -> None:
     log = leg_log(CARRIED)
     rows = pd.DataFrame([stored_row(log), stored_row(log, combo_id=999)])
-    assert list(measure(rows, stocked, FLATTEN)["combo_id"]) == [COMBO_ID]
+    assert list(measure(rows, stored_logs(rows, stocked), FLATTEN)["combo_id"]) == [COMBO_ID]
+
+
+def test_a_re_run_log_is_read_back_against_its_stored_row_rather_than_refused_by_it() -> None:
+    """``--rerun`` exists for a campaign the archive has moved under, so the disagreement its
+    stored row now carries is reported by ``tools/campaign_swept.py`` and not raised here."""
+    log = leg_log(CARRIED)
+    row = measure_row(stored_row(log, net_pnl=99.0), log, FLATTEN, require_stored=False)
+
+    assert row["legs"] == len(log)
+    assert row["net_pnl_whole"] == pytest.approx(log["net_pnl"].sum())
 
 
 def test_survival_counts_both_windows_of_the_comparison() -> None:
@@ -246,6 +257,21 @@ def run_main(monkeypatch, rows: pd.DataFrame, db, *extra: str) -> int:
     monkeypatch.setattr(campaign_exits, "db_path", lambda _: db)
 
     return main(["campaign_exits.py", "--strategy", "OpeningRange", *extra])
+
+
+def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(monkeypatch, stocked) -> None:
+    """The flag a campaign the archive has moved under needs: no log can be stored for it at all,
+    so the shortlist is re-run and the disagreement reported -- ``tools/campaign_swept.py``."""
+    log = leg_log(CARRIED)
+    monkeypatch.setattr(
+        campaign_exits,
+        "logs_for",
+        lambda name, rows, root: ({(SWEEP_ID, COMBO_ID): log}, pd.DataFrame([{"root": root, "rows": 1}])),
+    )
+    monkeypatch.setattr(campaign_exits, "stored_logs", lambda *_: pytest.fail("read a stored log"))
+    rows = pd.DataFrame([stored_row(log, net_pnl=99.0)])
+
+    assert run_main(monkeypatch, rows, stocked, "--rerun") == 0, "a moved stored row is not a refusal"
 
 
 def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch, stocked) -> None:
@@ -280,7 +306,9 @@ def test_the_default_reason_is_the_one_no_strategy_chose(monkeypatch, stocked) -
 
     measured: list[str] = []
     monkeypatch.setattr(
-        campaign_exits, "measure", lambda rows, path, reason: measured.append(reason) or pd.DataFrame()
+        campaign_exits,
+        "measure",
+        lambda rows, logs, reason, **__: measured.append(reason) or pd.DataFrame(),
     )
     monkeypatch.setattr(
         campaign_exits, "held_out", lambda *_, **__: pd.DataFrame([stored_row(leg_log(CARRIED))])
