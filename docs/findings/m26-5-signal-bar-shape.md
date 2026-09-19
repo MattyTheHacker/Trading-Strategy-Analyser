@@ -139,7 +139,7 @@ This is the family `.claude/rules/sweep-and-context.md` already names — `dead_
 
 - **The entry contributes something, measurably, for the first time in this archetype.** §M26.4 could not separate the entry from the bracket; a matched null whose median does not move while the observation rises ninefold on MNQ and fivefold on NQ does.
 - **`reversal` is the shape to carry forward** — three of three tests, against `reclaim`'s two of four on the drawdown check and `rejection`'s failure of the held-out gate on both roots.
-- **The promotion criteria under "Decisions taken" are still not met, and [#170] is still not earned.** The blocking facts are the sample size, the window dependence, and everything §M26.4 already owed — the VWAP basis is still unpinned, and every number here is off the back-adjusted continuous series rather than per contract.
+- **The promotion criteria under "Decisions taken" are still not met, and [#170] is still not earned.** The blocking facts are the sample size, the window dependence, and everything §M26.4 already owed — the VWAP basis is still unpinned, and every number here is off the raw spliced continuous series rather than per contract.
 - **The one-sidedness axis should not be swept again as it stands.** Its low end is a dead value and its high end is a cost. If the idea is worth another attempt it needs the count taken over closes rather than bodies, or over a window that does not overlap the one `entry_std` already measures.
 
 ## What is deferred, and where it went

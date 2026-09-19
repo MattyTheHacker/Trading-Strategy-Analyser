@@ -78,7 +78,7 @@ The best selection-window configuration per root and source, run against `random
 ## What is owed before any of this is quoted as a result
 
 - **The matched null on a shortlist rather than on one configuration.** Four rows, each the best of 144, is the multiple-comparisons trap the standing rubric names. The distribution-level claims above are the trustworthy ones; the null table is the least trustworthy thing here.
-- **Per contract, not the continuous series.** §M26's first trap is that both σ and the basis step at every roll seam, and an archetype that fires on extension fires around every roll for a reason that is not a market event. Every number above is off the back-adjusted continuous series and inherits that.
+- **Per contract, not the continuous series.** §M26's first trap is that both σ and the basis step at every roll seam, and an archetype that fires on extension fires around every roll for a reason that is not a market event. Every number above is off the raw spliced continuous series and inherits that.
 - **The VWAP pin.** [nt8-fidelity.md](../nt8-fidelity.md) §M26.4: the width is hand-rolled and so is ours by construction, but the basis under it has never been checked against NinjaTrader. [#170] cannot proceed on an unpinned basis.
 - **`vwap_min_session_bars` has never been swept.** It was set to 30 by argument and held there for every number above.
 

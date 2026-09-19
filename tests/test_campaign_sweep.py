@@ -10,9 +10,11 @@ database.
 from __future__ import annotations
 
 import argparse
+import ast
 import math
 from dataclasses import replace
 from itertools import chain
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -57,6 +59,7 @@ from nqbt.sim.types import (
     DeadCatParams,
     OpeningRangeParams,
 )
+from tools import campaign_sweep
 from tools.campaign_sweep import (
     ALL_STRATA,
     CAMPAIGN,
@@ -2130,3 +2133,57 @@ def test_every_confirmation_variant_grid_can_be_built_at_every_cell() -> None:
         for _, grid in grids_for(variant, EMAPULLBACK_CONFIRM):
             assert len(grid) == variant.sized()
             assert conditions_free_of_the_third_grid(grid)
+
+
+SOURCE = Path(campaign_sweep.__file__)
+FINDINGS = SOURCE.parent.parent / "docs" / "findings"
+
+
+def prepared_price_bases() -> list[str]:
+    """Every ``price_basis`` the campaign's own ``context.prepare`` calls state."""
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+
+    return [
+        ast.unparse(keyword.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and ast.unparse(node.func).endswith("context.prepare")
+        for keyword in node.keywords
+        if keyword.arg == "price_basis"
+    ]
+
+
+def loaded_series() -> list[str]:
+    """Every ``splice.load_continuous`` call the campaign makes, as written."""
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+
+    return [
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and ast.unparse(node.func).endswith("splice.load_continuous")
+    ]
+
+
+def test_the_campaign_runs_on_the_prices_that_traded() -> None:
+    """A rule reading an absolute level is refused on any other basis, so this is part of the plan."""
+    assert prepared_price_bases() == ["context.PriceBasis.RAW"]
+    assert loaded_series() == ["splice.load_continuous(root)"]
+
+
+def test_the_findings_readme_names_the_basis_the_campaign_actually_ran_on() -> None:
+    """It said back-adjusted, which reads as EmaCrossover's round-number arm never having run ([#334])."""
+    rows = (FINDINGS / "README.md").read_text(encoding="utf-8").splitlines()
+    (instruments,) = [row for row in rows if row.startswith("| **Instruments**")]
+
+    assert "raw" in instruments
+    assert "back-adjusted" not in instruments
+
+
+def test_no_findings_file_calls_the_campaigns_series_back_adjusted() -> None:
+    """Five carried it as a caveat, which is the README row's error one document further down ([#337])."""
+    named = [
+        path.name
+        for path in sorted(FINDINGS.glob("*.md"))
+        if "back-adjusted continuous series" in path.read_text(encoding="utf-8")
+    ]
+
+    assert named == []

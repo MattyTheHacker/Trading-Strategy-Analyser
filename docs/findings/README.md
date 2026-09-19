@@ -24,7 +24,7 @@ ______________________________________________________________________
 
 |                      |                                                                                                         |
 | -------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Instruments**      | MNQ and NQ, back-adjusted continuous series                                                             |
+| **Instruments**      | MNQ and NQ, raw spliced continuous series — the prices that traded, so a round-number rule runs         |
 | **Period**           | 2022 to 2026-08, the archive as it stands; 2026 holds 156 sessions                                      |
 | **Selection window** | the first 60% of bars — where configurations are chosen                                                 |
 | **Holdout**          | the remaining 40% — where every figure below is measured                                                |
