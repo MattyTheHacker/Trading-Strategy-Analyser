@@ -160,6 +160,7 @@ def run_resolution(
         warmup_bars=warmup,
         min_trades=args.min_trades,
         n_jobs=args.n_jobs,
+        price_basis=context.PriceBasis.RAW,
     )
     show(
         f"{name} {root} {minutes}m -- each fold's choice and what it did next",

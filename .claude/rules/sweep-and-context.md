@@ -224,9 +224,14 @@ paths:
   `prepare(price_basis=...)` defaults to `PriceBasis.UNKNOWN`, and a rule that reads an
   absolute level -- round-number stop avoidance is the only one -- runs on `RAW` alone. An
   attribute carried on the frame was rejected: it fails to propagate silently and the default
-  would then be the permissive answer. `sweep.sweep` does not forward it, so a sweep that
-  needs it builds its `Dataset` and passes `data=`. `docs/roadmap.md` § "The build spec's
-  three loose ends".
+  would then be the permissive answer. `docs/roadmap.md` § "The build spec's three loose ends".
+  **Which wrapper forwards it is not arbitrary**: `sweep.sweep` does not, because it takes an
+  already-prepared `data=` and that is the route for a caller who needs one; `prepare_for`,
+  `sweep_axes` and `walk_forward` do, because each builds a dataset the caller cannot reach
+  into. **The cost of forgetting falls at run time and as a crash**, twice so far: issues #330
+  and #340 each blocked a whole gate on EmaCrossover's round-number arm. So
+  `tests/test_price_basis.py` now reads every call site and fails on one that does not state a
+  basis. A call that genuinely cannot state one goes in that file's `EXEMPT` with its reason.
 - **A shortlist is the wrong instrument for an A/B variant pair, and the bias is in the design
   rather than the data.** Two arms of a variant set rarely hold the same number of
   combinations -- a treatment carries the axes its rule reads -- so its shortlist is a

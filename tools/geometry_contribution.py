@@ -34,7 +34,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from nqbt import archetypes, ingest, logsetup, randomentry, sweep
+from nqbt import archetypes, context, ingest, logsetup, randomentry, sweep
 from nqbt.instruments import MNQ, ContractId
 from nqbt.sim.types import (
     STOP_ATR,
@@ -132,7 +132,7 @@ def measure(contract: str, iterations: int, n_jobs: int) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for scheme, label, params in geometries():
         grid = sweep.Grid.of(params, archetype=archetype)
-        data = sweep.prepare_for(bars, grid)
+        data = sweep.prepare_for(bars, grid, price_basis=context.PriceBasis.RAW)
         results = randomentry.compare(
             data,
             params,

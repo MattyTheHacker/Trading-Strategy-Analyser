@@ -123,7 +123,12 @@ def run_root(root: str, batch_id: int, *, n_jobs: int, db_path: paths.Path) -> N
     for _, grid in named:
         spec = spec | grid.required_context()
     started: float = time.perf_counter()
-    data: context.Dataset = context.prepare(bars, spec, bar_minutes=1)
+    data: context.Dataset = context.prepare(
+        bars,
+        spec,
+        bar_minutes=1,
+        price_basis=context.PriceBasis.RAW,
+    )
     logger.info(
         "%s: %s bars  %s -> %s  prepared in %.1fs",
         root,

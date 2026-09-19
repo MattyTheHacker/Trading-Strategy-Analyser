@@ -144,6 +144,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
             needs_vwap=True,
         ),
         keep_ma_values=bool(args.explain),
+        # Stated rather than left unknown, because this is the one caller that knows which of
+        # the two it asked for -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+        price_basis=(context.PriceBasis.BACK_ADJUSTED if args.back_adjust else context.PriceBasis.RAW),
     )
     trades: pd.DataFrame = runner.run_deadcat(data, params, instrument)
 

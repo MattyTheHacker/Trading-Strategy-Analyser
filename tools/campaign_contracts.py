@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_shortlist import best_row, rebuild
 
-from nqbt import archetypes, dispersion, logsetup, randomentry, resample, stats, sweep
+from nqbt import archetypes, context, dispersion, logsetup, randomentry, resample, stats, sweep
 from nqbt.instruments import get_instrument
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,11 @@ def one_contract(
 ) -> dict[str, object]:
     """Observed statistics and the matched null's median, for one contract."""
     frame: pd.DataFrame = resample.resample(bars, minutes)
-    data = sweep.prepare_for(frame, sweep.Grid(base=params, archetype=archetype))
+    data = sweep.prepare_for(
+        frame,
+        sweep.Grid(base=params, archetype=archetype),
+        price_basis=context.PriceBasis.RAW,
+    )
     observed: stats.Summary = stats.summarise_legs(
         archetype.legs(data, params, get_instrument(root)),
         data.day_codes,

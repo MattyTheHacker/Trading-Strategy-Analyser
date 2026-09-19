@@ -174,14 +174,22 @@ def test_the_instrument_comes_from_the_contract_root(tool, monkeypatch, contract
 
             return pd.DataFrame({"entry_time": [], "leg": []})
 
+    def spy_prepare(bars, spec, **kwargs):
+        seen["price_basis"] = kwargs.get("price_basis")
+
+        return None
+
     monkeypatch.setattr(tool.ingest, "load_contract", lambda contract_id: None)
-    monkeypatch.setattr(tool.context, "prepare", lambda bars, spec: None)
+    monkeypatch.setattr(tool.context, "prepare", spy_prepare)
     monkeypatch.setattr(tool.archetypes, "get", lambda name: SpyArchetype())
 
     tool.run_nqbt("DeadCatBounce", contract)
 
     assert seen["instrument"].symbol == contract.split()[0]
     assert seen["instrument"].point_value == point_value
+    # One contract's own prices are never adjusted, and the reconciliation is the one place
+    # an absolute level has to mean what NT8 meant by it -- [#341].
+    assert seen["price_basis"] is tool.context.PriceBasis.RAW
 
 
 def test_an_unknown_root_is_refused_rather_than_priced_as_something_else(tool) -> None:
