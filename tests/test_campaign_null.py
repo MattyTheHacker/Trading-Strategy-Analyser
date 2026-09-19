@@ -3,18 +3,34 @@
 The null draws themselves are pinned in ``tests/test_randomentry.py``; what is testable without
 data is the part §M27.3 added -- that three rankings are reported side by side, that they are
 allowed to disagree, and that a configuration the draw refused carries no verdict instead of a
-missing one.
+missing one -- and the part [#320] added, that a stored row is refused unless the re-run is on
+the bars it was swept on.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import randomentry
-from tools import campaign_null
-from tools.campaign_null import RANKINGS, STATISTICS, family, label_of, measure_row, rankings
+from nqbt import randomentry, results
+from tools import campaign_null, campaign_report
+from tools.campaign_holdout import JOIN_KEYS
+from tools.campaign_null import (
+    RANKINGS,
+    STATISTICS,
+    family,
+    label_of,
+    measure_row,
+    rankings,
+    series_moved,
+    stored_for,
+    stored_rows,
+    verify_bars,
+    verify_observation,
+)
 from tools.campaign_report import NET_TO_DRAWDOWN
 
 
@@ -255,3 +271,282 @@ def test_a_partly_refused_cell_summarises_only_what_ran() -> None:
     assert summary.loc["MNQ", "measured"] == 1
     assert summary.loc["MNQ", "refused"] == 1
     assert summary.loc["MNQ", "profit_factor_high"] == pytest.approx(1.0)
+
+
+# -- the bars a stored row was swept on ------------------------------------------------------
+
+
+FIRST_BAR = pd.Timestamp("2021-09-19 22:05:00")
+LAST_BAR = pd.Timestamp("2024-09-17 14:56:00")
+"""The ends of one stored sweep, naive as ``results.save_sweep`` writes them."""
+
+
+def stored_frame(**columns: object) -> pd.DataFrame:
+    """A frame shaped like :func:`~tools.campaign_null.stored_rows`' output, unindexed."""
+    base = {
+        "sweep_id": 1,
+        "combo_id": [10, 11],
+        "root": "MNQ",
+        "resolution": 5,
+        "variant": "bracket",
+        "stratum": "unfiltered",
+        "trades": [40, 50],
+        "net_pnl": [1234.5, 900.0],
+        "first_bar": FIRST_BAR,
+        "last_bar": LAST_BAR,
+    }
+
+    return pd.DataFrame({**base, **columns})
+
+
+def stubbed(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame | None = None) -> pd.DataFrame:
+    """:func:`~tools.campaign_null.stored_rows` over a stubbed query."""
+    stored = stored_frame() if frame is None else frame
+    monkeypatch.setattr(campaign_null, "db_path", Path)
+    monkeypatch.setattr(campaign_null.results, "query", lambda *_a, **_k: stored)
+
+    return stored_rows("InsideBar", "MNQ", "holdout")
+
+
+def assembled() -> pd.DataFrame:
+    """The same frame without monkeypatching, for the tests that only read one row from it."""
+    return stored_frame().set_index(JOIN_KEYS, drop=False)
+
+
+def shortlisted(**columns: object) -> pd.Series:
+    """One shortlist row, carrying the keys that identify it in another window."""
+    base = {
+        "sweep_id": 7,
+        "combo_id": 10,
+        "root": "MNQ",
+        "resolution": 5,
+        "variant": "bracket",
+        "stratum": "unfiltered",
+    }
+
+    return pd.Series({**base, **columns})
+
+
+def bars(first: object, last: object) -> pd.DataFrame:
+    """A bar frame with only its two ends, stamped the way the archive is."""
+    index = pd.DatetimeIndex([pd.Timestamp(first, tz="UTC"), pd.Timestamp(last, tz="UTC")])
+
+    return pd.DataFrame({"close": [1.0, 2.0]}, index=index)
+
+
+def test_a_stored_row_is_found_by_the_keys_that_pair_two_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ranking window and the test window are different sweeps, so the stored counterpart
+    has to be found by configuration rather than by ``sweep_id``."""
+    found = stored_for(stubbed(monkeypatch), shortlisted())
+    assert found is not None
+    assert int(found["trades"]) == 40
+    assert found["first_bar"] == FIRST_BAR
+
+
+def test_a_configuration_the_test_window_never_swept_has_no_counterpart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shortlist spanning two variant sets can reach it, and a check that could not run is
+    not one that failed."""
+    assert stored_for(stubbed(monkeypatch), shortlisted(combo_id=99)) is None
+
+
+def test_another_roots_rows_are_not_a_counterpart(monkeypatch: pytest.MonkeyPatch) -> None:
+    """NQ and MNQ hold the same ``combo_id`` at the same bar size, and their trade counts are
+    equal while their money is ten times apart -- ``CLAUDE.md``, the tick-value rule."""
+    stored = stubbed(monkeypatch, stored_frame(root=["NQ", "NQ"]))
+    assert stored.empty
+    assert stored_for(stored, shortlisted()) is None
+
+
+def test_two_stored_rows_under_one_key_are_refused_rather_than_chosen_between(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``tools/campaign_holdout.py`` pairs the windows one-to-one on the same keys, so an
+    ambiguous database is a failure there too."""
+    with pytest.raises(RuntimeError, match="more than one row under the same"):
+        stubbed(monkeypatch, stored_frame(combo_id=[10, 10]))
+
+
+def test_a_stored_row_carries_the_bar_range_of_its_own_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two sweeps of one window can hold different ranges, so the range travels with the row
+    rather than being read once for the whole run."""
+    stored = stubbed(
+        monkeypatch,
+        stored_frame(sweep_id=[1, 2], first_bar=[FIRST_BAR, LAST_BAR]),
+    )
+    assert stored_for(stored, shortlisted())["first_bar"] == FIRST_BAR
+    assert stored_for(stored, shortlisted(combo_id=11))["first_bar"] == LAST_BAR
+
+
+def swept(db: Path, window: str, trades: list[int], bars_frame: pd.DataFrame) -> None:
+    """One ``sweeps`` row and its combinations, stored the way ``campaign_sweep.run_point`` does."""
+    table = pd.DataFrame(
+        {
+            "variant": "bracket",
+            "stratum": "unfiltered",
+            "window": window,
+            "combo_id": range(len(trades)),
+            "trades": trades,
+            "net_pnl": [100.0 * n for n in trades],
+            "profit_factor": 1.2,
+            "max_drawdown": 50.0,
+        },
+    )
+    results.save_sweep(
+        table,
+        root="MNQ",
+        instrument="MNQ",
+        bars=bars_frame,
+        axes={},
+        strategy="InsideBar",
+        resolution=5,
+        db_path=db,
+    )
+
+
+def test_a_stored_row_below_the_trade_floor_is_still_what_a_rerun_is_checked_against(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real round trip, because the claim is about the SQL. ``campaign_report.load`` drops
+    every row under ``MIN_TRADES``, and a shortlist ranked on the selection window routinely
+    lands under it in the holdout, so reading through that loader would be the check that never
+    runs -- ``docs/findings/m36-ema-pullback-volume-recut.md`` § "Gate 3 -- 1 of 120, and it is
+    in the wrong direction"."""
+    db = tmp_path / "InsideBar.duckdb"
+    index = pd.date_range("2024-01-02 00:00", periods=400, freq="5min", tz="UTC")
+    frame = pd.DataFrame({"close": 1.0}, index=index)
+    swept(db, "holdout", [4, 40], frame)
+    swept(db, "selection", [900], frame)
+    monkeypatch.setattr(campaign_null, "db_path", lambda _: db)
+    monkeypatch.setattr(campaign_report, "db_path", lambda _: db)
+
+    stored = stored_rows("InsideBar", "MNQ", "holdout")
+    assert list(stored["trades"]) == [4, 40], "the other window's rows reached the check"
+    assert set(campaign_report.load("InsideBar", ["holdout"])["combo_id"]) == {1}
+
+    thin = stored_for(stored, shortlisted(combo_id=0))
+    assert thin is not None
+    assert int(thin["trades"]) == 4
+    verify_bars(thin, frame, "a", "holdout")
+    with pytest.raises(RuntimeError, match="swept on a different series"):
+        verify_bars(thin, frame.iloc[:-1], "a", "holdout")
+
+
+def test_bars_matching_the_stored_sweep_report_no_movement() -> None:
+    """The stored stamps are naive UTC and a bar index is zoned, which is the comparison that
+    would otherwise report every run as moved."""
+    assert series_moved(stored_for(assembled(), shortlisted()), bars(FIRST_BAR, LAST_BAR)) == ""
+
+
+def test_each_end_of_the_series_is_named_on_its_own() -> None:
+    """Which end moved is the diagnosis: a later export extends the last bar, more history
+    moves the first, and a re-split moves both."""
+    reference = stored_for(assembled(), shortlisted())
+    later = series_moved(reference, bars(FIRST_BAR, "2026-09-16 12:07"))
+    earlier = series_moved(reference, bars("2019-01-02 00:00", LAST_BAR))
+    both = series_moved(reference, bars("2019-01-02 00:00", "2026-09-16 12:07"))
+    assert later.startswith("last bar was")
+    assert "first bar" not in later
+    assert earlier.startswith("first bar was")
+    assert "last bar" not in earlier
+    assert both.count("bar was") == 2
+
+
+def test_a_rerun_on_a_series_that_has_moved_is_refused() -> None:
+    """The archive was extended under every campaign stored before 2026-09-16, which moved the
+    split -- ``docs/roadmap.md`` § "Standing traps"."""
+    reference = stored_for(assembled(), shortlisted())
+    with pytest.raises(RuntimeError, match="swept on a different series"):
+        verify_bars(reference, bars(FIRST_BAR, "2026-09-16 12:07"), "a", "holdout")
+
+
+def test_a_rerun_on_the_stored_series_is_not_refused() -> None:
+    verify_bars(stored_for(assembled(), shortlisted()), bars(FIRST_BAR, LAST_BAR), "a", "holdout")
+
+
+def test_an_unstored_configuration_is_warned_about_rather_than_refused(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A check that could not run must not read as one that passed, so it is said out loud --
+    the same distinction :data:`~tools.campaign_null.NO_NULL_AVAILABLE` draws."""
+    with caplog.at_level("WARNING"):
+        verify_bars(None, bars(FIRST_BAR, LAST_BAR), "a", "holdout")
+
+    assert "unchecked" in caplog.text
+    assert "holdout" in caplog.text
+
+
+# -- the observation against the row the sweep stored ----------------------------------------
+
+
+def null_result(statistic: str, observed: float, trades: int) -> randomentry.NullResult:
+    """One :class:`~nqbt.randomentry.NullResult` with everything but the observation stubbed."""
+    return randomentry.NullResult(
+        statistic=statistic,
+        observed=observed,
+        null_median=0.0,
+        null_p05=0.0,
+        null_p95=0.0,
+        percentile=50.0,
+        p_value=0.5,
+        verdict=randomentry.INDISTINGUISHABLE,
+        iterations=2,
+        observed_trades=trades,
+        null_median_trades=float(trades),
+        count_sensitive=False,
+    )
+
+
+def measured_row(monkeypatch: pytest.MonkeyPatch, trades: int, net_pnl: float) -> dict[str, object]:
+    """One real :func:`~tools.campaign_null.measure_row` result, with only ``compare`` stubbed.
+
+    Going through the producer rather than writing the dict out is the point: what ``verify``
+    reads has to be what the table actually carries.
+    """
+    placed = {statistic: null_result(statistic, 1.0, trades) for statistic in STATISTICS}
+    placed["net_pnl"] = null_result("net_pnl", net_pnl, trades)
+    placed["max_drawdown"] = null_result("max_drawdown", 100.0, trades)
+    monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
+    monkeypatch.setattr(campaign_null.randomentry, "compare", lambda *_a, **_k: placed)
+    row = pd.Series({"stratum": "unfiltered", "resolution": 5, NET_TO_DRAWDOWN: 1.0, "trades": 5})
+
+    return measure_row(row, object(), object(), "MNQ", "a", 2, 1)
+
+
+def test_an_observation_reproducing_the_stored_row_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The columns ``verify`` reads are the ones ``measure_row`` writes, which is the wiring a
+    hand-written dict would not pin."""
+    verify_observation(stored_for(assembled(), shortlisted()), measured_row(monkeypatch, 40, 1234.5))
+
+
+def test_an_observation_with_a_different_trade_count_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§M37 and §M38 each caught the moved split only because their plan carried a control that
+    failed to reproduce; this is that control, run on every row."""
+    with pytest.raises(RuntimeError, match="41 trades, not the 40 stored"):
+        verify_observation(stored_for(assembled(), shortlisted()), measured_row(monkeypatch, 41, 1234.5))
+
+
+def test_an_observation_with_a_different_net_pnl_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same trades, different money: the bars under them were revised rather than replaced."""
+    with pytest.raises(RuntimeError, match="net 1300"):
+        verify_observation(stored_for(assembled(), shortlisted()), measured_row(monkeypatch, 40, 1300.0))
+
+
+def test_a_configuration_the_draw_refused_is_not_checked_against_a_stored_row() -> None:
+    """A refused row carries no observation at all, so reading one off it would raise a
+    ``KeyError`` in place of the verdict it already has."""
+    verify_observation(stored_for(assembled(), shortlisted()), {"refused": "no draw freedom"})
+
+
+def test_an_unstored_configuration_leaves_the_observation_unchecked() -> None:
+    verify_observation(None, {"refused": None, "trades": 1, "net_pnl": 0.0})

@@ -149,7 +149,7 @@ All seven strategies are driven through these checks by the scripts in [tools/](
 ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar        # compare those against the coin flip
 ```
 
-`campaign_holdout`, `campaign_walkforward`, `campaign_montecarlo`, `campaign_contracts`, `campaign_review`, `campaign_annotate`, `campaign_paired` and `campaign_ambiguity` complete the set. Each writes to `results/campaign/<Strategy>.duckdb`, so any figure they print can be recalculated later from stored data.
+`campaign_holdout`, `campaign_walkforward`, `campaign_montecarlo`, `campaign_contracts`, `campaign_review`, `campaign_annotate`, `campaign_paired` and `campaign_ambiguity` complete the set. Each writes to `results/campaign/<Strategy>.duckdb`, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
 
 ## The strategies
 
