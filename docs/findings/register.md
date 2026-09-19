@@ -90,6 +90,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§ "Pre-registration: does EmaCrossover's gold result survive stratification?"`      | [Pre-registration: does EmaCrossover's gold result survive stratification?](gold-strata-preregistration.md)                                              | EmaCrossover, InsideBar, InsideBarTrailing, SqueezeBreakout, EmaPullback, ElasticBand               | 3, 4       | `spec`        | --                             |
 | `§ "The build spec's three loose ends"`                                              | [The build spec's three loose ends](build-spec-loose-ends.md)                                                                                            | EmaCrossover                                                                                        | --         | `spec`        | [#74]                          |
 | `§ "The build spec's three loose ends, measured"`                                    | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                                                         | EmaCrossover                                                                                        | 1, 2, 3    | `negative`    | [#74]                          |
+| `§ "The gold strata test: EmaCrossover's edge does not survive stratification"`      | [The gold strata test: EmaCrossover's edge does not survive stratification](gold-strata-result.md)                                                       | EmaCrossover, InsideBar, InsideBarTrailing, SqueezeBreakout, EmaPullback, ElasticBand               | 3, 4       | `negative`    | --                             |
 
 ## The verdicts
 
@@ -324,6 +325,10 @@ The trail is a ratchet over a different level, round numbers need a stated price
 **[The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)**
 
 None of the three features improves EmaCrossover; the trail costs in nineteen of twenty cells and the confluence count moves results without being edge.
+
+**[The gold strata test: EmaCrossover's edge does not survive stratification](gold-strata-result.md)**
+
+Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against the 4 required, the one that does is the unfiltered cell already known, and the direction inverts — it clears 3 of 6 S&P pairs against gold's 1 of 16.
 
 [#167]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/167
 [#168]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/168

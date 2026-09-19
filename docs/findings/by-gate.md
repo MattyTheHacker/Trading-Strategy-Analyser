@@ -94,6 +94,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§ "Counting the confluence a trade actually had"`                              | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | `negative` |
 | `§ "Pre-registration: does EmaCrossover's gold result survive stratification?"` | [Pre-registration: does EmaCrossover's gold result survive stratification?](gold-strata-preregistration.md)                                              | EmaCrossover, InsideBar, InsideBarTrailing, SqueezeBreakout, EmaPullback, ElasticBand               | `spec`     |
 | `§ "The build spec's three loose ends, measured"`                               | [The build spec's three loose ends, measured](build-spec-loose-ends-measured.md)                                                                         | EmaCrossover                                                                                        | `negative` |
+| `§ "The gold strata test: EmaCrossover's edge does not survive stratification"` | [The gold strata test: EmaCrossover's edge does not survive stratification](gold-strata-result.md)                                                       | EmaCrossover, InsideBar, InsideBarTrailing, SqueezeBreakout, EmaPullback, ElasticBand               | `negative` |
 
 ## Gate 4 -- walk-forward, Monte Carlo and the drawdown it has to return
 
@@ -110,6 +111,7 @@ The same campaigns as the [register](register.md), grouped by which of the four 
 | `§M28.15`                                                                       | [M28.15 — the midday cell through the three reads that stopped it being a recommendation](m28-15-midday-cell.md)                    | OpeningRange                                                                                        | `mixed`    |
 | `§M31.1`                                                                        | [M31.1 — the gate-3 survivor through gate 4, and the hold cap inside its own stratum](m31-1-survivor-gate-4.md)                     | OpeningRange                                                                                        | `mixed`    |
 | `§ "Pre-registration: does EmaCrossover's gold result survive stratification?"` | [Pre-registration: does EmaCrossover's gold result survive stratification?](gold-strata-preregistration.md)                         | EmaCrossover, InsideBar, InsideBarTrailing, SqueezeBreakout, EmaPullback, ElasticBand               | `spec`     |
+| `§ "The gold strata test: EmaCrossover's edge does not survive stratification"` | [The gold strata test: EmaCrossover's edge does not survive stratification](gold-strata-result.md)                                  | EmaCrossover, InsideBar, InsideBarTrailing, SqueezeBreakout, EmaPullback, ElasticBand               | `negative` |
 
 ## Reports on no gate
 
