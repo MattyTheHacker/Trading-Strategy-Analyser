@@ -52,7 +52,11 @@ below and is what you quote; this file is the index, not the record.
   `OnExecutionUpdate` inherits this. `docs/nt8-fidelity.md` §M22.
 - **`ExitOnSessionCloseSeconds` does not move a backtest's flatten**, which lands on the
   session's last bar whatever the script sets. Carrying it per archetype was a regression;
-  `exit_on_close_seconds=30` is one default. `docs/nt8-fidelity.md` §M22.
+  `sessions.EXIT_ON_CLOSE_SECONDS` is one default and is the value every archetype runs at.
+  `docs/nt8-fidelity.md` §M22. **Live it is not inert** — both InsideBar scripts set 180, so a
+  live account flattens three minutes before the bar a backtest flattens on. What that is worth
+  is measured rather than argued, and the answer is that the simulation cannot express it at
+  the candidate's bar size: `docs/findings/m41-flatten-timing.md`.
 - **A position guard must read `Position`, not `PositionAccount`**, which never leaves Flat in a
   Strategy Analyzer backtest — InsideBar reversed on 2,581 of 21,884 trades until its C# was
   fixed. `docs/nt8-fidelity.md`, "The position guard has to read `Position`".
@@ -81,9 +85,6 @@ below and is what you quote; this file is the index, not the record.
   reaches `max_hold_bars + 1`, not `max_hold_bars`. Where a bar is both this and an
   archetype's own signal exit, the archetype's rule takes it. `docs/nt8-fidelity.md`, "The
   maximum hold time, and why it is its own exit code".
-- **`ExitOnSessionCloseSeconds` is per strategy, not one global 30.** Both stop-market ports set
-  30 and both InsideBar scripts set 180. It lives on `Archetype` and `sweep.prepare_for` reads
-  it; `context.prepare` called directly still defaults to 30 and has to be told.
 
 ## Structure
 

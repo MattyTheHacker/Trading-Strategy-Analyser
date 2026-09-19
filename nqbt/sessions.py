@@ -62,6 +62,15 @@ TEMPLATES: dict[str, SessionTemplate] = {
     CME_US_INDEX_FUTURES_ETH.name: CME_US_INDEX_FUTURES_ETH,
 }
 
+EXIT_ON_CLOSE_SECONDS = 30
+"""NT8's ``ExitOnSessionCloseSeconds``, and **one default rather than a per-archetype field**.
+
+A backtest flattens on the session's last bar whatever the script sets, so this reproduces
+every archetype's Strategy Analyzer behaviour including the two InsideBar ports' 180. It is
+not inert live, and what the divergence is worth is measured --
+``docs/findings/m41-flatten-timing.md``.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class SessionInfo:
@@ -159,7 +168,7 @@ def _session_edges(trading_day: DateArray, in_session: BoolArray) -> tuple[BoolA
 
 def force_flat_mask(
     info: SessionInfo,
-    exit_on_close_seconds: int = 30,
+    exit_on_close_seconds: int = EXIT_ON_CLOSE_SECONDS,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> BoolArray:
     """Bars at or past the exit-on-session-close cutoff.

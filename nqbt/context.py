@@ -765,7 +765,7 @@ def prepare(
     bars: pd.DataFrame,
     spec: ContextSpec = DEFAULT_SPEC,
     *,
-    exit_on_close_seconds: int = 30,
+    exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
     keep_ma_values: bool = False,
     bar_minutes: int | None = None,
     price_basis: PriceBasis = PriceBasis.UNKNOWN,
@@ -778,6 +778,8 @@ def prepare(
     index when not given -- pass it wherever the resolution is already known.
     ``price_basis`` is stated rather than inferred, and defaults to
     :attr:`PriceBasis.UNKNOWN` so a rule needing raw levels refuses instead of guessing.
+    ``exit_on_close_seconds`` is one default rather than a per-archetype value --
+    :data:`~nqbt.sessions.EXIT_ON_CLOSE_SECONDS`.
     """
     if spec.follow_through_sessions and not spec.range_keys:
         msg: str = (

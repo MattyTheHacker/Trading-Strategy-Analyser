@@ -93,6 +93,32 @@ def test_force_flat_triggers_on_the_final_bar_not_the_one_before() -> None:
     assert list(mask) == [False, True]
 
 
+def test_the_default_cutoff_is_the_one_named_default() -> None:
+    """It is one value for every archetype rather than a field on ``Archetype`` -- a backtest
+    flattens on the session's last bar whatever the script sets."""
+    info = sessions.classify(idx("2024-01-16 21:59:00", "2024-01-16 22:00:00"))
+    default = sessions.force_flat_mask(info)
+    named = sessions.force_flat_mask(info, exit_on_close_seconds=sessions.EXIT_ON_CLOSE_SECONDS)
+
+    assert list(default) == list(named)
+
+
+def test_a_cutoff_shorter_than_one_bar_picks_exactly_the_same_bars() -> None:
+    """Why the property is inert at bar granularity, and the whole reason §M41's 180-second rung
+    reads as its control above 2-minute bars: the countdown is to a bar's *end*, so a cutoff
+    inside the last bar cannot reach the one before it."""
+    five_minute = idx("2024-01-16 21:50:00", "2024-01-16 21:55:00", "2024-01-16 22:00:00")
+    info = sessions.classify(five_minute)
+    for seconds in (30, 180, 299):
+        assert list(sessions.force_flat_mask(info, exit_on_close_seconds=seconds)) == [
+            False,
+            False,
+            True,
+        ]
+
+    assert list(sessions.force_flat_mask(info, exit_on_close_seconds=300)) == [False, True, True]
+
+
 def test_force_flat_cutoff_is_configurable() -> None:
     info = sessions.classify(idx("2024-01-16 21:59:00", "2024-01-16 22:00:00"))
     mask = sessions.force_flat_mask(info, exit_on_close_seconds=90)
