@@ -502,6 +502,79 @@ Export via **Trades → right-click → Export**, not the Summary tab: summary s
 
 **Three exit names are new, and two are deliberately unmapped.** `Trail stop` maps to `stop` and both `Exit Long/Short Trend Violation` map to `signal`. `Exit Long/Short Max Loss` is **not** mapped: that branch is unreachable, so an export carrying one falsifies the reading above and must stop the run rather than be counted as agreement.
 
+### The entry trading window, and the zone it is measured in (#349)
+
+**The cell #344 ports is confined to a session phase, and the NinjaScript had no way to say so.** `InsideBarTrailing.cs` carried eleven `[NinjaScriptProperty]` parameters and not one of them was a time, so `phase=MIDDAY` existed only in Python, as `context.phase_gate`. Two properties now express it, in Eastern time as `HHMMSS`:
+
+```csharp
+int barTime = ToTime(TimeZoneInfo.ConvertTime(Time[0], displayTimeZone, easternTimeZone));
+if (EntryWindowStart < EntryWindowEnd) return barTime > EntryWindowStart && barTime <= EntryWindowEnd;
+
+return barTime > EntryWindowStart || barTime <= EntryWindowEnd;   // a window that wraps midnight
+```
+
+**It gates entries only**, so an open position is still managed and flattened by the existing rules — which is what the port does, where the phase mask is ANDed into the signal by `filters.apply_context_filters` and nothing else reads it.
+
+**`EntryWindowStart == EntryWindowEnd` is off, and that is the default**, so `SetDefaults` remains exactly the configuration reconciled above. It mirrors the port, where the same parameter's off value is `phase_filter = ALL_PHASES` rather than a second switch.
+
+**The boundary is exclusive at the start and inclusive at the end**, because a bar is stamped at its close and belongs to the phase its *body* falls in. That is `timeofday.phase_from_minutes` reading `minutes_since_open - 1`: `MIDDAY` is minute-of-session 990 to 1199, so a bar stamped 10:30 is the last `CASH_OPEN` bar and one stamped 14:00 is the last `MIDDAY` one. Transcribed into Python and compared against `timeofday.classify(...).gate(MIDDAY)` over 132,407 MNQ 03-24 bars at 1, 2, 5, 10 and 15 minutes, the two agree on every bar at every resolution.
+
+**It counts forward from the template's open, which is why it can be reconciled at all.** "A no-entry window before the session close" records the opposite case: a rule measured against the *observed* session end cannot agree with a C# reading the wall clock, and that is why InsideBar's one-hour guard is the one rule the two tiers cannot reconcile by construction. A wall-clock window is the wall clock on both sides.
+
+#### `Bars.TradingHours.TimeZoneInfo` is Central, and the first run was an hour out
+
+**CME's trading-hours template is defined in the exchange's own local time, which is Chicago, where `nqbt.timeofday` is Eastern by definition.** The first version of the property converted `Time[0]` into `Bars.TradingHours.TimeZoneInfo` and so gated 10:30–14:00 **Central** — one hour later than the stratum every stored result was measured in.
+
+**Only the trade list could have found it.** The diff joined 154 of 274 legs at one minute and 52 of 84 at five, with NT8's entries running 11:32–14:56 ET against the port's 10:32–13:56, and **every leg both sides agreed existed still agreed on all five fields**. A Central-gated run is a plausible strategy with a plausible equity curve; summary statistics show nothing at all.
+
+**The reading was confirmed rather than inferred.** Re-running the port with the window evaluated in `America/Chicago`, and nothing else changed, joins **274 of 274 and 84 of 84 with zero unjoined on either side**, every field identical. The fill model was right and only the zone was wrong, so the script now names the zone outright:
+
+```csharp
+easternTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+```
+
+**A Python-side check of the rule was blind to this**, because the transcription used Eastern on both sides. It pinned the boundary convention and could say nothing about which zone the C# resolves at runtime — the same shape as every other rule here that reflection could not settle.
+
+**The conversion is load-bearing rather than defensive.** `Time[0]` is in NinjaTrader's display zone, which is the `Europe/London` that `EXPORT_TZ` reads the trade list in. London is ET+5 for 87 days of the MNQ 03-24 reconciliation window and **ET+4 for its last six**, because the two zones change over on different dates, so a fixed offset is wrong for several weeks of every year.
+
+### Reconciliation result — InsideBarTrailing with the trading window (#349)
+
+Source: **MNQ 03-24**, three Strategy Analyzer exports reconciled over **2023-12-14 → 2024-03-15** — the same instrument and window as §M22's and §M23's, so a difference is attributable to the gate rather than to the data.
+
+| run        | configuration                       | NT8 legs | joined |   identical | NT8 only | nqbt only |
+| ---------- | ----------------------------------- | -------: | -----: | ----------: | -------: | --------: |
+| regression | 1 minute, `SetDefaults`, window off |    1,526 |  1,522 | **100.00%** |        4 |         2 |
+| gated      | 1 minute, `SetDefaults`, window on  |      274 |    274 | **100.00%** |    **0** |     **0** |
+| ported     | 5 minutes, combo 2035, window on    |       68 |     68 | **100.00%** |    **0** |     **0** |
+
+Net P&L over the joined legs agrees exactly on all three: −8,913.00, −10,510.00 and +3,613.00.
+
+**The regression run's export is byte-identical to §M23's**, so the window code is inert with the window off and `ExitOnSessionCloseSeconds` 180 → 30 moved nothing — the probe finding under "`ExitOnSessionCloseSeconds` is honoured but inert at bar granularity" confirmed on a real strategy rather than on a probe. `docs/findings/m41-flatten-timing.md` § "For going live" is why the value was set at all.
+
+**Both gated runs join with nothing unmatched on either side**, which the unfiltered reconciliation does not — it still carries 4 NT8-only and 2 nqbt-only legs at the window edges.
+
+**The gate is exercised rather than trivially satisfied.** The 1-minute run's earliest entry is 10:32 ET, the first bar the window can admit, and its latest 13:56; the 5-minute run reaches 14:00 ET. Both cover all four exit reasons, and the ported run carries 19 session-close legs of 68 — the exit this archetype's P&L rests on is inside the diff rather than beside it.
+
+`Archetype.tier2` stays `RECONCILED`, now on a trade list that exercises the new rule instead of on one that predates it.
+
+#### How the exports were produced
+
+§M23's settings, changing only the data series and the two window properties:
+
+| run        | data series | Entry Window Start | Entry Window End | other parameters |
+| ---------- | ----------- | ------------------ | ---------------- | ---------------- |
+| regression | 1 minute    | `0`                | `0`              | `SetDefaults`    |
+| gated      | 1 minute    | `103000`           | `140000`         | `SetDefaults`    |
+| ported     | 5 minutes   | `103000`           | `140000`         | combo 2035       |
+
+```bash
+./.venv/Scripts/python.exe tools/reconcile_nt8.py \
+  verification/nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_ported.csv \
+  InsideBarTrailing-midday-2035 "MNQ 03-24" 2023-12-14
+```
+
+`CONFIGS` carries all three, keyed `InsideBarTrailing`, `InsideBarTrailing-midday` and `InsideBarTrailing-midday-2035` — one archetype with three reconciled configurations, which is why a config name is no longer always an archetype name. The last is `docs/findings/m43-midday-candidates-ranked.md` § "The cell to port" with its commission and slippage set to zero, because NT8 ran with no fee template and a cost difference would read as a fill disagreement on every leg.
+
 ### M26 — the elastic band rules, written before the Python (#167, #168)
 
 **Every rule below was written down before the Python existed, and the Python was then written to it** — the order §M18 could not manage, because there the rules were recorded after the fact. There is still no NinjaScript, so nothing here is backed by a trade list. Each item names the NinjaScript it would be written as, because a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later, and the exploration is then wasted rather than merely unvalidated. The reasoning behind the choices, and the alternatives rejected, are in [roadmap.md](roadmap.md) §M26; only the rules are here.

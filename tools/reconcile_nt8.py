@@ -1,6 +1,10 @@
 """Compare an NT8 Strategy Analyzer Trades export against an nqbt run, leg for leg.
 
-    ./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> <archetype> <contract> [from]
+    ./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
+
+``config`` is a key of :data:`CONFIGS`, which is usually an archetype's name and is not always:
+one archetype can have several reconciled configurations, at different parameters and different
+bar sizes.
 
 ``from`` is an optional ISO date that trims the export. Needed whenever NT8 was asked for more
 history than the contract itself has: it serves its *merged* series there, which a per-contract
@@ -13,12 +17,14 @@ from __future__ import annotations
 
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
-from nqbt import archetypes, context, ingest, logsetup
+from nqbt import archetypes, context, ingest, logsetup, resample, timeofday
 from nqbt.instruments import ContractId
 from nqbt.sim.types import (
     DeadCatParams,
@@ -61,26 +67,60 @@ Explicit rather than inferred: a wrong zone shifts every trade by a whole hour a
 parses. See docs/nt8-fidelity.md, "Trade-list exports are in machine local time".
 """
 
-# The reconciled configuration, not the NinjaScript's SetDefaults. See docs/nt8-fidelity.md.
-CONFIGS = {
-    "DeadCatBounce": DeadCatParams(
-        ema_period=21,
-        slow_sma_period=175,
-        fast_sma_period=60,
-        use_ema=True,
-        use_slow_sma=True,
-        use_fast_sma=True,
-        use_vwap=True,
-        require_previous_green=True,
-        require_new_high=True,
+if TYPE_CHECKING:
+    from nqbt.archetypes import Params
+
+MIDDAY = timeofday.SessionPhase.MIDDAY.bit
+"""10:30-14:00 ET, the stratum ``InsideBarTrailing.cs``'s trading window was added for."""
+
+
+@dataclass(frozen=True, slots=True)
+class Config:
+    """One reconciled configuration: a parameter set and the bar size it was run at."""
+
+    params: Params
+    resolution: int = 1
+
+
+# The reconciled configurations, not the NinjaScripts' SetDefaults. See docs/nt8-fidelity.md.
+CONFIGS: dict[str, Config] = {
+    "DeadCatBounce": Config(
+        DeadCatParams(
+            ema_period=21,
+            slow_sma_period=175,
+            fast_sma_period=60,
+            use_ema=True,
+            use_slow_sma=True,
+            use_fast_sma=True,
+            use_vwap=True,
+            require_previous_green=True,
+            require_new_high=True,
+        ),
     ),
-    "PullBackAndGo": PullBackAndGoParams(),
+    "PullBackAndGo": Config(PullBackAndGoParams()),
     # The no-entry window is off because the C# measures it against the wall clock, so the
     # two sides can only be made to test the same rule by both having it off. See
     # docs/nt8-fidelity.md, "A no-entry window before the session close".
-    "InsideBar": InsideBarParams(no_entry_minutes_before_close=0),
+    "InsideBar": Config(InsideBarParams(no_entry_minutes_before_close=0)),
     # SetDefaults unchanged: this NinjaScript has no wall-clock window to switch off.
-    "InsideBarTrailing": InsideBarTrailingParams(),
+    "InsideBarTrailing": Config(InsideBarTrailingParams()),
+    # The trading window on, everything else SetDefaults, so the gate is the only thing that
+    # moved against the row above -- docs/nt8-fidelity.md, "The entry trading window".
+    "InsideBarTrailing-midday": Config(InsideBarTrailingParams(phase_filter=MIDDAY)),
+    # Combo 2035, the cell Phase 0 named -- docs/findings/m43-midday-candidates-ranked.md
+    # § "The cell to port". Its commission and slippage are deliberately not carried: that
+    # file costs the campaign at 1.5 and 1 tick, and NT8 ran with no fee template, so a
+    # reconciliation needs both sides at zero or every leg disagrees on price and P&L.
+    "InsideBarTrailing-midday-2035": Config(
+        InsideBarTrailingParams(
+            phase_filter=MIDDAY,
+            ema_period=44,
+            fast_sma_period=20,
+            error_margin=0.05,
+            atr_length=14,
+        ),
+        resolution=5,
+    ),
 }
 
 
@@ -131,14 +171,20 @@ def parse_nt8(path: Path) -> pd.DataFrame:
     return out.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 
 
-def run_nqbt(archetype_name: str, contract: str) -> pd.DataFrame:
-    archetype = archetypes.get(archetype_name)
-    params = CONFIGS[archetype_name]
+def run_nqbt(config_name: str, contract: str) -> pd.DataFrame:
+    if config_name not in CONFIGS:
+        msg = f"unknown config {config_name!r}; known: {sorted(CONFIGS)}"
+        raise SystemExit(msg)
+
+    config = CONFIGS[config_name]
+    params = config.params
+    archetype = archetypes.for_params(params)
     contract_id = ContractId.parse(contract)
-    bars = ingest.load_contract(contract_id)
+    bars = resample.resample(ingest.load_contract(contract_id), config.resolution)
     data = context.prepare(
         bars,
         archetype.context_for({k: [v] for k, v in params.as_dict().items()}),
+        bar_minutes=config.resolution,
         price_basis=context.PriceBasis.RAW,
     )
     log = archetype.run(data, params, contract_id.instrument)
@@ -219,15 +265,15 @@ def main(argv: list[str]) -> int:
         logger.info("%s", __doc__)
         return 2
 
-    export, archetype_name, contract = argv[1], argv[2], argv[3]
-    logger.info("== %s on %s ==", archetype_name, contract)
+    export, config_name, contract = argv[1], argv[2], argv[3]
+    logger.info("== %s on %s ==", config_name, contract)
     nt8 = parse_nt8(Path(export))
     if len(argv) == EXPECTED_ARGV[1]:
         start = pd.Timestamp(argv[4], tz="UTC")
         logger.info("  trimmed to        %s onwards", f"{start:%Y-%m-%d}")
         nt8 = nt8[nt8["entry_time"] >= start]
 
-    mine = run_nqbt(archetype_name, contract)
+    mine = run_nqbt(config_name, contract)
     reconcile(nt8, mine)
 
     return 0
