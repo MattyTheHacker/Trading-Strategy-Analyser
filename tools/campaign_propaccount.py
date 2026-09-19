@@ -28,6 +28,9 @@ beside the profit factor and the pass rate.
 Reads the logs ``tools/campaign_shortlist.py --held-out`` stored, so run that first; a row with
 no log, and one whose rule set refuses it, are each named and skipped rather than silently
 dropped.
+
+**``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
+the only way to replay a campaign the archive has moved under -- ``tools/campaign_swept.py``.
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ import dataclasses
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -46,11 +50,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import LABEL_COLUMNS
-from tools.campaign_report import NET_TO_DRAWDOWN, load_trades
+from tools.campaign_report import NET_TO_DRAWDOWN, log_key, stored_logs
 from tools.campaign_shortlist import TOP
 from tools.campaign_sweep import db_path
+from tools.campaign_swept import logs_for
 
 from nqbt import logsetup, propaccount
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -115,11 +123,6 @@ def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # 
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def _where(row: pd.Series) -> tuple[int, int]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The ``(sweep_id, combo_id)`` a stored row is filed under."""
-    return int(row["sweep_id"]), int(row["combo_id"])
-
-
 def replay_row(
     row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
     log: pd.DataFrame,
@@ -130,7 +133,7 @@ def replay_row(
     try:
         result: propaccount.PropReplay = propaccount.replay(log, account, max_accounts=max_accounts)
     except propaccount.PropAccountError as refused:
-        logger.warning("  %-14s sweep %-4d combo %-6d refused: %s", account.name, *_where(row), refused)
+        logger.warning("  %-14s sweep %-4d combo %-6d refused: %s", account.name, *log_key(row), refused)
 
         return None
 
@@ -149,18 +152,18 @@ def replay_row(
 
 def replay_shortlist(
     rows: pd.DataFrame,
-    path: Path,
+    logs: Mapping[tuple[int, int], pd.DataFrame],
     accounts: list[propaccount.PropAccount],
     max_accounts: int | None,
 ) -> pd.DataFrame:
     """Every shortlisted configuration through every rule set, one row each."""
     replayed: list[dict[str, object]] = []
     for _, row in rows.iterrows():
-        log: pd.DataFrame = load_trades(*_where(row), path)
+        log: pd.DataFrame = logs.get(log_key(row), pd.DataFrame())
         if log.empty:
             logger.warning(
-                "  sweep %-4d combo %-6d has no stored log; run tools/campaign_shortlist.py --held-out first",
-                *_where(row),
+                "  sweep %-4d combo %-6d has no log; run tools/campaign_shortlist.py --held-out or --rerun",
+                *log_key(row),
             )
             continue
 
@@ -243,6 +246,11 @@ def main(argv: list[str]) -> int:
         default=None,
         help="override which of a trade's excursions moves the floor first",
     )
+    parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="re-run the shortlist on the bars it was swept on rather than reading a stored log",
+    )
     args = parser.parse_args(argv[1:])
 
     rows: pd.DataFrame = held_out(
@@ -268,9 +276,17 @@ def main(argv: list[str]) -> int:
         len(accounts),
     )
 
-    table: pd.DataFrame = replay_shortlist(rows, db_path(args.strategy), accounts, args.max_accounts)
+    logs: Mapping[tuple[int, int], pd.DataFrame]
+    if args.rerun:
+        reconciled: pd.DataFrame
+        logs, reconciled = logs_for(args.strategy, rows, args.root)
+        show(f"{args.strategy} {args.root} -- what the re-run reproduced of its stored rows", reconciled)
+    else:
+        logs = stored_logs(rows, db_path(args.strategy))
+
+    table: pd.DataFrame = replay_shortlist(rows, logs, accounts, args.max_accounts)
     if table.empty:
-        logger.warning("no stored trade logs for this shortlist; nothing to replay")
+        logger.warning("no trade logs for this shortlist; nothing to replay")
 
         return 1
 

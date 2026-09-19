@@ -690,6 +690,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **The first cell in the registry to survive the exclusion at all — nine of twenty configurations are profitable without their session-close legs where every earlier run of that read returned none — and the first to put a bootstrap 5th percentile above a profit factor of 1.0, on all ten MNQ configurations; the walk-forward passes on both roots, and on each root one bracket axis separates every surviving configuration from every failing one.** Moved to [`docs/findings/m42-insidebartrailing-gate-4.md`](findings/m42-insidebartrailing-gate-4.md).
 
+### M43 — the two midday candidates ranked for a prop MNQ account ([#347])
+
+**InsideBarTrailing's midday cell is the one to port: the two prop objectives split 7–7 across the seven MNQ presets, and held-out profit factor, net and session-close share all go one way — so what decides it is what the objectives have to be read beside rather than the objectives themselves.** Moved to [`docs/findings/m43-midday-candidates-ranked.md`](findings/m43-midday-candidates-ranked.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1338,6 +1342,7 @@ ______________________________________________________________________
 [#341]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/341
 [#345]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/345
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
+[#347]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/347
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
 [#36]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/36
 [#37]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/37

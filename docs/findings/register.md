@@ -86,6 +86,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M40`                                                                               | [M40 — Prop accounts ranked by what they are scored on rather than by profit factor](m40-prop-objectives.md)                                             | all 9                                                                                               | --         | `mixed`       | [#326]                         |
 | `§M41`                                                                               | [M41 — the live flatten timing: the one divergence a backtest cannot show, measured](m41-flatten-timing.md)                                              | InsideBarTrailing, OpeningRange                                                                     | --         | `negative`    | [#346], [#193]                 |
 | `§M42`                                                                               | [M42 — InsideBarTrailing's midday cell through the exclusion test and gate 4](m42-insidebartrailing-gate-4.md)                                           | InsideBarTrailing                                                                                   | 4          | `mixed`       | [#345]                         |
+| `§M43`                                                                               | [M43 — the two midday candidates ranked for a prop MNQ account, and the cell to port](m43-midday-candidates-ranked.md)                                   | InsideBarTrailing, OpeningRange                                                                     | --         | `positive`    | [#347]                         |
 | `§ "Counting the confluence a trade actually had"`                                   | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"` | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                                                 | all 9                                                                                               | --         | `mixed`       | [#330]                         |
 | `§ "Multi-timeframe moving averages"`                                                | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
@@ -312,6 +313,10 @@ At the candidate's bar size the live 180-second cutoff selects exactly the same 
 
 The first cell in the registry to survive the exclusion at all — 5 of 10 configurations on MNQ and 4 of 10 on NQ are profitable without their session-close legs — and the first to put a bootstrap 5th percentile above a profit factor of 1.0, on all ten MNQ configurations; the walk-forward passes on both roots, and on each root one bracket axis separates every surviving configuration from every failing one.
 
+**[M43 — the two midday candidates ranked for a prop MNQ account, and the cell to port](m43-midday-candidates-ranked.md)**
+
+InsideBarTrailing's midday cell is the one to port. The two objectives themselves split almost evenly on MNQ — 4–3 to it on time to the first payout and 4–3 against it on the cost of a pass — but everything they have to be read beside goes one way: held-out profit factor in all fourteen MNQ cells, net in eleven of them, and a session-close share a third of the fallback's on both roots. On NQ the objectives themselves go 9–1 to it, and neither candidate is tradeable there at these sizes. The named cell is combo 2035, the only one of the ten §M42 read that both survives the exclusion on all of gate 4's thresholds and leads an objective, and the two objectives disagree with each other inside the cell (rho −0.085) and with the exclusion in opposite directions.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -385,6 +390,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#330]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/330
 [#345]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/345
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
+[#347]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/347
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
