@@ -45,7 +45,7 @@ A bare "see the docs" is not a pointer, and [`tests/test_doc_pointers.py`](tests
 
 Whenever changes are made to a strategy, archetype, or new sweeps are undertaken, the findings documentation should be reviewed to make sure it is still accurate. This should include running the prop simulator to see if it would, while possibly not win out on a normal account, win on a prop account.
 
-All PRs should undertake a review of all documentation (not just those listed above) to ensure that the changes in that PR don't make any documentation go stale, out of date, inaccurate or misleading. Any respective documentation updates should be part of the same PR as the changes.
+All PRs should undertake a review of all documentation (not just those listed above) to ensure that the changes in that PR don't make any documentation go stale, out of date, inaccurate or misleading. Any respective documentation updates should be part of the same PR as the changes. This check should also include a check of open issues to confirm whether the PR may affect them. If it does a comment should be left on the issue so future readers are aware that the context / circumstances / specifics of the issue may have changed as a result of the PR.
 
 When this review turns up unrelated changes that need to be made, this should be left as is and raised as an Issue to be resolved separately. PR scope should not be expanded to fix unrelated problems.
 
