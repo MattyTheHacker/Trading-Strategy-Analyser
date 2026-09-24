@@ -90,13 +90,13 @@ Two things that were true then and are true now. **Ten configurations of one cel
 
 **The exclusion does not.**
 
-| | §M42 | M44 |
-| --- | --- | --- |
-| profitable without `session_close` legs, MNQ | 5 of 10 | **1 of 10** |
-| profitable without `session_close` legs, NQ | 4 of 10 | **0 of 10** |
-| clearing both gate-4 thresholds | 5 of 20 | **0 of 20** |
-| median profit factor, whole → excluded, MNQ | 1.482 → 0.975 | 1.381 → 0.761 |
-| median profit factor, whole → excluded, NQ | — | 1.361 → 0.581 |
+|                                              | §M42          | M44           |
+| -------------------------------------------- | ------------- | ------------- |
+| profitable without `session_close` legs, MNQ | 5 of 10       | **1 of 10**   |
+| profitable without `session_close` legs, NQ  | 4 of 10       | **0 of 10**   |
+| clearing both gate-4 thresholds              | 5 of 20       | **0 of 20**   |
+| median profit factor, whole → excluded, MNQ  | 1.482 → 0.975 | 1.381 → 0.761 |
+| median profit factor, whole → excluded, NQ   | —             | 1.361 → 0.581 |
 
 The session-close legs are about a quarter of all legs, which is the share §M42 recorded, and they carry more than the entire net: MNQ's median book is +38,594 whole and −20,176 with them removed. §M42's nine survivors of twenty become one.
 
