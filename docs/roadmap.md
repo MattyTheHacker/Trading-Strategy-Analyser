@@ -696,7 +696,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M44 — the registry re-swept on a repaired archive ([#360])
 
-**Gate 3 reproduces almost exactly — 47 of 200 tests clear p = 0.05 against §M28.16's 46, and three of its four both-root cells hold — while §M42's exclusion reading does not, falling from nine survivors of twenty to one; and the archive is now one series on both roots, so every stored row is re-derivable for the first time since it was extended.** Moved to [`docs/findings/m44-registry-resweep.md`](findings/m44-registry-resweep.md).
+**Gate 3 reproduces almost exactly — 47 of 200 tests clear p = 0.05 against §M28.16's 46, and three of its four both-root cells hold — while §M42's exclusion reading does not, falling from nine survivors of twenty to one; and the archive is now one series on both roots, so every stored row is re-derivable for the first time since it was extended; #347's prop ranking strengthens from a 7-7 split to 12 of 14.** Moved to [`docs/findings/m44-registry-resweep.md`](findings/m44-registry-resweep.md).
 
 ### Do the shortlists travel? ([#330])
 

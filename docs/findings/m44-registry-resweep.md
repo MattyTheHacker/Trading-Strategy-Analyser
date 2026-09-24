@@ -112,13 +112,48 @@ Every archetype now holds stored trade logs for both the full and the held-out w
 
 It is true only for campaigns from this one forward. **Every gate-3 and gate-4 figure in §M28.16, §M42 and §M43 is now re-derivable only from the set moved aside before this re-sweep**, and the NQ half of it was already unrecoverable for the reason [#360] gives. Those campaigns are not wrong; they are measurements of an archive that no longer exists, and this file is the second measurement rather than a correction of the first.
 
+## The prop account — §M43's ranking strengthens, and the two tools disagree about everything else
+
+[#347] ranked the two midday candidates on what a prop account is scored on rather than on profit factor, and found the objectives split 7–7 across the seven MNQ presets, so the choice rested on the tiebreakers. Re-run on this archive over the same cell — `phase=MIDDAY` at 5 minutes, MNQ — **InsideBarTrailing now wins 12 of the 14 comparisons outright**: 7 of 7 on days to payout and 5 of 7 on fees per pass.
+
+| preset                     | days to payout, IBT |   OR | fees per pass, IBT |        OR |
+| -------------------------- | ------------------: | ---: | -----------------: | --------: |
+| Apex 50K                   |              **18** |   70 |          **1,522** |     1,786 |
+| Apex 150K                  |              **42** |  229 |             10,674 | **5,476** |
+| TopStep 50K                |              **24** |  232 |                881 |   **548** |
+| TopStep 150K               |              **42** |  229 |          **2,105** |     2,831 |
+| TakeProfitTrader 25K Test  |              **13** | 19.5 |            **459** |       607 |
+| TakeProfitTrader 50K Test  |              **24** |  231 |            **640** |       681 |
+| TakeProfitTrader 150K Test |              **42** |  229 |          **2,182** |     3,262 |
+
+Days to payout is the wider margin and it is not close: 13–42 sessions against 19.5–232. Both cells pass and pay out on every preset, so this is a question of how long the account takes to become worth anything rather than whether it survives. **§M43's conclusion holds and needs fewer tiebreakers than it did.**
+
+### The two prop tools invert the registry, and the selection is why
+
+Read at archetype level rather than in the cell, `tools/campaign_propobjectives.py` and `tools/campaign_propaccount.py` disagree about the top two on MNQ — completely:
+
+| archetype         | objectives-ranked pool, ever passed | top 20 by profit factor, ever passed |
+| ----------------- | ----------------------------------: | -----------------------------------: |
+| InsideBar         |                                100% |                                  60% |
+| InsideBarTrailing |                            **100%** |                               **0%** |
+| OpeningRange      |                              **0%** |                              **80%** |
+| EmaCrossover      |                                 68% |                                   0% |
+| ElasticBand       |                                 58% |                                  10% |
+
+Same archive, same rule sets, opposite answers. The first admits a 500-strong pool on profit factor and then shortlists by each account objective, so it searches for configurations that pass; the second replays the top twenty by profit factor and reports what happened.
+
+**The mechanism is visible in the replay.** InsideBarTrailing's top twenty by profit factor on MNQ are `phase=CLOSE` and thin-volume re-cut cells — not the midday cell at all — and they record zero passes across all four rule sets on 2 to 14 attempts each. The profit-factor ranking does not surface the cell that was chosen to port, so replaying it answers a question nobody asked.
+
+This is §M28.13's finding arriving with consequences rather than a new one: survival and profitability are close to independent, so **profit factor is not the ranking a prop account is scored on, and a prop reading is only as good as the shortlist it was given.** Neither archetype-level column above should be quoted as that archetype's prop standing. The cell-level table is the read that means something.
+
 ## What this does not settle
 
 - **One minute is unmeasured in every split window.** A deliberate omission, not a gap, but any cross-resolution reading of the new tables has four rungs rather than five.
 - **The cells are still §M28.14's**, chosen after looking, and the family that chose them no longer reproduces. A pre-registered family over the 25 consistent cells this campaign names is the next honest step and is not taken here.
 - **CL and SIL have no continuous series**, so two of the three new roots are ingested and unusable.
 - **`compression=EXPANDED` losing its both-root pass is one observation**, not a refutation; at 371–375 trades and a null spread that tight, 2 and 0 against 6 and 2 is within what ten overlapping shortlists can move.
-- **Nothing here re-reads the prop-account objectives.** §M40's and §M43's rankings were computed on the older set; the replay has been re-run across all nine archetypes on both roots but is not analysed in this file.
+- **The prop reading is MNQ only.** #347 is an MNQ question and the NQ objectives run was abandoned rather than completed, because §M28.13 already records that no NQ configuration survives its first account on any preset at this position size. The NQ account replays are here; the NQ objectives are not.
+- **§M40's wider ranking is not re-read.** Only the two midday cells #347 compared were run in the cell, so the other seven archetypes appear at archetype level only — which the section above says should not be quoted as their prop standing.
 
 Every figure here is one dated run over the archive as it stands, re-derivable from the campaign databases and the campaign tools named above — not a standing property.
 
