@@ -35,6 +35,13 @@ paths:
   bars and silently drops real ones.
 - **The last bar of any export may be mid-formation**, with a high and close that have not
   happened yet. The archive merge lets a file's newest bar insert but never overwrite.
+- **The archive begins at the 2020-10-26 session by construction, and the cut has to be
+  reapplied.** Bars before it were removed because one week of them is stamped 672 minutes early
+  — `docs/nt8-fidelity.md` § "A week of bars is stamped 672 minutes early". The sources were
+  trimmed as well as the archive, because `archive.build_archive` merges them in on every ingest
+  and would otherwise restore the bad week. **Any fresh export reaching back that far reintroduces
+  it**, so an export older than the cutoff must be trimmed before it is merged, and the removed
+  bars are the only copy there is — NinjaTrader will not serve 2020 again.
 - **Every folder under `data/` uses the `.Last.txt` suffix**, including `data/tick/`, whose
   files are a different format and orders of magnitude larger. **Never glob across
   resolutions**; `parse_export` hard-fails on a tick file.
@@ -61,6 +68,23 @@ paths:
   the back contract, and NT8's data has holes there. They were always missing; an early roll
   hid them behind the wrong contract. **Do not fill them from the neighbouring contract** —
   that splices two different prices into one session.
+- **The crossover rule assumes liquidity falls off with expiry, and crude breaks that.** CL lists
+  all twelve months and its Jun/Sep/Dec contracts carry far more deferred interest than the
+  May/Aug/Nov ones either side, so the back contract can out-trade the front for *months* before
+  the handover — 10:1 on the first shared session of one pair. `_first_confirmed_crossover` takes
+  the earliest conclusive session the back contract leads, so **12 of 71 CL pairs roll 92 to 126
+  days early and two pick the first shared session, which fails outright** in
+  `_boundary_offset`. Neither existing guard helps: the early sessions clear
+  `ACTIVE_VOLUME_FRACTION`, and the back contract leads continuously for twenty-plus sessions so
+  no `confirm_sessions` count separates them. **CL therefore has no continuous series**, and the
+  fix is a rule that reads the *last* time the front contract leads rather than the first time it
+  does not. `docs/nt8-fidelity.md` § "CL's exports hold a systematic two-month hole" is a
+  separate CL problem that makes this one harder to see.
+- **A stub contract cannot be spliced past.** SIL's first two listed contracts hold one and nine
+  trading days, so they share no in-session bars with their neighbour and `detect_roll` raises.
+  Micro silver's usable history begins at its third contract; excluding the two stubs splices
+  cleanly and agrees with SI to within a single session on every roll. **There is no switch for
+  that exclusion**, so SIL has no continuous series either.
 - Volume-crossover rolls are no longer undetectable once the AddOn has warmed the database;
   `docs/nt8-fidelity.md` § "Contract data" has the current agreement figures.
 - **A seam carries no contract basis, so anything that jumps there is a real move over a real
