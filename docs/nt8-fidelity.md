@@ -224,6 +224,16 @@ if (risk > maxRiskPerTrade * TickSize) return;
 
 `MaxRiskPerTrade = 250` means 250 ticks = 62.5 MNQ points, **not** $250. It never binds at that default — the largest observed risk is 24.25 points.
 
+**So one setting is a different dollar cap on each contract.** NQ and MNQ share a tick size and not a tick value, so 250 ticks is $125 a contract on MNQ and $1,250 on NQ. The port keeps the cap in ticks because the C# does.
+
+### The reward-to-risk gate has no NinjaScript behind it
+
+`min_reward_risk` is an optional pre-trade gate from the original build spec (#315): skip a signal unless its reward-to-risk clears a minimum. **It exists on DeadCatBounce alone and is off at `0`.** Neither `DeadCatBounce.cs` nor `PullBackAndGo.cs` has a property for it, PullBackAndGo's loop passes `0` unconditionally, and no campaign in `tools/` sets it.
+
+**It filters rule sets, not trades.** Every target is an R multiple, so the ratio is fixed by the parameters before a bar is read: `bracket.passes_reward_risk` compares the furthest finite entry of `target_r_multiples` with the minimum, and either every signal passes or none does. A port would write it as a property compared against that multiple, returning early beside the risk cap above.
+
+**It reads the multiples before `tp_multiplier` scales them**, while the targets it gates sit at `target_r × tp_multiplier`. At any multiplier other than 1 the two disagree about R: at `tp_multiplier = 2` the default targets sit at 2, 3 and 4R, and a minimum of 2.5 still blocks every signal. Recorded rather than fixed, since the gate is off everywhere — #373.
+
 ### M18 — the crossover rules, and that none of them has evidence yet
 
 `EmaCrossover` is the first archetype with **no NinjaScript**, so nothing below is backed by a trade list. It is recorded here anyway, because the point of writing the rules down before there is a C# is that the port has something to be checked *against* — and because the prime directive binds during development. A rule chosen here that NT8 cannot express makes the archetype unreconcilable later, which wastes the exploration rather than merely leaving it unvalidated. Each item below therefore names the NinjaScript it would be written as.

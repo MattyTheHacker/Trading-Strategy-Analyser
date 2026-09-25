@@ -241,7 +241,7 @@ nqbt/
   review       trade_import · annotate · review · notes · chart · stats · trades
 tools/         the campaign scripts, the NinjaTrader reconciliation scripts, the commit linter
 tests/         one file per source module, plus a regression gate on the trade log
-docs/          nt8-fidelity.md · roadmap.md · backtest_tool_spec.md
+docs/          nt8-fidelity.md · roadmap.md
 ```
 
 Three rules keep this from tangling:
