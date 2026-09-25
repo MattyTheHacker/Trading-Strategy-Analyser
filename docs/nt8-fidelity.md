@@ -1255,4 +1255,24 @@ The genuine handover is 2022-01-27, at 132,769 against 139,479 over 1,375 shared
 
 **Nothing is missing from the continuous series, and the splice shows why.** `GC 12-25` is the front month continuously from August through November 2025 — 28,948, 30,203, 31,620 and 22,079 bars — so the window where October would sit is covered by December rather than left empty. Gold's volume concentrates in the even months regardless of what is listed, which is what makes the curated cycle the right splice and not a degraded one.
 
-**The same has not been checked for the other COMEX and NYMEX roots.** SI, SIL, CL and MCL are registered in `nqbt/instruments.py` and none has been ingested, so their month sets are the CME cycle as written down rather than anything NinjaTrader has confirmed.
+**SI, SIL and CL have since been ingested; MCL has not.** Silver's Mar/May/Jul/Sep/Dec cycle and crude's twelve months are confirmed against what NinjaTrader served — every contract parses and no month was refused. MCL remains registered and unread, so its month set is still the cycle as written down rather than anything NinjaTrader has confirmed.
+
+### A week of bars is stamped 672 minutes early
+
+**Sunday 2020-10-18 to Friday 2020-10-23 carries timestamps 11 hours 12 minutes ahead of the bars they label**, and it is the only such week in the archive.
+
+The signature is visible without any analysis: the daily maintenance break sits at 05:49–06:49 ET instead of 17:00–18:00, the Sunday session opens in the early afternoon, and Friday stops before 06:00. Out-of-session share on the affected contracts runs to 1.1% against a normal rate two orders of magnitude lower, which is close enough to `ingest.STRAY_SHARE_LIMIT` to be worth knowing.
+
+**The offset was measured rather than guessed.** Cross-correlating each contract's minute-of-day volume profile for that week against the weeks either side puts the best lag at **+672 minutes** on NQ, MNQ, CL and SI and +671 on ES, at r = 0.728–0.933, against a negative correlation at lag zero. Five instruments agreeing to the minute makes it a database-level event rather than anything per-contract. 672 minutes is not a timezone, which rules out the obvious explanation.
+
+**Thirteen contracts across six roots are affected** — CL, ES, MES, NQ, MNQ and SI — and roughly 5,900 bars per root survive into a spliced series, because only the portion falling in the template's break window is dropped as out-of-session. The remainder looks in-session and carries the wrong time of day, so anything reading the clock is wrong for those five sessions.
+
+**The archive is trimmed forward past it**, keeping only bars stamped from 2020-10-25 — the Sunday open of the first clean session. That is the cheapest repair and it is not free: it removes both index roots' 09-20 contracts entirely and about seven months of their history, four months of ES and MES, and rather less of the rest. `docs/findings/m44-registry-resweep.md` § "What changed in the data, and why" records what the trim cost and why a shift of this kind cannot be corrected by adding the offset back — the affected week's true extent is bounded by the surrounding sessions rather than known.
+
+### CL's exports hold a systematic two-month hole
+
+**Every one of the 72 crude contracts is missing about 58 days, from roughly 98 days before expiry to roughly 39.** The boundaries are consistent to within a day or two across six years, both the AddOn and the manual export agree, and re-running either does not fill it — so it is a property of what NinjaTrader serves for this root rather than a failed export. SI and SIL have no such hole, so it is not a COMEX or NYMEX trait.
+
+**It costs nothing, and that is worth checking rather than assuming.** A contract's front-month period falls entirely inside the window that does have data. Checked across all 70 interior front-month windows, the only absent weekday sessions are market holidays — Christmas Day and Good Friday. A correctly rolled crude series would be intact.
+
+**What the hole does break is the roll diagnostic**, by stripping the mid-life overlap a volume comparison would use. That interacts with a separate and more fundamental problem recorded in `.claude/rules/data-pipeline.md` § "Rolls": crude's liquidity is not monotonic in expiry, so the back contract can lead for months before the handover. The hole makes that harder to see; it does not cause it.

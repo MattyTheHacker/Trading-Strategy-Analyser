@@ -4,7 +4,7 @@
 
 Every campaign this project has run, what it measured and what it returned. One file per campaign; the prose is the campaign's own and moved here unchanged.
 
-**Every figure in these files is one dated run over the archive as it stood, re-derivable from** **`results/campaign/*.duckdb` and the `tools/campaign_*.py` the file names -- not a standing** **property.** Quote the file rather than any summary of it.
+**Every figure in these files is one dated run over the archive as it stood, re-derivable from** **that archetype's campaign database and the `tools/campaign_*.py` the file names -- not a** **standing property.** Quote the file rather than any summary of it. The databases are not committed and two sets exist, one per side of the re-sweep -- `docs/findings/README.md` § "Reproducing any figure here".
 
 Start at [the summary](README.md) for what any of this means for trading. Two other views of the same set: [by archetype](by-archetype.md), [by gate](by-gate.md).
 
@@ -87,6 +87,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M41`                                                                               | [M41 — the live flatten timing: the one divergence a backtest cannot show, measured](m41-flatten-timing.md)                                              | InsideBarTrailing, OpeningRange                                                                     | --         | `negative`    | [#346], [#193]                 |
 | `§M42`                                                                               | [M42 — InsideBarTrailing's midday cell through the exclusion test and gate 4](m42-insidebartrailing-gate-4.md)                                           | InsideBarTrailing                                                                                   | 4          | `mixed`       | [#345]                         |
 | `§M43`                                                                               | [M43 — the two midday candidates ranked for a prop MNQ account, and the cell to port](m43-midday-candidates-ranked.md)                                   | InsideBarTrailing, OpeningRange                                                                     | --         | `positive`    | [#347]                         |
+| `§M44`                                                                               | [M44 — the registry re-swept on a repaired archive, and the three gates re-read against it](m44-registry-resweep.md)                                     | all 9                                                                                               | 1, 2, 3, 4 | `mixed`       | [#360]                         |
 | `§ "Counting the confluence a trade actually had"`                                   | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"` | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                                                 | all 9                                                                                               | --         | `mixed`       | [#330]                         |
 | `§ "Multi-timeframe moving averages"`                                                | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
@@ -317,6 +318,10 @@ The first cell in the registry to survive the exclusion at all — 5 of 10 confi
 
 InsideBarTrailing's midday cell is the one to port. The two objectives themselves split almost evenly on MNQ — 4–3 to it on time to the first payout and 4–3 against it on the cost of a pass — but everything they have to be read beside goes one way: held-out profit factor in all fourteen MNQ cells, net in eleven of them, and a session-close share a third of the fallback's on both roots. On NQ the objectives themselves go 9–1 to it, and neither candidate is tradeable there at these sizes. The named cell is combo 2035, the only one of the ten §M42 read that both survives the exclusion on all of gate 4's thresholds and leads an objective, and the two objectives disagree with each other inside the cell (rho −0.085) and with the exclusion in opposite directions.
 
+**[M44 — the registry re-swept on a repaired archive, and the three gates re-read against it](m44-registry-resweep.md)**
+
+Gate 3 reproduces almost exactly — 47 of 200 tests clear p = 0.05 against §M28.16's 46, and three of its four both-root cells hold — while §M42's exclusion reading does not, falling from nine survivors of twenty to one; and the archive is now one series on both roots, so every stored row is re-derivable for the first time since it was extended.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -391,6 +396,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#345]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/345
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
 [#347]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/347
+[#360]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/360
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
