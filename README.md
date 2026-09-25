@@ -149,7 +149,7 @@ All nine strategies are driven through these checks by the scripts in [tools/](t
 ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar        # compare those against the coin flip
 ```
 
-`campaign_holdout`, `campaign_walkforward`, `campaign_montecarlo`, `campaign_contracts`, `campaign_review`, `campaign_annotate`, `campaign_paired` and `campaign_ambiguity` complete the set. Each writes to `results/campaign/<Strategy>.duckdb`, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
+Other `campaign_*.py` scripts take up narrower questions. Among them, `campaign_holdout` and `campaign_walkforward` check whether a choice holds up on data it never saw, `campaign_montecarlo` sizes how much of a result was luck, `campaign_contracts` runs one contract at a time, and `campaign_propaccount` replays a shortlist through a prop firm's account rules. The docstring at the top of each one says what it is for. The sweep stores its results in one database per strategy, `results/campaign/<Strategy>.duckdb`, and nearly every other script starts from what is stored there, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
 
 ## The strategies
 
