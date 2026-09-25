@@ -51,7 +51,7 @@ InsideBarTrailing's stored grid — `ema_period` 11/22/44, `fast_sma_period` 20/
 - the labels the confluence arm counts: those favouring **between 10% and 90%** of the signals. A label outside that band is near-constant at the signal, adds the same contract to almost every trade and sorts nothing — `annotate.confluence`'s own `above_ema_21` caveat, `docs/findings/confluence-count-per-trade.md`;
 - per earliness rule, the share of the base configuration's **traded** entries that come out early.
 
-**Record the fitted file here before the sweep runs.** A rule whose traded early share is below 10% or above 90% on a root is reported as inert on that root and not tested there, which removes it from the count below rather than letting it fail.
+**The run hashes and timestamps the fitted file before the sweep starts, and the table below is transcribed from it afterwards**, so the order is on record without a pause between the two. A rule whose traded early share is below 10% or above 90% on a root is reported as inert on that root and not tested there, which removes it from the count below rather than letting it fail.
 
 | root | minutes | trend bars | extension (ATR) | labels counted | traded early: first-breakout / sma-extension / trend-age |
 | ---- | ------: | ---------: | --------------: | -------------- | -------------------------------------------------------- |
@@ -83,7 +83,7 @@ Every comparison is on the holdout, over configurations whose arms were fixed be
 
 ```bash
 ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
-# record the fitted file in the table above, commit it, then:
+# the run records the fitted file's hash and time here, before the sweep starts
 ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing \
     --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
 ./.venv/Scripts/python.exe tools/campaign_paired.py --strategy InsideBarTrailing --window holdout \
