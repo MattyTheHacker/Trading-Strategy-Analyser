@@ -4,9 +4,9 @@
 number = true
 wrap = "no"
 
-# `.claude/rules/*.md` carry `paths:` front matter and mdformat has no front-matter
-# plugin installed, so formatting them rewrites the delimiters and the rules stop
-# loading. The other three are the venv and the two submodules.
+# `.claude/rules/*.md` are hard-wrapped where every other file is not, so formatting
+# them would reflow every one; their `paths:` front matter is safe now that
+# mdformat-frontmatter is pinned. The other three are the venv and the two submodules.
 exclude = [
     ".claude/**",
     ".venv/**",
