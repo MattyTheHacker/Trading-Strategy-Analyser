@@ -32,12 +32,12 @@ That split produces the one rule everything else follows:
 
 In plain terms: NinjaTrader decides trades using only each bar's open, high, low and close, so `nqbt` does the same. Tick-by-tick data sits in `data/tick/`, would be more realistic, and is deliberately left unused. If `nqbt` were more accurate than NinjaTrader, the two would disagree, and nobody could tell whether the difference was a real bug or just the extra precision. Being more accurate is as much a bug here as being less accurate.
 
-Four of the seven strategies are translations of real NinjaScript, checked exit by exit against actual Strategy Analyzer exports. Every trading rule the simulation reproduces, and the evidence behind it, is in [docs/nt8-fidelity.md](docs/nt8-fidelity.md).
+Four of the nine strategies are translations of real NinjaScript, checked exit by exit against actual Strategy Analyzer exports. Every trading rule the simulation reproduces, and the evidence behind it, is in [docs/nt8-fidelity.md](docs/nt8-fidelity.md).
 
 ## What you get
 
 - **A sweep that finishes quickly.** All the expensive maths is done once and then shared by every combination, so trying one more set of settings is nearly free. Searches of hundreds of thousands of combinations run in about an hour and a half rather than over a week.
-- **Seven strategies behind one registry.** They all present the same interface, so "which of these is worth more work?" is a single query instead of seven separate runs that cannot be compared.
+- **Nine strategies behind one registry.** They all present the same interface, so "which of these is worth more work?" is a single query instead of nine separate runs that cannot be compared.
 - **Four tests a ranking table cannot pass by itself**, plus three more. They ask whether a good result would have been *pickable in advance*, whether the entry rule beats a coin flip, and whether the profit is bigger than the losing streak it took to earn.
 - **The market described separately from any strategy.** Is it trending or chopping? Is volume unusual for this time of day? Is the range unusually tight? These labels are worked out independently, which means they serve both as strategy filters and as a way of reviewing trades that no strategy produced.
 - **Real trades analysed by the same code as simulated ones.** Your actual fills, exported from NinjaTrader, become the identical format the simulator writes, so any statistic means the same thing over both.
@@ -140,7 +140,7 @@ The second row matters most, and a ranking table never shows it. If a coin flip 
 
 Two of these refuse to answer instead of guessing, which is the point. **A strategy that signals on nearly every bar has no coin flip to compare against.** The comparison works by moving the trades onto randomly chosen other bars, so if the strategy already traded almost everywhere, there is nowhere left to move them. It hands back the original trades and reports a perfect match with itself. `randomentry` therefore refuses when there is less than one spare bar per signal, and `tools/campaign_null.py` exits with code `2`, which stops a test that could not run from being recorded as a test that passed. `docs/roadmap.md` §M28.1 is the case where this was found the hard way.
 
-All seven strategies are driven through these checks by the scripts in [tools/](tools/), each a standalone command:
+All nine strategies are driven through these checks by the scripts in [tools/](tools/), each a standalone command:
 
 ```bash
 ./.venv/Scripts/python.exe tools/campaign_sweep.py --n-jobs 8 --split         # sweep everything, split into two windows
@@ -306,10 +306,10 @@ Figures are not repeated here, because they change with almost every merge. Rege
 
 Every strategy has been swept across every setting it has, on both instruments, at realistic costs. **[docs/findings/](docs/findings/README.md) is the short answer** — which strategies look best for a prop-firm account and for a regular one, with the parameters, the period and the caveats. Behind it: the [register](docs/findings/register.md) of every campaign, [by archetype](docs/findings/by-archetype.md) for one strategy's whole story, and [by gate](docs/findings/by-gate.md) for what has survived which check. The headlines:
 
-- **Only two strategies have ever beaten the coin flip: `InsideBar` and `OpeningRange`.** `OpeningRange` is the only one to pass the first three checks. What stops it at the fourth is not having enough trades to be sure, rather than evidence that it fails.
+- **`OpeningRange` was the first strategy to pass the first three checks, and `InsideBarTrailing` has since done so when restricted to the midday lull.** `SqueezeBreakout` also beats the coin flip, but on one short entry and about 31 trades. What stops `OpeningRange` at the fourth is not having enough trades to be sure, rather than evidence that it fails.
 - **What holds `InsideBar` back is where its exits are placed, not its entry.** The distance to the profit target matters enormously on the untouched half of the history and barely at all on the half used for choosing. The good setting exists, and there is no way to know in advance that it is the good one, which is the whole problem (§M27.3).
 - **Bar size matters far more than any indicator setting.** Which bar size you use explains roughly ten times more of the variation in results than any moving-average length or type, on every strategy. Spend your time on bar size and on where the stop and target go, not on tuning indicator periods.
-- **A failed test retires a set of settings, not a strategy.** All seven stay registered and swept. Before re-running one that previously failed, be able to say what has actually changed: a new condition, a different exit, a wider range, or more data. Re-running with none of those is the same measurement with a different random seed. See `docs/roadmap.md` § "Parked is not abandoned".
+- **A failed test retires a set of settings, not a strategy.** All nine stay registered and swept. Before re-running one that previously failed, be able to say what has actually changed: a new condition, a different exit, a wider range, or more data. Re-running with none of those is the same measurement with a different random seed. See `docs/roadmap.md` § "Parked is not abandoned".
 - **`DeadCatBounce` loses money in every combination tried**, and slicing the results by market condition or time of day does not rescue it. It stays as the known-quantity test case that proves the machinery works. Its entry rule is still measurably better than a coin flip, which means the loss is in the costs, the holding time or the exit placement, not in the idea.
 
 ## Known limitations
