@@ -169,7 +169,7 @@ quantity axis, once per sizing arm -- two fixed splits, three earliness tiers ea
 inverse, and a confluence size -- over the cuts ``tools/campaign_sizing.py fit`` wrote first, on
 the selection window alone -- ``docs/findings/m45-ibt-sizing-preregistration.md``:
 
-    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit
+    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing \
         --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
 """

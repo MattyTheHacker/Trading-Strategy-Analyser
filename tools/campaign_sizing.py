@@ -1,6 +1,6 @@
 """Fit the cuts InsideBarTrailing's sizing arms run at, and read the confluence size against a null.
 
-    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit
+    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing \
         --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
     ./.venv/Scripts/python.exe tools/campaign_sizing.py null --root MNQ --resolution 5 \

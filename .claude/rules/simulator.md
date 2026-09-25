@@ -234,8 +234,10 @@ below and is what you quote; this file is the index, not the record.
   takes; the loop copies the signal bar's row into the lots at the fill. **Never read a sizing
   input at the fill bar** -- its close is in the future when the order goes in, and the trade log
   carries only the fill bar, so `annotate` read there is lookahead. With earliness and the
-  confluence size off the table is the one fixed split, which is what the trade-log gate
-  protects. The `-200` gate reads each trade's own quantity. `docs/nt8-fidelity.md` §M45.
+  confluence size off the table is the one fixed split. **The trade-log gate cannot see this
+  loop** -- its captures are DeadCatBounce's alone -- so a change here is checked by running the
+  InsideBar and InsideBarTrailing reconciliations before and after. The `-200` gate reads each
+  trade's own quantity. `docs/nt8-fidelity.md` §M45.
 - **The sizing count is not the gating count.** `size_on_*` labels add contracts and narrow no
   entry; `confluence_required` narrows the entry and sizes nothing. The sizing labels read each
   side's own favourable state -- `filters.favourable_labels` -- where the context filters are

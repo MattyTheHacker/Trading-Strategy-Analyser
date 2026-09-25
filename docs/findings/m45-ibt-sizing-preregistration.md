@@ -68,7 +68,7 @@ Every comparison is on the holdout, over configurations whose arms were fixed be
 
 1. **An earliness tier clears** if, in the midday cell at five minutes, it beats `split=0.5` **and** its own inverse on held-out profit factor — each on `campaign_paired`'s sign test at p < 0.05 with more than half the pairs improved — on **both** roots. Three tiers, two comparisons each, two roots: twelve tests, and a tier needs all four of its own.
 2. **The confluence size clears** if at least **4 of the 20** held-out configurations the selection window ranks highest beat their own sizes shuffled across their signals at p ≤ 0.05 — `tools/campaign_sizing.py null` — on **both** roots. One in twenty is the chance rate; four or more happens about 1.6% of the time by chance.
-3. **Position size is read, not tested.** `tools/campaign_propaccount.py --quantities 2 3 4 6 8` over the midday shortlist on each root reports pass rate, fees and net per rung and preset; a stored row whose split cannot take a rung is named and skipped. On NQ the question it answers is narrow: the smallest position this archetype can take there is two contracts, which leaves 62 points under Apex 50K's $2,500 against the 31 at four that §M28.13 found fatal.
+3. **Position size is read, not tested.** `tools/campaign_propaccount.py --quantities 2 3 4 6 8` over the stored campaign's midday shortlist — `--variant trailing`, so the sizing arms stored beside it are not ranked in — on each root reports pass rate, fees and net per rung and preset; a stored row whose split cannot take a rung is named and skipped. On NQ the question it answers is narrow: the smallest position this archetype can take there is two contracts, which leaves 62 points under Apex 50K's $2,500 against the 31 at four that §M28.13 found fatal.
 
 **Before believing any pass**, read `ambiguous_share` and `session_close_share` for the treatment and its control, and the trade count per pair: a tier or a size that thins the sample loses pairs rather than scoring badly in them.
 
@@ -82,7 +82,7 @@ Every comparison is on the holdout, over configurations whose arms were fixed be
 ## How to run it
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sizing.py fit
+./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
 # record the fitted file in the table above, commit it, then:
 ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing \
     --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
@@ -90,10 +90,10 @@ Every comparison is on the holdout, over configurations whose arms were fixed be
     --stratum phase=MIDDAY --control "trailing split=0.5" --treatment "trailing tier=trend-age"
 ./.venv/Scripts/python.exe tools/campaign_sizing.py null --root MNQ --resolution 5 --stratum phase=MIDDAY
 ./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing \
-    --stratum phase=MIDDAY --resolution 5 --quantities 2 3 4 6 8
+    --stratum phase=MIDDAY --resolution 5 --variant trailing --quantities 2 3 4 6 8
 ```
 
-The trade-log gate runs before any of it, because the loop changed: with both rules off, every one of the fourteen files has to reproduce.
+Two checks run before any of it, because the loop changed. The trade-log gate has to pass, but its fourteen files are DeadCatBounce's alone and cannot see this loop; so the InsideBar and InsideBarTrailing reconciliations — `tools/reconcile_nt8.py` over their stored exports — run on `main` and on this change, and have to agree exactly.
 
 [#295]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/295
 [#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
