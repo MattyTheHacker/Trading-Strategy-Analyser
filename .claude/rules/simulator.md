@@ -69,6 +69,10 @@ below and is what you quote; this file is the index, not the record.
   force-flat bar alone. The C#'s version reads the wall clock and so cannot be reconciled as
   written. `docs/nt8-fidelity.md`, "A no-entry window before the session close".
 - `MaxRiskPerTrade` is in **ticks**, not dollars.
+- **`min_reward_risk` filters rule sets, not trades.** Every target is an R multiple, so the
+  gate passes every signal or none, and it reads the multiples before `tp_multiplier` scales
+  them (#373). DeadCatBounce only, off at `0`. `docs/nt8-fidelity.md`, "The reward-to-risk
+  gate has no NinjaScript behind it".
 - **A resting entry order is tested for a fill on a `force_flat` bar like any other**, and the
   position it opens is flattened at that bar's close. `block_entry_at_session_close` guards only
   a *new* signal on that bar, and is a separate rule: NT8 fills the first and refuses the

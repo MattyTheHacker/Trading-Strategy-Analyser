@@ -343,7 +343,7 @@ class DeadCatParams:
     slippage_ticks: float = 0.0
     """Adverse slippage on market and stop orders. Never applied to limit targets."""
 
-    # Off by default: the spec asks for this, the NinjaScript does not implement it.
+    # Off by default -- ``docs/nt8-fidelity.md``, "The reward-to-risk gate has no NinjaScript behind it".
     min_reward_risk: float = 0.0
     """Pre-trade gate: skip the signal unless the furthest target clears this ratio."""
 

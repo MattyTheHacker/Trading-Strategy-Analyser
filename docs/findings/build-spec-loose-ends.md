@@ -10,7 +10,7 @@ verdict: >-
 
 # The build spec's three loose ends ([#74])
 
-`docs/backtest_tool_spec.md` asks for three things nothing ever scheduled: a moving-average trailing stop as a per-run toggle, a stop that never sits exactly on a round number, and the confluence count — "at least 3 of 5 conditions" with the minimum itself swept — wired into an archetype rather than left as a tested primitive nobody calls. They are grouped because each is small, and they all land on **EmaCrossover**: it is the original archetype, so there is no NinjaScript to lose to and its trade log is nobody's reconciliation; it already carries a two-mode stop and it is the one archetype whose signal reads raw moving-average values. Every default is unchanged, and the trade-log gate is byte-for-byte identical across all fourteen files.
+The original build spec (`docs/backtest_tool_spec.md`, since retired in [#315]) asked for three things nothing ever scheduled: a moving-average trailing stop as a per-run toggle, a stop that never sits exactly on a round number, and the confluence count — "at least 3 of 5 conditions" with the minimum itself swept — wired into an archetype rather than left as a tested primitive nobody calls. They are grouped because each is small, and they all land on **EmaCrossover**: it is the original archetype, so there is no NinjaScript to lose to and its trade log is nobody's reconciliation; it already carries a two-mode stop and it is the one archetype whose signal reads raw moving-average values. Every default is unchanged, and the trade-log gate is byte-for-byte identical across all fourteen files.
 
 **None of the three has been measured.** They are axes an archetype can now be swept along, not findings, and §M27's rule applies: picking EmaCrossover back up needs a statement of what has changed since, and "it has three axes it did not have" is exactly such a statement — for that archetype and no other.
 
@@ -41,5 +41,6 @@ That is enforced rather than intended, and it **fails closed**. `context.prepare
 **A count of zero, or of the number of active gates, is the plain conjunction under another name**, and a count above that is unsatisfiable by construction — both are combinations a sweep would run identically to one it already has. Rather than add a case `dead_axes` cannot express, `validate_confluence` raises: legal values are `REQUIRE_ALL`, or 1 up to one below the number of filters the combination switches on, and fewer than two active filters admits nothing but `REQUIRE_ALL`. That puts the refusal at construction, where the message can say what the combination actually switched on.
 
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
+[#315]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/315
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#74]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/74

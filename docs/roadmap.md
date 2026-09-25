@@ -14,7 +14,9 @@ gh issue view <n>                       # blocked-by / blocking / sub-issues
 
 Four things live here and nowhere else, because an issue is the wrong home for them: the **standing constraint** and its expressibility checklist, the **order-lifetime research**, the **standing rubric**, and the **decision record**. A closed issue is not read; a rule that outlives its milestone therefore belongs in this file rather than in the issue that produced it. A *measurement* that outlives its milestone belongs in `findings/`. Everything else is a paragraph of context with a link.
 
-Precedence when sources disagree: [backtest_tool_spec.md](backtest_tool_spec.md) and the project's own docs first, [Trading-Docs](../Trading-Docs/) Part II second. The discretionary-practice notes are a source of framing and of numeric definitions we lack, not a source of priorities.
+Precedence when sources disagree: the project's own docs first, [Trading-Docs](../Trading-Docs/) Part II second. The discretionary-practice notes are a source of framing and of numeric definitions we lack, not a source of priorities.
+
+**The build spec the project started from is retired** ([#315]). A section here naming "the build spec" means `docs/backtest_tool_spec.md`, the original brief, and what it asked for that is still live is recorded where it applies: its three loose ends under § "The build spec's three loose ends", and its reward-to-risk gate in `docs/nt8-fidelity.md` § "The reward-to-risk gate has no NinjaScript behind it". The departures from it a reader is most likely to meet are deliberate and carry their reasons: costs default to zero (§M7b), and TA-Lib is kept away from anything compared against NT8 (`docs/nt8-fidelity.md` § "Indicators"). `git show 184a6ed4b63a:docs/backtest_tool_spec.md` has the text.
 
 ______________________________________________________________________
 
@@ -1335,6 +1337,7 @@ ______________________________________________________________________
 [#31]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/31
 [#311]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/311
 [#313]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/313
+[#315]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/315
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
 [#320]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/320
 [#326]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/326
