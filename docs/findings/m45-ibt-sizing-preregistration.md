@@ -1,5 +1,4 @@
 ---
-id: M45
 title: "M45 — pre-registration: InsideBarTrailing's position size, tiered scale-out and confluence size"
 archetypes: [InsideBarTrailing]
 issues: [295, 353]
@@ -53,10 +52,12 @@ InsideBarTrailing's stored grid — `ema_period` 11/22/44, `fast_sma_period` 20/
 
 **The run hashes and timestamps the fitted file before the sweep starts, and the table below is transcribed from it afterwards**, so the order is on record without a pause between the two. A rule whose traded early share is below 10% or above 90% on a root is reported as inert on that root and not tested there, which removes it from the count below rather than letting it fail.
 
-| root | minutes | trend bars | extension (ATR) | labels counted | traded early: first-breakout / sma-extension / trend-age |
-| ---- | ------: | ---------: | --------------: | -------------- | -------------------------------------------------------- |
-| MNQ  |       5 |            |                 |                |                                                          |
-| NQ   |       5 |            |                 |                |                                                          |
+| root | minutes | trend bars | extension (ATR) | labels counted                          | traded early: first-breakout / sma-extension / trend-age |
+| ---- | ------: | ---------: | --------------: | --------------------------------------- | -------------------------------------------------------- |
+| MNQ  |       5 |          5 |           3.459 | trend, higher timeframe, regime, volume | 94.1% / 53.5% / 54.2%                                    |
+| NQ   |       5 |          5 |           3.448 | trend, higher timeframe, regime, volume | 94.5% / 54.0% / 55.7%                                    |
+
+Transcribed from `results/campaign/InsideBarTrailing-sizing-cuts.json`, SHA-256 `bccc4f168cce1e27089e6da4d29599bcee072127a60aa744daff32e3879df652`, recorded at 2026-09-25 20:48:09 before the sweep started. What the run returned: `docs/findings/m45-ibt-sizing-result.md`.
 
 ## The cells
 

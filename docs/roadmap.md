@@ -702,7 +702,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M45 — InsideBarTrailing's position size, tiered scale-out and confluence size ([#295], [#353])
 
-**Pre-registered, not yet run: nine sizing arms over the stored grid with the split held and quantity crossed in, read cell by cell against a fixed half split and each tier's own inverse in the midday cell at five minutes, with a confluence size against its own sizes shuffled and position size read through the account replay.** Moved to [`docs/findings/m45-ibt-sizing-preregistration.md`](findings/m45-ibt-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M45.
+**Pre-registered and run: no earliness tier beats the fixed half split held out, where every one had beaten it on the selection window; a size of one contract more per favourable label beats its own sizes shuffled at p ≤ 0.05 on 20 of 20 MNQ and 17 of 20 NQ configurations; and through the account, MNQ's 50K presets do best at the stored six contracts while NQ pays only on a 150K account at two to four.** Moved to [`docs/findings/m45-ibt-sizing-result.md`](findings/m45-ibt-sizing-result.md), pre-registered in [`docs/findings/m45-ibt-sizing-preregistration.md`](findings/m45-ibt-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M45.
 
 ### Do the shortlists travel? ([#330])
 

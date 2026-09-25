@@ -58,7 +58,7 @@ At 4 contracts a full-size NQ position leaves almost no room under a trailing th
 
 Twenty-five points is smaller than a single stop at these resolutions. **No NQ configuration survives its first account on any preset — 0 of 526** — and that is arithmetic about contract size rather than anything about an entry rule (§M28.13). The best NQ InsideBar configuration on the holdout, 668 trades at a profit factor of 1.229 and $320,236 net on paper, is dead on its first trade.
 
-**So on a prop account at this size, trade MNQ.** NQ needs either a smaller position or a 150K account, and position size is an axis no campaign has ever swept — [§M45](m45-ibt-sizing-preregistration.md) pre-registers the first that does, on InsideBarTrailing, and has not run yet.
+**So on a prop account, trade MNQ.** [§M45](m45-ibt-sizing-result.md) has since swept position size through the account on InsideBarTrailing's midday cell, and NQ needs a smaller position *and* a 150K account at once: no size it can take makes a 50K account pay, down to its two-contract floor, while a 150K account pays at two contracts on both firms and up to four at TopStep. On MNQ the 50K presets do best at the stored six contracts and fall away at eight.
 
 ### The best cell: InsideBarTrailing, midday, on MNQ
 
@@ -71,7 +71,7 @@ The break of an inside bar, confined to the midday lull, with a trailing runner.
 | **Stop**   | 10 × ATR, with the trailing half following the high-water mark at 5 × the inside bar's range |
 | **Target** | one R, taken on 60% of the position; the rest runs on the trailing stop                      |
 | **Bars**   | 5 minutes                                                                                    |
-| **Size**   | 6 contracts, this archetype's default                                                        |
+| **Size**   | 6 contracts, this archetype's default, and the best of 2 to 8 on an MNQ 50K account (§M45)   |
 | **Exit**   | whatever the bracket does not close is flattened before the session close                    |
 
 Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts uncapped, six contracts — median net, beside the cell it displaced at four contracts (§M43):
@@ -93,6 +93,8 @@ Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts
 **The configuration to port**, chosen among the ten §M42 put through gate 4, restricted to those that survive the exclusion, and ranked by `days_to_payout` — **note that the restriction it was chosen under no longer selects the same way**, because §M44 finds one of ten surviving the exclusion rather than five, so this parameter set is §M43's pick on §M43's archive: `ema_period` 44, `fast_sma_period` 20, `slow_sma_period` 125, `error_margin` 0.05, `atr_length` 14, `atr_multiplier` 10.0, `tp_multiplier` 1.0, `partial_take_profit_percentage` 0.6, `trailing_stop_multiplier` 5.0, 6 contracts, 5-minute bars, chosen for TakeProfitTrader 25K Test. Held out it takes 300 trades at a profit factor of 1.553 and a net-to-drawdown of 4.143, and **+$13,507 at 1.465 with its session-close legs removed** — the best residual in the registry. §M43 has every parameter and the per-preset figures.
 
 **Two warnings travel with it.** The choice rule was applied to a table that had already been read, so "it leads `days_to_payout` among the survivors" is a description rather than a result. And inside this cell the two objectives barely agree with each other (rho −0.085 over ten configurations) and point opposite ways at the exclusion — a cheap pass goes *against* a book that stands up without the forced flat, which is the one reading that would have picked the wrong configuration.
+
+**Sizing it per signal splits cleanly in two (§M45).** Tiering the first partial by how early the entry was — `Trading-Docs` §11's quarter and half — fails held out under all three rules tried, having won on the selection window; held out, the half split beats the quarter almost everywhere. One contract more per favourable label — trend, higher timeframe, regime and volume — beats the same sizes shuffled across the same signals on 20 of 20 MNQ and 17 of 20 NQ held-out configurations, the first sizing rule to clear a pre-registered null. It is `TIER1_ONLY`, none of its four labels exists in NT8, and its account behaviour has not been read, so it is a candidate for a later port rather than part of this one.
 
 ### The one it displaces: OpeningRange, midday, on MNQ
 
