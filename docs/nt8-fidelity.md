@@ -585,6 +585,52 @@ Net P&L over the joined legs agrees exactly on all three: −8,913.00, −10,510
 
 `CONFIGS` carries all three, keyed `InsideBarTrailing`, `InsideBarTrailing-midday` and `InsideBarTrailing-midday-2035` — one archetype with three reconciled configurations, which is why a config name is no longer always an archetype name. The last is `docs/findings/m43-midday-candidates-ranked.md` § "The cell to port" with its commission and slippage set to zero, because NT8 ran with no fee template and a cost difference would read as a fill disagreement on every leg.
 
+### M45 — InsideBarTrailing's lot sizing per signal, written before the C# (#295, #353)
+
+**Two rules that choose an entry's split at its signal bar, and neither is in the reconciled NinjaScript.** `InsideBarTrailing.cs` computes `firstLotQuantity` and `secondLotQuantity` once, in `State.DataLoaded`, so every entry takes the same split; both rules below compute them per signal instead. Everything in §M23 still describes the archetype — the entry, both lots' exit engines, the `-200` gate and the trend violation — and with both rules off the split is the one the C# computes. **The trade-log gate cannot confirm that** — its fourteen files are DeadCatBounce's alone — so the InsideBar and InsideBarTrailing reconciliations are the real-data check. **Run on the base commit and on the change, all four came back identical** — InsideBar 969 of 969, InsideBarTrailing 1,522 joined, the midday configuration 68 of 68 — `docs/findings/m45-ibt-sizing-result.md` § "The change moved nothing it was not meant to". **A row using either rule is `TIER1_ONLY`** whatever the archetype's status says, through `Archetype.departs_from_port`, until a trade list has been diffed against a C# that implements it.
+
+**The sizes are decided at the signal bar's close, in `OnBarUpdate`.** That is the only place the managed approach lets a quantity be chosen — `EnterLong(0, quantity, "entry1")` takes it as an argument — so the port reads the split at the signal bar and never at the fill bar, whose close is still in the future when the order goes in. The Python holds every split a combination can take as a table, `InsideBarTrailingParams.lot_table`, and each bar's row in `insidebartrailing.LotSizing`; the loop copies the signal bar's row into the lots at the fill.
+
+**The `-200` gate reads the trade's own size.** It is currency on the whole open position, so a larger split reaches it after a smaller move — the NQ-against-MNQ arithmetic of §M23, now varying trade by trade. `GetUnrealizedProfitLoss` does the same, so nothing new is inferred.
+
+**The split still rounds the bracketed lot up**, `(int) Math.Ceiling(quantity * share)`. At two contracts a quarter and a half are both one lot, and at the stored `0.6` two contracts leave no runner at all, so the parameter class refuses a pair of tiers that splits every quantity the same way and any split that leaves a lot empty. **That makes quantity a live axis on this archetype and on no other**: everywhere else commission and slippage are per contract, so a quantity scales every dollar figure and leaves the profit factor exactly where it was.
+
+#### Earliness: which share the bracketed lot takes
+
+`earliness_mode` picks the rule. An early entry takes `early_partial_percentage`, an established one keeps `partial_take_profit_percentage`, and each is judged on the side the entry would take:
+
+| mode             | early when                                                                           | NinjaScript                                                              |
+| ---------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `first-breakout` | no setup on that side earlier in the current unbroken run of the three-average trend | a counter reset whenever `upTrend` goes false and advanced on each setup |
+| `trend-age`      | the trend has run at most `early_max_trend_bars` bars, the signal bar included       | a run counter over `upTrend`                                             |
+| `sma-extension`  | the close sits at most `early_max_extension_atr` ATRs from the slow SMA              | one expression at the signal bar, below                                  |
+
+```csharp
+bool early = Math.Abs(Close[0] - smaSlow[0]) / ATR(ATRLength)[0] <= EarlyMaxExtensionAtr;  // sma-extension
+```
+
+**The setup counted is the pattern alone** — the inside bar, the break and the three averages — before the entry window, the context filters and the position guard, because earliness is a property of the move and not of whether this strategy could take it. **So both counters have to sit above `if (Position.MarketPosition != MarketPosition.Flat) return;`**: below it, a setup that arrived while a position was open would not count, and the next entry would read early when it is not.
+
+**A bar outside a trend on its side reads early** — no move has been established there — and an extension that cannot be measured, an ATR of zero, reads established. Neither is reachable by a real signal, which requires the trend and a range; both are reachable by the random-entry arm, which may draw on any bar.
+
+**The trend is the entry's own strict condition**, so a close exactly on an average breaks a run, and a run spans the session break exactly as the averages do.
+
+#### Confluence: how many contracts
+
+`quantity_per_confluence` contracts are added to `order_quantity` for each `size_on_*` label favouring the trade at its signal bar, and the split then applies to the total. The count is over these labels alone and is independent of the context *filters*, which narrow the signal exactly as before.
+
+| label                      | favours a long                   | favours a short    |
+| -------------------------- | -------------------------------- | ------------------ |
+| `size_on_trend`            | trend label `UP`                 | trend label `DOWN` |
+| `size_on_higher_timeframe` | close `ABOVE` the coarse average | close `BELOW` it   |
+| `size_on_vwap`             | close above the session VWAP     | close below it     |
+| `size_on_regime`           | efficiency ratio `DIRECTIONAL`   | the same           |
+| `size_on_volume`           | relative volume `HEAVY`          | the same           |
+
+**A bar a label cannot classify counts as not favourable**, as `annotate.confluence` counts it. **None of the five exists in NT8**: the trend, regime, volume and higher-timeframe labels are this project's — "So are the regime labels (#40)" and its neighbours below — and the session VWAP has not been checked against `OrderFlowVWAP`, which is why PullBackAndGo's `use_vwap` stays off. A port of this rule is a port of every label it counts, and each needs its own pin before the size can be reconciled.
+
+**A step and a label, both or neither.** `quantity_per_confluence` above zero with no label, or a label with no step, sizes every trade the same, and the parameter class refuses it rather than run a duplicate of fixed size.
+
 ### M26 — the elastic band rules, written before the Python (#167, #168)
 
 **Every rule below was written down before the Python existed, and the Python was then written to it** — the order §M18 could not manage, because there the rules were recorded after the fact. There is still no NinjaScript, so nothing here is backed by a trade list. Each item names the NinjaScript it would be written as, because a rule chosen at design time that NT8 cannot express makes the archetype unreconcilable later, and the exploration is then wasted rather than merely unvalidated. The reasoning behind the choices, and the alternatives rejected, are in [roadmap.md](roadmap.md) §M26; only the rules are here.

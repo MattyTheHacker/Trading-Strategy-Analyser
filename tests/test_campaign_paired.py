@@ -12,7 +12,17 @@ import math
 import pandas as pd
 import pytest
 
-from tools.campaign_paired import CELL_KEYS, cells, paired, shared_columns, sign_test, under_test, verdict
+from tools import campaign_paired
+from tools.campaign_paired import (
+    CELL_KEYS,
+    cells,
+    paired,
+    report,
+    shared_columns,
+    sign_test,
+    under_test,
+    verdict,
+)
 
 
 def arm(variant: str, **columns: object) -> pd.DataFrame:
@@ -153,3 +163,35 @@ def test_one_row_per_root_and_resolution() -> None:
     table = verdict(paired(control, treatment, "profit_factor"))
     assert sorted(table["resolution"]) == [5, 15]
     assert set(table["root"]) == {"MNQ"}
+
+
+# -- one stratum, when a verdict was pre-registered on it --------------------------------------
+
+
+def two_strata() -> pd.DataFrame:
+    """Four pairs unfiltered where the treatment wins, and four at midday where it loses."""
+    periods = [9, 13, 20, 30]
+
+    return pd.concat(
+        [
+            arm("off", fast_period=periods, profit_factor=[1.0] * 4),
+            arm("on", fast_period=periods, profit_factor=[1.5] * 4),
+            arm("off", fast_period=periods, profit_factor=[1.0] * 4, stratum="phase=MIDDAY"),
+            arm("on", fast_period=periods, profit_factor=[0.5] * 4, stratum="phase=MIDDAY"),
+        ],
+        ignore_index=True,
+    )
+
+
+def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch) -> None:
+    monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
+    pooled = report("EmaCrossover", "off", "on", ["full"], "profit_factor").iloc[0]
+    midday = report("EmaCrossover", "off", "on", ["full"], "profit_factor", "phase=MIDDAY").iloc[0]
+    assert (pooled["pairs"], pooled["improved"]) == (8, 4)
+    assert (midday["pairs"], midday["improved"]) == (4, 0)
+
+
+def test_a_stratum_holding_neither_arm_is_refused_by_name(monkeypatch) -> None:
+    monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
+    with pytest.raises(SystemExit, match="stratum 'regime=DIRECTIONAL'"):
+        report("EmaCrossover", "off", "on", ["full"], "profit_factor", "regime=DIRECTIONAL")

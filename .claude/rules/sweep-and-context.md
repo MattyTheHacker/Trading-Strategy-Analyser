@@ -123,8 +123,10 @@ paths:
   with the axis. `docs/roadmap.md` §M26.6.
 - **`dead_axes` knows one inert value per toggle, and `volume_rolling_bars` needs two.** An axis
   may name several toggles and is dead where any one of them is inert everywhere -- EmaPullback's
-  third-grid trail axes name `trail_ma_stop` and `trail_on_slow` -- but each toggle is compared
-  against one value. `volume_rolling_bars` is inert while `volume_filter` admits everything *and*
+  third-grid trail axes name `trail_ma_stop` and `trail_on_slow` -- or, named through
+  `archetypes.AnyOf`, dead only where every one of them is: InsideBarTrailing reads a label's axes
+  under its filter *or* its `size_on_*` label. Each toggle is still compared against one value.
+  `volume_rolling_bars` is inert while `volume_filter` admits everything *and*
   at every `volume_form` but `ROLLING`; only the first is caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes
   through `volume.key`** wherever a sweep crosses the form with the window — it drops the window
   from every form that does not read it, so the axis cannot vary where it is inert;
@@ -286,6 +288,17 @@ paths:
   pool's overhead does not, so the same count is worth pooling at one minute and not at
   fifteen. Anything else that loops over sweep calls pays the same cost.
   `docs/roadmap.md` § "A sweep call's worker count".
+- **`tier2` is written per row, not per sweep.** A combination using a rule its reconciled
+  port lacks -- `Archetype.departs_from_port` -- is `TIER1_ONLY`, so `sweep.row_tier2` stamps the
+  column before `results.save_sweep`, which keeps a frame's own values. **Anything else that
+  saves a sweep has to do the same** or a sizing arm is stored as `reconciled`.
+  `docs/roadmap.md` § "Decisions taken".
+- **InsideBarTrailing's sizing arms share one grid and read cuts fitted before they run.**
+  `ibt-sizing` holds the split and crosses `order_quantity` at 3/4/6/8 -- two contracts round a
+  quarter and a half to the same lot and the params refuse it -- and every threshold the arms
+  read comes from `tools/campaign_sizing.py fit` on the selection window alone. Pairs are read
+  with `tools/campaign_paired.py --stratum`, because a report row otherwise pools strata.
+  `docs/findings/m45-ibt-sizing-preregistration.md`.
 - **The `annotations` table widens by name exactly as `combos` does**, so a dataset prepared
   with one more series needs no migration and the earlier rows read null. It is keyed
   `(sweep_id, combo_id, trade_id)` and joined to the other two by `results.create_trade_view`;

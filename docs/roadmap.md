@@ -700,6 +700,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Gate 3 reproduces almost exactly — 47 of 200 tests clear p = 0.05 against §M28.16's 46, and three of its four both-root cells hold — while §M42's exclusion reading does not, falling from nine survivors of twenty to one; and the archive is now one series on both roots, so every stored row is re-derivable for the first time since it was extended; #347's prop ranking strengthens from a 7-7 split to 12 of 14.** Moved to [`docs/findings/m44-registry-resweep.md`](findings/m44-registry-resweep.md).
 
+### M45 — InsideBarTrailing's position size, tiered scale-out and confluence size ([#295], [#353])
+
+**Pre-registered and run: no earliness tier beats the fixed half split held out, where every one had beaten it on the selection window; a size of one contract more per favourable label beats its own sizes shuffled at p ≤ 0.05 on 20 of 20 MNQ and 17 of 20 NQ configurations; and through the account, MNQ's 50K presets do best at the stored six contracts while NQ pays only on a 150K account at two to four.** Moved to [`docs/findings/m45-ibt-sizing-result.md`](findings/m45-ibt-sizing-result.md), pre-registered in [`docs/findings/m45-ibt-sizing-preregistration.md`](findings/m45-ibt-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M45.
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1162,7 +1166,7 @@ Three consequences of the split worth stating, because each looks like a defect 
 - **The prohibition on automated execution.** Both TakeProfitTrader's Universal Trading Policies and its PRO contract require every trade to be placed by hand. That governs how a strategy may be traded, not whether its trade log survives the account's risk rules, and the replay answers only the second.
 - **Payout caps and cadence.** A withdrawal is taken whenever it is eligible, in full.
 - **A funded phase whose rules differ from the evaluation's, *within one preset*.** One `AccountRules` covers both phases. Where a firm changes its rules at the pass, it ships as two presets instead — see above.
-- **Scaling plans and position-size limits.** Contract size is whatever the trade log says.
+- **Scaling plans and position-size limits.** Contract size is whatever the trade log says. `tools/campaign_propaccount.py --quantities` re-runs a shortlist at each contract count and replays each, but nothing checks a rung against the firm's own limit, so keep the rungs inside it.
 - **The consistency rule at payout time.** It gates the pass only.
 
 ______________________________________________________________________
@@ -1270,6 +1274,8 @@ ______________________________________________________________________
 
 **These are the NQ/MNQ figures carried across, not a broker quote for each root**, so they are a starting point rather than a measurement. `CLAUDE.md` already warns that costs default to zero and that a free-money result will not announce itself; a campaign on these roots inherits that warning with the extra caveat that the per-root number has not been checked against a statement. Gold in particular clears through COMEX rather than CME and its exchange and clearing fees differ. Anything that turns on the cost floor — and `docs/findings/m26-elastic-band.md` § "NQ beats MNQ on the same rules, and it is arithmetic rather than edge" shows how much does — should be re-read once the real figures are known.
 
+**A reconciled archetype's rows carry their own Tier-2 status once a rule the port lacks is switched on** ([#353]). InsideBarTrailing is `RECONCILED`, and §M45 adds two rules its NinjaScript does not have. Stamping the archetype's status on every row would put a measured configuration and an assumed one side by side under the same word, which is the comparison the `tier2` column exists to prevent. So `Archetype.departs_from_port` names the combinations that leave the port, `Archetype.tier2_for` restates those rows as `TIER1_ONLY`, and both `sweep.sweep_axes` and `tools/campaign_sweep.py` write the column row by row through `sweep.row_tier2`. It only ever downgrades: an unreconciled archetype stays what it was.
+
 ## Still open
 
 - **Sample size.** How many real trades exist determines whether [#48]'s guard leaves anything standing. A few dozen will not support stratification by more than one or two conditions at a time, and knowing that early sets expectations for what the review can honestly deliver.
@@ -1330,6 +1336,7 @@ ______________________________________________________________________
 [#285]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/285
 [#287]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/287
 [#29]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/29
+[#295]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/295
 [#30]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/30
 [#307]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/307
 [#308]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/308
@@ -1351,6 +1358,7 @@ ______________________________________________________________________
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
 [#347]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/347
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
+[#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
 [#36]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/36
 [#37]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/37
 [#38]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/38

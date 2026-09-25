@@ -163,11 +163,21 @@ at two order lifetimes, in one pass over §M35's strata with both kind axes held
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-confirm --split \
         --strata emapullback-confirm --resolutions 2 5 10 15 --n-jobs 12
+
+``--variants ibt-sizing`` runs InsideBarTrailing's stored grid with its split held, crossed with a
+quantity axis, once per sizing arm -- two fixed splits, three earliness tiers each beside its
+inverse, and a confluence size -- over the cuts ``tools/campaign_sizing.py fit`` wrote first, on
+the selection window alone -- ``docs/findings/m45-ibt-sizing-preregistration.md``:
+
+    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing \
+        --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import math
 import sys
@@ -200,6 +210,9 @@ from nqbt.instruments import get_instrument
 from nqbt.sim.types import (
     BAND_BOLLINGER,
     BAND_VWAP,
+    EARLINESS_FIRST_BREAKOUT,
+    EARLINESS_SMA_EXTENSION,
+    EARLINESS_TREND_AGE,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
@@ -330,6 +343,8 @@ ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
 EMAPULLBACK_TRAIL = "emapullback-trail"
 EMAPULLBACK_CONFIRM = "emapullback-confirm"
+IBT_SIZING = "ibt-sizing"
+MIDDAY = "midday"
 HOLD = "hold"
 SPEC = "spec"
 ALL_STRATA = "all"
@@ -433,6 +448,16 @@ def _phase() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """Once per session phase."""
     for phase in timeofday.SessionPhase:
         yield f"phase={phase.name}", {"phase_filter": [phase.bit]}
+
+
+def _midday() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """The one phase InsideBarTrailing's live candidate trades in, without its six siblings.
+
+    Named before the sizing run, as :func:`_trend_up` was for the opening range --
+    ``docs/findings/m43-midday-candidates-ranked.md``.
+    """
+    phase: timeofday.SessionPhase = timeofday.SessionPhase.MIDDAY
+    yield f"phase={phase.name}", {"phase_filter": [phase.bit]}
 
 
 def _volume() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -550,6 +575,7 @@ STRATUM_GROUPS = {
     DIRECTIONAL: _directional,
     CONSOLIDATING: _consolidating,
     "phase": _phase,
+    MIDDAY: _midday,
     "volume": _volume,
     VOLUME_FORMS: _volume_forms,
     "compression": _compression,
@@ -565,12 +591,12 @@ REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL, CONSOLIDATING})
 """Groups whose cells ``--regime-quantiles`` splits per lookback. Membership rather than one
 name, so that a group yielding a single regime cell is calibrated like the full one."""
 
-RECUTS = frozenset({DIRECTIONAL, CONSOLIDATING, TREND_UP, VOLUME_FORMS, COMPRESSION_FORMS})
+RECUTS = frozenset({DIRECTIONAL, CONSOLIDATING, TREND_UP, MIDDAY, VOLUME_FORMS, COMPRESSION_FORMS})
 """Groups that re-cut a dimension another group already owns, so ``all`` leaves them out.
 
-``directional`` and ``consolidating`` are each one regime cell without its four siblings, and
-``trend-up`` one trend cell without its two; ``volume-forms`` is the volume
-dimension under all three forms and a fitted cut; ``compression-forms`` is the compression
+``directional`` and ``consolidating`` are each one regime cell without its four siblings,
+``trend-up`` one trend cell without its two and ``midday`` one phase without its six;
+``volume-forms`` is the volume dimension under all three forms and a fitted cut; ``compression-forms`` is the compression
 dimension under both of its forms. Any of them inside ``all`` would run its dimension twice
 under two sets of names."""
 
@@ -602,6 +628,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_BAND_STOP: (UNFILTERED,),
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
+    IBT_SIZING: (UNFILTERED, MIDDAY),
     HOLD: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: EVERY_DIMENSION,
@@ -2129,6 +2156,161 @@ EMAPULLBACK_CONFIRM_VARIANTS = {"EmaPullback": emapullback_confirm_variants}
 ``entry=`` token no stored row has, so the runs cannot collide in one database --
 ``docs/findings/m39-ema-pullback-confirmation-entry.md``."""
 
+SIZING_CUTS = CAMPAIGN_DIR / "InsideBarTrailing-sizing-cuts.json"
+"""Where ``tools/campaign_sizing.py fit`` writes the cuts every sizing arm reads, one per root and
+resolution, fitted on the selection window alone."""
+
+
+@dataclass(frozen=True, slots=True)
+class SizingCut:
+    """The thresholds the sizing arms run at on one root and resolution, fitted before any runs."""
+
+    root: str
+    minutes: int
+    early_max_extension_atr: float
+    early_max_trend_bars: int
+    regime_consolidating_below: float
+    regime_directional_above: float
+    volume_thin_below: float
+    volume_heavy_above: float
+    labels: tuple[str, ...]
+    """The ``size_on_*`` labels the confluence arm counts: the ones the fit did not drop."""
+
+    def fitted(self) -> dict[str, AxisValue]:
+        """The parameter values every arm on this cell takes, whichever of them it reads."""
+        return {
+            "early_max_extension_atr": self.early_max_extension_atr,
+            "early_max_trend_bars": self.early_max_trend_bars,
+            "regime_consolidating_below": self.regime_consolidating_below,
+            "regime_directional_above": self.regime_directional_above,
+            "volume_thin_below": self.volume_thin_below,
+            "volume_heavy_above": self.volume_heavy_above,
+        }
+
+
+def sizing_cuts(path: paths.Path | None = None) -> list[SizingCut]:
+    """The fitted cuts, refused by name where nothing has been fitted yet."""
+    source: paths.Path = SIZING_CUTS if path is None else path
+    if not source.exists():
+        msg: str = f"no sizing cuts at {source}; run tools/campaign_sizing.py fit first"
+        raise SystemExit(msg)
+
+    return [
+        SizingCut(
+            root=str(cut["root"]),
+            minutes=int(cut["minutes"]),
+            early_max_extension_atr=float(cut["early_max_extension_atr"]),
+            early_max_trend_bars=int(cut["early_max_trend_bars"]),
+            regime_consolidating_below=float(cut["regime_consolidating_below"]),
+            regime_directional_above=float(cut["regime_directional_above"]),
+            volume_thin_below=float(cut["volume_thin_below"]),
+            volume_heavy_above=float(cut["volume_heavy_above"]),
+            labels=tuple(str(label) for label in cut["labels"]),
+        )
+        for cut in json.loads(source.read_text(encoding="utf-8"))
+    ]
+
+
+SIZING_QUANTITIES = [3, 4, 6, 8]
+"""Contract counts every sizing arm crosses: the plain axis [#295] asks for.
+
+Three is the floor, because a quarter and a half both round up to one lot of two contracts and
+every tier would run as its own control there -- ``docs/nt8-fidelity.md`` §M45."""
+
+SIZING_EARLY_SHARE = 0.25
+SIZING_ESTABLISHED_SHARE = 0.5
+"""``Trading-Docs`` §11's quarter and half, held rather than swept."""
+
+SIZING_SPLITS: dict[str, float] = {
+    "split=0.5": SIZING_ESTABLISHED_SHARE,
+    "split=0.25": SIZING_EARLY_SHARE,
+}
+"""The two fixed splits every tier is read against: each tier's share on every entry."""
+
+SIZING_TIERS: dict[str, int] = {
+    "tier=first-breakout": EARLINESS_FIRST_BREAKOUT,
+    "tier=sma-extension": EARLINESS_SMA_EXTENSION,
+    "tier=trend-age": EARLINESS_TREND_AGE,
+}
+"""The three earliness rules, each run as written and inverted -- the inverse is the placebo."""
+
+SIZING_CONFLUENCE = "size=confluence"
+SIZING_STEP = 1
+"""Contracts the confluence arm adds per favourable label."""
+
+
+def sizing_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
+    """Every sizing arm on one root and resolution: the stored grid with the split held.
+
+    The arms share every axis, so :func:`tools.campaign_paired` reads each against its control
+    cell by cell rather than as two shortlists of different sizes.
+    """
+    axes: dict[str, list[AxisValue]] = {
+        axis: values for axis, values in campaign.axes.items() if axis != "partial_take_profit_percentage"
+    } | {"order_quantity": [*SIZING_QUANTITIES]}
+    base: Params = replace(campaign.base, **cut.fitted())
+
+    def arm(name: str, **fields: AxisValue | bool) -> Variant:
+        return Variant(
+            name=f"{campaign.name} {name}",
+            archetype=campaign.archetype,
+            base=replace(base, **fields),
+            axes=axes,
+            resolutions=(cut.minutes,),
+        )
+
+    arms: list[Variant] = [
+        arm(name, partial_take_profit_percentage=share) for name, share in SIZING_SPLITS.items()
+    ]
+    for name, mode in SIZING_TIERS.items():
+        arms.append(
+            arm(
+                name,
+                earliness_mode=mode,
+                early_partial_percentage=SIZING_EARLY_SHARE,
+                partial_take_profit_percentage=SIZING_ESTABLISHED_SHARE,
+            ),
+        )
+        arms.append(
+            arm(
+                f"{name} inverted",
+                earliness_mode=mode,
+                early_partial_percentage=SIZING_ESTABLISHED_SHARE,
+                partial_take_profit_percentage=SIZING_EARLY_SHARE,
+            ),
+        )
+
+    if not cut.labels:
+        logger.warning(
+            "  %s %dm: every label was dropped by the fit, so no confluence arm", cut.root, cut.minutes
+        )
+
+        return arms
+
+    arms.append(
+        arm(
+            SIZING_CONFLUENCE,
+            partial_take_profit_percentage=SIZING_ESTABLISHED_SHARE,
+            quantity_per_confluence=SIZING_STEP,
+            **dict.fromkeys(cut.labels, True),
+        ),
+    )
+
+    return arms
+
+
+def insidebartrailing_sizing_variants(root: str) -> list[Variant]:
+    """[#295] and [#353] over InsideBarTrailing's stored grid, one set of arms per fitted resolution."""
+    (campaign,) = insidebartrailing_variants(root)
+
+    return [arm for cut in sizing_cuts() if cut.root == root for arm in sizing_arms(campaign, cut)]
+
+
+IBT_SIZING_VARIANTS = {"InsideBarTrailing": insidebartrailing_sizing_variants}
+"""The [#295] and [#353] run. Every name carries a ``split=``, ``tier=`` or ``size=`` token no
+stored row has, so the run cannot collide with the campaign in one database --
+``docs/findings/m45-ibt-sizing-preregistration.md``."""
+
 SPEC_VARIANTS = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
@@ -2146,6 +2328,7 @@ VARIANT_SETS = {
     ELASTIC_SHAPE,
     ELASTIC_VOLUME,
     HOLD,
+    IBT_SIZING,
     NARROW,
     ORB,
     ORB_BRACKET,
@@ -2171,6 +2354,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
         ELASTIC_SHAPE: ELASTIC_SHAPE_VARIANTS,
         ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,
         HOLD: HOLD_VARIANTS,
+        IBT_SIZING: IBT_SIZING_VARIANTS,
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_BRACKET: ORB_BRACKET_VARIANTS,
@@ -2283,6 +2467,8 @@ def run_point(
         table.insert(0, "variant", variant_name)
         table.insert(1, "stratum", stratum)
         table.insert(2, "window", window)
+        # Before combo_id is renumbered below: a sizing arm is TIER1_ONLY on a reconciled archetype.
+        table["tier2"] = sweep.row_tier2(table, grid)
         tables.append(table)
     elapsed: float = time.perf_counter() - started
 

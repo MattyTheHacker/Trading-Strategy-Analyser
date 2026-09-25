@@ -14,20 +14,24 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import propaccount, results
+from nqbt import archetypes, propaccount, results, stats
 from tools import campaign_propaccount
 from tools.campaign_report import stored_logs
 from tools.campaign_propaccount import (
     CONTRACTS,
+    QUANTITY,
     REPORTED,
+    at_quantity,
     contracts_per_trade,
     labelled,
     main,
     replay_row,
+    replay_rungs,
     replay_shortlist,
     rules_with,
     uncapped,
     verdict,
+    with_own_profit_factor,
 )
 
 SWEEP_ID = 58
@@ -399,3 +403,71 @@ def test_an_unknown_preset_is_refused_by_name(monkeypatch, stocked) -> None:
     monkeypatch.setattr(campaign_propaccount, "db_path", lambda _: stocked)
     with pytest.raises(propaccount.PropAccountError, match="unknown preset"):
         main(["campaign_propaccount.py", "--strategy", "OpeningRange", "--preset", "Apex 40K"])
+
+
+# -- the quantity rungs, because position size is what decides an account -------------------
+
+
+def test_a_rung_restates_the_size_and_names_a_row_whose_rules_refuse_it(caplog) -> None:
+    """InsideBarTrailing's 0.6 split rounds to (2, 0) at two contracts, which has no runner."""
+    rows = pd.DataFrame([stored_row(order_quantity=6, partial_take_profit_percentage=0.6)])
+    at_three = at_quantity(rows, archetypes.INSIDEBARTRAILING, 3)
+    assert list(at_three["order_quantity"]) == [3]
+    assert at_quantity(rows, archetypes.INSIDEBARTRAILING, 2).empty
+    assert "cannot take 2 contracts" in caplog.text
+
+
+def test_a_rung_leaves_the_stored_rows_untouched() -> None:
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+    at_quantity(rows, archetypes.OPENINGRANGE, 2)
+    assert list(rows["order_quantity"]) == [4]
+
+
+def test_a_rung_reads_its_profit_factor_off_its_own_log() -> None:
+    """The stored figure is the swept size's, which is not this rung's on InsideBarTrailing."""
+    rows = pd.DataFrame([stored_row(profit_factor=9.9)])
+    log = trade_log()
+    measured = with_own_profit_factor(rows, {(SWEEP_ID, COMBO_ID): log})
+    assert measured["profit_factor"].iloc[0] == pytest.approx(stats.summarise(log).profit_factor)
+    assert np.isnan(with_own_profit_factor(rows, {})["profit_factor"].iloc[0])
+
+
+def fake_rerun(calls):
+    """A ``logs_for`` that records the size it was asked for and scales one log by it."""
+
+    def logs_for(name, rows, root):
+        quantity = int(rows["order_quantity"].iloc[0])
+        calls.append(quantity)
+        log = trade_log()
+        log[["gross_pnl", "commission", "net_pnl"]] *= quantity / LEGS
+
+        return {(SWEEP_ID, COMBO_ID): log}, pd.DataFrame([{"root": root, "resolution": 5, "rows": 1}])
+
+    return logs_for
+
+
+def test_every_rung_is_re_run_and_tagged_with_its_size(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(campaign_propaccount, "logs_for", fake_rerun(calls))
+    rows = pd.DataFrame([stored_row(order_quantity=6)])
+    table = replay_rungs("InsideBarTrailing", rows, "MNQ", [2, 3, 8], [apex()], 5)
+    assert calls == [3, 8], "two contracts is refused before anything is re-run"
+    assert list(table[QUANTITY]) == [3, 8]
+    by_size = verdict(table).set_index(QUANTITY)
+    assert list(by_size.index) == [3, 8]
+    assert set(by_size["account_name"]) == {"Apex 50K"}
+
+
+def test_no_rung_that_any_row_can_take_is_an_empty_table(monkeypatch) -> None:
+    monkeypatch.setattr(campaign_propaccount, "logs_for", lambda *_: pytest.fail("re-ran a refused size"))
+    rows = pd.DataFrame([stored_row()])
+    assert replay_rungs("InsideBarTrailing", rows, "MNQ", [1], [apex()], 5).empty
+
+
+def test_quantities_re_run_rather_than_reading_the_stored_log(monkeypatch, tmp_path) -> None:
+    calls = []
+    monkeypatch.setattr(campaign_propaccount, "logs_for", fake_rerun(calls))
+    monkeypatch.setattr(campaign_propaccount, "stored_logs", lambda *_: pytest.fail("read a stored log"))
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+    assert run_main(monkeypatch, rows, tmp_path / "OpeningRange.duckdb", "--quantities", "4", "8") == 0
+    assert calls == [4, 8]

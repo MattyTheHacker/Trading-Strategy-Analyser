@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import dataclasses
+import json
 import math
 from dataclasses import replace
 from itertools import chain
@@ -99,6 +101,12 @@ from tools.campaign_sweep import (
     NARROW_TP,
     NARROW_VARIANTS,
     NO_CUTS,
+    IBT_SIZING,
+    IBT_SIZING_VARIANTS,
+    MIDDAY,
+    SIZING_CONFLUENCE,
+    SIZING_QUANTITIES,
+    SizingCut,
     ORB,
     ORB_BRACKET,
     ORB_BRACKET_RANGES,
@@ -152,6 +160,8 @@ from tools.campaign_sweep import (
     fit_regime,
     fit_volume,
     grids_for,
+    insidebartrailing_sizing_variants,
+    insidebartrailing_variants,
     named_forms,
     orb_geometry_ranges,
     orb_resolutions,
@@ -159,6 +169,8 @@ from tools.campaign_sweep import (
     quantile_pair,
     raw_volume_cuts,
     run_point,
+    sizing_arms,
+    sizing_cuts,
     strata,
     tail_pairs,
     variants_for,
@@ -2187,3 +2199,133 @@ def test_no_findings_file_calls_the_campaigns_series_back_adjusted() -> None:
     ]
 
     assert named == []
+
+
+# -- InsideBarTrailing's sizing arms, [#295] and [#353] ---------------------------------------
+
+
+def a_cut(root: str = "MNQ", minutes: int = 5, labels: tuple[str, ...] = ("size_on_vwap", "size_on_regime")):
+    """A cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it."""
+    return SizingCut(
+        root=root,
+        minutes=minutes,
+        early_max_extension_atr=1.2,
+        early_max_trend_bars=14,
+        regime_consolidating_below=0.1,
+        regime_directional_above=0.4,
+        volume_thin_below=0.6,
+        volume_heavy_above=1.6,
+        labels=labels,
+    )
+
+
+def test_the_sizing_strata_are_named_before_the_run() -> None:
+    assert [name for name, _ in strata(IBT_SIZING)] == [UNFILTERED, "phase=MIDDAY"]
+    assert MIDDAY in RECUTS
+    assert MIDDAY not in STRATUM_SETS[ALL_STRATA], "all would run the midday phase twice"
+
+
+def test_every_sizing_arm_shares_one_grid_and_holds_the_split() -> None:
+    """Paired, not a best-of-more: each arm differs from its control in its base alone."""
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = sizing_arms(campaign, a_cut())
+    assert len(arms) == 9
+    assert len({arm.name for arm in arms}) == 9
+    assert all(arm.axes == arms[0].axes for arm in arms)
+    assert "partial_take_profit_percentage" not in arms[0].axes
+    assert arms[0].axes["order_quantity"] == SIZING_QUANTITIES
+    assert {arm.resolutions for arm in arms} == {(5,)}
+    assert all(arm.name.startswith(f"{campaign.name} ") for arm in arms)
+
+
+def test_every_combination_of_every_sizing_arm_is_a_legal_rule_set() -> None:
+    """The split rounds up, so a size where two tiers coincide would raise mid-sweep."""
+    (campaign,) = insidebartrailing_variants("NQ")
+    for arm in sizing_arms(campaign, a_cut("NQ")):
+        for _, grid in grids_for(arm, IBT_SIZING):
+            assert sum(1 for _ in grid.combinations()) == arm.sized()
+
+
+def test_the_fitted_values_reach_every_arm_and_the_labels_only_the_confluence_one() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = {arm.name.removeprefix(f"{campaign.name} "): arm for arm in sizing_arms(campaign, a_cut())}
+    assert all(arm.base.early_max_trend_bars == 14 for arm in arms.values())
+    assert all(arm.base.regime_directional_above == 0.4 for arm in arms.values())
+    confluence = arms[SIZING_CONFLUENCE].base
+    assert confluence.sizing_labels == ("size_on_vwap", "size_on_regime")
+    assert confluence.quantity_per_confluence == 1
+    assert all(arm.base.sizing_labels == () for name, arm in arms.items() if name != SIZING_CONFLUENCE)
+
+
+def test_each_tier_runs_beside_its_inverse() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = {arm.name.removeprefix(f"{campaign.name} "): arm.base for arm in sizing_arms(campaign, a_cut())}
+    written, inverted = arms["tier=trend-age"], arms["tier=trend-age inverted"]
+    assert (written.early_partial_percentage, written.partial_take_profit_percentage) == (0.25, 0.5)
+    assert (inverted.early_partial_percentage, inverted.partial_take_profit_percentage) == (0.5, 0.25)
+    assert arms["split=0.5"].earliness_mode == arms["split=0.25"].earliness_mode == 0
+
+
+def test_a_cut_with_every_label_dropped_runs_no_confluence_arm() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = sizing_arms(campaign, a_cut(labels=()))
+    assert len(arms) == 8
+    assert not any(arm.name.endswith(SIZING_CONFLUENCE) for arm in arms)
+
+
+def test_the_sizing_run_refuses_to_start_without_its_cuts(tmp_path) -> None:
+    with pytest.raises(SystemExit, match="campaign_sizing.py fit"):
+        sizing_cuts(tmp_path / "absent.json")
+
+
+def test_the_sizing_variants_read_their_own_roots_cuts(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "cuts.json"
+    rows = [
+        dataclasses.asdict(a_cut("MNQ", 5)),
+        dataclasses.asdict(a_cut("NQ", 5)),
+        dataclasses.asdict(a_cut("MNQ", 10)),
+    ]
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    monkeypatch.setattr(campaign_sweep, "SIZING_CUTS", path)
+    variants = insidebartrailing_sizing_variants("MNQ")
+    assert {variant.resolutions for variant in variants} == {(5,), (10,)}
+    assert variants_for(IBT_SIZING) is IBT_SIZING_VARIANTS
+
+
+def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(tmp_path, monkeypatch) -> None:
+    """``save_sweep`` stamps one status per sweep; the rows have to carry their own first."""
+    (campaign,) = insidebartrailing_variants("MNQ")
+    control, *_, confluence = sizing_arms(campaign, a_cut())
+    control = replace(control, axes={"order_quantity": [3, 4]})
+    confluence = replace(confluence, axes={"order_quantity": [3, 4]})
+    stored: list[pd.DataFrame] = []
+
+    def fake_sweep(bars, grid, instrument, *, data, n_jobs):
+        return pd.DataFrame(
+            {"combo_id": range(len(grid)), "trades": [0] * len(grid), "profit_factor": [math.nan] * len(grid)}
+        ), {}
+
+    def keep(frame, **_):
+        stored.append(frame)
+
+        return 1
+
+    monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
+    monkeypatch.setattr("nqbt.context.prepare", lambda *args, **kwargs: None)
+    monkeypatch.setattr("nqbt.results.save_sweep", keep)
+    monkeypatch.setattr(sweep, "sweep", fake_sweep)
+    run_point(
+        pd.DataFrame(index=range(10)),
+        [control, confluence],
+        "MNQ",
+        5,
+        "holdout",
+        1,
+        UNFILTERED,
+        NO_CUTS,
+        n_jobs=1,
+    )
+
+    (frame,) = stored
+    by_variant = frame.groupby("variant")["tier2"].agg(set).to_dict()
+    assert by_variant == {control.name: {"reconciled"}, confluence.name: {"tier-1-only"}}

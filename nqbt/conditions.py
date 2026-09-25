@@ -41,6 +41,7 @@ __all__ = [
     "count_true",
     "cross_above",
     "cross_below",
+    "events_earlier_in_run",
     "hammer",
     "inverted_hammer",
     "ma_key",
@@ -477,6 +478,29 @@ def consecutive_true(mask: BoolArray) -> IntArray:
     for i in range(n):
         run = run + 1 if mask[i] else 0
         out[i] = run
+
+    return out
+
+
+@njit(cache=True)
+def events_earlier_in_run(run: BoolArray, event: BoolArray) -> IntArray:
+    """How many ``event`` bars came earlier in the unbroken ``run`` this bar belongs to.
+
+    Strictly earlier, so the first event of a run reads ``0`` on its own bar; ``0`` outside a
+    run, where there is nothing for an event to be earlier in. An event outside a run counts
+    toward nothing.
+    """
+    n = run.size
+    out = np.zeros(n, dtype=np.int64)
+    seen = 0
+    for i in range(n):
+        if not run[i]:
+            seen = 0
+            continue
+
+        out[i] = seen
+        if event[i]:
+            seen += 1
 
     return out
 

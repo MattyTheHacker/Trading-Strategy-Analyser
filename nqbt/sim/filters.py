@@ -28,9 +28,11 @@ if TYPE_CHECKING:
 __all__ = [
     "ConfluenceFiltered",
     "ContextFiltered",
+    "LabelSized",
     "apply_confluence_filters",
     "apply_context_filters",
     "context_gates",
+    "favourable_labels",
 ]
 
 
@@ -85,6 +87,19 @@ class ConfluenceFiltered(ContextFiltered, Protocol):
     """
 
     confluence_required: int
+
+
+class LabelSized(ContextFiltered, Protocol):
+    """A :class:`ContextFiltered` that also says which labels a confluence size counts.
+
+    Read for sizing, never for the signal, so a label counted here narrows no entry.
+    """
+
+    size_on_trend: bool
+    size_on_higher_timeframe: bool
+    size_on_vwap: bool
+    size_on_regime: bool
+    size_on_volume: bool
 
 
 def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
@@ -161,3 +176,59 @@ def apply_confluence_filters(signal: BoolArray, data: Dataset, params: Confluenc
     gates: list[BoolArray] = context_gates(data, params)
 
     return signal & (conditions.count_true(np.stack(gates)) >= params.confluence_required)
+
+
+def favourable_labels(data: Dataset, params: LabelSized, long_side: BoolArray) -> list[BoolArray]:
+    """One row per ``size_on_*`` label switched on: whether it favours each bar's side.
+
+    The side-dependent labels favour a long where they point up and a short where they point
+    down; regime and volume favour both sides alike. A bar a label cannot classify passes no
+    mask, so it counts as not favourable -- ``docs/nt8-fidelity.md`` §M45.
+    """
+    favourable: list[BoolArray] = []
+    if params.size_on_trend:
+        up: BoolArray = data.trend_gate(
+            params.trend_key, trend.trends_mask([trend.Trend.UP]), params.trend_min_agreement
+        )
+        down: BoolArray = data.trend_gate(
+            params.trend_key,
+            trend.trends_mask([trend.Trend.DOWN]),
+            params.trend_min_agreement,
+        )
+        favourable.append(np.where(long_side, up, down))
+
+    if params.size_on_higher_timeframe:
+        above: BoolArray = data.higher_timeframe_gate(
+            params.higher_timeframe_key,
+            higher_timeframe.sides_mask([higher_timeframe.Side.ABOVE]),
+        )
+        below: BoolArray = data.higher_timeframe_gate(
+            params.higher_timeframe_key,
+            higher_timeframe.sides_mask([higher_timeframe.Side.BELOW]),
+        )
+        favourable.append(np.where(long_side, above, below))
+
+    if params.size_on_vwap:
+        favourable.append(np.where(long_side, data.vwap_gate(above=True), data.vwap_gate(above=False)))
+
+    if params.size_on_regime:
+        favourable.append(
+            data.regime_gate(
+                params.regime_lookback,
+                regime.regimes_mask([regime.Regime.DIRECTIONAL]),
+                params.regime_consolidating_below,
+                params.regime_directional_above,
+            ),
+        )
+
+    if params.size_on_volume:
+        favourable.append(
+            data.volume_gate(
+                params.volume_key,
+                volume.states_mask([volume.VolumeState.HEAVY]),
+                params.volume_thin_below,
+                params.volume_heavy_above,
+            ),
+        )
+
+    return favourable

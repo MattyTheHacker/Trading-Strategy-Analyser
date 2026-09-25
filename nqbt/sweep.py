@@ -102,10 +102,7 @@ class Grid:
                 raise SweepError(msg)
         dead: dict[str, str] = self.dead_axes()
         if dead:
-            detail: str = "; ".join(
-                f"{axis} (inert while {toggle} is {archetypes.INERT_AT.get(toggle, False)})"
-                for axis, toggle in dead.items()
-            )
+            detail: str = "; ".join(f"{axis} (inert while {why})" for axis, why in dead.items())
             msg = (
                 f"these axes cannot affect any result: {detail}. Every combination would "
                 "be identical along them, multiplying runtime for nothing. Either enable "
@@ -137,7 +134,7 @@ class Grid:
             raise SweepError(msg)
 
     def dead_axes(self) -> dict[str, str]:
-        """Swept axes some toggle leaves unread on every combination, each with that toggle.
+        """Swept axes their toggles leave unread on every combination, each with why.
 
         Easy to do by accident: sweeping ``slow_sma_period`` while ``use_slow_sma`` is false
         everywhere yields identical rows and a proportional runtime bill. A toggle that is a
@@ -148,14 +145,27 @@ class Grid:
             if axis not in self.axes:
                 continue
 
-            for toggle in archetypes.gate_toggles(gate):
-                inert: object = archetypes.INERT_AT.get(toggle, False)
-                values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
-                if all(value == inert for value in values):
-                    dead[axis] = toggle
-                    break
+            toggles: tuple[str, ...] = archetypes.gate_toggles(gate)
+            inert: list[str] = [toggle for toggle in toggles if self._inert_everywhere(toggle)]
+            if not inert:
+                continue
+
+            if isinstance(gate, archetypes.AnyOf) and len(inert) < len(toggles):
+                continue
+
+            reasons: list[str] = inert if isinstance(gate, archetypes.AnyOf) else inert[:1]
+            dead[axis] = " and ".join(
+                f"{toggle} is {archetypes.INERT_AT.get(toggle, False)}" for toggle in reasons
+            )
 
         return dead
+
+    def _inert_everywhere(self, toggle: str) -> bool:
+        """Whether ``toggle`` holds the value that leaves its axes unread on every combination."""
+        inert: object = archetypes.INERT_AT.get(toggle, False)
+        values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
+
+        return all(value == inert for value in values)
 
     @classmethod
     def of(
@@ -553,20 +563,37 @@ def sweep_axes(
                     chunk_size=chunk_size,
                     progress_every=progress_every,
                 )
-                tables.append(_tag(table, point))
+                tables.append(_tag(table, point, grid))
                 for combo_id, log in point_logs.items():
                     logs[(point, combo_id)] = log
 
     return pd.concat(tables, ignore_index=True), logs
 
 
-def _tag(table: pd.DataFrame, point: AxisPoint) -> pd.DataFrame:
-    """Put the axis point's four columns in front of one sweep's results."""
+def _tag(table: pd.DataFrame, point: AxisPoint, grid: Grid) -> pd.DataFrame:
+    """Put the axis point's four columns in front of one sweep's results, ``tier2`` row by row."""
     tagged: pd.DataFrame = table.copy()
     for position, name in enumerate(AxisPoint._fields):
         tagged.insert(position, name, getattr(point, name))
+    tagged["tier2"] = row_tier2(tagged, grid)
 
     return tagged
+
+
+def row_tier2(table: pd.DataFrame, grid: Grid) -> list[str]:
+    """Each row's Tier-2 status, found by its ``combo_id`` in ``grid``.
+
+    The archetype's own, restated where a combination leaves its port --
+    :meth:`nqbt.archetypes.Archetype.tier2_for`.
+    """
+    if grid.archetype.departs_from_port is None:
+        return [str(grid.archetype.tier2)] * len(table)
+
+    by_combo: dict[int, str] = {
+        combo_id: str(grid.archetype.tier2_for(params)) for combo_id, params in enumerate(grid.combinations())
+    }
+
+    return [by_combo[int(combo_id)] for combo_id in table["combo_id"]]
 
 
 def rank(

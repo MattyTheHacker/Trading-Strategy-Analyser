@@ -2,6 +2,8 @@
 
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
     ./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy OpeningRange
+    ./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing \
+        --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
 
 :mod:`nqbt.propaccount` answers the question no gate in §M27 or §M28 can be expressed in --
 **not "is the edge real" but "would the account have survived it, and would it have made more
@@ -31,6 +33,12 @@ dropped.
 
 **``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
 the only way to replay a campaign the archive has moved under -- ``tools/campaign_swept.py``.
+
+**``--quantities`` re-runs the shortlist once per contract count** and replays each, because
+position size is what decides an account and a stored log holds only the size it was swept at --
+``docs/findings/m28-13-account-read.md`` § "The binding constraint is position size, not the
+strategy". Every rung is a re-run, since on InsideBarTrailing the size moves the trades
+themselves -- ``docs/nt8-fidelity.md`` §M45.
 """
 
 from __future__ import annotations
@@ -51,11 +59,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import LABEL_COLUMNS
 from tools.campaign_report import NET_TO_DRAWDOWN, log_key, stored_logs
-from tools.campaign_shortlist import TOP
+from tools.campaign_shortlist import TOP, rebuild
 from tools.campaign_sweep import db_path
-from tools.campaign_swept import logs_for
+from tools.campaign_swept import CELL_KEYS, SWEPT_BARS, logs_for
 
-from nqbt import logsetup, propaccount
+from nqbt import archetypes, logsetup, propaccount, stats
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -92,6 +100,14 @@ Not a parameter of the replay and reported because it decides the answer: four c
 different instrument-sized bet on each root, and the trailing threshold divided by the dollar
 value of a point is the whole account's room to move -- ``docs/roadmap.md`` §M28.13, "The
 binding constraint is position size, not the strategy"."""
+
+
+QUANTITY = "quantity"
+"""The contract count a rung re-ran the shortlist at, which the verdict groups by beside the rule set."""
+
+RUNG_CHECK = [*CELL_KEYS, "rows", SWEPT_BARS, "same_trades"]
+"""What a rung reports of its re-run: the bars it ran on and how many rows kept their stored
+trade count. Net is left out, because a row stored at one size is not reproduced at another."""
 
 
 def uncapped(log: pd.DataFrame) -> int:
@@ -178,17 +194,92 @@ def replay_shortlist(
     return pd.DataFrame(replayed)
 
 
+def takes_quantity(
+    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+    archetype: archetypes.Archetype,
+    quantity: int,
+) -> bool:
+    """Whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
+    resized: pd.Series = row.copy()  # type: ignore[type-arg]  # duckdb's dtypes
+    resized["order_quantity"] = quantity
+    try:
+        rebuild(resized, archetype)
+    except ValueError as refused:
+        logger.warning(
+            "  sweep %-4d combo %-6d cannot take %d contracts: %s", *log_key(row), quantity, refused
+        )
+
+        return False
+
+    return True
+
+
+def at_quantity(rows: pd.DataFrame, archetype: archetypes.Archetype, quantity: int) -> pd.DataFrame:
+    """The shortlist restated at ``quantity`` contracts, less any row whose rules refuse that size.
+
+    A refusal is named rather than dropped: InsideBarTrailing's 0.6 split leaves no second lot
+    below three contracts, and a bracket with several targets needs a contract for each.
+    """
+    takes: list[bool] = [takes_quantity(row, archetype, quantity) for _, row in rows.iterrows()]
+
+    return rows.loc[takes].assign(order_quantity=quantity)
+
+
+def with_own_profit_factor(rows: pd.DataFrame, logs: Mapping[tuple[int, int], pd.DataFrame]) -> pd.DataFrame:
+    """The rows with ``profit_factor`` read off their re-run logs rather than the stored size's."""
+    measured: list[float] = [
+        stats.summarise(logs[log_key(row)]).profit_factor if log_key(row) in logs else float("nan")
+        for _, row in rows.iterrows()
+    ]
+
+    return rows.assign(profit_factor=measured)
+
+
+def replay_rungs(
+    strategy: str,
+    rows: pd.DataFrame,
+    root: str,
+    quantities: list[int],
+    accounts: list[propaccount.PropAccount],
+    max_accounts: int | None,
+) -> pd.DataFrame:
+    """The shortlist re-run and replayed once per contract count, each row tagged with its rung."""
+    archetype: archetypes.Archetype = archetypes.get(strategy)
+    tables: list[pd.DataFrame] = []
+    for quantity in quantities:
+        resized: pd.DataFrame = at_quantity(rows, archetype, quantity)
+        if resized.empty:
+            logger.warning("  no configuration here can take %d contracts", quantity)
+            continue
+
+        logs: dict[tuple[int, int], pd.DataFrame]
+        rerun: pd.DataFrame
+        logs, rerun = logs_for(strategy, resized, root)
+        show(
+            f"{strategy} {root} at {quantity} contracts -- what the re-run ran on",
+            rerun.reindex(columns=RUNG_CHECK),
+        )
+        table: pd.DataFrame = replay_shortlist(
+            with_own_profit_factor(resized, logs), logs, accounts, max_accounts
+        )
+        tables.append(table.assign(**{QUANTITY: quantity}))
+
+    return pd.concat(tables, ignore_index=True) if tables else pd.DataFrame()
+
+
 def verdict(table: pd.DataFrame) -> pd.DataFrame:
     """Each rule set's medians across the shortlist, and the two shares that are not medians.
 
     A median attempt count and a median net describe the sequence a configuration produced;
     ``ever_passed`` and ``profitable`` are shares because both questions are yes or no per
-    configuration and a median of a boolean says nothing.
+    configuration and a median of a boolean says nothing. A table of rungs gets one row per rule
+    set and contract count.
     """
     if table.empty:
         return pd.DataFrame()
 
-    grouped = table.groupby("account_name", sort=False)
+    keys: list[str] = ["account_name", *([QUANTITY] if QUANTITY in table.columns else [])]
+    grouped = table.groupby(keys, sort=False)
 
     return pd.DataFrame(
         {
@@ -216,6 +307,25 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
     with pd.option_context("display.width", 240, "display.max_columns", 60):
         logger.info("%s", frame.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+
+
+def shortlist_logs(
+    strategy: str,
+    rows: pd.DataFrame,
+    root: str,
+    *,
+    rerun: bool,
+) -> Mapping[tuple[int, int], pd.DataFrame]:
+    """The shortlist's held-out logs at the size they were swept at: stored, or re-run."""
+    if not rerun:
+        return stored_logs(rows, db_path(strategy))
+
+    logs: dict[tuple[int, int], pd.DataFrame]
+    reconciled: pd.DataFrame
+    logs, reconciled = logs_for(strategy, rows, root)
+    show(f"{strategy} {root} -- what the re-run reproduced of its stored rows", reconciled)
+
+    return logs
 
 
 def main(argv: list[str]) -> int:
@@ -251,6 +361,13 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="re-run the shortlist on the bars it was swept on rather than reading a stored log",
     )
+    parser.add_argument(
+        "--quantities",
+        nargs="+",
+        type=int,
+        default=None,
+        help="re-run and replay the shortlist once per contract count; implies --rerun",
+    )
     args = parser.parse_args(argv[1:])
 
     rows: pd.DataFrame = held_out(
@@ -276,15 +393,17 @@ def main(argv: list[str]) -> int:
         len(accounts),
     )
 
-    logs: Mapping[tuple[int, int], pd.DataFrame]
-    if args.rerun:
-        reconciled: pd.DataFrame
-        logs, reconciled = logs_for(args.strategy, rows, args.root)
-        show(f"{args.strategy} {args.root} -- what the re-run reproduced of its stored rows", reconciled)
+    table: pd.DataFrame
+    if args.quantities:
+        table = replay_rungs(args.strategy, rows, args.root, args.quantities, accounts, args.max_accounts)
     else:
-        logs = stored_logs(rows, db_path(args.strategy))
+        table = replay_shortlist(
+            rows,
+            shortlist_logs(args.strategy, rows, args.root, rerun=args.rerun),
+            accounts,
+            args.max_accounts,
+        )
 
-    table: pd.DataFrame = replay_shortlist(rows, logs, accounts, args.max_accounts)
     if table.empty:
         logger.warning("no trade logs for this shortlist; nothing to replay")
 
