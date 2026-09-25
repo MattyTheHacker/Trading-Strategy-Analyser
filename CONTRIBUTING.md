@@ -131,7 +131,7 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 
 CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead. `mdformat` takes a bare `.` in both places because its exclusions live in [`.mdformat.toml`](.mdformat.toml) rather than on the command line.
 
-**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt formatting`, `ruff format --check .` and `mypy nqbt formatting`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated, though where writing new code you should generally aim not to introduce and new errors or warnings to make future remediation works easier.
+**`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt formatting`, `ruff format --check .` and `mypy nqbt formatting`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated, though where writing new code you should generally aim not to introduce any new errors or warnings to make future remediation works easier.
 
 Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` should carry a one-line reason, along with every `# noqa` and every `# type: ignore`. These types of ignores should only be left without a dedicated explanatory comment where the purpose is obvious or well documented elsewhere. Put the reason **after the pragma on the same line, however long that makes the line**, so that grepping for a bare `# noqa: X$` finds anything undocumented. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
 
