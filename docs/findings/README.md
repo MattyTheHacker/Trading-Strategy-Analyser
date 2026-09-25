@@ -96,7 +96,7 @@ Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts
 
 ### The one it displaces: OpeningRange, midday, on MNQ
 
-The opening range's break, confined to the midday lull. This is the only cell in the registry to clear gates 2, 3 and 4 on both roots (§M28.14, §M28.15).
+The opening range's break, confined to the midday lull. It clears gates 2 and 3 on both roots (§M28.14), and **gate 4 is mixed** (§M28.15): the walk-forward and the permutation test pass, but not one of its 40 configurations has a bootstrap 5th percentile above a profit factor of 1.0 or above zero net — and none of the 40 is profitable without its session-close legs.
 
 |            |                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------- |
@@ -123,7 +123,7 @@ Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts
 
 Its walk-forward passes on both roots with all ten folds profitable out of sample, at a pooled test profit factor of 1.279 on MNQ and 1.302 on NQ — though NQ picks the same configuration in all five folds, so what the folds test is barely a selection (§M28.15).
 
-**A second cut of the same archetype has the stronger gate-3 result and the worse case for trading.** Confined to a calibrated directional regime at a lookback of 20 rather than to the midday lull, OpeningRange clears p = 0.05 on **all ten configurations of both roots** — the only cell in the registry to do so (§M31). Gate 4 then split (§M31.1): the walk-forward passes on both roots at a pooled test profit factor of 1.439 and 1.459, and every MNQ preset funds, but **not one of its twenty configurations is profitable without its session-close legs** — 1.43 to 0.24 on MNQ, 1.46 to 0.24 on NQ — and its prop-account net runs +772 to +5,088 against the midday cell's +9,919 to +26,982. **The cell that best beats a random entry is the one that leans hardest on the account rule**, so the midday cell above remains the better candidate. **That gate-3 result belongs to the opposite-extreme stop** (§M38): it holds at every range window and under both targets, and under the ATR stop the entry beats its null on all twenty configurations and clears p = 0.05 on none.
+**A second cut of the same archetype has the stronger gate-3 result and the worse case for trading.** Confined to a calibrated directional regime at a lookback of 20 rather than to the midday lull, OpeningRange clears p = 0.05 on **all ten configurations of both roots** — the only cell in the registry to do so (§M31). Gate 4 then split (§M31.1): the walk-forward passes on both roots at a pooled test profit factor of 1.439 and 1.459, and every MNQ preset funds, but only one of its twenty configurations has a bootstrap 5th percentile above a profit factor of 1.0 and **not one is profitable without its session-close legs** — 1.43 to 0.24 on MNQ, 1.46 to 0.24 on NQ — and its prop-account net runs +772 to +5,088 against the midday cell's +9,919 to +26,982. **The cell that best beats a random entry is the one that leans hardest on the account rule**, so the midday cell above remains the better candidate. **That gate-3 result belongs to the opposite-extreme stop** (§M38): it holds at every range window and under both targets, and under the ATR stop the entry beats its null on all twenty configurations and clears p = 0.05 on none.
 
 ### The other one worth knowing: InsideBar on MNQ
 
