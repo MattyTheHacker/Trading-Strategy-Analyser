@@ -402,6 +402,30 @@ def test_consecutive_true_on_uniform_and_empty_input() -> None:
     assert conditions.consecutive_true(np.array([], dtype=np.bool_)).size == 0
 
 
+def test_events_earlier_in_run_counts_strictly_earlier_events_and_resets_with_the_run() -> None:
+    run = np.array([False, True, True, True, True, False, True, True])
+    event = np.array([False, False, True, False, True, False, True, True])
+    # The first event of a run reads 0 on its own bar; the run breaking at 5 forgets both.
+    assert list(conditions.events_earlier_in_run(run, event)) == [0, 0, 0, 1, 1, 0, 0, 1]
+
+
+def test_an_event_outside_a_run_counts_toward_nothing() -> None:
+    run = np.array([False, True, True])
+    event = np.array([True, False, False])
+    assert list(conditions.events_earlier_in_run(run, event)) == [0, 0, 0]
+
+
+def test_events_earlier_in_run_on_uniform_and_empty_input() -> None:
+    always = np.ones(4, dtype=np.bool_)
+    assert list(conditions.events_earlier_in_run(always, always)) == [0, 1, 2, 3]
+    assert list(
+        conditions.events_earlier_in_run(np.zeros(3, dtype=np.bool_), np.ones(3, dtype=np.bool_))
+    ) == [0, 0, 0]
+    assert (
+        conditions.events_earlier_in_run(np.array([], dtype=np.bool_), np.array([], dtype=np.bool_)).size == 0
+    )
+
+
 def test_rolling_count_counts_a_window_where_consecutive_true_counts_a_run() -> None:
     mask = np.array([True, False, True, True, False, True])
     assert list(conditions.rolling_count(mask, 3)) == [1, 1, 2, 2, 2, 2]

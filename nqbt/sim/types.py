@@ -1066,6 +1066,40 @@ MIN_SPLIT_QUANTITY = 2
 MAX_PARTIAL_SHARE = 0.9
 """Largest share the bracketed lot may take, so the trailing lot always gets something."""
 
+EARLINESS_OFF = 0
+EARLINESS_FIRST_BREAKOUT = 1
+EARLINESS_SMA_EXTENSION = 2
+EARLINESS_TREND_AGE = 3
+EARLINESS_MODES = {
+    EARLINESS_OFF: "off",
+    EARLINESS_FIRST_BREAKOUT: "first-breakout",
+    EARLINESS_SMA_EXTENSION: "sma-extension",
+    EARLINESS_TREND_AGE: "trend-age",
+}
+"""How InsideBarTrailing tells an early entry from an established one, which picks the bracketed
+lot's share -- ``docs/nt8-fidelity.md`` §M45."""
+
+EARLY_TIER = 0
+ESTABLISHED_TIER = 1
+"""The two earliness tiers, and their order in :attr:`InsideBarTrailingParams.lot_table`."""
+
+SIZING_LABELS = (
+    "size_on_trend",
+    "size_on_higher_timeframe",
+    "size_on_vwap",
+    "size_on_regime",
+    "size_on_volume",
+)
+"""The label kinds a confluence count may size on, one per input family -- ``docs/nt8-fidelity.md``
+§M45."""
+
+
+def split_lots(quantity: int, share: float) -> tuple[int, int]:
+    """InsideBarTrailing's two entry sizes: ``(int) Math.Ceiling(quantity * share)`` and the rest."""
+    first: int = math.ceil(quantity * share)
+
+    return (first, quantity - first)
+
 
 @dataclass(slots=True)
 class InsideBarTrailingParams(InsideBarParams):
@@ -1109,6 +1143,42 @@ class InsideBarTrailingParams(InsideBarParams):
     """Dead in the NinjaScript and refused at anything else here -- ``docs/nt8-fidelity.md``
     §M23. Enabling it needs a currency amount routed through :mod:`nqbt.instruments`."""
 
+    earliness_mode: int = EARLINESS_OFF
+    """Which rule tells an early entry from an established one, from :data:`EARLINESS_MODES`.
+
+    Off, every entry takes ``partial_take_profit_percentage``; on, an early one takes
+    ``early_partial_percentage`` instead."""
+
+    early_partial_percentage: float = 0.25
+    """The bracketed lot's share on an early entry. Read only while ``earliness_mode`` is on."""
+
+    early_max_extension_atr: float = 1.0
+    """Under ``sma-extension``: the furthest the signal close may sit from the slow SMA, in ATRs,
+    and still be early. A placeholder the campaign fits per cell, not a finding."""
+
+    early_max_trend_bars: int = 10
+    """Under ``trend-age``: the most bars the trend may have run at the signal bar and still be
+    early. A placeholder the campaign fits per cell, not a finding."""
+
+    quantity_per_confluence: int = 0
+    """Contracts added to ``order_quantity`` for each ``size_on_*`` label favouring the trade at
+    its signal bar. ``0`` is fixed size."""
+
+    size_on_trend: bool = False
+    """Count the trend label agreeing with the trade's side."""
+
+    size_on_higher_timeframe: bool = False
+    """Count the close on the trade's side of the higher-timeframe average."""
+
+    size_on_vwap: bool = False
+    """Count the close on the trade's side of the session VWAP."""
+
+    size_on_regime: bool = False
+    """Count a directional efficiency-ratio regime."""
+
+    size_on_volume: bool = False
+    """Count heavy relative volume."""
+
     @override
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -1140,13 +1210,6 @@ class InsideBarTrailingParams(InsideBarParams):
             )
             raise ValueError(msg)
 
-        if min(self.leg_quantities) < 1:
-            msg = (
-                f"the split leaves a lot of zero contracts: {self.leg_quantities} from "
-                f"order_quantity={self.order_quantity} at {self.partial_take_profit_percentage}"
-            )
-            raise ValueError(msg)
-
         if self.maximum_loss_per_trade != 0.0:
             msg = (
                 "maximum_loss_per_trade is unreachable in the NinjaScript and unimplemented here; "
@@ -1154,16 +1217,93 @@ class InsideBarTrailingParams(InsideBarParams):
             )
             raise ValueError(msg)
 
+        self._check_sizing()
+        self._check_lot_table()
+
+    def _check_sizing(self) -> None:
+        """Refuse an earliness rule or a confluence size that cannot run, or runs as fixed size."""
+        if self.earliness_mode not in EARLINESS_MODES:
+            msg: str = f"earliness_mode must be one of {sorted(EARLINESS_MODES)}, got {self.earliness_mode}"
+            raise ValueError(msg)
+
+        if not 0.0 <= self.early_partial_percentage <= MAX_PARTIAL_SHARE:
+            msg = (
+                f"early_partial_percentage must be in [0, {MAX_PARTIAL_SHARE}], got "
+                f"{self.early_partial_percentage}; the range NT8 caps PartialTakeProfitPercentage with"
+            )
+            raise ValueError(msg)
+
+        if self.early_max_extension_atr < 0.0 or self.early_max_trend_bars < 1:
+            msg = (
+                f"early_max_extension_atr must be >= 0 and early_max_trend_bars >= 1, got "
+                f"{self.early_max_extension_atr} and {self.early_max_trend_bars}"
+            )
+            raise ValueError(msg)
+
+        if self.quantity_per_confluence < 0:
+            msg = (
+                f"quantity_per_confluence is a contract count and must be >= 0, got "
+                f"{self.quantity_per_confluence}"
+            )
+            raise ValueError(msg)
+
+        if bool(self.sizing_labels) != (self.quantity_per_confluence > 0):
+            msg = (
+                f"quantity_per_confluence={self.quantity_per_confluence} with labels "
+                f"{self.sizing_labels or 'none'} sizes every trade the same, which is fixed size "
+                "under another name; set both or neither"
+            )
+            raise ValueError(msg)
+
+    def _check_lot_table(self) -> None:
+        """Refuse a split that leaves a lot empty, or tiers that never split differently."""
+        table: tuple[tuple[int, int], ...] = self.lot_table
+        if min(min(row) for row in table) < 1:
+            msg: str = (
+                f"the split leaves a lot of zero contracts: {table} from "
+                f"order_quantity={self.order_quantity} at {self.partial_take_profit_percentage}"
+            )
+            raise ValueError(msg)
+
+        per_tier: int = len(self.sizing_labels) + 1
+        if self.earliness_mode != EARLINESS_OFF and table[:per_tier] == table[per_tier:]:
+            msg = (
+                f"early_partial_percentage={self.early_partial_percentage} and "
+                f"partial_take_profit_percentage={self.partial_take_profit_percentage} split every "
+                f"quantity here the same way, {table[:per_tier]}, which is earliness_mode off"
+            )
+            raise ValueError(msg)
+
     @property
     @override
     def leg_quantities(self) -> tuple[int, ...]:
-        """The two entry orders' sizes: the bracketed lot, then the trailing one.
+        """The two entry orders' sizes at a fixed size: the bracketed lot, then the trailing one."""
+        return split_lots(self.order_quantity, self.partial_take_profit_percentage)
 
-        ``(int) Math.Ceiling(OrderQuantity * PartialTakeProfitPercentage)`` and the remainder.
+    @property
+    def sizing_labels(self) -> tuple[str, ...]:
+        """The ``size_on_*`` labels switched on, in :data:`SIZING_LABELS` order."""
+        return tuple(name for name in SIZING_LABELS if getattr(self, name))
+
+    @property
+    def lot_table(self) -> tuple[tuple[int, int], ...]:
+        """Every split a signal can take, one row per earliness tier and confluence count.
+
+        Tier-major -- row ``tier * (len(sizing_labels) + 1) + count`` -- with one tier while
+        earliness is off, so the default is the single row :attr:`leg_quantities` holds.
         """
-        first: int = math.ceil(self.order_quantity * self.partial_take_profit_percentage)
+        shares: tuple[float, ...] = (
+            (self.partial_take_profit_percentage,)
+            if self.earliness_mode == EARLINESS_OFF
+            else (self.early_partial_percentage, self.partial_take_profit_percentage)
+        )
+        counts: range = range(len(self.sizing_labels) + 1)
 
-        return (first, self.order_quantity - first)
+        return tuple(
+            split_lots(self.order_quantity + self.quantity_per_confluence * count, share)
+            for share in shares
+            for count in counts
+        )
 
 
 STOP_ATR = 0

@@ -171,15 +171,30 @@ def verdict(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def report(name: str, control: str, treatment: str, windows: list[str], by: str) -> pd.DataFrame:
-    """The paired verdict for one control/treatment pair of variants."""
+def report(
+    name: str,
+    control: str,
+    treatment: str,
+    windows: list[str],
+    by: str,
+    stratum: str | None = None,
+) -> pd.DataFrame:
+    """The paired verdict for one control/treatment pair of variants, in one stratum if named.
+
+    A report row pools every stratum of a root and resolution, so a verdict pre-registered on one
+    cell has to name it -- ``docs/findings/m45-ibt-sizing-preregistration.md``.
+    """
     stored: pd.DataFrame = load(name, windows)
+    if stratum is not None:
+        stored = stored[stored["stratum"] == stratum]
+
     left: pd.DataFrame = stored[stored["variant"] == control]
     right: pd.DataFrame = stored[stored["variant"] == treatment]
     if left.empty or right.empty:
         msg: str = (
             f"{name}: no viable rows for control={control!r} ({len(left)}) or "
-            f"treatment={treatment!r} ({len(right)}) in windows {windows}. "
+            f"treatment={treatment!r} ({len(right)}) in windows {windows}"
+            f"{'' if stratum is None else f' and stratum {stratum!r}'}. "
             f"Stored variants: {sorted(stored['variant'].unique())}"
         )
         raise SystemExit(msg)
@@ -195,12 +210,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--treatment", required=True, help="the variant it is switched on in")
     parser.add_argument("--window", nargs="+", default=["full"], help="which stored windows to read")
     parser.add_argument("--by", default="profit_factor", help="the statistic to compare on")
+    parser.add_argument("--stratum", default=None, help="read one stratum alone rather than pooling them")
     args = parser.parse_args(argv[1:])
 
-    table: pd.DataFrame = report(args.strategy, args.control, args.treatment, args.window, args.by)
+    table: pd.DataFrame = report(
+        args.strategy, args.control, args.treatment, args.window, args.by, args.stratum
+    )
     logger.info("")
     logger.info("%s: %r against %r on %s", args.strategy, args.treatment, args.control, args.by)
-    logger.info("windows: %s", ", ".join(args.window))
+    logger.info("windows: %s; stratum: %s", ", ".join(args.window), args.stratum or "all, pooled")
     logger.info("")
     for line in table.to_string(index=False, float_format=lambda v: f"{v:.3f}").splitlines():
         logger.info("%s", line)

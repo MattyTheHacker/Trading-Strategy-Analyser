@@ -29,6 +29,7 @@ from nqbt.sim import (
 )
 from nqbt.sim.types import (
     BAND_VWAP,
+    EARLINESS_OFF,
     ORB_SCALE_NONE,
     ORB_STOP_ATR,
     STOP_ATR,
@@ -55,9 +56,17 @@ if TYPE_CHECKING:
 type AxisValue = float | str
 """One value a swept parameter may take: any number, or a name."""
 
-type Gate = str | tuple[str, ...]
-"""The toggle, or toggles, an axis is read under. With several, any one of them can leave it
-unread."""
+
+@dataclass(frozen=True, slots=True)
+class AnyOf:
+    """Toggles an axis is read under **any one** of, so only all of them together leave it unread."""
+
+    toggles: tuple[str, ...]
+
+
+type Gate = str | tuple[str, ...] | AnyOf
+"""The toggle, or toggles, an axis is read under. With a tuple, any one of them can leave it
+unread; with :class:`AnyOf`, any one of them can read it."""
 
 
 @runtime_checkable
@@ -107,24 +116,36 @@ def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
     return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
 
 
+def _reads_label(
+    values: Mapping[str, Sequence[AxisValue]],
+    filter_name: str,
+    everything: int,
+    sizing_name: str,
+) -> bool:
+    """Whether some combination filters on a label or sizes on it -- either one reads its series."""
+    filters: bool = any(int(v) != everything for v in values.get(filter_name, ()))
+
+    return filters or any(values.get(sizing_name, ()))
+
+
 def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
-    """The efficiency-ratio lookbacks to build: none unless some combination filters on them.
+    """The efficiency-ratio lookbacks to build: none unless some combination filters or sizes on them.
 
     The grid holds float64 rather than a boolean gate, so an unasked-for lookback is the most
     expensive thing this function can add -- ``docs/roadmap.md`` §M10.1.
     """
-    if not any(int(v) != regime.ALL_REGIMES for v in values.get("regime_filter", ())):
+    if not _reads_label(values, "regime_filter", regime.ALL_REGIMES, "size_on_regime"):
         return ()
 
     return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
 
 
 def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.VolumeKey, ...]:
-    """List the relative-volume series to build: none unless some combination filters on them.
+    """List the relative-volume series to build: none unless some combination filters or sizes on them.
 
     Sixteen bytes per bar per series, plus the baseline pass -- ``docs/roadmap.md`` §M10.2.
     """
-    if not any(int(v) != volume.ALL_STATES for v in values.get("volume_filter", ())):
+    if not _reads_label(values, "volume_filter", volume.ALL_STATES, "size_on_volume"):
         return ()
 
     return tuple(
@@ -162,12 +183,12 @@ def _compression_keys(
 
 
 def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendKey, ...]:
-    """List the trend labels to build: none unless some combination filters on them.
+    """List the trend labels to build: none unless some combination filters or sizes on them.
 
     Eleven bytes per bar per label, and the averages behind them never reach the dataset --
     ``docs/roadmap.md`` §M10.3.
     """
-    if not any(int(v) != trend.ALL_TRENDS for v in values.get("trend_filter", ())):
+    if not _reads_label(values, "trend_filter", trend.ALL_TRENDS, "size_on_trend"):
         return ()
 
     return tuple(
@@ -185,12 +206,17 @@ def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendK
 def _higher_timeframe_keys(
     values: Mapping[str, Sequence[AxisValue]],
 ) -> tuple[higher_timeframe.HigherTimeframeKey, ...]:
-    """List the coarse averages to build: none unless some combination filters on a side.
+    """List the coarse averages to build: none unless some combination filters or sizes on a side.
 
     Nine bytes per bar per average, plus one resample per distinct resolution --
     ``docs/roadmap.md`` § "Multi-timeframe moving averages".
     """
-    if not any(int(v) != higher_timeframe.ALL_SIDES for v in values.get("higher_timeframe_filter", ())):
+    if not _reads_label(
+        values,
+        "higher_timeframe_filter",
+        higher_timeframe.ALL_SIDES,
+        "size_on_higher_timeframe",
+    ):
         return ()
 
     return tuple(
@@ -402,11 +428,12 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
     ``needs_ma_values`` because its three gates are **strict**, which the boolean grids do not
     hold -- ``docs/nt8-fidelity.md`` §M22. The session clock is conditional on some combination
-    actually setting a no-entry window.
+    actually setting a no-entry window, and the VWAP on InsideBarTrailing sizing on it.
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
         atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())})),
+        needs_vwap=any(values.get("size_on_vwap", ())),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -426,6 +453,7 @@ INERT_AT: Mapping[str, object] = {
     "compression_filter": compression.ALL_STATES,
     "trend_filter": trend.ALL_TRENDS,
     "higher_timeframe_filter": higher_timeframe.ALL_SIDES,
+    "earliness_mode": EARLINESS_OFF,
 }
 """The value at which a toggle leaves its axes unread, where that is not simply ``False``.
 
@@ -437,6 +465,9 @@ against that rather than test truthiness -- ``ALL_REGIMES`` is 7 and would read 
 
 def gate_toggles(gate: Gate) -> tuple[str, ...]:
     """Every toggle one :data:`Gate` names, as a tuple whether it names one or several."""
+    if isinstance(gate, AnyOf):
+        return gate.toggles
+
     return (gate,) if isinstance(gate, str) else gate
 
 
@@ -564,6 +595,34 @@ context filters gate an axis.
 """
 
 
+def _read_by_filter_or_sizing(gates: Mapping[str, str], sizing_toggle: str) -> dict[str, Gate]:
+    """One filter's axes, re-gated so that sizing on the same label also reads them."""
+    return {axis: AnyOf((toggle, sizing_toggle)) for axis, toggle in gates.items()}
+
+
+INSIDEBARTRAILING_GATES: Mapping[str, Gate] = {
+    **_read_by_filter_or_sizing(REGIME_GATES, "size_on_regime"),
+    **_read_by_filter_or_sizing(VOLUME_GATES, "size_on_volume"),
+    **COMPRESSION_GATES,
+    **_read_by_filter_or_sizing(TREND_GATES, "size_on_trend"),
+    **_read_by_filter_or_sizing(HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe"),
+    "early_partial_percentage": "earliness_mode",
+    "early_max_extension_atr": "earliness_mode",
+    "early_max_trend_bars": "earliness_mode",
+}
+"""InsideBar's map, with a label's axes also read when the confluence size counts that label,
+and the earliness axes read only with a rule on. What this cannot catch: the extension and the
+trend-age cut are each read under one mode alone -- ``docs/nt8-fidelity.md`` §M45.
+"""
+
+
+def _sizes_per_signal(params: Params) -> bool:
+    """Whether a combination sizes its lots per signal, which the reconciled NinjaScript does not."""
+    return isinstance(params, InsideBarTrailingParams) and (
+        params.earliness_mode != EARLINESS_OFF or params.quantity_per_confluence > 0
+    )
+
+
 ELASTICBAND_GATES: Mapping[str, str] = {
     **REGIME_GATES,
     **VOLUME_GATES,
@@ -648,6 +707,18 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     not_sweepable: frozenset[str] = frozenset({"target_r_multiples"})
     """Fields that are not legal axes. Listed rather than inferred -- see #60."""
 
+    departs_from_port: Callable[[Params], bool] | None = None
+    """Whether a combination uses a rule its reconciled NinjaScript does not have. Such a row is
+    ``TIER1_ONLY`` whatever :attr:`tier2` says -- :meth:`tier2_for`."""
+
+    def tier2_for(self, params: Params) -> Tier2Status:
+        """The status one combination's results carry: :attr:`tier2`, unless it leaves the port."""
+        departs: bool = self.departs_from_port is not None and self.departs_from_port(params)
+        if departs and self.tier2 is Tier2Status.RECONCILED:
+            return Tier2Status.TIER1_ONLY
+
+        return self.tier2
+
     @property
     def sweepable(self) -> frozenset[str]:
         """Every field of :attr:`params_cls` that may be given a list of values.
@@ -721,12 +792,14 @@ INSIDEBARTRAILING = Archetype(
     legs=insidebartrailing.insidebartrailing_legs,
     signal=insidebar.insidebar_signal,
     tier2=Tier2Status.RECONCILED,
-    gated_by=INSIDEBAR_GATES,
+    gated_by=INSIDEBARTRAILING_GATES,
     context_for=insidebar_context,
+    departs_from_port=_sizes_per_signal,
 )
 """The fourth C#-backed port: InsideBar's entry, shared rather than copied, with split-lot
 exits. Diffed leg-for-leg against an MNQ 03-24 trade list, which overturned three of the four
-exit rules the port had inferred -- ``docs/nt8-fidelity.md`` §M23."""
+exit rules the port had inferred -- ``docs/nt8-fidelity.md`` §M23. Sizing per signal is not in
+that NinjaScript, so a row using it is ``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M45."""
 
 ELASTICBAND = Archetype(
     name="ElasticBand",

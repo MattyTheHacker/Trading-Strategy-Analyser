@@ -12,12 +12,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, sessions, sweep
+from nqbt import archetypes, conditions, context, sessions, sweep
 from nqbt.archetypes import Tier2Status
 from nqbt.instruments import MNQ, NQ
-from nqbt.sim import bracket, insidebartrailing
-from nqbt.sim.insidebar import insidebar_signal
-from nqbt.sim.types import InsideBarParams, InsideBarTrailingParams
+from nqbt.sim import bracket, filters, insidebartrailing
+from nqbt.sim.insidebar import insidebar_direction, insidebar_patterns, insidebar_signal, insidebar_trends
+from nqbt.sim.types import (
+    EARLINESS_FIRST_BREAKOUT,
+    EARLINESS_OFF,
+    EARLINESS_SMA_EXTENSION,
+    EARLINESS_TREND_AGE,
+    InsideBarParams,
+    InsideBarTrailingParams,
+)
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
 TICK = 0.25
@@ -27,6 +34,11 @@ the trailing lot is about the trailing lot."""
 
 FAR_TRAIL = 10.0
 """And a trail wide enough not to bind on :data:`QUIET` bars, for the mirror-image reason."""
+
+
+def fixed_sizing(quantities, n):
+    """One split for every entry, which is the NinjaScript as ported."""
+    return insidebartrailing.LotSizing(np.asarray([quantities], dtype=np.int64), np.zeros(n, dtype=np.int64))
 
 
 def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 property
@@ -40,6 +52,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
     fast_sma=0.0,
     force_flat_at=(),
     quantities=(4, 2),
+    sizing=None,
     atr_multiplier=1.0,
     tp_multiplier=1.0,
     trail_multiplier=FAR_TRAIL,
@@ -87,7 +100,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
         direction_at,
         series(atr),
         insidebartrailing.TrendAverages(series(ema), series(fast_sma)),
-        np.asarray(quantities, dtype=np.int64),
+        sizing if sizing is not None else fixed_sizing(quantities, n),
         bracket.Costs(TICK, instrument.point_value, commission, slippage),
         bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         insidebartrailing.InsideBarTrailingRules(
@@ -706,3 +719,374 @@ def test_a_lot_that_already_left_is_not_flattened_twice_by_the_clock() -> None:
     assert runner["exit_bar"] == 3
     assert bracketed["exit_reason"] == "time_limit"
     assert bracketed["exit_bar"] == 6
+
+
+# -- lot sizing per signal (§M45) ----------------------------------------------
+
+
+def two_row_sizing(signal_row, n, *, rows=((4, 2), (1, 3))):
+    """A two-split table with every bar on row 0 except the ones ``signal_row`` names."""
+    row_at = np.zeros(n, dtype=np.int64)
+    for bar, row in signal_row.items():
+        row_at[bar] = row
+
+    return insidebartrailing.LotSizing(np.asarray(rows, dtype=np.int64), row_at)
+
+
+def test_an_entry_takes_the_split_its_signal_bar_names() -> None:
+    sizing = two_row_sizing({1: 1}, len(QUIET))
+    trades = run(QUIET, signal_at=[1], sizing=sizing)
+    assert list(trades["leg"]) == [1, 2]
+    assert list(trades["quantity"]) == [1, 3]
+
+
+def test_the_split_is_read_at_the_signal_bar_and_not_the_fill_bar() -> None:
+    """The size is decided at the close that submits the order; the fill bar has not closed."""
+    sizing = two_row_sizing({2: 1}, len(QUIET))
+    trades = run(QUIET, signal_at=[1], sizing=sizing)
+    assert list(trades["quantity"]) == [4, 2]
+
+
+def test_each_trade_takes_its_own_split() -> None:
+    rows = [*STOPPED_ON_ENTRY[:3], FLAT, FLAT, (100.0, 100.5, 90.0, 95.0), *QUIET]
+    sizing = two_row_sizing({4: 1}, len(rows))
+    trades = run(rows, signal_at=[1, 4], sizing=sizing, atr=0.5, trail_multiplier=1.0)
+    by_trade = trades.sort_values(["trade_id", "leg"]).groupby("trade_id")["quantity"].apply(list).to_dict()
+    assert by_trade == {1: [4, 2], 2: [1, 3]}
+
+
+def test_the_loss_gate_reads_the_trades_own_size() -> None:
+    """The ``-200`` is currency on the open position, so a larger split reaches it sooner.
+
+    :data:`GATE_SCALE` is $40 down on the four-lot left open on MNQ; the same five points on a
+    25-lot are $250.
+    """
+    kwargs = {
+        "signal_at": [1],
+        "ema": [0.0] * 3 + [-1.0] * 10,
+        "trail_multiplier": 10.0,
+        "loss_gate": 200.0,
+    }
+    small = run(GATE_SCALE, sizing=two_row_sizing({}, len(GATE_SCALE), rows=((4, 2), (25, 2))), **kwargs)
+    large = run(GATE_SCALE, sizing=two_row_sizing({1: 1}, len(GATE_SCALE), rows=((4, 2), (25, 2))), **kwargs)
+    assert "signal" not in set(small["exit_reason"])
+    assert "signal" in set(large["exit_reason"])
+
+
+def test_the_default_lot_table_is_the_one_fixed_split() -> None:
+    params = InsideBarTrailingParams()
+    assert params.lot_table == (params.leg_quantities,) == ((4, 2),)
+    assert params.sizing_labels == ()
+
+
+def test_earliness_adds_an_early_tier_in_front_of_the_established_one() -> None:
+    params = InsideBarTrailingParams(earliness_mode=EARLINESS_FIRST_BREAKOUT)
+    # 6 contracts: a quarter rounds up to 2, and the established tier keeps 0.6 -> 4.
+    assert params.lot_table == ((2, 4), (4, 2))
+
+
+def test_confluence_adds_a_row_per_count_within_each_tier() -> None:
+    params = InsideBarTrailingParams(
+        order_quantity=4,
+        partial_take_profit_percentage=0.5,
+        earliness_mode=EARLINESS_TREND_AGE,
+        quantity_per_confluence=2,
+        size_on_vwap=True,
+        size_on_trend=True,
+    )
+    assert params.sizing_labels == ("size_on_trend", "size_on_vwap")
+    early = ((1, 3), (2, 4), (2, 6))
+    established = ((2, 2), (3, 3), (4, 4))
+    assert params.lot_table == (*early, *established)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"earliness_mode": 9}, "earliness_mode must be one of"),
+        (
+            {"earliness_mode": EARLINESS_FIRST_BREAKOUT, "early_partial_percentage": 0.95},
+            r"must be in \[0, 0.9\]",
+        ),
+        ({"early_max_extension_atr": -0.5}, "early_max_extension_atr must be >= 0"),
+        ({"early_max_trend_bars": 0}, "early_max_trend_bars >= 1"),
+        ({"quantity_per_confluence": -1}, "contract count"),
+        ({"quantity_per_confluence": 1}, "fixed size under another name"),
+        ({"size_on_regime": True}, "fixed size under another name"),
+        (
+            {"earliness_mode": EARLINESS_FIRST_BREAKOUT, "early_partial_percentage": 0.0},
+            "lot of zero contracts",
+        ),
+        (
+            {
+                "order_quantity": 2,
+                "partial_take_profit_percentage": 0.5,
+                "earliness_mode": EARLINESS_TREND_AGE,
+            },
+            "which is earliness_mode off",
+        ),
+    ],
+)
+def test_a_sizing_rule_that_cannot_run_or_runs_as_fixed_size_is_refused(overrides, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        InsideBarTrailingParams(**overrides)
+
+
+def test_tiers_that_differ_at_some_count_are_not_refused() -> None:
+    """At 2 contracts a quarter and a half are both one lot, but a third label's step splits them."""
+    params = InsideBarTrailingParams(
+        order_quantity=2,
+        partial_take_profit_percentage=0.5,
+        earliness_mode=EARLINESS_TREND_AGE,
+        quantity_per_confluence=2,
+        size_on_regime=True,
+    )
+    assert params.lot_table == ((1, 1), (1, 3), (1, 1), (2, 2))
+
+
+def walk_bars(n=4000, seed=3):
+    """A trending random walk, so both sides' trends run long enough to hold several setups."""
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
+    close = 16000.0 + np.cumsum(rng.normal(0.05, 1.0, n))
+    open_ = np.concatenate([[close[0]], close[:-1]])
+    high = np.maximum(open_, close) + np.abs(rng.normal(0, 1.5, n))
+    low = np.minimum(open_, close) - np.abs(rng.normal(0, 1.5, n))
+    bars = pd.DataFrame(
+        {
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.integers(1, 500, n).astype(float),
+        },
+        index=idx,
+    )
+    bars["trading_day"] = sessions.classify(idx).trading_day
+
+    return bars
+
+
+def short_periods(**overrides) -> InsideBarTrailingParams:
+    """Periods short enough for trends to start and stop many times in :func:`walk_bars`."""
+    defaults = {"ema_period": 5, "fast_sma_period": 8, "slow_sma_period": 13, "error_margin": 0.01}
+
+    return InsideBarTrailingParams(**{**defaults, **overrides})
+
+
+def first_of_run_by_brute_force(run_mask, event):
+    """Walk back to each bar's run start and look for an earlier event: the definition, slowly."""
+    out = []
+    for i in range(len(run_mask)):
+        start = i
+        while run_mask[i] and start > 0 and run_mask[start - 1]:
+            start -= 1
+        out.append(not run_mask[i] or not event[start:i].any())
+
+    return np.asarray(out)
+
+
+def test_first_breakout_is_early_only_before_any_setup_in_the_same_trend_run() -> None:
+    params = short_periods(earliness_mode=EARLINESS_FIRST_BREAKOUT)
+    data = prepared(walk_bars(), params)
+    direction_at = insidebar_direction(data, params)
+    up, down = insidebar_trends(data, params)
+    long_pattern, short_pattern = insidebar_patterns(data, params)
+    expected = np.where(
+        direction_at == LONG,
+        first_of_run_by_brute_force(up, long_pattern),
+        first_of_run_by_brute_force(down, short_pattern),
+    )
+    early = insidebartrailing.early_entries(data, params, direction_at)
+    assert np.array_equal(early, expected)
+    patterns = long_pattern | short_pattern
+    assert early[patterns].any(), "no setup was first in its run, so the test proves nothing"
+    assert not early[patterns].all(), "no setup was a second one, so the test proves nothing"
+
+
+def test_trend_age_is_early_up_to_the_cut_and_established_after() -> None:
+    params = short_periods(earliness_mode=EARLINESS_TREND_AGE, early_max_trend_bars=4)
+    data = prepared(walk_bars(), params)
+    direction_at = insidebar_direction(data, params)
+    up, down = insidebar_trends(data, params)
+    early = insidebartrailing.early_entries(data, params, direction_at)
+    age = np.where(direction_at == LONG, conditions.consecutive_true(up), conditions.consecutive_true(down))
+    assert np.array_equal(early, age <= 4)
+    assert early[age == 4].all()
+    assert not early[age == 5].any()
+    assert early[age == 0].all(), "outside a trend on its side, no move has been established"
+
+
+def test_sma_extension_is_early_within_the_cut_and_unmeasurable_is_established() -> None:
+    params = short_periods(earliness_mode=EARLINESS_SMA_EXTENSION, early_max_extension_atr=1.5)
+    data = prepared(walk_bars(), params)
+    direction_at = insidebar_direction(data, params)
+    early = insidebartrailing.early_entries(data, params, direction_at)
+    slow = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
+    extension = np.abs(data.close - slow) / data.atr_values(params.atr_length)
+    measurable = np.isfinite(extension)
+    assert np.array_equal(early[measurable], extension[measurable] <= 1.5)
+    assert early.any()
+    assert not early.all()
+
+
+def test_an_unmeasurable_extension_reads_established() -> None:
+    params = short_periods(earliness_mode=EARLINESS_SMA_EXTENSION)
+    data = prepared(walk_bars(), params)
+    data.atr_values(params.atr_length)[:] = 0.0
+    early = insidebartrailing.early_entries(data, params, insidebar_direction(data, params))
+    slow = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
+    assert not early[data.close != slow].any()
+
+
+def test_every_bar_is_early_tier_while_earliness_is_off() -> None:
+    params = short_periods()
+    data = prepared(walk_bars(), params)
+    tiers = insidebartrailing.earliness_tiers(data, params, insidebar_direction(data, params))
+    assert not tiers.any()
+
+
+def test_the_side_dependent_labels_flip_with_the_side_and_the_others_do_not() -> None:
+    params = short_periods(quantity_per_confluence=1, size_on_vwap=True, size_on_regime=True)
+    data = prepared(walk_bars(), params)
+    n = len(data)
+    long_side = np.ones(n, dtype=np.bool_)
+    as_long = filters.favourable_labels(data, params, long_side)
+    as_short = filters.favourable_labels(data, params, ~long_side)
+    vwap_long, regime_long = as_long
+    vwap_short, regime_short = as_short
+    assert np.array_equal(vwap_long, data.vwap_gate(above=True))
+    assert np.array_equal(vwap_short, data.vwap_gate(above=False))
+    assert np.array_equal(regime_long, regime_short)
+    assert vwap_long.any()
+    assert vwap_short.any()
+
+
+def test_every_label_kind_can_be_counted_and_the_count_is_their_sum() -> None:
+    params = short_periods(
+        quantity_per_confluence=1,
+        size_on_trend=True,
+        size_on_higher_timeframe=True,
+        size_on_vwap=True,
+        size_on_regime=True,
+        size_on_volume=True,
+    )
+    data = prepared(walk_bars(), params)
+    direction_at = insidebar_direction(data, params)
+    rows = filters.favourable_labels(data, params, direction_at == LONG)
+    counts = insidebartrailing.confluence_counts(data, params, direction_at)
+    assert len(rows) == 5
+    assert np.array_equal(counts, np.sum(rows, axis=0))
+    assert counts.max() <= 5
+
+
+def test_no_labels_counts_nothing() -> None:
+    params = short_periods()
+    data = prepared(walk_bars(), params)
+    assert not insidebartrailing.confluence_counts(data, params, insidebar_direction(data, params)).any()
+
+
+def test_every_row_a_bar_can_take_is_in_the_table() -> None:
+    params = short_periods(
+        earliness_mode=EARLINESS_FIRST_BREAKOUT,
+        quantity_per_confluence=1,
+        size_on_vwap=True,
+        size_on_regime=True,
+    )
+    data = prepared(walk_bars(), params)
+    sizing = insidebartrailing.lot_sizing(data, params, insidebar_direction(data, params))
+    assert sizing.quantities.shape == (6, 2)
+    assert sizing.row_at.min() >= 0
+    assert sizing.row_at.max() < 6
+
+
+def test_each_trade_is_sized_off_its_signal_bar_end_to_end() -> None:
+    """Total size is ``order_quantity`` plus a step per favourable label, and the bracketed lot
+    takes the share its tier names -- both read at the bar before the fill."""
+    params = short_periods(
+        earliness_mode=EARLINESS_TREND_AGE,
+        early_max_trend_bars=3,
+        early_partial_percentage=0.25,
+        partial_take_profit_percentage=0.5,
+        order_quantity=4,
+        quantity_per_confluence=2,
+        size_on_vwap=True,
+        size_on_regime=True,
+    )
+    data = prepared(walk_bars(), params)
+    direction_at = insidebar_direction(data, params)
+    counts = insidebartrailing.confluence_counts(data, params, direction_at)
+    early = insidebartrailing.early_entries(data, params, direction_at)
+    log = insidebartrailing.run_insidebartrailing(data, params, MNQ)
+    assert log["trade_id"].nunique() > 10
+
+    by_trade = log.groupby("trade_id")
+    signal_bar = by_trade["entry_bar"].first().to_numpy() - 1
+    total = by_trade["quantity"].sum().to_numpy()
+    bracketed = log[log["leg"] == 1].set_index("trade_id")["quantity"].sort_index().to_numpy()
+    expected_total = 4 + 2 * counts[signal_bar]
+    expected_share = np.where(early[signal_bar], 0.25, 0.5)
+    assert np.array_equal(total, expected_total)
+    assert np.array_equal(bracketed, np.ceil(expected_total * expected_share).astype(int))
+    assert len(set(total)) > 1, "every trade took one size, so the count was never exercised"
+    assert len(set(early[signal_bar])) == 2, "only one tier was reached"
+
+
+def test_sizing_off_reproduces_the_fixed_split_bar_for_bar() -> None:
+    """What the trade-log gate protects: the default path must not move a number."""
+    params = short_periods()
+    data = prepared(walk_bars(), params)
+    direction_at = insidebar_direction(data, params)
+    sized = insidebartrailing.lot_sizing(data, params, direction_at)
+    assert sized.quantities.tolist() == [list(params.leg_quantities)]
+    assert not sized.row_at.any()
+
+
+# -- the registry and the sweep, for the sizing axes -----------------------------
+
+
+def test_a_label_axis_is_live_when_sizing_reads_it_even_with_its_filter_off() -> None:
+    sized = short_periods(quantity_per_confluence=1, size_on_regime=True)
+    sweep.Grid.of(sized, regime_lookback=[10, 20])
+    with pytest.raises(sweep.SweepError, match=r"regime_filter is 7 and size_on_regime is False"):
+        sweep.Grid.of(short_periods(), regime_lookback=[10, 20])
+
+
+def test_the_earliness_axes_are_dead_while_earliness_is_off() -> None:
+    with pytest.raises(
+        sweep.SweepError, match=r"early_partial_percentage \(inert while earliness_mode is 0\)"
+    ):
+        sweep.Grid.of(short_periods(), early_partial_percentage=[0.25, 0.3])
+
+    sweep.Grid.of(short_periods(earliness_mode=EARLINESS_TREND_AGE), early_max_trend_bars=[5, 10])
+
+
+def test_sizing_on_a_label_builds_its_series_and_nothing_else_does() -> None:
+    bare = sweep.Grid.of(short_periods()).required_context()
+    assert not bare.needs_vwap
+    assert bare.regime_lookbacks == ()
+    sized = sweep.Grid.of(
+        short_periods(quantity_per_confluence=1, size_on_vwap=True, size_on_regime=True),
+    ).required_context()
+    assert sized.needs_vwap
+    assert sized.regime_lookbacks == (short_periods().regime_lookback,)
+
+
+def test_a_row_that_sizes_per_signal_is_tier1_only() -> None:
+    """The reconciled NinjaScript sizes every entry the same; nothing has diffed the rest."""
+    archetype = archetypes.INSIDEBARTRAILING
+    assert archetype.tier2_for(InsideBarTrailingParams()) is Tier2Status.RECONCILED
+    assert (
+        archetype.tier2_for(InsideBarTrailingParams(earliness_mode=EARLINESS_TREND_AGE))
+        is Tier2Status.TIER1_ONLY
+    )
+    sized = InsideBarTrailingParams(quantity_per_confluence=1, size_on_volume=True)
+    assert archetype.tier2_for(sized) is Tier2Status.TIER1_ONLY
+    assert archetypes.INSIDEBAR.tier2_for(InsideBarParams()) is Tier2Status.RECONCILED
+
+
+def test_sweep_axes_stamps_the_status_row_by_row() -> None:
+    grid = sweep.Grid.of(short_periods(), earliness_mode=[EARLINESS_OFF, EARLINESS_TREND_AGE])
+    table, _ = sweep.sweep_axes(walk_bars(1500), grid)
+    by_mode = dict(zip(table["earliness_mode"], table["tier2"], strict=True))
+    assert by_mode == {EARLINESS_OFF: "reconciled", EARLINESS_TREND_AGE: "tier-1-only"}

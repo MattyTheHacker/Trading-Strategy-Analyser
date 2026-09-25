@@ -88,6 +88,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M42`                                                                               | [M42 — InsideBarTrailing's midday cell through the exclusion test and gate 4](m42-insidebartrailing-gate-4.md)                                           | InsideBarTrailing                                                                                   | 4          | `mixed`       | [#345]                         |
 | `§M43`                                                                               | [M43 — the two midday candidates ranked for a prop MNQ account, and the cell to port](m43-midday-candidates-ranked.md)                                   | InsideBarTrailing, OpeningRange                                                                     | --         | `positive`    | [#347]                         |
 | `§M44`                                                                               | [M44 — the registry re-swept on a repaired archive, and the three gates re-read against it](m44-registry-resweep.md)                                     | all 9                                                                                               | 1, 2, 3, 4 | `mixed`       | [#360]                         |
+| `§M45`                                                                               | [M45 — pre-registration: InsideBarTrailing's position size, tiered scale-out and confluence size](m45-ibt-sizing-preregistration.md)                     | InsideBarTrailing                                                                                   | 2, 3       | `spec`        | [#295], [#353]                 |
 | `§ "Counting the confluence a trade actually had"`                                   | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                            | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"` | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                                                 | all 9                                                                                               | --         | `mixed`       | [#330]                         |
 | `§ "Multi-timeframe moving averages"`                                                | [Multi-timeframe moving averages](multi-timeframe-moving-averages.md)                                                                                    | EmaCrossover                                                                                        | 1          | `negative`    | [#73]                          |
@@ -322,6 +323,10 @@ InsideBarTrailing's midday cell is the one to port. The two objectives themselve
 
 Gate 3 reproduces almost exactly — 47 of 200 tests clear p = 0.05 against §M28.16's 46, and three of its four both-root cells hold — while §M42's exclusion reading does not, falling from nine survivors of twenty to one; and the archive is now one series on both roots, so every stored row is re-derivable for the first time since it was extended.
 
+**[M45 — pre-registration: InsideBarTrailing's position size, tiered scale-out and confluence size](m45-ibt-sizing-preregistration.md)**
+
+Written before any sizing arm runs: an earliness tier clears only if, held out in the midday cell at five minutes, it beats both the fixed half split and its own inverse on a paired sign test at p < 0.05 on both roots; the confluence size clears only if at least 4 of 20 held-out configurations beat their own sizes shuffled at p ≤ 0.05 on both roots; and position size is read through the account replay rather than tested.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -382,6 +387,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#288]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/288
 [#289]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/289
 [#292]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/292
+[#295]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/295
 [#298]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/298
 [#299]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/299
 [#300]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/300
@@ -396,6 +402,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#345]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/345
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
 [#347]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/347
+[#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
 [#360]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/360
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41

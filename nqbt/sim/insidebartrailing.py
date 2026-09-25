@@ -20,10 +20,17 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numba import njit
 
-from nqbt import trades
+from nqbt import conditions, trades
 from nqbt.instruments import MNQ, Instrument
-from nqbt.sim import bracket, insidebar
-from nqbt.sim.types import STOP_MIN_TICKS
+from nqbt.sim import bracket, filters, insidebar
+from nqbt.sim.types import (
+    EARLINESS_OFF,
+    EARLINESS_SMA_EXTENSION,
+    EARLINESS_TREND_AGE,
+    EARLY_TIER,
+    ESTABLISHED_TIER,
+    STOP_MIN_TICKS,
+)
 from nqbt.trades import C_EXIT_PRICE
 
 if TYPE_CHECKING:
@@ -75,6 +82,17 @@ class InsideBarTrailingRules(NamedTuple):
     bars_required: int
     block_entry_at_session_close: bool
     max_hold_bars: int
+
+
+class LotSizing(NamedTuple):
+    """Each entry's two lot sizes: every split a signal can take, and the row each bar takes.
+
+    ``quantities`` is :attr:`nqbt.sim.types.InsideBarTrailingParams.lot_table` as a
+    ``[rows, lots]`` array; ``row_at`` is read at the signal bar -- ``docs/nt8-fidelity.md`` §M45.
+    """
+
+    quantities: IntArray
+    row_at: IntArray
 
 
 @njit(cache=True)
@@ -223,7 +241,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     direction_at: FloatArray,
     atr: FloatArray,
     averages: TrendAverages,
-    leg_quantities: IntArray,
+    sizing: LotSizing,
     costs: bracket.Costs,
     fills: bracket.FillRules,
     rules: InsideBarTrailingRules,
@@ -236,11 +254,11 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     Both lots fill together at the next bar's open and are bracketed off the same fill: the
     bracketed lot takes an ATR stop beyond the inside bar and a target ``tp_multiplier`` ATRs
     from the fill, the trailing lot takes a stop ``trailing_stop_multiplier`` inside-bar ranges
-    behind the high-water mark and no target. Returns the number of rows written, or ``-1`` if
-    ``out`` overflowed.
+    behind the high-water mark and no target. Their sizes are the ``sizing`` row the signal
+    bar names. Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
     n = bars.close.size
-    n_lots = leg_quantities.size
+    n_lots = sizing.quantities.shape[1]
     slippage = bracket.slippage_points(costs)
     min_risk = STOP_MIN_TICKS * costs.tick_size
 
@@ -261,7 +279,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     legs = bracket.Legs(
         np.zeros(n_lots, dtype=np.bool_),
         np.zeros(n_lots, dtype=np.float64),
-        leg_quantities,
+        np.zeros(n_lots, dtype=np.int64),
     )
     lots = Lots(
         np.zeros(n_lots, dtype=np.float64),
@@ -369,6 +387,9 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 )
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
                 raw_target = fill + d * bar_atr * rules.tp_multiplier
+                row = sizing.row_at[pending_bar]
+                for lot in range(n_lots):
+                    legs.quantity[lot] = sizing.quantities[row, lot]
                 legs.is_open[BRACKETED_LOT] = True
                 legs.is_open[TRAILING_LOT] = True
                 lots.stop[BRACKETED_LOT] = fixed_stop
@@ -484,22 +505,88 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     return written
 
 
+def lot_sizing(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> LotSizing:
+    """Every split this combination can take, and the row each bar would take for its side."""
+    per_tier: int = len(params.sizing_labels) + 1
+    rows: IntArray = earliness_tiers(data, params, direction_at) * per_tier + confluence_counts(
+        data,
+        params,
+        direction_at,
+    )
+
+    return LotSizing(np.asarray(params.lot_table, dtype=np.int64), rows)
+
+
+def earliness_tiers(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
+    """Each bar's tier for the side it would be entered on; every bar is early while the rule is off."""
+    if params.earliness_mode == EARLINESS_OFF:
+        return np.zeros(len(data), dtype=np.int64)
+
+    return np.where(early_entries(data, params, direction_at), EARLY_TIER, ESTABLISHED_TIER).astype(np.int64)
+
+
+def early_entries(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> BoolArray:
+    """Whether an entry at each bar, on the side it would take, is early under ``earliness_mode``.
+
+    A bar outside a trend on its side reads early: no move has been established there. An
+    extension that cannot be measured reads established -- ``docs/nt8-fidelity.md`` §M45.
+    """
+    if params.earliness_mode == EARLINESS_SMA_EXTENSION:
+        slow: FloatArray = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            extension: FloatArray = np.abs(data.close - slow) / data.atr_values(params.atr_length)
+
+        return extension <= params.early_max_extension_atr
+
+    long_side: BoolArray = direction_at == trades.LONG
+    up_trend, down_trend = insidebar.insidebar_trends(data, params)
+    if params.earliness_mode == EARLINESS_TREND_AGE:
+        age: IntArray = np.where(
+            long_side,
+            conditions.consecutive_true(up_trend),
+            conditions.consecutive_true(down_trend),
+        )
+
+        return age <= params.early_max_trend_bars
+
+    long_pattern, short_pattern = insidebar.insidebar_patterns(data, params)
+    earlier: IntArray = np.where(
+        long_side,
+        conditions.events_earlier_in_run(up_trend, long_pattern),
+        conditions.events_earlier_in_run(down_trend, short_pattern),
+    )
+    first_of_run: BoolArray = earlier == 0
+
+    return first_of_run
+
+
+def confluence_counts(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
+    """How many of the ``size_on_*`` labels favour the side each bar would be entered on."""
+    favourable: list[BoolArray] = filters.favourable_labels(data, params, direction_at == trades.LONG)
+    if not favourable:
+        return np.zeros(len(data), dtype=np.int64)
+
+    return conditions.count_true(np.stack(favourable))
+
+
 def insidebartrailing_legs(
     data: Dataset,
     params: InsideBarTrailingParams,
     instrument: Instrument = MNQ,
     *,
     signal: BoolArray | None = None,
+    sizing: LotSizing | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 
     The signal and direction series are :mod:`nqbt.sim.insidebar`'s, read with this
-    archetype's defaults; ``signal`` overrides the first for the random-entry control arm.
+    archetype's defaults; ``signal`` overrides the first for the random-entry control arm, and
+    ``sizing`` the per-signal split for the shuffled-size one.
     """
     direction_at: FloatArray = insidebar.insidebar_direction(data, params)
     signal = insidebar.insidebar_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
-    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
+    sizing = lot_sizing(data, params, direction_at) if sizing is None else sizing
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 
     count: int = simulate_insidebar_trailing(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
@@ -510,7 +597,7 @@ def insidebartrailing_legs(
             ema=data.ma_values(params.ema_kind, params.ema_period),
             fast_sma=data.ma_values(params.fast_sma_kind, params.fast_sma_period),
         ),
-        quantities,
+        sizing,
         bracket.Costs(
             tick_size=instrument.tick_size,
             point_value=instrument.point_value,

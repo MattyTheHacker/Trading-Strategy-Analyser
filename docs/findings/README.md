@@ -58,7 +58,7 @@ At 4 contracts a full-size NQ position leaves almost no room under a trailing th
 
 Twenty-five points is smaller than a single stop at these resolutions. **No NQ configuration survives its first account on any preset — 0 of 526** — and that is arithmetic about contract size rather than anything about an entry rule (§M28.13). The best NQ InsideBar configuration on the holdout, 668 trades at a profit factor of 1.229 and $320,236 net on paper, is dead on its first trade.
 
-**So on a prop account at this size, trade MNQ.** NQ needs either a smaller position or a 150K account, and position size is an axis no campaign has ever swept.
+**So on a prop account at this size, trade MNQ.** NQ needs either a smaller position or a 150K account, and position size is an axis no campaign has ever swept — [§M45](m45-ibt-sizing-preregistration.md) pre-registers the first that does, on InsideBarTrailing, and has not run yet.
 
 ### The best cell: InsideBarTrailing, midday, on MNQ
 

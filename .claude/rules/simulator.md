@@ -229,6 +229,17 @@ below and is what you quote; this file is the index, not the record.
   lots resolve through `resolve_brackets` one at a time with the other legs masked out, so the
   engine takes one stop for the whole position exactly as it always has. Deliberate: the
   abstraction gets extracted when a second archetype needs it. `docs/roadmap.md` §M23.
+- **InsideBarTrailing's split is chosen per signal, and read at the signal bar.**
+  `insidebartrailing.LotSizing` is every split a combination can take plus the row each bar
+  takes; the loop copies the signal bar's row into the lots at the fill. **Never read a sizing
+  input at the fill bar** -- its close is in the future when the order goes in, and the trade log
+  carries only the fill bar, so `annotate` read there is lookahead. With earliness and the
+  confluence size off the table is the one fixed split, which is what the trade-log gate
+  protects. The `-200` gate reads each trade's own quantity. `docs/nt8-fidelity.md` §M45.
+- **The sizing count is not the gating count.** `size_on_*` labels add contracts and narrow no
+  entry; `confluence_required` narrows the entry and sizes nothing. The sizing labels read each
+  side's own favourable state -- `filters.favourable_labels` -- where the context filters are
+  side-blind masks, so an `UP` trend filter admits shorts in an uptrend.
 - **A trailing stop is not the ratchet.** It follows the high-water mark by a fixed distance;
   the ratchet moves to a lagged bar's extreme. **It advances within its entry bar and at the
   close of every bar after**, which is two cadences and not one — a uniform within-bar rule

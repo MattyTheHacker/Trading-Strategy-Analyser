@@ -271,15 +271,23 @@ def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
     return np.where(up, trades.LONG, trades.SHORT).astype(np.float64)
 
 
-def insidebar_signal(data: Dataset, params: InsideBarParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open.
+def insidebar_patterns(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
+    """The long and short setups on their own, before any clock or context filter narrows them.
 
     An inside bar behind this one, a close clearing the mother bar's extreme by the error
     margin, and all three averages agreeing with the direction of the break.
     """
     up_trend, down_trend = insidebar_trends(data, params)
     up_break, down_break = insidebar_breakouts(data, params)
-    signal: BoolArray = data.geometry.prior_bar_inside & ((up_break & up_trend) | (down_break & down_trend))
+    inside: BoolArray = data.geometry.prior_bar_inside
+
+    return inside & up_break & up_trend, inside & down_break & down_trend
+
+
+def insidebar_signal(data: Dataset, params: InsideBarParams) -> BoolArray:
+    """Bars whose close schedules an entry for the next bar's open: a pattern the filters admit."""
+    long_pattern, short_pattern = insidebar_patterns(data, params)
+    signal: BoolArray = long_pattern | short_pattern
     if params.no_entry_minutes_before_close > 0:
         signal &= data.session_end_gate(params.no_entry_minutes_before_close)
 
