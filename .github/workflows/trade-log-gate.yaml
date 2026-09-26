@@ -1,0 +1,168 @@
+name: Trade-log Regression Gate
+
+# CONTRIBUTING.md, "The trade-log regression gate", run on every pull request that changes more
+# than documentation: capture the base and the head over the same bars and fail if a number
+# moved. The rules that keep it honest are in .claude/rules/regression-gate.md -- above all,
+# each side gets its own environment.
+#
+# The documentation check lives in the job rather than under `on:`, because a workflow that
+# never starts leaves a required check waiting forever. The override label is read when the
+# verdict runs, not from the event, so that re-running the failed job is what applies it.
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Named explicitly for its pipefail, which the unnamed default lacks: without it a failed
+# `git diff` would feed the documentation check nothing, and nothing reads as "skip the gate".
+defaults:
+  run:
+    shell: bash
+
+env:
+  DATA_URL: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/releases/download/trade-log-gate-data-1
+  CONTRACT_SHA256: ce4d388addaad4ea07789cb52f4d8945fcb8a9b4d817448f71dd60a6e3abd364
+  CONTINUOUS_SHA256: 63a7cc4c48f7a03b4d73d18822041cc8bc5b66a55970d885b6fd5a0016022fa1
+
+jobs:
+  gate:
+    name: Trade-log regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The merge commit, with its first parent: exactly the base the merge was computed against.
+      - uses: actions/checkout@v7
+        with:
+          path: head
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Decide whether the change is documentation only
+        id: scope
+        working-directory: head
+        run: git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/trade_log_gate_ci.py applies >> "$GITHUB_OUTPUT"
+
+      - name: Say why the gate did not run
+        if: steps.scope.outputs.applies != 'true'
+        run: echo "Only documentation changed, so the trade-log gate did not run." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out the base beside the head
+        if: steps.scope.outputs.applies == 'true'
+        run: git -C head worktree add --detach ../base HEAD^1
+
+      - name: Fetch the bars the capture reads
+        if: steps.scope.outputs.applies == 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL --retry 3 -O "$DATA_URL/MNQ_2024H.parquet"
+          curl -fsSL --retry 3 -O "$DATA_URL/MNQ_backadj.parquet"
+          printf '%s  %s\n' "$CONTRACT_SHA256" MNQ_2024H.parquet "$CONTINUOUS_SHA256" MNQ_backadj.parquet | sha256sum --check --strict
+          for tree in base head; do
+            mkdir -p "$GITHUB_WORKSPACE/$tree/cache/bars/MNQ" "$GITHUB_WORKSPACE/$tree/cache/continuous"
+            cp MNQ_2024H.parquet "$GITHUB_WORKSPACE/$tree/cache/bars/MNQ/"
+            cp MNQ_backadj.parquet "$GITHUB_WORKSPACE/$tree/cache/continuous/"
+          done
+
+      - name: Set up the base's Python
+        if: steps.scope.outputs.applies == 'true'
+        id: base-python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: base/.python-version
+          cache: 'pip'
+          cache-dependency-path: |
+            base/pyproject.toml
+            head/pyproject.toml
+
+      - name: Set up the head's Python
+        if: steps.scope.outputs.applies == 'true'
+        id: head-python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: head/.python-version
+
+      - name: Install each tree into its own environment
+        if: steps.scope.outputs.applies == 'true'
+        env:
+          BASE_PYTHON: ${{ steps.base-python.outputs.python-path }}
+          HEAD_PYTHON: ${{ steps.head-python.outputs.python-path }}
+        run: |
+          "$BASE_PYTHON" -m venv "$RUNNER_TEMP/base-venv"
+          "$HEAD_PYTHON" -m venv "$RUNNER_TEMP/head-venv"
+          for tree in base head; do
+            "$RUNNER_TEMP/$tree-venv/bin/python" -m pip install --upgrade pip
+            "$RUNNER_TEMP/$tree-venv/bin/python" -m pip install -e "./$tree"
+          done
+
+      # Run from outside both trees, so the working directory cannot supply the answer.
+      - name: Check each environment imports its own tree
+        if: steps.scope.outputs.applies == 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          for tree in base head; do
+            expected="$(realpath "$GITHUB_WORKSPACE/$tree/nqbt")"
+            found="$("$RUNNER_TEMP/$tree-venv/bin/python" -c 'import nqbt, pathlib; print(pathlib.Path(nqbt.__file__).resolve().parent)')"
+            if [ "$found" != "$expected" ]; then
+              echo "::error::the $tree environment imports $found rather than $expected"
+              exit 1
+            fi
+            echo "$tree imports $found"
+          done
+
+      - name: Capture the base
+        if: steps.scope.outputs.applies == 'true'
+        working-directory: base
+        run: '"$RUNNER_TEMP/base-venv/bin/python" tools/capture_trade_logs.py "$RUNNER_TEMP/before"'
+
+      - name: Capture the head
+        if: steps.scope.outputs.applies == 'true'
+        working-directory: head
+        run: '"$RUNNER_TEMP/head-venv/bin/python" tools/capture_trade_logs.py "$RUNNER_TEMP/after"'
+
+      - name: Compare the two captures
+        if: steps.scope.outputs.applies == 'true'
+        id: compare
+        working-directory: ${{ runner.temp }}
+        run: |
+          set +e
+          "$RUNNER_TEMP/head-venv/bin/python" "$GITHUB_WORKSPACE/head/tools/compare_trade_logs.py" before after > compare.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat compare.txt
+          (cd before && sha256sum -- *) > before.sha256
+          (cd after && sha256sum -- *) > after.sha256
+          diff before.sha256 after.sha256 > sha256.diff
+          echo "sha256-status=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Report the verdict
+        if: steps.scope.outputs.applies == 'true'
+        working-directory: ${{ runner.temp }}
+        env:
+          STATUS: ${{ steps.compare.outputs.status }}
+          SHA256_STATUS: ${{ steps.compare.outputs.sha256-status }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          labels="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name]')"
+          {
+            echo '## Trade-log regression gate'
+            echo '```text'
+            cat compare.txt
+            echo '```'
+            if [ "$SHA256_STATUS" = 0 ]; then
+              echo 'The sha256sum cross-check agrees: every file is byte-identical.'
+            else
+              echo 'The sha256sum cross-check differs. It is stricter than the gate -- a signed zero trips it -- so read which kind of difference this is before believing either.'
+              echo '```diff'
+              cat sha256.diff
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          "$RUNNER_TEMP/head-venv/bin/python" "$GITHUB_WORKSPACE/head/tools/trade_log_gate_ci.py" verdict \
+            --status "$STATUS" --output compare.txt --labels "$labels"

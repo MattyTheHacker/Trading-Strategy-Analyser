@@ -3,11 +3,13 @@ paths:
   - "tests/**"
   - "tools/capture_trade_logs.py"
   - "tools/compare_trade_logs.py"
+  - "tools/trade_log_gate_ci.py"
+  - ".github/workflows/trade-log-gate.yaml"
 ---
 
 # The trade-log regression gate
 
-`CONTRIBUTING.md` § "The trade-log regression gate" is the procedure. Four things it depends
+`CONTRIBUTING.md` § "The trade-log regression gate" is the procedure. Five things it depends
 on that are easy to undo:
 
 - **numba's `cache=True` does not track cross-module dependencies**, so a change to
@@ -29,3 +31,12 @@ on that are easy to undo:
   directly**, one field, and check the reported column is the one you edited.
 - **Do not check a reconciliation by leg count** — join on `(entry_time, leg)`. See
   `.claude/rules/data-pipeline.md`.
+- **Each side of a CI run needs its own environment.** An editable install resolves `nqbt` by
+  where it was installed, not by where the script runs from, so `base/tools/capture_trade_logs.py`
+  under the head's venv imports the head's `nqbt`: both captures run the same code and the gate
+  passes because the change never ran, exactly as with a stale JIT cache. Measured on a toy
+  package: one shared editable install, the other tree's script, the installed tree's code.
+  `.github/workflows/trade-log-gate.yaml` builds one venv per tree and checks which tree each
+  imports before it captures — **do not merge them to save an install.** Separate venvs are
+  also what lets a dependency bump install the base's pins on one side and the head's on the
+  other.
