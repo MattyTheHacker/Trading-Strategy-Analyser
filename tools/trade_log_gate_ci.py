@@ -20,19 +20,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-COVERED_DIRECTORIES = ("nqbt/",)
-
-COVERED_FILES = frozenset(
-    {
-        ".github/workflows/trade-log-gate.yaml",
-        ".python-version",
-        "pyproject.toml",
-        "tools/capture_trade_logs.py",
-        "tools/compare_trade_logs.py",
-        "tools/trade_log_gate_ci.py",
-    }
-)
-"""The interpreter and dependency pins and the gate's own machinery, beside the package itself."""
+DOCUMENTATION_DIRECTORIES = ("docs/",)
+DOCUMENTATION_SUFFIXES = (".md",)
+DOCUMENTATION_FILES = frozenset({"Trading-Docs"})
+"""The documentation submodule, whose pointer is the only path a bump of it changes."""
 
 ACCEPT_LABEL = "expected-trade-log-change"
 """The label that says a pull request means to move a number."""
@@ -68,9 +59,18 @@ MESSAGES = {
 PASSING = frozenset({Verdict.IDENTICAL, Verdict.ACCEPTED})
 
 
+def is_documentation(path: str) -> bool:
+    """Whether a changed path is documentation, which is all the gate lets a pull request skip it for."""
+    return (
+        path in DOCUMENTATION_FILES
+        or path.startswith(DOCUMENTATION_DIRECTORIES)
+        or path.endswith(DOCUMENTATION_SUFFIXES)
+    )
+
+
 def applies(changed_paths: Iterable[str]) -> bool:
-    """Whether any changed path is one that can move a number."""
-    return any(path in COVERED_FILES or path.startswith(COVERED_DIRECTORIES) for path in changed_paths)
+    """Whether the gate runs: on every pull request that changes anything but documentation."""
+    return not all(is_documentation(path) for path in changed_paths)
 
 
 def verdict(status: int, output: str, labels: Iterable[str]) -> Verdict:

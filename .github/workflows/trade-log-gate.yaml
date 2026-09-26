@@ -1,12 +1,13 @@
 name: Trade-log Regression Gate
 
-# CONTRIBUTING.md, "The trade-log regression gate", run on every pull request: capture the base
-# and the head over the same bars and fail if a number moved. The rules that keep it honest are
-# in .claude/rules/regression-gate.md -- above all, each side gets its own environment.
+# CONTRIBUTING.md, "The trade-log regression gate", run on every pull request that changes more
+# than documentation: capture the base and the head over the same bars and fail if a number
+# moved. The rules that keep it honest are in .claude/rules/regression-gate.md -- above all,
+# each side gets its own environment.
 #
-# The path filter lives in the job rather than under `on:`, and no step is skipped by label: a
-# workflow that never starts leaves a required check waiting forever, and a skipped run posts a
-# pass over an earlier failure on the same commit.
+# The documentation check lives in the job rather than under `on:`, and no step is skipped by
+# label: a workflow that never starts leaves a required check waiting forever, and a skipped run
+# posts a pass over an earlier failure on the same commit.
 
 on:
   pull_request:
@@ -20,15 +21,15 @@ permissions:
   contents: read
 
 # Named explicitly for its pipefail, which the unnamed default lacks: without it a failed
-# `git diff` would feed the path check nothing, and nothing reads as "skip the gate".
+# `git diff` would feed the documentation check nothing, and nothing reads as "skip the gate".
 defaults:
   run:
     shell: bash
 
 env:
   DATA_URL: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/releases/download/trade-log-gate-data-1
-  CONTRACT_SHA256: pending-the-first-release
-  CONTINUOUS_SHA256: pending-the-first-release
+  CONTRACT_SHA256: ce4d388addaad4ea07789cb52f4d8945fcb8a9b4d817448f71dd60a6e3abd364
+  CONTINUOUS_SHA256: 63a7cc4c48f7a03b4d73d18822041cc8bc5b66a55970d885b6fd5a0016022fa1
 
 jobs:
   gate:
@@ -43,14 +44,14 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Decide whether the change can move a number
+      - name: Decide whether the change is documentation only
         id: scope
         working-directory: head
         run: git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/trade_log_gate_ci.py applies >> "$GITHUB_OUTPUT"
 
       - name: Say why the gate did not run
         if: steps.scope.outputs.applies != 'true'
-        run: echo "No file the trade-log gate covers changed, so it did not run." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Only documentation changed, so the trade-log gate did not run." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check out the base beside the head
         if: steps.scope.outputs.applies == 'true'

@@ -294,7 +294,7 @@ The fixture's bars straddle the 2024-03-10 US DST transition and the 17:00 ET br
 
 **What none of this replaces.** These are canaries, not the gate. The real gate is fourteen files over real bars, and the MNQ 03-24 agreement rate in `docs/nt8-fidelity.md` is still the only thing that says Tier 1 and Tier 2 agree. When a pin here fails, the answer is to run the real gate and find out what moved — not to re-pin.
 
-**The gate itself has since moved into CI.** The two cache files it reads are published as a release, and `.github/workflows/trade-log-gate.yaml` runs it on every pull request touching `nqbt/`, `pyproject.toml` or `.python-version`, so a dependency bump now runs the real gate beside these canaries. They still earn their place: they need no download, they name the layer that moved, and the NT8 reconciliation still needs `verification/`, which stays local. `CONTRIBUTING.md` § "The trade-log regression gate" has the procedure.
+**The gate itself has since moved into CI.** The two cache files it reads are published as a release, and `.github/workflows/trade-log-gate.yaml` runs it on every pull request that changes more than documentation, so a dependency bump now runs the real gate beside these canaries. They still earn their place: they need no download, they name the layer that moved, and the NT8 reconciliation still needs `verification/`, which stays local. `CONTRIBUTING.md` § "The trade-log regression gate" has the procedure.
 
 ### ~~M9~~ — the trade-log schema: done
 
