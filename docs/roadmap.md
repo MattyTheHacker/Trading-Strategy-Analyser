@@ -274,7 +274,7 @@ That is also why **`sha256sum` is a cross-check, not the gate**. It is strictly 
 
 ### What CI can gate on a dependency bump ([#161])
 
-The trade-log gate above is the right instrument and it cannot run on a pull request: `data/` and `verification/` are both gitignored, so CI has no bars and no NT8 exports. What CI *does* have is the whole suite twice, JIT on and JIT off — and until #161 every assertion over a simulated number stated a property rather than a value, which is precisely what a dependency bump does not violate. `CONTRIBUTING.md` § "Dependencies are pinned exactly" says each bump runs "the full suite plus both gates"; the gates were a local step nothing enforced, and a dependency pull request touches no file under `nqbt/sim/` that would prompt anyone to run them.
+The trade-log gate above is the right instrument and, when #161 was written, it could not run on a pull request: `data/` and `verification/` are both gitignored, so CI had no bars and no NT8 exports. What CI *does* have is the whole suite twice, JIT on and JIT off — and until #161 every assertion over a simulated number stated a property rather than a value, which is precisely what a dependency bump does not violate. `CONTRIBUTING.md` § "Dependencies are pinned exactly" says each bump runs "the full suite plus both gates"; the gates were a local step nothing enforced, and a dependency pull request touches no file under `nqbt/sim/` that would prompt anyone to run them.
 
 **A bump to numpy, numba, pandas or pyarrow is a `nqbt/sim/` change in effect**, and the three tests #161 adds are the part of the gate that needs no data:
 
@@ -293,6 +293,8 @@ Three things about them that are deliberate and read as mistakes otherwise:
 The fixture's bars straddle the 2024-03-10 US DST transition and the 17:00 ET break, and the session labels stored at ingest are re-derived from the index and compared. That is the tzdata check: `tzdata` is pinned like everything else, and it is the one dependency whose bump moves session boundaries rather than arithmetic — so it earns a different check from the other three, and this is it.
 
 **What none of this replaces.** These are canaries, not the gate. The real gate is fourteen files over real bars, and the MNQ 03-24 agreement rate in `docs/nt8-fidelity.md` is still the only thing that says Tier 1 and Tier 2 agree. When a pin here fails, the answer is to run the real gate and find out what moved — not to re-pin.
+
+**The gate itself has since moved into CI.** The two cache files it reads are published as a release, and `.github/workflows/trade-log-gate.yaml` runs it on every pull request touching `nqbt/`, `pyproject.toml` or `.python-version`, so a dependency bump now runs the real gate beside these canaries. They still earn their place: they need no download, they name the layer that moved, and the NT8 reconciliation still needs `verification/`, which stays local. `CONTRIBUTING.md` § "The trade-log regression gate" has the procedure.
 
 ### ~~M9~~ — the trade-log schema: done
 

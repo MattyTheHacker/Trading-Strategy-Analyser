@@ -190,7 +190,7 @@ In almost all cases errors reported by either `ruff` or `mypy` should be fixed r
 
 Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes — which is exactly how numpy 2.5 broke the mypy gate on the run after it landed, and `extend-select = ["ALL"]` gives ruff the same reach. Dependabot raises the bumps daily, grouped into one pull request. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
 
-**Treat a bump to numpy, numba, pandas or pyarrow as a change to `nqbt/sim/`**, because it is one: it reaches the simulation without touching a file in it, so nothing else will prompt you to check. CI carries the three pins that need no data — `tests/test_rng_stream_pins.py`, `tests/test_numeric_pins.py` and `tests/test_parquet_round_trip.py` — and a failure in any of them is a finding to explain, never a value to re-pin. They are canaries and not the gate: the trade-log gate and the NT8 reconciliation still need `data/` and `verification/` and still run locally. See [`docs/roadmap.md`](docs/roadmap.md) § "What CI can gate on a dependency bump".
+**Treat a bump to numpy, numba, pandas or pyarrow as a change to `nqbt/sim/`**, because it is one: it reaches the simulation without touching a file in it, so nothing else will prompt you to check. CI carries the three pins that need no data — `tests/test_rng_stream_pins.py`, `tests/test_numeric_pins.py` and `tests/test_parquet_round_trip.py` — and a failure in any of them is a finding to explain, never a value to re-pin. They are canaries and not the gate: the trade-log gate runs on every dependency pull request in CI (["The trade-log regression gate"](#the-trade-log-regression-gate)), and the NT8 reconciliation still needs `verification/` and still runs locally. See [`docs/roadmap.md`](docs/roadmap.md) § "What CI can gate on a dependency bump".
 
 ### Lint changes are not exempt from review
 
@@ -234,6 +234,12 @@ Points that have each cost time:
 - **Read "identical" as numerical, not textual.** Multiplying by `-1.0` sends `0.0` to `-0.0`, which is a different eight bytes and an equal number. `assert_frame_equal(check_exact=True)` is the right comparison and a file hash is too strict.
 - **`sha256sum` is a cross-check, not the gate.** Use it to catch the gate itself being broken — it is code, and it has been wrong — but when the two disagree, find out which kind of difference it is before believing either.
 - **A change that *should* move numbers still runs the gate.** The point is to see exactly which files moved and to be able to say why.
+
+**CI runs the gate on every pull request that could move a number.** [`.github/workflows/trade-log-gate.yaml`](.github/workflows/trade-log-gate.yaml) captures the base and the head, each in its own environment, over the two cache files the capture reads, and fails when the comparison does. What counts as "could move a number" is `COVERED_DIRECTORIES` and `COVERED_FILES` in [`tools/trade_log_gate_ci.py`](tools/trade_log_gate_ci.py) — all of `nqbt/`, `pyproject.toml`, `.python-version` and the gate's own tools — and any other pull request passes the check without running it. Run it locally while iterating; CI is the backstop, not the loop.
+
+**A change meant to move a number takes the `expected-trade-log-change` label**, which turns the failure into a warning and still writes what moved to the job summary — say in the pull request why. `--added` has no CI form, so a column addition takes the label too and proves its other columns locally with `--added`. A comparison that did not finish fails whatever the labels say.
+
+**CI's numbers are not your local numbers, and need not be.** The two cache files are a release asset on this repository, named in the workflow and pinned by hash, and they stay put while your own cache moves on; only base against head is compared. Refresh them only when the cached schema changes: upload both under a new tag, and update the workflow's URL and hashes in the same pull request.
 
 ## Commits
 
@@ -294,6 +300,8 @@ Two things the rules above do not say, each of which has already cost a commit:
 ## Data and generated files
 
 Nothing under `data/`, `cache/`, `results/` or `verification/` is committed — they are raw exports and derived caches, and `verification/` exists only on the machine that produced it ([#91]).
+
+**The one published copy is what the trade-log gate's CI run downloads**: two files from `cache/`, attached to a release rather than committed so that refreshing them does not grow the history. [`.github/workflows/trade-log-gate.yaml`](.github/workflows/trade-log-gate.yaml) names the release.
 
 Every folder under `data/` uses the `.Last.txt` suffix, including `data/tick/`, whose files are a different format and orders of magnitude larger. **Never glob across resolutions.**
 
