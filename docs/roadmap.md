@@ -704,6 +704,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered and run: no earliness tier beats the fixed half split held out, where every one had beaten it on the selection window; a size of one contract more per favourable label beats its own sizes shuffled at p ≤ 0.05 on 20 of 20 MNQ and 17 of 20 NQ configurations; and through the account, MNQ's 50K presets do best at the stored six contracts while NQ pays only on a 150K account at two to four.** Moved to [`docs/findings/m45-ibt-sizing-result.md`](findings/m45-ibt-sizing-result.md), pre-registered in [`docs/findings/m45-ibt-sizing-preregistration.md`](findings/m45-ibt-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M45.
 
+### M46 — every archetype's held-out shortlist through the prop accounts at each contract count ([#295])
+
+**Size moves nothing but the dollars on every archetype but InsideBarTrailing, now shown on real data at every rung; a bracket cannot be traded below one contract per target, which shuts every four-target archetype out of an NQ 50K account; on a 50K account only InsideBar, InsideBarTrailing and OpeningRange's opposite-extreme stop pay at any size; and every step up in size buys more resets.** Moved to [`docs/findings/m46-registry-size-ladder.md`](findings/m46-registry-size-ladder.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
