@@ -95,7 +95,7 @@ The stored campaign's midday shortlist — `--variant trailing`, the twenty the 
 | TopStep 50K  |      −9,957 | −13,524 | −14,480 | −15,190 | −15,680 |
 | TopStep 150K | **+88,099** | +84,044 | +70,456 | −26,325 | −39,113 |
 
-**On MNQ both 50K presets do best at the stored six contracts and fall away at eight**, where the median attempts an Apex 50K sequence takes rise from 29 to 94.5. **Both 150K presets are still rising at eight**, which is the top of the ladder — an axis whose best value is its last has been truncated, not swept, and the next read needs 10, 12 and 16.
+**On MNQ both 50K presets do best at the stored six contracts and fall away at eight**, where the median attempts an Apex 50K sequence takes rise from 29 to 94.5. **Both 150K presets are still rising at eight**, which is the top of the ladder — an axis whose best value is its last has been truncated, not swept, and the next read needs 10, 12 and 16. §M46 has since carried it to twenty: it peaks at ten to twelve contracts on Apex 150K and at sixteen on TopStep 150K — `docs/findings/m46-registry-size-ladder.md`.
 
 **On NQ no position this archetype can take makes a 50K account pay**: the median sequence loses money at every rung on both firms, and at the two-contract floor Apex 50K ever passes on 11% of configurations and TopStep 50K is profitable on none. A 150K account funds at two contracts on both firms, every configuration profitable, and at TopStep up to four. §M28.13's "NQ needs a smaller position or a 150K account" turns out to be both at once.
 

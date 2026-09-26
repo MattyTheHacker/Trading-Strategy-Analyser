@@ -60,6 +60,8 @@ Twenty-five points is smaller than a single stop at these resolutions. **No NQ c
 
 **So on a prop account, trade MNQ.** [§M45](m45-ibt-sizing-result.md) has since swept position size through the account on InsideBarTrailing's midday cell, and NQ needs a smaller position *and* a 150K account at once: no size it can take makes a 50K account pay, down to its two-contract floor, while a 150K account pays at two contracts on both firms and up to four at TopStep. On MNQ the 50K presets do best at the stored six contracts and fall away at eight.
 
+**[§M46](m46-registry-size-ladder.md) has since read every archetype's shortlist at one to twenty contracts, and the rule holds with one exception.** A bracket cannot be traded below one contract per target, so a four-target archetype can go no smaller than four NQ contracts, and none pays on an NQ 50K account. InsideBar, whose bracket takes a single contract, is the only archetype that pays on one, at one to three contracts, as a sequence of three to four hundred accounts over the holdout. On an MNQ 50K account only InsideBar, InsideBarTrailing and OpeningRange's opposite-extreme stop pay at any size, and the sizes they were swept at are close to their best. **Every step up in size buys more resets**, so read a size by its passes and attempts, never by its net alone.
+
 ### The best cell: InsideBarTrailing, midday, on MNQ
 
 The break of an inside bar, confined to the midday lull, with a trailing runner. **This is what [#344]'s Phase 0 chose to port** (§M43), and it displaced the OpeningRange cell below on evidence rather than on the tie-breaker that was expected to decide it.
@@ -71,7 +73,7 @@ The break of an inside bar, confined to the midday lull, with a trailing runner.
 | **Stop**   | 10 × ATR, with the trailing half following the high-water mark at 5 × the inside bar's range |
 | **Target** | one R, taken on 60% of the position; the rest runs on the trailing stop                      |
 | **Bars**   | 5 minutes                                                                                    |
-| **Size**   | 6 contracts, this archetype's default, and the best of 2 to 8 on an MNQ 50K account (§M45)   |
+| **Size**   | 6 contracts, this archetype's default, and best of 2 to 20 on MNQ 50K (§M45, §M46)           |
 | **Exit**   | whatever the bracket does not close is flattened before the session close                    |
 
 Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts uncapped, six contracts — median net, beside the cell it displaced at four contracts (§M43):
@@ -137,6 +139,8 @@ Higher median net, lower pass rate. Uncapped on Apex 50K, medians (§M28.13):
 | OpeningRange MNQ |  12 |       48 |    2.5 | $11,635 | **+$14,045** |     75% |
 
 **OpeningRange is the archetype that *funds*; InsideBar has the higher ceiling and the worse median.** On ever-passed over the full population run, OpeningRange reaches 82.2% against InsideBar's 43.8% on TopStep 150K. InsideBar also has the advantage of being **reconciled against a real NT8 trade list**, which OpeningRange is not.
+
+**Read on its top 20 rather than §M28.13's population, it funds as reliably and nets more (§M46).** At four MNQ contracts every configuration passes and profits on every preset, with more net and more passes than OpeningRange's opposite-stop shortlists — at the cost of more attempts, 77 against 56 to 69 on Apex 50K. It is also the only archetype that pays on an NQ 50K account. Its net keeps rising to twenty contracts, but on Apex 50K its passes stop rising at four while its attempts climb from 77 to 309.5. What grows past four is the payout per funded account, which the replay takes in full with no payout cap.
 
 ### If you are optimising for something other than net
 
