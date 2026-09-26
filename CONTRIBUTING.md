@@ -190,7 +190,7 @@ In almost all cases errors reported by either `ruff` or `mypy` should be fixed r
 
 Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes — which is exactly how numpy 2.5 broke the mypy gate on the run after it landed, and `extend-select = ["ALL"]` gives ruff the same reach. Dependabot raises the bumps daily, grouped into one pull request. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
 
-**Treat a bump to numpy, numba, pandas or pyarrow as a change to `nqbt/sim/`**, because it is one: it reaches the simulation without touching a file in it, so nothing else will prompt you to check. CI carries the three pins that need no data — `tests/test_rng_stream_pins.py`, `tests/test_numeric_pins.py` and `tests/test_parquet_round_trip.py` — and a failure in any of them is a finding to explain, never a value to re-pin. They are canaries and not the gate: the trade-log gate and the NT8 reconciliation still need `data/` and `verification/` and still run locally. See [`docs/roadmap.md`](docs/roadmap.md) § "What CI can gate on a dependency bump".
+**Treat a bump to numpy, numba, pandas or pyarrow as a change to `nqbt/sim/`**, because it is one: it reaches the simulation without touching a file in it, so nothing else will prompt you to check. CI carries the three pins that need no data — `tests/test_rng_stream_pins.py`, `tests/test_numeric_pins.py` and `tests/test_parquet_round_trip.py` — and a failure in any of them is a finding to explain, never a value to re-pin. They are canaries and not the gate: the trade-log gate runs on every dependency pull request in CI (["The trade-log regression gate"](#the-trade-log-regression-gate)), and the NT8 reconciliation still needs `verification/` and still runs locally. See [`docs/roadmap.md`](docs/roadmap.md) § "What CI can gate on a dependency bump".
 
 ### Lint changes are not exempt from review
 
@@ -234,6 +234,12 @@ Points that have each cost time:
 - **Read "identical" as numerical, not textual.** Multiplying by `-1.0` sends `0.0` to `-0.0`, which is a different eight bytes and an equal number. `assert_frame_equal(check_exact=True)` is the right comparison and a file hash is too strict.
 - **`sha256sum` is a cross-check, not the gate.** Use it to catch the gate itself being broken — it is code, and it has been wrong — but when the two disagree, find out which kind of difference it is before believing either.
 - **A change that *should* move numbers still runs the gate.** The point is to see exactly which files moved and to be able to say why.
+
+**CI runs the gate on every pull request that changes more than documentation.** [`.github/workflows/trade-log-gate.yaml`](.github/workflows/trade-log-gate.yaml) captures the base and the head, each in its own environment, over the two cache files the capture reads, and fails when the comparison does. A pull request touching only Markdown, `docs/` or the `Trading-Docs` pointer passes the check without running it; `is_documentation` in [`tools/trade_log_gate_ci.py`](tools/trade_log_gate_ci.py) is the rule. Run it locally while iterating; CI is the backstop, not the loop.
+
+**A change meant to move a number takes the `expected-trade-log-change` label, then a re-run of the failed job**, because adding a label starts nothing. The label turns the failure into a warning and still writes what moved to the job summary — say in the pull request why. `--added` has no CI form, so a column addition takes the label too, proves its other columns locally with `--added`, and says so in the pull request. A comparison that did not finish fails whatever the labels say.
+
+**CI's numbers are not your local numbers, and need not be.** The two cache files are a release asset on this repository, named in the workflow and pinned by hash, and they stay put while your own cache moves on; only base against head is compared. Refresh them only when the cached schema changes: upload both under a new tag, and update the workflow's URL and hashes in the same pull request.
 
 ## Commits
 
@@ -281,7 +287,7 @@ Two things the rules above do not say, each of which has already cost a commit:
 ## Pull requests
 
 - **The body briefly explains the change**: what moved, and the reasoning a reviewer would otherwise have to reconstruct. Detailed argument still belongs in `docs/` — link to the section rather than duplicating it.
-- **State how it was verified, and keep it to a line.** Name what was run and what it returned — `trade-log gate: BYTE-FOR-BYTE IDENTICAL across all 14 files`, `tools/reconcile_nt8.py` against the MNQ 03-24 export: `RECONCILED`. A claim carries its number; it does not carry the transcript that produced it. **Raw output — the gate's fourteen lines, a coverage table, a reconciliation's per-field agreement — belongs in `docs/` or nowhere**, because the body lands on `main` as the commit description and a pasted run cannot be re-checked from there anyway.
+- **State how it was verified, and keep it to a line — but only what CI does not already show.** What the workflows run on every pull request — the test suite, the linters, the trade-log gate — is implicit in its checks, so it is not listed in the body. Name what you ran that CI cannot, and what it returned: `tools/reconcile_nt8.py` against the MNQ 03-24 export: `RECONCILED`, or the trade-log gate's `ALL PRE-EXISTING COLUMNS IDENTICAL` under `--added`. A claim carries its number; it does not carry the transcript that produced it. **Raw output — a coverage table, a reconciliation's per-field agreement — belongs in `docs/` or nowhere**, because the body lands on `main` as the commit description and a pasted run cannot be re-checked from there anyway.
 - **Repeat the closing keyword for every issue.** `Closes #1, #2` links only `#1`. Write `Closes #1. Closes #2.` and check `closingIssuesReferences` on the pull request before merging. Alternatively, link the issues manually via the GUI.
 - **Do not quote figures that go stale.** Consider if the number is even needed in documentation or if it's better being generated or retrieved at the time it's needed. If it's definitely needed, point at the document that holds the live number.
 - **Branch off `main` and never commit to it directly.** This is enforced by branch protection rules at the GitHub level.
@@ -294,6 +300,8 @@ Two things the rules above do not say, each of which has already cost a commit:
 ## Data and generated files
 
 Nothing under `data/`, `cache/`, `results/` or `verification/` is committed — they are raw exports and derived caches, and `verification/` exists only on the machine that produced it ([#91]).
+
+**The one published copy is what the trade-log gate's CI run downloads**: two files from `cache/`, attached to a release rather than committed so that refreshing them does not grow the history. [`.github/workflows/trade-log-gate.yaml`](.github/workflows/trade-log-gate.yaml) names the release.
 
 Every folder under `data/` uses the `.Last.txt` suffix, including `data/tick/`, whose files are a different format and orders of magnitude larger. **Never glob across resolutions.**
 
