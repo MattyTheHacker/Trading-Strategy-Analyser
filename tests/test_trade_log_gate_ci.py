@@ -118,6 +118,19 @@ def test_the_workflow_asks_this_tool_both_questions() -> None:
     assert "--no-renames" in text, "a file moved into docs/ would show only its new path"
 
 
+def test_a_label_change_does_not_rerun_the_gate() -> None:
+    """Every label, "ready to merge" included, would otherwise restart a full capture."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert not re.search(r"types:.*labeled", text)
+
+
+def test_the_label_is_read_when_the_verdict_runs() -> None:
+    """A re-run replays the original event, so a label added since is only seen by asking for it."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "github.event.pull_request.labels" not in text
+    assert "gh pr view" in text
+
+
 # -- whether a run passes ------------------------------------------------------
 
 

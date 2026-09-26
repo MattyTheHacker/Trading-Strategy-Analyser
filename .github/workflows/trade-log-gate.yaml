@@ -5,13 +5,12 @@ name: Trade-log Regression Gate
 # moved. The rules that keep it honest are in .claude/rules/regression-gate.md -- above all,
 # each side gets its own environment.
 #
-# The documentation check lives in the job rather than under `on:`, and no step is skipped by
-# label: a workflow that never starts leaves a required check waiting forever, and a skipped run
-# posts a pass over an earlier failure on the same commit.
+# The documentation check lives in the job rather than under `on:`, because a workflow that
+# never starts leaves a required check waiting forever. The override label is read when the
+# verdict runs, not from the event, so that re-running the failed job is what applies it.
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
@@ -19,6 +18,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Named explicitly for its pipefail, which the unnamed default lacks: without it a failed
 # `git diff` would feed the documentation check nothing, and nothing reads as "skip the gate".
@@ -146,8 +146,10 @@ jobs:
         env:
           STATUS: ${{ steps.compare.outputs.status }}
           SHA256_STATUS: ${{ steps.compare.outputs.sha256-status }}
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          labels="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name]')"
           {
             echo '## Trade-log regression gate'
             echo '```text'
@@ -163,4 +165,4 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           "$RUNNER_TEMP/head-venv/bin/python" "$GITHUB_WORKSPACE/head/tools/trade_log_gate_ci.py" verdict \
-            --status "$STATUS" --output compare.txt --labels "$LABELS"
+            --status "$STATUS" --output compare.txt --labels "$labels"
