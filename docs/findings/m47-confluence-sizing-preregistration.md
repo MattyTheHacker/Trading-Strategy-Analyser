@@ -37,20 +37,20 @@ So **outside InsideBarTrailing a confluence size can only reweight the trades th
 | pullback  | DeadCatBounce, PullBackAndGo, EmaPullback                                                       | `DIRECTIONAL`   | `THIN`          |
 | rotation  | ElasticBand, OpeningRange's fade and rejection                                                  | `CONSOLIDATING` | `THIN`          |
 
-The opposite extreme opposes and the middle state is neutral. **Two theses meet earlier measurements.** EmaPullback's `THIN` agrees with §M36, where `HEAVY` was a cost at every cut, so its volume-alone arm is not an independent test of the thesis and is read with that beside it. ElasticBand's `THIN` runs against §M33, where `HEAVY` was a benefit on the Bollinger band this campaign's grid uses; the fit then dropped its volume label at every cell (below), so that thesis is not tested here.
+The opposite extreme opposes and the middle state is neutral. **Two theses meet earlier measurements.** EmaPullback's `THIN` agrees with §M36, where `HEAVY` was a cost at every cut, so its volume-alone arm is not an independent test of the thesis and is read with that beside it. ElasticBand's `THIN` runs against §M33, where `HEAVY` was a benefit on the Bollinger band this campaign's grid uses. The fit keeps its volume label for the symmetric arm alone (below), which takes a step off in heavy volume, so that thesis is tested only there, against a measurement that expects the opposite.
 
 ## The arms
 
 Every stored campaign variant in `tools/campaign_sweep.py`'s `VARIANTS`, the grids §M44 re-swept, unchanged, at the cut fitted for it and one step per label:
 
-| arm                         | what it is                                                          | where                                          |
-| --------------------------- | ------------------------------------------------------------------- | ---------------------------------------------- |
-| `size=fixed`                | the control: the stored grid at the fitted thresholds, sizing off   | every variant                                  |
-| `size=confluence`           | one contract per leg more per kept label favouring the trade        | every variant keeping a label                  |
-| `size=<label>`              | one kept label alone, add-only: which label carries the size        | every variant keeping two or more              |
-| `size=confluence symmetric` | `size=confluence`, also one fewer per kept label opposing the trade | where every base is above one contract per leg |
+| arm                         | what it is                                                        | where                                          |
+| --------------------------- | ----------------------------------------------------------------- | ---------------------------------------------- |
+| `size=fixed`                | the control: the stored grid at the fitted thresholds, sizing off | every variant                                  |
+| `size=confluence`           | one contract per leg more per kept label favouring the trade      | every variant keeping a label                  |
+| `size=<label>`              | one kept label alone, add-only: which label carries the size      | every variant keeping two or more              |
+| `size=confluence symmetric` | one more per favouring and one fewer per opposing label it keeps  | where every base is above one contract per leg |
 
-**Symmetric applies at the stored sizes** on InsideBar (four contracts on one leg), ElasticBand (four on two), OpeningRange's and SqueezeBreakout's `target=width` variants (four on two) and InsideBarTrailing. It does not apply to DeadCatBounce, PullBackAndGo, EmaCrossover, EmaPullback or any R-ladder variant, because each is four contracts on four legs.
+**The symmetric arm keeps its own labels**: every label the add-only arms keep, and any they drop that still sorts once a step comes off (below). **Symmetric applies at the stored sizes** on InsideBar (four contracts on one leg), ElasticBand (four on two), OpeningRange's and SqueezeBreakout's `target=width` variants (four on two) and InsideBarTrailing. It does not apply to DeadCatBounce, PullBackAndGo, EmaCrossover, EmaPullback or any R-ladder variant, because each is four contracts on four legs.
 
 **InsideBarTrailing runs §M45's nine arms** on §M45's grid — the split held and `order_quantity` crossed at 3/4/6/8, with `split=0.5` the control — **plus `size=<label>` and `size=confluence symmetric`**, both at a half. §M45's cells, the nine arms at five minutes in the unfiltered and midday strata, are stored and are skipped rather than re-run.
 
@@ -76,15 +76,18 @@ At the cuts below that is **17,109,056 combinations**, of which the 31,104 in §
 
 ## The cuts, fitted before the run
 
-`tools/campaign_sizing.py fit --strategy <archetype>` fits each root, resolution and variant on the **selection window alone**, at the variant's base configuration over its unfiltered signal. §M45's rules, unchanged:
+`tools/campaign_sizing.py fit --strategy <archetype>` fits each root, resolution and variant on the **selection window alone**, at the variant's base configuration over its unfiltered signal. §M45's rules, unchanged, and one for the symmetric arm:
 
 - the regime and volume thresholds at the **top and bottom fifth** of their own series;
-- a label kept only if it favours **between 10% and 90%** of the fitted signals, **pooled over both sides** where the variant sweeps `direction`;
+- a label kept for the add-only arms only if it favours **between 10% and 90%** of the fitted signals, **pooled over both sides** where the variant sweeps `direction`;
+- **a label kept for the symmetric arm unless one step it moves the count by covers more than 90%** of the same signals: up where it favours, down where it opposes, none where it does neither. Every label the add-only band keeps passes it. It also keeps a label that favours few signals and opposes many, which adds almost nothing and sheds a step at a third of the signals or more;
 - on InsideBarTrailing, the earliness cuts at the median of its signals.
 
-**InsideBarTrailing's five-minute cut is §M45's**, kept in its file rather than refitted, so the new arms in §M45's cells read the cut the stored ones ran at. Its 2-, 10- and 15-minute cuts are new.
+**The symmetric rule was added after the first fit and before any arm ran.** §M45 had no symmetric arm, and the first fit applied the add-only band to it. That dropped labels that oppose 32–70% of ElasticBand's and SqueezeBreakout's signals, and so would shed a step there under symmetric sizing.
 
-**Fitted on 2026-09-27 and transcribed here before any §M47 arm ran**, as §M45's was. Every variant of an archetype kept the same labels at each root and resolution, so the table has one row per resolution:
+**InsideBarTrailing's five-minute cut is §M45's**, kept in its file rather than refitted, so the new arms in §M45's cells read the cut the stored ones ran at. Its 2-, 10- and 15-minute cuts are new. **The symmetric labels were added to every stored cut, §M45's included, at the cut's own thresholds**. Nothing else in any cut changed, and each cut's favourable shares were checked to read back exactly as stored before anything was added.
+
+**Fitted on 2026-09-27 and transcribed here before any §M47 arm ran**, as §M45's was. Every variant of an archetype kept the same labels at each root and resolution, so the table has one row per resolution. These are the add-only arms' labels:
 
 | archetype         | minutes | MNQ                              | NQ                               |
 | ----------------- | ------: | -------------------------------- | -------------------------------- |
@@ -125,21 +128,33 @@ At the cuts below that is **17,109,056 combinations**, of which the 31,104 in §
 | SqueezeBreakout   |      10 | trend, htf, vwap, volume         | trend, htf, vwap, volume         |
 | SqueezeBreakout   |      15 | trend, htf, vwap                 | trend, htf, vwap                 |
 
-**What the fit dropped, and why it matters.** ElasticBand keeps only the higher-timeframe side, and the VWAP side below ten minutes: its trend, regime and volume labels each favour between 3.6% and 7.1% of its signals, because a close two deviations past its band is rarely in a consolidating regime, on thin volume or in a trend on the fade's side. DeadCatBounce's trend label favours between 89.8% and 92.2% of its signals, so it is kept on one root and not the other at 2 and 15 minutes. **An arm kept on one root only is run and reported but belongs to no family**, because the bar needs both roots. Where the two roots keep different labels, each root's all-labels arm counts its own.
+**The symmetric arm counts the same labels and more on two archetypes**, on both roots and in every variant:
 
-**InsideBarTrailing's two §M45 entries read back unchanged**, so its file's hash below is not the one §M45 recorded: the file now also holds the 2-, 10- and 15-minute cuts. Each file is one archetype's, fitted on the selection window alone:
+| archetype       | minutes | the symmetric arm also counts | favours | opposes |
+| --------------- | ------: | ----------------------------- | ------: | ------: |
+| ElasticBand     |     all | trend                         |    4–5% |     69% |
+| ElasticBand     |     all | regime                        |      5% |     36% |
+| ElasticBand     |     all | volume                        |    5–7% |  38–47% |
+| SqueezeBreakout |     all | regime                        |    2–6% |  32–35% |
+| SqueezeBreakout |      15 | volume                        |     10% |  38–39% |
+
+EmaCrossover's regime passes the symmetric rule too, but its base is at its floor, so it has no symmetric arm. Every other label the add-only arms drop favours over 90% of signals and opposes under 10%, so the symmetric arm drops it as well, as it does ElasticBand's VWAP at 10 and 15 minutes, which opposes 96–99%.
+
+**What the fit dropped, and why it matters.** ElasticBand's add-only arms keep only the higher-timeframe side, and the VWAP side below ten minutes: its trend, regime and volume labels each favour between 3.6% and 7.1% of its signals, because a close two deviations past its band is rarely in a consolidating regime, on thin volume or in a trend on the fade's side. DeadCatBounce's trend label favours between 89.8% and 92.2% of its signals, so it is kept on one root and not the other at 2 and 15 minutes. **An arm kept on one root only is run and reported but belongs to no family**, because the bar needs both roots. Where the two roots keep different labels, each root's all-labels arm counts its own.
+
+**InsideBarTrailing's two §M45 entries read back unchanged**, so its file's hash below is not the one §M45 recorded: the file now also holds the 2-, 10- and 15-minute cuts and every cut's symmetric labels. Each file is one archetype's, fitted on the selection window alone. The hashes are taken after the symmetric labels were added, and replace the first fit's:
 
 | archetype         | SHA-256                                                            | written                 |
 | ----------------- | ------------------------------------------------------------------ | ----------------------- |
-| DeadCatBounce     | `8a8c91e301fc4c2cd5386e807592950746608913777dee39ca89bb883acc8804` | 2026-09-27 09:17:07 UTC |
-| PullBackAndGo     | `da5b7f2578898220f7f0b6f6112833d94535db2d0958a1edfd1d52c805d06015` | 2026-09-27 09:17:17 UTC |
-| EmaCrossover      | `1e6e5cf749e65f5e01a7e77f6dd89cf986e4c85d9dbc8085c18a5fa76d258d09` | 2026-09-27 09:17:29 UTC |
-| EmaPullback       | `653983af3e6591a08351f4ab6f1a059228a085a0c5efe56c4b6332df24afeebc` | 2026-09-27 09:17:39 UTC |
-| InsideBar         | `ba88446e668b467a50e5402b11d37137cd81687de3ef9a2a665df6d17d0b965c` | 2026-09-27 09:17:49 UTC |
-| InsideBarTrailing | `c85e72b758d71199cf842ee6e24ec8c6c3d5b3de38c1a5f294f99c316f83c089` | 2026-09-27 09:17:59 UTC |
-| ElasticBand       | `5daa97a25421e4d3ebfe19b3f75199f2b85fa9eeb75a570e652cf435d6e6f0ce` | 2026-09-27 09:18:16 UTC |
-| OpeningRange      | `6420c37504888ec9a0da7efefbea844e916aa13c9e46ed0cb42ccd556946762c` | 2026-09-27 09:18:39 UTC |
-| SqueezeBreakout   | `2be71fb39fe93104e2178eaef59db3c99e9e174f9a569770f0cbd43c6f5e0c0d` | 2026-09-27 09:18:59 UTC |
+| DeadCatBounce     | `a5515f7a6dbf7fa121c9156e05a6a9cb60ec27db7311b5802320cdad320b0ff8` | 2026-09-27 09:41:33 UTC |
+| PullBackAndGo     | `dd75ae18ed2f80914f0dd99fadc656449db96a6e6033f90f7eb6b27e3c48cf7b` | 2026-09-27 09:41:45 UTC |
+| EmaCrossover      | `08dedb5ab1b8eec3a1985fb0b661a45eaf5d1a2e3792412b64c3a3e82dc0c7a3` | 2026-09-27 09:42:00 UTC |
+| EmaPullback       | `6a3887bf7fa7b3964f6bc284b39d1563e5fb4cfddc6d4cf90597131573c769a3` | 2026-09-27 09:42:12 UTC |
+| InsideBar         | `4d5b80e9c77dd99985ec2f25e3c2c5661d84bec4c2436ee9df295a178833576a` | 2026-09-27 09:42:24 UTC |
+| InsideBarTrailing | `2ba467c13f116c1f77a2c9ec99f88389c83c0cf43a9fafa199716196764c10fd` | 2026-09-27 09:42:36 UTC |
+| ElasticBand       | `fe9381b3fcab2156ab5e96b1bf07b643b026d33445a8eae1d08d0c92ffbdc2ef` | 2026-09-27 09:42:57 UTC |
+| OpeningRange      | `146d58fdacf067016a1ab8a78fa96b245ba221cfc3a02f2bbf439998cc69d809` | 2026-09-27 09:43:26 UTC |
+| SqueezeBreakout   | `fe531e9424e29d0164d8b759b0505b20852cabffd5003d3e3178490a16bbc11f` | 2026-09-27 09:43:51 UTC |
 
 ## The gates, and what counts as a pass
 
@@ -172,7 +187,7 @@ F1 holds 88 all-labels cells and 46 symmetric ones. F0 is InsideBarTrailing's fo
 
 The binomial treats the 20 configurations as independent, and a shortlist's neighbours are not, so `k` is a floor rather than an exact rate. **Both roots is a weak replication**, because MNQ and NQ trade the same prices; it is kept because every earlier campaign asked it.
 
-**Symmetric against add-only:** `tools/campaign_paired.py`, `size=confluence symmetric` against `size=confluence` on held-out profit factor, per variant × resolution, unfiltered. Symmetric is better in a cell if more than half the pairs improve at a sign-test p below 0.05 divided by the number of symmetric cells, on both roots, and worse if fewer than half do at that p.
+**Symmetric against add-only:** `tools/campaign_paired.py`, `size=confluence symmetric` against `size=confluence` on held-out profit factor, per variant × resolution, unfiltered. Symmetric is better in a cell if more than half the pairs improve at a sign-test p below 0.05 divided by the number of symmetric cells, on both roots, and worse if fewer than half do at that p. **On ElasticBand and SqueezeBreakout the two arms count different labels**, so a difference there belongs to the extra labels and the step they shed together, and is reported as that rather than as shedding alone.
 
 **§M45's tiers at the new resolutions** are read with §M45's own paired bar, against `split=0.5` and against their inverse, and are hypothesis-generating only: they failed in the one cell that was a test.
 

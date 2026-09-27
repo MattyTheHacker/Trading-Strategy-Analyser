@@ -303,7 +303,9 @@ paths:
 - **`confluence-sizing` is that on every archetype, and its regime and volume strata are the
   fit's.** Each stored variant runs once per arm over its own axes, and the cut is fitted per
   root, resolution and variant into one sizing-cuts file per archetype; **a cut already in the file
-  is kept**, so arms stored against it keep the cut they ran at. The regime and volume cells take
+  is kept**, so arms stored against it keep the cut they ran at. The symmetric arm counts labels
+  of its own, fitted beside the add-only ones: a cut stored without them gains them at its own
+  thresholds, and the arm refuses a cut that has none. The regime and volume cells take
   the fit's thresholds under names carrying the cut, and the sweep refuses the raw `volume`
   group, which would carry the fitted cut under the raw name.
   `docs/findings/m47-confluence-sizing-preregistration.md`.

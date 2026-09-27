@@ -2201,7 +2201,13 @@ class SizingCut:
     volume_thin_below: float
     volume_heavy_above: float
     labels: tuple[str, ...]
-    """The ``size_on_*`` labels the confluence arms count: the ones the fit did not drop."""
+    """The ``size_on_*`` labels the add-only arms count: the ones the fit did not drop."""
+
+    symmetric_labels: tuple[str, ...] | None = None
+    """The labels the symmetric arm counts, or ``None`` on a cut stored before the fit read them.
+
+    Every label :attr:`labels` keeps and any it drops that still sorts once a step comes off
+    where the label opposes -- ``docs/findings/m47-confluence-sizing-preregistration.md``."""
 
     variant: str | None = None
     """The stored variant the labels were fitted at, or ``None`` on an archetype with only one."""
@@ -2210,6 +2216,15 @@ class SizingCut:
     early_max_trend_bars: int | None = None
     """InsideBarTrailing's earliness cuts, and ``None`` on every other archetype."""
 
+    def thresholds(self) -> dict[str, AxisValue]:
+        """The regime and volume thresholds the labels are read at."""
+        return {
+            "regime_consolidating_below": self.regime_consolidating_below,
+            "regime_directional_above": self.regime_directional_above,
+            "volume_thin_below": self.volume_thin_below,
+            "volume_heavy_above": self.volume_heavy_above,
+        }
+
     def fitted(self) -> dict[str, AxisValue]:
         """The parameter values every arm on this cell takes, whichever of them it reads."""
         earliness: dict[str, float | None] = {
@@ -2217,12 +2232,7 @@ class SizingCut:
             "early_max_trend_bars": self.early_max_trend_bars,
         }
 
-        return {
-            "regime_consolidating_below": self.regime_consolidating_below,
-            "regime_directional_above": self.regime_directional_above,
-            "volume_thin_below": self.volume_thin_below,
-            "volume_heavy_above": self.volume_heavy_above,
-        } | {name: value for name, value in earliness.items() if value is not None}
+        return self.thresholds() | {name: value for name, value in earliness.items() if value is not None}
 
     def fits(self, variant: str) -> bool:
         """Whether this cut was fitted for ``variant``: every variant, where it names none."""
@@ -2232,7 +2242,8 @@ class SizingCut:
 def sizing_cuts(path: paths.Path | None = None) -> list[SizingCut]:
     """The fitted cuts, refused by name where nothing has been fitted yet.
 
-    §M45's file carries no variant, and only InsideBarTrailing's carry earliness cuts.
+    §M45's file carries no variant and no symmetric labels, and only InsideBarTrailing's carry
+    earliness cuts.
     """
     source: paths.Path = SIZING_CUTS if path is None else path
     if not source.exists():
@@ -2241,8 +2252,9 @@ def sizing_cuts(path: paths.Path | None = None) -> list[SizingCut]:
 
     cuts: list[SizingCut] = []
     for cut in json.loads(source.read_text(encoding="utf-8")):
-        variant, extension, trend_bars = (
-            cut.get(name) for name in ("variant", "early_max_extension_atr", "early_max_trend_bars")
+        variant, symmetric, extension, trend_bars = (
+            cut.get(name)
+            for name in ("variant", "symmetric_labels", "early_max_extension_atr", "early_max_trend_bars")
         )
         cuts.append(
             SizingCut(
@@ -2253,6 +2265,7 @@ def sizing_cuts(path: paths.Path | None = None) -> list[SizingCut]:
                 volume_thin_below=float(cut["volume_thin_below"]),
                 volume_heavy_above=float(cut["volume_heavy_above"]),
                 labels=tuple(str(label) for label in cut["labels"]),
+                symmetric_labels=None if symmetric is None else tuple(str(label) for label in symmetric),
                 variant=None if variant is None else str(variant),
                 early_max_extension_atr=None if extension is None else float(extension),
                 early_max_trend_bars=None if trend_bars is None else int(trend_bars),
@@ -2424,10 +2437,23 @@ def label_arms(
     return [arm(f"size={LABEL_TOKENS[label]}", **counted((label,), **held)) for label in labels]
 
 
-def symmetric_arms(
-    arm: Callable[..., Variant], labels: tuple[str, ...], **held: AxisValue | bool
-) -> list[Variant]:
-    """The all-labels arm also shedding a step per opposing label, where every base can shed one."""
+def symmetric_arms(arm: Callable[..., Variant], cut: SizingCut, **held: AxisValue | bool) -> list[Variant]:
+    """Every symmetric label counted, shedding a step per opposing one, where every base can shed one.
+
+    Refused on a cut stored before the fit read its symmetric labels, rather than counting the
+    add-only ones in their place.
+    """
+    labels: tuple[str, ...] | None = cut.symmetric_labels
+    if labels is None:
+        msg: str = (
+            f"the {cut.root} {cut.minutes}m sizing cut holds no symmetric labels; "
+            "run tools/campaign_sizing.py fit to read them"
+        )
+        raise SystemExit(msg)
+
+    if not labels:
+        return []
+
     together: Variant = arm(SIZING_CONFLUENCE, **counted(labels, **held))
     if not sheds_a_step(together):
         logger.info("  %s: its base is already one contract per leg, so no symmetric arm", together.name)
@@ -2440,36 +2466,31 @@ def symmetric_arms(
 def confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
     """§M47's arms over one stored variant at one root and resolution, all on its own axes.
 
-    The control, every kept label together, each alone, and the together arm symmetric where the
-    base can shed a step -- ``docs/findings/m47-confluence-sizing-preregistration.md``.
+    The control, every kept label together, each alone, and every symmetric label counted
+    symmetrically where the base can shed a step --
+    ``docs/findings/m47-confluence-sizing-preregistration.md``.
     """
     arm: Callable[..., Variant] = arm_factory(campaign, cut, campaign.axes)
     control: Variant = arm(SIZE_FIXED)
-    if not cut.labels:
+    added: list[Variant] = (
+        [arm(SIZING_CONFLUENCE, **counted(cut.labels)), *label_arms(arm, cut.labels)] if cut.labels else []
+    )
+    arms: list[Variant] = [control, *added, *symmetric_arms(arm, cut)]
+    if len(arms) == 1:
         logger.warning(
             "  %s %dm: every label was dropped by the fit, so only the control", control.name, cut.minutes
         )
 
-        return [control]
-
-    return [
-        control,
-        arm(SIZING_CONFLUENCE, **counted(cut.labels)),
-        *label_arms(arm, cut.labels),
-        *symmetric_arms(arm, cut.labels),
-    ]
+    return arms
 
 
 def insidebartrailing_confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
     """§M45's nine arms, then §M47's label-alone and symmetric ones, all on §M45's grid."""
     arms: list[Variant] = sizing_arms(campaign, cut)
-    if not cut.labels:
-        return arms
-
     arm: Callable[..., Variant] = arm_factory(campaign, cut, sizing_axes(campaign))
     held: dict[str, AxisValue | bool] = {"partial_take_profit_percentage": SIZING_ESTABLISHED_SHARE}
 
-    return [*arms, *label_arms(arm, cut.labels, **held), *symmetric_arms(arm, cut.labels, **held)]
+    return [*arms, *label_arms(arm, cut.labels, **held), *symmetric_arms(arm, cut, **held)]
 
 
 def confluence_variants(

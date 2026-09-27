@@ -15,7 +15,9 @@ cuts it had no part in -- the rule ``tools/campaign_sweep.py``'s regime fit stat
 taken at a stored variant's base configuration over its unfiltered signal, pooled over the sides
 the variant sweeps, and written before any sizing arm runs: the file is the pre-registration of
 every threshold the arms read. **A cut already in the file is kept**, so the arms stored against
-it keep the cut they ran at -- ``docs/findings/m47-confluence-sizing-preregistration.md``.
+it keep the cut they ran at; one stored before the fit read its symmetric labels gains them at
+its own thresholds, and nothing else in it moves --
+``docs/findings/m47-confluence-sizing-preregistration.md``.
 
 **The shuffled-size null is the control a confluence size needs**, and a matched random entry is
 not it: the entries are the rule's own and only which size each took is permuted, so what it
@@ -43,23 +45,6 @@ import pandas as pd
 # Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tools.campaign_holdout import held_out
-from tools.campaign_null import stored_rows
-from tools.campaign_report import log_key
-from tools.campaign_shortlist import TOP, rebuild
-from tools.campaign_sweep import (
-    RESOLUTIONS,
-    ROOTS,
-    SELECTION_SHARE,
-    SIZING_CONFLUENCE,
-    SIZING_LABEL_QUANTILES,
-    VARIANTS,
-    SizingCut,
-    Variant,
-    sizing_cuts_path,
-)
-from tools.campaign_swept import HELD_OUT, bars_for, candidate_bars
 
 from nqbt import (
     archetypes,
@@ -107,6 +92,23 @@ from nqbt.trades import (
     C_TRADE_ID,
     N_COLUMNS,
 )
+from tools.campaign_holdout import held_out
+from tools.campaign_null import stored_rows
+from tools.campaign_report import log_key
+from tools.campaign_shortlist import TOP, rebuild
+from tools.campaign_sweep import (
+    RESOLUTIONS,
+    ROOTS,
+    SELECTION_SHARE,
+    SIZING_CONFLUENCE,
+    SIZING_LABEL_QUANTILES,
+    VARIANTS,
+    SizingCut,
+    Variant,
+    sizing_cuts,
+    sizing_cuts_path,
+)
+from tools.campaign_swept import HELD_OUT, bars_for, candidate_bars
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -127,6 +129,12 @@ MAX_FAVOURABLE_SHARE = 0.90
 Near-constant at the signal, it adds the same contract to almost every trade and sorts nothing --
 the entry already implies it, as ``above_ema_21`` did for EmaCrossover --
 ``docs/findings/confluence-count-per-trade.md``."""
+
+MAX_STEP_SHARE = MAX_FAVOURABLE_SHARE
+"""A label is dropped from the symmetric count where one step it moves that count by -- up, down or
+none -- covers more of the fitted signals than this. On an add-only count the steps are up and
+none, which is the band above; a symmetric one also takes a step off where the label opposes, so
+it can keep a label the band drops -- ``docs/findings/m47-confluence-sizing-preregistration.md``."""
 
 DRAWS = 200
 """Shuffles per configuration: enough for a p-value of 0.005 to be reachable."""
@@ -178,31 +186,53 @@ def extension_at(data: context.Dataset, params: InsideBarTrailingParams) -> Floa
     return extension
 
 
-def favourable_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> dict[str, float]:
-    """Each label's share of the unfiltered signals it favours, pooled over the sides swept.
+def label_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> dict[str, dict[str, float]]:
+    """Per label, the share of the unfiltered signals it favours, opposes alone, and leaves at none.
 
-    A variant sweeping ``direction`` trades both sides of the same signal and a sided label favours
-    one of them, so a share read on one side alone would be the other side's complement.
+    Pooled over the sides swept: a variant sweeping ``direction`` trades both sides of the same
+    signal and a sided label favours one of them, so a share read on one side alone would be the
+    other side's complement. A symmetric count takes a step off where a label opposes and does not
+    favour, and moves by none where it does neither, or both at a VWAP tie.
     """
     archetype: archetypes.Archetype = campaign.archetype
     sides: list[object] = list(campaign.axes.get("direction", []))
     configurations: list[Params] = (
         [dataclasses.replace(labelled, direction=side) for side in sides] if sides else [labelled]
     )
-    at_signals: list[list[BoolArray]] = []
+    favours: list[list[BoolArray]] = [[] for _ in SIZING_LABELS]
+    opposes: list[list[BoolArray]] = [[] for _ in SIZING_LABELS]
     for params in configurations:
         signal: BoolArray = archetype.signal(data, params)
-        rows: list[BoolArray] = filters.favourable_labels(data, params, SIDES[archetype.name](data, params))
-        at_signals.append([row[signal] for row in rows])
+        for position, label in enumerate(
+            filters.label_sides(data, params, SIDES[archetype.name](data, params))
+        ):
+            favours[position].append(label.favours[signal])
+            opposes[position].append(label.opposes[signal])
 
-    if not sum(int(rows[0].size) for rows in at_signals):
+    if not sum(int(rows.size) for rows in favours[0]):
         msg: str = f"{archetype.name} {campaign.name}: no signal in the selection window to fit a cut at"
         raise SystemExit(msg)
 
-    return {
-        label: float(np.concatenate([rows[position] for rows in at_signals]).mean())
-        for position, label in enumerate(SIZING_LABELS)
+    pooled: dict[str, filters.LabelSides] = {
+        label: filters.LabelSides(np.concatenate(up), np.concatenate(down))
+        for label, up, down in zip(SIZING_LABELS, favours, opposes, strict=True)
     }
+
+    return {
+        "favourable_share": {label: float(at.favours.mean()) for label, at in pooled.items()},
+        "opposing_share": {label: float((at.opposes & ~at.favours).mean()) for label, at in pooled.items()},
+        "neutral_share": {label: float((at.favours == at.opposes).mean()) for label, at in pooled.items()},
+    }
+
+
+def probed(frame: pd.DataFrame, minutes: int, campaign: Variant) -> context.Dataset:
+    """``frame`` prepared with everything :func:`probe_params` reads on ``campaign``'s base."""
+    return context.prepare(
+        frame,
+        sweep.Grid.of(probe_params(campaign.base), archetype=campaign.archetype).required_context(),
+        bar_minutes=minutes,
+        price_basis=context.PriceBasis.RAW,
+    )
 
 
 def fit_cut(
@@ -215,17 +245,12 @@ def fit_cut(
 ) -> tuple[SizingCut, dict[str, dict[str, float]]]:
     """One root, resolution and variant's cut, with what it was read off.
 
-    The report holds each label's favourable share at the fitted signals and, on
+    The report holds each label's shares at the fitted signals, :func:`label_shares`, and, on
     InsideBarTrailing, per earliness rule the share of the base configuration's own trades that
     came out early under the fitted cut.
     """
     probe: Params = probe_params(campaign.base)
-    data: context.Dataset = context.prepare(
-        frame,
-        sweep.Grid.of(probe, archetype=campaign.archetype).required_context(),
-        bar_minutes=minutes,
-        price_basis=context.PriceBasis.RAW,
-    )
+    data: context.Dataset = probed(frame, minutes, campaign)
     consolidating, directional = regime.thresholds_from_quantiles(
         data.regime_values(probe.regime_lookback),
         *SIZING_LABEL_QUANTILES,
@@ -240,7 +265,7 @@ def fit_cut(
         volume_thin_below=thin,
         volume_heavy_above=heavy,
     )
-    shares: dict[str, float] = favourable_shares(data, labelled, campaign)
+    report: dict[str, dict[str, float]] = label_shares(data, labelled, campaign)
     cut: SizingCut = SizingCut(
         root=root,
         minutes=minutes,
@@ -248,10 +273,10 @@ def fit_cut(
         regime_directional_above=directional,
         volume_thin_below=thin,
         volume_heavy_above=heavy,
-        labels=kept_labels(shares),
+        labels=kept_labels(report["favourable_share"]),
+        symmetric_labels=symmetric_kept_labels(report),
         variant=variant,
     )
-    report: dict[str, dict[str, float]] = {"favourable_share": shares}
     if campaign.archetype.name != archetypes.INSIDEBARTRAILING.name:
         return cut, report
 
@@ -323,6 +348,44 @@ def kept_labels(shares: dict[str, float]) -> tuple[str, ...]:
     )
 
 
+def symmetric_kept_labels(report: dict[str, dict[str, float]]) -> tuple[str, ...]:
+    """The labels the symmetric count keeps: those no one step covers almost every fitted signal at."""
+    opposing: dict[str, float] = report["opposing_share"]
+    neutral: dict[str, float] = report["neutral_share"]
+
+    return tuple(
+        label
+        for label in SIZING_LABELS
+        if max(1.0 - opposing[label] - neutral[label], opposing[label], neutral[label]) <= MAX_STEP_SHARE
+    )
+
+
+def symmetric_fill(
+    frame: pd.DataFrame,
+    campaign: Variant,
+    cut: SizingCut,
+    stored: dict[str, object],
+) -> tuple[SizingCut, dict[str, dict[str, float]]]:
+    """A cut stored before the fit read its symmetric labels, with them read at its own thresholds.
+
+    Nothing it already holds is refitted. Its favourable shares are read again first and have to
+    come back exactly as stored, which is what shows the signals are the ones it was fitted at.
+    """
+    labelled: Params = dataclasses.replace(probe_params(campaign.base), **cut.thresholds())
+    report: dict[str, dict[str, float]] = label_shares(
+        probed(frame, cut.minutes, campaign), labelled, campaign
+    )
+    if report["favourable_share"] != stored.get("favourable_share"):
+        msg: str = (
+            f"{campaign.archetype.name} {campaign.name} {cut.root} {cut.minutes}m: the favourable "
+            "shares read back differently from the stored cut's, so its signals have moved; "
+            "move the file aside to refit"
+        )
+        raise SystemExit(msg)
+
+    return dataclasses.replace(cut, symmetric_labels=symmetric_kept_labels(report)), report
+
+
 def selection_window(bars: pd.DataFrame) -> pd.DataFrame:
     """The bars the campaign's selection window holds, which is all a fit may read."""
     return bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
@@ -332,12 +395,14 @@ def fit(name: str, roots: list[str], resolutions: list[int], path: Path) -> list
     """Fit every root, resolution and stored variant ``path`` does not hold yet, and write them all.
 
     A cut already there is kept rather than refitted, so the arms stored against it keep the cut
-    they ran at; move the file aside to refit from scratch. The variant is recorded only where the
-    archetype has more than one.
+    they ran at; move the file aside to refit from scratch. One stored without symmetric labels
+    gains them, :func:`symmetric_fill`. The variant is recorded only where the archetype has more
+    than one.
     """
     written: list[dict[str, object]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-    stored: set[tuple[str, int, object]] = {
-        (str(cut["root"]), int(str(cut["minutes"])), cut.get("variant")) for cut in written
+    stored: dict[tuple[str, int, str | None], tuple[SizingCut, dict[str, object]]] = {
+        (cut.root, cut.minutes, cut.variant): (cut, row)
+        for cut, row in zip(sizing_cuts(path) if written else [], written, strict=True)
     }
     for root in roots:
         campaigns: list[Variant] = VARIANTS[name](root)
@@ -346,11 +411,25 @@ def fit(name: str, roots: list[str], resolutions: list[int], path: Path) -> list
             frame: pd.DataFrame = resample.resample(selection, minutes)
             for campaign in campaigns:
                 variant: str | None = campaign.name if len(campaigns) > 1 else None
-                if not campaign.runs_at(minutes) or (root, minutes, variant) in stored:
+                if not campaign.runs_at(minutes):
                     continue
 
-                cut, report = fit_cut(frame, root, minutes, campaign, variant=variant)
-                written.append({**dataclasses.asdict(cut), **report})
+                if (root, minutes, variant) not in stored:
+                    cut, report = fit_cut(frame, root, minutes, campaign, variant=variant)
+                    written.append({**dataclasses.asdict(cut), **report})
+                    log_cut(cut, report)
+                    continue
+
+                kept, row = stored[(root, minutes, variant)]
+                if kept.symmetric_labels is not None:
+                    continue
+
+                cut, report = symmetric_fill(frame, campaign, kept, row)
+                row.update(
+                    symmetric_labels=list(cut.symmetric_labels or ()),
+                    opposing_share=report["opposing_share"],
+                    neutral_share=report["neutral_share"],
+                )
                 log_cut(cut, report)
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -369,8 +448,14 @@ def log_cut(cut: SizingCut, report: dict[str, dict[str, float]]) -> None:
         cut.variant or "",
         ", ".join(cut.labels) or "none",
     )
+    logger.info("%52ssymmetric labels %s", "", ", ".join(cut.symmetric_labels or ()) or "none")
     for label, share in report["favourable_share"].items():
-        logger.info("        %-26s favours %5.1f%% of signals", label, 100.0 * share)
+        logger.info(
+            "        %-26s favours %5.1f%%, opposes %5.1f%% of signals",
+            label,
+            100.0 * share,
+            100.0 * report["opposing_share"][label],
+        )
     for rule, share in report.get("traded_early_share", {}).items():
         logger.info("        %-26s %5.1f%% of traded entries early", rule, 100.0 * share)
 

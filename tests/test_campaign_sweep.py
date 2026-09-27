@@ -2227,8 +2227,16 @@ def test_no_findings_file_calls_the_campaigns_series_back_adjusted() -> None:
 # -- InsideBarTrailing's sizing arms, [#295] and [#353] ---------------------------------------
 
 
-def a_cut(root: str = "MNQ", minutes: int = 5, labels: tuple[str, ...] = ("size_on_vwap", "size_on_regime")):
-    """A cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it."""
+def a_cut(
+    root: str = "MNQ",
+    minutes: int = 5,
+    labels: tuple[str, ...] = ("size_on_vwap", "size_on_regime"),
+    symmetric_labels: tuple[str, ...] | None = None,
+):
+    """A cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it.
+
+    The symmetric arm counts ``labels`` unless told otherwise.
+    """
     return SizingCut(
         root=root,
         minutes=minutes,
@@ -2239,6 +2247,7 @@ def a_cut(root: str = "MNQ", minutes: int = 5, labels: tuple[str, ...] = ("size_
         volume_thin_below=0.6,
         volume_heavy_above=1.6,
         labels=labels,
+        symmetric_labels=labels if symmetric_labels is None else symmetric_labels,
     )
 
 
@@ -2362,8 +2371,12 @@ def m47_cut(
     minutes: int = 5,
     labels: tuple[str, ...] = ("size_on_trend", "size_on_regime"),
     variant: str | None = None,
+    symmetric_labels: tuple[str, ...] | None = None,
 ) -> SizingCut:
-    """A cut of the shape the fit writes outside InsideBarTrailing: no earliness in it."""
+    """A cut of the shape the fit writes outside InsideBarTrailing: no earliness in it.
+
+    The symmetric arm counts ``labels`` unless told otherwise.
+    """
     return SizingCut(
         root=root,
         minutes=minutes,
@@ -2372,6 +2385,7 @@ def m47_cut(
         volume_thin_below=0.6,
         volume_heavy_above=1.6,
         labels=labels,
+        symmetric_labels=labels if symmetric_labels is None else symmetric_labels,
         variant=variant,
     )
 
@@ -2402,11 +2416,12 @@ def test_a_cut_naming_no_variant_fits_every_one_and_one_naming_a_variant_fits_th
 
 
 def test_a_cut_file_reads_back_with_and_without_the_newer_fields(tmp_path) -> None:
-    """§M45's file carries no variant, and only InsideBarTrailing's carry earliness cuts."""
-    legacy = {key: value for key, value in dataclasses.asdict(a_cut()).items() if key != "variant"}
+    """§M45's file carries no variant or symmetric labels, and only InsideBarTrailing's carry earliness."""
+    newer = {"variant", "symmetric_labels"}
+    legacy = {key: value for key, value in dataclasses.asdict(a_cut()).items() if key not in newer}
     path = tmp_path / "cuts.json"
     path.write_text(json.dumps([legacy, dataclasses.asdict(m47_cut(variant="bracket"))]), encoding="utf-8")
-    assert sizing_cuts(path) == [a_cut(), m47_cut(variant="bracket")]
+    assert sizing_cuts(path) == [replace(a_cut(), symmetric_labels=None), m47_cut(variant="bracket")]
 
 
 def test_a_four_target_bracket_at_its_floor_gets_every_arm_but_the_symmetric_one() -> None:
@@ -2434,6 +2449,30 @@ def test_the_arms_count_what_their_names_say() -> None:
     assert sizing_labels(trend_alone.base) == ("size_on_trend",)
     assert sizing_labels(regime_alone.base) == ("size_on_regime",)
     assert not together.base.size_symmetric
+
+
+def test_the_symmetric_arm_counts_the_labels_fitted_for_it_rather_than_the_add_only_ones() -> None:
+    """A label favouring few signals and opposing many sorts nothing added-only and plenty symmetric."""
+    campaign = VARIANTS["ElasticBand"]("MNQ")[0]
+    symmetric = ("size_on_trend", "size_on_higher_timeframe", "size_on_regime")
+    cut = m47_cut(labels=("size_on_higher_timeframe",), symmetric_labels=symmetric)
+    arms = confluence_arms(campaign, cut)
+    assert arm_names(campaign, arms) == [SIZE_FIXED, SIZING_CONFLUENCE, SIZING_SYMMETRIC]
+    assert sizing_labels(arms[1].base) == ("size_on_higher_timeframe",)
+    assert sizing_labels(arms[2].base) == symmetric
+
+
+def test_a_cut_keeping_labels_for_the_symmetric_arm_alone_runs_the_control_and_that_arm() -> None:
+    campaign = VARIANTS["ElasticBand"]("MNQ")[0]
+    arms = confluence_arms(campaign, m47_cut(labels=(), symmetric_labels=("size_on_trend",)))
+    assert arm_names(campaign, arms) == [SIZE_FIXED, SIZING_SYMMETRIC]
+
+
+def test_a_cut_stored_before_its_symmetric_labels_were_read_is_refused() -> None:
+    """Counting the add-only labels in their place would run an arm the fit never chose."""
+    campaign = VARIANTS["ElasticBand"]("MNQ")[0]
+    with pytest.raises(SystemExit, match="no symmetric labels"):
+        confluence_arms(campaign, replace(m47_cut(), symmetric_labels=None))
 
 
 def test_one_kept_label_is_the_all_labels_arm_so_there_is_no_arm_for_it_alone() -> None:
@@ -2466,6 +2505,19 @@ def test_insidebartrailing_keeps_its_nine_arms_and_adds_the_new_ones_on_the_same
     assert names[9:] == ["size=vwap", "size=regime", SIZING_SYMMETRIC]
     assert all(arm.axes == arms[0].axes for arm in arms)
     assert all(arm.base.partial_take_profit_percentage == 0.5 for arm in arms[9:])
+
+
+def test_insidebartrailing_runs_its_symmetric_arm_on_its_own_labels() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    symmetric = ("size_on_trend", "size_on_vwap", "size_on_regime")
+    arms = insidebartrailing_confluence_arms(campaign, a_cut(symmetric_labels=symmetric))
+    assert arm_names(campaign, arms)[-1] == SIZING_SYMMETRIC
+    assert sizing_labels(arms[-1].base) == symmetric
+    bare = insidebartrailing_confluence_arms(campaign, a_cut(labels=(), symmetric_labels=symmetric))
+    assert arm_names(campaign, bare) == [
+        *arm_names(campaign, sizing_arms(campaign, a_cut(labels=()))),
+        SIZING_SYMMETRIC,
+    ]
 
 
 def test_every_combination_of_every_confluence_arm_is_a_legal_rule_set() -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -32,13 +33,14 @@ from tools import campaign_sizing, campaign_sweep
 from tools.campaign_sizing import (
     EARLY_QUANTILE,
     MAX_FAVOURABLE_SHARE,
+    MAX_STEP_SHARE,
     MIN_FAVOURABLE_SHARE,
     age_at,
     extension_at,
-    favourable_shares,
     fit,
     fit_cut,
     kept_labels,
+    label_shares,
     permuted_sizing,
     probe_params,
     recomputed_null,
@@ -46,6 +48,7 @@ from tools.campaign_sizing import (
     same_trades,
     selection_window,
     shuffled_null,
+    symmetric_kept_labels,
     trade_rows,
     unsized,
 )
@@ -110,10 +113,20 @@ def test_the_label_thresholds_are_the_top_fifth_of_their_own_series(bars, fitted
 
 def test_every_label_gets_a_share_and_only_the_informative_ones_are_kept(fitted) -> None:
     cut, report = fitted
-    shares = report["favourable_share"]
-    assert list(shares) == list(SIZING_LABELS)
-    assert all(0.0 <= share <= 1.0 for share in shares.values())
-    assert cut.labels == kept_labels(shares)
+    for name in ("favourable_share", "opposing_share", "neutral_share"):
+        assert list(report[name]) == list(SIZING_LABELS)
+        assert all(0.0 <= share <= 1.0 for share in report[name].values())
+    assert cut.labels == kept_labels(report["favourable_share"])
+    assert cut.symmetric_labels == symmetric_kept_labels(report)
+    assert set(cut.labels) <= set(cut.symmetric_labels), "a label sorting added-only sorts symmetric too"
+
+
+def test_the_three_steps_a_symmetric_count_moves_by_cover_every_signal(fitted) -> None:
+    """Up where a label favours alone, down where it opposes alone, none elsewhere."""
+    _, report = fitted
+    for label in SIZING_LABELS:
+        up = 1.0 - report["opposing_share"][label] - report["neutral_share"][label]
+        assert 0.0 <= up <= report["favourable_share"][label] + 1e-12
 
 
 def test_a_label_the_signal_nearly_always_or_never_has_is_dropped() -> None:
@@ -125,6 +138,35 @@ def test_a_label_the_signal_nearly_always_or_never_has_is_dropped() -> None:
         "size_on_volume": 0.02,
     }
     assert kept_labels(shares) == ("size_on_higher_timeframe", "size_on_vwap", "size_on_regime")
+
+
+def test_the_symmetric_count_keeps_a_label_the_add_only_band_drops_when_it_opposes_enough() -> None:
+    """ElasticBand's trend favours 4% of its signals and opposes 69%: nothing added, plenty shed."""
+    report = {
+        "favourable_share": {
+            "size_on_trend": 0.04,
+            "size_on_higher_timeframe": 0.42,
+            "size_on_vwap": 0.013,
+            "size_on_regime": 0.05,
+            "size_on_volume": 0.03,
+        },
+        "opposing_share": {
+            "size_on_trend": 0.69,
+            "size_on_higher_timeframe": 0.58,
+            "size_on_vwap": 0.987,
+            "size_on_regime": 0.05,
+            "size_on_volume": 0.02,
+        },
+        "neutral_share": {
+            "size_on_trend": 0.27,
+            "size_on_higher_timeframe": 0.0,
+            "size_on_vwap": 0.0,
+            "size_on_regime": MAX_STEP_SHARE,
+            "size_on_volume": 0.95,
+        },
+    }
+    assert kept_labels(report["favourable_share"]) == ("size_on_higher_timeframe",)
+    assert symmetric_kept_labels(report) == ("size_on_trend", "size_on_higher_timeframe", "size_on_regime")
 
 
 def test_the_fit_reads_the_selection_window_alone() -> None:
@@ -149,11 +191,13 @@ def test_fit_writes_cuts_the_sizing_arms_can_read(monkeypatch, tmp_path) -> None
     written = fit("InsideBarTrailing", ["MNQ"], [1], path)
     stored = json.loads(path.read_text(encoding="utf-8"))
     assert stored == json.loads(json.dumps(written))
-    assert set(stored[0]["favourable_share"]) == set(SIZING_LABELS)
+    for name in ("favourable_share", "opposing_share", "neutral_share"):
+        assert set(stored[0][name]) == set(SIZING_LABELS)
     assert set(stored[0]["traded_early_share"]) == {"first-breakout", "sma-extension", "trend-age"}
     (cut,) = campaign_sweep.sizing_cuts(path)
     assert (cut.root, cut.minutes) == ("MNQ", 1)
     assert list(cut.labels) == stored[0]["labels"]
+    assert list(cut.symmetric_labels) == stored[0]["symmetric_labels"]
 
 
 # -- the shuffled-size null ------------------------------------------------------------------
@@ -365,6 +409,7 @@ def test_a_cut_already_in_the_file_is_kept_and_only_the_rest_are_fitted(monkeypa
         volume_thin_below=0.1,
         volume_heavy_above=9.0,
         labels=("size_on_trend",),
+        symmetric_labels=("size_on_trend",),
         variant="a",
     )
     path = tmp_path / "cuts.json"
@@ -376,16 +421,59 @@ def test_a_cut_already_in_the_file_is_kept_and_only_the_rest_are_fitted(monkeypa
     assert stored[1].regime_directional_above != kept.regime_directional_above
 
 
+SYMMETRIC_FIELDS = ("symmetric_labels", "opposing_share", "neutral_share")
+"""What a cut stored before the fit read its symmetric labels lacks."""
+
+
+def without_symmetric_fields(path: Path) -> list[dict[str, object]]:
+    """The stored cuts at ``path`` as the fit wrote them before it read symmetric labels."""
+    rows = json.loads(path.read_text(encoding="utf-8"))
+
+    return [{key: value for key, value in row.items() if key not in SYMMETRIC_FIELDS} for row in rows]
+
+
+def test_a_cut_stored_without_symmetric_labels_gains_them_and_nothing_else_moves(
+    monkeypatch, tmp_path
+) -> None:
+    """The labels come back as a fresh fit reads them, at the stored cut's own thresholds."""
+    long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
+    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    path = tmp_path / "cuts.json"
+    fresh = json.loads(json.dumps(fit("InsideBar", ["MNQ"], [1], path)))
+    stripped = without_symmetric_fields(path)
+    path.write_text(json.dumps(stripped), encoding="utf-8")
+    assert all(cut.symmetric_labels is None for cut in campaign_sweep.sizing_cuts(path))
+    fit("InsideBar", ["MNQ"], [1], path)
+    assert json.loads(path.read_text(encoding="utf-8")) == fresh
+
+
+def test_a_stored_cut_whose_signals_have_moved_is_refused_rather_than_filled(monkeypatch, tmp_path) -> None:
+    long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
+    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    path = tmp_path / "cuts.json"
+    fit("InsideBar", ["MNQ"], [1], path)
+    stripped = without_symmetric_fields(path)
+    stripped[0]["favourable_share"] = dict.fromkeys(SIZING_LABELS, 0.5)
+    path.write_text(json.dumps(stripped), encoding="utf-8")
+    with pytest.raises(SystemExit, match="signals have moved"):
+        fit("InsideBar", ["MNQ"], [1], path)
+
+
 def test_a_one_sided_archetype_reads_its_labels_on_its_own_side(bars) -> None:
     """DeadCatBounce only sells, so its trend label favours a signal in a downtrend."""
     base = DeadCatParams(use_ema=False, use_fast_sma=False, require_new_high=False, bars_required_to_trade=20)
     probe = probe_params(base)
     data = prepared_as(bars, probe, archetypes.DEADCATBOUNCE)
-    shares = favourable_shares(data, probe, campaign_sweep.Variant("bracket", archetypes.DEADCATBOUNCE, base))
+    shares = label_shares(data, probe, campaign_sweep.Variant("bracket", archetypes.DEADCATBOUNCE, base))
     signal = runner.deadcat_signal(data, base)
     down = data.trend_gate(probe.trend_key, trend.trends_mask([trend.Trend.DOWN]), probe.trend_min_agreement)
+    up = data.trend_gate(probe.trend_key, trend.trends_mask([trend.Trend.UP]), probe.trend_min_agreement)
     assert signal.sum() > 50
-    assert shares["size_on_trend"] == pytest.approx(down[signal].mean())
+    assert shares["favourable_share"]["size_on_trend"] == pytest.approx(down[signal].mean())
+    assert shares["opposing_share"]["size_on_trend"] == pytest.approx((up & ~down)[signal].mean())
+    assert shares["opposing_share"]["size_on_trend"] > 0.0, "the walk never trends up at a signal"
 
 
 def test_a_variant_sweeping_both_sides_pools_its_shares_over_them(bars) -> None:
@@ -398,10 +486,10 @@ def test_a_variant_sweeping_both_sides_pools_its_shares_over_them(bars) -> None:
             "one side", archetypes.SQUEEZEBREAKOUT, dataclasses.replace(base, direction=side)
         )
 
-        return favourable_shares(data, dataclasses.replace(probe, direction=side), variant)
+        return label_shares(data, dataclasses.replace(probe, direction=side), variant)["favourable_share"]
 
     both = campaign_sweep.Variant("both", archetypes.SQUEEZEBREAKOUT, base, axes={"direction": [LONG, SHORT]})
-    pooled = favourable_shares(data, probe, both)
+    pooled = label_shares(data, probe, both)["favourable_share"]
     counts = {
         side: squeeze.squeeze_signal(data, dataclasses.replace(base, direction=side)).sum()
         for side in (LONG, SHORT)
