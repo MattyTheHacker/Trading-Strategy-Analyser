@@ -1,37 +1,40 @@
-r"""Every read a sizing campaign pre-registered, over every cell, from one load per archetype.
+r"""Every per-cell read of a swept variant set, over every cell, from one load per archetype.
 
-    ./.venv/Scripts/python.exe tools/campaign_gates.py --resolutions 10 15 --out <dir> --n-jobs 6
-    ./.venv/Scripts/python.exe tools/campaign_gates.py --resolutions 10 15 --out <dir> --reads gate4 \
-        --cells <csv of variant, root, resolution and stratum>
+    ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
+        --out <dir> --n-jobs 6
+    ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
+        --out <dir> --reads gate4 --cells <csv of variant, root, resolution and stratum>
 
-**The per-cell tools pay for their inputs on every call.** ``tools/campaign_holdout.py``,
-``tools/campaign_sizing.py null``, ``tools/campaign_montecarlo.py``, ``tools/campaign_exits.py``,
-``tools/campaign_walkforward.py`` and ``tools/campaign_propaccount.py`` each load an archetype's
-results database whole and prepare their bars again, the null once per configuration, so over the
-tens of thousands of cells §M47 reads the loading costs more than the reads. This loads each
-archetype's rows for the campaign once, re-runs each shortlisted configuration once on the bars it
-was swept on, and hands that one log to every read.
+It loads the variant set's rows once per archetype, re-runs each shortlisted configuration once
+on the bars it was swept on, and hands that one log to every read: what
+``tools/campaign_holdout.py``, ``tools/campaign_sizing.py null``, ``tools/campaign_montecarlo.py``,
+``tools/campaign_exits.py``, ``tools/campaign_walkforward.py`` and
+``tools/campaign_propaccount.py`` each do for one cell.
 
 **The reads are those tools' own functions**, given what their command lines give them for one
 arm, root, resolution and stratum -- ``--variant``, ``--root``, ``--resolution`` and ``--stratum``
--- so a cell read here and the same cell read there agree:
+-- so a cell read here and the same cell read there agree wherever both run on the same bars:
 
 - ``gates``: gate 1, :func:`campaign_report.profile` on the selection window, and gate 2,
   :func:`campaign_holdout.verdict`;
-- ``paired``: :func:`campaign_paired.paired` held out, each sizing arm against its control and
-  the symmetric arm against the add-only one, stratum by stratum;
-- ``null``: :func:`campaign_sizing.shuffled_null` on every sizing arm's held-out shortlist;
+- ``paired``: :func:`campaign_paired.paired` held out, stratum by stratum, over the pairs
+  :func:`controls` reads off the arms' names;
+- ``null``: :func:`campaign_sizing.shuffled_null` on the held-out shortlist of every arm whose
+  base sizes on a confluence count;
 - ``gate4``: :func:`campaign_montecarlo.resample_row`, :func:`campaign_exits.measure_row` and
   :func:`campaign_walkforward.run_resolution`, on the cells ``--gate4-strata`` and ``--cells`` name;
 - ``prop``: :func:`campaign_propaccount.replay_shortlist` over the four presets, on the cells
   ``--prop-strata`` names.
 
-Every re-run also writes what it reproduced of its stored row, which is read before anything the
-logs were re-run for -- :func:`campaign_swept.reconciliation`.
+Every re-run also writes what it reproduced of its stored row, and on which bars, which is read
+before anything the logs were re-run for -- :func:`campaign_swept.reconciliation`.
 
-The tables land under ``--out``, one file per archetype, root, resolution and arm, so an
-interrupted run resumes where it stopped. **Only this process opens a database**, and only once
-the sweep has stopped writing it: ``nqbt.results.connect`` opens a file read-write.
+The tables land under ``--out``, one file per archetype, root, resolution and arm, and each task
+records the strata every read has written. A run reads only what is missing, so an interrupted
+run resumes where it stopped and a later one adds reads or ``--cells`` without repeating any; one
+``--out`` holds one set of :data:`SETTINGS` and refuses a run asking for others. **Only this
+process opens a database**, and only once the sweep has stopped writing it:
+``nqbt.results.connect`` opens a file read-write.
 """
 
 from __future__ import annotations
@@ -53,7 +56,7 @@ import pandas as pd
 # sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nqbt import archetypes, context, logsetup, montecarlo, propaccount, splice, stats, sweep
+from nqbt import archetypes, context, logsetup, montecarlo, propaccount, splice, stats
 from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import get_instrument
 from tools import campaign_paired
@@ -70,15 +73,9 @@ from tools.campaign_montecarlo import resample_row
 from tools.campaign_null import stored_rows
 from tools.campaign_propaccount import DEFAULT_PRESETS, replay_shortlist
 from tools.campaign_report import UNFILTERED, load, log_key, profile, rank
-from tools.campaign_shortlist import TOP, rebuild
+from tools.campaign_shortlist import TOP, prepared, run_logged
 from tools.campaign_sizing import DRAWS, null_row, shuffled_null
-from tools.campaign_sweep import (
-    CONFLUENCE_SIZING_VARIANTS,
-    ROOTS,
-    SIZE_FIXED,
-    SIZING_CONFLUENCE,
-    SIZING_SYMMETRIC,
-)
+from tools.campaign_sweep import ROOTS, VARIANT_SETS, Variant, variants_for
 from tools.campaign_swept import (
     CELL_KEYS,
     RECONCILED,
@@ -91,7 +88,7 @@ from tools.campaign_swept import (
 from tools.campaign_walkforward import TEST_SHARE, TRAIN_SHARE, run_resolution
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -101,42 +98,54 @@ READS = ("gates", "paired", "null", "gate4", "prop")
 RERUN_READS = frozenset({"null", "gate4", "prop"})
 """The reads that need a shortlist's logs, and so a re-run."""
 
+RERUN = "rerun"
+"""The table every re-run writes a row to, whichever read it was re-run for."""
+
+TABLES: dict[str, str] = {
+    RERUN: RERUN,
+    "null": "null",
+    "permutation": "gate4",
+    "bootstrap": "gate4",
+    "exclusion": "gate4",
+    "walkforward": "gate4",
+    "prop": "prop",
+}
+"""Every table a task writes, and the read whose strata it holds rows for."""
+
+SETTINGS = ("variants", "draws", "iterations", "seed")
+"""What every table under one ``--out`` is read at."""
+
 CELL = ["root", "resolution", "variant", "stratum"]
 """What one cell is: every read ranks inside one."""
+
+STRATEGY = "strategy"
+"""The column naming the archetype a re-run row belongs to."""
 
 BY = "profit_factor"
 """The selection-window statistic every shortlist is ranked on, as the per-cell tools default."""
 
-TABLES = (
-    "gates",
-    "paired",
-    "rerun",
-    "null",
-    "permutation",
-    "bootstrap",
-    "exclusion",
-    "walkforward",
-    "prop",
-)
-"""Every table a run can write, each under its own directory of ``--out``."""
+ARM_RULE = re.compile(r"^(?P<stem>.+) (?P<rule>[a-z_]+=\S+(?: symmetric| inverted)?)$")
+"""An arm's name: the stored variant it re-emits, then the rule it runs, as the sizing arms are named."""
 
-IBT_CONTROL = "split=0.5"
-"""InsideBarTrailing's control, which every one of its sizing arms is read against."""
+CONTROLS = ("size=fixed", "split=0.5")
+"""The rules an arm is read against, first found first: a fixed size, or InsideBarTrailing's half
+split -- ``docs/findings/m45-ibt-sizing-preregistration.md``."""
 
-ARM_RULE = re.compile(r"^(?P<stem>.+) (?P<rule>size=\S+(?: symmetric)?|split=\S+|tier=\S+(?: inverted)?)$")
-"""An arm's name: the stored variant it re-emits, then the rule it runs."""
-
+SYMMETRIC = " symmetric"
 INVERTED = " inverted"
+"""What an arm's rule ends in when it has a twin to be read against: its add-only arm, or the rule
+it inverts."""
 
 
 @dataclasses.dataclass(frozen=True)
 class Task:
     """One archetype, root, resolution and arm: the shortlists to re-run and what to read off them.
 
-    ``held`` is every stratum's held-out shortlist, ranked on the selection window as
-    :func:`campaign_holdout.held_out` ranks it; ``chosen`` is the selection-window shortlist
-    :func:`campaign_walkforward.run_resolution` walks forward, for the strata gate 4 is read on;
-    ``stored`` is the held-out rows those shortlists were swept as, which say what bars to run.
+    ``held`` is the held-out shortlist of every stratum a read is run on, ranked on the selection
+    window as :func:`campaign_holdout.held_out` ranks it; ``chosen`` is the selection-window
+    shortlist :func:`campaign_walkforward.run_resolution` walks forward, for the strata gate 4 is
+    read on; ``stored`` is the held-out rows those shortlists were swept as, which say what bars
+    to run; ``strata`` is, per read and for :data:`RERUN`, the strata this task writes.
     """
 
     name: str
@@ -146,17 +155,19 @@ class Task:
     held: pd.DataFrame
     chosen: pd.DataFrame
     stored: pd.DataFrame
-    reads: frozenset[str]
-    gate4_strata: frozenset[str]
-    prop_strata: frozenset[str]
+    strata: dict[str, frozenset[str]]
     draws: int
     iterations: int
     seed: int
 
     @property
     def key(self) -> str:
-        """What this task's files are called: its root, resolution and arm."""
-        return f"{self.root}-{self.minutes}m-{slug(self.arm)}"
+        """What this task's files are called."""
+        return task_key(self.root, self.minutes, self.arm)
+
+    def reads(self, read: str, stratum: str) -> bool:
+        """Whether this task writes ``read`` for ``stratum``."""
+        return stratum in self.strata.get(read, frozenset())
 
 
 def slug(name: str) -> str:
@@ -164,19 +175,33 @@ def slug(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9=.+-]", "_", name)
 
 
-def is_sizing_arm(arm: str) -> bool:
-    """Whether ``arm`` sizes on a count, which is what gate 3's shuffled null tests."""
-    match: re.Match[str] | None = ARM_RULE.match(arm)
+def task_key(root: str, minutes: int, arm: str) -> str:
+    """What one task's files are called: its root, resolution and arm."""
+    return f"{root}-{minutes}m-{slug(arm)}"
 
-    return match is not None and match["rule"].startswith("size=") and match["rule"] != SIZE_FIXED
+
+def refuse_clashes(arms: list[str]) -> None:
+    """Refuse two arms whose file names a case-blind file system would take for one."""
+    seen: dict[str, str] = {}
+    for arm in arms:
+        other: str = seen.setdefault(slug(arm).casefold(), arm)
+        if other != arm:
+            msg: str = f"{other!r} and {arm!r} would be written to the same file"
+            raise SystemExit(msg)
+
+
+def sizes_on_count(arm: Variant) -> bool:
+    """Whether ``arm``'s base sizes on a confluence count, which is what gate 3's shuffled null tests."""
+    return getattr(arm.base, "quantity_per_confluence", 0) > 0
 
 
 def controls(arms: list[str]) -> list[tuple[str, str]]:
     """Every (control, treatment) pair the paired read sets against each other.
 
-    Each sizing arm and each of §M45's tiers against its variant's fixed size -- on
-    InsideBarTrailing, §M45's ``split=0.5`` -- the symmetric arm against the add-only one, and
-    each tier against its inverse.
+    An arm named ``<stem> <rule>`` is read against its stem's control, the first of
+    :data:`CONTROLS` present, unless it is one or it inverts another rule. One ending in
+    :data:`SYMMETRIC` is also read against its add-only twin, and one with an :data:`INVERTED`
+    twin against that. An arm with no control beside it is paired with nothing.
     """
     present: set[str] = set(arms)
     pairs: list[tuple[str, str]] = []
@@ -187,32 +212,33 @@ def controls(arms: list[str]) -> list[tuple[str, str]]:
 
         stem, rule = match["stem"], match["rule"]
         control: str | None = next(
-            (f"{stem} {name}" for name in (SIZE_FIXED, IBT_CONTROL) if f"{stem} {name}" in present), None
+            (f"{stem} {name}" for name in CONTROLS if f"{stem} {name}" in present), None
         )
         if control is None:
             continue
 
-        if is_sizing_arm(arm) or (rule.startswith("tier=") and not rule.endswith(INVERTED)):
+        if rule not in CONTROLS and not rule.endswith(INVERTED):
             pairs.append((control, arm))
 
-        if rule == SIZING_SYMMETRIC and f"{stem} {SIZING_CONFLUENCE}" in present:
-            pairs.append((f"{stem} {SIZING_CONFLUENCE}", arm))
+        if rule.endswith(SYMMETRIC) and arm.removesuffix(SYMMETRIC) in present:
+            pairs.append((arm.removesuffix(SYMMETRIC), arm))
 
-        if rule.startswith("tier=") and not rule.endswith(INVERTED) and f"{arm}{INVERTED}" in present:
+        if f"{arm}{INVERTED}" in present:
             pairs.append((f"{arm}{INVERTED}", arm))
 
     return pairs
 
 
-def arms_for(name: str, root: str, resolutions: list[int]) -> list[str]:
-    """The arms the campaign builds for one archetype and root at these resolutions."""
-    return sorted(
-        {
-            arm.name
-            for arm in CONFLUENCE_SIZING_VARIANTS[name](root)
-            if any(minutes in arm.resolutions for minutes in resolutions)
-        },
-    )
+def arms_for(
+    builders: dict[str, Callable[[str], list[Variant]]], name: str, root: str, resolutions: list[int]
+) -> dict[tuple[str, int], Variant]:
+    """The arms the variant set builds for one archetype and root, by name and resolution."""
+    return {
+        (arm.name, minutes): arm
+        for arm in builders[name](root)
+        for minutes in resolutions
+        if arm.runs_at(minutes)
+    }
 
 
 def gate_rows(name: str, selection: pd.DataFrame, merged: pd.DataFrame) -> pd.DataFrame:
@@ -317,54 +343,46 @@ def archive(root: str) -> pd.DataFrame:
 
 
 def reruns(task: Task) -> Iterator[Rerun]:
-    """Every shortlisted configuration re-run once, on one prepared dataset for the whole task.
+    """Every configuration ``task.held`` holds re-run once, on one prepared dataset for the task.
 
-    One dataset serves every stratum, built from the task's shortlists as a combination grid so
-    that it holds the union of what they read, as :func:`campaign_shortlist.rerun_group` builds one.
+    The archive is cut back at the newest bar those rows were swept on, where the per-cell tools
+    cut at the newest their root stored anywhere: the same bars unless one database holds
+    campaigns swept on archives of different lengths, and then the rows' own where theirs are not.
     """
     archetype: archetypes.Archetype = archetypes.get(task.name)
     frame, swept = bars_for(
         candidate_bars(task.stored, archive(task.root)), task.stored, task.held, task.minutes
     )
-    rebuilt = [rebuild(row, archetype) for _, row in task.held.iterrows()]
-    grid: sweep.Grid = sweep.Grid.of_combinations(rebuilt, archetype=archetype)
-    data: context.Dataset = context.prepare(
-        frame,
-        grid.required_context(),
-        bar_minutes=task.minutes,
-        price_basis=context.PriceBasis.RAW,
-    )
+    rebuilt, data = prepared(task.held, frame, archetype, task.minutes, context.PriceBasis.RAW)
     for position, params in enumerate(rebuilt):
-        summary, log = sweep.run_combination(
-            data, params, get_instrument(task.root), archetype, keep_trades=True
-        )
-        if log is None:  # pragma: no cover - keep_trades always returns a log
-            msg: str = "run_combination kept no log with keep_trades set"
-            raise RuntimeError(msg)
-
+        summary, log = run_logged(data, params, task.root, archetype)
         yield Rerun(position, params, summary, log, data, swept)
 
 
 def run_task(task: Task) -> dict[str, pd.DataFrame]:
     """Every re-running read one task asks for, as tables keyed by name."""
-    measured: dict[str, list[dict[str, object]]] = {name: [] for name in TABLES}
+    measured: dict[str, list[dict[str, object]]] = {table: [] for table in TABLES}
     spreads: list[pd.DataFrame] = []
     logs: dict[str, dict[tuple[int, int], pd.DataFrame]] = {}
     for run in reruns(task):
         row = task.held.iloc[run.position]
         stratum: str = str(row["stratum"])
-        measured["rerun"].append(
-            {
-                **{column: row[column] for column in CELL},
-                **stored_figures(row),
-                **{field: run.summary[field] for field in RECONCILED},
-                SWEPT_BARS: run.swept,
-            },
-        )
-        if "null" in task.reads and is_sizing_arm(task.arm):
+        if task.reads(RERUN, stratum):
+            measured[RERUN].append(
+                {
+                    STRATEGY: task.name,
+                    **{column: row[column] for column in CELL},
+                    **stored_figures(row),
+                    **{field: run.summary[field] for field in RECONCILED},
+                    SWEPT_BARS: run.swept,
+                },
+            )
+
+        if task.reads("null", stratum):
             measured["null"].append(nulled(task, run))
 
-        if "gate4" in task.reads and stratum in task.gate4_strata:
+        # ``campaign_exits.measure`` skips a configuration with no trades, so its table has no row for one.
+        if task.reads("gate4", stratum) and not run.log.empty:
             resampled: tuple[dict[str, object], pd.DataFrame] | None = resample_row(
                 row, run.log, task.iterations, task.seed
             )
@@ -374,7 +392,7 @@ def run_task(task: Task) -> dict[str, pd.DataFrame]:
 
             measured["exclusion"].append(measure_row(row, run.log, stats.SESSION_CLOSE, require_stored=False))
 
-        if "prop" in task.reads and stratum in task.prop_strata:
+        if task.reads("prop", stratum):
             logs.setdefault(stratum, {})[log_key(row)] = run.log
 
     tables: dict[str, pd.DataFrame] = {name: pd.DataFrame(rows) for name, rows in measured.items() if rows}
@@ -384,7 +402,7 @@ def run_task(task: Task) -> dict[str, pd.DataFrame]:
     if logs:
         tables["prop"] = replayed(task, logs)
 
-    if "gate4" in task.reads and not task.chosen.empty:
+    if not task.chosen.empty:
         tables["walkforward"] = walked(task)
 
     return tables
@@ -445,27 +463,96 @@ def written(out: Path, table: str, name: str, key: str) -> Path:
 
 
 def done_marker(out: Path, name: str, key: str) -> Path:
-    """The file that says a task finished, so a resumed run skips it."""
+    """The file recording which strata each read has written for one task."""
     return out / "done" / name / f"{key}.json"
 
 
-def save(out: Path, name: str, key: str, tables: dict[str, pd.DataFrame], reads: frozenset[str]) -> None:
-    """Write one task's tables, then mark it done: a task interrupted between the two re-runs."""
-    for table, frame in tables.items():
-        path: Path = written(out, table, name, key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        frame.to_parquet(path, index=False)
+def recorded(out: Path, name: str, key: str) -> dict[str, frozenset[str]]:
+    """The strata each read has written for one task, as earlier runs recorded them."""
+    marker: Path = done_marker(out, name, key)
+    if not marker.exists():
+        return {}
 
+    return {
+        read: frozenset(strata) for read, strata in json.loads(marker.read_text(encoding="utf-8")).items()
+    }
+
+
+def replace_strata(path: Path, frame: pd.DataFrame | None, strata: frozenset[str]) -> None:
+    """Write ``frame`` to ``path`` in place of the rows it holds for ``strata``, keeping the rest."""
+    parts: list[pd.DataFrame] = [] if frame is None else [frame]
+    if path.exists():
+        existing: pd.DataFrame = pd.read_parquet(path)
+        parts.insert(0, existing[~existing["stratum"].isin(strata)])
+
+    kept: list[pd.DataFrame] = [part for part in parts if not part.empty]
+    if not kept:
+        path.unlink(missing_ok=True)
+
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.concat(kept, ignore_index=True).to_parquet(path, index=False)
+
+
+def save(
+    out: Path,
+    name: str,
+    key: str,
+    tables: dict[str, pd.DataFrame],
+    strata: dict[str, frozenset[str]],
+) -> None:
+    """Write one task's tables over the strata it read, then add those strata to what it records.
+
+    A task's rows for any other stratum are kept, so one read over several runs adds to its files,
+    and one interrupted between the two is read again and replaces what it wrote.
+    """
+    for table, read in TABLES.items():
+        covered: frozenset[str] = strata.get(read, frozenset())
+        if not covered:
+            continue
+
+        replace_strata(written(out, table, name, key), tables.get(table), covered)
+
+    done: dict[str, frozenset[str]] = recorded(out, name, key)
+    merged: dict[str, list[str]] = {
+        read: sorted(done.get(read, frozenset()) | strata.get(read, frozenset()))
+        for read in sorted({*done, *strata})
+    }
     marker: Path = done_marker(out, name, key)
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(json.dumps(sorted(reads)), encoding="utf-8")
+    marker.write_text(json.dumps(merged), encoding="utf-8")
 
 
-def is_done(out: Path, name: str, key: str, reads: frozenset[str]) -> bool:
-    """Whether a task already ran every read asked of it now."""
-    marker: Path = done_marker(out, name, key)
+def remaining(asked: dict[str, frozenset[str]], done: dict[str, frozenset[str]]) -> dict[str, frozenset[str]]:
+    """What is left of each read once earlier runs' strata are taken off, and nothing if none is.
 
-    return marker.exists() and reads <= set(json.loads(marker.read_text(encoding="utf-8")))
+    Every stratum left is re-run, and :data:`RERUN` names those whose re-run is not yet written.
+    """
+    left: dict[str, frozenset[str]] = {
+        read: strata - done.get(read, frozenset()) for read, strata in asked.items()
+    }
+    rerun: frozenset[str] = frozenset[str]().union(*left.values())
+    if not rerun:
+        return {}
+
+    return {**left, RERUN: rerun - done.get(RERUN, frozenset())}
+
+
+def asked_of(
+    reads: frozenset[str],
+    present: frozenset[str],
+    gate4: frozenset[str],
+    prop: frozenset[str],
+    *,
+    counted: bool,
+) -> dict[str, frozenset[str]]:
+    """The strata each re-running read is asked for on one arm, of the strata it has rows in."""
+    return {
+        "null": present if "null" in reads and counted else frozenset(),
+        "gate4": present & gate4 if "gate4" in reads else frozenset(),
+        "prop": present & prop if "prop" in reads else frozenset(),
+    }
 
 
 def extra_cells(path: Path | None) -> pd.DataFrame:
@@ -493,18 +580,50 @@ def gate4_for(
     return strata | frozenset(str(stratum) for stratum in named["stratum"])
 
 
+def save_by_cell(out: Path, table: str, name: str, frame: pd.DataFrame) -> None:
+    """Write one stored-row read, a file per root and resolution, so a run over others keeps it."""
+    if frame.empty:
+        return
+
+    for (root, minutes), block in frame.groupby(["root", "resolution"], sort=True):
+        path: Path = written(out, table, name, f"{root}-{int(str(minutes))}m")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        block.to_parquet(path, index=False)
+
+
+def settle(out: Path, args: argparse.Namespace) -> None:
+    """Record the settings ``out``'s tables are read at, refusing a run that asks for others there."""
+    asked: dict[str, object] = {setting: getattr(args, setting) for setting in SETTINGS}
+    path: Path = out / "settings.json"
+    if not path.exists():
+        out.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(asked), encoding="utf-8")
+
+        return
+
+    held = json.loads(path.read_text(encoding="utf-8"))
+    if held != asked:
+        msg: str = f"{out} holds tables read at {held}; write a run at {asked} to another --out"
+        raise SystemExit(msg)
+
+
 def tasks_for(
     name: str,
     args: argparse.Namespace,
     extra: pd.DataFrame,
     out: Path,
 ) -> Iterator[Task]:
-    """Load one archetype's campaign rows once, write the stored-row reads, and yield what re-runs."""
-    arms: dict[str, list[str]] = {root: arms_for(name, root, args.resolutions) for root in args.roots}
-    everything: list[str] = sorted({arm for names in arms.values() for arm in names})
-    frame: pd.DataFrame = load(
+    """Load one archetype's rows of the variant set once, write the stored-row reads, yield the re-runs."""
+    builders: dict[str, Callable[[str], list[Variant]]] = variants_for(args.variants)
+    arms: dict[str, dict[tuple[str, int], Variant]] = {
+        root: arms_for(builders, name, root, args.resolutions) for root in args.roots
+    }
+    everything: list[str] = sorted({arm for built in arms.values() for arm, _ in built})
+    refuse_clashes(everything)
+    loaded: pd.DataFrame = load(
         name, ["selection", "holdout"], variants=everything, resolutions=args.resolutions
     )
+    frame: pd.DataFrame = loaded[loaded["root"].isin(args.roots)]
     selection: pd.DataFrame = frame[frame["window"] == "selection"]
     holdout: pd.DataFrame = frame[frame["window"] == "holdout"]
     merged: pd.DataFrame = pair_windows(name, selection, holdout)
@@ -513,10 +632,10 @@ def tasks_for(
         return
 
     if "gates" in args.reads:
-        save(out, name, "all", {"gates": gate_rows(name, selection, merged)}, frozenset({"gates"}))
+        save_by_cell(out, "gates", name, gate_rows(name, selection, merged))
 
     if "paired" in args.reads:
-        save(out, name, "paired", {"paired": paired_rows(name, holdout, everything)}, frozenset({"paired"}))
+        save_by_cell(out, "paired", name, paired_rows(name, holdout, everything))
 
     reads: frozenset[str] = frozenset(args.reads) & RERUN_READS
     if not reads:
@@ -524,17 +643,28 @@ def tasks_for(
 
     for root in args.roots:
         stored: pd.DataFrame = stored_rows(
-            name, root, "holdout", variants=arms[root], resolutions=args.resolutions
+            name,
+            root,
+            "holdout",
+            variants=sorted({arm for arm, _ in arms[root]}),
+            resolutions=args.resolutions,
         )
-        for (minutes, arm), block in merged[merged["root"] == root].groupby(
+        for (resolution, variant), block in merged[merged["root"] == root].groupby(
             ["resolution", "variant"], sort=True
         ):
-            gate4_strata: frozenset[str] = gate4_for(
-                extra, root, int(minutes), str(arm), frozenset(args.gate4_strata)
+            minutes, arm = int(resolution), str(variant)
+            built: Variant | None = arms[root].get((arm, minutes))
+            asked: dict[str, frozenset[str]] = asked_of(
+                reads,
+                frozenset(str(stratum) for stratum in block["stratum"]),
+                gate4_for(extra, root, minutes, arm, frozenset(args.gate4_strata)),
+                frozenset(args.prop_strata),
+                counted=built is not None and sizes_on_count(built),
             )
-            task_reads: frozenset[str] = reads if is_sizing_arm(str(arm)) else reads - {"null"}
-            key: str = f"{root}-{int(minutes)}m-{slug(str(arm))}"
-            if not task_reads or is_done(out, name, key, task_reads):
+            left: dict[str, frozenset[str]] = remaining(
+                asked, recorded(out, name, task_key(root, minutes, arm))
+            )
+            if not left:
                 continue
 
             chosen_from: pd.DataFrame = selection[
@@ -542,36 +672,67 @@ def tasks_for(
                 & (selection["resolution"] == minutes)
                 & (selection["variant"] == arm)
             ]
-            held, chosen = shortlists(block, chosen_from, gate4_strata, args.top)
+            re_run: frozenset[str] = frozenset[str]().union(*left.values())
+            held, chosen = shortlists(block[block["stratum"].isin(re_run)], chosen_from, left["gate4"], TOP)
+            if held.empty:
+                continue
+
             keys: pd.MultiIndex = pd.MultiIndex.from_frame(held[JOIN_KEYS])
             yield Task(
                 name=name,
                 root=root,
-                minutes=int(minutes),
-                arm=str(arm),
+                minutes=minutes,
+                arm=arm,
                 held=held,
                 chosen=chosen,
                 stored=stored[stored.index.isin(keys)],
-                reads=task_reads,
-                gate4_strata=gate4_strata,
-                prop_strata=frozenset(args.prop_strata),
+                strata=left,
                 draws=args.draws,
                 iterations=args.iterations,
                 seed=args.seed,
             )
 
 
+def saved(future: concurrent.futures.Future[dict[str, pd.DataFrame]], task: Task, out: Path) -> bool:
+    """Save one finished task's tables, or log why it has none; whether it saved."""
+    try:
+        tables: dict[str, pd.DataFrame] = future.result()
+    except Exception:
+        logger.exception("  %s %s failed; the other tasks carry on", task.name, task.key)
+        return False
+
+    save(out, task.name, task.key, tables, task.strata)
+
+    return True
+
+
+def report_reruns(out: Path) -> None:
+    """Log how many arms reproduced every stored row they re-ran, and each one that did not."""
+    paths: list[Path] = sorted((out / RERUN).glob("*/*.parquet"))
+    if not paths:
+        return
+
+    table: pd.DataFrame = pd.concat([pd.read_parquet(path) for path in paths], ignore_index=True)
+    arms: pd.DataFrame = reconciliation(table, [STRATEGY, *CELL_KEYS, "variant"])
+    short: pd.DataFrame = arms[(arms["same_trades"] < arms["rows"]) | (arms["same_net"] < arms["rows"])]
+    logger.info("%d of %d arms reproduced every stored row they re-ran", len(arms) - len(short), len(arms))
+    if not short.empty:
+        logger.warning("these did not, so their levels are this run's:\n%s", short.to_string(index=False))
+
+
 def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
-    parser = argparse.ArgumentParser(description="Every pre-registered read, over every cell, in one pass.")
-    parser.add_argument("--strategies", nargs="+", default=list(CONFLUENCE_SIZING_VARIANTS))
+    parser = argparse.ArgumentParser(description="Every per-cell read of a variant set, in one pass.")
+    parser.add_argument(
+        "--variants", choices=sorted(VARIANT_SETS), required=True, help="the set the sweep ran"
+    )
+    parser.add_argument("--strategies", nargs="+", default=None, help="default: every one the set covers")
     parser.add_argument("--roots", nargs="+", default=list(ROOTS))
     parser.add_argument("--resolutions", nargs="+", type=int, required=True)
     parser.add_argument("--reads", nargs="+", choices=READS, default=list(READS))
     parser.add_argument("--gate4-strata", nargs="+", default=[UNFILTERED])
     parser.add_argument("--prop-strata", nargs="+", default=[UNFILTERED])
     parser.add_argument("--cells", type=Path, default=None, help="a csv of further cells gate 4 is read on")
-    parser.add_argument("--top", type=int, default=TOP)
     parser.add_argument("--draws", type=int, default=DRAWS)
     parser.add_argument("--iterations", type=int, default=montecarlo.DEFAULT_ITERATIONS)
     parser.add_argument("--seed", type=int, default=0)
@@ -580,22 +741,27 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[1:])
 
     extra: pd.DataFrame = extra_cells(args.cells)
+    settle(args.out, args)
+    strategies: list[str] = args.strategies or list(variants_for(args.variants))
+    failed: list[str] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.n_jobs) as pool:
-        for name in args.strategies:
+        for name in strategies:
             running: dict[concurrent.futures.Future[dict[str, pd.DataFrame]], Task] = {
                 pool.submit(run_task, task): task for task in tasks_for(name, args, extra, args.out)
             }
             logger.info("%s: %d tasks to re-run", name, len(running))
             for finished, future in enumerate(concurrent.futures.as_completed(running), start=1):
                 task: Task = running[future]
-                save(args.out, name, task.key, future.result(), task.reads)
+                if not saved(future, task, args.out):
+                    failed.append(f"{name} {task.key}")
+
                 if finished % max(1, math.ceil(len(running) / 20)) == 0 or finished == len(running):
                     logger.info("  %s: %d of %d tasks done", name, finished, len(running))
 
-    rerun: list[Path] = sorted((args.out / "rerun").glob("*/*.parquet"))
-    if rerun:
-        table: pd.DataFrame = pd.concat([pd.read_parquet(path) for path in rerun], ignore_index=True)
-        logger.info("what the re-runs reproduced of their stored rows:\n%s", reconciliation(table, CELL_KEYS))
+    report_reruns(args.out)
+    if failed:
+        logger.error("%d tasks failed and wrote nothing: %s", len(failed), ", ".join(failed))
+        return 1
 
     return 0
 

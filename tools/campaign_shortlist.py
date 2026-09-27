@@ -182,6 +182,52 @@ def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[
         raise RuntimeError(msg)
 
 
+def prepared(
+    block: pd.DataFrame,
+    frame: pd.DataFrame,
+    archetype: archetypes.Archetype,
+    minutes: int,
+    price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
+    exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
+) -> tuple[list[archetypes.Params], context.Dataset]:
+    """Every row of ``block`` rebuilt, in order, and the one dataset all of them run on.
+
+    The dataset is built from the rows as a combination grid, so that the union over them is
+    :meth:`~nqbt.sweep.Grid.required_context`'s rather than a second copy of it. ``price_basis``
+    says what the bars are; a rule reading an absolute level refuses the default --
+    ``docs/roadmap.md`` § "The build spec's three loose ends".
+
+    ``exit_on_close_seconds`` moves the forced flat off the value every stored row was swept at,
+    which is what ``tools/campaign_flatten.py`` needs and what nothing else should pass.
+    """
+    rebuilt: list[archetypes.Params] = [rebuild(row, archetype) for _, row in block.iterrows()]
+    grid: sweep.Grid = sweep.Grid.of_combinations(rebuilt, archetype=archetype)
+    data: context.Dataset = context.prepare(
+        frame,
+        grid.required_context(),
+        bar_minutes=minutes,
+        price_basis=price_basis,
+        exit_on_close_seconds=exit_on_close_seconds,
+    )
+
+    return rebuilt, data
+
+
+def run_logged(
+    data: context.Dataset,
+    params: archetypes.Params,
+    root: str,
+    archetype: archetypes.Archetype,
+) -> tuple[dict[str, object], pd.DataFrame]:
+    """One configuration run on a prepared dataset, with its summary and its log."""
+    summary, log = sweep.run_combination(data, params, get_instrument(root), archetype, keep_trades=True)
+    if log is None:  # pragma: no cover - keep_trades always returns a log
+        msg: str = "run_combination kept no log with keep_trades set"
+        raise RuntimeError(msg)
+
+    return summary, log
+
+
 def rerun_group(
     block: pd.DataFrame,
     frame: pd.DataFrame,
@@ -193,38 +239,11 @@ def rerun_group(
 ) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:  # type: ignore[type-arg]  # duckdb's dtypes
     """Re-run every row measured on one resampled frame, yielding each with its summary and log.
 
-    One prepared dataset serves the whole block, built from the shortlist as a combination grid
-    so that the union over its members is :meth:`~nqbt.sweep.Grid.required_context`'s rather
-    than a second copy of it. ``price_basis`` says what the bars are; a rule reading an absolute
-    level refuses the default -- ``docs/roadmap.md`` § "The build spec's three loose ends".
-
-    ``exit_on_close_seconds`` moves the forced flat off the value every stored row was swept at,
-    which is what ``tools/campaign_flatten.py`` needs and what nothing else should pass.
+    One :func:`prepared` dataset serves the whole block.
     """
-    rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
-        (row, rebuild(row, archetype)) for _, row in block.iterrows()
-    ]
-    grid: sweep.Grid = sweep.Grid.of_combinations([params for _, params in rebuilt], archetype=archetype)
-    data: context.Dataset = context.prepare(
-        frame,
-        grid.required_context(),
-        bar_minutes=minutes,
-        price_basis=price_basis,
-        exit_on_close_seconds=exit_on_close_seconds,
-    )
-
-    for row, params in rebuilt:
-        summary, log = sweep.run_combination(
-            data,
-            params,
-            get_instrument(root),
-            archetype,
-            keep_trades=True,
-        )
-        if log is None:  # pragma: no cover - keep_trades always returns a log
-            msg: str = "run_combination kept no log with keep_trades set"
-            raise RuntimeError(msg)
-
+    rebuilt, data = prepared(block, frame, archetype, minutes, price_basis, exit_on_close_seconds)
+    for (_, row), params in zip(block.iterrows(), rebuilt, strict=True):
+        summary, log = run_logged(data, params, root, archetype)
         yield row, summary, log
 
 
