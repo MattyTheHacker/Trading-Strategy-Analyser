@@ -325,7 +325,7 @@ def test_the_paired_read_is_campaign_paireds_report_stratum_by_stratum(campaign)
 
 
 def test_a_task_per_arm_re_runs_only_the_strata_some_read_is_asked_for(campaign, tmp_path) -> None:
-    tasks = list(tasks_for(NAME, arguments(), pd.DataFrame(columns=CELL), tmp_path))
+    tasks = list(tasks_for(NAME, arguments(), extra_cells(None), tmp_path))
     assert [task.arm for task in tasks] == sorted(ARMS)
     assert {task.arm: set(task.held["stratum"]) for task in tasks} == {
         FIXED: {UNFILTERED},
@@ -345,12 +345,8 @@ def test_a_task_per_arm_re_runs_only_the_strata_some_read_is_asked_for(campaign,
 def test_the_stored_row_reads_keep_a_file_per_root_and_resolution(monkeypatch, tmp_path) -> None:
     point_at(monkeypatch, stored_frame((("MNQ", 10), ("NQ", 10), ("MNQ", 15))))
     only = arguments(reads=["gates", "paired"])
-    list(tasks_for(NAME, only, pd.DataFrame(columns=CELL), tmp_path))
-    list(
-        tasks_for(
-            NAME, arguments(reads=["gates", "paired"], resolutions=[15]), pd.DataFrame(columns=CELL), tmp_path
-        )
-    )
+    list(tasks_for(NAME, only, extra_cells(None), tmp_path))
+    list(tasks_for(NAME, arguments(reads=["gates", "paired"], resolutions=[15]), extra_cells(None), tmp_path))
     for table in ("gates", "paired"):
         files = sorted(path.name for path in (tmp_path / table / NAME).glob("*.parquet"))
         assert files == ["MNQ-10m.parquet", "MNQ-15m.parquet"], "a root not asked for was written"
@@ -360,21 +356,20 @@ def test_the_stored_row_reads_keep_a_file_per_root_and_resolution(monkeypatch, t
 
 
 def test_the_stored_row_reads_alone_re_run_nothing(campaign, tmp_path) -> None:
-    assert (
-        list(tasks_for(NAME, arguments(reads=["gates", "paired"]), pd.DataFrame(columns=CELL), tmp_path))
-        == []
-    )
+    assert list(tasks_for(NAME, arguments(reads=["gates", "paired"]), extra_cells(None), tmp_path)) == []
 
 
 def test_a_task_whose_every_read_is_recorded_is_skipped(campaign, tmp_path) -> None:
     save(tmp_path, NAME, task_key("MNQ", 10, TOGETHER), {}, every_read_recorded())
-    arms = [task.arm for task in tasks_for(NAME, arguments(), pd.DataFrame(columns=CELL), tmp_path)]
+    arms = [task.arm for task in tasks_for(NAME, arguments(), extra_cells(None), tmp_path)]
     assert arms == sorted([FIXED, SYMMETRIC])
 
 
 def test_a_later_run_reads_only_the_cells_it_adds(campaign, tmp_path) -> None:
     save(tmp_path, NAME, task_key("MNQ", 10, TOGETHER), {}, every_read_recorded())
-    extra = pd.DataFrame([{"root": "MNQ", "resolution": 10, "variant": TOGETHER, "stratum": MIDDAY}])
+    extra = pd.DataFrame(
+        [{"strategy": NAME, "root": "MNQ", "resolution": 10, "variant": TOGETHER, "stratum": MIDDAY}],
+    )
     (task,) = (
         task for task in tasks_for(NAME, arguments(reads=["gate4"]), extra, tmp_path) if task.arm == TOGETHER
     )
@@ -475,14 +470,17 @@ def test_an_out_directory_refuses_a_run_at_other_settings(tmp_path) -> None:
 
 def test_a_named_cell_adds_gate_4_where_it_would_not_otherwise_be_read(tmp_path) -> None:
     path = tmp_path / "cells.csv"
-    pd.DataFrame([{"root": "MNQ", "resolution": 10, "variant": TOGETHER, "stratum": MIDDAY}]).to_csv(
-        path, index=False
-    )
+    cell = {"strategy": NAME, "root": "MNQ", "resolution": 10, "variant": TOGETHER, "stratum": MIDDAY}
+    pd.DataFrame([cell]).to_csv(path, index=False)
     extra = extra_cells(path)
-    assert gate4_for(extra, "MNQ", 10, TOGETHER, frozenset({UNFILTERED})) == {UNFILTERED, MIDDAY}
-    assert gate4_for(extra, "NQ", 10, TOGETHER, frozenset({UNFILTERED})) == {UNFILTERED}
+    everywhere = frozenset({UNFILTERED})
+    assert gate4_for(extra, (NAME, "MNQ", 10, TOGETHER), everywhere) == {UNFILTERED, MIDDAY}
+    assert gate4_for(extra, (NAME, "NQ", 10, TOGETHER), everywhere) == everywhere
+    assert gate4_for(extra, ("InsideBar", "MNQ", 10, TOGETHER), everywhere) == everywhere, (
+        "a cell was read on another archetype's arm of the same name"
+    )
     assert extra_cells(None).empty
-    pd.DataFrame([{"root": "MNQ"}]).to_csv(path, index=False)
+    pd.DataFrame([{key: value for key, value in cell.items() if key != "strategy"}]).to_csv(path, index=False)
     with pytest.raises(SystemExit, match="a cell is"):
         extra_cells(path)
 
