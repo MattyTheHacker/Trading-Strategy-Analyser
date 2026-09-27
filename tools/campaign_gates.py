@@ -427,7 +427,7 @@ def nulled(task: Task, run: Rerun) -> dict[str, object]:
     return {
         "root": task.root,
         "variant": task.arm,
-        **null_row(row, run.params, task.minutes, result, swept=run.swept),
+        **null_row(log_key(row), row["stratum"], run.params, task.minutes, result, swept=run.swept),
     }
 
 
@@ -470,6 +470,27 @@ def done_marker(out: Path, name: str, key: str) -> Path:
     return out / "done" / name / f"{key}.json"
 
 
+def write_whole(path: Path, write: Callable[[Path], object]) -> None:
+    """Write ``path`` through ``write`` to a file beside it, renamed over it once whole.
+
+    A run killed mid-write leaves the old file rather than half of a new one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp: Path = path.with_name(path.name + ".tmp")
+    write(temp)
+    temp.replace(path)
+
+
+def write_table(path: Path, frame: pd.DataFrame) -> None:
+    """Write ``frame`` to ``path`` whole or not at all."""
+    write_whole(path, lambda temp: frame.to_parquet(temp, index=False))
+
+
+def write_json(path: Path, value: object) -> None:
+    """Write ``value`` to ``path`` as JSON, whole or not at all."""
+    write_whole(path, lambda temp: temp.write_text(json.dumps(value), encoding="utf-8"))
+
+
 def recorded(out: Path, name: str, key: str) -> dict[str, frozenset[str]]:
     """The strata each read has written for one task, as earlier runs recorded them."""
     marker: Path = done_marker(out, name, key)
@@ -494,8 +515,7 @@ def replace_strata(path: Path, frame: pd.DataFrame | None, strata: frozenset[str
 
         return
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pd.concat(kept, ignore_index=True).to_parquet(path, index=False)
+    write_table(path, pd.concat(kept, ignore_index=True))
 
 
 def save(
@@ -522,9 +542,7 @@ def save(
         read: sorted(done.get(read, frozenset()) | strata.get(read, frozenset()))
         for read in sorted({*done, *strata})
     }
-    marker: Path = done_marker(out, name, key)
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(json.dumps(merged), encoding="utf-8")
+    write_json(done_marker(out, name, key), merged)
 
 
 def remaining(asked: dict[str, frozenset[str]], done: dict[str, frozenset[str]]) -> dict[str, frozenset[str]]:
@@ -591,9 +609,7 @@ def save_by_cell(out: Path, table: str, name: str, frame: pd.DataFrame) -> None:
         return
 
     for (root, minutes), block in frame.groupby(["root", "resolution"], sort=True):
-        path: Path = written(out, table, name, f"{root}-{int(str(minutes))}m")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        block.to_parquet(path, index=False)
+        write_table(written(out, table, name, f"{root}-{int(str(minutes))}m"), block)
 
 
 def settle(out: Path, args: argparse.Namespace) -> None:
@@ -601,8 +617,7 @@ def settle(out: Path, args: argparse.Namespace) -> None:
     asked: dict[str, object] = {setting: getattr(args, setting) for setting in SETTINGS}
     path: Path = out / "settings.json"
     if not path.exists():
-        out.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asked), encoding="utf-8")
+        write_json(path, asked)
 
         return
 
@@ -699,16 +714,42 @@ def tasks_for(
 
 
 def saved(future: concurrent.futures.Future[dict[str, pd.DataFrame]], task: Task, out: Path) -> bool:
-    """Save one finished task's tables, or log why it has none; whether it saved."""
+    """Save one finished task's tables, or log why it could not; whether it saved."""
     try:
-        tables: dict[str, pd.DataFrame] = future.result()
+        save(out, task.name, task.key, future.result(), task.strata)
     except Exception:
         logger.exception("  %s %s failed; the other tasks carry on", task.name, task.key)
         return False
 
-    save(out, task.name, task.key, tables, task.strata)
-
     return True
+
+
+def run_strategy(
+    pool: concurrent.futures.Executor, name: str, args: argparse.Namespace, extra: pd.DataFrame
+) -> list[str]:
+    """Run one archetype's tasks on ``pool``, saving each as it finishes; what failed.
+
+    If building or submitting a task fails, the tasks already submitted still run and are saved.
+    """
+    running: dict[concurrent.futures.Future[dict[str, pd.DataFrame]], Task] = {}
+    failed: list[str] = []
+    try:
+        for task in tasks_for(name, args, extra, args.out):
+            running[pool.submit(run_task, task)] = task
+    except Exception:
+        logger.exception("%s: its remaining tasks could not be started; the others carry on", name)
+        failed.append(f"{name}'s remaining tasks")
+
+    logger.info("%s: %d tasks to re-run", name, len(running))
+    for finished, future in enumerate(concurrent.futures.as_completed(running), start=1):
+        task = running[future]
+        if not saved(future, task, args.out):
+            failed.append(f"{name} {task.key}")
+
+        if finished % max(1, math.ceil(len(running) / 20)) == 0 or finished == len(running):
+            logger.info("  %s: %d of %d tasks done", name, finished, len(running))
+
+    return failed
 
 
 def report_reruns(out: Path) -> None:
@@ -744,28 +785,24 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--n-jobs", type=int, default=6)
     parser.add_argument("--out", type=Path, required=True, help="where the tables are written")
     args = parser.parse_args(argv[1:])
+    covered: list[str] = list(variants_for(args.variants))
+    unknown: list[str] = sorted(set(args.strategies or ()) - set(covered))
+    if unknown:
+        parser.error(f"--variants {args.variants} covers {sorted(covered)}, not {unknown}")
 
     extra: pd.DataFrame = extra_cells(args.cells)
     settle(args.out, args)
-    strategies: list[str] = args.strategies or list(variants_for(args.variants))
     failed: list[str] = []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.n_jobs) as pool:
-        for name in strategies:
-            running: dict[concurrent.futures.Future[dict[str, pd.DataFrame]], Task] = {
-                pool.submit(run_task, task): task for task in tasks_for(name, args, extra, args.out)
-            }
-            logger.info("%s: %d tasks to re-run", name, len(running))
-            for finished, future in enumerate(concurrent.futures.as_completed(running), start=1):
-                task: Task = running[future]
-                if not saved(future, task, args.out):
-                    failed.append(f"{name} {task.key}")
-
-                if finished % max(1, math.ceil(len(running) / 20)) == 0 or finished == len(running):
-                    logger.info("  %s: %d of %d tasks done", name, finished, len(running))
+    for name in args.strategies or covered:
+        # A worker that dies breaks its pool for good, so each archetype gets a pool of its own.
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.n_jobs) as pool:
+            failed.extend(run_strategy(pool, name, args, extra))
 
     report_reruns(args.out)
     if failed:
-        logger.error("%d tasks failed and wrote nothing: %s", len(failed), ", ".join(failed))
+        logger.error(
+            "%d failed, and a run over the same --out retries them: %s", len(failed), ", ".join(failed)
+        )
         return 1
 
     return 0

@@ -668,25 +668,28 @@ def null_for_shortlist(
                 seed=seed + log_key(row)[1],
                 archetype=archetype,
             )
-            measured.append(null_row(row, params, int(minutes), result, swept=swept))
+            measured.append(
+                null_row(log_key(row), row.get("stratum"), params, int(minutes), result, swept=swept)
+            )
 
     return pd.DataFrame(measured)
 
 
 def null_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+    key: tuple[int, int],
+    stratum: object,
     params: Params,
     minutes: int,
     result: dict[str, float],
     *,
     swept: bool,
 ) -> dict[str, object]:
-    """One configuration's null, tagged with the stored row and the size it was read at."""
-    sweep_id, combo_id = log_key(row)
+    """One configuration's null, tagged with its stored row's ids and the size it was read at."""
+    sweep_id, combo_id = key
 
     return {
         "resolution": minutes,
-        "stratum": row.get("stratum"),
+        "stratum": stratum,
         "sweep_id": sweep_id,
         "combo_id": combo_id,
         "order_quantity": params.order_quantity,  # type: ignore[attr-defined]  # every params class carries one

@@ -13,6 +13,8 @@ import argparse
 import concurrent.futures
 import dataclasses
 import logging
+from concurrent.futures.process import BrokenProcessPool
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -52,6 +54,7 @@ from tools.campaign_gates import (
     tasks_for,
     walk_arguments,
     walked,
+    written,
 )
 from tools.campaign_holdout import JOIN_KEYS, held_out, pair_windows, verdict
 from tools.campaign_montecarlo import resample_row
@@ -423,6 +426,41 @@ def test_a_table_replaces_the_strata_it_read_and_keeps_the_rest(tmp_path) -> Non
     assert not path.exists(), "a read that now returns nothing left its old rows behind"
 
 
+def half_written(path) -> None:
+    """What a run killed partway through writing ``path`` leaves there."""
+    Path(path).write_bytes(b"PAR1{")
+    msg = "killed mid-write"
+    raise OSError(msg)
+
+
+@pytest.mark.parametrize(
+    ("owner", "method", "dies"),
+    [
+        (pd.DataFrame, "to_parquet", lambda frame, path, **_: half_written(path)),
+        (Path, "write_text", lambda path, *_, **__: half_written(path)),
+    ],
+    ids=["table", "marker"],
+)
+def test_a_save_killed_mid_write_leaves_every_file_readable_for_the_next(
+    monkeypatch, tmp_path, owner, method, dies
+) -> None:
+    key = task_key("MNQ", 10, TOGETHER)
+    table = written(tmp_path, RERUN, NAME, key)
+    save(tmp_path, NAME, key, {RERUN: pd.DataFrame({"stratum": [MIDDAY]})}, {RERUN: frozenset({MIDDAY})})
+    later = ({RERUN: pd.DataFrame({"stratum": [UNFILTERED]})}, {RERUN: frozenset({UNFILTERED})})
+    with monkeypatch.context() as killed:
+        killed.setattr(owner, method, dies)
+        with pytest.raises(OSError, match="mid-write"):
+            save(tmp_path, NAME, key, *later)
+
+    assert recorded(tmp_path, NAME, key) == {RERUN: frozenset({MIDDAY})}
+    assert MIDDAY in set(pd.read_parquet(table)["stratum"])
+    save(tmp_path, NAME, key, *later)
+    assert set(pd.read_parquet(table)["stratum"]) == set(STRATA)
+    assert recorded(tmp_path, NAME, key) == {RERUN: frozenset(STRATA)}
+    assert list(tmp_path.rglob("*.tmp")) == [], "a whole write left its temporary file behind"
+
+
 def test_an_out_directory_refuses_a_run_at_other_settings(tmp_path) -> None:
     settle(tmp_path, arguments())
     settle(tmp_path, arguments(roots=["NQ"], resolutions=[5]))
@@ -729,12 +767,106 @@ def test_a_failed_task_leaves_the_others_saved_and_the_run_failing(
     assert ran == [TOGETHER], "the resumed run did more than the task that failed"
 
 
+def test_a_task_that_fails_to_save_leaves_the_others_saved_and_the_run_failing(
+    campaign, in_threads, monkeypatch, tmp_path
+) -> None:
+    real_save = campaign_gates.save
+
+    def failing(out, name, key, tables, strata):
+        if key == task_key("MNQ", 10, TOGETHER):
+            msg = "the disk filled"
+            raise OSError(msg)
+
+        real_save(out, name, key, tables, strata)
+
+    monkeypatch.setattr(campaign_gates, "run_task", reproduced)
+    monkeypatch.setattr(campaign_gates, "save", failing)
+    assert campaign_gates.main(argv_for(tmp_path)) == 1
+    written = sorted(path.stem for path in (tmp_path / RERUN / NAME).glob("*.parquet"))
+    assert written == sorted(task_key("MNQ", 10, arm) for arm in (FIXED, SYMMETRIC))
+    assert recorded(tmp_path, NAME, task_key("MNQ", 10, TOGETHER)) == {}
+
+
+def test_a_root_whose_tasks_cannot_be_built_still_saves_the_tasks_already_started(
+    in_threads, monkeypatch, tmp_path
+) -> None:
+    point_at(monkeypatch, stored_frame((("MNQ", 10), ("NQ", 10))))
+    real_rows = campaign_gates.stored_rows
+
+    def duplicated_on_nq(name, root, window, **narrowing):
+        if root == "NQ":
+            msg = "NQ stores more than one row under the same keys"
+            raise RuntimeError(msg)
+
+        return real_rows(name, root, window, **narrowing)
+
+    monkeypatch.setattr(campaign_gates, "stored_rows", duplicated_on_nq)
+    monkeypatch.setattr(campaign_gates, "run_task", reproduced)
+    argv = [*argv_for(tmp_path), "--roots", "MNQ", "NQ"]
+    assert campaign_gates.main(argv) == 1
+    written = sorted(path.stem for path in (tmp_path / RERUN / NAME).glob("*.parquet"))
+    assert written == sorted(task_key("MNQ", 10, arm) for arm in ARMS)
+    ran = []
+    monkeypatch.setattr(campaign_gates, "stored_rows", real_rows)
+    monkeypatch.setattr(campaign_gates, "run_task", lambda task: ran.append(task.root) or reproduced(task))
+    assert campaign_gates.main(argv) == 0
+    assert ran == ["NQ"] * len(ARMS), "the resumed run did more than the root that failed"
+
+
+class DeadPool(concurrent.futures.Executor):
+    """A process pool whose worker died on its first task: that task fails, and it takes no more."""
+
+    given: int = 0
+
+    def submit(self, _fn: object, /, *_: object, **__: object) -> concurrent.futures.Future[object]:
+        """A future failed as a dead worker fails it, or a refusal once one has been handed out."""
+        msg = "a child process terminated abruptly"
+        if self.given:
+            raise BrokenProcessPool(msg)
+
+        self.given += 1
+        future: concurrent.futures.Future[object] = concurrent.futures.Future()
+        future.set_exception(BrokenProcessPool(msg))
+
+        return future
+
+
+def test_a_worker_that_dies_fails_its_own_archetype_and_the_run_still_reports(
+    campaign, capsys, monkeypatch, tmp_path
+) -> None:
+    other = "InsideBar"
+    pools = iter([DeadPool(), concurrent.futures.ThreadPoolExecutor()])
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", lambda **_: next(pools))
+    monkeypatch.setattr(
+        campaign_gates, "variants_for", lambda which: {NAME: lambda root: [], other: lambda root: []}
+    )
+    monkeypatch.setattr(campaign_gates, "run_task", reproduced)
+    assert campaign_gates.main([*argv_for(tmp_path), "--strategies", NAME, other]) == 1
+    assert not (tmp_path / RERUN / NAME).exists()
+    assert len(list((tmp_path / RERUN / other).glob("*.parquet"))) == len(ARMS), (
+        "the next archetype ran on the dead pool"
+    )
+    logged = capsys.readouterr()
+    assert f"{len(ARMS)} of {len(ARMS)} arms reproduced" in logged.out
+    assert "a run over the same --out retries them" in logged.err
+
+
 def test_a_variant_set_that_does_not_exist_is_refused(tmp_path) -> None:
     argv = argv_for(tmp_path)
     argv[argv.index("ibt-sizing")] = "ibt-sizng"
     with pytest.raises(SystemExit, match=USAGE_ERROR):
         campaign_gates.main(argv)
 
+    assert not (tmp_path / "settings.json").exists()
+
+
+def test_an_archetype_the_variant_set_does_not_cover_is_refused(capsys, tmp_path) -> None:
+    argv = argv_for(tmp_path)
+    argv[argv.index(NAME)] = "InsideBarTrailng"
+    with pytest.raises(SystemExit, match=USAGE_ERROR):
+        campaign_gates.main(argv)
+
+    assert "not ['InsideBarTrailng']" in capsys.readouterr().err
     assert not (tmp_path / "settings.json").exists()
 
 
