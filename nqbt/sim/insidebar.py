@@ -27,7 +27,7 @@ from nqbt.sim.types import STOP_MIN_TICKS
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray
     from nqbt.context import Dataset
     from nqbt.sim.types import InsideBarParams
     from nqbt.trades import LegMatrix
@@ -52,7 +52,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     signal: BoolArray,
     direction_at: FloatArray,
     atr: FloatArray,
-    leg_quantities: IntArray,
+    sizing: bracket.Sizing,
     costs: bracket.Costs,
     fills: bracket.FillRules,
     rules: InsideBarRules,
@@ -62,7 +62,8 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
     ``signal`` marks bars whose close schedules a market entry for the next bar's open and
     ``direction_at`` says which side each bar is on, separated for the reason
-    :func:`nqbt.sim.crossover.simulate_crossover` separates them.
+    :func:`nqbt.sim.crossover.simulate_crossover` separates them. ``sizing`` names the size
+    each signal bar's entry takes.
 
     The bracket is built at the **fill**, not at the signal: the target is ``tp_multiplier``
     ATRs from the fill price and the stop ``atr_multiplier`` ATRs beyond the signal bar's
@@ -70,7 +71,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     rows written, or ``-1`` if ``out`` overflowed.
     """
     n = bars.close.size
-    n_legs = leg_quantities.size
+    n_legs = sizing.quantities.shape[1]
     slippage = bracket.slippage_points(costs)
     min_risk = STOP_MIN_TICKS * costs.tick_size
 
@@ -89,7 +90,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
-        leg_quantities,
+        np.zeros(n_legs, dtype=np.int64),
     )
 
     for i in range(n):
@@ -172,6 +173,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                 stop = candidate_stop
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
                 raw_target = fill + d * bar_atr * rules.tp_multiplier
+                bracket.size_legs(legs, sizing, pending_bar)
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     legs.target[leg] = (
@@ -271,6 +273,13 @@ def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
     return np.where(up, trades.LONG, trades.SHORT).astype(np.float64)
 
 
+def insidebar_long_side(data: Dataset, params: InsideBarParams) -> BoolArray:
+    """Which bars would be entered long: those strictly above all three averages."""
+    long_side: BoolArray = insidebar_direction(data, params) == trades.LONG
+
+    return long_side
+
+
 def insidebar_patterns(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
     """The long and short setups on their own, before any clock or context filter narrows them.
 
@@ -309,15 +318,15 @@ def insidebar_legs(
     """
     direction_at: FloatArray = insidebar_direction(data, params)
     signal = insidebar_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
-    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, direction_at == trades.LONG)
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 
     count: int = simulate_insidebar(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         direction_at,
         data.atr_values(params.atr_length),
-        quantities,
+        sizing,
         bracket.Costs(
             tick_size=instrument.tick_size,
             point_value=instrument.point_value,

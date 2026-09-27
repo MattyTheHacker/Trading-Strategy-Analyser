@@ -29,7 +29,7 @@ from nqbt.sim.types import STOP_MIN_TICKS
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray
     from nqbt.context import Dataset
     from nqbt.sim.types import EmaCrossoverParams
     from nqbt.trades import LegMatrix
@@ -86,7 +86,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
     signal: BoolArray,
     direction_at: FloatArray,
     series: CrossoverSeries,
-    leg_quantities: IntArray,
+    sizing: bracket.Sizing,
     target_r: FloatArray,
     costs: bracket.Costs,
     fills: bracket.FillRules,
@@ -98,12 +98,13 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
     ``signal`` marks bars whose close schedules an entry for the next bar's open, and
     ``direction_at`` gives the prevailing regime on every bar -- ``LONG`` where the fast
     average is above the slow one. The two are separate because an entry needs both *when*
-    and *which way*, and the control arm substitutes only the first.
+    and *which way*, and the control arm substitutes only the first. ``sizing`` names the size
+    each signal bar's entry takes.
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
     n = bars.close.size
-    n_legs = leg_quantities.size
+    n_legs = sizing.quantities.shape[1]
     slippage = bracket.slippage_points(costs)
     min_risk = STOP_MIN_TICKS * costs.tick_size
 
@@ -123,7 +124,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
-        leg_quantities,
+        np.zeros(n_legs, dtype=np.int64),
     )
 
     for i in range(n):
@@ -187,6 +188,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                 )
                 stop = candidate_stop
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                bracket.size_legs(legs, sizing, pending_bar)
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     if np.isnan(target_r[leg]):
@@ -392,6 +394,14 @@ def _check_price_basis(data: Dataset, params: EmaCrossoverParams) -> None:
     raise ValueError(msg)
 
 
+def crossover_long_side(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
+    """Which bars would be entered long: those where the fast average is above the slow one."""
+    fast, slow = crossover_averages(data, params)
+    long_side: BoolArray = regime_direction(fast, slow) == trades.LONG
+
+    return long_side
+
+
 def crossover_legs(
     data: Dataset,
     params: EmaCrossoverParams,
@@ -408,20 +418,20 @@ def crossover_legs(
     fast, slow = crossover_averages(data, params)
     direction_at: FloatArray = regime_direction(fast, slow)
     signal = crossover_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, direction_at == trades.LONG)
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
     atr: FloatArray = data.atr_values(params.atr_period) if params.use_atr_stop else NO_ATR
     trail: FloatArray = (
         data.ma_values(params.trail_ma_kind, params.trail_ma_period) if params.trail_ma_stop else NO_TRAIL
     )
-    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 
     count: int = simulate_crossover(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         direction_at,
         CrossoverSeries(atr, trail, NO_LEVEL),
-        quantities,
+        sizing,
         targets,
         bracket.Costs(
             tick_size=instrument.tick_size,

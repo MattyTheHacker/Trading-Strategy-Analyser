@@ -14,25 +14,32 @@ them -- ``docs/roadmap.md`` §M10.4.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import numpy as np
 
 from nqbt import compression, conditions, higher_timeframe, regime, timeofday, trend, volume
-from nqbt.sim.types import REQUIRE_ALL
+from nqbt.sim import bracket
+from nqbt.sim.types import REQUIRE_ALL, ConfluenceSized, SizingThesis, confluence_range
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray
+    from collections.abc import Mapping
+
+    from nqbt.arrays import BoolArray, IntArray
     from nqbt.context import Dataset
 
 __all__ = [
     "ConfluenceFiltered",
     "ContextFiltered",
+    "LabelSides",
     "LabelSized",
     "apply_confluence_filters",
     "apply_context_filters",
+    "confluence_counts",
+    "confluence_sizing",
     "context_gates",
     "favourable_labels",
+    "label_sides",
 ]
 
 
@@ -89,17 +96,26 @@ class ConfluenceFiltered(ContextFiltered, Protocol):
     confluence_required: int
 
 
-class LabelSized(ContextFiltered, Protocol):
-    """A :class:`ContextFiltered` that also says which labels a confluence size counts.
+class LabelSized(ContextFiltered, ConfluenceSized, Protocol):
+    """A :class:`ContextFiltered` that also says which labels a confluence size counts, and how.
 
     Read for sizing, never for the signal, so a label counted here narrows no entry.
     """
 
-    size_on_trend: bool
-    size_on_higher_timeframe: bool
-    size_on_vwap: bool
-    size_on_regime: bool
-    size_on_volume: bool
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """Which regime and volume state favour this archetype's entry."""
+        ...
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """The fixed split, which is every entry's while the confluence size is off."""
+        ...
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take, one row per confluence count."""
+        ...
 
 
 def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
@@ -178,57 +194,126 @@ def apply_confluence_filters(signal: BoolArray, data: Dataset, params: Confluenc
     return signal & (conditions.count_true(np.stack(gates)) >= params.confluence_required)
 
 
-def favourable_labels(data: Dataset, params: LabelSized, long_side: BoolArray) -> list[BoolArray]:
-    """One row per ``size_on_*`` label switched on: whether it favours each bar's side.
+class LabelSides(NamedTuple):
+    """Where one sizing label favours each bar's side, and where it opposes it."""
 
-    The side-dependent labels favour a long where they point up and a short where they point
-    down; regime and volume favour both sides alike. A bar a label cannot classify passes no
-    mask, so it counts as not favourable -- ``docs/nt8-fidelity.md`` §M45.
+    favours: BoolArray
+    opposes: BoolArray
+
+
+OPPOSITE_REGIME: Mapping[regime.Regime, regime.Regime] = {
+    regime.Regime.DIRECTIONAL: regime.Regime.CONSOLIDATING,
+    regime.Regime.CONSOLIDATING: regime.Regime.DIRECTIONAL,
+}
+OPPOSITE_VOLUME: Mapping[volume.VolumeState, volume.VolumeState] = {
+    volume.VolumeState.HEAVY: volume.VolumeState.THIN,
+    volume.VolumeState.THIN: volume.VolumeState.HEAVY,
+}
+"""The extreme that opposes a thesis's favoured one. The middle state is neutral."""
+
+
+def _pointing(long_side: BoolArray, up: BoolArray, down: BoolArray) -> LabelSides:
+    """A label that points one way: it favours the side it points to and opposes the other."""
+    return LabelSides(np.where(long_side, up, down), np.where(long_side, down, up))
+
+
+def _trend_sides(data: Dataset, params: LabelSized, long_side: BoolArray) -> LabelSides:
+    def pointing(label: trend.Trend) -> BoolArray:
+        return data.trend_gate(params.trend_key, trend.trends_mask([label]), params.trend_min_agreement)
+
+    return _pointing(long_side, pointing(trend.Trend.UP), pointing(trend.Trend.DOWN))
+
+
+def _higher_timeframe_sides(data: Dataset, params: LabelSized, long_side: BoolArray) -> LabelSides:
+    def on(side: higher_timeframe.Side) -> BoolArray:
+        return data.higher_timeframe_gate(params.higher_timeframe_key, higher_timeframe.sides_mask([side]))
+
+    return _pointing(long_side, on(higher_timeframe.Side.ABOVE), on(higher_timeframe.Side.BELOW))
+
+
+def _regime_sides(data: Dataset, params: LabelSized) -> LabelSides:
+    def labelled(state: regime.Regime) -> BoolArray:
+        return data.regime_gate(
+            params.regime_lookback,
+            regime.regimes_mask([state]),
+            params.regime_consolidating_below,
+            params.regime_directional_above,
+        )
+
+    favoured: regime.Regime = params.sizing_thesis.regime
+
+    return LabelSides(labelled(favoured), labelled(OPPOSITE_REGIME[favoured]))
+
+
+def _volume_sides(data: Dataset, params: LabelSized) -> LabelSides:
+    def labelled(state: volume.VolumeState) -> BoolArray:
+        return data.volume_gate(
+            params.volume_key,
+            volume.states_mask([state]),
+            params.volume_thin_below,
+            params.volume_heavy_above,
+        )
+
+    favoured: volume.VolumeState = params.sizing_thesis.volume
+
+    return LabelSides(labelled(favoured), labelled(OPPOSITE_VOLUME[favoured]))
+
+
+def label_sides(data: Dataset, params: LabelSized, long_side: BoolArray) -> list[LabelSides]:
+    """One entry per ``size_on_*`` label switched on, in :data:`SIZING_LABELS` order.
+
+    The trend, the higher-timeframe side and the VWAP side favour the trade on the side they
+    point to and oppose the other; regime and volume favour both sides alike, in the state
+    ``sizing_thesis`` names. A bar a label cannot classify passes no mask, so it neither favours
+    nor opposes -- ``docs/nt8-fidelity.md`` §M47.
     """
-    favourable: list[BoolArray] = []
+    sides: list[LabelSides] = []
     if params.size_on_trend:
-        up: BoolArray = data.trend_gate(
-            params.trend_key, trend.trends_mask([trend.Trend.UP]), params.trend_min_agreement
-        )
-        down: BoolArray = data.trend_gate(
-            params.trend_key,
-            trend.trends_mask([trend.Trend.DOWN]),
-            params.trend_min_agreement,
-        )
-        favourable.append(np.where(long_side, up, down))
+        sides.append(_trend_sides(data, params, long_side))
 
     if params.size_on_higher_timeframe:
-        above: BoolArray = data.higher_timeframe_gate(
-            params.higher_timeframe_key,
-            higher_timeframe.sides_mask([higher_timeframe.Side.ABOVE]),
-        )
-        below: BoolArray = data.higher_timeframe_gate(
-            params.higher_timeframe_key,
-            higher_timeframe.sides_mask([higher_timeframe.Side.BELOW]),
-        )
-        favourable.append(np.where(long_side, above, below))
+        sides.append(_higher_timeframe_sides(data, params, long_side))
 
     if params.size_on_vwap:
-        favourable.append(np.where(long_side, data.vwap_gate(above=True), data.vwap_gate(above=False)))
+        sides.append(_pointing(long_side, data.vwap_gate(above=True), data.vwap_gate(above=False)))
 
     if params.size_on_regime:
-        favourable.append(
-            data.regime_gate(
-                params.regime_lookback,
-                regime.regimes_mask([regime.Regime.DIRECTIONAL]),
-                params.regime_consolidating_below,
-                params.regime_directional_above,
-            ),
-        )
+        sides.append(_regime_sides(data, params))
 
     if params.size_on_volume:
-        favourable.append(
-            data.volume_gate(
-                params.volume_key,
-                volume.states_mask([volume.VolumeState.HEAVY]),
-                params.volume_thin_below,
-                params.volume_heavy_above,
-            ),
-        )
+        sides.append(_volume_sides(data, params))
 
-    return favourable
+    return sides
+
+
+def favourable_labels(data: Dataset, params: LabelSized, long_side: BoolArray) -> list[BoolArray]:
+    """One row per ``size_on_*`` label switched on: whether it favours each bar's side."""
+    return [label.favours for label in label_sides(data, params, long_side)]
+
+
+def confluence_counts(data: Dataset, params: LabelSized, long_side: BoolArray) -> IntArray:
+    """Each bar's count for its side: the labels favouring it, less the opposing ones if symmetric."""
+    sides: list[LabelSides] = label_sides(data, params, long_side)
+    if not sides:
+        return np.zeros(len(data), dtype=np.int64)
+
+    counts: IntArray = conditions.count_true(np.stack([label.favours for label in sides]))
+    if params.size_symmetric:
+        counts = counts - conditions.count_true(np.stack([label.opposes for label in sides]))
+
+    return counts
+
+
+def confluence_sizing(data: Dataset, params: LabelSized, long_side: BoolArray) -> bracket.Sizing:
+    """Every per-leg split this combination can take, and the row each bar takes for its side.
+
+    With the confluence size off it is the one fixed split on every bar, which is each
+    NinjaScript as ported.
+    """
+    if params.quantity_per_confluence == 0:
+        return bracket.fixed_sizing(params.leg_quantities, len(data))
+
+    table: IntArray = np.asarray(params.size_table, dtype=np.int64)
+    rows: IntArray = confluence_counts(data, params, long_side) - confluence_range(params).start
+
+    return bracket.Sizing(table, rows)

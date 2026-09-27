@@ -710,6 +710,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Size moves nothing but the dollars on every archetype but InsideBarTrailing, now shown on real data at every rung; a bracket cannot be traded below one contract per target, which shuts every four-target archetype out of an NQ 50K account; on a 50K account only InsideBar, InsideBarTrailing and OpeningRange's opposite-extreme stop pay at any size; and every step up in size buys more resets.** Moved to [`docs/findings/m46-registry-size-ladder.md`](findings/m46-registry-size-ladder.md).
 
+### M47 — the confluence size on every archetype ([#295])
+
+**Built and pre-registered, not yet run: one contract per leg more per favourable context label on every archetype, and one fewer per opposing label where the base can shed one, with each archetype's regime and volume read by its own thesis.** The pre-registration is [`docs/findings/m47-confluence-sizing-preregistration.md`](findings/m47-confluence-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M47.
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1280,7 +1284,7 @@ ______________________________________________________________________
 
 **These are the NQ/MNQ figures carried across, not a broker quote for each root**, so they are a starting point rather than a measurement. `CLAUDE.md` already warns that costs default to zero and that a free-money result will not announce itself; a campaign on these roots inherits that warning with the extra caveat that the per-root number has not been checked against a statement. Gold in particular clears through COMEX rather than CME and its exchange and clearing fees differ. Anything that turns on the cost floor — and `docs/findings/m26-elastic-band.md` § "NQ beats MNQ on the same rules, and it is arithmetic rather than edge" shows how much does — should be re-read once the real figures are known.
 
-**A reconciled archetype's rows carry their own Tier-2 status once a rule the port lacks is switched on** ([#353]). InsideBarTrailing is `RECONCILED`, and §M45 adds two rules its NinjaScript does not have. Stamping the archetype's status on every row would put a measured configuration and an assumed one side by side under the same word, which is the comparison the `tier2` column exists to prevent. So `Archetype.departs_from_port` names the combinations that leave the port, `Archetype.tier2_for` restates those rows as `TIER1_ONLY`, and both `sweep.sweep_axes` and `tools/campaign_sweep.py` write the column row by row through `sweep.row_tier2`. It only ever downgrades: an unreconciled archetype stays what it was.
+**A reconciled archetype's rows carry their own Tier-2 status once a rule the port lacks is switched on** ([#353]). InsideBarTrailing is `RECONCILED`, and §M45 adds two rules its NinjaScript does not have; §M47 adds the confluence size to DeadCatBounce, PullBackAndGo and InsideBar as well. Stamping the archetype's status on every row would put a measured configuration and an assumed one side by side under the same word, which is the comparison the `tier2` column exists to prevent. So `Archetype.departs_from_port` names the combinations that leave the port, `Archetype.tier2_for` restates those rows as `TIER1_ONLY`, and both `sweep.sweep_axes` and `tools/campaign_sweep.py` write the column row by row through `sweep.row_tier2`. It only ever downgrades: an unreconciled archetype stays what it was.
 
 ## Still open
 

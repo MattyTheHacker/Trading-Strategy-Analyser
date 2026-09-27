@@ -198,7 +198,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     bars: bracket.Bars,
     signal: BoolArray,
     series: ConfirmationSeries,
-    leg_quantities: IntArray,
+    sizing: bracket.Sizing,
     target_r: FloatArray,
     costs: bracket.Costs,
     fills: bracket.FillRules,
@@ -208,13 +208,14 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     """Run the confirmation entry over one dataset, writing one row per leg exit.
 
     ``signal`` marks bars whose close submits a stop order beyond that bar's extreme, live for
-    the next ``entry_order_lifetime_bars`` bars. The exits are the market entry's: the stop,
-    the targets, the trail, the trend-flip exit and the maximum hold time.
+    the next ``entry_order_lifetime_bars`` bars, sized by the ``sizing`` row of the bar that
+    submitted it. The exits are the market entry's: the stop, the targets, the trail, the
+    trend-flip exit and the maximum hold time.
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
     n = bars.close.size
-    n_legs = leg_quantities.size
+    n_legs = sizing.quantities.shape[1]
     slippage = bracket.slippage_points(costs)
     min_risk = STOP_MIN_TICKS * costs.tick_size
     trail_offset = rules.trail_offset_ticks * costs.tick_size
@@ -226,6 +227,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     pending_exit = False
     pending_exit_reason = trades.EXIT_SIGNAL
     pending_until = -1  # the last bar the resting order is live on; -1 while none rests
+    pending_signal = -1  # the bar whose close submitted it, which its size is read at
     pending_direction = 0.0
     pending_trigger = 0.0
     pending_stop = 0.0
@@ -237,7 +239,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
-        leg_quantities,
+        np.zeros(n_legs, dtype=np.int64),
     )
 
     for i in range(n):
@@ -297,6 +299,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
                 )
                 stop = pending_stop
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                bracket.size_legs(legs, sizing, pending_signal)
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     if np.isnan(target_r[leg]):
@@ -364,6 +367,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             continue
 
         pending_until = i + rules.entry_order_lifetime_bars
+        pending_signal = i
         pending_direction = direction
         pending_trigger = trigger
         pending_stop = candidate_stop
@@ -426,6 +430,14 @@ def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crosso
     )
 
 
+def emapullback_long_side(data: Dataset, params: EmaPullbackParams) -> BoolArray:
+    """Which bars would be entered long: those where the fast average is above the slow one."""
+    fast, slow = pullback_averages(data, params)
+    long_side: BoolArray = crossover.regime_direction(fast, slow) == trades.LONG
+
+    return long_side
+
+
 def emapullback_legs(
     data: Dataset,
     params: EmaPullbackParams,
@@ -443,10 +455,10 @@ def emapullback_legs(
     fast, slow = pullback_averages(data, params)
     direction_at: FloatArray = crossover.regime_direction(fast, slow)
     signal = emapullback_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, direction_at == trades.LONG)
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
     trail, trail_offset_ticks = trailed_level(data, slow, params)
-    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
     bars = bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat)
     costs = bracket.Costs(
         tick_size=instrument.tick_size,
@@ -466,7 +478,7 @@ def emapullback_legs(
             bars,
             signal,
             ConfirmationSeries(direction_at, slow, trail),
-            quantities,
+            sizing,
             targets,
             costs,
             fills,
@@ -479,7 +491,7 @@ def emapullback_legs(
             signal,
             direction_at,
             crossover.CrossoverSeries(crossover.NO_ATR, trail, slow),
-            quantities,
+            sizing,
             targets,
             costs,
             fills,

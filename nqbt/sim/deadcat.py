@@ -20,7 +20,7 @@ from nqbt.sim import bracket
 from nqbt.trades import EXIT_END_OF_DATA, EXIT_TIME_LIMIT
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray
 
 
 class DeadCatRules(NamedTuple):
@@ -51,7 +51,7 @@ class DeadCatRules(NamedTuple):
 def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule, in bar order
     bars: bracket.Bars,
     signal: BoolArray,
-    leg_quantities: IntArray,
+    sizing: bracket.Sizing,
     target_r: FloatArray,
     costs: bracket.Costs,
     fills: bracket.FillRules,
@@ -62,14 +62,14 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
 
     Shared by DeadCatBounce and PullBackAndGo: both are a stop order in the trade direction, a
     ratcheting stop, and up to four R-multiple targets with the last leg a runner. ``signal``
-    is the precomputed conjunction of every active entry filter, and ``bars.force_flat`` marks
-    bars at or past the exit-on-session-close cutoff.
+    is the precomputed conjunction of every active entry filter, ``sizing`` each leg's size per
+    signal bar, and ``bars.force_flat`` marks bars at or past the exit-on-session-close cutoff.
 
     Returns the number of rows written to ``out``; a negative return means ``out`` was too
     small.
     """
     n = bars.close.size
-    n_legs = leg_quantities.size
+    n_legs = sizing.quantities.shape[1]
     direction = rules.direction
     slippage = bracket.slippage_points(costs)
     stop_offset = rules.stop_offset_ticks * costs.tick_size
@@ -91,7 +91,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
-        leg_quantities,
+        np.zeros(n_legs, dtype=np.int64),
     )
 
     for i in range(n):
@@ -162,6 +162,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                 )
                 stop = pending_stop
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                bracket.size_legs(legs, sizing, pending_bar)
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     if np.isnan(target_r[leg]):

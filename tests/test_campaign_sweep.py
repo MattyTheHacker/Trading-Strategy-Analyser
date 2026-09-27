@@ -28,6 +28,7 @@ from nqbt import (
     higher_timeframe,
     instruments,
     regime,
+    results,
     sessionrange,
     sessions,
     sweep,
@@ -58,9 +59,12 @@ from nqbt.sim.types import (
     TARGET_STRETCH,
     TRIGGER_EXTENDED,
     TRIGGER_RECOVERY,
+    SIZING_LABELS,
     DeadCatParams,
     OpeningRangeParams,
+    sizing_labels,
 )
+from tests.test_insidebartrailing_sim import walk_bars
 from tools import campaign_sweep
 from tools.campaign_sweep import (
     ALL_STRATA,
@@ -177,6 +181,19 @@ from tools.campaign_sweep import (
     volume_series,
     windows,
     workers_for,
+)
+from tools.campaign_sweep import (
+    CONFLUENCE_SIZING,
+    CONFLUENCE_SIZING_VARIANTS,
+    SIZE_FIXED,
+    SIZING_SYMMETRIC,
+    check_confluence_request,
+    confluence_arms,
+    confluence_cuts,
+    insidebartrailing_confluence_arms,
+    sizing_cuts_path,
+    swept_on,
+    unstored,
 )
 
 EVERY_STATE = {
@@ -409,7 +426,13 @@ def test_each_sweep_call_gets_the_worker_count_its_own_grid_earns(tmp_path, monk
     def record(bars, grid, instrument, *, data, n_jobs):
         called.append((len(grid), n_jobs))
 
-        return pd.DataFrame({"trades": [0] * len(grid), "profit_factor": [math.nan] * len(grid)}), {}
+        return pd.DataFrame(
+            {
+                "combo_id": range(len(grid)),
+                "trades": [0] * len(grid),
+                "profit_factor": [math.nan] * len(grid),
+            },
+        ), {}
 
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
     monkeypatch.setattr("nqbt.context.prepare", lambda *args, **kwargs: None)
@@ -2252,9 +2275,9 @@ def test_the_fitted_values_reach_every_arm_and_the_labels_only_the_confluence_on
     assert all(arm.base.early_max_trend_bars == 14 for arm in arms.values())
     assert all(arm.base.regime_directional_above == 0.4 for arm in arms.values())
     confluence = arms[SIZING_CONFLUENCE].base
-    assert confluence.sizing_labels == ("size_on_vwap", "size_on_regime")
+    assert sizing_labels(confluence) == ("size_on_vwap", "size_on_regime")
     assert confluence.quantity_per_confluence == 1
-    assert all(arm.base.sizing_labels == () for name, arm in arms.items() if name != SIZING_CONFLUENCE)
+    assert all(sizing_labels(arm.base) == () for name, arm in arms.items() if name != SIZING_CONFLUENCE)
 
 
 def test_each_tier_runs_beside_its_inverse() -> None:
@@ -2329,3 +2352,260 @@ def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(tmp_path, 
     (frame,) = stored
     by_variant = frame.groupby("variant")["tier2"].agg(set).to_dict()
     assert by_variant == {control.name: {"reconciled"}, confluence.name: {"tier-1-only"}}
+
+
+# -- §M47: the confluence size on every archetype -------------------------------------------
+
+
+def m47_cut(
+    root: str = "MNQ",
+    minutes: int = 5,
+    labels: tuple[str, ...] = ("size_on_trend", "size_on_regime"),
+    variant: str | None = None,
+) -> SizingCut:
+    """A cut of the shape the fit writes outside InsideBarTrailing: no earliness in it."""
+    return SizingCut(
+        root=root,
+        minutes=minutes,
+        regime_consolidating_below=0.1,
+        regime_directional_above=0.4,
+        volume_thin_below=0.6,
+        volume_heavy_above=1.6,
+        labels=labels,
+        variant=variant,
+    )
+
+
+def arm_names(campaign: Variant, arms: list[Variant]) -> list[str]:
+    return [arm.name.removeprefix(f"{campaign.name} ") for arm in arms]
+
+
+def write_cuts(path, cuts: list[SizingCut]) -> None:
+    path.write_text(json.dumps([dataclasses.asdict(cut) for cut in cuts]), encoding="utf-8")
+
+
+def test_a_cut_without_earliness_sets_the_label_thresholds_alone() -> None:
+    thresholds = {
+        "regime_consolidating_below": 0.1,
+        "regime_directional_above": 0.4,
+        "volume_thin_below": 0.6,
+        "volume_heavy_above": 1.6,
+    }
+    assert m47_cut().fitted() == thresholds
+    assert a_cut().fitted() == thresholds | {"early_max_extension_atr": 1.2, "early_max_trend_bars": 14}
+
+
+def test_a_cut_naming_no_variant_fits_every_one_and_one_naming_a_variant_fits_that_one() -> None:
+    assert m47_cut().fits("anything")
+    assert m47_cut(variant="stop=atr").fits("stop=atr")
+    assert not m47_cut(variant="stop=atr").fits("stop=swing")
+
+
+def test_a_cut_file_reads_back_with_and_without_the_newer_fields(tmp_path) -> None:
+    """§M45's file carries no variant, and only InsideBarTrailing's carry earliness cuts."""
+    legacy = {key: value for key, value in dataclasses.asdict(a_cut()).items() if key != "variant"}
+    path = tmp_path / "cuts.json"
+    path.write_text(json.dumps([legacy, dataclasses.asdict(m47_cut(variant="bracket"))]), encoding="utf-8")
+    assert sizing_cuts(path) == [a_cut(), m47_cut(variant="bracket")]
+
+
+def test_a_four_target_bracket_at_its_floor_gets_every_arm_but_the_symmetric_one() -> None:
+    (campaign,) = VARIANTS["DeadCatBounce"]("MNQ")
+    arms = confluence_arms(campaign, m47_cut())
+    assert arm_names(campaign, arms) == [SIZE_FIXED, SIZING_CONFLUENCE, "size=trend", "size=regime"]
+
+
+def test_a_bracket_above_its_floor_also_gets_the_symmetric_arm() -> None:
+    campaign = VARIANTS["ElasticBand"]("MNQ")[0]
+    arms = confluence_arms(campaign, m47_cut())
+    assert arm_names(campaign, arms)[-1] == SIZING_SYMMETRIC
+    assert arms[-1].base.size_symmetric
+    assert sizing_labels(arms[-1].base) == ("size_on_trend", "size_on_regime")
+
+
+def test_the_arms_count_what_their_names_say() -> None:
+    campaign = VARIANTS["ElasticBand"]("MNQ")[0]
+    control, together, trend_alone, regime_alone, symmetric = confluence_arms(campaign, m47_cut())
+    assert sizing_labels(control.base) == ()
+    assert control.base.quantity_per_confluence == 0
+    assert (
+        sizing_labels(together.base) == sizing_labels(symmetric.base) == ("size_on_trend", "size_on_regime")
+    )
+    assert sizing_labels(trend_alone.base) == ("size_on_trend",)
+    assert sizing_labels(regime_alone.base) == ("size_on_regime",)
+    assert not together.base.size_symmetric
+
+
+def test_one_kept_label_is_the_all_labels_arm_so_there_is_no_arm_for_it_alone() -> None:
+    (campaign,) = VARIANTS["DeadCatBounce"]("MNQ")
+    assert arm_names(campaign, confluence_arms(campaign, m47_cut(labels=("size_on_trend",)))) == [
+        SIZE_FIXED,
+        SIZING_CONFLUENCE,
+    ]
+
+
+def test_a_cut_that_kept_no_label_leaves_the_control_alone() -> None:
+    (campaign,) = VARIANTS["DeadCatBounce"]("MNQ")
+    assert arm_names(campaign, confluence_arms(campaign, m47_cut(labels=()))) == [SIZE_FIXED]
+
+
+def test_every_arm_shares_the_stored_grid_and_the_fitted_thresholds() -> None:
+    for campaign in VARIANTS["ElasticBand"]("NQ"):
+        for arm in confluence_arms(campaign, m47_cut(root="NQ")):
+            assert arm.axes == campaign.axes
+            assert arm.resolutions == (5,)
+            assert arm.base.regime_directional_above == 0.4
+            assert arm.base.volume_thin_below == 0.6
+
+
+def test_insidebartrailing_keeps_its_nine_arms_and_adds_the_new_ones_on_the_same_grid() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = insidebartrailing_confluence_arms(campaign, a_cut())
+    names = arm_names(campaign, arms)
+    assert names[:9] == arm_names(campaign, sizing_arms(campaign, a_cut()))
+    assert names[9:] == ["size=vwap", "size=regime", SIZING_SYMMETRIC]
+    assert all(arm.axes == arms[0].axes for arm in arms)
+    assert all(arm.base.partial_take_profit_percentage == 0.5 for arm in arms[9:])
+
+
+def test_every_combination_of_every_confluence_arm_is_a_legal_rule_set() -> None:
+    """A floor the symmetric arm cannot shed from, or a label on the wrong class, would raise mid-sweep."""
+    for name, build in VARIANTS.items():
+        ported = name == archetypes.INSIDEBARTRAILING.name
+        arms_for = insidebartrailing_confluence_arms if ported else confluence_arms
+        cut = a_cut(labels=SIZING_LABELS) if ported else m47_cut(labels=SIZING_LABELS)
+        for campaign in build("MNQ"):
+            for arm in arms_for(campaign, cut):
+                grid = sweep.Grid(axes=arm.axes, base=arm.base, archetype=arm.archetype)
+                assert sum(1 for _ in grid.combinations()) == arm.sized(), arm.name
+
+
+def test_the_confluence_variants_run_only_where_a_cut_was_fitted_for_them(monkeypatch, tmp_path) -> None:
+    variant = "window=5m stop=opposite target=R"
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    write_cuts(
+        sizing_cuts_path("OpeningRange"),
+        [
+            m47_cut("MNQ", 5, variant=variant),
+            m47_cut("MNQ", 10, variant=variant),
+            m47_cut("NQ", 5, variant=variant),
+        ],
+    )
+    variants = CONFLUENCE_SIZING_VARIANTS["OpeningRange"]("MNQ")
+    assert {arm.name.rsplit(" size=", 1)[0] for arm in variants} == {variant}
+    assert {arm.resolutions for arm in variants} == {(5,)}, "a 5-minute range has no 10-minute bars"
+    assert variants_for(CONFLUENCE_SIZING) is CONFLUENCE_SIZING_VARIANTS
+
+
+def test_the_strata_cut_regime_and_volume_where_the_labels_are_cut(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    ladders = [name for name in ELASTIC_LADDERS]
+    write_cuts(sizing_cuts_path("ElasticBand"), [m47_cut(variant=ladder) for ladder in ladders])
+    cuts = confluence_cuts("ElasticBand", "MNQ")
+    assert set(cuts) == {5}
+    cells = dict(strata(CONFLUENCE_SIZING, cuts[5]))
+    regime_cell = cells["regime=DIRECTIONAL@n=20 q=0.20/0.80"]
+    assert regime_cell["regime_directional_above"] == [0.4]
+    assert regime_cell["regime_consolidating_below"] == [0.1]
+    heavy = [name for name in cells if name.startswith("volume=HEAVY@")]
+    assert len(heavy) == 1
+    assert heavy[0].endswith("q=0.20/0.80")
+    assert cells[heavy[0]]["volume_heavy_above"] == [1.6]
+    assert len(cells) == 1 + 3 + len(timeofday.SessionPhase) + 3 + 3 + 3 + len(higher_timeframe.Side)
+
+
+def test_variants_fitted_at_two_cuts_at_one_resolution_are_refused(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    moved = dataclasses.replace(m47_cut(variant="target=+1.0s"), volume_heavy_above=2.0)
+    write_cuts(sizing_cuts_path("ElasticBand"), [m47_cut(variant="target=0.0s"), moved])
+    with pytest.raises(SystemExit, match="the strata need one"):
+        confluence_cuts("ElasticBand", "MNQ")
+
+
+def test_a_confluence_run_is_refused_under_another_cut_or_the_raw_volume_cells() -> None:
+    args = argparse.Namespace(
+        variants=CONFLUENCE_SIZING, regime_quantiles=(0.2, 0.8), volume_quantiles=(), strata=CONFLUENCE_SIZING
+    )
+    with pytest.raises(SystemExit, match="drop --regime-quantiles"):
+        check_confluence_request(args)
+
+    args.regime_quantiles = None
+    args.strata = ALL_STRATA
+    with pytest.raises(SystemExit, match="raw volume cells"):
+        check_confluence_request(args)
+
+    args.strata = CONFLUENCE_SIZING
+    check_confluence_request(args)
+    check_confluence_request(argparse.Namespace(variants=CAMPAIGN, strata=ALL_STRATA))
+
+
+def test_the_planned_count_has_one_regime_and_one_volume_cut_per_dimension(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    write_cuts(sizing_cuts_path("DeadCatBounce"), [m47_cut()])
+    args = argparse.Namespace(
+        variants=CONFLUENCE_SIZING,
+        strategies=["DeadCatBounce"],
+        roots=["MNQ"],
+        resolutions=[5],
+        split=True,
+        strata=CONFLUENCE_SIZING,
+    )
+    (campaign,) = VARIANTS["DeadCatBounce"]("MNQ")
+    cells = 1 + 3 + len(timeofday.SessionPhase) + 3 + 3 + 3 + len(higher_timeframe.Side)
+    assert planned_combinations(args) == campaign.sized() * cells * 4 * 2
+
+
+# -- the stored-cell guard -------------------------------------------------------------------
+
+
+def test_a_cell_stored_on_these_bars_is_skipped_and_one_on_other_bars_refused() -> None:
+    frame = walk_bars(100)
+    grid = sweep.Grid.of(DeadCatParams())
+    named = [("a", UNFILTERED, grid), ("b", UNFILTERED, grid)]
+    here = swept_on(frame)
+    assert unstored(named, {}, frame) == named
+    assert unstored(named, {("a", UNFILTERED): {here}}, frame) == named[1:]
+    with pytest.raises(SystemExit, match="already stored"):
+        unstored(named, {("a", UNFILTERED): {here._replace(bars=here.bars + 1)}}, frame)
+
+
+def test_a_point_run_twice_stores_each_cell_once(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    frame = walk_bars(3000, seed=5)
+    tiny = Variant(
+        "tiny",
+        archetypes.DEADCATBOUNCE,
+        DeadCatParams(use_ema=False, use_fast_sma=False, require_new_high=False, bars_required_to_trade=20),
+        axes={"tp_multiplier": [1.0, 2.0]},
+    )
+
+    def stored() -> int:
+        return int(results.query("SELECT count(*) AS n FROM combos", db_path("DeadCatBounce"))["n"].iloc[0])
+
+    run_point(frame, [tiny], "MNQ", 1, "holdout", 1, UNFILTERED, NO_CUTS, n_jobs=1)
+    assert stored() == 2
+    run_point(frame, [tiny], "MNQ", 1, "holdout", 2, UNFILTERED, NO_CUTS, n_jobs=1)
+    assert stored() == 2, "a cell already stored was swept again"
+    run_point(
+        frame, [tiny, replace(tiny, name="tiny again")], "MNQ", 1, "holdout", 3, UNFILTERED, NO_CUTS, n_jobs=1
+    )
+    assert stored() == 4, "the new cell at the same point was not swept"
+    run_point(frame, [tiny], "MNQ", 1, "selection", 4, UNFILTERED, NO_CUTS, n_jobs=1)
+    assert stored() == 6, "another window is another cell"
+    with pytest.raises(SystemExit, match="already stored"):
+        run_point(frame.iloc[:-10], [tiny], "MNQ", 1, "holdout", 5, UNFILTERED, NO_CUTS, n_jobs=1)
+
+
+def test_insidebartrailing_with_no_kept_label_keeps_only_the_arms_that_need_none() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = insidebartrailing_confluence_arms(campaign, a_cut(labels=()))
+    assert arm_names(campaign, arms) == arm_names(campaign, sizing_arms(campaign, a_cut(labels=())))
+    assert SIZING_CONFLUENCE not in arm_names(campaign, arms)
+
+
+def test_the_strata_read_each_roots_own_cut(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    nq = dataclasses.replace(m47_cut("NQ"), regime_directional_above=0.7)
+    write_cuts(sizing_cuts_path("DeadCatBounce"), [m47_cut("MNQ"), nq])
+    assert confluence_cuts("DeadCatBounce", "MNQ")[5].regime[0].directional_above == 0.4
+    assert confluence_cuts("DeadCatBounce", "NQ")[5].regime[0].directional_above == 0.7

@@ -30,6 +30,7 @@ from nqbt.sim.types import (
     EARLY_TIER,
     ESTABLISHED_TIER,
     STOP_MIN_TICKS,
+    confluence_range,
 )
 from nqbt.trades import C_EXIT_PRICE
 
@@ -82,17 +83,6 @@ class InsideBarTrailingRules(NamedTuple):
     bars_required: int
     block_entry_at_session_close: bool
     max_hold_bars: int
-
-
-class LotSizing(NamedTuple):
-    """Each entry's two lot sizes: every split a signal can take, and the row each bar takes.
-
-    ``quantities`` is :attr:`nqbt.sim.types.InsideBarTrailingParams.lot_table` as a
-    ``[rows, lots]`` array; ``row_at`` is read at the signal bar -- ``docs/nt8-fidelity.md`` §M45.
-    """
-
-    quantities: IntArray
-    row_at: IntArray
 
 
 @njit(cache=True)
@@ -241,7 +231,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     direction_at: FloatArray,
     atr: FloatArray,
     averages: TrendAverages,
-    sizing: LotSizing,
+    sizing: bracket.Sizing,
     costs: bracket.Costs,
     fills: bracket.FillRules,
     rules: InsideBarTrailingRules,
@@ -387,9 +377,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 )
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
                 raw_target = fill + d * bar_atr * rules.tp_multiplier
-                row = sizing.row_at[pending_bar]
-                for lot in range(n_lots):
-                    legs.quantity[lot] = sizing.quantities[row, lot]
+                bracket.size_legs(legs, sizing, pending_bar)
                 legs.is_open[BRACKETED_LOT] = True
                 legs.is_open[TRAILING_LOT] = True
                 lots.stop[BRACKETED_LOT] = fixed_stop
@@ -505,16 +493,18 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     return written
 
 
-def lot_sizing(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> LotSizing:
-    """Every split this combination can take, and the row each bar would take for its side."""
-    per_tier: int = len(params.sizing_labels) + 1
-    rows: IntArray = earliness_tiers(data, params, direction_at) * per_tier + confluence_counts(
-        data,
-        params,
-        direction_at,
+def lot_sizing(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> bracket.Sizing:
+    """Every split this combination can take, and the row each bar would take for its side.
+
+    :attr:`~nqbt.sim.types.InsideBarTrailingParams.lot_table` is tier-major, so a bar's row is
+    its tier's first row plus its confluence count's place within the tier.
+    """
+    counts: range = confluence_range(params)
+    rows: IntArray = earliness_tiers(data, params, direction_at) * len(counts) + (
+        filters.confluence_counts(data, params, direction_at == trades.LONG) - counts.start
     )
 
-    return LotSizing(np.asarray(params.lot_table, dtype=np.int64), rows)
+    return bracket.Sizing(np.asarray(params.lot_table, dtype=np.int64), rows)
 
 
 def earliness_tiers(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
@@ -560,22 +550,13 @@ def early_entries(data: Dataset, params: InsideBarTrailingParams, direction_at: 
     return first_of_run
 
 
-def confluence_counts(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
-    """How many of the ``size_on_*`` labels favour the side each bar would be entered on."""
-    favourable: list[BoolArray] = filters.favourable_labels(data, params, direction_at == trades.LONG)
-    if not favourable:
-        return np.zeros(len(data), dtype=np.int64)
-
-    return conditions.count_true(np.stack(favourable))
-
-
 def insidebartrailing_legs(
     data: Dataset,
     params: InsideBarTrailingParams,
     instrument: Instrument = MNQ,
     *,
     signal: BoolArray | None = None,
-    sizing: LotSizing | None = None,
+    sizing: bracket.Sizing | None = None,
 ) -> trades.LegMatrix:
     """Simulate one parameter combination and return its raw leg matrix.
 

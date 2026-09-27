@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, fields
-from typing import Protocol, override
+from typing import NamedTuple, Protocol, override, runtime_checkable
 
 from nqbt import (
     bands,
@@ -158,6 +158,127 @@ def validate_max_hold_bars(max_hold_bars: int) -> None:
         raise ValueError(msg)
 
 
+SIZING_LABELS = (
+    "size_on_trend",
+    "size_on_higher_timeframe",
+    "size_on_vwap",
+    "size_on_regime",
+    "size_on_volume",
+)
+"""The label kinds a confluence count may size on, one per input family -- ``docs/nt8-fidelity.md``
+§M45."""
+
+
+class SizingThesis(NamedTuple):
+    """The regime and the volume state that favour an archetype's entry.
+
+    The opposite extreme of each opposes it and the middle state is neutral. The trend, the
+    higher-timeframe side and the VWAP side need no thesis: each favours the trade on its own
+    side -- ``docs/nt8-fidelity.md`` §M47.
+    """
+
+    regime: regime.Regime
+    volume: volume.VolumeState
+
+
+EXPANSION = SizingThesis(regime.Regime.DIRECTIONAL, volume.VolumeState.HEAVY)
+"""A breakout or a momentum entry: a move going somewhere, with participation behind it."""
+
+PULLBACK = SizingThesis(regime.Regime.DIRECTIONAL, volume.VolumeState.THIN)
+"""An entry against a counter-move inside a trend, which a healthy trend makes on light volume."""
+
+ROTATION = SizingThesis(regime.Regime.CONSOLIDATING, volume.VolumeState.THIN)
+"""A fade back into a range, which wants two-way trade and an extreme nobody is pressing."""
+
+
+@runtime_checkable
+class ConfluenceSized(Protocol):
+    """The confluence-size fields every parameter class carries, as one shape."""
+
+    order_quantity: int
+    quantity_per_confluence: int
+    size_on_trend: bool
+    size_on_higher_timeframe: bool
+    size_on_vwap: bool
+    size_on_regime: bool
+    size_on_volume: bool
+    size_symmetric: bool
+
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position the bracket takes: one contract per leg."""
+        ...
+
+
+def sizing_labels(params: ConfluenceSized) -> tuple[str, ...]:
+    """The ``size_on_*`` labels switched on, in :data:`SIZING_LABELS` order."""
+    return tuple(name for name in SIZING_LABELS if getattr(params, name))
+
+
+def confluence_range(params: ConfluenceSized) -> range:
+    """The counts a size table holds a row for: none to every label, from minus every label if symmetric."""
+    labels: int = len(sizing_labels(params))
+
+    return range(-labels if params.size_symmetric else 0, labels + 1)
+
+
+def split_evenly(quantity: int, legs: int) -> tuple[int, ...]:
+    """Contracts per leg, with the remainder on the last: 10 over four legs is 2/2/2/4, not 3/3/2/2."""
+    base: int = quantity // legs
+    remainder: int = quantity % legs
+
+    return tuple([base] * (legs - 1) + [base + remainder])
+
+
+def leg_size_table(params: ConfluenceSized, legs: int) -> tuple[tuple[int, ...], ...]:
+    """Every per-leg split a signal can take, one row per count in :func:`confluence_range`.
+
+    A count moves every leg by ``quantity_per_confluence``, so the position scales without
+    changing shape, and no row falls below one contract per leg -- ``docs/nt8-fidelity.md`` §M47.
+    """
+    step: int = legs * params.quantity_per_confluence
+
+    return tuple(
+        split_evenly(max(legs, params.order_quantity + step * count), legs)
+        for count in confluence_range(params)
+    )
+
+
+def validate_sizing(params: ConfluenceSized) -> None:
+    """Refuse a confluence size that cannot run, or that runs as a combination the sweep already has.
+
+    A symmetric size whose base is already the smallest position the bracket takes can remove
+    nothing, which is the add-only size under another name.
+    """
+    if params.quantity_per_confluence < 0:
+        msg: str = (
+            "quantity_per_confluence is a contract count and must be >= 0, got "
+            f"{params.quantity_per_confluence}"
+        )
+        raise ValueError(msg)
+
+    labels: tuple[str, ...] = sizing_labels(params)
+    if bool(labels) != (params.quantity_per_confluence > 0):
+        msg = (
+            f"quantity_per_confluence={params.quantity_per_confluence} with labels "
+            f"{labels or 'none'} sizes every trade the same, which is fixed size "
+            "under another name; set both or neither"
+        )
+        raise ValueError(msg)
+
+    if params.size_symmetric and not labels:
+        msg = "size_symmetric with no confluence size sizes every trade the same; set a step and a label"
+        raise ValueError(msg)
+
+    if params.size_symmetric and params.order_quantity <= params.minimum_quantity:
+        msg = (
+            f"size_symmetric at order_quantity={params.order_quantity} can remove nothing: "
+            f"{params.minimum_quantity} is already the smallest position this bracket takes, so it "
+            "is the add-only size under another name"
+        )
+        raise ValueError(msg)
+
+
 @dataclass(slots=True)
 class DeadCatParams:
     """Rule set for the DeadCatBounce archetype.
@@ -288,6 +409,31 @@ class DeadCatParams:
     """Bars of *that* resolution the average is taken over, never 1-minute bars. An EMA, and
     inert while :attr:`higher_timeframe_filter` admits every side."""
 
+    quantity_per_confluence: int = 0
+    """Contracts every leg gains for each ``size_on_*`` label favouring the trade at its signal
+    bar, and with :attr:`size_symmetric` loses for each one opposing it. ``0`` is fixed size.
+
+    Absent from the NinjaScript, and read for sizing only, so no label narrows an entry --
+    ``docs/nt8-fidelity.md`` §M47."""
+
+    size_on_trend: bool = False
+    """Count the trend label: ``UP`` favours a long and opposes a short, ``DOWN`` the reverse."""
+
+    size_on_higher_timeframe: bool = False
+    """Count the close's side of the higher-timeframe average, which favours the trade on that side."""
+
+    size_on_vwap: bool = False
+    """Count the close's side of the session VWAP, which favours the trade on that side."""
+
+    size_on_regime: bool = False
+    """Count the efficiency-ratio regime, favourable where :attr:`sizing_thesis` says."""
+
+    size_on_volume: bool = False
+    """Count the relative-volume state, favourable where :attr:`sizing_thesis` says."""
+
+    size_symmetric: bool = False
+    """Also remove a step per opposing label, never below one contract per leg. Off is add-only."""
+
     tp_multiplier: float = 1.0
     """Scales every leg's target. ``TPMultiplier`` in the NinjaScript."""
 
@@ -366,6 +512,7 @@ class DeadCatParams:
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
+        validate_sizing(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -394,11 +541,22 @@ class DeadCatParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last: 10 splits 2/2/2/4, not 3/3/2/2."""
-        n: int = len(self.target_r_multiples)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
+        return split_evenly(self.order_quantity, len(self.target_r_multiples))
 
-        return tuple([base] * (n - 1) + [base + remainder])
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_r_multiples)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_r_multiples))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A short into a bounce inside a downtrend -- ``docs/nt8-fidelity.md`` §M47."""
+        return PULLBACK
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
@@ -496,6 +654,16 @@ class PullBackAndGoParams:
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`."""
+
     bars_required_to_trade: int = 20
     stop_offset_ticks: int = 2
     """Ticks below the signal bar's low for the stop. ``TickSize * 2`` in the NinjaScript."""
@@ -554,6 +722,7 @@ class PullBackAndGoParams:
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
+        validate_sizing(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -582,11 +751,22 @@ class PullBackAndGoParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- DeadCatBounce's split exactly."""
-        n: int = len(self.target_r_multiples)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
+        return split_evenly(self.order_quantity, len(self.target_r_multiples))
 
-        return tuple([base] * (n - 1) + [base + remainder])
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_r_multiples)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_r_multiples))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A long on a pullback inside an uptrend -- ``docs/nt8-fidelity.md`` §M47."""
+        return PULLBACK
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
@@ -686,6 +866,16 @@ class EmaCrossoverParams:
     higher_timeframe_period: int = 50
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`."""
 
     confluence_required: int = REQUIRE_ALL
     """How many of the active context filters an entry needs, rather than all of them.
@@ -813,6 +1003,7 @@ class EmaCrossoverParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
         validate_confluence(self, self.confluence_required)
+        validate_sizing(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
             msg = (
                 f"fast and slow are both {self.fast_kind}({self.fast_period}); identical "
@@ -847,11 +1038,22 @@ class EmaCrossoverParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
-        n: int = len(self.target_r_multiples)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
+        return split_evenly(self.order_quantity, len(self.target_r_multiples))
 
-        return tuple([base] * (n - 1) + [base + remainder])
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_r_multiples)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_r_multiples))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A trend change taken at the cross -- ``docs/nt8-fidelity.md`` §M47."""
+        return EXPANSION
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
@@ -969,6 +1171,17 @@ class InsideBarParams:
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`. On InsideBarTrailing the step is
+    added to the whole position before its split -- ``docs/nt8-fidelity.md`` §M45."""
+
     ambiguity_policy: int = 1
     """See :attr:`DeadCatParams.ambiguity_policy` -- the same concept, the same default."""
 
@@ -1020,6 +1233,7 @@ class InsideBarParams:
 
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
+        validate_sizing(self)
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -1049,6 +1263,21 @@ class InsideBarParams:
     def leg_quantities(self) -> tuple[int, ...]:
         """The whole position on one leg -- ``InsideBar.cs`` brackets it with one order pair."""
         return (self.order_quantity,)
+
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract on its one leg."""
+        return len(self.leg_quantities)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every size a signal can take -- :func:`leg_size_table` over the one leg."""
+        return leg_size_table(self, len(self.leg_quantities))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A break out of the mother bar with the three averages -- ``docs/nt8-fidelity.md`` §M47."""
+        return EXPANSION
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
@@ -1083,22 +1312,24 @@ EARLY_TIER = 0
 ESTABLISHED_TIER = 1
 """The two earliness tiers, and their order in :attr:`InsideBarTrailingParams.lot_table`."""
 
-SIZING_LABELS = (
-    "size_on_trend",
-    "size_on_higher_timeframe",
-    "size_on_vwap",
-    "size_on_regime",
-    "size_on_volume",
-)
-"""The label kinds a confluence count may size on, one per input family -- ``docs/nt8-fidelity.md``
-§M45."""
-
 
 def split_lots(quantity: int, share: float) -> tuple[int, int]:
     """InsideBarTrailing's two entry sizes: ``(int) Math.Ceiling(quantity * share)`` and the rest."""
     first: int = math.ceil(quantity * share)
 
     return (first, quantity - first)
+
+
+def smallest_split(share: float, largest: int) -> int:
+    """The fewest contracts, up to ``largest``, that split at ``share`` into two non-empty lots.
+
+    ``largest`` itself where none does, which leaves the table check to refuse the split.
+    """
+    for quantity in range(MIN_SPLIT_QUANTITY, largest + 1):
+        if min(split_lots(quantity, share)) >= 1:
+            return quantity
+
+    return largest
 
 
 @dataclass(slots=True)
@@ -1160,25 +1391,6 @@ class InsideBarTrailingParams(InsideBarParams):
     """Under ``trend-age``: the most bars the trend may have run at the signal bar and still be
     early. A placeholder the campaign fits per cell, not a finding."""
 
-    quantity_per_confluence: int = 0
-    """Contracts added to ``order_quantity`` for each ``size_on_*`` label favouring the trade at
-    its signal bar. ``0`` is fixed size."""
-
-    size_on_trend: bool = False
-    """Count the trend label agreeing with the trade's side."""
-
-    size_on_higher_timeframe: bool = False
-    """Count the close on the trade's side of the higher-timeframe average."""
-
-    size_on_vwap: bool = False
-    """Count the close on the trade's side of the session VWAP."""
-
-    size_on_regime: bool = False
-    """Count a directional efficiency-ratio regime."""
-
-    size_on_volume: bool = False
-    """Count heavy relative volume."""
-
     @override
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -1221,7 +1433,11 @@ class InsideBarTrailingParams(InsideBarParams):
         self._check_lot_table()
 
     def _check_sizing(self) -> None:
-        """Refuse an earliness rule or a confluence size that cannot run, or runs as fixed size."""
+        """Refuse an earliness rule that cannot run.
+
+        The confluence size's own refusals are :func:`validate_sizing`'s, which
+        :class:`InsideBarParams` runs.
+        """
         if self.earliness_mode not in EARLINESS_MODES:
             msg: str = f"earliness_mode must be one of {sorted(EARLINESS_MODES)}, got {self.earliness_mode}"
             raise ValueError(msg)
@@ -1240,21 +1456,6 @@ class InsideBarTrailingParams(InsideBarParams):
             )
             raise ValueError(msg)
 
-        if self.quantity_per_confluence < 0:
-            msg = (
-                f"quantity_per_confluence is a contract count and must be >= 0, got "
-                f"{self.quantity_per_confluence}"
-            )
-            raise ValueError(msg)
-
-        if bool(self.sizing_labels) != (self.quantity_per_confluence > 0):
-            msg = (
-                f"quantity_per_confluence={self.quantity_per_confluence} with labels "
-                f"{self.sizing_labels or 'none'} sizes every trade the same, which is fixed size "
-                "under another name; set both or neither"
-            )
-            raise ValueError(msg)
-
     def _check_lot_table(self) -> None:
         """Refuse a split that leaves a lot empty, or tiers that never split differently."""
         table: tuple[tuple[int, int], ...] = self.lot_table
@@ -1265,7 +1466,7 @@ class InsideBarTrailingParams(InsideBarParams):
             )
             raise ValueError(msg)
 
-        per_tier: int = len(self.sizing_labels) + 1
+        per_tier: int = len(confluence_range(self))
         if self.earliness_mode != EARLINESS_OFF and table[:per_tier] == table[per_tier:]:
             msg = (
                 f"early_partial_percentage={self.early_partial_percentage} and "
@@ -1281,29 +1482,47 @@ class InsideBarTrailingParams(InsideBarParams):
         return split_lots(self.order_quantity, self.partial_take_profit_percentage)
 
     @property
-    def sizing_labels(self) -> tuple[str, ...]:
-        """The ``size_on_*`` labels switched on, in :data:`SIZING_LABELS` order."""
-        return tuple(name for name in SIZING_LABELS if getattr(self, name))
+    @override
+    def minimum_quantity(self) -> int:
+        """The smallest position every tier's split leaves both lots non-empty at."""
+        return max(smallest_split(share, self.order_quantity) for share in self.tier_shares)
+
+    @property
+    def tier_shares(self) -> tuple[float, ...]:
+        """The bracketed lot's share in each earliness tier, early first; one tier while it is off."""
+        if self.earliness_mode == EARLINESS_OFF:
+            return (self.partial_take_profit_percentage,)
+
+        return (self.early_partial_percentage, self.partial_take_profit_percentage)
 
     @property
     def lot_table(self) -> tuple[tuple[int, int], ...]:
         """Every split a signal can take, one row per earliness tier and confluence count.
 
-        Tier-major -- row ``tier * (len(sizing_labels) + 1) + count`` -- with one tier while
-        earliness is off, so the default is the single row :attr:`leg_quantities` holds.
+        Tier-major, one row per count in :func:`confluence_range` within each tier, so the
+        default is the single row :attr:`leg_quantities` holds. The step applies to the whole
+        position before its split, and a symmetric count never takes a tier below the smallest
+        position its split can take -- ``docs/nt8-fidelity.md`` §M47.
         """
-        shares: tuple[float, ...] = (
-            (self.partial_take_profit_percentage,)
-            if self.earliness_mode == EARLINESS_OFF
-            else (self.early_partial_percentage, self.partial_take_profit_percentage)
-        )
-        counts: range = range(len(self.sizing_labels) + 1)
+        counts: range = confluence_range(self)
 
         return tuple(
-            split_lots(self.order_quantity + self.quantity_per_confluence * count, share)
-            for share in shares
+            split_lots(
+                max(
+                    smallest_split(share, self.order_quantity),
+                    self.order_quantity + self.quantity_per_confluence * count,
+                ),
+                share,
+            )
+            for share in self.tier_shares
             for count in counts
         )
+
+    @property
+    @override
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """:attr:`lot_table`, which is what a confluence count sizes on this archetype."""
+        return self.lot_table
 
 
 STOP_ATR = 0
@@ -1507,6 +1726,16 @@ class ElasticBandParams:
     """The coarse resolution and the period averaged on it -- see
     :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`."""
+
     stop_mode: int = STOP_ATR
     """One of :data:`STOP_MODES`."""
 
@@ -1591,6 +1820,7 @@ class ElasticBandParams:
         self._validate_entry()
         self._validate_exit_scheme()
         validate_context_filters(self)
+        validate_sizing(self)
 
     def _validate_entry(self) -> None:
         """Check the band and the rule that decides which bars signal."""
@@ -1735,11 +1965,22 @@ class ElasticBandParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
-        n: int = len(self.target_levels)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
+        return split_evenly(self.order_quantity, len(self.target_levels))
 
-        return tuple([base] * (n - 1) + [base + remainder])
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_levels)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_levels))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A fade back to the mean -- ``docs/nt8-fidelity.md`` §M47."""
+        return ROTATION
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
@@ -1950,6 +2191,16 @@ class OpeningRangeParams:
     """The coarse resolution and the period averaged on it -- see
     :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`."""
+
     stop_mode: int = ORB_STOP_OPPOSITE
     """One of :data:`ORB_STOP_MODES`."""
 
@@ -2027,6 +2278,7 @@ class OpeningRangeParams:
         self._validate_follow_through()
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
+        validate_sizing(self)
 
     def _validate_entry(self) -> None:
         """Check the range and the rule that decides which bars may submit an order."""
@@ -2181,11 +2433,22 @@ class OpeningRangeParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
-        n: int = len(self.target_levels)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
+        return split_evenly(self.order_quantity, len(self.target_levels))
 
-        return tuple([base] * (n - 1) + [base + remainder])
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_levels)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_levels))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """Rotation for the fade and the rejection, expansion otherwise -- ``docs/nt8-fidelity.md`` §M47."""
+        return ROTATION if self.entry_mode in ORB_OPPOSITE_EXTREME_ENTRIES else EXPANSION
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
@@ -2328,6 +2591,16 @@ class EmaPullbackParams:
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`."""
+
     exit_on_trend_flip: bool = False
     """Close the position at the next bar's open when the two averages cross back.
 
@@ -2416,6 +2689,7 @@ class EmaPullbackParams:
         self._validate_confirmation()
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
+        validate_sizing(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
             msg = (
                 f"fast and slow are both {self.fast_kind}({self.fast_period}); one average "
@@ -2459,11 +2733,22 @@ class EmaPullbackParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
-        n: int = len(self.target_r_multiples)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
+        return split_evenly(self.order_quantity, len(self.target_r_multiples))
 
-        return tuple([base] * (n - 1) + [base + remainder])
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_r_multiples)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_r_multiples))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A pullback to the fast average inside a trend -- ``docs/nt8-fidelity.md`` §M47."""
+        return PULLBACK
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""
@@ -2569,6 +2854,16 @@ class SqueezeBreakoutParams:
     """The coarse resolution and the period averaged on it -- see
     :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`."""
+
     stop_mode: int = ORB_STOP_OPPOSITE
     """One of :data:`ORB_STOP_MODES`, read against the window rather than a session's range."""
 
@@ -2626,6 +2921,7 @@ class SqueezeBreakoutParams:
         self._validate_exit_scheme()
         validate_max_hold_bars(self.max_hold_bars)
         validate_context_filters(self)
+        validate_sizing(self)
 
     def _validate_squeeze(self) -> None:
         """Check the squeeze and the order it rests."""
@@ -2722,11 +3018,22 @@ class SqueezeBreakoutParams:
     @property
     def leg_quantities(self) -> tuple[int, ...]:
         """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
-        n: int = len(self.target_levels)
-        base: int = self.order_quantity // n
-        remainder: int = self.order_quantity % n
+        return split_evenly(self.order_quantity, len(self.target_levels))
 
-        return tuple([base] * (n - 1) + [base + remainder])
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_levels)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_levels))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A break out of a compressed window -- ``docs/nt8-fidelity.md`` §M47."""
+        return EXPANSION
 
     def as_dict(self) -> dict[str, object]:
         """Flat mapping of every parameter, keyed by field name."""

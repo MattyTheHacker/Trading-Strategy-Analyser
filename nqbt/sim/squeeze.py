@@ -24,7 +24,7 @@ from nqbt.sim.types import ORB_ENTRY_BREAKOUT, ORB_STOP_ATR
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray
     from nqbt.context import Dataset
     from nqbt.sim.types import SqueezeBreakoutParams
     from nqbt.trades import LegMatrix
@@ -93,6 +93,11 @@ def entry_bound(data: Dataset, levels: openingrange.RangeSeries, signal: BoolArr
     return int(np.count_nonzero(signal[:-1] & levels.armed[:-1] & reached))
 
 
+def squeeze_long_side(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
+    """Which bars would be entered long: every one or none, since the side is a parameter."""
+    return np.full(len(data), params.direction == trades.LONG, dtype=np.bool_)
+
+
 def squeeze_legs(
     data: Dataset,
     params: SqueezeBreakoutParams,
@@ -107,18 +112,18 @@ def squeeze_legs(
     """
     signal = squeeze_signal(data, params) if signal is None else signal
     levels: openingrange.RangeSeries = squeeze_levels(data, params)
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, squeeze_long_side(data, params))
     targets: FloatArray = np.asarray(params.target_levels, dtype=np.float64)
     out: FloatArray = bracket.allocate_output(
         entry_bound(data, levels, signal, params.direction),
-        quantities.size,
+        sizing.quantities.shape[1],
     )
 
     count: int = openingrange.simulate_openingrange(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         levels,
-        quantities,
+        sizing,
         targets,
         bracket.Costs(
             tick_size=instrument.tick_size,

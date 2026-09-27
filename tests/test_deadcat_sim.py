@@ -56,7 +56,7 @@ def run(
     count = deadcat.simulate_deadcat(
         bracket.Bars(o, h, l, c, force_flat),
         signal,
-        np.asarray(quantities, dtype=np.int64),
+        bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(targets, dtype=np.float64),
         bracket.Costs(TICK, instrument.point_value, commission, slippage),
         bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),

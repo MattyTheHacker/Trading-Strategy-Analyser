@@ -112,6 +112,24 @@ class Grid:
                 msg,
             )
 
+        self._refuse_what_symmetric_cannot_shed()
+
+    def _refuse_what_symmetric_cannot_shed(self) -> None:
+        """Refuse a symmetric size where some combination's base can shed nothing, before any runs.
+
+        The parameter class refuses it too, but only as each combination is built mid-sweep --
+        ``docs/nt8-fidelity.md`` §M47.
+        """
+        if True not in self.axes.get("size_symmetric", [getattr(self.base, "size_symmetric", False)]):
+            return
+
+        try:
+            for _ in self.combinations():
+                pass
+        except ValueError as refused:
+            msg: str = f"size_symmetric cannot apply to every combination of this grid: {refused}"
+            raise SweepError(msg) from refused
+
     def _default_base(self) -> Params:
         """What ``base`` means when the caller gave none: the first combination, or defaults."""
         if self.combos:

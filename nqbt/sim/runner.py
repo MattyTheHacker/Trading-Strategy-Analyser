@@ -18,7 +18,7 @@ from nqbt.sim import bracket, deadcat, filters
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray
     from nqbt.context import Dataset
     from nqbt.sim.types import DeadCatParams
     from nqbt.trades import LegMatrix
@@ -51,6 +51,11 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
     return filters.apply_context_filters(signal, data, params)
 
 
+def deadcat_long_side(data: Dataset) -> BoolArray:
+    """Which bars would be entered long: none, since ``DeadCatBounce.cs`` only sells."""
+    return np.zeros(len(data), dtype=np.bool_)
+
+
 def deadcat_legs(
     data: Dataset,
     params: DeadCatParams,
@@ -67,14 +72,14 @@ def deadcat_legs(
     substitutes so that it runs **this** function rather than its own copy of the simulation.
     """
     signal = deadcat_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, deadcat_long_side(data))
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
-    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 
     count: int = deadcat.simulate_deadcat(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
-        quantities,
+        sizing,
         targets,
         bracket.Costs(
             tick_size=instrument.tick_size,

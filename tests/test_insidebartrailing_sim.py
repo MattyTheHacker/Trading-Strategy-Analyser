@@ -24,6 +24,7 @@ from nqbt.sim.types import (
     EARLINESS_TREND_AGE,
     InsideBarParams,
     InsideBarTrailingParams,
+    sizing_labels,
 )
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
@@ -38,7 +39,7 @@ FAR_TRAIL = 10.0
 
 def fixed_sizing(quantities, n):
     """One split for every entry, which is the NinjaScript as ported."""
-    return insidebartrailing.LotSizing(np.asarray([quantities], dtype=np.int64), np.zeros(n, dtype=np.int64))
+    return bracket.Sizing(np.asarray([quantities], dtype=np.int64), np.zeros(n, dtype=np.int64))
 
 
 def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 property
@@ -730,7 +731,7 @@ def two_row_sizing(signal_row, n, *, rows=((4, 2), (1, 3))):
     for bar, row in signal_row.items():
         row_at[bar] = row
 
-    return insidebartrailing.LotSizing(np.asarray(rows, dtype=np.int64), row_at)
+    return bracket.Sizing(np.asarray(rows, dtype=np.int64), row_at)
 
 
 def test_an_entry_takes_the_split_its_signal_bar_names() -> None:
@@ -776,7 +777,7 @@ def test_the_loss_gate_reads_the_trades_own_size() -> None:
 def test_the_default_lot_table_is_the_one_fixed_split() -> None:
     params = InsideBarTrailingParams()
     assert params.lot_table == (params.leg_quantities,) == ((4, 2),)
-    assert params.sizing_labels == ()
+    assert sizing_labels(params) == ()
 
 
 def test_earliness_adds_an_early_tier_in_front_of_the_established_one() -> None:
@@ -794,7 +795,7 @@ def test_confluence_adds_a_row_per_count_within_each_tier() -> None:
         size_on_vwap=True,
         size_on_trend=True,
     )
-    assert params.sizing_labels == ("size_on_trend", "size_on_vwap")
+    assert sizing_labels(params) == ("size_on_trend", "size_on_vwap")
     early = ((1, 3), (2, 4), (2, 6))
     established = ((2, 2), (3, 3), (4, 4))
     assert params.lot_table == (*early, *established)
@@ -974,7 +975,7 @@ def test_every_label_kind_can_be_counted_and_the_count_is_their_sum() -> None:
     data = prepared(walk_bars(), params)
     direction_at = insidebar_direction(data, params)
     rows = filters.favourable_labels(data, params, direction_at == LONG)
-    counts = insidebartrailing.confluence_counts(data, params, direction_at)
+    counts = filters.confluence_counts(data, params, direction_at == LONG)
     assert len(rows) == 5
     assert np.array_equal(counts, np.sum(rows, axis=0))
     assert counts.max() <= 5
@@ -983,7 +984,7 @@ def test_every_label_kind_can_be_counted_and_the_count_is_their_sum() -> None:
 def test_no_labels_counts_nothing() -> None:
     params = short_periods()
     data = prepared(walk_bars(), params)
-    assert not insidebartrailing.confluence_counts(data, params, insidebar_direction(data, params)).any()
+    assert not filters.confluence_counts(data, params, insidebar_direction(data, params) == LONG).any()
 
 
 def test_every_row_a_bar_can_take_is_in_the_table() -> None:
@@ -1015,7 +1016,7 @@ def test_each_trade_is_sized_off_its_signal_bar_end_to_end() -> None:
     )
     data = prepared(walk_bars(), params)
     direction_at = insidebar_direction(data, params)
-    counts = insidebartrailing.confluence_counts(data, params, direction_at)
+    counts = filters.confluence_counts(data, params, direction_at == LONG)
     early = insidebartrailing.early_entries(data, params, direction_at)
     log = insidebartrailing.run_insidebartrailing(data, params, MNQ)
     assert log["trade_id"].nunique() > 10
