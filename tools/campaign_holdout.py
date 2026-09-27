@@ -67,6 +67,11 @@ def paired(name: str, variant: str | None = None) -> pd.DataFrame:
         selection = selection[selection["variant"] == variant]
         holdout = holdout[holdout["variant"] == variant]
 
+    return pair_windows(name, selection, holdout)
+
+
+def pair_windows(name: str, selection: pd.DataFrame, holdout: pd.DataFrame) -> pd.DataFrame:
+    """:func:`paired` over rows already loaded, each window's under its own name."""
     if selection.empty or holdout.empty:
         return pd.DataFrame()
 
