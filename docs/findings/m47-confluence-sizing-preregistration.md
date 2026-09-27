@@ -235,7 +235,7 @@ done
     --variant "target=0.0s size=confluence"
 ```
 
-The last five run once per archetype, arm, root, resolution and stratum the families above name. **The sweep skips any cell already stored** and refuses one stored on other bars, so a pass interrupted part-way is resumed by running it again.
+The last five run once per archetype, arm, root, resolution and stratum the families above name. `tools/campaign_gates.py` runs them, and gates 1, 2 and 4, over every such cell in one pass, calling the same functions and ranking inside one cell as each command does when given all four. So gate 2 is read per resolution as well, rather than pooled over a variant's resolutions as `tools/campaign_holdout.py` pools them. **The sweep skips any cell already stored** and refuses one stored on other bars, so a pass interrupted part-way is resumed by running it again.
 
 **The run is split in two by bar size**: 10 and 15 minutes first, with their gates, then 2 and 5 minutes. Nothing in this file changes between the two passes, and every family and `k` above counts all four resolutions, so reading the first pass does not move the bar the second is held to.
 

@@ -34,6 +34,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -44,6 +45,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.campaign_sweep import MIN_TRADES, VARIANTS, db_path
 
 from nqbt import logsetup, results, stats, trades
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 logger = logging.getLogger(__name__)
 
@@ -159,10 +163,49 @@ def rank(frame: pd.DataFrame, top: int, by: str) -> pd.DataFrame:
     return frame[frame[by].notna()].nlargest(top, by)
 
 
-def load(name: str, windows: list[str]) -> pd.DataFrame:
-    """Every viable combination stored for one archetype, tagged with its root."""
+def narrowing(
+    windows: Collection[str] | None = None,
+    variants: Collection[str] | None = None,
+    resolutions: Collection[int] | None = None,
+) -> str:
+    """The clauses that narrow a stored-row query to these windows, variants and resolutions.
+
+    Appended to a query that already has its ``WHERE``, so a database many campaigns deep is read
+    for the rows asked about rather than whole. A name holding a quote is refused rather than
+    escaped: no stored variant carries one.
+    """
+    clauses: list[str] = []
+    for column, names in (('c."window"', windows), ("c.variant", variants)):
+        if names is None:
+            continue
+
+        if any("'" in name for name in names):
+            msg: str = f"a {column} name holding a quote cannot be read: {sorted(names)}"
+            raise ValueError(msg)
+
+        quoted: list[str] = [f"'{name}'" for name in names]
+        clauses.append(f"{column} IN ({', '.join(quoted) or 'NULL'})")
+
+    if resolutions is not None:
+        listed: list[str] = [str(int(minutes)) for minutes in resolutions]
+        clauses.append(f"c.resolution IN ({', '.join(listed) or 'NULL'})")
+
+    return "".join(f" AND {clause}" for clause in clauses)
+
+
+def load(
+    name: str,
+    windows: list[str],
+    *,
+    variants: Collection[str] | None = None,
+    resolutions: Collection[int] | None = None,
+) -> pd.DataFrame:
+    """Every viable combination stored for one archetype, tagged with its root.
+
+    Read for ``windows`` alone, and for ``variants`` and ``resolutions`` where they are given.
+    """
     frame: pd.DataFrame = results.query(
-        SUMMARY_SQL.format(min_trades=MIN_TRADES),
+        SUMMARY_SQL.format(min_trades=MIN_TRADES) + narrowing(windows, variants, resolutions),
         db_path=db_path(name),
     )
     frame[NET_TO_DRAWDOWN] = net_to_drawdown(frame)

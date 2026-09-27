@@ -47,6 +47,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -55,12 +56,15 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import JOIN_KEYS
-from tools.campaign_report import NET_TO_DRAWDOWN, rank, ratio_to_drawdown, swept_axes
+from tools.campaign_report import NET_TO_DRAWDOWN, narrowing, rank, ratio_to_drawdown, swept_axes
 from tools.campaign_shortlist import rebuild, shortlist, source, verify
 from tools.campaign_sweep import db_path
 
 from nqbt import archetypes, context, logsetup, randomentry, resample, results, splice, sweep
 from nqbt.instruments import get_instrument
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 logger = logging.getLogger(__name__)
 
@@ -113,14 +117,25 @@ rather than added to that frame because it is neither a parameter nor a statisti
 would call these two a disagreement."""
 
 
-def stored_rows(name: str, root: str, window: str) -> pd.DataFrame:
+def stored_rows(
+    name: str,
+    root: str,
+    window: str,
+    *,
+    variants: Collection[str] | None = None,
+    resolutions: Collection[int] | None = None,
+) -> pd.DataFrame:
     """Every row one archetype stored for a root and window, with the bars its sweep ran on.
 
     Keyed by :data:`~tools.campaign_holdout.JOIN_KEYS`, which is what identifies the same
     configuration in two windows. ``tools/campaign_holdout.py`` pairs the windows one-to-one on
-    those keys, so a duplicate is refused here rather than picked between.
+    those keys, so a duplicate is refused here rather than picked between. ``variants`` and
+    ``resolutions`` narrow what is read, where they are given.
     """
-    frame: pd.DataFrame = results.query(STORED_SQL.format(window=window), db_path(name))
+    frame: pd.DataFrame = results.query(
+        STORED_SQL.format(window=window) + narrowing(variants=variants, resolutions=resolutions),
+        db_path(name),
+    )
     keyed: pd.DataFrame = frame[frame["root"] == root].set_index(JOIN_KEYS, drop=False)
     if keyed.index.has_duplicates:
         msg: str = (

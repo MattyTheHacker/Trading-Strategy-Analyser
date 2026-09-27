@@ -309,6 +309,11 @@ paths:
   the fit's thresholds under names carrying the cut, and the sweep refuses the raw `volume`
   group, which would carry the fitted cut under the raw name.
   `docs/findings/m47-confluence-sizing-preregistration.md`.
+- **`tools/campaign_gates.py` reads a sizing campaign's every cell from one load per archetype.**
+  It calls the per-cell tools' own functions, ranks inside one arm, root, resolution and stratum
+  as they do when given all four, and re-runs each shortlisted configuration once for every read.
+  It opens a database only once the sweep has stopped writing it, because `results.connect`
+  opens a file read-write.
 - **The sweep skips any cell already stored, and refuses one stored on other bars.** A cell is a
   variant, stratum, root, resolution and window; no reading tool de-duplicates, so a second copy
   would be counted twice. So a run interrupted part-way is resumed by running it again, and a

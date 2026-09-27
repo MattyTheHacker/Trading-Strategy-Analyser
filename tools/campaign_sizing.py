@@ -659,30 +659,41 @@ def null_for_shortlist(
                 bar_minutes=int(minutes),
                 price_basis=context.PriceBasis.RAW,
             )
-            sweep_id, combo_id = log_key(row)
             result: dict[str, float] = shuffled_null(
                 data,
                 params,
                 get_instrument(root),
                 by=by,
                 draws=draws,
-                seed=seed + combo_id,
+                seed=seed + log_key(row)[1],
                 archetype=archetype,
             )
-            measured.append(
-                {
-                    "resolution": int(minutes),
-                    "stratum": row.get("stratum"),
-                    "sweep_id": sweep_id,
-                    "combo_id": combo_id,
-                    "order_quantity": params.order_quantity,  # type: ignore[attr-defined]  # every params class carries one
-                    "labels": ",".join(sizing_labels(params)),  # type: ignore[arg-type]  # every params class is ConfluenceSized
-                    "swept_bars": swept,
-                    **result,
-                },
-            )
+            measured.append(null_row(row, params, int(minutes), result, swept=swept))
 
     return pd.DataFrame(measured)
+
+
+def null_row(
+    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+    params: Params,
+    minutes: int,
+    result: dict[str, float],
+    *,
+    swept: bool,
+) -> dict[str, object]:
+    """One configuration's null, tagged with the stored row and the size it was read at."""
+    sweep_id, combo_id = log_key(row)
+
+    return {
+        "resolution": minutes,
+        "stratum": row.get("stratum"),
+        "sweep_id": sweep_id,
+        "combo_id": combo_id,
+        "order_quantity": params.order_quantity,  # type: ignore[attr-defined]  # every params class carries one
+        "labels": ",".join(sizing_labels(params)),  # type: ignore[arg-type]  # every params class is ConfluenceSized
+        "swept_bars": swept,
+        **result,
+    }
 
 
 def main(argv: list[str]) -> int:
