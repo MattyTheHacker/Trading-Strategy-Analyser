@@ -299,6 +299,11 @@ paths:
   read comes from `tools/campaign_sizing.py fit` on the selection window alone. Pairs are read
   with `tools/campaign_paired.py --stratum`, because a report row otherwise pools strata.
   `docs/findings/m45-ibt-sizing-preregistration.md`.
+- **`tools/campaign_gates.py` reads a variant set's every cell from one load per archetype.**
+  It calls the per-cell tools' own functions, ranks inside one arm, root, resolution and stratum
+  as they do when given all four, and re-runs each shortlisted configuration once for every read.
+  It opens a database only once the sweep has stopped writing it, because `results.connect`
+  opens a file read-write.
 - **The `annotations` table widens by name exactly as `combos` does**, so a dataset prepared
   with one more series needs no migration and the earlier rows read null. It is keyed
   `(sweep_id, combo_id, trade_id)` and joined to the other two by `results.create_trade_view`;
