@@ -37,7 +37,7 @@ So **outside InsideBarTrailing a confluence size can only reweight the trades th
 | pullback  | DeadCatBounce, PullBackAndGo, EmaPullback                                                       | `DIRECTIONAL`   | `THIN`          |
 | rotation  | ElasticBand, OpeningRange's fade and rejection                                                  | `CONSOLIDATING` | `THIN`          |
 
-The opposite extreme opposes and the middle state is neutral. **Two theses meet earlier measurements.** EmaPullback's `THIN` agrees with §M36, where `HEAVY` was a cost at every cut. ElasticBand's `THIN` runs against §M33, where `HEAVY` was a benefit on the Bollinger band this campaign's grid uses. So neither archetype's volume-alone arm is an independent test of the thesis, and each is read with that beside it.
+The opposite extreme opposes and the middle state is neutral. **Two theses meet earlier measurements.** EmaPullback's `THIN` agrees with §M36, where `HEAVY` was a cost at every cut, so its volume-alone arm is not an independent test of the thesis and is read with that beside it. ElasticBand's `THIN` runs against §M33, where `HEAVY` was a benefit on the Bollinger band this campaign's grid uses; the fit then dropped its volume label at every cell (below), so that thesis is not tested here.
 
 ## The arms
 
@@ -72,7 +72,7 @@ MNQ and NQ; 2, 5, 10 and 15 minutes, with OpeningRange's windows only where the 
 
 **Regime and volume are cut where the labels are**, so a stratum and a label mean the same thing. The raw volume cells are refused by the sweep, because a sizing run would otherwise cut them at the fit under the campaign's raw names. **Inside its own stratum a regime or volume label sizes every trade alike**, so `size=regime` in a regime cell and `size=volume` in a volume cell are run and reported but belong to no test family.
 
-At most **20,278,272 combinations**, if the fit keeps all five labels everywhere, less §M45's stored cells.
+At the cuts below that is **17,109,056 combinations**, of which the 31,104 in §M45's stored cells are skipped.
 
 ## The cuts, fitted before the run
 
@@ -84,11 +84,62 @@ At most **20,278,272 combinations**, if the fit keeps all five labels everywhere
 
 **InsideBarTrailing's five-minute cut is §M45's**, kept in its file rather than refitted, so the new arms in §M45's cells read the cut the stored ones ran at. Its 2-, 10- and 15-minute cuts are new.
 
-**The run hashes and timestamps every fitted file before the sweep starts, and the table below is transcribed from them afterwards**, as §M45's was. The size of each test family below is then counted from the same files and written here, and its `k` read off the table under "Gate 3", before any arm runs.
+**Fitted on 2026-09-27 and transcribed here before any §M47 arm ran**, as §M45's was. Every variant of an archetype kept the same labels at each root and resolution, so the table has one row per resolution:
 
-| archetype                            | root | minutes | labels kept, per variant | file SHA-256 and time |
-| ------------------------------------ | ---- | ------: | ------------------------ | --------------------- |
-| _to be transcribed before the sweep_ |      |         |                          |                       |
+| archetype         | minutes | MNQ                              | NQ                               |
+| ----------------- | ------: | -------------------------------- | -------------------------------- |
+| DeadCatBounce     |       2 | htf, vwap, regime, volume        | trend, htf, vwap, regime, volume |
+| DeadCatBounce     |       5 | htf, regime, volume              | htf, regime, volume              |
+| DeadCatBounce     |      10 | htf, regime, volume              | htf, regime, volume              |
+| DeadCatBounce     |      15 | trend, htf, vwap, regime, volume | htf, vwap, regime, volume        |
+| PullBackAndGo     |       2 | htf, regime, volume              | htf, regime, volume              |
+| PullBackAndGo     |       5 | htf, regime, volume              | htf, regime, volume              |
+| PullBackAndGo     |      10 | vwap, regime, volume             | vwap, regime, volume             |
+| PullBackAndGo     |      15 | vwap, regime, volume             | vwap, regime, volume             |
+| EmaCrossover      |       2 | trend, htf, vwap, volume         | trend, htf, vwap, volume         |
+| EmaCrossover      |       5 | trend, htf, vwap, volume         | trend, htf, vwap, volume         |
+| EmaCrossover      |      10 | trend, htf, vwap, volume         | trend, htf, vwap, volume         |
+| EmaCrossover      |      15 | trend, htf, volume               | trend, htf, volume               |
+| EmaPullback       |       2 | trend, htf, vwap, regime, volume | trend, htf, vwap, regime, volume |
+| EmaPullback       |       5 | trend, htf, vwap, regime, volume | trend, htf, vwap, regime, volume |
+| EmaPullback       |      10 | trend, htf, regime, volume       | trend, htf, regime, volume       |
+| EmaPullback       |      15 | trend, htf, regime, volume       | trend, htf, regime, volume       |
+| InsideBar         |       2 | trend, htf, regime, volume       | trend, htf, regime, volume       |
+| InsideBar         |       5 | trend, htf, regime, volume       | trend, htf, regime, volume       |
+| InsideBar         |      10 | trend, regime, volume            | trend, regime, volume            |
+| InsideBar         |      15 | trend, regime, volume            | trend, regime, volume            |
+| InsideBarTrailing |       2 | trend, htf, vwap, regime, volume | trend, htf, vwap, regime, volume |
+| InsideBarTrailing |       5 | trend, htf, regime, volume       | trend, htf, regime, volume       |
+| InsideBarTrailing |      10 | trend, htf, regime, volume       | trend, htf, regime, volume       |
+| InsideBarTrailing |      15 | trend, htf, regime, volume       | trend, htf, regime, volume       |
+| ElasticBand       |       2 | htf, vwap                        | htf, vwap                        |
+| ElasticBand       |       5 | htf, vwap                        | htf, vwap                        |
+| ElasticBand       |      10 | htf                              | htf                              |
+| ElasticBand       |      15 | htf                              | htf                              |
+| OpeningRange      |       2 | trend, htf, vwap, regime, volume | trend, htf, vwap, regime, volume |
+| OpeningRange      |       5 | trend, htf, vwap, regime, volume | trend, htf, vwap, regime, volume |
+| OpeningRange      |      10 | trend, htf, vwap, regime, volume | trend, htf, vwap, regime, volume |
+| OpeningRange      |      15 | trend, htf, vwap, regime, volume | trend, htf, vwap, regime, volume |
+| SqueezeBreakout   |       2 | trend, htf, vwap, volume         | trend, htf, vwap, volume         |
+| SqueezeBreakout   |       5 | trend, htf, vwap, volume         | trend, htf, vwap, volume         |
+| SqueezeBreakout   |      10 | trend, htf, vwap, volume         | trend, htf, vwap, volume         |
+| SqueezeBreakout   |      15 | trend, htf, vwap                 | trend, htf, vwap                 |
+
+**What the fit dropped, and why it matters.** ElasticBand keeps only the higher-timeframe side, and the VWAP side below ten minutes: its trend, regime and volume labels each favour between 3.6% and 7.1% of its signals, because a close two deviations past its band is rarely in a consolidating regime, on thin volume or in a trend on the fade's side. DeadCatBounce's trend label favours between 89.8% and 92.2% of its signals, so it is kept on one root and not the other at 2 and 15 minutes. **An arm kept on one root only is run and reported but belongs to no family**, because the bar needs both roots. Where the two roots keep different labels, each root's all-labels arm counts its own.
+
+**InsideBarTrailing's two §M45 entries read back unchanged**, so its file's hash below is not the one §M45 recorded: the file now also holds the 2-, 10- and 15-minute cuts. Each file is one archetype's, fitted on the selection window alone:
+
+| archetype         | SHA-256                                                            | written                 |
+| ----------------- | ------------------------------------------------------------------ | ----------------------- |
+| DeadCatBounce     | `8a8c91e301fc4c2cd5386e807592950746608913777dee39ca89bb883acc8804` | 2026-09-27 09:17:07 UTC |
+| PullBackAndGo     | `da5b7f2578898220f7f0b6f6112833d94535db2d0958a1edfd1d52c805d06015` | 2026-09-27 09:17:17 UTC |
+| EmaCrossover      | `1e6e5cf749e65f5e01a7e77f6dd89cf986e4c85d9dbc8085c18a5fa76d258d09` | 2026-09-27 09:17:29 UTC |
+| EmaPullback       | `653983af3e6591a08351f4ab6f1a059228a085a0c5efe56c4b6332df24afeebc` | 2026-09-27 09:17:39 UTC |
+| InsideBar         | `ba88446e668b467a50e5402b11d37137cd81687de3ef9a2a665df6d17d0b965c` | 2026-09-27 09:17:49 UTC |
+| InsideBarTrailing | `c85e72b758d71199cf842ee6e24ec8c6c3d5b3de38c1a5f294f99c316f83c089` | 2026-09-27 09:17:59 UTC |
+| ElasticBand       | `5daa97a25421e4d3ebfe19b3f75199f2b85fa9eeb75a570e652cf435d6e6f0ce` | 2026-09-27 09:18:16 UTC |
+| OpeningRange      | `6420c37504888ec9a0da7efefbea844e916aa13c9e46ed0cb42ccd556946762c` | 2026-09-27 09:18:39 UTC |
+| SqueezeBreakout   | `2be71fb39fe93104e2178eaef59db3c99e9e174f9a569770f0cbd43c6f5e0c0d` | 2026-09-27 09:18:59 UTC |
 
 ## The gates, and what counts as a pass
 
@@ -106,14 +157,16 @@ At most **20,278,272 combinations**, if the fit keeps all five labels everywhere
 |   7 |      0.0000339 | up to 1,472        |
 |   8 |     0.00000286 | up to 17,501       |
 
-The families are stated now, and their sizes counted from the fitted files before the sweep:
+The families, counted from the fitted files over the arms the sweep builds on both roots, before any arm ran:
 
-| family | what it holds                                                                                  | at most | `k` at most |
-| ------ | ---------------------------------------------------------------------------------------------- | ------: | ----------: |
-| **F1** | `size=confluence` and `size=confluence symmetric`, unfiltered, every variant × resolution      |     134 |           6 |
-| **F2** | every `size=<label>`, unfiltered, every variant × resolution                                   |     440 |           7 |
-| **F0** | InsideBarTrailing's midday cell at five minutes: each `size=<label>` and the symmetric arm     |       6 |           5 |
-| **F3** | every sizing arm in every other stratum, less the own-stratum pairs, F0 and §M45's stored cell |  12,093 |           8 |
+| family | what it holds                                                                                  | cells | `k` |
+| ------ | ---------------------------------------------------------------------------------------------- | ----: | --: |
+| **F1** | `size=confluence` and `size=confluence symmetric`, unfiltered, every variant × resolution      |   134 |   6 |
+| **F2** | every `size=<label>`, unfiltered, every variant × resolution                                   |   321 |   7 |
+| **F0** | InsideBarTrailing's midday cell at five minutes: each `size=<label>` and the symmetric arm     |     5 |   5 |
+| **F3** | every sizing arm in every other stratum, less the own-stratum pairs, F0 and §M45's stored cell | 9,656 |   8 |
+
+F1 holds 88 all-labels cells and 46 symmetric ones. F0 is InsideBarTrailing's four kept labels alone and its symmetric arm.
 
 **F1 is #295's question: does the confluence size carry anything on this archetype?** An archetype's answer is yes if any of its F1 cells clears. **F0 is §M45's open question**, which label carries the size in the cell §M45 passed, so it is its own small family. F2 and F3 are read against their own bars and are hypothesis-generating for anything F1 did not already settle.
 
@@ -153,7 +206,7 @@ for s in DeadCatBounce PullBackAndGo EmaCrossover EmaPullback InsideBar InsideBa
          ElasticBand OpeningRange SqueezeBreakout; do
     ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --strategy $s --resolutions 2 5 10 15
 done
-sha256sum results/campaign/*-sizing-cuts.json   # recorded here, with the time, before the sweep
+# each archetype's sizing-cuts file hashed and transcribed here, before the sweep
 ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants confluence-sizing --split \
     --strata confluence-sizing --resolutions 2 5 10 15 --n-jobs 12
 ./.venv/Scripts/python.exe tools/campaign_holdout.py --strategy ElasticBand --variant "target=0.0s size=confluence"

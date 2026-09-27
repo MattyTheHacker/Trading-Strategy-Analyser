@@ -302,7 +302,7 @@ paths:
   `docs/findings/m45-ibt-sizing-preregistration.md`.
 - **`confluence-sizing` is that on every archetype, and its regime and volume strata are the
   fit's.** Each stored variant runs once per arm over its own axes, and the cut is fitted per
-  root, resolution and variant into `<Archetype>-sizing-cuts.json`; **a cut already in the file
+  root, resolution and variant into one sizing-cuts file per archetype; **a cut already in the file
   is kept**, so arms stored against it keep the cut they ran at. The regime and volume cells take
   the fit's thresholds under names carrying the cut, and the sweep refuses the raw `volume`
   group, which would carry the fitted cut under the raw name.
