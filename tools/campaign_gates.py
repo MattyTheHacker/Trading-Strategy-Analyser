@@ -3,7 +3,7 @@ r"""Every per-cell read of a swept variant set, over every cell, from one load p
     ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
         --out <dir> --n-jobs 6
     ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
-        --out <dir> --reads gate4 --cells <csv of variant, root, resolution and stratum>
+        --out <dir> --reads gate4 --cells <csv of strategy, root, resolution, variant and stratum>
 
 It loads the variant set's rows once per archetype, re-runs each shortlisted configuration once
 on the bars it was swept on, and hands that one log to every read: what
@@ -117,6 +117,9 @@ SETTINGS = ("variants", "draws", "iterations", "seed")
 
 CELL = ["root", "resolution", "variant", "stratum"]
 """What one cell is: every read ranks inside one."""
+
+NAMED_CELL = ["strategy", *CELL]
+"""What ``--cells`` names, since two archetypes can share an arm's name."""
 
 STRATEGY = "strategy"
 """The column naming the archetype a re-run row belongs to."""
@@ -558,23 +561,25 @@ def asked_of(
 def extra_cells(path: Path | None) -> pd.DataFrame:
     """The cells ``--cells`` names beyond the strata gate 4 is read on everywhere."""
     if path is None:
-        return pd.DataFrame(columns=CELL)
+        return pd.DataFrame(columns=NAMED_CELL)
 
     cells: pd.DataFrame = pd.read_csv(path)
-    missing: set[str] = set(CELL) - set(cells.columns)
+    missing: set[str] = set(NAMED_CELL) - set(cells.columns)
     if missing:
-        msg: str = f"{path} names no {sorted(missing)}; a cell is {CELL}"
+        msg: str = f"{path} names no {sorted(missing)}; a cell is {NAMED_CELL}"
         raise SystemExit(msg)
 
-    return cells[CELL].astype({"resolution": int})
+    return cells[NAMED_CELL].astype({"resolution": int})
 
 
-def gate4_for(
-    extra: pd.DataFrame, root: str, minutes: int, arm: str, strata: frozenset[str]
-) -> frozenset[str]:
-    """The strata gate 4 is read on for one task: everywhere's, and any cell ``--cells`` adds."""
+def gate4_for(extra: pd.DataFrame, task: tuple[str, str, int, str], strata: frozenset[str]) -> frozenset[str]:
+    """The strata gate 4 is read on for one archetype, root, resolution and arm, ``--cells`` included."""
+    name, root, minutes, arm = task
     named: pd.DataFrame = extra[
-        (extra["root"] == root) & (extra["resolution"] == minutes) & (extra["variant"] == arm)
+        (extra["strategy"] == name)
+        & (extra["root"] == root)
+        & (extra["resolution"] == minutes)
+        & (extra["variant"] == arm)
     ]
 
     return strata | frozenset(str(stratum) for stratum in named["stratum"])
@@ -657,7 +662,7 @@ def tasks_for(
             asked: dict[str, frozenset[str]] = asked_of(
                 reads,
                 frozenset(str(stratum) for stratum in block["stratum"]),
-                gate4_for(extra, root, minutes, arm, frozenset(args.gate4_strata)),
+                gate4_for(extra, (name, root, minutes, arm), frozenset(args.gate4_strata)),
                 frozenset(args.prop_strata),
                 counted=built is not None and sizes_on_count(built),
             )
