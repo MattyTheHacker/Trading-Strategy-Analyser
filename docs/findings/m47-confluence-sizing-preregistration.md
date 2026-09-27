@@ -237,6 +237,8 @@ done
 
 The last five run once per archetype, arm, root, resolution and stratum the families above name. **The sweep skips any cell already stored** and refuses one stored on other bars, so a pass interrupted part-way is resumed by running it again.
 
+**The run is split in two by bar size**: 10 and 15 minutes first, with their gates, then 2 and 5 minutes. Nothing in this file changes between the two passes, and every family and `k` above counts all four resolutions, so reading the first pass does not move the bar the second is held to.
+
 **Two checks run before any of it, because every loop changed.** The trade-log gate has to pass, and its captures are DeadCatBounce's alone, so the seven stored reconciliations run on `main` and on this change and have to agree exactly. Both did: `docs/nt8-fidelity.md` §M47.
 
 [#295]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/295
