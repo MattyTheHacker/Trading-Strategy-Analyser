@@ -2,19 +2,7 @@
 
     ./.venv/Scripts/python.exe tools/campaign_hold.py --strategy InsideBar --window holdout
 
-``tools/campaign_sweep.py --variants hold`` runs every archetype's stored campaign grid once
-per rung of :data:`~tools.campaign_sweep.HOLD_BARS`, the uncapped ``hold=0`` arm included, so
-two rows differ by the cap and nothing else. This pairs each capped arm against that control
-cell by cell, which is the instrument an A/B rule needs -- ``tools/campaign_paired.py`` has why
-a shortlist is not.
-
-**Never pooled across resolutions.** The cap is a bar count, so twenty bars is twenty minutes
-at one resolution and five hours at another; every reported row is one root x resolution, and
-the minutes each rung means are printed beside it.
-
-**A rung that cannot bind must read as its control**, which is what ``bound`` measures: the
-share of paired cells whose average hold actually moved. A rung with a low ``bound`` share and
-a p-value near 1 is an arm that never fired, not a cap that did nothing.
+``tools/README.md`` § "campaign_hold.py".
 """
 
 from __future__ import annotations
@@ -26,8 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_paired import CELL_KEYS, cells, paired, shared_columns, verdict
@@ -54,9 +41,8 @@ BOUND = "avg_bars_held"
 def held(name: str, windows: list[str], stratum: str | None = None) -> pd.DataFrame:
     """Return every viable ``--variants hold`` row for one archetype, keyed by its base variant.
 
-    ``stratum`` is what keeps :data:`~tools.campaign_paired.REPORT_KEYS` honest once the ladder
-    has been run inside one: a pair only ever forms within a stratum, but the report pools over
-    it -- ``docs/roadmap.md`` §M31.1.
+    ``stratum`` keeps each pair within one stratum once the ladder has been run inside one --
+    ``docs/roadmap.md`` §M31.1.
     """
     frame: pd.DataFrame = load(name, windows)
     rows: pd.DataFrame = frame[frame["variant"].str.contains("hold=", na=False)].copy()

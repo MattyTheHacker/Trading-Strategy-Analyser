@@ -2,15 +2,8 @@
 
     ./.venv/Scripts/python.exe tools/campaign_contracts.py --strategy InsideBar
 
-**Read the consistency across contracts, not the individual p-values** -- with nineteen
-contracts and two roots, one cell clearing 0.05 is the expected output of that many comparisons,
-while every contract agreeing on the sign is not -- ``docs/roadmap.md`` §M26.
-
-Per contract rather than spliced because ATR and the moving averages both step at a roll seam,
-and because a spliced series hides whether an edge is two good quarters wide.
-
-The tally is a sign count over contracts on ``expectancy``, which is bounded where a profit
-factor is not -- ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally".
+Read the consistency across contracts, not the individual p-values --
+``tools/README.md`` § "campaign_contracts.py".
 """
 
 from __future__ import annotations
@@ -22,8 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_shortlist import best_row, rebuild

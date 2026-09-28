@@ -3,27 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --window holdout
     ./.venv/Scripts/python.exe tools/campaign_review.py --strategy InsideBar --window holdout
 
-Filtering entries to a phase and re-running the grid answers *does this strategy work if it only
-trades then*, which ``tools/campaign_sweep.py`` swept and ``tools/campaign_report.py`` reads. The
-other question -- *when did these trades actually happen, and what was true when they did* -- is
-:mod:`nqbt.review`'s, and no campaign tool asked it: the sweep discards its logs, so until
-``tools/campaign_shortlist.py`` there was no per-trade vector to ask it of --
-``docs/roadmap.md`` §M27.7.
-
-Two things come out of one annotation, because they are two halves of one question:
-
-- :func:`nqbt.review.time_of_day` in session order, with **both forms of volume beside it**.
-  Relative volume says whether an hour was unusually busy and absolute volume says whether there
-  was anything there to trade at all, which is the half a profit factor cannot see --
-  ``docs/roadmap.md`` §M27.8. ``session_close_share`` is in the same table, because the forced
-  flat makes a poor result late in the session the clock until that column says otherwise.
-- :func:`nqbt.guard.guard` over the clock and the three volume labels together. A stratum picked
-  by reading a table is the multiple-comparisons machine one level up, and
-  :data:`nqbt.guard.FAMILY_COLUMN` is the number that answers it.
-
-Reads the logs ``tools/campaign_shortlist.py`` stored, so run that first; a row with no log, or
-one that cannot honestly be joined to its bars, is named and skipped rather than silently
-dropped -- and the second of those is not hypothetical here, see :data:`SLIPPAGE_TOLERANCE`.
+``tools/README.md`` § "campaign_review.py".
 """
 
 from __future__ import annotations
@@ -35,8 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_report import load_trades
@@ -60,12 +39,7 @@ BY = "expectancy"
 zero, which profit factor is not -- ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally"."""
 
 SLIPPAGE_TOLERANCE = -1.0
-"""``--price-tolerance`` unset: take the run's own slippage, which is the documented default.
-
-A simulated log is expected to land outside its bar by at most that, and on this project's own
-shortlists it does not -- a profit target that a bar gapped through fills at the target price
-and lands further out. Widen it deliberately and the widening is printed; do not raise it past
-the point where a back-adjusted series would still be caught -- ``docs/roadmap.md`` §M27.7."""
+"""``--price-tolerance`` unset: take the run's own slippage -- ``tools/README.md`` § "campaign_review.py"."""
 
 
 def volume_keys() -> tuple[volume.VolumeKey, ...]:
@@ -99,9 +73,8 @@ def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[
 def conditions_of(annotation: annotate.Annotation) -> tuple[str, ...]:
     """Return the clock and the three volume labels: the family this tool screens.
 
-    Named rather than taken from :func:`nqbt.review.stratifiable`, which would put every
-    moving-average gate in the same family and dilute the family-wise null with conditions
-    nobody asked about.
+    Named rather than taken from :func:`nqbt.review.stratifiable`, which would add every
+    moving-average gate to the family.
     """
     volumes: tuple[str, ...] = tuple(
         name for name in annotation.conditions if name.startswith(VOLUME_STATE_PREFIX)

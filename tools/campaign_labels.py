@@ -4,17 +4,7 @@
     ./.venv/Scripts/python.exe tools/campaign_labels.py --dimension volume --resolutions 5
     ./.venv/Scripts/python.exe tools/campaign_labels.py --dimension windows --volume-rolling-bars 10 90
 
-A stratum is named for a state and cut by a threshold pair, so a result quoted under a label is
-a result about a cut. This measures how much of that label survives being re-cut: the share of
-bars each raw state keeps, and where the rest of them go.
-
-**No sweep and no database.** The bars are the spliced continuous series and both cuts are
-computed here, so this says what the two stratifications label differently and nothing about
-what either one earns -- ``docs/findings/m30-volume-regime-recut.md`` reads it against the
-paired scores.
-
-The fit is taken on the selection window alone, exactly as ``tools/campaign_sweep.py`` takes
-it, so the cut compared against is the cut the sweep ran.
+``tools/README.md`` § "campaign_labels.py".
 """
 
 from __future__ import annotations
@@ -30,8 +20,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_sweep import (

@@ -1,28 +1,8 @@
 """Split each bracket geometry's result into what the geometry does and what the entry adds.
 
-A sweep says which stop/target combination has the highest profit factor. It cannot say whether
-that combination *earned* it, because a bracket that suits the bars flatters a random entry just
-as much -- and measured on the elastic band, observed profit factor correlates +0.71 with the
-matched null's across geometries. Ranking geometries on profit factor therefore ranks mostly
-the bars.
-
-This holds the entry fixed, varies only the exit geometry, and reports both terms:
-
-    null_median          what this geometry yields with no entry edge at all
-    observed - null      what the entry rule adds at this geometry
-
-The two can rank geometries in **opposite** orders, and where they disagree the excess is the
-one to believe -- ``docs/findings/m26-elastic-band.md`` § "The method that does answer the question".
-
-Three of the four schemes are §M26's; ``D-band`` is the stop on the channel the entry was
-measured against, whose distance scales with the same dispersion the entry threshold uses --
-``docs/roadmap.md`` §M26.8.
-
     ./.venv/Scripts/python.exe tools/geometry_contribution.py out.csv
 
-Archetype-agnostic in shape: rewrite :func:`geometries` for any registered archetype. The
-entry settings must be **chosen before looking at any result**, or this measures the same
-selection effect it exists to expose.
+Choose the entry settings before looking at any result -- ``tools/README.md`` § "geometry_contribution.py".
 """
 
 from __future__ import annotations
@@ -60,11 +40,7 @@ ENTRY = {"band_period": 20, "entry_std": 2.0, "min_bars_outside": 1, "band_lag":
 
 
 BAND_STOP_DEPTHS = (0.5, 1.0, 1.5, 2.0)
-"""How far past ``entry_std`` the band stop sits, in standard deviations.
-
-Its R is ``entry_std / (entry_std + depth)`` by construction wherever the target is the basis,
-so this axis is the one that sets the reward-to-risk directly rather than through two different
-volatility measures -- ``docs/roadmap.md`` §M26.8."""
+"""How far past ``entry_std`` the band stop sits, in standard deviations."""
 
 
 def geometries() -> list[tuple[str, str, ElasticBandParams]]:

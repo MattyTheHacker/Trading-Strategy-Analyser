@@ -1,21 +1,9 @@
-"""Compare two captures from ``capture_trade_logs.py``.
+"""Compare two captures from ``capture_trade_logs.py``, exiting non-zero on any difference.
 
     ./.venv/Scripts/python.exe tools/compare_trade_logs.py before after [--added col ...]
 
-With no ``--added``, this demands **byte-for-byte identity** -- the gate for a refactor that
-is meant to preserve behaviour exactly.
-
-``--added`` names columns the change is *expected* to introduce. Every other column must
-still match exactly, dtypes included, which is the gate for a schema addition. M9 used
-``--added source instrument direction``.
-
-Exits non-zero on any difference, so it can gate a script.
-
-Reads with ``float_precision="round_trip"``, which is the other half of the ``%.17g`` that
-``capture_trade_logs.py`` writes with: pandas' **default CSV parser is not correctly
-rounded** and folds adjacent float64 values together, so a bare ``read_csv`` cannot see a
-one-ULP difference no matter how many digits were written. Writing 17 digits and parsing
-them approximately defeats the gate at exactly the precision it claims to guarantee.
+``--added`` names columns the change is expected to introduce; every other column must match.
+``tools/README.md`` § "compare_trade_logs.py".
 """
 
 from __future__ import annotations

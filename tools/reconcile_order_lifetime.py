@@ -2,18 +2,8 @@
 
     ./.venv/Scripts/python.exe tools/reconcile_order_lifetime.py <..._events.csv>
 
-The companion ``_bars.csv`` and ``_config.csv`` are found beside it. Each measurement is
-reported separately, and one that the run carries no data for is reported as such rather than
-silently passing -- a scenario answers some of these and not others.
-
-**Nothing here assumes the callback lag; every run re-measures it.** A probe callback reports
-``CurrentBar``, which for an order resolved against the *next* bar's prices is one behind the
-bar it filled on, because Strategy Analyzer processes those fills before calling
-``OnBarUpdate`` for that bar. The session-close exit does not lag, filling at the reported
-bar's own close. Reading one rule as the other moves every conclusion by a bar, so both are
-checked against price before anything else is reported.
-
-Findings and the evidence: ``docs/nt8-fidelity.md``, "Order lifetime and the session edge".
+The companion ``_bars.csv`` and ``_config.csv`` are found beside it.
+``tools/README.md`` § "reconcile_order_lifetime.py".
 """
 
 from __future__ import annotations
@@ -175,12 +165,7 @@ def offsets_from_submit(frame: pd.DataFrame, column: str) -> dict[int, int]:
 
 
 def describe_offsets(frame: pd.DataFrame, column: str) -> str:
-    """Describe the distribution where it is short enough to read, and its shape where it is not.
-
-    A one-bar lifetime is the whole finding for a three-argument entry, so the exact
-    distribution matters; an until-cancelled order spreads over hundreds of values and only its
-    range says anything.
-    """
+    """Describe the distribution where it is short enough to read, and its shape where it is not."""
     counts = offsets_from_submit(frame, column)
     if not counts:
         return "none"

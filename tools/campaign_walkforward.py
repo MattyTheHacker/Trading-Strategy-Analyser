@@ -2,26 +2,7 @@
 
     ./.venv/Scripts/python.exe tools/campaign_walkforward.py --strategy InsideBar
 
-§M27's held-out gate is a single time cut at 60% of the bars, so it tests one regime transition
-and cannot say whether a shortlist survives several. This is the multi-fold version:
-:func:`nqbt.walkforward.walk_forward` re-selects on each training window and measures the winner
-on the window that follows, which asks whether **picking** survives rather than whether one
-choice did -- ``docs/roadmap.md`` §M27.6.
-
-**The shortlist is the candidate pool, not the whole grid.** Putting 760,960 combinations through
-several folds is unaffordable and the shortlist is what any claim rests on. The cost is that the
-pool was itself chosen on stored rows, so a fold result is only clean to the extent the pool did
-not see the folds: rank on ``--window selection``, or widen ``--top`` until the pool stops being
-a selection, before reading one as a verdict.
-
-**One walk-forward per resolution.** Two candidates at different bar sizes are different frames
-and cannot be selected between, so a shortlist spanning resolutions runs as one independent
-walk-forward each and never as one pool.
-
-**A database holding more than one variant needs ``--variant``**, for the reason
-``tools/campaign_holdout.py``'s :data:`~tools.campaign_holdout.GROUP_KEYS` gives: a pool drawn
-over a mixture of geometries ranks the fattest tail in it rather than the one being asked about
--- ``docs/roadmap.md`` §M28.9.
+``tools/README.md`` § "campaign_walkforward.py".
 """
 
 from __future__ import annotations
@@ -34,8 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_shortlist import TOP, rebuild, shortlist
@@ -62,9 +42,8 @@ here; this one asks whether the selection makes money out of sample at all."""
 def warmup_for(spec: context.ContextSpec, minutes: int) -> int:
     """Return the longest lookback the shortlist's own context declares, in bars of its resolution.
 
-    Every fold is prepared independently, so without a prefix each one measures its own warm-up.
-    **Relative volume is the gap**: its baseline is counted in sessions, not bars, so raise
-    ``--warmup-bars`` by hand for a volume-stratified shortlist.
+    Relative volume's baseline is counted in sessions, not bars, so raise ``--warmup-bars`` by
+    hand for a volume-stratified shortlist.
     """
     coarse: list[int] = [math.ceil(key.period * key.minutes / minutes) for key in spec.higher_timeframe_keys]
     trend: list[int] = [max(key) for key in spec.trend_keys]

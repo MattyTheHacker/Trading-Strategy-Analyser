@@ -3,29 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_report.py
     ./.venv/Scripts/python.exe tools/campaign_report.py --window selection holdout
 
-Reports **distributions, not winners**. The best profit factor in a 300,000-row sweep is a
-statement about the size of the sweep; the median and the profitable share are statements about
-the strategy -- ``docs/findings/m26-elastic-band.md`` § "Selecting on one contract is worse than not selecting".
-
-**Every stored stratum is read, one dimension at a time.** §M27 swept twenty strata and reported
-one pooled row per stratum, which is how session phase and relative volume went into the campaign
-and no finding about either came out -- ``docs/roadmap.md`` §M27.7 and §M27.8. A cell is only
-comparable within a resolution, so the dimension tables are cut by it rather than pooled over it,
-and :data:`SHARES` travels with every table.
-
-**Pooled over variants deliberately, which is why there is no ``--variant`` here.** The dilution
-§M28.9 measured is a *selection* effect and this tool selects nothing; the mixture is the thing
-the dimension tables exist to describe, and a variant is read on its own in the ``by variant``
-table below -- ``docs/roadmap.md`` §M28.9.
-
-**The one table that ranks carries what its exits were worth**, wherever
-``tools/campaign_shortlist.py`` has stored the log. ``session_close_share`` says how often the
-flatten took a leg and never what that leg returned, and on the survivor the two answers point
-opposite ways -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost, which
-``session_close_share`` cannot say". §M28.12 reads the column across the registry, where it
-does not say the same thing twice.
-
-Reads what ``tools/campaign_sweep.py`` wrote, one database per archetype.
+Reports distributions, not winners -- ``tools/README.md`` § "campaign_report.py".
 """
 
 from __future__ import annotations
@@ -38,8 +16,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_sweep import MIN_TRADES, VARIANTS, db_path
@@ -65,32 +42,20 @@ NET_TO_DRAWDOWN = "net_to_drawdown"
 reads instead of profit factor."""
 
 DERIVED = frozenset({NET_TO_DRAWDOWN})
-"""Statistics :func:`load` computes from stored columns rather than reading.
-
-Separate from :data:`STATISTICS` so that one stays exactly ``stats.Summary``'s fields, and
-listed at all because :func:`parameter_columns` would otherwise call a derived statistic an
-axis."""
+"""Statistics :func:`load` computes from stored columns rather than reading, apart from :data:`STATISTICS`."""
 
 UNFILTERED = "unfiltered"
 """The stratum every other one is read against, and the only name that names no dimension."""
 
 SHARES = ("session_close_share", "ambiguous_share")
-"""What every table carries beside its statistics, because a result is read wrong without them.
-
-The final session phase holds the forced flat, so a stratification by the clock will always show
-it as anomalous and ``session_close_share`` is what tells the two apart -- ``docs/roadmap.md``
-§M10.4. ``ambiguous_share`` is the same obligation at a coarse resolution."""
+"""What every table carries beside its statistics, because a result is read wrong without them."""
 
 EXIT_ORDER = tuple(trades.EXIT_REASONS.values())
 """Every exit reason a simulated leg can carry, in the simulator's own order rather than
 alphabetically. Read out of :data:`nqbt.trades.EXIT_REASONS` so the two cannot drift apart."""
 
 DECOMPOSITION = ("legs", "net", "bars_med")
-"""What each exit reason contributes to a ranked row, beside :data:`SHARES`.
-
-A share says how often a leg left by one route and never what that route was worth, and on the
-opening range the two point opposite ways -- ``docs/roadmap.md`` §M28.9, "The bracket is a net
-cost, which ``session_close_share`` cannot say"."""
+"""What each exit reason contributes to a ranked row, beside :data:`SHARES`."""
 
 RANKED_COLUMNS = [
     "root",
@@ -122,18 +87,13 @@ TAGS = frozenset(
         "slippage_ticks",
     },
 )
-"""Columns that say which run a row came from rather than which parameters it used.
-
-The two cost fields are here because they vary with the root and nothing else, so reporting
-them as axes would report the root twice under a name that hides it."""
+"""Columns that say which run a row came from rather than which parameters it used, costs included."""
 
 
 def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
     """Return one summary's net P&L over its own worst peak-to-trough, undefined at no drawdown.
 
-    Undefined rather than infinite, because an unbounded statistic wins a ranking it was never
-    measured on -- the defect ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally" records
-    against profit factor. Rank with :func:`rank`, never with ``nlargest`` directly.
+    Rank with :func:`rank`, never with ``nlargest`` directly.
     """
     if max_drawdown <= 0.0:
         return float("nan")
@@ -155,9 +115,7 @@ def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[type-arg]
 def rank(frame: pd.DataFrame, top: int, by: str) -> pd.DataFrame:
     """Return the ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
 
-    **``DataFrame.nlargest`` pads its result with undefined rows rather than returning fewer**,
-    so ranking a shortlist straight through it hands the null test and the per-contract step
-    configurations whose ranking statistic was never measured. Measured, not assumed:
+    ``DataFrame.nlargest`` pads its result with undefined rows rather than returning fewer;
     ``tests/test_campaign_report.py`` pins it.
     """
     return frame[frame[by].notna()].nlargest(top, by)
@@ -170,9 +128,8 @@ def narrowing(
 ) -> str:
     """Return the clauses that narrow a stored-row query to these windows, variants and resolutions.
 
-    Appended to a query that already has its ``WHERE``, so a database many campaigns deep is read
-    for the rows asked about rather than whole. A name holding a quote is refused rather than
-    escaped: no stored variant carries one.
+    Appended to a query that already has its ``WHERE``. A name holding a quote is refused rather
+    than escaped.
     """
     clauses: list[str] = []
     for column, names in (('c."window"', windows), ("c.variant", variants)):
@@ -216,9 +173,8 @@ def load(
 def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
     """Load the stored log of one combination, empty when no log has been stored for it.
 
-    ``tools/campaign_shortlist.py`` writes them and only for the rows it was pointed at. Empty
-    rather than raising, so a caller reading a whole shortlist can name the rows that have no
-    log instead of stopping at the first one.
+    Empty rather than raising, so a caller reading a whole shortlist can name every row that has
+    no log.
     """
     if not path.exists():
         return pd.DataFrame()
@@ -244,9 +200,7 @@ def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[type-arg]  # duc
 def stored_logs(rows: pd.DataFrame, path: Path) -> dict[tuple[int, int], pd.DataFrame]:
     """Load every shortlisted row's stored log, keyed by :func:`log_key`, absent where none was stored.
 
-    The mapping a tool reading a shortlist works from, so the same loop serves a stored log and
-    one re-run by ``tools/campaign_swept.py`` -- and a row with no log is named by the caller
-    rather than silently dropped here.
+    Serves a stored log and one re-run by ``tools/campaign_swept.py`` through the same mapping.
     """
     return {log_key(row): load_trades(*log_key(row), path) for _, row in rows.iterrows()}
 
@@ -294,10 +248,8 @@ def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
 def exit_decomposition(log: pd.DataFrame) -> dict[str, float]:
     """Return one stored log's leg count, net P&L and median bars held, per exit reason.
 
-    ``stats.leg_summary`` supplies the first two, so this reads a summary over subsets and
-    defines no statistic of its own -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost,
-    which ``session_close_share`` cannot say". An exit reason the log never took is absent
-    rather than zero.
+    Built on ``stats.leg_summary`` and defining no statistic of its own. A reason the log never
+    took is absent rather than zero.
     """
     if log.empty:
         return {}
