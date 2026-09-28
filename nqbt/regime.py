@@ -9,14 +9,11 @@ The band *between* the thresholds is the unclassifiable no-trade state, a real l
 than a special case. Warm-up bars, which the lookback cannot reach back from, are
 :data:`UNDEFINED` instead -- not measured is not the same as measured and inconclusive.
 
-A regime set is carried as a bitmask integer so that it is a legal sweep axis, exactly as
-:mod:`nqbt.timeofday` carries a phase set. Thresholds, equality boundaries and why the window
-sum is recomputed rather than rolled: ``docs/roadmap.md`` §M10.1.
-
-**A raw threshold is not one cut across a sweep.** It is a different percentile of a random
-walk at each lookback and a different share of bars at each resolution, so
-:func:`thresholds_from_quantiles` and :func:`thresholds_from_multiples` state the cut in units
-that survive both axes -- ``docs/roadmap.md`` §M27.5.
+A regime set is a bitmask integer, so it is a legal sweep axis. Thresholds, equality boundaries
+and the window sum: ``docs/roadmap.md`` §M10.1. A raw threshold is a different cut at each
+lookback and resolution, so :func:`thresholds_from_quantiles` and
+:func:`thresholds_from_multiples` state it in units that survive both -- ``docs/roadmap.md``
+§M27.5.
 """
 
 from __future__ import annotations

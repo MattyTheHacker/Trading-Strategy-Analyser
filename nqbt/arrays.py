@@ -1,14 +1,9 @@
 """Dtype-parameterised aliases for the arrays this package passes between its modules.
 
-A bare ``np.ndarray`` says only "some array". Here the element type is load-bearing --
-``MovingAverageGrid.below`` is bool where ``.values`` is float64, and that one distinction is
-the difference between a 66 MB grid and a 595 MB one. Spelled once here rather than at every
-signature, and **not** used inside ``@njit`` bodies as a promise: numba infers from the call and
-ignores the annotation entirely -- ``docs/roadmap.md`` §M20b.
-
-:func:`float_column` and :func:`ohlc` are here for the same reason: reading a bar column is
-where the dtype is actually chosen, so it is chosen once here rather than restated at every
-call site -- ``docs/roadmap.md`` §M20c.
+The element type is load-bearing -- ``MovingAverageGrid.below`` is bool where ``.values`` is
+float64. Not a promise inside ``@njit`` bodies, where numba infers from the call and ignores the
+annotation -- ``docs/roadmap.md`` §M20b. :func:`float_column` and :func:`ohlc` choose a bar
+column's dtype once -- ``docs/roadmap.md`` §M20c.
 """
 
 from __future__ import annotations

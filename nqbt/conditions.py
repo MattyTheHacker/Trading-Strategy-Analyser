@@ -387,11 +387,8 @@ class MovingAverageGrid:
     above: BoolArray
     """``Close > MA``, ``[n_periods, n_bars]`` bool -- see :func:`above_series`."""
     values: FloatArray | None = None
-    """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept.
-
-    Eight bytes per element against one: 580 MB rather than 64 MB for 39 periods over 1.65M
-    bars, which a parallel sweep hands to every worker.
-    """
+    """The raw MA values, ``[n_periods, n_bars]`` float64 -- only when explicitly kept, at eight
+    times the memory -- ``docs/roadmap.md`` §M20b."""
 
     def row(self, period: int) -> int:
         """Return the row holding ``period``, or raise an error naming what the grid was built for."""

@@ -81,9 +81,8 @@ def export():
     bars = minute_bars()
     primary, coarse = agreeing_export(bars)
 
-    # Microsecond stamps, which is what read_csv hands back. Building the fixture with
-    # date_range instead gives nanoseconds and hides every resolution assumption in the
-    # tool -- one shipped that way and put the whole comparison in 1970.
+    # Microsecond stamps, which is what read_csv hands back; nanoseconds from date_range would
+    # hide the tool's resolution assumptions.
     return bars, as_microseconds(primary), as_microseconds(coarse)
 
 

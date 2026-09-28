@@ -213,10 +213,6 @@ def test_the_observed_statistic_matches_the_reference_per_contract() -> None:
 
 
 # -- a synthetic cache, so the data path is tested rather than skipped ---------
-#
-# These used to be real-data tests guarded by ``pytest.skip`` when the MNQ cache was absent,
-# which meant CI -- the only place that measures coverage -- exercised none of them. Writing
-# a two-contract cache into ``tmp_path`` costs a few hundred bars and tests the same code.
 
 
 def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFrame:

@@ -79,10 +79,8 @@ def test_volume_is_compared_over_shared_bars_only() -> None:
 
 
 def test_a_stub_session_cannot_decide_the_roll() -> None:
-    # Both contracts are near-empty on 03-06 -- NT8's data has exactly this hole a few
-    # days before most rolls. Restricting to shared bars does not help here, because both
-    # sides are short; the ratio is an hour of overnight trade standing in for a session.
-    # MNQ 03-23 -> 06-23 read 1.46 on such a stub and rolled a day early.
+    # Both contracts are near-empty on 03-06, the hole NT8's data has a few days before most
+    # rolls -- ``docs/nt8-fidelity.md``, "Contract data".
     week = ["2024-03-05", "2024-03-06", "2024-03-07"]
     front = make_frame(week, 100.0, dict(zip(week, [900, 10, 300], strict=True)), bars={"2024-03-06": 1})
     back = make_frame(week, 110.0, dict(zip(week, [100, 90, 900], strict=True)), bars={"2024-03-06": 1})
@@ -109,10 +107,8 @@ def test_a_full_session_still_decides_the_roll_on_its_first_win() -> None:
 
 def test_a_thinly_traded_session_cannot_decide_the_roll() -> None:
     # Two deferred months both printing a full session on a few hundred lots, months before
-    # either becomes the front contract. GC 02-22 -> 04-22 read 228 against 256 on
-    # 2021-10-12 and rolled fifteen weeks early, out of order with its own neighbour.
-    # The floor is a share of the pair's busiest session, not of its median: the median here
-    # is itself a deferred-month session, and measuring against it would accept this one.
+    # either becomes the front contract -- ``docs/nt8-fidelity.md``, "Deferred months trade too
+    # thinly to decide a roll". The floor is a share of the pair's busiest session, not its median.
     week = ["2024-03-05", "2024-03-06", "2024-03-07"]
     front = make_frame(week, 100.0, dict(zip(week, [200, 220, 90_000], strict=True)))
     back = make_frame(week, 110.0, dict(zip(week, [180, 260, 95_000], strict=True)))
@@ -429,11 +425,8 @@ def test_check_roll_monotonicity_raises_on_out_of_order_rolls() -> None:
 def test_back_adjustment_warns_if_prices_drop_below_zero() -> None:
     """A back-adjusted series can go non-positive, and then only the raw one is usable.
 
-    Real data reaches this by accumulating roll gaps over many years -- back-adjustment
-    subtracts a cumulative offset, so a long enough history of downward rolls eventually
-    crosses zero. The fixture manufactures the offset in one roll instead: a back contract
-    priced below the front's gap makes the shift larger than the price it is applied to,
-    which is the same arithmetic without simulating a decade of contracts.
+    The fixture manufactures in one roll the cumulative offset real data reaches over years: a
+    back contract priced below the front's gap makes the shift larger than the price.
     """
     days = ["2024-03-06", "2024-03-07", "2024-03-08"]
 
@@ -453,11 +446,8 @@ def test_back_adjustment_warns_if_prices_drop_below_zero() -> None:
 def test_a_contract_squeezed_to_no_bars_is_reported_not_silently_dropped(monkeypatch) -> None:
     """A contract consumed by its neighbouring rolls must warn, not vanish.
 
-    ``detect_roll`` cannot currently produce this state -- it needs shared in-session bars
-    to pick a roll at all -- so the rolls are supplied directly. That is the point rather
-    than a limitation: the warning guards against a future roll rule that *can* produce it,
-    and a contract disappearing from a spliced series without a word is the failure it
-    exists to prevent. Delete the guard and this test is what notices.
+    ``detect_roll`` cannot produce this state today, so the rolls are supplied directly; the
+    warning guards against a future roll rule that can.
     """
     days = ["2024-03-06", "2024-03-07", "2024-03-08"]
     front = make_frame(days, 100.0, 900)

@@ -1,22 +1,8 @@
 """Volume in three forms, and each form against what is normal for its bar of session.
 
-**One quantity and its decomposition, not three conditions.** Absolute volume is the raw
-contract count and answers *can this be traded here at all?*; the time of day is its dominant
-systematic component; relative volume is the absolute count with that component divided out and
-answers *is this unusual for the time?* The labels here are cut from the **relative** form only,
-because an absolute threshold means different things in 2021 and 2026 and is not comparable
-across roots -- ``docs/roadmap.md`` §M10.2. The absolute series is carried beside it for
-reporting, which is the one question relative volume cannot answer.
-
-The baseline is the **median of the same bar of session over a trailing window of prior
-sessions**, never a rolling window of adjacent bars. Intraday volume has a strong time-of-day
-shape, so a plain rolling average marks every cash-open bar heavy and every overnight bar thin
--- that is a clock, not a signal. The bar-of-session index is :mod:`nqbt.timeofday`'s, so the
-two share one definition rather than each inventing one.
-
-A state set is carried as a bitmask integer so that it is a legal sweep axis, exactly as
-:mod:`nqbt.regime` and :mod:`nqbt.timeofday` carry theirs. Thresholds, the roll discontinuity
-and the multiple-comparisons cost of reading the three forms as three findings:
+Absolute volume is the raw contract count, carried for reporting; relative volume divides it by
+the median of the same bar of session over a trailing window of prior sessions, and the labels
+are cut from that alone. A state set is a bitmask integer, so it is a legal sweep axis --
 ``docs/roadmap.md`` §M10.2.
 """
 
@@ -119,8 +105,7 @@ class VolumeState(IntEnum):
 class VolumeForm(IntEnum):
     """Which absolute quantity the relative ratio is taken of.
 
-    Three genuinely different statements, which is why the form is a sweep axis rather than a
-    choice made once: an unusually busy bar is not an unusually busy session so far.
+    A sweep axis, because an unusually busy bar is not an unusually busy session so far.
     """
 
     PER_BAR = 0
@@ -319,9 +304,8 @@ def session_ids(trading_day: DateArray, in_session: BoolArray) -> IntArray:
 def _rolling_sum(values: FloatArray, window: int) -> FloatArray:
     """Return the trailing ``window``-bar sum, ``nan`` until the window is full.
 
-    Maintained by add and subtract rather than re-summed. Unlike an efficiency ratio's path
-    length this cannot drift: contract counts are exact in float64, so the running total is the
-    same number a recomputed sum would be -- ``docs/roadmap.md`` §M10.2.
+    Maintained by add and subtract rather than re-summed, which is exact for contract counts in
+    float64 -- ``docs/roadmap.md`` §M10.2.
     """
     n = values.size
     out = np.full(n, np.nan, dtype=np.float64)
@@ -674,9 +658,8 @@ def volume_grid(
 ) -> VolumeGrid:
     """Compute every distinct volume series a sweep needs, once.
 
-    Out-of-session prints read zero in every form: NT8 building bars against an ETH template
-    would never form them, so they are not session volume. Sixteen bytes per bar per key, and
-    the baseline is the expensive pass -- ``docs/roadmap.md`` §M10.2.
+    Out-of-session prints read zero in every form. Sixteen bytes per bar per key, and the
+    baseline is the expensive pass -- ``docs/roadmap.md`` §M10.2.
     """
     ordered: tuple[VolumeKey, ...] = tuple(
         sorted({key(k.form, k.rolling_bars, k.baseline_sessions) for k in keys})

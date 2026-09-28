@@ -61,11 +61,8 @@ NT8_FIRST_40_BARS = """
 """
 
 TOLERANCE = {"rtol": 1e-11, "atol": 1e-9}
-"""Recursive float arithmetic will not reproduce NT8 bit for bit, and does not need to.
-
-At index-future prices this is under 2e-7 of a point against a 0.25 tick, so it cannot move
-a gate. Over the full 89,330-bar export every series here agrees at this tolerance on every
-bar.
+"""Recursive float arithmetic will not reproduce NT8 bit for bit; this is under 2e-7 of a point
+against a 0.25 tick -- ``docs/nt8-fidelity.md`` § "Indicators".
 """
 
 
@@ -107,11 +104,9 @@ def test_atr_matches_nt8(pinned) -> None:
 
 
 def test_atr_seeds_with_an_expanding_simple_average_not_wilder(pinned) -> None:
-    """The whole of #20. Wilder from bar 0 is the textbook form and is not what NT8 does.
+    """ATR is seeded NT8's way, not with Wilder from bar 0 (#20).
 
-    At bar 1 with period 14 the two differ by more than 4 points on this data, so a seeding
-    mistake is not a rounding difference -- it is a different indicator that converges
-    slowly enough to look right much later.
+    A seeding mistake is a different indicator that converges slowly enough to look right later.
     """
     h, l, c = pinned["high"], pinned["low"], pinned["close"]
     tr = indicators.nt8_true_range(h, l, c)

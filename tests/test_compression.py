@@ -1,12 +1,8 @@
 """Compression tests: the two width forms, the trailing rank, and the entry filter.
 
-Two claims are pinned harder than the rest because their failures look like findings rather
-than like errors. **No bar contributes to its own rank**, because a compression measure that
-reads the bar it is about to trade is the fictional edge ``docs/roadmap.md`` §M19 names as the
-second easiest in the project to manufacture; the truncation test is what says so, rather than
-a comment claiming it. And **the rank is what makes a raw threshold mean one thing**, because
-neither raw width has a unit -- every test of a threshold states the widths it is cutting as
-well, so a cut that stopped being comparable would show up as a table rather than as a pass.
+Pinned hardest, because their failures look like findings: **no bar contributes to its own
+rank** -- ``docs/roadmap.md`` §M19 -- and **the rank is what makes a raw threshold mean one
+thing** -- §M19.1.
 """
 
 import numpy as np

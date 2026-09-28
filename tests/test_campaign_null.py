@@ -415,11 +415,8 @@ def test_a_stored_row_below_the_trade_floor_is_still_what_a_rerun_is_checked_aga
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A real round trip, because the claim is about the SQL. ``campaign_report.load`` drops
-    every row under ``MIN_TRADES``, and a shortlist ranked on the selection window routinely
-    lands under it in the holdout, so reading through that loader would be the check that never
-    runs -- ``docs/findings/m36-ema-pullback-volume-recut.md`` § "Gate 3 -- 1 of 120, and it is
-    in the wrong direction"."""
+    """A real round trip, because the claim is about the SQL: rows under ``MIN_TRADES`` are
+    read too -- ``tools/README.md`` § "campaign_null.py"."""
     db = tmp_path / "InsideBar.duckdb"
     index = pd.date_range("2024-01-02 00:00", periods=400, freq="5min", tz="UTC")
     frame = pd.DataFrame({"close": 1.0}, index=index)
@@ -582,10 +579,7 @@ def test_a_round_number_configuration_is_placed_against_its_null_rather_than_ref
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``measure`` reads raw bars and used to declare them ``UNKNOWN``, so a rule reading an
-    absolute level was refused by the safety default and gate 3 could not be run on
-    EmaCrossover's ``round=on`` variant at all ([#340]). The same defect [#330] fixed in
-    ``campaign_shortlist.store_logs``, in the tool that was not covered by it."""
+    """``measure`` declares its raw bars ``RAW``, so a rule reading an absolute level runs ([#340])."""
     db = tmp_path / "EmaCrossover.duckdb"
     bars = synthetic_bars()
     frame = resample.resample(bars, 5)

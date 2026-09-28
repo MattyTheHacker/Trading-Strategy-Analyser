@@ -235,9 +235,8 @@ def stub_run(monkeypatch):
 def trade_log() -> pd.DataFrame:
     """Build a two-leg winner and a one-leg loser, carrying every column ``summarise`` reads.
 
-    The figures are deliberately all different from each other -- net $15.00, drawdown
-    $25.00, expectancy $7.50, profit factor 1.600. They were not: net P&L and max drawdown
-    were both $20.00, so the drawdown assertion passed against the net P&L line.
+    The figures are all different from each other -- net $15.00, drawdown $25.00, expectancy
+    $7.50, profit factor 1.600 -- so each assertion can only match its own line.
     """
     return pd.DataFrame(
         {
@@ -313,11 +312,9 @@ def test_cmd_run_keeps_the_indicator_values_exactly_when_explain_asked_for_them(
     explain,
     kept,
 ) -> None:
-    """``explain_trades`` raises without them, so this coupling is what makes --explain work.
+    """``--explain`` prepares the moving-average values ``explain_trades`` raises without.
 
-    Both halves of it are stubbed in the tests that read the audit trail, which is what let
-    ``keep_ma_values`` be set to a constant without a test failing -- and ``nqbt run
-    --explain`` would then have died on the ValueError ``explain_trades`` raises.
+    The tests that read the audit trail stub both halves, so this is the one that pins the coupling.
     """
     prepare = MagicMock()
     monkeypatch.setattr("nqbt.context.prepare", prepare)
@@ -328,7 +325,7 @@ def test_cmd_run_keeps_the_indicator_values_exactly_when_explain_asked_for_them(
 
 
 def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub_run, console) -> None:
-    """The profit factor and drawdown were computed and dropped on the floor once."""
+    """The profit factor and drawdown reach the output."""
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
 
     assert cli._cmd_run(run_args(base_args)) == 0

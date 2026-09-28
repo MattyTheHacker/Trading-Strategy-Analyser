@@ -96,8 +96,7 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
     """Add the axis columns to whichever tables already exist, leaving old rows null.
 
     ``combos`` is covered only once it exists, because it is created lazily from a results
-    frame rather than declared. Here rather than in :func:`_append_or_create` so there is one
-    migration in one place.
+    frame rather than declared.
     """
     columns: dict[str, dict[str, str]] = {
         "sweeps": {**AXIS_COLUMNS, "batch_id": "BIGINT"},
@@ -366,20 +365,15 @@ def save_trades(
 
 
 CUT_PREFIX = "cut_"
-"""What the thresholds an annotation was labelled at are stored under.
-
-An annotation is meaningless without them: the same trades cut at two different pairs are two
-different populations, and a query that mixed them would report one -- ``docs/roadmap.md``
-§M27.8, where a whole volume ranking turned out to be decided by its cut.
+"""What the thresholds an annotation was labelled at are stored under -- ``docs/roadmap.md``
+§ "What a stored annotation has to carry with it".
 """
 
 COMBO_PREFIX = "combo_"
 """What a combination's own columns are prefixed with in :data:`TRADE_VIEW`.
 
 ``net_pnl`` means the leg's on ``trades`` and the whole combination's on ``combos``, so the
-join needs them told apart. Prefixing every one of them also keeps the provenance visible in
-the column name, which matters because a combination's statistics are **not** properties of
-the trade beside them.
+join needs them told apart.
 """
 
 TRADE_VIEW = "trade_review"
@@ -400,13 +394,9 @@ def save_annotation(
     """Store one combination's per-trade market context, stamped with the cut it was labelled at.
 
     ``annotation`` is an :attr:`nqbt.annotate.Annotation.frame`, indexed by ``trade_id``, and
-    ``thresholds`` is the :class:`nqbt.annotate.LabelThresholds` it was built with as a mapping
-    -- required rather than defaulted, because a review has to be able to state where it cut.
-
-    A fourth door onto the evaluation path, so it refuses free text exactly as
-    :func:`nqbt.annotate.annotate_trades`, :func:`nqbt.review.review` and
-    :func:`nqbt.guard.guard` do -- a note reaching a column a query can group by is the
-    circular finding ``docs/roadmap.md`` §M11.5 exists to prevent.
+    ``thresholds`` the :class:`nqbt.annotate.LabelThresholds` it was built with, as a mapping.
+    Refuses free text, as :func:`nqbt.annotate.annotate_trades` does -- ``docs/roadmap.md``
+    §M11.5.
     """
     notes.check_excluded(annotation, what="an annotation being stored")
     con: duckdb.DuckDBPyConnection = connect(db_path)
@@ -432,13 +422,9 @@ def create_trade_view(db_path: Path = paths.SWEEPS_DB) -> str:
     """Create or replace :data:`TRADE_VIEW`, and return the SQL it was defined as.
 
     One row per leg, carrying the context at its bars and the parameters of the combination
-    that took it, so filtering trades is a query rather than a Python session. The combination's
-    columns are prefixed :data:`COMBO_PREFIX`; an annotation column the trade log already
-    carries is dropped, because the log's is the one the producer wrote.
-
-    **The parameters are a filter and never a ranking.** Two combinations differing in one axis
-    share their entries, so grouping these rows by a parameter counts the same trade many times;
-    ``tools/campaign_report.py``'s ``axis_influence`` is where that comparison belongs.
+    that took it. The combination's columns are prefixed :data:`COMBO_PREFIX`; an annotation
+    column the trade log already carries is dropped. A parameter may filter these rows and never
+    group them -- ``docs/roadmap.md`` § "Filtering trades by context and configuration".
     """
     con: duckdb.DuckDBPyConnection = connect(db_path)
     try:

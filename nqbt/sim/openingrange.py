@@ -1,15 +1,11 @@
 """OpeningRange archetype: rest an order at the opening range's extreme, one side at a time.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
-written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M28 names the NinjaScript each
-would become, and ``docs/roadmap.md`` §M28.1 carries the design.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md`` §M28.
+The design: ``docs/roadmap.md`` §M28.1.
 
-The entry is DeadCatBounce's mechanism -- a stop-market order tested against the next bar's
-OHLC -- with the trigger taken from a **level that persists** rather than from the signal bar,
-which is what makes the order rest for the whole session instead of one bar
-(``docs/roadmap.md`` § "Route 3"). Two things here reach no other archetype: the trigger is a
-session-scoped level rather than a per-bar computation, and a per-session entry cap makes the
-one-shot form every published result measures expressible at all.
+The trigger is a session-scoped level resubmitted at every bar close, which rests the order for
+the session -- ``docs/roadmap.md`` § "Route 3" -- and a per-session entry cap limits how often
+it fills.
 """
 
 from __future__ import annotations
@@ -54,11 +50,8 @@ class RangeSeries(NamedTuple):
     """The range this combination trades, in the two shapes it is stored in.
 
     :attr:`armed` is per bar and :attr:`high`, :attr:`low` are per **session**, read through
-    :attr:`session_id` -- one range is a fact about a session rather than a series, and
-    holding it that way is what keeps the dataset small however many windows a sweep tries.
-
-    :mod:`nqbt.sim.squeeze` hands the loop one row per **bar** instead, so its level moves every
-    bar and the per-session cap and break flag, reset on every row change, are passed switched off.
+    :attr:`session_id`. :mod:`nqbt.sim.squeeze` hands the loop one row per **bar** instead, with
+    the per-session cap and break flag switched off.
     """
 
     armed: BoolArray
@@ -68,9 +61,8 @@ class RangeSeries(NamedTuple):
     scale: FloatArray
     """Per **session**: what the range width is multiplied by before the bracket reads it.
 
-    All ones where nothing is scaled, so the loop multiplies rather than branches; ``nan`` on a
-    session whose trailing follow-through has no history behind it, which is a session the
-    geometry cannot be stated for and so is not traded.
+    All ones where nothing is scaled; ``nan`` on a session whose trailing follow-through has no
+    history behind it, which is not traded.
     """
 
     atr: FloatArray
@@ -139,9 +131,7 @@ def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
     """Return whether NT8 would accept this order at this bar's close.
 
     A stop entry has to sit strictly beyond the market it is submitted into --
-    ``docs/nt8-fidelity.md`` §M18 -- and a limit entry strictly inside it, which is the same
-    refusal read from the other side: a limit at or through the market is marketable, and what
-    NT8 does with one is written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M28.2.
+    ``docs/nt8-fidelity.md`` §M18 -- and a limit entry strictly inside it -- §M28.2.
     """
     if rules.entry_mode in ORB_LIMIT_ENTRIES:
         return rules.direction * trigger < rules.direction * close
@@ -153,13 +143,11 @@ def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
 def _limit_entry_fill(
     bars: bracket.Bars, i: int, trigger: float, fills: bracket.FillRules, direction: float
 ) -> tuple[bool, float]:
-    """Apply the limit test the retest and the rejection share, which is the stop's mirror in both halves.
+    """Apply the limit test the retest and the rejection share.
 
-    A limit fills at its price or better, so a bar opening past it fills at the open and the
-    trade is *better* than planned rather than worse; and it takes no slippage, which is the
-    rule the bracket's targets already follow. The limit rests against the direction traded, so
-    :func:`bracket.limit_filled` reads it at ``-direction`` -- price has to trade **through**
-    it under ``IsFillLimitOnTouch = false``.
+    A limit fills at its price or better, so a bar opening past it fills at the open, and it
+    takes no slippage. It rests against the direction traded, so :func:`bracket.limit_filled`
+    reads it at ``-direction``.
     """
     if direction * bars.open_[i] <= direction * trigger:
         return True, bars.open_[i]
@@ -202,10 +190,8 @@ def range_bracket(
     range for a breakout, inside it for a fade or a rejection, whose level is the opposite
     extreme -- or ``retest_offset`` back inside the level a retest waits at; the stop goes at
     the range's other extreme, a fraction of the range width back from the level, or an ATR
-    multiple back from the trigger. **Everything is measured from the trigger rather than the
-    fill**, because the whole bracket is known when the order is submitted -- which is what the
-    reconciled DeadCatBounce port does and what a NinjaScript setting its stop and target at
-    submission would do.
+    multiple back from the trigger. Everything is measured from the trigger rather than the
+    fill -- ``docs/nt8-fidelity.md`` §M28.
 
     ``stop_scale`` is what the fraction stop's range width is multiplied by -- one under every
     mode but the one that denominates it in trailing follow-through.
@@ -239,7 +225,7 @@ def _leg_target(level: float, trigger: float, risk: float, width: float, rules: 
     """Return one leg's target price, in whichever unit its mode expresses it.
 
     A width multiple is already a distance, so :attr:`OpeningRangeRules.tp_multiplier` is not
-    applied to it -- scaling it as well would be the same axis twice.
+    applied to it.
     """
     if rules.target_mode == ORB_TARGET_WIDTH:
         return trigger + rules.direction * width * level
@@ -263,8 +249,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
     ``signal`` marks bars that may submit an order -- every bar whose session range is
     complete, narrowed by the context filters. The same trigger is resubmitted on each of
-    them, which is a resting order and not an approximation of one: the fill test is the same
-    per-bar OHLC comparison either way (``docs/roadmap.md`` § "Route 3").
+    them, which is a resting order -- ``docs/roadmap.md`` § "Route 3".
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
@@ -467,9 +452,8 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 def openingrange_signal(data: Dataset, params: OpeningRangeParams) -> BoolArray:
     """Flag bars that may submit an entry order: those whose session range is complete.
 
-    Dense by construction rather than by oversight -- the trigger is a level that persists, so
-    a bar not resubmitting the order would be a bar the order was *not* resting on. What that
-    costs the matched random-entry null: ``docs/roadmap.md`` §M28.1.
+    Dense by construction, because the trigger is a level that persists -- ``docs/roadmap.md``
+    §M28.1.
     """
     signal: BoolArray = data.range_armed(params.range_key).copy()
 
@@ -479,9 +463,8 @@ def openingrange_signal(data: Dataset, params: OpeningRangeParams) -> BoolArray:
 def entry_bound(data: Dataset, params: OpeningRangeParams, signal: BoolArray) -> int:
     """Return how many entries this combination can possibly fill -- what the output is sized from.
 
-    ``allocate_output``'s usual "one row per leg per signal" bound is far too loose here,
-    because the signal is dense: capped, the real bound is one entry per session per allowed
-    entry, which is three orders of magnitude smaller.
+    Capped, it is one entry per session per allowed entry rather than ``allocate_output``'s
+    one per signal, which a dense signal makes far too loose.
     """
     live: int = int(signal.sum())
     if params.max_entries_per_session <= 0:
@@ -495,8 +478,7 @@ def entry_bound(data: Dataset, params: OpeningRangeParams, signal: BoolArray) ->
 def follow_through_scale(data: Dataset, params: OpeningRangeParams) -> FloatArray:
     """Return, per session, what this combination multiplies the range width by, before the bracket.
 
-    Ones at :data:`ORB_SCALE_NONE`, so the loop is one multiplication rather than a branch and
-    the unscaled arithmetic is bit-for-bit what it was -- ``docs/roadmap.md`` §M28.9.
+    Ones at :data:`ORB_SCALE_NONE` -- ``docs/roadmap.md`` §M28.9.
     """
     sessions: int = int(data.range_session_id().max()) + 1 if len(data) else 0
     if params.follow_through_scaling == ORB_SCALE_NONE:

@@ -209,11 +209,7 @@ def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
 
 @pytest.mark.parametrize("minutes", AGREES_WITH_WALL_CLOCK)
 def test_session_and_midnight_anchoring_agree_for_divisors_of_sixty(minutes) -> None:
-    """The coincidence that makes the bug invisible, pinned as a property.
-
-    Every period anyone reaches for first is in this list, which is exactly why nobody
-    should "simplify" this module into a bare ``resample()`` on the strength of it.
-    """
+    """Session and midnight anchoring agree at every divisor of 60 -- ``docs/roadmap.md`` §M13."""
     assert 1080 % minutes == 0 and 1020 % minutes == 0, "this test's premise"
     src = minute_bars()
     assert resample.resample(src, minutes).index.equals(midnight_anchored(src, minutes))

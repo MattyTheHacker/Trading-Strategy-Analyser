@@ -1,16 +1,12 @@
 """InsideBarTrailing archetype: InsideBar's entry, split across two exit engines.
 
 Ported from ``ninjatrader-scripts/Strategies/InsideBarTrailing.cs``. The entry is
-:mod:`nqbt.sim.insidebar`'s -- the same functions, not a copy, with the NinjaScript's own
-defaults on :class:`nqbt.sim.types.InsideBarTrailingParams`. What is new is the exit half:
-the position is split into a bracketed lot and a trailing lot that resolve independently, the
-trailing stop follows the high-water mark rather than a lagged bar's extreme, and a trend
-violation flattens whatever is left.
+:mod:`nqbt.sim.insidebar`'s. The exit half splits the position into a bracketed lot and a
+trailing lot that resolve independently, trails the second off the high-water mark, and
+flattens whatever is left on a trend violation.
 
-Diffed leg-for-leg against an MNQ 03-24 Strategy Analyzer export, which **overturned three of
-the four exit rules this port originally inferred** -- ``docs/nt8-fidelity.md``, "Reconciliation
-result -- InsideBarTrailing". Read that before changing anything in the exit half: each of the
-four was plausible in both directions, and the tests name the measurement that decided it.
+Read ``docs/nt8-fidelity.md``, "Reconciliation result -- InsideBarTrailing" before changing the
+exit half.
 """
 
 from __future__ import annotations
@@ -111,12 +107,10 @@ def resolve_lots(
     """Resolve one bar against each lot's own stop and target, closing whatever leaves.
 
     One call to :func:`nqbt.sim.bracket.resolve_brackets` per lot, with ``lots.mask`` hiding
-    every other leg so the engine sees a single bracket and writes it under its own leg number.
+    every other leg so the engine sees a single bracket -- ``docs/roadmap.md`` §M23.
 
-    The split-lot model sits **beside** the shared engine rather than generalising it --
-    ``docs/roadmap.md`` §M23. Returns the new write count and the price the last lot to leave
-    filled at -- which is the price the trend-violation exit takes -- or ``-1`` and ``NaN`` if
-    ``out`` overflowed.
+    Returns the new write count and the price the last lot to leave filled at, which the
+    trend-violation exit takes, or ``-1`` and ``NaN`` if ``out`` overflowed.
     """
     n_lots = legs.is_open.size
     last_fill = np.nan
@@ -339,13 +333,11 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             d = pending_direction
             fill = bars.open_[i] + d * slippage
             # ``OnExecutionUpdate`` runs with the **signal** bar still current, so ATR[0]
-            # is the signal bar's and [1] is the inside bar -- ``docs/nt8-fidelity.md``
-            # §M22, established leg-for-leg against InsideBar's trade list.
+            # is the signal bar's and [1] is the inside bar -- ``docs/nt8-fidelity.md`` §M22.
             bar_atr = atr[pending_bar]
             inside_bar = pending_bar - 1
             adverse, _ = bracket.sided(bars.low[inside_bar], bars.high[inside_bar], d)
-            # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
-            # § "ATR-multiple brackets and the dollar floor".
+            # The NinjaScript floors nothing.
             stop_distance = bracket.atr_bracket_distance(
                 bar_atr,
                 rules.atr_multiplier,
@@ -362,17 +354,14 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             trail_distance = distance * costs.tick_size
             trail_stop = fill - d * trail_distance
             if fills.round_targets:
-                # An ATR multiple lands off the grid, and an exchange takes a stop no more
-                # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
-                # the tick grid". Snapped before the risk, which every R multiple is
-                # measured from.
+                # Snapped before the risk is measured -- ``docs/nt8-fidelity.md``, "Targets snap
+                # to the tick grid".
                 fixed_stop = bracket.round_to_tick(fixed_stop, costs.tick_size)
                 trail_stop = bracket.round_to_tick(trail_stop, costs.tick_size)
 
             fixed_risk = d * (fill - fixed_stop)
             trail_risk = d * (fill - trail_stop)
-            # A stop at or through the price it protects is not a stop order, and neither
-            # lot may be left running without one -- ``docs/nt8-fidelity.md`` §M23.
+            # Neither lot may run without a working stop -- ``docs/nt8-fidelity.md`` §M23.
             if fixed_risk >= min_risk and trail_risk >= min_risk:
                 trade_id += 1
                 trade = bracket.OpenTrade(
@@ -403,9 +392,8 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 )
                 # The runner has no target: ``SetProfitTarget`` is never called for it.
                 legs.target[TRAILING_LOT] = np.nan
-                # `SetTrailStop` is submitted *during* this bar rather than resting from
-                # its open, so on the entry bar alone it follows the bar's own extreme
-                # before being tested. Measured -- ``docs/nt8-fidelity.md`` §M23.
+                # On the entry bar alone the trail follows the bar's own extreme before being
+                # tested -- ``docs/nt8-fidelity.md`` §M23.
                 lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
                 position_changed = True
                 written, trigger_fill = resolve_lots(
@@ -429,23 +417,15 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
 
         # ---- close of bar i: trail the runner's stop ------------------------------------
         if in_position and legs.is_open[TRAILING_LOT]:
-            # The high-water mark through this bar, so the new level is in force from the **next**
-            # one and cannot be hit on the bar that set it. Measured, not assumed: advancing it
-            # within the bar instead drops agreement from 98.42% to 94.04% --
+            # In force from the next bar, so it cannot be hit on the bar that set it --
             # ``docs/nt8-fidelity.md`` §M23.
             lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
 
         # ---- the trend violation, on whichever bar the position just changed ------------
         if in_position and position_changed and i >= 1:
-            # `OnPositionUpdate` runs at strategy time `i - 1` -- the one-bar offset
-            # `OnExecutionUpdate` has -- and the market exit it submits fills at this bar's
-            # open. Both settled against a trade list; ``docs/nt8-fidelity.md`` §M23.
-            #
-            # `if (GetUnrealizedProfitLoss(...) > -200) return;` sits **above** both branches in
-            # `OnPositionUpdate`, so it gates the trend violation as well as the dead max-loss
-            # one. A currency amount on the whole open position, hence `point_value`. The
-            # max-loss branch beneath it stays unreachable: `MaximumLossPerTrade` defaults to 0
-            # and its own condition requires it > 0.
+            # `OnPositionUpdate` runs at strategy time `i - 1`, behind the C#'s `> -200` early
+            # return, a currency amount on the whole open position -- ``docs/nt8-fidelity.md``
+            # §M23.
             open_quantity = 0
             for lot in range(n_lots):
                 if legs.is_open[lot]:
@@ -460,10 +440,8 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                     out,
                     written,
                     trade,
-                    # The same fill, not a fresh market order: NT8 closed the remaining lot at
-                    # the price and bar the triggering exit filled at, on every one of the 303
-                    # in the export. It carries that fill's slippage and takes no second helping
-                    # -- ``docs/nt8-fidelity.md`` §M23.
+                    # The triggering exit's own fill, not a fresh market order --
+                    # ``docs/nt8-fidelity.md`` §M23.
                     bracket.LegExit(i, trigger_fill, trades.EXIT_SIGNAL, False),
                     lots,
                     legs,

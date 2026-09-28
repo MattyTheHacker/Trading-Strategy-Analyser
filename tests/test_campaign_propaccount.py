@@ -1,11 +1,8 @@
 """Reading a campaign shortlist through a prop firm's account rules.
 
-Three things carry this module. The **attempt cap must not bind by default**, because §M28.13's
-capped population run was truncated badly enough to be wrong in sign and a truncated net looks
-exactly like a small one. A row the rules **refuse** has to be named rather than dropped, since
-a table of three presets where four were asked for reads as a firm that was never offered. And
-the **position size** has to reach the report, because four contracts is a different bet on each
-root and it is what decides whether an account has room to move at all.
+Three things carry it: the **attempt cap does not bind by default** -- ``docs/roadmap.md``
+§M28.13 -- a row the rules **refuse** is named rather than dropped, and the **position size**
+reaches the report.
 """
 
 from __future__ import annotations
@@ -145,8 +142,8 @@ def test_a_log_with_one_trade_still_gets_an_attempt() -> None:
 
 
 def test_a_cap_that_binds_is_reported_rather_than_left_to_be_noticed() -> None:
-    """§M28.13's five-attempt cap bound on 98% of its population and truncated their net
-    figures; a truncated net reads exactly like a small one unless the row says so."""
+    """A row that hit the attempt cap says so, since a truncated net reads like a small one --
+    ``docs/roadmap.md`` §M28.13."""
     log = cycling_log()
     capped = replay_row(stored_row(), log, apex(), 2)
     assert capped is not None

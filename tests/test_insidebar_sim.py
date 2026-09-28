@@ -1,10 +1,9 @@
 """InsideBar simulation tests on hand-built bars.
 
-`InsideBar.cs` exists, but no Strategy Analyzer trade list has been diffed against this port
-yet, so these pin the port against the **C#** rather than against NT8. Three of them cover
-what nothing else in the project reaches: ``IsFillLimitOnTouch = true``, a bracket whose stop
-and target are anchored to two different bars, and a no-entry window before the session close.
-Each rule and the evidence behind it: ``docs/nt8-fidelity.md`` §M22.
+Three of them cover what no other archetype reaches: ``IsFillLimitOnTouch = true``, a bracket
+whose stop and target are anchored to two different bars, and a no-entry window before the
+session close. Each rule and the evidence behind it: ``docs/nt8-fidelity.md`` §M22 and
+"Reconciliation result -- InsideBar".
 
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
@@ -157,9 +156,7 @@ def test_a_signal_on_a_force_flat_bar_is_blocked_when_asked() -> None:
 def test_a_signal_while_already_in_a_position_does_not_pyramid() -> None:
     """Flat-to-flat, which is what ``Position.MarketPosition != Flat`` asks for.
 
-    The C# read ``PositionAccount`` until the reconciliation caught it -- that property never
-    leaves Flat in Strategy Analyzer, so NT8 reversed instead. ``docs/nt8-fidelity.md`` §M22,
-    "The position guard has to read ``Position``".
+    ``docs/nt8-fidelity.md``, "The position guard has to read ``Position``".
     """
     trades = run(FLAT, signal_at=[1, 4], atr=40.0)
     assert list(trades["entry_bar"].unique()) == [2]
@@ -177,9 +174,8 @@ def test_bars_required_to_trade_costs_one_more_bar_than_the_other_ports() -> Non
 
 # -- the bracket, and the two bars OnExecutionUpdate reads it from -------------
 
-# Established leg-for-leg against an MNQ 03-24 trade list, against an inference that had both
-# terms one bar later: ``OnExecutionUpdate`` runs with the **signal** bar still current, so
-# ATR[0] is the signal bar's and Low[1] is the bar before it -- the inside bar.
+# ``OnExecutionUpdate`` runs with the **signal** bar still current, so ATR[0] is the signal
+# bar's and Low[1] is the inside bar's -- ``docs/nt8-fidelity.md`` §M22.
 
 
 def test_the_stop_sits_an_atr_multiple_beyond_the_inside_bars_low() -> None:
@@ -192,8 +188,8 @@ def test_the_stop_sits_an_atr_multiple_beyond_the_inside_bars_low() -> None:
 def test_the_stop_is_anchored_to_the_inside_bar_not_the_signal_bar_or_the_fill_bar() -> None:
     """``Low[1]`` in ``OnExecutionUpdate``, where ``[0]`` is the signal bar.
 
-    Three distinct lows, so the assertion says which of the three bars was read. The trade
-    list put this at 100% of stop exits; the other two candidates matched none of them.
+    Three distinct lows, so the assertion says which of the three bars was read --
+    ``docs/nt8-fidelity.md`` §M22.
     """
     trades = run(
         [
@@ -294,12 +290,9 @@ def test_the_target_multiplier_is_a_sweepable_axis() -> None:
 
 
 def test_the_bracket_reads_the_signal_bars_atr_not_the_fill_bars() -> None:
-    """``ATR(ATRLength)[0]`` in ``OnExecutionUpdate``, where ``[0]`` is the signal bar.
+    """``ATR(ATRLength)[0]`` in ``OnExecutionUpdate``, where ``[0]`` is the signal bar, not the fill bar.
 
-    The port originally read the fill bar's, on the reasoning that the fill lands on the next
-    bar's open so the series must have advanced by then. The trade list says otherwise: the
-    signal bar's ATR reproduces NT8's target on 99.75% of target exits and the fill bar's on
-    19%. The correct reading is also the one that reads no bar the fill could not have seen.
+    ``docs/nt8-fidelity.md`` §M22.
     """
     atr = np.full(len(FLAT), 1.0)
     atr[1] = 5.0  # the signal bar
@@ -311,11 +304,9 @@ def test_the_bracket_reads_the_signal_bars_atr_not_the_fill_bars() -> None:
 
 
 def test_the_stop_lands_on_the_tick_grid_too() -> None:
-    """An ATR multiple puts the stop off the grid, where both ports' tick offsets cannot.
+    """The ATR stop is snapped to the tick grid before the risk is taken.
 
-    NT8 snaps a submitted price whatever the script asks for, and an exchange takes a stop no
-    more than it takes a target at a half tick -- ``docs/nt8-fidelity.md``, "Targets snap to
-    the tick grid". Snapped before the risk, so ``r_multiple`` measures the real stop.
+    ``docs/nt8-fidelity.md``, "Targets snap to the tick grid".
     """
     trades = run(FLAT, signal_at=[1], atr=1.1, atr_multiplier=1.0)
     leg = trades.iloc[0]
@@ -367,8 +358,7 @@ def test_the_whole_position_rides_on_one_leg() -> None:
 def test_a_target_touched_to_the_tick_fills_when_fill_limit_on_touch_is_set() -> None:
     """``IsFillLimitOnTouch = true``: ``high >= target``, where both ports need ``high >``.
 
-    The `true` branch has existed as a sweep axis all along and no archetype's defaults reached
-    it. ``docs/nt8-fidelity.md``, "Limit orders must trade *through*, not touch".
+    ``docs/nt8-fidelity.md``, "Limit orders must trade *through*, not touch".
     """
     rows = [
         (100.0, 100.5, 99.5, 100.0),  # 0: anchor
@@ -555,9 +545,7 @@ def test_the_short_side_mirrors_the_long_one() -> None:
 def test_a_close_equal_to_an_average_fails_both_trend_gates() -> None:
     """``InsideBar.cs`` writes ``Close[0] > ema[0]`` positively, so equality is a rejection.
 
-    The two ports port their gates as the negation of the C#'s rejection, which makes
-    equality *pass*; this one does not mirror them, which is why it reads the raw averages
-    rather than the shared boolean grid.
+    Unlike the two ports, whose gates pass on equality -- ``docs/nt8-fidelity.md`` §M22.
     """
     params = signalling(ema_period=1, fast_sma_period=1, slow_sma_period=1)
     data = prepared(frame(BREAKOUT), params)

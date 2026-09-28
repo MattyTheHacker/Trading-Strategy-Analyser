@@ -1,10 +1,8 @@
 """Per-trade audit trail for hand-verification against a chart.
 
-Nothing downstream of the simulation is trustworthy until a human has checked a handful of
-trades bar by bar and NT8 Strategy Analyzer has been reconciled against the same window.
-This module exposes every intermediate value the simulation used -- the signal bar's
-geometry, each gate's operands and verdict, the trigger and stop arithmetic, how the entry
-filled, and where every leg left -- so a trade can be ticked off without reading the code.
+Exposes every intermediate value the simulation used -- the signal bar's geometry, each gate's
+operands and verdict, the trigger and stop arithmetic, how the entry filled, and where every leg
+left -- so a trade can be ticked off without reading the code.
 """
 
 from __future__ import annotations
@@ -34,8 +32,8 @@ def explain_trades(
 ) -> pd.DataFrame:
     """Annotate the first ``limit`` trades with everything that produced them.
 
-    The dataset must have been prepared with ``keep_ma_values=True``; the moving-average
-    values themselves are needed to show *why* each trend gate passed, not just that it did.
+    The dataset must have been prepared with ``keep_ma_values=True``, so each trend gate's
+    operands can be shown.
     """
     if any(g.values is None for g in data.mas.values()):  # noqa: PD011 - a grid attribute, not a Series
         msg: str = "explain_trades needs raw indicator values; call context.prepare(..., keep_ma_values=True)"
@@ -50,10 +48,8 @@ def explain_trades(
     ema: FloatArray = data.ma_values(params.ema_kind, params.ema_period)
     fast: FloatArray = data.ma_values(params.fast_sma_kind, params.fast_sma_period)
     slow: FloatArray = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
-    # The audit trail reports every gate whether or not this combination reads it, so VWAP
-    # is required here even when ``use_vwap`` is off. That is why ``cli.py`` sets
-    # ``needs_vwap=True`` unconditionally rather than taking the spec from the grid: a
-    # sweep declares what it reads, but ``--explain`` exists to show what it did not.
+    # Every gate is reported whether or not this combination reads it, so ``cli.py`` always
+    # prepares VWAP for ``--explain``.
     vwap: FloatArray = data.vwap_values()
 
     rows: list[dict[str, object]] = []
@@ -70,8 +66,7 @@ def explain_trades(
         upper: float = sig_high - max(sig_close, sig_open)
         lower: float = min(sig_close, sig_open) - sig_low
 
-        # Shared with the loop, not restated. See ``entry_bracket``: the copy that used to
-        # sit here dropped the Close[0] - 2 ticks cap and was wrong on half of all trades.
+        # Shared with the loop rather than restated -- ``docs/roadmap.md`` §M20a.
         trigger, stop, risk = entry_bracket(
             sig_high,
             sig_low,

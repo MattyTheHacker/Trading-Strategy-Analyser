@@ -1,11 +1,9 @@
 """SqueezeBreakout archetype: rest a stop beyond a compressed window's extreme, one side at a time.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
-written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M19.2 names the NinjaScript each
-would become, and ``docs/findings/m19-2-squeeze-breakout-spec.md`` carries the design.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md``
+§M19.2. The design: ``docs/findings/m19-2-squeeze-breakout-spec.md``.
 
-The entry is OpeningRange's breakout with its level taken from a rolling window rather than from
-a session's opening range, so it runs through
+OpeningRange's breakout with its level taken from a rolling window, run through
 :func:`nqbt.sim.openingrange.simulate_openingrange` with **one level row per bar**. Only the
 signal and the levels are this module's.
 """

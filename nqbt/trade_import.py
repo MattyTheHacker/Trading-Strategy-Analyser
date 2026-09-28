@@ -7,10 +7,9 @@ inferring state from order ids, and ``Name`` carries the exit reason a fills exp
 loses.
 
 What the grid cannot supply -- planned stops and targets, and therefore R, plus MAE/MFE and bar
-indices -- is left null and named in :data:`UNPOPULATED` with a reason, so the review omits those
-statistics rather than reporting a column of NaNs as if it had been measured. Why the Control
-Center log was rejected as a source, and the traps this parser exists to survive:
-``docs/roadmap.md`` §M11.1.
+indices -- is left null and named in :data:`UNPOPULATED` with a reason. Why the Control Center
+log was rejected as a source, and the traps this parser exists to survive: ``docs/roadmap.md``
+§M11.1.
 """
 
 from __future__ import annotations
@@ -137,10 +136,8 @@ _FRAME_COLUMNS = [
 ]
 """The simulator's own layout -- :func:`nqbt.trades.trades_to_frame`'s -- plus two of our own.
 
-The **contract** and not merely the root, because a real trade must be annotated against its own
-per-contract series rather than against the back-adjusted continuous one. The **timezone** the
-fills were read under, per row rather than per import, because rows from two machines can end up
-in one table and the zone is the one thing no timestamp can be re-derived without.
+The **contract**, which a real trade is annotated against, and the **timezone** the fills were
+read under, per row because rows from two machines can share one table.
 """
 
 

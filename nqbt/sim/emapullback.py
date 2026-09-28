@@ -1,14 +1,11 @@
 """EmaPullback archetype: buy the first pullback into the trend the two averages define.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule is written
-down rather than reconciled -- ``docs/nt8-fidelity.md`` §M34 names the NinjaScript each would
-become. The design and the alternatives rejected: ``docs/findings/m34-ema-pullback-spec.md``.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md`` §M34.
+The design: ``docs/findings/m34-ema-pullback-spec.md``.
 
-The market entry reuses :func:`nqbt.sim.crossover.simulate_crossover` itself, not a fork of it:
-the entry is the same market-on-next-open, the side comes from the same
-:func:`~nqbt.sim.crossover.regime_direction`, and the stop is the shared loop's level mode
-reading the slow average. The confirmation entry is a stop order resting beyond the signal bar,
-so it is its own entry loop over the same bracket engine -- ``docs/nt8-fidelity.md`` §M39.
+The market entry runs :func:`nqbt.sim.crossover.simulate_crossover` in its level-stop mode on
+the slow average. The confirmation entry is a stop order resting beyond the signal bar, in its
+own loop over the same bracket engine -- ``docs/nt8-fidelity.md`` §M39.
 """
 
 from __future__ import annotations
@@ -65,8 +62,7 @@ def extension_run(
 def touch_shape(close: FloatArray, fast: FloatArray, direction: float, touch_mode: int) -> BoolArray:
     """Return where the signal bar had to close, in whichever of the three touch modes is selected.
 
-    A close exactly on the average is a close *through* it: one sign multiplier means the long
-    and short arms have to be the same rule -- ``docs/nt8-fidelity.md`` §M34.
+    A close exactly on the average is a close *through* it -- ``docs/nt8-fidelity.md`` §M34.
     """
     if touch_mode == TOUCH_ANY:
         return np.ones(close.size, dtype=np.bool_)
@@ -414,8 +410,7 @@ def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crosso
         stop_offset_ticks=float(params.stop_offset_ticks),
         trail_ma_stop=params.trail_ma_stop,
         trail_offset_ticks=trail_offset_ticks,
-        # No round-number avoidance: an average is a statistic rather than a level the
-        # market traded at -- ``docs/nt8-fidelity.md`` §M34.
+        # No round-number avoidance on an average -- ``docs/nt8-fidelity.md`` §M34.
         round_number_points=0.0,
         round_number_offset_ticks=0.0,
         tp_multiplier=params.tp_multiplier,

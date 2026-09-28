@@ -1,12 +1,8 @@
 """Volume tests: the three forms, the bar-of-session baseline, and the entry filter.
 
-Two claims are pinned harder than the rest because their failures look like findings rather
-than like errors. **The baseline is per bar of session**, because a plain rolling average over
-adjacent bars marks every cash-open bar heavy and every overnight bar thin -- a table that
-reads as a discovery and is a clock. Every test of that states both halves: what this module
-does, and what the naive normalisation would have done instead. And **no bar contributes to
-its own baseline**, because a normalisation that reads the present is a lookahead that quietly
-flatters every stratification taken through it.
+Two claims are pinned hardest, because their failures look like findings: **the baseline is
+per bar of session**, and **no bar contributes to its own baseline** -- ``docs/roadmap.md``
+§M10.2.
 """
 
 import numpy as np
@@ -139,11 +135,9 @@ def test_an_unknown_form_names_the_ones_that_exist() -> None:
 
 
 def test_a_pure_time_of_day_shape_produces_no_state_at_all() -> None:
-    """The claim the module exists for, with the failure it prevents stated beside it.
+    """Volume that depends only on the bar of session is NORMAL everywhere against its baseline.
 
-    Volume here is a function of the bar of session and of nothing else, so **nothing is
-    unusual anywhere**. Against the bar-of-session baseline every measured bar is NORMAL;
-    against a trailing average of adjacent bars the same series manufactures both extremes.
+    Against a trailing average of adjacent bars the same series manufactures both extremes.
     """
     index = stamps(35)
     counts = hump(index)
@@ -240,9 +234,7 @@ def test_a_bar_in_no_session_gets_no_baseline() -> None:
 def test_a_step_in_absolute_volume_washes_out_of_the_baseline_after_the_window() -> None:
     """What a contract roll does. Prices are back-adjusted; volume is not, and should not be.
 
-    The step is real and belongs in the absolute series. It reaches relative volume for the
-    length of the baseline window and then leaves, which is why a discontinuity there is
-    dated by the roll rather than by the market.
+    The step reaches relative volume for the length of the baseline window and then leaves.
     """
     index = stamps(60)
     trading_day, in_session, bar_of_session = clock(index)
@@ -298,9 +290,8 @@ def test_relative_volume_is_invariant_to_the_scale_of_the_root() -> None:
 def test_a_secular_trend_moves_the_absolute_series_and_barely_moves_the_relative_one() -> None:
     """Absolute volume carries *when in history* a bar happened; relative volume removes it.
 
-    That is the cross-check absolute is kept for and the reason only relative is filtered on.
-    The removal is not perfect and the residual is worth stating: a trailing median lags a
-    rising trend, so the whole relative series sits above 1 rather than scattering about it.
+    The removal is not perfect: a trailing median lags a rising trend, so the whole relative
+    series sits above 1.
     """
     index = stamps(60)
     _, in_session, _ = clock(index)

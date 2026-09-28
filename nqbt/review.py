@@ -1,20 +1,10 @@
 """Realised P&L, stratified by what was true when each trade was taken.
 
-The review's question is **which trades worked, and what was true when they did**. Every number
-here is a :class:`nqbt.stats.Summary` field computed over a subset of one trade log, so nothing
-in this module defines a statistic: it reads an :class:`nqbt.annotate.Annotation`, groups the
-trades by one condition at a time, and ranks the conditions by how far apart their strata sit.
-
-**Time of day is the headline**, reported before anything else and paired with both forms of
-volume so that "this hour is always busy" and "this hour was unusually busy" are separable. The
-final phase holds the forced flat, which makes a poor result there an artefact rather than a
-finding until the two are told apart -- ``docs/roadmap.md`` §M11.3.
-
-**Every output is hypothesis-generating, not confirmatory.** A few hundred trades against a few
-dozen conditions is a multiple-comparisons machine; the minimum stratum here is one third of the
-guard, and :mod:`nqbt.guard` is the shuffled-label null and the holdout that finish it.
-:data:`STATUS` says so in the report itself, because a separation read without that sentence is
-the failure mode.
+Every number is a :class:`nqbt.stats.Summary` field computed over a subset of one trade log:
+this reads an :class:`nqbt.annotate.Annotation`, groups the trades by one condition at a time,
+and ranks the conditions by how far apart their strata sit. Time of day is reported first,
+beside both forms of volume. Every output is hypothesis-generating, which :data:`STATUS` states
+in the report -- ``docs/roadmap.md`` §M11.3.
 """
 
 from __future__ import annotations
@@ -57,8 +47,7 @@ __all__ = [
 MIN_TRADES = 30
 """Fewest trades a stratum needs before it is ranked, the floor ``sweep.rank`` already enforces.
 
-The smallest samples produce the most extreme statistics, so without a floor they lead every
-ranking. A stratum under it is still reported, and marked.
+A stratum under it is still reported, and marked.
 """
 
 MIN_STRATA = 2
@@ -108,10 +97,8 @@ FORCED_EXIT_NOTE = (
 _PLACEHOLDERS = {"bars_held": 0, "ambiguous_bar": False}
 """What an absent column holds while :func:`nqbt.stats.summarise` runs over it.
 
-``summarise`` refuses a nullable column rather than reporting a figure nobody measured, which is
-correct and would otherwise also cost the statistics that column does *not* feed. Every field an
-absent column does feed is dropped by name before a row is built, so **no placeholder ever
-reaches a reported number** -- ``docs/roadmap.md`` §M11.3.
+Every field an absent column feeds is dropped by name before a row is built, so no placeholder
+reaches a reported number -- ``docs/roadmap.md`` §M11.3.
 """
 
 _NEEDED = (
@@ -271,10 +258,8 @@ def by_outcome(
     """Return one row per outcome, with the mean and median of one numeric condition over its trades.
 
     The stratification read backwards: "winners averaged 3.2 of these five" rather than "trades
-    with three of five returned X". **The forward direction is the stronger one** -- it can show
-    whether the relationship is monotone, and a difference in means cannot -- so read
-    :func:`stratify` first and this beside it. ``docs/roadmap.md`` § "Counting the confluence a
-    trade actually had".
+    with three of five returned X". Read :func:`stratify` first -- ``docs/roadmap.md``
+    § "Counting the confluence a trade actually had".
 
     A trade's outcome is the sign of its legs' summed net P&L, so a scale-out that took a
     target and then stopped out is one trade, not two.
@@ -338,9 +323,7 @@ def time_of_day(
     """Break realised P&L down by session phase, in session order, with both forms of volume beside it.
 
     Relative volume answers *was this unusual for the time of day* and absolute volume answers
-    *was there anything here to trade at all*; the pair is what separates an hour that is always
-    busy from one that was unusually busy. Reported first because it is the stratification most
-    likely to show real structure in a discretionary record -- ``docs/roadmap.md`` §M11.3.
+    *was there anything here to trade at all* -- ``docs/roadmap.md`` §M11.3.
     """
     legs, reviewable, omitted = _prepare(log, annotation, unpopulated)
     if PHASE_COLUMN not in reviewable.columns:
@@ -356,9 +339,8 @@ def time_of_day(
 def stratifiable(frame: pd.DataFrame, conditions: Sequence[str]) -> tuple[str, ...]:
     """Pick the conditions of ``frame`` that are a stratification rather than a list of trades.
 
-    A raw series is excluded rather than bucketed here: where to cut it is the review's most
-    consequential choice, and :class:`nqbt.annotate.LabelThresholds` is where a review states the
-    cut it tested -- ``docs/roadmap.md`` §M11.3.
+    A raw series is excluded rather than bucketed; :class:`nqbt.annotate.LabelThresholds` is where
+    a review states the cut it tested -- ``docs/roadmap.md`` §M11.3.
     """
     return tuple(name for name in conditions if _is_stratifiable(frame[name]))
 
@@ -366,10 +348,8 @@ def stratifiable(frame: pd.DataFrame, conditions: Sequence[str]) -> tuple[str, .
 def rank_conditions(strata: pd.DataFrame, *, by: str = "expectancy") -> pd.DataFrame:
     """Order the conditions by how far ``by`` separates the strata that met the minimum.
 
-    The separation is the range across ranked strata: the widest gap the condition produced, and
-    therefore the quantity a hypothesis would be drawn from and the one :func:`nqbt.guard.screen`
-    shuffles the labels against. **A wide separation is a candidate, not a finding** --
-    :data:`STATUS`.
+    The separation is the range across ranked strata, the quantity :func:`nqbt.guard.screen`
+    shuffles the labels against. A wide separation is a candidate, not a finding.
     """
     if strata.empty:
         return pd.DataFrame(columns=list(RANKING_COLUMNS))
@@ -608,11 +588,7 @@ def _time_of_day(
 
 
 def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.DataFrame:
-    """Return median absolute and relative volume per phase: what is normal here, and what was not.
-
-    The absolute figure alone cannot say whether a busy hour was unusually busy, and the relative
-    figure alone cannot say whether there was anything there to trade.
-    """
+    """Return median absolute and relative volume per phase: what is normal here, and what was not."""
     columns: list[str] = _volume_columns(reviewable)
     if not columns:
         return pd.DataFrame(index=phases)
@@ -639,8 +615,8 @@ def _forced_exit_share(
 ) -> pd.Series[float]:
     """Return the share of each phase's leg exits taken by the clock rather than by the strategy's own rules.
 
-    What separates "this hour trades badly" from "this hour's trades were closed by the clock",
-    which the final phase demands by construction -- :data:`FORCED_EXIT_NOTE`.
+    What separates "this hour trades badly" from "this hour's trades were closed by the clock"
+    -- :data:`FORCED_EXIT_NOTE`.
     """
     per_leg: pd.Series[float] = legs["trade_id"].map(reviewable[PHASE_COLUMN])
     closed: pd.Series[bool] = legs["exit_reason"] == stats.SESSION_CLOSE

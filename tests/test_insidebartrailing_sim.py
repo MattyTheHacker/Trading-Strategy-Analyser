@@ -1,11 +1,8 @@
 """InsideBarTrailing simulation tests on hand-built bars.
 
-Diffed leg-for-leg against an MNQ 03-24 Strategy Analyzer export, which **overturned three of
-the four rules the port had to infer** -- ``docs/nt8-fidelity.md``, "Reconciliation result --
-InsideBarTrailing". The tests that pin those three name the measurement, because each was
-plausible in both directions until the trade list decided.
-
-Prices are kept small and round so the arithmetic is checkable by eye.
+The rules the trade list settled are pinned here; the measurements that settled them are in
+``docs/nt8-fidelity.md``, "Reconciliation result -- InsideBarTrailing". Prices are kept small
+and round so the arithmetic is checkable by eye.
 """
 
 import numpy as np
@@ -69,10 +66,9 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
 ):
     """Simulate hand-written OHLC rows.
 
-    ``ema`` and ``fast_sma`` take a scalar or a per-bar sequence and default equal, which is the
-    one relationship the trend-violation exit never fires on for either side. ``loss_gate``
-    defaults **off**, unlike the NinjaScript's $200, so a test about the trend violation does
-    not also have to engineer a large loss; the gate has its own tests below.
+    ``ema`` and ``fast_sma`` take a scalar or a per-bar sequence and default equal, which the
+    trend-violation exit never fires on for either side. ``loss_gate`` defaults off, unlike the
+    NinjaScript's $200; the gate has its own tests below.
     """
     arr = np.asarray(rows, dtype=np.float64)
     o, h, low, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -153,9 +149,8 @@ VIOLATED_AT_THE_CHANGE = [0.0] * 2 + [-1.0] * 10
 def test_one_entry_becomes_two_lots_with_their_own_exit_engines() -> None:
     """``EnterLong`` twice, ``entry1`` bracketed and ``entry2`` trailing.
 
-    The whole point of the archetype: one position, two independent brackets, so a leg log
-    carries two rows per trade rather than the one ``InsideBar.cs`` produces. The export agrees
-    -- 13,043 ``entry1`` rows and 13,043 ``entry2`` rows, at 4 and 2 contracts.
+    One position, two independent brackets, so a leg log carries two rows per trade rather than
+    the one ``InsideBar.cs`` produces -- ``docs/nt8-fidelity.md`` §M23.
     """
     trades = run(QUIET, signal_at=[1])
     assert list(trades["leg"]) == [1, 2]
@@ -228,13 +223,7 @@ def test_the_trail_is_anchored_to_the_inside_bar_not_the_signal_bar() -> None:
 
 
 def test_the_trail_advances_on_the_entry_bar_and_can_be_hit_there() -> None:
-    """**Measured.** The entry bar is the one bar the trail follows within.
-
-    ``SetTrailStop`` is submitted *during* that bar rather than resting from its open, and the
-    export shows it acting on the bar's own extreme: 22 of the 24 legs that still disagreed
-    before this rule were NT8 stopping out on the entry bar. Adding it took the reconciliation
-    from 98.42% to **99.80%** -- ``docs/nt8-fidelity.md`` §M23.
-    """
+    """The entry bar is the one bar the trail follows within -- ``docs/nt8-fidelity.md`` §M23."""
     trades = run(QUIET, signal_at=[1], trail_multiplier=1.0)
     runner = trades[trades["leg"] == 2].iloc[0]
     # Entry at 100.0 and the entry bar's high 100.5, so the trail advances to 99.5 and the
@@ -245,12 +234,10 @@ def test_the_trail_advances_on_the_entry_bar_and_can_be_hit_there() -> None:
 
 
 def test_after_the_entry_bar_the_trail_cannot_be_hit_on_the_bar_that_advanced_it() -> None:
-    """**Measured, and the opposite reading is worse.** A resting trail is bar-close cadence.
+    """A resting trail advances at the bar close, not within the bar -- ``docs/nt8-fidelity.md`` §M23.
 
     Bar 3 makes a new high *and* trades below where that new high would put the stop, but not
-    below the level standing when the bar opened. Advancing it within the bar here as well --
-    which is what the entry bar does -- drops the reconciliation from 99.80% to 94.04%, so the
-    two cases genuinely differ. ``docs/nt8-fidelity.md`` §M23.
+    below the level standing when the bar opened.
     """
     rows = [
         FLAT,  # 0: inside bar, range 1.0
@@ -316,8 +303,8 @@ def test_the_trail_stays_off_the_grid_when_rounding_is_switched_off() -> None:
 def test_an_inside_bar_with_no_range_leaves_the_runner_unprotected_and_is_refused() -> None:
     """The submittability rule applied to the trail: a zero-distance stop is not a stop.
 
-    What NT8 does with ``SetTrailStop(..., 0, false)`` is still unobserved -- the export has no
-    such trade -- so the port refuses the entry rather than running an unprotected lot.
+    What NT8 does with ``SetTrailStop(..., 0, false)`` is unobserved, so the port refuses the
+    entry rather than running an unprotected lot.
     """
     rows = [
         (100.0, 100.0, 100.0, 100.0),  # 0: the inside bar, no range at all
@@ -341,17 +328,13 @@ def test_an_entry_whose_fixed_stop_is_already_through_the_fill_is_still_skipped(
 
 # -- the trend-violation exit, the second EXIT_SIGNAL consumer ------------------
 
-# `OnPositionUpdate` fires on **position changes**, and the export settled what that reaches:
-# all 303 of NT8's trend-violation exits left at the same bar and the same price as the
-# trailing lot's stop that triggered them.
+# `OnPositionUpdate` fires on position changes -- ``docs/nt8-fidelity.md`` §M23.
 
 
 def test_one_lot_leaving_flattens_the_other_at_that_same_fill() -> None:
-    """The reachable path, and the only one the export contains.
+    """The remaining lot leaves at the price and bar the triggering exit filled at, not at the next open.
 
-    Not a fresh market order on the next bar: NT8 closed the remaining lot at **the price and
-    bar the triggering exit filled at**, on every one of the 303 -- ``docs/nt8-fidelity.md``
-    §M23. Reading it as a next-bar market order costs 12 legs of the reconciliation.
+    ``docs/nt8-fidelity.md`` §M23.
     """
     trades = run(PARTIAL, signal_at=[1], ema=VIOLATED_AT_THE_CHANGE, trail_multiplier=4.0)
     runner = trades[trades["leg"] == 2].iloc[0]
@@ -363,22 +346,17 @@ def test_one_lot_leaving_flattens_the_other_at_that_same_fill() -> None:
 
 
 def test_nothing_leaving_means_no_position_change_to_check() -> None:
-    """The cadence trap. A per-bar check is a **different strategy**.
+    """The trend violation is checked on a position change, never per bar.
 
     The averages cross against the position at bar 4 with nothing entering or leaving, and
-    nothing happens. This is the test that fails first if the port is ever "fixed" into a
-    per-bar check.
+    nothing happens.
     """
     trades = run(QUIET, signal_at=[1], ema=[0.0] * 4 + [-1.0] * 4)
     assert set(trades["exit_reason"]) == {"end_of_data"}
 
 
 def test_the_entry_fill_alone_cannot_fire_it() -> None:
-    """The entry is a position change, but nothing has left for the exit to fill alongside.
-
-    The port fired here before the export was read, which is where three quarters of its 340
-    spurious signal exits came from -- against NT8's 12 in the same window.
-    """
+    """The entry is a position change, but nothing has left for the exit to fill alongside."""
     trades = run(QUIET, signal_at=[1], ema=[-1.0] * 8)
     assert set(trades["exit_reason"]) == {"end_of_data"}
 
@@ -421,10 +399,9 @@ def test_the_violation_mirrors_onto_a_short() -> None:
 
 
 def test_the_gate_above_both_branches_holds_a_position_that_is_not_far_enough_down() -> None:
-    """``if (GetUnrealizedProfitLoss(...) > -200) return;`` sits above the trend check too.
+    """``if (GetUnrealizedProfitLoss(...) > -200) return;`` gates the trend check too.
 
-    Reading it as belonging to the dead max-loss branch beneath it is what produced 340 signal
-    exits against NT8's 12. It is the single largest correction the export made.
+    ``docs/nt8-fidelity.md`` §M23.
     """
     kwargs = {"signal_at": [1], "ema": VIOLATED_AT_THE_CHANGE, "trail_multiplier": 4.0}
     assert "signal" in set(run(PARTIAL, loss_gate=0.0, **kwargs)["exit_reason"])
@@ -445,11 +422,7 @@ GATE_SCALE = [
 
 
 def test_the_gate_is_account_currency_so_it_binds_differently_on_the_two_roots() -> None:
-    """A currency threshold with no scaling behind it: ten times the exposure on NQ.
-
-    The hazard the NinjaScript's hardcoded ``-200`` carries, and the reason it has to reach
-    ``instruments.py`` rather than being compared against points.
-    """
+    """The ``-200`` gate is currency, so it is reached by a tenth of the move on NQ that MNQ needs."""
     kwargs = {
         "signal_at": [1],
         "ema": [0.0] * 3 + [-1.0] * 10,
@@ -514,8 +487,8 @@ def test_a_signal_while_already_in_a_position_does_not_pyramid() -> None:
 def test_the_buffer_overflowing_is_reported_rather_than_written_past(kwargs, path) -> None:
     """Two lots per trade, so a buffer sized for one leg overflows on whichever exit fires.
 
-    Every path that writes a leg has to report the overflow rather than silently drop the
-    second lot, which is why this is parametrised over all four rather than over the easiest.
+    Every path that writes a leg reports the overflow rather than silently dropping the second
+    lot.
     """
     rows = kwargs.pop("rows", QUIET)
     count, _ = simulate(rows, signal_at=[1], max_rows=1, **kwargs)
@@ -536,10 +509,9 @@ def test_the_defaults_are_not_insidebars_and_the_difference_is_not_cosmetic() ->
 
 
 def test_the_max_loss_branch_is_dead_and_may_not_be_switched_on() -> None:
-    """``MaximumLossPerTrade`` defaults to 0 and its own branch requires it > 0.
+    """``MaximumLossPerTrade`` defaults to 0 and its own branch requires it > 0, so it is refused.
 
-    The export confirms it: not one ``Exit Long/Short Max Loss`` row in 26,086. Enabling it
-    means a currency amount, which has to go through ``instruments.py`` first.
+    ``docs/nt8-fidelity.md`` §M23.
     """
     assert InsideBarTrailingParams().maximum_loss_per_trade == 0.0
     with pytest.raises(ValueError, match="unreachable in the NinjaScript"):
@@ -625,12 +597,7 @@ BREAKOUT = [
 
 
 def test_the_entry_is_insidebars_and_not_a_second_copy_of_it() -> None:
-    """One entry rule, two sets of defaults -- the reason the params class subclasses.
-
-    Given the same values for every field the entry reads, the two archetypes must produce the
-    same signal array bar for bar; a forked entry would drift silently. The export's 100.00%
-    entry-price agreement is the same claim measured against NT8.
-    """
+    """Given the same entry fields, InsideBar and InsideBarTrailing produce the same signal array."""
     trailing = signalling(error_margin=0.01, no_entry_minutes_before_close=60)
     plain = InsideBarParams(
         ema_period=2,
@@ -683,11 +650,7 @@ def test_the_archetype_is_registered_and_carries_its_reconciliation() -> None:
 
 
 def test_the_split_lot_axes_are_sweepable_despite_being_inherited() -> None:
-    """``sweepable`` reads ``dataclasses.fields()``, which is what makes a subclass safe.
-
-    ``__slots__`` holds only the fields declared on the class itself, so reading it would drop
-    every axis InsideBarTrailing inherits -- see #60.
-    """
+    """``sweepable`` includes every axis InsideBarTrailing inherits (#60)."""
     axes = archetypes.INSIDEBARTRAILING.sweepable
     assert {"trailing_stop_multiplier", "partial_take_profit_percentage"} <= axes
     assert {"error_margin", "atr_multiplier", "phase_filter"} <= axes

@@ -125,8 +125,7 @@ def test_rerunning_an_unchanged_merge_is_byte_identical(dirs) -> None:
 def test_sources_that_disagree_do_not_report_churn_on_a_repeat_merge(dirs) -> None:
     manual, addon, arch = dirs
     # The sources hold different volumes for the same bar, so every merge has the earlier
-    # source overwrite and the later one overwrite back. Counting those intermediate
-    # writes made an idempotent merge report 11 contracts "changed" against real data.
+    # source overwrite and the later one overwrite back; those intermediate writes are not changes.
     theirs = "20240308 213100;18001.00;18003.25;18000.75;18002.50;77"
     write(manual / "MNQ 03-24.Last.txt", BASE)
     write(addon / "MNQ 03-24.Last.txt", [BASE[0], theirs, BASE[2]])

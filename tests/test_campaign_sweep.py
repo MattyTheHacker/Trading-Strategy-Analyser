@@ -1,10 +1,8 @@
 """What the registry-wide campaign's plan claims, pinned.
 
-The sweeps themselves are not exercised here -- they need ``cache/continuous`` and take about
-an hour and a half. What is testable without data is the shape of the plan, which is where a
-silent mistake would live: a stratum that filters two dimensions at once, a variant whose grid
-cannot be built, a root whose commission is the other root's, or two archetypes pointed at one
-database.
+The sweeps themselves need ``cache/continuous`` and are not exercised here; the shape of the
+plan is: a stratum that filters two dimensions at once, a variant whose grid cannot be built, a
+root whose commission is the other root's, or two archetypes pointed at one database.
 """
 
 from __future__ import annotations
@@ -706,8 +704,8 @@ def test_a_volume_form_cell_names_the_series_and_the_cut_it_reads() -> None:
 def test_the_rolling_window_is_set_only_under_the_form_that_reads_it() -> None:
     """A cross of form x window would run duplicate combinations that ``dead_axes`` cannot see.
 
-    It knows one inert value per toggle and this axis is inert at two forms --
-    ``.claude/rules/sweep-and-context.md``.
+    It knows one inert value per toggle and this axis is inert at two forms -- ``docs/roadmap.md``
+    §M10.2.
     """
     for name, extra in strata(VOLUME_FORMS):
         rolling = "@rolling_" in name
@@ -1026,8 +1024,8 @@ def test_the_opening_ranges_re_sweep_states_its_strata_before_it_runs() -> None:
 
 
 def test_the_re_sweep_drops_the_atr_stop_and_keeps_the_one_that_worked() -> None:
-    """§M28.1's deferral: 0 of 10 cells and half the runtime, against a fraction axis whose
-    top value reproduces the opposite-extreme stop exactly."""
+    """§M28.1's deferral: dropped for a fraction axis whose top value reproduces the
+    opposite-extreme stop exactly."""
     variants = ORB_VARIANTS["OpeningRange"]("MNQ")
 
     assert {variant.base.stop_mode for variant in variants} == {ORB_STOP_FRACTION}
@@ -1602,9 +1600,8 @@ def test_the_control_and_the_treatment_differ_by_the_shape_alone() -> None:
 
 
 def test_the_volume_run_holds_the_three_axes_the_shape_campaign_spent() -> None:
-    """§M26.5 measured ``min_one_sided_bars``'s low end as a dead value and its high end as a
-    cost, the reversal shape as making ``min_bars_outside`` a duplicate on 82.7% of cells, and
-    the target ladder's η² on the held-out profit factor as 0.0000."""
+    """The axes §M26.5 measured as dead or as duplicates are narrowed -- ``docs/roadmap.md``
+    §M26.5."""
     for variant in volume_variants():
         assert "min_one_sided_bars" not in variant.axes
         assert "min_bars_outside" not in variant.axes
@@ -1852,9 +1849,8 @@ def test_every_recovery_arm_differs_from_the_control_by_the_entry_alone() -> Non
 
 
 def test_the_recovery_run_keeps_the_run_length_the_shapes_made_a_duplicate() -> None:
-    """§M26.5 measured ``min_bars_outside`` as inert under ``reclaim`` on 100% of cells and
-    under ``reversal`` on 82.7%. The recovery trigger reads the run at the bar *before* the
-    signal, so it is the one entry here under which the axis is live."""
+    """The recovery trigger reads the run at the bar *before* the signal, so it is the one entry
+    under which ``min_bars_outside`` is live -- ``docs/roadmap.md`` §M26.6."""
     for variant in recovery_variants():
         assert variant.axes["min_bars_outside"] == [1, 2]
 
@@ -1868,8 +1864,8 @@ def test_the_recovery_run_drops_the_axis_the_shape_campaign_measured_as_dead() -
 
 
 def test_every_recovery_depth_is_inside_the_band_and_the_loosest_is_its_edge() -> None:
-    """A depth of 1.0 is the band edge itself; 0.5 was measured at 140 signals in 1.66M MNQ
-    bars and left out, which is the engulfing mode's failure -- ``docs/roadmap.md`` §M26.6."""
+    """A depth of 1.0 is the band edge itself; 0.5 is left out as near-empty --
+    ``docs/roadmap.md`` §M26.6."""
     depths = {depth for trigger, _, depth in ELASTIC_RECOVERY_ARMS.values() if trigger == TRIGGER_RECOVERY}
 
     assert depths == {1.0, 0.9, 0.75}

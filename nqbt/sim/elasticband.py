@@ -1,12 +1,8 @@
-"""ElasticBand archetype: fade an extension, target the middle. The first mean reversion here.
+"""ElasticBand archetype: fade an extension and target the middle.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
-written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M26 names the NinjaScript each
-would become, and ``docs/roadmap.md`` §M26 carries the design and the three exit schemes.
-
-The entry is EmaCrossover's mechanism -- market on the next open, no trigger price -- and the
-geometry is the inverted one: **the target is a level rather than an R multiple**, so
-``r_multiple`` here compares with nothing else in the registry.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md`` §M26.
+The design and the three exit schemes: ``docs/roadmap.md`` §M26. A market entry at the next
+open whose targets are band levels, so its ``r_multiple`` compares with no other archetype's.
 """
 
 from __future__ import annotations
@@ -52,8 +48,7 @@ Numba needs an array of the right dtype whether or not the branch reading it run
 class BandSeries(NamedTuple):
     """The derived per-bar series this archetype reads, beyond the OHLC in :class:`bracket.Bars`.
 
-    Held together so one bar's band cannot be read against another's, and so the jitted loop
-    takes a blob rather than a positional list -- ``docs/roadmap.md`` §M20c.
+    Held together so one bar's band cannot be read against another's.
     """
 
     basis: FloatArray
@@ -128,8 +123,7 @@ def _protective_stop(
     """Return where the protective stop goes, in whichever of the five schemes is selected.
 
     All five read the **signal** bar and the bars before it, never the bar the fill happens
-    on. Only :data:`STOP_ATR` is floored, because only it is a distance rather than a level --
-    ``docs/nt8-fidelity.md`` §M26.
+    on. Only :data:`STOP_ATR` is floored -- ``docs/nt8-fidelity.md`` §M26.
     """
     if rules.stop_mode == STOP_SWING:
         return bracket.swing_stop(bars, signal_bar, rules.swing_lookback, rules.stop_offset, direction)
@@ -167,8 +161,7 @@ def _leg_target(
     """Return one leg's target price, in whichever coordinate its mode expresses it.
 
     A stretch level is a position on the band, signed towards the target, so ``0.0`` is the
-    basis for both sides. An R multiple is a distance from the fill, **capped at the basis** --
-    a target past the mean is not a mean-reversion target.
+    basis for both sides. An R multiple is a distance from the fill, capped at the basis.
     """
     if rules.target_mode == TARGET_STRETCH:
         return basis + direction * level * stddev
@@ -325,8 +318,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
 
         # ---- close of bar i: schedule the next bar's orders --------------------------
         if in_position and rules.exit_on_invalidation and d * (bars.close[i] - entry_extreme) < 0.0:
-            # The close went further than the excursion the trade faded: the range broke and
-            # held, which is the mean-reversion definition of being wrong.
+            # The close went further than the excursion the trade faded.
             pending_exit = True
             pending_exit_reason = trades.EXIT_SIGNAL
 
@@ -413,8 +405,7 @@ def vwap_band_warmed_up(data: Dataset, params: ElasticBandParams) -> BoolArray:
 def fade_direction(stretch: FloatArray) -> FloatArray:
     """Return which side a bar would be faded on: ``LONG`` below the basis, ``SHORT`` at or above it.
 
-    Defined on **every** bar rather than only on signal bars, so the random-entry arm can drop
-    a signal anywhere and still know which way the trade would have been taken.
+    Defined on every bar, so the random-entry arm can drop a signal anywhere.
     """
     return np.where(stretch < 0.0, trades.LONG, trades.SHORT).astype(np.float64)
 
@@ -428,8 +419,7 @@ def returned_inside(stretch: FloatArray, params: ElasticBandParams) -> BoolArray
     """Flag bars whose close came back inside the band and stayed on the side it stretched to.
 
     ``recovery_fraction`` of ``1.0`` is the band edge itself and anything less is a depth. A
-    close exactly on the basis passes on neither side, which is the symmetry one sign
-    multiplier asks for -- ``docs/nt8-fidelity.md`` §M26.6.
+    close exactly on the basis passes on neither side -- ``docs/nt8-fidelity.md`` §M26.6.
     """
     distance: FloatArray = np.abs(stretch)
     depth: float = params.recovery_fraction * params.entry_std
@@ -456,9 +446,8 @@ def outside_run_length(outside: BoolArray, *, ends_before: bool) -> IntArray:
 def swept_and_reclaimed(data: Dataset, direction: FloatArray) -> BoolArray:
     """Flag bars that took out the previous bar's extreme against the fade and closed back past it.
 
-    The sweep-and-recovery shape rather than a body that happened to turn, which is what makes
-    it a failed break of the level -- ``docs/roadmap.md`` §M26.5. The extreme is
-    :class:`nqbt.conditions.BarGeometry`'s, already built for every dataset.
+    A failed break of the level -- ``docs/roadmap.md`` §M26.5. The extreme is
+    :class:`nqbt.conditions.BarGeometry`'s.
     """
     swept: BoolArray = np.where(
         direction > 0.0,
@@ -488,8 +477,7 @@ def closed_off_extreme(data: Dataset, direction: FloatArray, fraction: float) ->
 def signal_bar_shape(data: Dataset, direction: FloatArray, params: ElasticBandParams) -> BoolArray:
     """Return which bars pass the candle requirement :attr:`ElasticBandParams.signal_shape` names.
 
-    All-true at :data:`SHAPE_ANY`, the one value that reads nothing off the bar at all --
-    which is why :func:`elasticband_signal` skips the conjunction there rather than ANDing it.
+    All-true at :data:`SHAPE_ANY`, where :func:`elasticband_signal` skips the conjunction.
     """
     if params.signal_shape == SHAPE_REVERSAL:
         return conditions.closed_towards(data.open, data.close, direction)

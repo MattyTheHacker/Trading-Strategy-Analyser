@@ -1,7 +1,6 @@
-"""Parameter sets for the simulated archetypes.
+"""Parameter sets for the simulated archetypes -- ``nqbt/README.md`` § "sim/types.py".
 
-The trade-record layout these produce lives in :mod:`nqbt.trades`, which is shared with
-the manual-trade importer and knows nothing about strategies.
+The trade-record layout these produce lives in :mod:`nqbt.trades`.
 """
 
 from __future__ import annotations
@@ -27,9 +26,8 @@ from nqbt import (
 class ContextFilterParams(Protocol):
     """The six context filters and every field behind them, as one shape.
 
-    Structural so that :func:`validate_context_filters` is one definition rather than a copy
-    per parameter class. Narrower than :class:`nqbt.sim.filters.ContextFiltered`, which
-    describes what the *signal* reads; this describes what has to be checked.
+    What has to be checked, where :class:`nqbt.sim.filters.ContextFiltered` is what the signal
+    reads.
     """
 
     phase_filter: int
@@ -60,11 +58,7 @@ class ContextFilterParams(Protocol):
 
 
 def validate_context_filters(params: ContextFilterParams) -> None:
-    """Check every shared context-filter field, raising on the first that is out of range.
-
-    The sub-fields are checked **whatever their filter admits**, so a nonsense window or
-    resolution cannot ride along inertly until a sweep turns its filter on.
-    """
+    """Check every shared context-filter field, whatever its filter admits, raising on the first bad one."""
     timeofday.validate_mask(params.phase_filter)
     regime.validate_mask(params.regime_filter)
     regime.validate_lookback(params.regime_lookback)
@@ -95,20 +89,12 @@ MIN_CONFLUENCE_FILTERS = 2
 """Fewest active context filters a confluence count can mean anything against."""
 
 REQUIRE_ALL = 0
-"""The confluence count meaning "every active context filter must pass", which is the AND
-:func:`nqbt.sim.filters.apply_context_filters` has always applied.
-
-Zero rather than the number of gates, because how many are active is a property of the
-combination and a rule set has to be able to say "all of them" without knowing it.
-"""
+"""The confluence count meaning "every active context filter must pass" -- the plain AND
+:func:`nqbt.sim.filters.apply_context_filters` applies."""
 
 
 def active_context_filters(params: ContextFilterParams) -> int:
-    """Count how many of the six context filters this combination actually restricts anything with.
-
-    What a confluence count is measured against, and the reason it can be validated at
-    construction: a rule set knows how many gates it switched on.
-    """
+    """Count how many of the six context filters this combination actually restricts anything with."""
     return sum(
         (
             params.phase_filter != timeofday.ALL_PHASES,
@@ -124,10 +110,8 @@ def active_context_filters(params: ContextFilterParams) -> int:
 def validate_confluence(params: ContextFilterParams, required: int) -> None:
     """Refuse a confluence count that is impossible, or that is the plain conjunction again.
 
-    ``REQUIRE_ALL`` is the conjunction and always legal. Anything from the number of active
-    gates upwards *is* that conjunction, or narrower than any bar can satisfy, and both are
-    silent duplicates of a combination the sweep already runs -- the shape ``dead_axes``
-    cannot see. ``docs/roadmap.md`` § "The build spec's three loose ends".
+    ``REQUIRE_ALL`` is always legal; a count from the number of active gates upwards is refused
+    -- ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     if required == REQUIRE_ALL:
         return
@@ -162,9 +146,7 @@ def validate_max_hold_bars(max_hold_bars: int) -> None:
 class DeadCatParams:
     """Rule set for the DeadCatBounce archetype.
 
-    Mirrors the NinjaScript's properties: booleans switch filters on and off, numbers set
-    periods and sizes. Defaults are exactly the NT8 ``SetDefaults`` values so that an
-    unmodified instance reproduces the live strategy.
+    Mirrors the NinjaScript's properties, and the defaults are its ``SetDefaults`` values.
     """
 
     ema_period: int = 11
@@ -174,10 +156,8 @@ class DeadCatParams:
     ema_kind: str = "ema"
     slow_sma_kind: str = "sma"
     fast_sma_kind: str = "sma"
-    """Which average each gate is actually computed as -- one of
-    :data:`nqbt.conditions.MA_KINDS`. Absent from the NinjaScript, which hardcodes an ``EMA``
-    and two ``SMA``s; the gates keep their NinjaScript names so the C# and the Python can
-    still be diffed by eye -- ``docs/roadmap.md`` § "Moving-average kind as a swept axis"."""
+    """Which average each gate is computed as -- one of :data:`nqbt.conditions.MA_KINDS`.
+    Absent from the NinjaScript -- ``docs/roadmap.md`` § "Moving-average kind as a swept axis"."""
 
     order_quantity: int = 4
 
@@ -189,16 +169,12 @@ class DeadCatParams:
     require_new_high: bool = True
 
     phase_filter: int = timeofday.ALL_PHASES
-    """Which session phases an entry may be taken in, as a :mod:`nqbt.timeofday` bitmask.
-
-    Absent from the NinjaScript, and off by default. A bitmask integer rather than a tuple so
-    that it is a legal sweep axis -- ``docs/roadmap.md`` §M10.4."""
+    """Which session phases an entry may be taken in, as a :mod:`nqbt.timeofday` bitmask; off by
+    default. Every context filter is absent from the NinjaScript -- ``nqbt/README.md``
+    § "Context-filter fields"."""
 
     regime_filter: int = regime.ALL_REGIMES
-    """Which market regimes an entry may be taken in, as a :mod:`nqbt.regime` bitmask.
-
-    Absent from the NinjaScript, off by default, and a bitmask for the same reason
-    :attr:`phase_filter` is -- ``docs/roadmap.md`` §M10.1."""
+    """Which market regimes an entry may be taken in, as a :mod:`nqbt.regime` bitmask."""
 
     regime_lookback: int = 20
     """Bars the efficiency ratio measures over."""
@@ -206,22 +182,16 @@ class DeadCatParams:
     regime_consolidating_below: float = 0.3
     regime_directional_above: float = 0.5
     """Where the ratio is cut into the three regimes, both boundaries falling in the
-    unclassifiable band. Conventional starting points rather than measured ones, and inert
-    while :attr:`regime_filter` admits everything -- ``docs/roadmap.md`` §M10.1."""
+    unclassifiable band. Inert while :attr:`regime_filter` admits everything."""
 
     volume_filter: int = volume.ALL_STATES
-    """Which volume states an entry may be taken in, as a :mod:`nqbt.volume` bitmask.
-
-    Absent from the NinjaScript, off by default, and a bitmask for the same reason
-    :attr:`phase_filter` is. The states are cut from **relative** volume, never an absolute
-    count -- ``docs/roadmap.md`` §M10.2."""
+    """Which relative-volume states an entry may be taken in, as a :mod:`nqbt.volume` bitmask."""
 
     volume_form: int = int(volume.VolumeForm.PER_BAR)
     """Which absolute quantity the ratio is taken of -- see :class:`nqbt.volume.VolumeForm`."""
 
     volume_rolling_bars: int = 30
-    """Bars the :attr:`~nqbt.volume.VolumeForm.ROLLING` form sums over. Inert at every other
-    form, which ``dead_axes`` cannot see -- ``docs/roadmap.md`` §M10.2."""
+    """Bars the :attr:`~nqbt.volume.VolumeForm.ROLLING` form sums over; inert at every other form."""
 
     volume_baseline_sessions: int = 20
     """Prior sessions the bar-of-session baseline is the median of."""
@@ -229,21 +199,17 @@ class DeadCatParams:
     volume_thin_below: float = 0.7
     volume_heavy_above: float = 1.5
     """Where relative volume is cut into the three states, both boundaries falling in the
-    normal band. Conventional starting points rather than measured ones, and inert while
-    :attr:`volume_filter` admits everything -- ``docs/roadmap.md`` §M10.2."""
+    normal band. Inert while :attr:`volume_filter` admits everything."""
 
     compression_filter: int = compression.ALL_STATES
     """Which compression states an entry may be taken in, as a :mod:`nqbt.compression` bitmask.
-
-    Absent from the NinjaScript, off by default, and a bitmask for the same reason
-    :attr:`phase_filter` is. The states are cut from a **trailing rank**, never a raw width --
-    ``docs/roadmap.md`` §M19.1."""
+    The states are cut from a trailing rank, never a raw width."""
 
     compression_form: int = int(compression.CompressionForm.BANDWIDTH)
     """Which width measure the rank is taken of -- see :class:`nqbt.compression.CompressionForm`."""
 
     compression_period: int = 20
-    """Bars the width measure spans. Both forms read it, so it is inert under neither."""
+    """Bars the width measure spans. Both forms read it."""
 
     compression_baseline_bars: int = 250
     """Bars the rank is taken against, all strictly before the bar being ranked."""
@@ -251,15 +217,11 @@ class DeadCatParams:
     compression_compressed_below: float = 0.25
     compression_expanded_above: float = 0.75
     """Where the rank is cut into the three states, both boundaries falling in the normal band.
-    Quarters of a trailing window rather than measured points, and inert while
-    :attr:`compression_filter` admits everything -- ``docs/roadmap.md`` §M19.1."""
+    Inert while :attr:`compression_filter` admits everything."""
 
     trend_filter: int = trend.ALL_TRENDS
-    """Which trends an entry may be taken in, as a :mod:`nqbt.trend` bitmask.
-
-    Absent from the NinjaScript, off by default, and a bitmask for the same reason
-    :attr:`phase_filter` is. Its averages are its own rather than the gates' above, so the
-    label means the same thing across archetypes -- ``docs/roadmap.md`` §M10.3."""
+    """Which trends an entry may be taken in, as a :mod:`nqbt.trend` bitmask. Its averages are
+    its own rather than the gates' above."""
 
     trend_fast_period: int = 20
     trend_slow_period: int = 50
@@ -270,16 +232,12 @@ class DeadCatParams:
 
     trend_min_agreement: int = 3
     """How many of the three components must agree before a bar is UP or DOWN rather than
-    MIXED. ``3`` is unanimity, and inert while :attr:`trend_filter` admits everything --
-    ``docs/roadmap.md`` §M10.3."""
+    MIXED. ``3`` is unanimity, and inert while :attr:`trend_filter` admits everything."""
 
     higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
     """Which side of a coarse moving average an entry may be taken on, as a
-    :mod:`nqbt.higher_timeframe` bitmask.
-
-    Absent from the NinjaScript, off by default, and a bitmask for the same reason
-    :attr:`phase_filter` is. The average is stamped from the last **completed** coarse bar --
-    ``docs/roadmap.md`` § "Multi-timeframe moving averages"."""
+    :mod:`nqbt.higher_timeframe` bitmask. The average is stamped from the last completed coarse
+    bar."""
 
     higher_timeframe_minutes: int = 60
     """Minutes one coarse bar spans, anchored to the session open."""
@@ -307,8 +265,8 @@ class DeadCatParams:
     """How a bar holding both the stop and a target is resolved.
 
     ``1`` fills the level nearer the bar's open, reproducing NT8; ``0`` assumes a blanket
-    worst case, which is *more* pessimistic than NT8 rather than equal to it. Evidence:
-    ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer the open"."""
+    worst case -- ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer
+    the open"."""
 
     fill_limit_on_touch: bool = False
     """Whether a profit target fills when price merely reaches it.
@@ -321,11 +279,9 @@ class DeadCatParams:
     max_hold_bars: int = 0
     """Bars a position may be held before a market exit is submitted, off at ``0``.
 
-    Absent from the NinjaScript, off by default, and on top of the session flatten every
-    archetype already has. The count is bars *since* the entry bar and the order fills at the
-    next bar's open, so a leg's ``bars_held`` reaches ``max_hold_bars + 1``. It is a bar count
-    rather than a duration, so it means a different amount of time at every resolution --
-    ``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its own exit code"."""
+    Absent from the NinjaScript. Counted since the entry bar and filled at the next bar's open,
+    so a leg's ``bars_held`` reaches ``max_hold_bars + 1`` -- ``docs/nt8-fidelity.md``, "The
+    maximum hold time, and why it is its own exit code"."""
 
     ratchet_lag: int = 0
     """Which bar's high the trailing stop references at each bar close.
@@ -337,15 +293,15 @@ class DeadCatParams:
     """Per-leg profit targets in R. ``nan`` marks a runner with no target -- S4 in the
     NinjaScript, which exits only via the trailing stop or the session close."""
 
-    # -- costs, absent from the NinjaScript but required for an honest backtest --
+    # -- costs, absent from the NinjaScript --
     commission_per_contract: float = 0.0
     """Round-turn commission per contract, charged once per leg on exit."""
     slippage_ticks: float = 0.0
     """Adverse slippage on market and stop orders. Never applied to limit targets."""
 
-    # Off by default -- ``docs/nt8-fidelity.md``, "The reward-to-risk gate has no NinjaScript behind it".
     min_reward_risk: float = 0.0
-    """Pre-trade gate: skip the signal unless the furthest target clears this ratio."""
+    """Pre-trade gate: skip the signal unless the furthest target clears this ratio; off at ``0``
+    -- ``docs/nt8-fidelity.md``, "The reward-to-risk gate has no NinjaScript behind it"."""
 
     def __post_init__(self) -> None:
         if self.order_quantity < len(self.target_r_multiples):
@@ -414,9 +370,8 @@ class DeadCatParams:
 class PullBackAndGoParams:
     """Rule set for the PullBackAndGo archetype -- DeadCatBounce's long-side mirror.
 
-    Leaner than :class:`DeadCatParams` because ``PullBackAndGo.cs`` has fewer properties, and
-    **these defaults are the reconciled configuration rather than the NinjaScript's**, which
-    has none. Both points: ``docs/nt8-fidelity.md``, "Reconciliation result -- PullBackAndGo".
+    The defaults are the reconciled configuration rather than the NinjaScript's --
+    ``docs/nt8-fidelity.md``, "Reconciliation result -- PullBackAndGo".
     """
 
     ema_period: int = 21
@@ -426,10 +381,7 @@ class PullBackAndGoParams:
     ema_kind: str = "ema"
     slow_sma_kind: str = "sma"
     fast_sma_kind: str = "sma"
-    """Which average each gate is actually computed as -- one of
-    :data:`nqbt.conditions.MA_KINDS`. Absent from the NinjaScript, which hardcodes an ``EMA``
-    and two ``SMA``s; the gates keep their NinjaScript names so the C# and the Python can
-    still be diffed by eye -- ``docs/roadmap.md`` § "Moving-average kind as a swept axis"."""
+    """Which average each gate is computed as -- see :attr:`DeadCatParams.fast_sma_kind`."""
 
     order_quantity: int = 4
 
@@ -437,7 +389,8 @@ class PullBackAndGoParams:
     use_slow_sma: bool = True
     use_fast_sma: bool = True
     use_vwap: bool = False
-    """Off in the reconciled configuration, and deliberately so -- ``docs/nt8-fidelity.md``."""
+    """Off in the reconciled configuration -- ``docs/nt8-fidelity.md``, "Reconciliation result --
+    PullBackAndGo"."""
 
     require_previous_red: bool = True
     require_new_low: bool = True
@@ -599,32 +552,25 @@ class PullBackAndGoParams:
 
 
 STOP_MIN_TICKS = 1.0
-"""Fewest ticks a protective stop may sit from the fill, below which the entry is skipped.
-
-The stop-entry submittability rule applied to the protective stop, and reachable only for a
-market-on-next-open entry -- ``docs/nt8-fidelity.md`` §M18.
-"""
+"""Fewest ticks a protective stop may sit from the fill, below which the entry is skipped --
+``docs/nt8-fidelity.md`` §M18."""
 
 
 @dataclass(slots=True)
 class EmaCrossoverParams:
-    """Rule set for the EmaCrossover archetype -- the first original, with no NinjaScript.
+    """Rule set for the EmaCrossover archetype -- an original, with no NinjaScript.
 
-    **A known-negative control, not an edge candidate**: if it reads meaningfully better than
-    the random-entry arm, the first hypothesis is lookahead. Every rule it implements, and the
-    NinjaScript each would be written as: ``docs/nt8-fidelity.md`` §M18. The result it produced:
-    ``docs/roadmap.md`` §M18.
+    A known-negative control rather than an edge candidate. Its rules: ``docs/nt8-fidelity.md``
+    §M18. Its result: ``docs/roadmap.md`` §M18.
     """
 
     fast_period: int = 9
     slow_period: int = 21
-    """The two periods that cross. Rejected only when the kinds match too, because
-    ``ema(21)`` against ``sma(21)`` is a real cross."""
+    """The two periods that cross. Equal periods are rejected only when the kinds match too."""
 
     fast_kind: str = "ema"
     slow_kind: str = "ema"
-    """Which average each side is computed as -- one of :data:`nqbt.conditions.MA_KINDS`. The
-    archetype's name records what it was built as, not what it is limited to."""
+    """Which average each side is computed as -- one of :data:`nqbt.conditions.MA_KINDS`."""
 
     cross_lookback: int = 1
     """``n`` in ``CrossAbove(fast, slow, n)`` -- a cross within the last ``n`` bars counts."""
@@ -690,9 +636,8 @@ class EmaCrossoverParams:
     confluence_required: int = REQUIRE_ALL
     """How many of the active context filters an entry needs, rather than all of them.
 
-    The only archetype that reads it, so the other six keep the plain conjunction. Legal
-    values are :data:`REQUIRE_ALL` and ``1`` up to one below the number of filters this
-    combination switches on -- :func:`validate_confluence`."""
+    Read by this archetype alone. Legal values are :data:`REQUIRE_ALL` and ``1`` up to one below
+    the number of filters this combination switches on -- :func:`validate_confluence`."""
 
     exit_on_opposite_cross: bool = True
     """Close the position at the next bar's open when the regime flips.
@@ -705,8 +650,7 @@ class EmaCrossoverParams:
     use_atr_stop: bool = True
     """ATR-multiple stop when on, structural swing stop when off.
 
-    ``dead_axes`` can guard the ATR fields against this but not :attr:`swing_lookback` --
-    ``docs/roadmap.md`` §M17."""
+    ``dead_axes`` cannot guard :attr:`swing_lookback` against it -- ``docs/roadmap.md`` §M17."""
 
     atr_period: int = 14
     atr_stop_multiple: float = 2.0
@@ -715,39 +659,32 @@ class EmaCrossoverParams:
     min_bracket_dollars: float = 0.0
     """Floor on the ATR stop distance, in **dollars per contract**, off at ``0``.
 
-    In **dollars** rather than points because NQ and MNQ share a tick size and differ 10x in
-    tick value, so one point distance is two different amounts of money;
-    :meth:`nqbt.instruments.Instrument.dollars_to_points` converts it per instrument. What it
-    does to R: ``docs/roadmap.md`` § "ATR-multiple brackets and the dollar floor"."""
+    :meth:`nqbt.instruments.Instrument.dollars_to_points` converts it per instrument --
+    ``docs/roadmap.md`` § "ATR-multiple brackets and the dollar floor"."""
 
     swing_lookback: int = 3
     """Completed bars the swing stop takes its extreme from, the signal bar included."""
 
     stop_offset_ticks: int = 2
-    """Ticks beyond the swing extreme, matching the two ported archetypes. Not applied to
-    the ATR stop, whose multiple already sets the distance."""
+    """Ticks beyond the swing extreme. Not applied to the ATR stop."""
 
     trail_ma_stop: bool = False
     """Trail the stop along a moving average, on top of whichever mode placed it.
 
-    **Off by default and it must stay off in a sweep's base**: it is the only thing here that
-    needs ``keep_values``, which is the 8-bytes-against-1 memory switch every parallel worker
-    pays -- ``docs/roadmap.md`` § "The build spec's three loose ends"."""
+    Off by default, and it must stay off in a sweep's base -- ``docs/roadmap.md`` § "The build
+    spec's three loose ends"."""
 
     trail_ma_kind: str = "ema"
     trail_ma_period: int = 50
     """The average the stop follows -- a third grid, independent of the two that cross."""
 
     trail_offset_ticks: int = 2
-    """Ticks beyond the average the trailing stop sits, so it is not exactly on the level it
-    follows. Separate from :attr:`stop_offset_ticks` for the reason
-    ``ratchet_offset_ticks`` is separate from it in the ported archetypes."""
+    """Ticks beyond the average the trailing stop sits. Separate from :attr:`stop_offset_ticks`."""
 
     round_number_points: float = 0.0
     """Spacing of the round numbers a stop may never sit exactly on, in points; ``0`` is off.
 
-    **Only meaningful on raw prices**, so a dataset must declare
-    :attr:`nqbt.context.PriceBasis.RAW` before a combination setting this will run --
+    Refused unless the dataset declares :attr:`nqbt.context.PriceBasis.RAW` --
     ``docs/roadmap.md`` § "The build spec's three loose ends"."""
 
     round_number_offset_ticks: int = 2
@@ -757,9 +694,8 @@ class EmaCrossoverParams:
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
     """Per-leg targets in R, ``nan`` marking a runner.
 
-    **R is volatility-scaled here, not structure-scaled**, so these numbers are not comparable
-    to DeadCatBounce's at the same values, and where :attr:`min_bracket_dollars` binds it is
-    dollar-scaled instead -- ``docs/nt8-fidelity.md`` §M18."""
+    R is volatility-scaled here, and dollar-scaled where :attr:`min_bracket_dollars` binds --
+    ``docs/nt8-fidelity.md`` §M18."""
 
     bars_required_to_trade: int = 200
 
@@ -867,13 +803,9 @@ class EmaCrossoverParams:
 class InsideBarParams:
     """Rule set for the InsideBar archetype -- an inside-bar breakout with an ATR bracket.
 
-    Ported from ``ninjatrader-scripts/Strategies/InsideBar.cs``, whose ``SetDefaults``
-    initialises every declared property, so these defaults are the NinjaScript's directly.
-    Every rule and every open question: ``docs/nt8-fidelity.md`` §M22.
-
-    **The default geometry is deliberately lopsided** -- a target 1x ATR(3) from the fill
-    against a stop 10x ATR(3) beyond the signal bar, so R multiples cluster just above zero
-    and are not comparable to another archetype's at the same value.
+    Ported from ``ninjatrader-scripts/Strategies/InsideBar.cs``; the defaults are its
+    ``SetDefaults`` values, whose geometry is lopsided. Every rule and every open question:
+    ``docs/nt8-fidelity.md`` §M22.
     """
 
     order_quantity: int = 4
@@ -888,17 +820,14 @@ class InsideBarParams:
     ema_kind: str = "ema"
     slow_sma_kind: str = "sma"
     fast_sma_kind: str = "sma"
-    """Which average each gate is actually computed as -- one of
-    :data:`nqbt.conditions.MA_KINDS`. Absent from the NinjaScript, which hardcodes an ``EMA``
-    and two ``SMA``s; the gates keep their NinjaScript names so the C# and the Python can
-    still be diffed by eye -- ``docs/roadmap.md`` § "Moving-average kind as a swept axis"."""
+    """Which average each gate is computed as -- see :attr:`DeadCatParams.fast_sma_kind`."""
 
     error_margin: float = 0.01
     """Fraction of the mother bar's range the close must clear its extreme by."""
 
     atr_length: int = 3
     atr_multiplier: float = 10.0
-    """ATR period, and how many of them the stop sits beyond the signal bar's extreme."""
+    """ATR period, and how many of them the stop sits beyond the inside bar's extreme."""
 
     tp_multiplier: float = 1.0
     """How many ATRs the target sits from the fill. ``TPMultiplier`` in the NinjaScript, whose
@@ -984,9 +913,8 @@ class InsideBarParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     round_targets: bool = True
-    """On, although ``InsideBar.cs`` never calls ``RoundToTickSize``: NT8 snaps submitted
-    prices anyway. **Here it covers the stop as well as the target**, which an ATR multiple
-    puts off the grid where both ports' tick offsets cannot. See ``docs/nt8-fidelity.md``,
+    """Snap the stop as well as the target onto the tick grid, which NT8 does at submission
+    although ``InsideBar.cs`` never calls ``RoundToTickSize`` -- ``docs/nt8-fidelity.md``,
     "Targets snap to the tick grid"."""
 
     # -- costs, absent from the NinjaScript but required for an honest backtest --
@@ -1105,13 +1033,8 @@ def split_lots(quantity: int, share: float) -> tuple[int, int]:
 class InsideBarTrailingParams(InsideBarParams):
     """Rule set for the InsideBarTrailing archetype -- InsideBar's entry, split-lot exits.
 
-    Ported from ``ninjatrader-scripts/Strategies/InsideBarTrailing.cs``. It subclasses
-    :class:`InsideBarParams` because the two NinjaScripts share one entry rule and differ only
-    in its defaults, so the entry is one implementation with two sets of them.
-
-    **The four redeclared defaults are not cosmetic.** ``error_margin`` is ten times
-    ``InsideBar.cs``'s, which is a different strategy rather than a tweak, and the script drops
-    the no-entry window entirely. ``docs/nt8-fidelity.md`` §M23.
+    Ported from ``ninjatrader-scripts/Strategies/InsideBarTrailing.cs``, which shares
+    ``InsideBar.cs``'s entry rule with four different defaults -- ``docs/nt8-fidelity.md`` §M23.
     """
 
     order_quantity: int = 6
@@ -1119,8 +1042,7 @@ class InsideBarTrailingParams(InsideBarParams):
 
     slow_sma_period: int = 125
     error_margin: float = 0.1
-    """``InsideBar.cs``'s 200 and 0.01. Ten times the breakout buffer is a different rule --
-    ``docs/nt8-fidelity.md`` §M23."""
+    """``InsideBar.cs``'s are 200 and 0.01 -- ``docs/nt8-fidelity.md`` §M23."""
 
     no_entry_minutes_before_close: int = 0
     """Off: this NinjaScript has no session-end guard, where ``InsideBar.cs`` has an hour."""
@@ -1134,10 +1056,8 @@ class InsideBarTrailingParams(InsideBarParams):
     position_update_loss_gate: float = 200.0
     """How far under water the open position must be before ``OnPositionUpdate`` acts at all.
 
-    The NinjaScript's hardcoded ``-200``, which has no property behind it and sits **above**
-    both exit branches -- so it gates the live trend violation, not just the dead max-loss
-    check. **Account currency, so it means ten times the move on MNQ that it means on NQ**;
-    it reaches ``instruments.py``'s point value in the loop. ``docs/nt8-fidelity.md`` §M23."""
+    The NinjaScript's hardcoded ``-200``, in account currency and converted through
+    :mod:`nqbt.instruments` in the loop -- ``docs/nt8-fidelity.md`` §M23."""
 
     maximum_loss_per_trade: float = 0.0
     """Dead in the NinjaScript and refused at anything else here -- ``docs/nt8-fidelity.md``
@@ -1154,11 +1074,11 @@ class InsideBarTrailingParams(InsideBarParams):
 
     early_max_extension_atr: float = 1.0
     """Under ``sma-extension``: the furthest the signal close may sit from the slow SMA, in ATRs,
-    and still be early. A placeholder the campaign fits per cell, not a finding."""
+    and still be early. The default is a placeholder the campaign fits per cell."""
 
     early_max_trend_bars: int = 10
     """Under ``trend-age``: the most bars the trend may have run at the signal bar and still be
-    early. A placeholder the campaign fits per cell, not a finding."""
+    early. The default is a placeholder the campaign fits per cell."""
 
     quantity_per_confluence: int = 0
     """Contracts added to ``order_quantity`` for each ``size_on_*`` label favouring the trade at
@@ -1318,15 +1238,13 @@ STOP_MODES = {
     STOP_SWING: "swing",
     STOP_BAND: "band",
 }
-"""Where the elastic band's protective stop goes, one per exit scheme -- ``docs/roadmap.md``
-§M26, "Three exit schemes". ``atr`` is a distance off the fill and the only floored one;
-``excursion`` is the adverse extreme of the bars that were outside the band; ``catastrophe``
-is :attr:`ElasticBandParams.catastrophe_stop_ticks` and is an account rule rather than a
-strategy stop; ``swing`` is the adverse extreme of a fixed number of bars, which at
-``swing_lookback = 1`` is the signal candle alone and is the tightest stop the archetype can
-express; ``band`` is a level on the channel the entry was measured against, the only stop here
-whose distance scales with the dispersion the entry threshold uses -- ``docs/roadmap.md``
-§M26.8.
+"""Where the elastic band's protective stop goes -- ``docs/roadmap.md`` §M26 and §M26.8.
+
+``atr`` is a distance off the fill and the only floored one; ``excursion`` is the adverse
+extreme of the bars that were outside the band; ``catastrophe`` is
+:attr:`ElasticBandParams.catastrophe_stop_ticks` off the fill; ``swing`` is the adverse extreme
+of :attr:`ElasticBandParams.swing_lookback` bars; ``band`` is a level on the channel the entry
+was measured against.
 """
 
 BAND_BOLLINGER = 0
@@ -1334,15 +1252,14 @@ BAND_VWAP = 1
 BAND_SOURCES = {BAND_BOLLINGER: "bollinger", BAND_VWAP: "vwap"}
 """Which channel the extension is measured against. ``bollinger`` is ``nt8_sma`` +- k *
 ``nt8_stddev`` over :attr:`ElasticBandParams.band_period`; ``vwap`` is the session VWAP and
-its volume-weighted dispersion, whose window is the session so far rather than a period --
-``docs/roadmap.md`` §M26.4.
+its volume-weighted dispersion over the session so far -- ``docs/roadmap.md`` §M26.4.
 """
 
 TARGET_STRETCH = 0
 TARGET_R = 1
 TARGET_MODES = {TARGET_STRETCH: "stretch", TARGET_R: "r"}
-"""Which per-leg target tuple is read. ``stretch`` places every leg on a band level and is the
-mean-reversion geometry; ``r`` uses the shared R ladder and is comparable with EmaCrossover.
+"""Which per-leg target tuple is read. ``stretch`` places every leg on a band level; ``r`` uses
+the shared R ladder.
 """
 
 SHAPE_ANY = 0
@@ -1366,11 +1283,9 @@ TRIGGER_EXTENDED = 0
 TRIGGER_RECOVERY = 1
 TRIGGER_MODES = {TRIGGER_EXTENDED: "extended", TRIGGER_RECOVERY: "recovery"}
 """Which bar of an extension schedules the entry. ``extended`` fades a bar that is still
-outside the band, which is every rule above it; ``recovery`` waits for the run outside to end
-and takes the bar that closes back inside, at a depth
-:attr:`ElasticBandParams.recovery_fraction` names. A different trigger rather than a fifth
-shape, because every :data:`SHAPE_MODES` value is read on a bar that is still beyond the
-threshold -- ``docs/roadmap.md`` §M26.6.
+outside the band; ``recovery`` waits for the run outside to end and takes the bar that closes
+back inside, at a depth :attr:`ElasticBandParams.recovery_fraction` names --
+``docs/roadmap.md`` §M26.6.
 """
 
 
@@ -1378,10 +1293,8 @@ threshold -- ``docs/roadmap.md`` §M26.6.
 class ElasticBandParams:
     """Rule set for the ElasticBand archetype -- an original, with no NinjaScript.
 
-    The first mean-reversion archetype: fade a close far enough outside a band and target the
-    middle. :attr:`band_source` picks the channel -- Bollinger over :attr:`band_period`, or the
-    session-anchored VWAP. Every rule it implements, and the NinjaScript each would be written
-    as: ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes:
+    Fade a close far enough outside a band and target the middle. :attr:`band_source` picks the
+    channel. Its rules: ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes:
     ``docs/roadmap.md`` §M26.
     """
 
@@ -1394,19 +1307,14 @@ class ElasticBandParams:
     Read under :data:`BAND_BOLLINGER` alone; the VWAP band's window is the session."""
 
     vwap_min_session_bars: int = 30
-    """Bars a session's VWAP band must have before it can signal, under :data:`BAND_VWAP`.
-
-    The anchor resets at every session open, so the first bars of a session have a band built
-    from too few observations to be one -- ``docs/roadmap.md`` §M26.4."""
+    """Bars a session's VWAP band must have before it can signal, under :data:`BAND_VWAP` --
+    ``docs/roadmap.md`` §M26.4."""
 
     entry_std: float = 2.0
     """How far outside the basis a close must sit to signal, in standard deviations."""
 
     max_entry_std: float = 0.0
-    """Ceiling on that extension, off at ``0``.
-
-    Beyond some point the move is a trend breaking out rather than a band being stretched, so
-    the entry region is bounded rather than one-sided -- ``docs/roadmap.md`` §M26."""
+    """Ceiling on that extension, off at ``0`` -- ``docs/roadmap.md`` §M26."""
 
     min_bars_outside: int = 1
     """Consecutive bars that must have been outside before an entry.
@@ -1424,15 +1332,12 @@ class ElasticBandParams:
     :data:`TRIGGER_RECOVERY` alone -- ``docs/roadmap.md`` §M26.6."""
 
     band_lag: int = 0
-    """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one.
-
-    At ``0`` the band contains the bar being tested, which damps the signal rather than
-    looking ahead -- ``docs/roadmap.md`` §M26."""
+    """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one --
+    ``docs/roadmap.md`` §M26."""
 
     signal_shape: int = SHAPE_ANY
-    """One of :data:`SHAPE_MODES` -- what the signal bar's own candle has to look like.
-
-    A reaction at the level rather than a blind fade of it -- ``docs/roadmap.md`` §M26.5."""
+    """One of :data:`SHAPE_MODES` -- what the signal bar's own candle has to look like --
+    ``docs/roadmap.md`` §M26.5."""
 
     rejection_close_fraction: float = 0.5
     """Share of the signal bar's range its close must sit inside, measured from the extreme the
@@ -1440,11 +1345,8 @@ class ElasticBandParams:
     qualifies."""
 
     min_one_sided_bars: int = 0
-    """Bars of the last :attr:`one_sided_lookback` that must have closed *with* the extension.
-
-    Off at ``0``. How one-sided the move into the band was, which is the other half of the
-    overextension gauge whose first half is how far beyond the band it went --
-    ``docs/roadmap.md`` §M26.5."""
+    """Bars of the last :attr:`one_sided_lookback` that must have closed *with* the extension;
+    off at ``0`` -- ``docs/roadmap.md`` §M26.5."""
 
     one_sided_lookback: int = 10
     """Window :attr:`min_one_sided_bars` counts over, read while that is above ``0``."""
@@ -1515,36 +1417,26 @@ class ElasticBandParams:
     """Stop distance as a multiple of ATR at the signal bar, under :data:`STOP_ATR`."""
 
     min_bracket_dollars: float = 0.0
-    """Floor on the ATR stop distance in **dollars per contract**, off at ``0``.
-
-    Applies to :data:`STOP_ATR` alone, because only it is a distance rather than a level --
-    see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
+    """Floor on the ATR stop distance in **dollars per contract**, off at ``0``; read under
+    :data:`STOP_ATR` alone -- see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
 
     stop_offset_ticks: int = 2
-    """Ticks beyond the extreme under :data:`STOP_EXCURSION` and :data:`STOP_SWING`, so the
-    stop never sits exactly on the level it protects."""
+    """Ticks beyond the extreme under :data:`STOP_EXCURSION` and :data:`STOP_SWING`."""
 
     swing_lookback: int = 1
-    """Completed bars :data:`STOP_SWING` takes its extreme from, the signal bar included.
-
-    At ``1`` the stop is just beyond the signal candle itself: the cheapest possible attempt,
-    which is the point of it -- a move that keeps going costs a few ticks and the next bar can
-    try again."""
+    """Completed bars :data:`STOP_SWING` takes its extreme from, the signal bar included; at
+    ``1`` the stop is just beyond the signal candle itself."""
 
     catastrophe_stop_ticks: int = 400
-    """Stop distance under :data:`STOP_CATASTROPHE`, in ticks from the fill.
-
-    Deliberately wide: it is the account's loss limit rather than a strategy stop, and the
-    scheme it belongs to exists to test whether a strategy stop helps at all."""
+    """Stop distance under :data:`STOP_CATASTROPHE`, in ticks from the fill: an account limit
+    rather than a strategy stop -- ``docs/roadmap.md`` §M26."""
 
     band_stop_std: float = 1.0
     """How far past :attr:`entry_std` the band stop sits, in standard deviations.
 
-    Read under :data:`STOP_BAND` alone, off the signal bar's basis and dispersion exactly as a
-    stretch target is: at ``entry_std = 2.0`` a value of ``1.0`` stops at the 3-sigma band. Past
-    the threshold rather than at an absolute level because :attr:`entry_std` is swept, and cells
-    cut by a level one entry depth has already passed could not be read against each other --
-    ``docs/roadmap.md`` §M26.8."""
+    Read under :data:`STOP_BAND` alone, off the signal bar's basis and dispersion: at
+    ``entry_std = 2.0`` a value of ``1.0`` stops at the 3-sigma band -- ``docs/roadmap.md``
+    §M26.8."""
 
     target_mode: int = TARGET_STRETCH
     """One of :data:`TARGET_MODES`."""
@@ -1556,17 +1448,13 @@ class ElasticBandParams:
     Read under :data:`TARGET_STRETCH`. Signed **towards the target**: a long's levels rise."""
 
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
-    """Per-leg targets in R, read under :data:`TARGET_R` and capped at the basis -- a target
-    beyond the mean is not a mean-reversion target."""
+    """Per-leg targets in R, read under :data:`TARGET_R` and capped at the basis."""
 
     tp_multiplier: float = 1.0
-    """Scales every R target, as on the ported archetypes. Not applied to a stretch level,
-    which is already a position rather than a distance."""
+    """Scales every R target, as on the ported archetypes. Not applied to a stretch level."""
 
     exit_on_invalidation: bool = False
-    """Leave at the next open when price closes further outside than the excursion extreme.
-
-    The range broke and held, which is the mean-reversion definition of a failed trade."""
+    """Leave at the next open when price closes further outside than the excursion extreme."""
 
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
@@ -1775,12 +1663,9 @@ approach to the low that turns before breaking it. All four read the same levels
 ORB_OPPOSITE_EXTREME_ENTRIES = (ORB_ENTRY_FADE, ORB_ENTRY_REJECTION)
 ORB_BREAK_ENTRIES = (ORB_ENTRY_FADE, ORB_ENTRY_RETEST)
 ORB_LIMIT_ENTRIES = (ORB_ENTRY_RETEST, ORB_ENTRY_REJECTION)
-"""The three properties an entry mode is made of, each read as a membership test.
-
-Which extreme the order rests at, whether a break must already have happened, and whether the
-order is a stop or a limit. The four modes are four combinations of those rather than four
-mechanisms: ``rejection`` is the fade's level, the retest's order type and the breakout's lack
-of an arming condition -- ``docs/roadmap.md`` §M28.6.
+"""The three properties an entry mode is made of, each read as a membership test: which extreme
+the order rests at, whether a break must already have happened, and whether the order is a stop
+or a limit -- ``docs/roadmap.md`` §M28.6.
 """
 
 ORB_STOP_OPPOSITE = 0
@@ -1791,20 +1676,17 @@ ORB_STOP_MODES = {
     ORB_STOP_ATR: "atr",
     ORB_STOP_FRACTION: "fraction",
 }
-"""Where the opening range's protective stop goes. ``opposite`` is the range's other extreme,
-which makes the stop distance the range width itself; ``atr`` is a multiple of ATR from the
-trigger and is the only one floored, because only it is a distance rather than a level;
-``fraction`` is :attr:`OpeningRangeParams.stop_range_fraction` of the range width back from the
-extreme that was broken, which puts the midpoint stop the literature also uses at ``0.5`` and
-reproduces ``opposite`` exactly at ``1.0`` -- ``docs/roadmap.md`` §M28.2.
+"""Where the opening range's protective stop goes. ``opposite`` is the range's other extreme;
+``atr`` is a multiple of ATR from the trigger and the only one floored; ``fraction`` is
+:attr:`OpeningRangeParams.stop_range_fraction` of the range width back from the extreme that
+was broken, and reproduces ``opposite`` exactly at ``1.0`` -- ``docs/roadmap.md`` §M28.2.
 """
 
 ORB_TARGET_R = 0
 ORB_TARGET_WIDTH = 1
 ORB_TARGET_MODES = {ORB_TARGET_R: "r", ORB_TARGET_WIDTH: "width"}
-"""Which per-leg target tuple is read. ``r`` is the shared R ladder, comparable with every
-other archetype; ``width`` places each leg a multiple of the **range width** past the trigger,
-which is the unit the opening range states its own geometry in.
+"""Which per-leg target tuple is read. ``r`` is the shared R ladder; ``width`` places each leg
+a multiple of the **range width** past the trigger.
 """
 
 ORB_SCALE_NONE = 0
@@ -1818,13 +1700,10 @@ ORB_SCALE_MODES = {
     ORB_SCALE_BOTH: "both",
 }
 """Which halves of the bracket are denominated in the *trailing* follow-through rather than in
-the session's own range width.
+the session's own range width, as a bitmask.
 
-A bitmask so the two halves separate: the width a leg's target is a multiple of, the width the
-fraction stop is a fraction of, either, or neither. At :data:`ORB_SCALE_NONE` the arithmetic is
-byte-for-byte what §M28.1 swept. Above it the width both halves read becomes
-``width * trailing follow-through``, which is how far price has lately gone past a range of
-that size rather than how wide the range is -- ``docs/roadmap.md`` §M28.9.
+At :data:`ORB_SCALE_NONE` the arithmetic is what §M28.1 swept; above it the width the scaled
+halves read becomes ``width * trailing follow-through`` -- ``docs/roadmap.md`` §M28.9.
 """
 
 
@@ -1832,33 +1711,26 @@ that size rather than how wide the range is -- ``docs/roadmap.md`` §M28.9.
 class OpeningRangeParams:
     """Rule set for the OpeningRange archetype -- an original, with no NinjaScript.
 
-    The opening-range break, which the literature calls the ORB: measure the high and low of
-    :attr:`window_minutes` from :attr:`anchor_minutes` past the session open, then rest a stop
-    order at whichever extreme :attr:`direction` names. **One side per combination**, because
-    NT8's managed approach refuses the opposite-direction submission and a two-sided range is
-    not expressible -- ``docs/roadmap.md`` §M28.
+    The opening-range break (ORB): measure the high and low of :attr:`window_minutes` from
+    :attr:`anchor_minutes` past the session open, then rest an order at whichever extreme
+    :attr:`direction` names, one side per combination -- ``docs/roadmap.md`` §M28.
 
-    Every rule it implements and the NinjaScript each would be written as:
-    ``docs/nt8-fidelity.md`` §M28. The design and what was deliberately left out:
+    Its rules: ``docs/nt8-fidelity.md`` §M28. The design and what was left out:
     ``docs/roadmap.md`` §M28.1.
     """
 
     anchor_minutes: int = sessionrange.CASH_OPEN_MINUTES
     """Minutes past the session open at which the range starts -- the cash open by default.
 
-    :data:`nqbt.sessionrange.ETH_OPEN_MINUTES` is the overnight range's anchor. **The bar size
-    must divide it**, so this axis is constrained by the resolution rather than free --
-    :func:`nqbt.sessionrange.validate_key`."""
+    :data:`nqbt.sessionrange.ETH_OPEN_MINUTES` is the overnight range's anchor. The bar size
+    must divide it -- :func:`nqbt.sessionrange.validate_key`."""
 
     window_minutes: int = 30
-    """How much of the session the range measures. 5, 15 and 30 are what every source means,
-    and the bar size must divide this too."""
+    """How much of the session the range measures. The bar size must divide it."""
 
     direction: float = trades.LONG
-    """Which break is taken: :data:`nqbt.trades.LONG` above the range, ``SHORT`` below it.
-
-    A parameter rather than two archetypes, and one side per combination rather than both live
-    at once -- ``docs/roadmap.md`` §M28, finding 1."""
+    """Which break is taken: :data:`nqbt.trades.LONG` above the range, ``SHORT`` below it --
+    ``docs/roadmap.md`` §M28, finding 1."""
 
     entry_mode: int = ORB_ENTRY_BREAKOUT
     """One of :data:`ORB_ENTRY_MODES` -- which event at the range the order waits for."""
@@ -1867,34 +1739,27 @@ class OpeningRangeParams:
     """Ticks past the level in the direction traded, read by every mode but
     :data:`ORB_ENTRY_RETEST`.
 
-    Which side of the level that is follows from which extreme the mode rests at: outside the
-    range for a breakout, and *inside* it for the two that rest at the opposite extreme. Not
-    cosmetic under a stop entry: at ``0`` the trigger sits on the level, and a bar closing
-    exactly there cannot submit at all, because NT8 declines a stop entry at or through the
-    market -- ``docs/nt8-fidelity.md`` §M18. A limit at the level is legal, so
-    :data:`ORB_ENTRY_REJECTION` may sit at ``0``."""
+    Outside the range for a breakout, and *inside* it for the two that rest at the opposite
+    extreme. At ``0`` a stop entry on a bar closing exactly on the level cannot submit --
+    ``docs/nt8-fidelity.md`` §M18; :data:`ORB_ENTRY_REJECTION`'s limit may sit at ``0``."""
 
     break_confirm_ticks: int = 0
     """Ticks past the level price must trade before a fade or a retest arms, read under
     :data:`ORB_ENTRY_FADE` and :data:`ORB_ENTRY_RETEST` alone.
 
     At ``0`` any trade through the level counts as the break. The flag it sets lasts the rest
-    of the session, so a fade re-arms after its own stop the way a breakout does.
-    :data:`ORB_ENTRY_REJECTION` waits for no break and so reads nothing here."""
+    of the session, so a fade re-arms after its own stop the way a breakout does."""
 
     retest_offset_ticks: int = 0
     """Ticks *inside* the broken level the limit sits at, read under
     :data:`ORB_ENTRY_RETEST` alone.
 
-    At ``0`` the limit sits on the level itself. It is a limit rather than a stop, so it fills
-    at its price or better and takes no slippage -- ``docs/nt8-fidelity.md`` §M28.2."""
+    At ``0`` the limit sits on the level itself. It fills at its price or better and takes no
+    slippage -- ``docs/nt8-fidelity.md`` §M28.2."""
 
     max_entries_per_session: int = 1
-    """How many entries one session may fill, uncapped at ``0``.
-
-    **The default is one-shot**, which is what essentially every published opening-range result
-    measures; a level-based trigger re-arms every bar, so uncapped it re-enters after every
-    stop -- ``docs/roadmap.md`` §M28, finding 4."""
+    """How many entries one session may fill, uncapped at ``0``; one-shot by default --
+    ``docs/roadmap.md`` §M28, finding 4."""
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
@@ -1955,25 +1820,22 @@ class OpeningRangeParams:
 
     stop_offset_ticks: int = 2
     """Ticks beyond the stop's level under :data:`ORB_STOP_OPPOSITE` and
-    :data:`ORB_STOP_FRACTION`, so the stop does not sit exactly on the level it protects."""
+    :data:`ORB_STOP_FRACTION`."""
 
     stop_range_fraction: float = 0.5
     """How far back across the range the stop sits under :data:`ORB_STOP_FRACTION`, as a
     fraction of the range width from the extreme that was broken.
 
     ``0.5`` is the midpoint stop and ``1.0`` is :data:`ORB_STOP_OPPOSITE` exactly, offset
-    included -- so the axis contains the mode that already works rather than running beside
-    it. Values past ``1.0`` are legal and put the stop outside the range."""
+    included. Values past ``1.0`` put the stop outside the range."""
 
     atr_period: int = 14
     atr_stop_multiple: float = 2.0
     """Stop distance as a multiple of ATR at the signal bar, under :data:`ORB_STOP_ATR`."""
 
     min_bracket_dollars: float = 0.0
-    """Floor on the ATR stop distance in **dollars per contract**, off at ``0``.
-
-    Applies to :data:`ORB_STOP_ATR` alone, because only it is a distance rather than a level --
-    see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
+    """Floor on the ATR stop distance in **dollars per contract**, off at ``0``; read under
+    :data:`ORB_STOP_ATR` alone -- see :attr:`EmaCrossoverParams.min_bracket_dollars`."""
 
     target_mode: int = ORB_TARGET_R
     """One of :data:`ORB_TARGET_MODES`."""
@@ -1984,8 +1846,7 @@ class OpeningRangeParams:
 
     target_width_multiples: tuple[float, ...] = (1.0, float("nan"))
     """Per-leg targets as multiples of the **range width** past the trigger, read under
-    :data:`ORB_TARGET_WIDTH`. Not scaled by :attr:`tp_multiplier`, which would be the same
-    axis twice."""
+    :data:`ORB_TARGET_WIDTH`. Not scaled by :attr:`tp_multiplier`."""
 
     tp_multiplier: float = 1.0
     """Scales every R target, as on the ported archetypes."""
@@ -1997,8 +1858,7 @@ class OpeningRangeParams:
     follow_through_sessions: int = 60
     """How many prior sessions the trailing follow-through is the median of.
 
-    Read under every :attr:`follow_through_scaling` but :data:`ORB_SCALE_NONE`, where it is
-    inert -- so it is a **variant dimension** rather than an axis crossed with the mode."""
+    Inert under :data:`ORB_SCALE_NONE`, so it is a variant dimension rather than an axis."""
 
     order_quantity: int = 4
 
@@ -2041,8 +1901,7 @@ class OpeningRangeParams:
             msg = f"unknown entry_mode {self.entry_mode}; use one of {sorted(ORB_ENTRY_MODES)}"
             raise ValueError(msg)
 
-        # Resolution-independent only: whether the bar size can express this range is checked
-        # where the bars are, in ``sessionrange.validate_key``.
+        # The bar size is checked where the bars are, so only the minutes are checked here.
         sessionrange.validate_key(self.anchor_minutes, self.window_minutes, bar_minutes=1)
         if self.entry_offset_ticks < 0:
             msg = f"entry_offset_ticks must be >= 0, got {self.entry_offset_ticks}"
@@ -2102,8 +1961,7 @@ class OpeningRangeParams:
     def _validate_follow_through(self) -> None:
         """Check the trailing scale against the two bracket halves it can be applied to.
 
-        Each half is refused under a mode that states its geometry in some other unit, because
-        there is then no width for the scale to multiply and the axis would be silently inert.
+        Each half is refused under a mode that states its geometry in a unit other than the width.
         """
         if self.follow_through_scaling not in ORB_SCALE_MODES:
             msg: str = (
@@ -2216,12 +2074,10 @@ asks it to close through it, and :data:`TOUCH_ANY` takes either -- ``docs/nt8-fi
 class EmaPullbackParams:
     """Rule set for the EmaPullback archetype -- an original, with no NinjaScript.
 
-    The two averages EmaCrossover crosses, read for the trend they leave behind rather than for
-    the cross: price runs away from the fast average, comes back to it, and the trade is taken
-    with the **slow** average as the stop. R is therefore the distance between the two averages.
+    Price runs away from the fast average and comes back to it, and the trade is taken with the
+    **slow** average as the stop, so R is the distance between the two.
 
-    Every rule it implements and the NinjaScript each would be written as:
-    ``docs/nt8-fidelity.md`` §M34. The design and the alternatives rejected:
+    Its rules: ``docs/nt8-fidelity.md`` §M34. The design and the alternatives rejected:
     ``docs/findings/m34-ema-pullback-spec.md``.
     """
 
@@ -2231,8 +2087,7 @@ class EmaPullbackParams:
 
     fast_kind: str = "ema"
     slow_kind: str = "ema"
-    """Which average each is computed as -- one of :data:`nqbt.conditions.MA_KINDS`. The
-    archetype's name records what it was built as, not what it is limited to."""
+    """Which average each is computed as -- one of :data:`nqbt.conditions.MA_KINDS`."""
 
     min_bars_extended: int = 3
     """Completed bars price must have spent entirely beyond the fast average before the touch.
@@ -2248,19 +2103,14 @@ class EmaPullbackParams:
     Off, the stop can be placed at a level the signal bar itself reached."""
 
     require_turn: bool = False
-    """Ask the signal bar's own body to have turned back into the trend before entering.
-
-    The reaction the pullback-continuation literature makes its third step, and the step it
-    says is most often skipped -- ``docs/findings/m35-ema-pullback-swept.md``. Off by default,
-    so the archetype as specified is unchanged and a sweep measures the requirement against its
-    own control."""
+    """Ask the signal bar's own body to have turned back into the trend before entering; off by
+    default -- ``docs/findings/m35-ema-pullback-swept.md``."""
 
     confirm_entry: bool = False
     """Rest a stop order beyond the signal bar's extreme instead of entering at the next open.
 
-    The trade is then taken only if the trend resumes past the touch bar, and never where price
-    keeps going -- the strong form of :attr:`require_turn`. Off by default, so the archetype as
-    specified is unchanged -- ``docs/nt8-fidelity.md`` §M39."""
+    The strong form of :attr:`require_turn`, and off by default -- ``docs/nt8-fidelity.md``
+    §M39."""
 
     entry_offset_ticks: int = 1
     """Ticks beyond the signal bar's extreme the confirmation order's trigger sits. Read only
@@ -2331,22 +2181,17 @@ class EmaPullbackParams:
     exit_on_trend_flip: bool = False
     """Close the position at the next bar's open when the two averages cross back.
 
-    The only producer of ``EXIT_SIGNAL`` here, and **off by default**: the strategy as specified
-    is the stop and the targets, so the flip exit is an axis rather than part of it."""
+    The only producer of ``EXIT_SIGNAL`` here, and off by default."""
 
     order_quantity: int = 4
 
     stop_offset_ticks: int = 2
-    """Ticks beyond the slow average the stop sits, so it is not exactly on the level.
-
-    ``0`` puts it on the average, which is what ElasticBand's band stop does --
+    """Ticks beyond the slow average the stop sits; ``0`` puts it on the average --
     ``docs/nt8-fidelity.md`` §M34."""
 
     trail_ma_stop: bool = False
-    """Trail the stop along a moving average once the slow one has placed it.
-
-    **Off by default and it must stay off in a sweep's base**, for the reason
-    :attr:`EmaCrossoverParams.trail_ma_stop` gives."""
+    """Trail the stop along a moving average once the slow one has placed it -- see
+    :attr:`EmaCrossoverParams.trail_ma_stop`."""
 
     trail_ma_kind: str = "ema"
     trail_ma_period: int = 50
@@ -2354,9 +2199,7 @@ class EmaPullbackParams:
     trend."""
 
     trail_offset_ticks: int = 2
-    """Ticks beyond the average the trailing stop sits. Separate from
-    :attr:`stop_offset_ticks` for the reason ``ratchet_offset_ticks`` is separate from it in
-    the ported archetypes."""
+    """Ticks beyond the average the trailing stop sits. Separate from :attr:`stop_offset_ticks`."""
 
     trail_on_slow: bool = False
     """Trail on the slow average at :attr:`stop_offset_ticks`, the level and offset that placed
@@ -2367,10 +2210,8 @@ class EmaPullbackParams:
 
     tp_multiplier: float = 1.0
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
-    """Per-leg targets in R, ``nan`` marking a runner.
-
-    **R is the gap between the two averages**, so these numbers are comparable neither to
-    DeadCatBounce's nor to EmaCrossover's at the same values -- ``docs/nt8-fidelity.md`` §M34."""
+    """Per-leg targets in R, ``nan`` marking a runner. R is the gap between the two averages --
+    ``docs/nt8-fidelity.md`` §M34."""
 
     bars_required_to_trade: int = 200
 
@@ -2481,10 +2322,9 @@ class SqueezeBreakoutParams:
 
     While a window's width ranks below :attr:`squeeze_below` of its own recent past, rest a stop
     order just beyond that window's extreme on the side :attr:`direction` names, resubmitted at
-    every bar close. **One side per combination**, for :class:`OpeningRangeParams`' reason.
+    every bar close. One side per combination, as for :class:`OpeningRangeParams`.
 
-    Every rule it implements and the NinjaScript each would be written as:
-    ``docs/nt8-fidelity.md`` §M19.2. The design and the alternatives rejected:
+    Its rules: ``docs/nt8-fidelity.md`` §M19.2. The design and the alternatives rejected:
     ``docs/findings/m19-2-squeeze-breakout-spec.md``.
     """
 
@@ -2509,10 +2349,8 @@ class SqueezeBreakoutParams:
     """Which break is taken: :data:`nqbt.trades.LONG` above the window, ``SHORT`` below it."""
 
     entry_offset_ticks: int = 1
-    """Ticks beyond the window's extreme the stop entry rests.
-
-    At ``0`` a bar closing on its window's extreme cannot submit, because NT8 declines a stop entry
-    at the market -- ``docs/nt8-fidelity.md`` §M18."""
+    """Ticks beyond the window's extreme the stop entry rests. At ``0`` a bar closing on its
+    window's extreme cannot submit -- ``docs/nt8-fidelity.md`` §M18."""
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""

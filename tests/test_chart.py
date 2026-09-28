@@ -1,18 +1,10 @@
 """Chart tests: one trade drawn on the bars it happened on.
 
 Every geometric claim is asserted against ``chart.plot``'s own mapping rather than against a
-coordinate written down here, so a change to the layout cannot silently move a mark off its
-price. Three claims are pinned harder than the rest, because each would draw a plausible and
-wrong picture rather than raise. **No line joins an entry to its exit**, because the path
-between them is what bar-close OHLC does not record. **A fill outside its bar is drawn rather
-than refused**, since that is what a back-adjusted series produces and a chart is the instrument
-that makes it visible. **Bars of a different series are refused**, through the same check an
-annotation applies.
-
-The overlays add two more of the same kind. **An overlay is a per-bar series and not a path
-between two points**, which is what the no-sloped-line pin becomes once a moving average is
-allowed to slope. **A per-session level is never drawn across the session beside it**, or a
-chart would state a level that never existed.
+written-down coordinate. Pinned hardest, because each would draw a plausible and wrong picture:
+no line joins an entry to its exit, a fill outside its bar is drawn rather than refused, bars of
+a different series are refused, an overlay steps bar by bar, and a per-session level stays in
+its session -- ``docs/roadmap.md`` § "Charting a trade".
 """
 
 import re

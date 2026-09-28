@@ -330,10 +330,11 @@ Every strategy has been swept across every setting it has, on both instruments, 
 | [docs/nt8-fidelity.md](docs/nt8-fidelity.md) | every NinjaTrader rule the simulation copies, and the evidence for each one             |
 | [docs/roadmap.md](docs/roadmap.md)           | why the work happened in this order, the standing traps, and the decisions taken        |
 | [tools/README.md](tools/README.md)           | what each script in `tools/` does, how to run it, and why its options are what they are |
+| [nqbt/README.md](nqbt/README.md)             | the package's design notes that no campaign, NinjaTrader rule or decision covers        |
 | [CONTRIBUTING.md](CONTRIBUTING.md)           | how to change the code: style, tests, commits, pull requests and the regression gate    |
 | [CLAUDE.md](CLAUDE.md)                       | the same ground rules, written for an AI assistant working in this repository           |
 
-Explanations live in `docs/` (and, for the scripts, `tools/README.md`), not in the code. Docstrings say what something is or does and stay short, a function's docstring starts with a verb such as "Return" or "Build", and every reference to a document names a specific section.
+Explanations live in `docs/` (and in `tools/README.md` for the scripts and `nqbt/README.md` for the package's remaining design notes), not in the code. Docstrings say what something is or does and stay short, a function's docstring starts with a verb such as "Return" or "Build", and every reference to a document names a specific section.
 
 ## License
 

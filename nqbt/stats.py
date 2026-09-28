@@ -105,9 +105,8 @@ class Summary:
     def empty(cls) -> Summary:
         """Return the zero summary, for a combination that produced no trades.
 
-        Keyed by field name and typed from the annotations rather than splatted positionally.
-        **Do not "simplify" it back to a splat** -- the version this replaces passed 26
-        arguments into a 28-field dataclass and raised on every call.
+        Keyed by field name and typed from the annotations rather than splatted positionally --
+        ``docs/roadmap.md`` §M20a.
         """
         hints = get_type_hints(cls)
 
@@ -446,10 +445,9 @@ Which makes them the only ones a resampling test may permute -- ``docs/roadmap.m
 def trade_statistic(pnl: FloatArray, name: str) -> float:
     """Compute one :data:`TRADE_PNL_STATISTICS` value straight from a per-trade P&L vector.
 
-    Roughly two orders of magnitude cheaper than :func:`summarise`, which is what lets a
-    resampling test evaluate thousands of regroupings. **Not a second definition**: the
-    division goes through the same ``_ratio``, and ``tests/test_dispersion.py`` asserts exact
-    agreement on real logs. Feed it :func:`per_trade` output, never raw legs.
+    The fast path a resampling test needs; the division goes through the same ``_ratio``, and
+    ``tests/test_dispersion.py`` pins exact agreement. Feed it :func:`per_trade` output, never
+    raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
         msg: str = (
@@ -484,9 +482,8 @@ Which makes them the only ones a *sequence* permutation can move, and the exact 
 def path_statistic(pnl: FloatArray, name: str) -> float:
     """Compute one :data:`PATH_STATISTICS` value from a per-trade P&L vector, in sequence order.
 
-    **Not a second definition**: both branches call the same helpers :func:`summarise` does,
-    and ``tests/test_montecarlo.py`` asserts exact agreement on real logs. Feed it
-    :func:`per_trade` output, never raw legs.
+    Both branches call the same helpers :func:`summarise` does, and ``tests/test_montecarlo.py``
+    pins exact agreement. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in PATH_STATISTICS:
         msg: str = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"

@@ -211,7 +211,7 @@ def _intraday(**overrides) -> PropAccount:
 
 
 def test_the_excursion_order_decides_whether_the_account_survives_its_first_trade() -> None:
-    """The measured lever, pinned: §M28.13 is the difference between one trade and twelve."""
+    """Which excursion moves the floor first decides the outcome -- ``docs/roadmap.md`` §M28.13."""
     log = _spikes_then_dips()
 
     peak_first = propaccount.replay(log, _intraday()).runs[0]

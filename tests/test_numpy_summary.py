@@ -92,9 +92,7 @@ def test_they_agree_on_a_combination_that_never_trades(bars) -> None:
 def test_neither_path_will_compute_sharpe_without_times(bars) -> None:
     """``day_codes=None`` is the numpy spelling of a log with no ``exit_time`` column.
 
-    Both used to annualise a **per-trade** ratio as though it were daily, and both now
-    refuse. Agreeing about the refusal is the same invariant as agreeing about a number:
-    two Sharpes with different denominators would sit in one results column (#81).
+    Both paths refuse it rather than annualise a per-trade ratio (#81).
     """
     archetype, params = CASES[0]
     data = sweep.prepare_for(bars, sweep.Grid.of(params, archetype=archetype))
