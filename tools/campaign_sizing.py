@@ -10,22 +10,7 @@ r"""Fit the cuts a confluence size runs at, and read it against its own sizes sh
 InsideBarTrailing is the default strategy, and there the null reads §M45's confluence arm unless
 ``--variant`` names another -- ``docs/findings/m45-ibt-sizing-preregistration.md``.
 
-**Everything ``fit`` measures comes from the selection window**, so the held-out window reads
-cuts it had no part in -- the rule ``tools/campaign_sweep.py``'s regime fit states. Each cut is
-taken at a stored variant's base configuration over its unfiltered signal, pooled over the sides
-the variant sweeps, and written before any sizing arm runs: the file is the pre-registration of
-every threshold the arms read. **A cut already in the file is kept**, so the arms stored against
-it keep the cut they ran at; one stored before the fit read its symmetric labels gains them at
-its own thresholds, and nothing else in it moves --
-``docs/findings/m47-confluence-sizing-preregistration.md``.
-
-**The shuffled-size null is the control a confluence size needs**, and a matched random entry is
-not it: the entries are the rule's own and only which size each took is permuted, so what it
-measures is whether the count put the larger sizes on the better trades. On InsideBarTrailing a
-size moves the trades, so each shuffle is re-simulated across the signals. Everywhere else it
-moves only the dollars -- ``docs/findings/m46-registry-size-ladder.md`` -- so each shuffle permutes
-the sizes across the trades actually taken and recomputes their money exactly, and both halves of
-that premise are checked on every configuration before a shuffle is drawn.
+``fit`` reads the selection window alone -- ``tools/README.md`` § "campaign_sizing.py".
 """
 
 from __future__ import annotations
@@ -42,8 +27,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import (
@@ -124,11 +108,7 @@ EARLY_QUANTILE = 0.5
 
 MIN_FAVOURABLE_SHARE = 0.10
 MAX_FAVOURABLE_SHARE = 0.90
-"""A label favouring fewer or more of the fitted signals than this is dropped from the count.
-
-Near-constant at the signal, it adds the same contract to almost every trade and sorts nothing --
-the entry already implies it, as ``above_ema_21`` did for EmaCrossover --
-``docs/findings/confluence-count-per-trade.md``."""
+"""A label favouring fewer or more of the fitted signals than this is dropped from the count."""
 
 MAX_STEP_SHARE = MAX_FAVOURABLE_SHARE
 """A label is dropped from the symmetric count where one step it moves that count by -- up, down or
@@ -160,7 +140,7 @@ SIZED_COLUMNS = (C_QUANTITY, C_GROSS_PNL, C_COMMISSION, C_NET_PNL)
 
 
 def probe_params(base: Params) -> Params:
-    """``base`` with every label switched on, so one prepared dataset holds all five."""
+    """Return ``base`` with every label switched on, so one prepared dataset holds all five."""
     return dataclasses.replace(
         base,
         quantity_per_confluence=1,
@@ -170,7 +150,7 @@ def probe_params(base: Params) -> Params:
 
 
 def age_at(data: context.Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
-    """How many bars the trend on each bar's side has run, the bar included."""
+    """Count how many bars the trend on each bar's side has run, the bar included."""
     up, down = insidebar.insidebar_trends(data, params)
     long_side: BoolArray = direction_at == trades.LONG
 
@@ -178,7 +158,7 @@ def age_at(data: context.Dataset, params: InsideBarTrailingParams, direction_at:
 
 
 def extension_at(data: context.Dataset, params: InsideBarTrailingParams) -> FloatArray:
-    """How far each close sits from the slow SMA, in ATRs."""
+    """Measure how far each close sits from the slow SMA, in ATRs."""
     slow: FloatArray = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
     with np.errstate(divide="ignore", invalid="ignore"):
         extension: FloatArray = np.abs(data.close - slow) / data.atr_values(params.atr_length)
@@ -243,7 +223,7 @@ def fit_cut(
     *,
     variant: str | None = None,
 ) -> tuple[SizingCut, dict[str, dict[str, float]]]:
-    """One root, resolution and variant's cut, with what it was read off.
+    """Fit one root, resolution and variant's cut, with what it was read off.
 
     The report holds each label's shares at the fitted signals, :func:`label_shares`, and, on
     InsideBarTrailing, per earliness rule the share of the base configuration's own trades that
@@ -313,11 +293,9 @@ def traded_early_shares(
     base: InsideBarTrailingParams,
     instrument: Instrument,
 ) -> dict[str, float]:
-    """Per earliness rule, the share of the base configuration's trades whose signal bar was early.
+    """Return, per earliness rule, the share of the base configuration's trades whose signal bar was early.
 
-    Counted over the trades taken rather than the signals, because a setup that arrives while a
-    position is open is never traded: a rule near either end leaves its tier running as one of
-    the fixed splits.
+    Counted over the trades taken rather than the signals.
     """
     direction_at: FloatArray = insidebar.insidebar_direction(data, base)
     shares: dict[str, float] = {}
@@ -342,14 +320,14 @@ def traded_early_shares(
 
 
 def kept_labels(shares: dict[str, float]) -> tuple[str, ...]:
-    """The labels whose favourable share at the fitted signals leaves them something to sort."""
+    """Return the labels whose favourable share at the fitted signals leaves them something to sort."""
     return tuple(
         label for label, share in shares.items() if MIN_FAVOURABLE_SHARE <= share <= MAX_FAVOURABLE_SHARE
     )
 
 
 def symmetric_kept_labels(report: dict[str, dict[str, float]]) -> tuple[str, ...]:
-    """The labels the symmetric count keeps: those no one step covers almost every fitted signal at."""
+    """Return the labels the symmetric count keeps: those no one step covers almost every signal at."""
     opposing: dict[str, float] = report["opposing_share"]
     neutral: dict[str, float] = report["neutral_share"]
 
@@ -366,7 +344,7 @@ def symmetric_fill(
     cut: SizingCut,
     stored: dict[str, object],
 ) -> tuple[SizingCut, dict[str, dict[str, float]]]:
-    """A cut stored before the fit read its symmetric labels, with them read at its own thresholds.
+    """Return a cut stored before the fit read its symmetric labels, with them read at its thresholds.
 
     Nothing it already holds is refitted. Its favourable shares are read again first and have to
     come back exactly as stored, which is what shows the signals are the ones it was fitted at.
@@ -387,7 +365,7 @@ def symmetric_fill(
 
 
 def selection_window(bars: pd.DataFrame) -> pd.DataFrame:
-    """The bars the campaign's selection window holds, which is all a fit may read."""
+    """Return the bars the campaign's selection window holds, which is all a fit may read."""
     return bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
 
 
@@ -461,7 +439,7 @@ def log_cut(cut: SizingCut, report: dict[str, dict[str, float]]) -> None:
 
 
 def placed(observed: dict[str, float], by: str, null: FloatArray) -> dict[str, float]:
-    """The observation against its null, with the trade count and shares a reading needs beside it.
+    """Return the observation against its null, with the trade count and shares a reading needs.
 
     ``p`` is the share of shuffles at least as good, counting the observation itself, so it is
     never zero -- the convention ``nqbt/randomentry.py`` reports its matched null in.
@@ -480,7 +458,7 @@ def placed(observed: dict[str, float], by: str, null: FloatArray) -> dict[str, f
 
 
 def permuted_sizing(sizing: bracket.Sizing, signal: BoolArray, rng: np.random.Generator) -> bracket.Sizing:
-    """``sizing`` with the rows its signal bars take shuffled among them, and every other bar kept."""
+    """Shuffle the rows ``sizing``'s signal bars take among them, keeping every other bar."""
     rows: IntArray = sizing.row_at.copy()
     rows[signal] = rng.permutation(rows[signal])
 
@@ -496,7 +474,7 @@ def resimulated_null(
     draws: int,
     seed: int,
 ) -> dict[str, float]:
-    """InsideBarTrailing's ``by`` against the same sizes shuffled across its signals, re-simulated.
+    """Compare InsideBarTrailing's ``by`` against the same sizes shuffled across its signals.
 
     A size moves this archetype's trades through the ``-200`` gate, so each shuffle is run.
     """
@@ -579,7 +557,7 @@ def recomputed_null(
     draws: int,
     seed: int,
 ) -> dict[str, float]:
-    """The configuration's own ``by`` against its sizes shuffled across the trades it took.
+    """Compare the configuration's own ``by`` against its sizes shuffled across the trades it took.
 
     Exact rather than re-simulated, because outside InsideBarTrailing a size moves no trade. Both
     halves are checked on the configuration itself first: the fixed size takes the same trades,
@@ -625,7 +603,7 @@ def shuffled_null(
     seed: int,
     archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING,
 ) -> dict[str, float]:
-    """The configuration's own ``by`` against its sizes shuffled, re-simulated where a size moves trades."""
+    """Compare the configuration's ``by`` with its sizes shuffled, re-simulated where a size moves trades."""
     if archetype.name != archetypes.INSIDEBARTRAILING.name:
         return recomputed_null(data, params, instrument, archetype, by=by, draws=draws, seed=seed)
 
@@ -645,7 +623,7 @@ def null_for_shortlist(
     seed: int,
     archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING,
 ) -> pd.DataFrame:
-    """Every shortlisted sizing arm's configuration against its shuffled sizes, held out."""
+    """Test every shortlisted sizing arm's configuration against its shuffled sizes, held out."""
     stored: pd.DataFrame = stored_rows(archetype.name, root, HELD_OUT)
     candidates: tuple[pd.DataFrame, ...] = candidate_bars(stored, splice.load_continuous(root))
     measured: list[dict[str, object]] = []
@@ -684,7 +662,7 @@ def null_row(
     *,
     swept: bool,
 ) -> dict[str, object]:
-    """One configuration's null, tagged with its stored row's ids and the size it was read at."""
+    """Return one configuration's null, tagged with its stored row's ids and the size it was read at."""
     sweep_id, combo_id = key
 
     return {

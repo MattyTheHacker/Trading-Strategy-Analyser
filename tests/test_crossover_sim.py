@@ -1,10 +1,8 @@
 """EmaCrossover simulation tests on hand-built bars.
 
-The archetype has no NinjaScript, so unlike the two ports there is no trade list to check
-against. What these pin instead are the three mechanisms it introduces -- a
+The archetype has no NinjaScript and no trade list. These pin its three mechanisms -- a
 market-on-next-open entry, an ATR or swing stop with no trigger to anchor to, and the
-``EXIT_SIGNAL`` exit -- plus the property the whole thing is worthless without: that nothing
-it reads comes from a bar it could not have seen.
+``EXIT_SIGNAL`` exit -- and that nothing it reads comes from a bar it could not have seen.
 
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
@@ -120,7 +118,7 @@ def simulate(
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 
@@ -550,7 +548,7 @@ def prepared(params: EmaCrossoverParams):
 
 
 def basis_prepared(params: EmaCrossoverParams, basis: context.PriceBasis):
-    """:func:`prepared` for a caller that states what its prices are."""
+    """Run :func:`prepared` for a caller that states what its prices are."""
     return context.prepare(bars(), sweep.Grid.of(params).required_context(), price_basis=basis)
 
 
@@ -564,9 +562,7 @@ def test_the_archetype_trades_both_sides_and_produces_signal_exits() -> None:
 def test_nothing_the_signal_reads_comes_from_a_bar_it_could_not_have_seen() -> None:
     """Recompute over a prefix: every value must be what the full series already said.
 
-    This is the test the archetype exists to make possible to fail. A crossover is unusually
-    easy to compute one bar early, and the symptom is a profit factor above 1 rather than an
-    exception.
+    A crossover computed one bar early shows up as a profit factor above 1, not as an exception.
     """
     params = EmaCrossoverParams(bars_required_to_trade=50, cross_lookback=3)
     frame = bars()
@@ -631,12 +627,9 @@ def test_as_dict_flattens_the_target_tuple_for_the_results_table() -> None:
 
 # -- the buffer-overflow guard -------------------------------------------------
 
-# One scenario per place the loop can run out of room, because each has its own guard and
-# a shared one would leave the others unexercised. `allocate_output`'s n_signals x n_legs
-# bound makes all of them unreachable in normal use -- which is exactly why they are worth
-# a test: numba does not bounds-check, so these returns are the only thing between a
-# violated bound and a write past the end of the matrix. Verifying a guard can fire is part
-# of relying on it.
+# One scenario per place the loop can run out of room, each with its own guard.
+# `allocate_output`'s bound makes them unreachable in normal use, and numba does not
+# bounds-check, so these guards are all that stops a write past the end of the matrix.
 OVERFLOW_CASES = {
     "stop while in a position": (
         [*[(100.0, 100.5, 99.5, 100.0)] * 2, (100.0, 100.5, 95.0, 96.0), *FLAT],
@@ -993,10 +986,7 @@ def test_the_opposite_cross_takes_a_bar_that_is_also_the_hold_limit() -> None:
 def test_a_signal_on_the_hold_limits_bar_reopens_at_the_same_price_as_the_exit() -> None:
     """The hold limit shares ``pending_exit``, so it reaches the flip's same-bar re-entry.
 
-    Deliberate rather than incidental: a bar whose close schedules both an exit and an entry
-    is already this archetype's flip, and giving the clock a different answer on the same bar
-    would be the inconsistency -- ``docs/nt8-fidelity.md``, "The maximum hold time, and why
-    it is its own exit code".
+    ``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its own exit code".
     """
     trades = run(
         [*FLAT, *FLAT],

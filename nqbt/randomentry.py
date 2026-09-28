@@ -34,13 +34,9 @@ DEFAULT_ALPHA = 0.05
 """Two-sided significance threshold behind :attr:`NullResult.verdict`."""
 
 MIN_DRAW_FREEDOM = 1.0
-"""Spare bars per signal the matched draw needs before it is a control at all.
-
-**"The draw must be able to relocate at least as many bars as it places"**, which is a meaning
-rather than a tuned number. The measured separation it sits in: an unfiltered OpeningRange has
-0.0019 and the tightest healthy case in the registry, ElasticBand, has 7.6 -- three orders of
-magnitude apart, so nothing here is close to the cut. :meth:`SessionMinutePool.draw_freedom`
-and ``docs/roadmap.md`` §M28.1.
+"""Spare bars per signal the matched draw needs before it is a control at all: it must be able to
+relocate at least as many bars as it places -- :meth:`SessionMinutePool.draw_freedom` and
+``docs/roadmap.md`` §M28.1.
 """
 
 OVER_BARS = "bars"
@@ -48,19 +44,14 @@ OVER_LEVELS = "levels"
 DRAWS = (OVER_BARS, OVER_LEVELS)
 """What a null realisation randomises, holding everything else fixed.
 
-``bars`` moves which day each entry signal lands on and is the default every archetype uses.
-``levels`` moves which session's range shape is traded and exists for the one archetype whose
-trigger is a level: its signal is dense by construction, so ``bars`` cannot be drawn on it at
-all -- ``docs/roadmap.md`` §M28.1 and §M28.2.
+``bars`` moves which day each entry signal lands on and is the default. ``levels`` moves which
+session's range shape is traded, for an archetype whose trigger is a level --
+``docs/roadmap.md`` §M28.1 and §M28.2.
 """
 
 MIN_DONOR_SESSIONS = 20
-"""Sessions with a range the level draw needs before it is a control at all.
-
-A uniform permutation has **exactly one expected fixed point whatever its size**, so the share
-of sessions handed their own range back is ``1/n`` and the cut is a meaning rather than a tuned
-number: *at most one session in twenty keeps the level it actually traded*. The bar draw's
-counterpart is :data:`MIN_DRAW_FREEDOM` -- ``docs/roadmap.md`` §M28.2.
+"""Sessions with a range the level draw needs before it is a control at all: at most one session
+in twenty keeps the level it actually traded -- ``docs/roadmap.md`` §M28.2.
 """
 
 WORSE = "worse than random"
@@ -121,7 +112,7 @@ class NullResult:
     """True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`."""
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
@@ -129,17 +120,13 @@ def minute_of_session(
     index: pd.DatetimeIndex,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> IntArray:
-    """How far each bar sits past its session open, in minutes."""
+    """Return how far each bar sits past its session open, in minutes."""
     return resample.minutes_since_open(index, template)
 
 
 @dataclass(frozen=True, slots=True)
 class SessionMinutePool:
-    """Every bar grouped by its minute-of-session, built once and reused by every draw.
-
-    Hoisting this out of the Monte Carlo loop is a measurement, not tidiness --
-    ``docs/roadmap.md`` §M7a.
-    """
+    """Every bar grouped by its minute-of-session, built once for every draw -- ``docs/roadmap.md`` §M7a."""
 
     minutes: IntArray
     """Minute-of-session per bar, aligned to the index."""
@@ -162,15 +149,14 @@ class SessionMinutePool:
         return cls(minutes=minutes, bars_by_minute=order, starts=starts)
 
     def pool_for(self, minute: int) -> IntArray:
-        """Every bar sharing one minute-of-session."""
+        """Return every bar sharing one minute-of-session."""
         return self.bars_by_minute[self.starts[minute] : self.starts[minute + 1]]
 
     def spare_bars(self, minutes: IntArray, counts: IntArray) -> int:
-        """Bars the draw could pick but ``counts`` does not need -- the room it has to differ.
+        """Count the bars the draw could pick but ``counts`` does not need -- the room it has to differ.
 
         Zero means every pool is consumed whole, so the draw can only return the signal it was
-        matched to. Small but non-zero is the same failure in practice, which is what
-        :func:`draw_freedom` measures -- see :func:`matched_random_signal`.
+        matched to -- see :meth:`draw_freedom`.
         """
         return sum(
             int(self.starts[minute + 1] - self.starts[minute]) - int(count)
@@ -178,13 +164,10 @@ class SessionMinutePool:
         )
 
     def draw_freedom(self, signal: BoolArray) -> float:
-        """Spare bars per signal: how much of itself the matched draw is free to relocate.
+        """Return spare bars per signal: how much of itself the matched draw is free to relocate.
 
-        The scale-free form of :meth:`spare_bars`, because what pins a summary statistic is the
-        **share** of signals that can move rather than the absolute count. Measured on this
-        project's own archetypes: 173.8 for DeadCatBounce, 48.1 for InsideBar, 7.6 for
-        ElasticBand -- and 0.0019 for an unfiltered OpeningRange, which is the failure
-        :data:`MIN_DRAW_FREEDOM` exists to refuse. ``docs/roadmap.md`` §M28.1.
+        The scale-free form of :meth:`spare_bars`, which :data:`MIN_DRAW_FREEDOM` cuts --
+        ``docs/roadmap.md`` §M28.1.
         """
         live: int = int(signal.sum())
         if not live:
@@ -203,19 +186,14 @@ def matched_random_signal(
     pool: SessionMinutePool | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> BoolArray:
-    """A random entry signal with ``signal``'s count and time-of-session distribution.
+    """Draw a random entry signal with ``signal``'s count and time-of-session distribution.
 
     For every minute-of-session at which the real rule fired, the same number of entries is
     drawn without replacement from all bars sharing that minute, across every trading day.
     The pool is deliberately not narrowed to in-session bars -- ``docs/roadmap.md`` §M7a.
 
-    **A signal dense enough to fill the pools it is drawn from is refused rather than drawn**,
-    because the match then has almost nothing left to randomise and each "null" realisation is
-    the observation itself -- reported as a p-value of 1 and read as "indistinguishable from
-    random". :data:`MIN_DRAW_FREEDOM` is the cut and
-    :meth:`SessionMinutePool.draw_freedom` the quantity. An **unfiltered** OpeningRange reaches
-    it, because its trigger is a level that persists and so resubmits on every armed bar; the
-    same archetype under a narrow context filter does not -- ``docs/roadmap.md`` §M28.1.
+    A signal dense enough to fill the pools it is drawn from is refused rather than drawn, below
+    :data:`MIN_DRAW_FREEDOM` -- ``docs/roadmap.md`` §M28.1.
     """
     if signal.shape != (len(data),):
         msg: str = f"signal has {signal.shape} entries for {len(data)} bars; it must be per-bar"
@@ -259,7 +237,7 @@ def _window_close(
     session_id: IndexArray,
     n_sessions: int,
 ) -> FloatArray:
-    """Each session's price at the moment its range window closed, ``nan`` where none did.
+    """Return each session's price at the moment its range window closed, ``nan`` where none did.
 
     The close of the first armed bar: the range is complete there, so it is the last price a
     rule reading that range could have seen when it first became tradeable.
@@ -281,20 +259,11 @@ def matched_random_ranges(
     key: sessionrange.RangeKey,
     rng: np.random.Generator,
 ) -> sessionrange.SessionRangeGrid:
-    """``key``'s ranges, each session's replaced by another session's shape at its own price.
+    """Return ``key``'s ranges, each session's replaced by another session's shape at its own price.
 
-    **The null for an entry whose trigger is a level rather than an event.** It holds the bars,
-    the costs, the geometry and the armed flags fixed -- so the entry *signal* is identical and
-    only the level moves -- and asks whether the range this session actually printed is worth
-    more than a range of some other session's shape placed at this session's price.
-
-    Every range travels as two offsets from the price its window closed at, never as a pair of
-    prices: NQ drifts thousands of points across a campaign window, so a donor transplanted
-    absolutely would sit out of reach all day and the null would be a run of no trades rather
-    than a control. What is randomised is therefore the range's **shape and placement relative
-    to the market**, which is the thing the entry rule claims is informative.
-
-    ``docs/roadmap.md`` §M28.2.
+    The null for an entry whose trigger is a level: the bars, costs, geometry and armed flags are
+    fixed, so only the level moves. Every range travels as two offsets from the price its window
+    closed at, never as a pair of prices -- ``docs/roadmap.md`` §M28.2.
     """
     armed: BoolArray = data.range_armed(key)
     session_id: IndexArray = data.range_session_id()
@@ -331,11 +300,10 @@ def _range_key_for(
     archetype: Archetype,
     draw: str,
 ) -> sessionrange.RangeKey | None:
-    """The range a level draw randomises, or ``None`` for the draw over bars.
+    """Return the range a level draw randomises, or ``None`` for the draw over bars.
 
     Refuses a level draw for an archetype whose trigger is not a level, rather than falling
-    back to the draw over bars: a null silently taken over the wrong thing is the failure
-    ``docs/roadmap.md`` §M28.1 records, arrived at from the other direction.
+    back to the draw over bars -- ``docs/roadmap.md`` §M28.1.
     """
     if draw not in DRAWS:
         msg: str = f"unknown draw {draw!r}; use one of {list(DRAWS)}"
@@ -365,7 +333,7 @@ def _null_summary(
     pool: SessionMinutePool,
     range_key: sessionrange.RangeKey | None,
 ) -> dict[str, float]:
-    """One null realisation: draw a matched arm, simulate it, summarise it.
+    """Run one null realisation: draw a matched arm, simulate it, summarise it.
 
     ``range_key`` picks which arm. Over levels the signal is left alone and the dataset's
     ranges are redrawn; over bars the ranges are left alone and the signal is redrawn.
@@ -400,7 +368,7 @@ def null_summaries(
     draw: str = OVER_BARS,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> pd.DataFrame:
-    """One row of :class:`nqbt.stats.Summary` per null realisation.
+    """Return one row of :class:`nqbt.stats.Summary` per null realisation.
 
     Every draw is seeded deterministically from ``seed``, so ``n_jobs`` changes the wall clock
     and nothing else. ``draw`` is one of :data:`DRAWS`.
@@ -498,9 +466,7 @@ def compare(  # noqa: PLR0913 - each keyword is an independent knob; a config ba
             )
 
         if draws.min() == draws.max():
-            # The draw-freedom check above catches this before the simulations run; this is
-            # the same failure seen from the result rather than from the signal, and it holds
-            # whatever caused it -- ``docs/roadmap.md`` §M28.1.
+            # The draw-freedom failure again, seen from the result -- ``docs/roadmap.md`` §M28.1.
             msg = (
                 f"every one of {draws.size} null draws produced the same {name} "
                 f"({draws[0]:.6g}), so the matched arm randomised nothing and its p-value "
@@ -565,5 +531,5 @@ def _place(
 
 
 def report(results: dict[str, NullResult]) -> pd.DataFrame:
-    """One row per statistic, for reading a :func:`compare` at a glance."""
+    """Return one row per statistic, for reading a :func:`compare` at a glance."""
     return pd.DataFrame([r.as_dict() for r in results.values()])

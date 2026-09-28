@@ -3,23 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_paired.py --strategy EmaCrossover \
         --control "stop=atr trail=off" --treatment "stop=atr trail=on"
 
-``tools/campaign_report.py`` compares distributions and ``tools/campaign_holdout.py`` compares
-shortlists. Neither answers the question an A/B variant is built to ask -- **does switching this
-one rule on help, holding everything else at the same value?** -- and the two it does answer are
-both biased when the arms are different sizes: the treatment's extra axes make its shortlist a
-best-of-more, which is the multiple-comparisons trap inside the design rather than in the data.
-
-So this pairs instead. Every parameter the two arms agree about becomes part of the key, the
-treatment's own axes are collapsed to their **median** within each cell, and what is reported is
-the distribution of within-cell differences. The median is deliberate: taking the treatment's
-best in each cell is selection, and it is reported beside the median only so the gap between
-them can be seen.
-
-**A cell needs both arms viable.** ``load`` drops rows under ``MIN_TRADES``, so a rule that
-thins the sample loses cells rather than scoring badly in them -- the pair count is reported for
-that reason and is part of the reading.
-
-Reads what ``tools/campaign_sweep.py`` wrote, one database per archetype.
+``tools/README.md`` § "campaign_paired.py".
 """
 
 from __future__ import annotations
@@ -32,41 +16,26 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_report import load, parameter_columns
-
 from nqbt import logsetup
+from tools.campaign_report import load, parameter_columns
 
 logger = logging.getLogger(__name__)
 
 CELL_KEYS = ["root", "resolution", "stratum"]
-"""What a cell is identified by before the shared parameters are added.
-
-``window`` is not here: a paired comparison is within one window, and the caller says which.
-"""
+"""What a cell is identified by before the shared parameters are added; the window is the caller's."""
 
 REPORT_KEYS = ["root", "resolution"]
-"""What one reported row pools over.
-
-The stratum stays inside :data:`CELL_KEYS` rather than becoming a row of its own: a pair is
-only a pair within one stratum, but a variant set run unfiltered has just the one, so splitting
-the report by it would print a column with a single value in every row."""
+"""What one reported row pools over."""
 
 
 def under_test(left: set[object], right: set[object]) -> bool:
-    """Whether one column's two value sets say it is the rule being tested rather than a key.
+    """Return whether one column's two value sets say it is the rule being tested rather than a key.
 
-    Two shapes mean "under test", and only these two: **one arm holds it constant while the
-    other varies it** -- the trail's period against a control that never trails -- or **the two
-    sets are disjoint**, which is what a toggle looks like. Anything else is a shared axis.
-
-    Set equality is *not* the test, and that is the point: ``load`` drops a row under
-    ``MIN_TRADES``, so a genuinely shared axis can lose one of its values in one arm alone.
-    Read as equality that would silently stop keying on it and collapse cells that are not the
-    same cell.
+    Under test means one arm holds it constant while the other varies it, or the two sets are
+    disjoint. Set equality is not the test -- ``tools/README.md`` § "campaign_paired.py".
     """
     if not left.isdisjoint(right):
         return (len(left) == 1) != (len(right) == 1)
@@ -75,7 +44,7 @@ def under_test(left: set[object], right: set[object]) -> bool:
 
 
 def shared_columns(control: pd.DataFrame, treatment: pd.DataFrame) -> list[str]:
-    """The parameter columns the two arms agree about, which are what a cell is keyed on.
+    """Return the parameter columns the two arms agree about, which are what a cell is keyed on.
 
     Derived rather than declared, by :func:`under_test`: nothing has to name the axis the
     variant pair exists to compare.
@@ -89,11 +58,10 @@ def shared_columns(control: pd.DataFrame, treatment: pd.DataFrame) -> list[str]:
 
 
 def cells(frame: pd.DataFrame, keys: list[str], by: str) -> pd.DataFrame:
-    """One row per cell: the median of ``by`` over whatever the arm varies inside it, and the best.
+    """Return one row per cell: the median of ``by`` over whatever the arm varies inside it, and the best.
 
-    The median is what the comparison uses. ``best`` rides along so a reader can see how much of
-    the arm's headline number is selection -- ``docs/roadmap.md`` § "The build spec's three loose
-    ends, measured".
+    The comparison uses the median; ``best`` shows how much of the arm's headline number is
+    selection.
     """
     grouped = frame.groupby(keys, dropna=False, observed=True)[by]
 
@@ -106,11 +74,9 @@ def paired(
     by: str,
     cell_keys: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Every cell both arms are viable in, with the control and treatment values side by side.
+    """Return every cell both arms are viable in, with the control and treatment values side by side.
 
-    ``cell_keys`` widens :data:`CELL_KEYS` for a caller whose two arms span several base
-    variants -- ``tools/campaign_hold.py`` pairs within each of them at once, and ``variant``
-    is a tag rather than a parameter, so nothing else would keep them apart.
+    ``cell_keys`` widens :data:`CELL_KEYS` for arms spanning several base variants.
     """
     # De-duplicated, order kept: a caller naming a column ``shared_columns`` also derives must
     # not key on it twice, which ``reset_index`` refuses rather than ignores.
@@ -129,15 +95,10 @@ def paired(
 
 
 def sign_test(improved: int, total: int) -> float:
-    """Two-sided exact binomial p for ``improved`` of ``total`` cells, against a fair coin.
+    """Compute a two-sided exact binomial p for ``improved`` of ``total`` cells, against a fair coin.
 
-    Exact rather than normal-approximated, and written out rather than imported: the campaign
-    runs on nine pinned dependencies and this is four lines. A cell whose difference is exactly
-    zero is counted as not improved, which is the conservative direction.
-
-    **The division stays in integers until the last step**, because ``2.0 ** total`` is an
-    overflow above 1,023 pairs and the quotient is always in [0, 1] -- a cell holding a whole
-    grid reaches that, and the exception is raised rather than the p-value ([#292]).
+    A zero difference counts as not improved. The division stays in integers until the last
+    step, because ``2.0 ** total`` overflows above 1,023 pairs ([#292]).
     """
     if total <= 0:
         return float("nan")
@@ -148,7 +109,7 @@ def sign_test(improved: int, total: int) -> float:
 
 
 def verdict(frame: pd.DataFrame) -> pd.DataFrame:
-    """One row per root x resolution: how many cells the treatment improved, and by how much."""
+    """Return one row per root x resolution: how many cells the treatment improved, and by how much."""
     rows: list[dict[str, object]] = []
     for keys, group in frame.groupby(REPORT_KEYS, dropna=False, observed=True):
         improved: int = int((group["delta"] > 0.0).sum())
@@ -179,7 +140,7 @@ def report(
     by: str,
     stratum: str | None = None,
 ) -> pd.DataFrame:
-    """The paired verdict for one control/treatment pair of variants, in one stratum if named.
+    """Return the paired verdict for one control/treatment pair of variants, in one stratum if named.
 
     A report row pools every stratum of a root and resolution, so a verdict pre-registered on one
     cell has to name it -- ``docs/findings/m45-ibt-sizing-preregistration.md``.

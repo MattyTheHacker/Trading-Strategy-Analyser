@@ -18,7 +18,7 @@ from tools.campaign_crossroot import COMMISSION, PAIRS, selected, summarise
 
 
 def stored(n: int = 40) -> pd.DataFrame:
-    """Stored rows spanning both roots, two variants and a wide range of trade counts."""
+    """Build stored rows spanning both roots, two variants and a wide range of trade counts."""
     rng = np.random.default_rng(3)
 
     return pd.DataFrame(
@@ -35,7 +35,7 @@ def stored(n: int = 40) -> pd.DataFrame:
 
 
 @pytest.fixture
-def loaded(monkeypatch):
+def loaded(monkeypatch: pytest.MonkeyPatch):
     frame = stored()
     monkeypatch.setattr(campaign_crossroot, "load", lambda name, windows: frame)
 
@@ -62,10 +62,8 @@ def test_an_infinite_profit_factor_is_dropped_rather_than_ranked_first(loaded) -
 
 
 def test_a_row_its_fill_assumption_decided_is_dropped_before_ranking(loaded) -> None:
-    """OpeningRange's entry=rejection rows store a profit factor of 3,955 on 613 trades with
-    one loser, an ambiguous_share of 0.89 and trades held under a bar. §M28.7 measured that
-    family: 0 of 20 keep a profit factor above 1.00 under the other policy. Ranked on profit
-    factor alone they take the whole shortlist."""
+    """Rows whose result the ambiguity assumption decides are kept out of the shortlist --
+    ``docs/roadmap.md`` §M28.7."""
     loaded.loc[loaded.index[0], ["trades", "profit_factor", "ambiguous_share"]] = [900, 3955.0, 0.89]
 
     picked = selected("InsideBar", "NQ", top=200, min_trades=500)

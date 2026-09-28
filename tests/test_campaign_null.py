@@ -37,7 +37,7 @@ from tools.campaign_report import NET_TO_DRAWDOWN
 
 
 def measured(**columns: object) -> pd.DataFrame:
-    """A table shaped like :func:`~tools.campaign_null.measure`'s output."""
+    """Build a table shaped like :func:`~tools.campaign_null.measure`'s output."""
     base = {
         "label": ["a", "b", "c"],
         "stratum": "unfiltered",
@@ -56,7 +56,7 @@ def measured(**columns: object) -> pd.DataFrame:
 
 
 def refused_row(monkeypatch: pytest.MonkeyPatch, draw: str) -> dict[str, object]:
-    """One ``measure_row`` result, with the simulation and the null both stubbed out.
+    """Return one ``measure_row`` result, with the simulation and the null both stubbed out.
 
     The identity half is what is under test, so neither a dataset nor a draw is needed --
     stubbing ``compare`` to refuse reaches it by the shortest path.
@@ -127,8 +127,8 @@ def test_agreement_is_reported_when_every_ranking_picks_the_same_row() -> None:
 
 def test_a_disagreement_is_reported_rather_than_a_winner() -> None:
     """The case the exercise exists for: a bracket that suits the bars raises the observed
-    statistic and its own null together -- ``docs/findings/m26-elastic-band.md`` § "The method that does answer
-    the question"."""
+    statistic and its own null together -- ``docs/findings/m26-elastic-band.md``
+    § "The method that does answer the question"."""
     table = measured(profit_factor=[3.0, 2.0, 1.0])
     lines = rankings(table)
     assert lines[-1].endswith("DISAGREE")
@@ -205,7 +205,7 @@ def test_net_to_drawdown_needs_the_two_statistics_it_is_built_from() -> None:
 
 
 def family_rows(**columns: object) -> pd.DataFrame:
-    """A table shaped like :func:`~tools.campaign_null.measure`'s output over two cells."""
+    """Build a table shaped like :func:`~tools.campaign_null.measure`'s output over two cells."""
     base = {
         "root": ["MNQ", "MNQ", "NQ", "NQ"],
         "stratum": "phase=MIDDAY",
@@ -252,7 +252,7 @@ def test_beating_the_null_and_clearing_the_level_are_counted_separately() -> Non
 def test_the_level_the_count_is_taken_against_is_named_rather_than_inlined() -> None:
     """It is counted rather than concluded from, so the number a reader corrects for is
     visible."""
-    assert campaign_null.SIGNIFICANT == pytest.approx(0.05)
+    assert pytest.approx(0.05) == campaign_null.SIGNIFICANT
 
 
 def test_a_wholly_refused_cell_carries_a_count_rather_than_a_verdict() -> None:
@@ -284,7 +284,7 @@ LAST_BAR = pd.Timestamp("2024-09-17 14:56:00")
 
 
 def stored_frame(**columns: object) -> pd.DataFrame:
-    """A frame shaped like :func:`~tools.campaign_null.stored_rows`' output, unindexed."""
+    """Build a frame shaped like :func:`~tools.campaign_null.stored_rows`' output, unindexed."""
     base = {
         "sweep_id": 1,
         "combo_id": [10, 11],
@@ -302,7 +302,7 @@ def stored_frame(**columns: object) -> pd.DataFrame:
 
 
 def stubbed(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame | None = None) -> pd.DataFrame:
-    """:func:`~tools.campaign_null.stored_rows` over a stubbed query."""
+    """Run :func:`~tools.campaign_null.stored_rows` over a stubbed query."""
     stored = stored_frame() if frame is None else frame
     monkeypatch.setattr(campaign_null, "db_path", Path)
     monkeypatch.setattr(campaign_null.results, "query", lambda *_a, **_k: stored)
@@ -311,12 +311,12 @@ def stubbed(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame | None = None) 
 
 
 def assembled() -> pd.DataFrame:
-    """The same frame without monkeypatching, for the tests that only read one row from it."""
+    """Build the same frame without monkeypatching, for the tests that only read one row from it."""
     return stored_frame().set_index(JOIN_KEYS, drop=False)
 
 
 def shortlisted(**columns: object) -> pd.Series:
-    """One shortlist row, carrying the keys that identify it in another window."""
+    """Build one shortlist row, carrying the keys that identify it in another window."""
     base = {
         "sweep_id": 7,
         "combo_id": 10,
@@ -330,7 +330,7 @@ def shortlisted(**columns: object) -> pd.Series:
 
 
 def bars(first: object, last: object) -> pd.DataFrame:
-    """A bar frame with only its two ends, stamped the way the archive is."""
+    """Build a bar frame with only its two ends, stamped the way the archive is."""
     index = pd.DatetimeIndex([pd.Timestamp(first, tz="UTC"), pd.Timestamp(last, tz="UTC")])
 
     return pd.DataFrame({"close": [1.0, 2.0]}, index=index)
@@ -386,7 +386,7 @@ def test_a_stored_row_carries_the_bar_range_of_its_own_sweep(
 
 
 def swept(db: Path, window: str, trades: list[int], bars_frame: pd.DataFrame) -> None:
-    """One ``sweeps`` row and its combinations, stored the way ``campaign_sweep.run_point`` does."""
+    """Store one ``sweeps`` row and its combinations the way ``campaign_sweep.run_point`` does."""
     table = pd.DataFrame(
         {
             "variant": "bracket",
@@ -415,11 +415,8 @@ def test_a_stored_row_below_the_trade_floor_is_still_what_a_rerun_is_checked_aga
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A real round trip, because the claim is about the SQL. ``campaign_report.load`` drops
-    every row under ``MIN_TRADES``, and a shortlist ranked on the selection window routinely
-    lands under it in the holdout, so reading through that loader would be the check that never
-    runs -- ``docs/findings/m36-ema-pullback-volume-recut.md`` § "Gate 3 -- 1 of 120, and it is
-    in the wrong direction"."""
+    """A real round trip, because the claim is about the SQL: rows under ``MIN_TRADES`` are
+    read too -- ``tools/README.md`` § "campaign_null.py"."""
     db = tmp_path / "InsideBar.duckdb"
     index = pd.date_range("2024-01-02 00:00", periods=400, freq="5min", tz="UTC")
     frame = pd.DataFrame({"close": 1.0}, index=index)
@@ -488,7 +485,7 @@ def test_an_unstored_configuration_is_warned_about_rather_than_refused(
 
 
 def null_result(statistic: str, observed: float, trades: int) -> randomentry.NullResult:
-    """One :class:`~nqbt.randomentry.NullResult` with everything but the observation stubbed."""
+    """Build one :class:`~nqbt.randomentry.NullResult` with everything but the observation stubbed."""
     return randomentry.NullResult(
         statistic=statistic,
         observed=observed,
@@ -506,7 +503,7 @@ def null_result(statistic: str, observed: float, trades: int) -> randomentry.Nul
 
 
 def measured_row(monkeypatch: pytest.MonkeyPatch, trades: int, net_pnl: float) -> dict[str, object]:
-    """One real :func:`~tools.campaign_null.measure_row` result, with only ``compare`` stubbed.
+    """Return one real :func:`~tools.campaign_null.measure_row` result, with only ``compare`` stubbed.
 
     Going through the producer rather than writing the dict out is the point: what ``verify``
     reads has to be what the table actually carries.
@@ -558,7 +555,7 @@ def test_an_unstored_configuration_leaves_the_observation_unchecked() -> None:
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
-    """A random walk at index prices, so a round number is a round number."""
+    """Build a random walk at index prices, so a round number is a round number."""
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
@@ -582,10 +579,7 @@ def test_a_round_number_configuration_is_placed_against_its_null_rather_than_ref
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``measure`` reads raw bars and used to declare them ``UNKNOWN``, so a rule reading an
-    absolute level was refused by the safety default and gate 3 could not be run on
-    EmaCrossover's ``round=on`` variant at all ([#340]). The same defect [#330] fixed in
-    ``campaign_shortlist.store_logs``, in the tool that was not covered by it."""
+    """``measure`` declares its raw bars ``RAW``, so a rule reading an absolute level runs ([#340])."""
     db = tmp_path / "EmaCrossover.duckdb"
     bars = synthetic_bars()
     frame = resample.resample(bars, 5)

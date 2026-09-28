@@ -3,22 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_crossread.py
     ./.venv/Scripts/python.exe tools/campaign_crossread.py --dimension phase --min-score 8
 
-``tools/campaign_holdout.py`` asks whether a *shortlist* survives the held-out window, which
-makes it a measurement of selection as much as of the strategy. This asks the other question:
-**does pinning one context filter on beat leaving it off, for the same parameters?** Every
-filtered row has an unfiltered twin at identical parameters, root, resolution and variant, so
-the comparison is paired and carries none of the shortlist-size bias § "The build spec's three
-loose ends, measured" records.
-
-Each pair is scored in **both** windows independently and the cells are counted, never pooled
-into one number -- ``docs/roadmap.md`` §M28.14. A cell is one ``root x resolution``; the score
-is how many of them the filter won in both windows minus how many it lost in both.
-
-**A score is a consistency check and not a p-value.** The cells are two roots tracking one index
-at five overlapping bar sizes, so they are nowhere near independent, and this tool ranks nothing
-and tests nothing. ``tools/campaign_null.py`` is what carries evidence.
-
-Reads what ``tools/campaign_sweep.py --split`` wrote, one database per archetype.
+A score is a consistency check and not a p-value -- ``tools/README.md`` § "campaign_crossread.py".
 """
 
 from __future__ import annotations
@@ -31,10 +16,10 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, logsetup, volume
 from tools.campaign_report import UNFILTERED, dimension_of, load, parameter_columns
 from tools.campaign_sweep import (
     STRATUM_GROUPS,
@@ -46,8 +31,6 @@ from tools.campaign_sweep import (
     VolumeCut,
     strata,
 )
-
-from nqbt import archetypes, logsetup, volume
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +54,7 @@ SCALARS = (bool, int, float, str)
 
 
 def ran_at(strategy: str) -> dict[str, bool | int | float | str]:
-    """Every parameter's default for one archetype: what a row stored before it ran at.
-
-    A sweep predating a parameter leaves its column null, and null is not the value it ran at,
-    so **every pair between a row stored before the column and one stored after is dropped** --
-    silently and completely. Read off the archetype rather than listed, because the list grew by
-    ten columns across three archetypes in one campaign and the next one cannot be foreseen.
-    ``docs/findings/m30-volume-regime-recut.md`` is where this cost a campaign.
-    """
+    """Return every parameter's default for one archetype: what a row stored before it ran at."""
     params: archetypes.Params = archetypes.get(strategy).params_cls()
 
     return {
@@ -89,7 +65,7 @@ def ran_at(strategy: str) -> dict[str, bool | int | float | str]:
 
 
 def probe_cuts() -> Cuts:
-    """A calibration whose only job is to make the fitted stratum generators yield their axes.
+    """Return a calibration whose only job is to make the fitted stratum generators yield their axes.
 
     The values are never run; :func:`context_columns` reads the keys alone.
     """
@@ -102,7 +78,7 @@ def probe_cuts() -> Cuts:
 
 
 def context_columns() -> frozenset[str]:
-    """Every parameter a stratum generator sets, read out of the generators themselves.
+    """Return every parameter a stratum generator sets, read out of the generators themselves.
 
     Derived rather than listed so that a dimension added to ``STRATUM_GROUPS`` cannot leave a
     column behind here -- one left in the join key would pair a stratum only against itself.
@@ -116,7 +92,7 @@ def context_columns() -> frozenset[str]:
 
 
 def pairing_columns(frame: pd.DataFrame) -> list[str]:
-    """The columns that identify the same combination across two strata.
+    """Return the columns that identify the same combination across two strata.
 
     Every parameter except the ones a stratum exists to move -- varying those is what a stratum
     *is*, so keeping them would make each stratum pair only with itself.
@@ -127,7 +103,7 @@ def pairing_columns(frame: pd.DataFrame) -> list[str]:
 
 
 def is_recut(stratum: str) -> bool:
-    """Whether a stratum re-cuts a dimension another group already owns.
+    """Return whether a stratum re-cuts a dimension another group already owns.
 
     ``volume=HEAVY@per_bar_20 q=0.20/0.80`` and ``regime=CONSOLIDATING@n=20`` are the shape --
     ``campaign_sweep.RECUTS``, and :func:`campaign_report.dimension_of` documents the ``@``.
@@ -136,16 +112,9 @@ def is_recut(stratum: str) -> bool:
 
 
 def common_variants(frame: pd.DataFrame) -> set[str]:
-    """The variants every plain filtered stratum holds, empty where the frame holds none.
+    """Return the variants every plain filtered stratum holds, empty where the frame holds none.
 
-    A stratum run by a later campaign carries that campaign's variants and no earlier stratum's:
-    OpeningRange's ``regime=CONSOLIDATING`` holds the fade and rejection arms that only the
-    reversion campaigns ran. Read against a stratum built from the breakout arms alone, the
-    difference reported would be the entry mechanism wearing the regime's name.
-
-    **Re-cuts are left out of the intersection and not out of the pairing.** Each was run by its
-    own campaign over its own variants, so including them empties the set and every archetype
-    with one reports nothing -- which is what ElasticBand and OpeningRange did.
+    Re-cuts are left out of the intersection, not out of the pairing.
     """
     filtered: pd.DataFrame = frame[frame["stratum"] != UNFILTERED]
     recut = filtered["stratum"].map(lambda name: is_recut(str(name))).astype(bool)
@@ -158,11 +127,10 @@ def common_variants(frame: pd.DataFrame) -> set[str]:
 
 
 def paired(frame: pd.DataFrame, variants: set[str] | None = None) -> pd.DataFrame:
-    """Each filtered row beside the unfiltered row of the same combination, in one window.
+    """Pair each filtered row with the unfiltered row of the same combination, in one window.
 
-    ``variants`` states the set outright where the caller knows it, which is what a campaign
-    whose every filtered stratum is a re-cut needs: :func:`common_variants` intersects the
-    *plain* strata and finds none of them, so its answer would be empty.
+    ``variants`` states the set outright, for a campaign whose every filtered stratum is a
+    re-cut.
     """
     shared: set[str] = variants if variants is not None else common_variants(frame)
     if not shared:
@@ -200,7 +168,7 @@ def per_window(
     *,
     by_variant: bool = False,
 ) -> pd.DataFrame:
-    """The paired difference per cell, one row per stratum, cell and window.
+    """Return the paired difference per cell, one row per stratum, cell and window.
 
     ``by_variant`` keeps the variant in the key rather than pooling the arms of one set, which
     is what a campaign measuring the variant dimension itself needs -- ``docs/roadmap.md`` §M33.
@@ -244,11 +212,8 @@ def per_window(
 def agreement(cells: pd.DataFrame, *, by_variant: bool = False) -> pd.DataFrame:
     """Count the cells a filter won in both windows against the cells it lost in both.
 
-    A cell that wins one window and loses the other counts for neither side, which is the whole
-    point: the two windows are disjoint spans and agreeing across them is the claim being made.
-
-    ``by_variant`` scores each arm of a variant set separately instead of pooling them, for
-    :func:`per_window`'s reason.
+    A cell that wins one window and loses the other counts for neither side. ``by_variant``
+    scores each arm of a variant set separately.
     """
     if cells.empty:
         return pd.DataFrame()
@@ -292,7 +257,7 @@ def agreement(cells: pd.DataFrame, *, by_variant: bool = False) -> pd.DataFrame:
 
 
 def matrix(scored: pd.DataFrame, dimension: str) -> pd.DataFrame:
-    """One dimension's scores as cells down the rows and archetypes across the columns."""
+    """Lay out one dimension's scores as cells down the rows and archetypes across the columns."""
     block: pd.DataFrame = scored[scored["dimension"] == dimension]
 
     return block.pivot_table(index="cell", columns="strategy", values="score", aggfunc="first")

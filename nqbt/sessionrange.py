@@ -3,18 +3,11 @@
 One window per session -- the highest high and the lowest low of the bars covering
 ``[anchor_minutes, anchor_minutes + window_minutes)`` past the session open -- plus the flag
 saying which bars may read it. The cash open is :data:`CASH_OPEN_MINUTES` past the ETH open,
-and the ETH open itself is ``0``, so the overnight range is the same primitive at a different
-anchor.
+and the ETH open itself is ``0``.
 
-**A range exists only where its whole window does.** A session whose window is short of bars
-gets no range at all rather than one measured over what happened to be there, which is why
-:attr:`SessionRangeGrid.armed` carries that verdict rather than the caller re-deriving it.
-
-**The anchor and the window must both be whole numbers of bars**, so the bar grid decides which
-ranges exist at all -- a cash-anchored range is not expressible on 60-minute bars.
-:func:`validate_key` is where that is enforced and ``docs/roadmap.md`` §M28 is the reasoning.
-
-Belongs to context, not simulation: it describes the bars and knows nothing about trades.
+A session whose window is short of bars gets no range, which :attr:`SessionRangeGrid.armed`
+carries. The anchor and the window must both be whole numbers of bars --
+:func:`validate_key` and ``docs/roadmap.md`` §M28.
 """
 
 from __future__ import annotations
@@ -62,7 +55,7 @@ def anchor_for(
     phase: SessionPhase,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> int:
-    """Minutes from the session open to the start of ``phase`` -- one anchor per clock.
+    """Return the minutes from the session open to the start of ``phase`` -- one anchor per clock.
 
     Derived from :func:`nqbt.timeofday.phase_start_minutes` rather than written down, so the
     two clocks cannot drift apart if the template's open ever moves.
@@ -90,10 +83,9 @@ def validate_key(
 ) -> RangeKey:
     """Return the key if a range can be built for it at ``bar_minutes``, else raise.
 
-    Three conditions, and the last two are the ones that surprise: the window must fit inside
-    the session, the anchor must land on a bucket boundary, and the window must be a whole
-    number of bars. A cash-anchored range therefore needs ``bar_minutes`` to divide 930, which
-    with §M13's own ``N | 60`` leaves ``N`` dividing 30 and rules 60-minute bars out entirely.
+    The window must fit inside the session, the anchor must land on a bucket boundary, and the
+    window must be a whole number of bars. A cash-anchored range therefore needs ``bar_minutes``
+    to divide 930, which with §M13's own ``N | 60`` leaves ``N`` dividing 30.
     """
     if bar_minutes < 1:
         msg: str = f"bar_minutes must be >= 1, got {bar_minutes}"
@@ -136,10 +128,9 @@ def validate_key(
 class SessionRangeGrid:
     """Every range a sweep needs, one row per key, plus the session index they are read through.
 
-    **The levels are per session and the flag is per bar**, because a range is one fact about a
-    session rather than a series: :attr:`high` and :attr:`low` are ``[n_keys, n_sessions]`` and
-    :attr:`armed` is ``[n_keys, n_bars]``. That is what keeps the grid at a few bytes per bar
-    however many windows are swept -- ``docs/roadmap.md`` §M28.1.
+    The levels are per session and the flag is per bar: :attr:`high` and :attr:`low` are
+    ``[n_keys, n_sessions]`` and :attr:`armed` is ``[n_keys, n_bars]`` -- ``docs/roadmap.md``
+    §M28.1.
     """
 
     keys: tuple[RangeKey, ...]
@@ -172,7 +163,7 @@ class SessionRangeGrid:
         return int(self.high.shape[1])
 
     def row(self, key: RangeKey) -> int:
-        """The row holding ``key``, or an error naming what the grid was built for."""
+        """Return the row holding ``key``, or raise an error naming what the grid was built for."""
         if key not in self.keys:
             msg: str = f"range {key} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg)
@@ -180,15 +171,15 @@ class SessionRangeGrid:
         return self.keys.index(key)
 
     def armed_for(self, key: RangeKey) -> BoolArray:
-        """Per bar: whether one range is complete and readable."""
+        """Return, per bar, whether one range is complete and readable."""
         return np.asarray(self.armed[self.row(key)])
 
     def high_for(self, key: RangeKey) -> FloatArray:
-        """Per session: one range's high, ``nan`` where the session has no range."""
+        """Return, per session, one range's high, ``nan`` where the session has no range."""
         return np.asarray(self.high[self.row(key)])
 
     def low_for(self, key: RangeKey) -> FloatArray:
-        """Per session: one range's low, ``nan`` where the session has no range."""
+        """Return, per session, one range's low, ``nan`` where the session has no range."""
         return np.asarray(self.low[self.row(key)])
 
     @property
@@ -198,7 +189,7 @@ class SessionRangeGrid:
 
 
 def _session_ids(trading_day: DateArray) -> IndexArray:
-    """Each bar's session as a dense index from zero, in bar order."""
+    """Return each bar's session as a dense index from zero, in bar order."""
     return (np.cumsum(indicators.new_session_flags(trading_day)) - 1).astype(np.int32)
 
 
@@ -206,7 +197,7 @@ def _session_runs(
     session_id: IndexArray,
     mask: BoolArray,
 ) -> tuple[OffsetArray, OffsetArray, IndexArray]:
-    """The masked bars, where each session's run of them starts, and whose session each run is.
+    """Return the masked bars, where each session's run of them starts, and whose session each run is.
 
     Every mask this module reduces over is contiguous within a session -- a window is a span of
     minutes and an armed flag a suffix of one -- so a group is a slice and ``reduceat`` is the
@@ -232,7 +223,7 @@ def _extremes(
     n_sessions: int,
     expected_bars: int,
 ) -> tuple[FloatArray, FloatArray]:
-    """One high and one low per session, ``nan`` unless the window is entirely present."""
+    """Return one high and one low per session, ``nan`` unless the window is entirely present."""
     session_high: FloatArray = np.full(n_sessions, np.nan, dtype=np.float64)
     session_low: FloatArray = np.full(n_sessions, np.nan, dtype=np.float64)
     inside: OffsetArray
@@ -332,11 +323,10 @@ def _reach(
     armed: BoolArray,
     n_sessions: int,
 ) -> tuple[FloatArray, FloatArray]:
-    """Per session: the extreme prices of the bars that may trade the range, ``nan`` where none.
+    """Return, per session, the extreme prices of the bars that may trade the range, ``nan`` where none.
 
     The armed bars are the whole of the session past the window, so this is how far price
-    actually went while an order could have been resting -- and therefore what a bracket
-    denominated in the range could ever have reached.
+    actually went while an order could have been resting.
     """
     reach_high: FloatArray = np.full(n_sessions, np.nan, dtype=np.float64)
     reach_low: FloatArray = np.full(n_sessions, np.nan, dtype=np.float64)
@@ -360,7 +350,7 @@ def follow_through(
     reach_high: FloatArray,
     reach_low: FloatArray,
 ) -> FloatArray:
-    """How far past the range price travelled, in range widths -- the further of the two sides.
+    """Measure how far past the range price travelled, in range widths -- the further of the two sides.
 
     One number per session: ``0`` where the range held all day, ``1`` where price extended a
     whole further range width beyond it. A session with no range, no bars past its window or a
@@ -374,12 +364,10 @@ def follow_through(
 
 
 def trailing_median(values: FloatArray, sessions: int) -> FloatArray:
-    """Per session: the median of the ``sessions`` most recent **earlier** sessions with a value.
+    """Return, per session, the median of the ``sessions`` most recent **earlier** sessions with a value.
 
     Strictly earlier, so no session contributes to its own statistic, and ``nan`` until that
-    many have accumulated -- a scale with no history behind it is refused rather than
-    approximated from what happens to be there, which is :func:`range_grid`'s rule for a short
-    window read at one level up.
+    many have accumulated.
     """
     validate_follow_through_sessions(sessions)
     out: FloatArray = np.full(values.shape, np.nan, dtype=np.float64)
@@ -402,9 +390,8 @@ def trailing_median(values: FloatArray, sessions: int) -> FloatArray:
 class FollowThroughGrid:
     """One session's follow-through per range, plus the trailing median at each declared lookback.
 
-    Per session rather than per bar, exactly as :class:`SessionRangeGrid` holds its levels --
-    follow-through is one fact about a session, and :attr:`SessionRangeGrid.session_id` is the
-    index into both.
+    Per session rather than per bar, as :class:`SessionRangeGrid` holds its levels, and read
+    through the same :attr:`SessionRangeGrid.session_id`.
     """
 
     keys: tuple[RangeKey, ...]
@@ -420,7 +407,7 @@ class FollowThroughGrid:
     """``[n_keys, n_lookbacks, n_sessions]``: :func:`trailing_median` of :attr:`raw`."""
 
     def row(self, key: RangeKey) -> int:
-        """The row holding ``key``, or an error naming what the grid was built for."""
+        """Return the row holding ``key``, or raise an error naming what the grid was built for."""
         if key not in self.keys:
             msg: str = f"range {key} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg)
@@ -428,7 +415,7 @@ class FollowThroughGrid:
         return self.keys.index(key)
 
     def lookback_row(self, sessions: int) -> int:
-        """The row holding one trailing window, or an error naming the ones built."""
+        """Return the row holding one trailing window, or raise an error naming the ones built."""
         if sessions not in self.lookbacks:
             msg: str = (
                 f"follow-through over {sessions} sessions is not in this grid; built for "
@@ -439,11 +426,11 @@ class FollowThroughGrid:
         return self.lookbacks.index(sessions)
 
     def raw_for(self, key: RangeKey) -> FloatArray:
-        """Per session: one range's own follow-through."""
+        """Return, per session, one range's own follow-through."""
         return np.asarray(self.raw[self.row(key)])
 
     def scale_for(self, key: RangeKey, sessions: int) -> FloatArray:
-        """Per session: the trailing follow-through a bracket is denominated against."""
+        """Return, per session, the trailing follow-through a bracket is denominated against."""
         return np.asarray(self.trailing[self.row(key), self.lookback_row(sessions)])
 
     @property
@@ -460,8 +447,7 @@ def follow_through_grid(
 ) -> FollowThroughGrid:
     """Measure every range's follow-through once, and take each declared trailing median of it.
 
-    Reads :class:`SessionRangeGrid` rather than re-deriving the windows, so the sessions a
-    range exists for are the grid's decision and not a second opinion about it.
+    Reads :class:`SessionRangeGrid` rather than re-deriving the windows.
     """
     windows: tuple[int, ...] = tuple(
         sorted({validate_follow_through_sessions(n) for n in lookbacks}),

@@ -6,6 +6,8 @@ has. And the **framing** must survive: the module exists to report a spread rath
 winner, so the tests that matter are the ones that would fail if it quietly started ranking.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -13,9 +15,12 @@ import pytest
 from nqbt import dispersion, sessions, stats
 from nqbt.dispersion import DispersionError
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.DataFrame:
-    """A leg-level log whose trades sum to ``pnl_per_trade``.
+    """Build a leg-level log whose trades sum to ``pnl_per_trade``.
 
     Split across legs on purpose: everything here has to survive the leg -> trade collapse,
     and a one-leg-per-trade fixture would never exercise it.
@@ -84,7 +89,7 @@ def test_an_empty_trade_vector_is_zero_not_a_crash() -> None:
 
 
 def results_table(rows) -> pd.DataFrame:
-    """``(contract, combo_id, trades, profit_factor)`` tuples as a results frame."""
+    """Build a results frame from ``(contract, combo_id, trades, profit_factor)`` tuples."""
     return pd.DataFrame(rows, columns=["contract", "combo_id", "trades", "profit_factor"])
 
 
@@ -213,14 +218,10 @@ def test_the_observed_statistic_matches_the_reference_per_contract() -> None:
 
 
 # -- a synthetic cache, so the data path is tested rather than skipped ---------
-#
-# These used to be real-data tests guarded by ``pytest.skip`` when the MNQ cache was absent,
-# which meant CI -- the only place that measures coverage -- exercised none of them. Writing
-# a two-contract cache into ``tmp_path`` costs a few hundred bars and tests the same code.
 
 
 def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFrame:
-    """One contract's cached bars: whole ETH sessions, wicks wide enough to trade."""
+    """Build one contract's cached bars: whole ETH sessions, wicks wide enough to trade."""
     rng = np.random.default_rng(seed)
     stamps: list[pd.Timestamp] = []
     open_et = pd.Timestamp(start, tz=sessions.EASTERN)
@@ -255,8 +256,8 @@ def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFr
 
 
 @pytest.fixture
-def cache(tmp_path):
-    """A cache holding two contracts and the continuous series spliced from them.
+def cache(tmp_path: Path):
+    """Provide a cache holding two contracts and the continuous series spliced from them.
 
     The contracts **overlap in time** on purpose -- real ones do, and that overlap is the
     whole reason the front-month window exists.
@@ -344,7 +345,7 @@ def test_coverage_reports_a_sample_size_for_every_contract(cache) -> None:
     assert cover["start"].is_monotonic_increasing
 
 
-def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path) -> None:
+def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path: Path) -> None:
     """The continuous series names contracts whose per-contract cache is missing."""
     from nqbt import splice
 

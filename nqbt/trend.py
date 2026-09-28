@@ -6,16 +6,10 @@ slow one is sloping, and which way round the fast and slow are stacked -- reduce
 votes sum to an **agreement score** in ``-3..+3``, and ``min_agreement`` cuts that score into
 :attr:`Trend.DOWN`, :attr:`Trend.MIXED` and :attr:`Trend.UP`.
 
-**No new indicator work**: the averages come from :func:`nqbt.conditions.moving_average_grid`,
-so they are the same NT8-seeded EMAs every gate reads. **And no new memory**: the grid this
-module builds for its own periods is dropped with only the labels kept, so asking for a trend
-label never switches ``keep_values`` on for the sweep's shared grids -- ``docs/roadmap.md``
-§M10.3.
-
-A trend set is carried as a bitmask integer so that it is a legal sweep axis, exactly as
-:mod:`nqbt.regime`, :mod:`nqbt.timeofday` and :mod:`nqbt.volume` carry theirs. Why the label is
-unanimity rather than a composite of eight states, why the boundary belongs to the outer bands
-here and to the middle band there, and why the kind is fixed at EMA: ``docs/roadmap.md`` §M10.3.
+The averages are :func:`nqbt.conditions.moving_average_grid`'s NT8-seeded EMAs, built for the
+label's own periods and dropped once it is cut, so a trend label never switches ``keep_values``
+on for the shared grids. A trend set is a bitmask integer, so it is a legal sweep axis --
+``docs/roadmap.md`` §M10.3.
 """
 
 from __future__ import annotations
@@ -212,7 +206,7 @@ def key(fast_period: int, slow_period: int, slope_lookback: int) -> TrendKey:
 
 @njit(cache=True)
 def _vote(value: float, reference: float) -> int:
-    """``+1`` above, ``-1`` below, ``0`` on exact equality -- one definition for all three."""
+    """Vote ``+1`` above, ``-1`` below, ``0`` on exact equality -- one definition for all three."""
     if value > reference:
         return 1
 
@@ -278,7 +272,7 @@ def _label(agreement: FloatArray, min_agreement: int) -> LabelArray:
 
 @njit(cache=True)
 def _gate(agreement: FloatArray, min_agreement: int, mask: int) -> BoolArray:
-    """One pass from score to boolean, so a sweep combination never builds a label array."""
+    """Map score to boolean in one pass, so a sweep combination never builds a label array."""
     n = agreement.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):
@@ -391,10 +385,7 @@ class TrendGrid:
 def trend_grid(close: FloatArray, keys: Iterable[TrendKey]) -> TrendGrid:
     """Compute every distinct trend label a sweep needs, once.
 
-    The averages are built here and dropped here: a values-carrying
-    :class:`~nqbt.conditions.MovingAverageGrid` over the handful of periods these keys name
-    costs a fraction of the shared grid's, and nothing outside this function ever sees it --
-    ``docs/roadmap.md`` §M10.3.
+    The averages are built here and dropped here -- ``docs/roadmap.md`` §M10.3.
     """
     ordered: tuple[TrendKey, ...] = tuple(
         sorted({key(k.fast_period, k.slow_period, k.slope_lookback) for k in keys})

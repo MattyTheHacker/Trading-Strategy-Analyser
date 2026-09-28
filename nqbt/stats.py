@@ -93,21 +93,20 @@ class Summary:
     commission_paid: float
 
     def as_dict(self) -> dict[str, float]:
-        """Flat mapping of every statistic, for a results row or a CSV."""
+        """Return a flat mapping of every statistic, for a results row or a CSV."""
         return asdict(self)
 
     @classmethod
     def columns(cls) -> list[str]:
-        """Every statistic's name, in field order."""
+        """List every statistic's name, in field order."""
         return [f.name for f in fields(cls)]
 
     @classmethod
     def empty(cls) -> Summary:
-        """The zero summary, for a combination that produced no trades.
+        """Return the zero summary, for a combination that produced no trades.
 
-        Keyed by field name and typed from the annotations rather than splatted positionally.
-        **Do not "simplify" it back to a splat** -- the version this replaces passed 26
-        arguments into a 28-field dataclass and raised on every call.
+        Keyed by field name and typed from the annotations rather than splatted positionally --
+        ``docs/roadmap.md`` §M20a.
         """
         hints = get_type_hints(cls)
 
@@ -122,7 +121,7 @@ def _max_drawdown(equity: FloatArray) -> float:
 
 
 def _max_consecutive(mask: BoolArray) -> int:
-    """Longest run of True values."""
+    """Return the longest run of True values."""
     if mask.size == 0 or not mask.any():
         return 0
 
@@ -132,7 +131,7 @@ def _max_consecutive(mask: BoolArray) -> int:
 
 
 def _ratio(numerator: float, denominator: float) -> float:
-    """Guarded division that reports a run with no losses as infinite rather than crashing."""
+    """Divide, reporting a run with no losses as infinite rather than crashing."""
     if denominator == 0:
         return float("inf") if numerator > 0 else 0.0
 
@@ -144,7 +143,7 @@ class MissingTimesError(ValueError):
 
 
 def _risk_adjusted(daily: FloatArray) -> tuple[float, float]:
-    """Annualised Sharpe and Sortino from daily P&L.
+    """Compute annualised Sharpe and Sortino from daily P&L.
 
     Daily totals rather than per trade: a per-trade Sharpe rewards taking many tiny trades.
     """
@@ -251,7 +250,7 @@ def _require_exit_times(trades: pd.DataFrame) -> None:
 
 
 def _daily_totals(pnl: FloatArray, exit_times: pd.DatetimeIndex) -> FloatArray:
-    """Per-trade P&L totalled by the calendar day each trade closed on."""
+    """Total per-trade P&L by the calendar day each trade closed on."""
     return np.asarray(pd.Series(pnl).groupby(exit_times.date).sum(), dtype=np.float64)
 
 
@@ -273,7 +272,7 @@ def _summarise_arrays(
     ambiguous_share: float,
     session_close_share: float,
 ) -> Summary:
-    """Every statistic, from per-trade vectors and the leg-level quantities.
+    """Compute every statistic, from per-trade vectors and the leg-level quantities.
 
     The single definition both summary paths reach -- **do not re-inline it into either
     caller**. ``pnl``, ``bars_held``, ``mae`` and ``mfe`` are one element per **trade**;
@@ -323,7 +322,7 @@ class GroupingError(ValueError):
 
 @njit(cache=True)
 def _run_starts(keys: FloatArray | IndexArray) -> IntArray:
-    """Half-open boundaries of each run of equal ``keys``, plus a closing sentinel."""
+    """Return half-open boundaries of each run of equal ``keys``, plus a closing sentinel."""
     n = keys.size
     starts = np.empty(n + 1, np.int64)
     groups = 0
@@ -338,7 +337,7 @@ def _run_starts(keys: FloatArray | IndexArray) -> IntArray:
 
 @njit(cache=True)
 def _grouped_sum(values: FloatArray, starts: IntArray) -> FloatArray:
-    """Kahan-compensated sum per group -- which is what pandas' ``groupby`` does.
+    """Sum each group with Kahan compensation -- which is what pandas' ``groupby`` does.
 
     The compensation is load-bearing, not decoration -- ``docs/roadmap.md`` §"The numpy-native
     summary path". Nulls are skipped for the same reason: ``groupby.sum`` defaults to
@@ -362,7 +361,7 @@ def _grouped_sum(values: FloatArray, starts: IntArray) -> FloatArray:
 
 @njit(cache=True)
 def _grouped_max(values: FloatArray, starts: IntArray) -> FloatArray:
-    """Largest value per group, skipping nulls as ``groupby.max`` does."""
+    """Return the largest value per group, skipping nulls as ``groupby.max`` does."""
     out = np.empty(starts.size - 1, np.float64)
     for g in range(starts.size - 1):
         best = np.nan
@@ -444,12 +443,11 @@ Which makes them the only ones a resampling test may permute -- ``docs/roadmap.m
 
 
 def trade_statistic(pnl: FloatArray, name: str) -> float:
-    """One :data:`TRADE_PNL_STATISTICS` value straight from a per-trade P&L vector.
+    """Compute one :data:`TRADE_PNL_STATISTICS` value straight from a per-trade P&L vector.
 
-    Roughly two orders of magnitude cheaper than :func:`summarise`, which is what lets a
-    resampling test evaluate thousands of regroupings. **Not a second definition**: the
-    division goes through the same ``_ratio``, and ``tests/test_dispersion.py`` asserts exact
-    agreement on real logs. Feed it :func:`per_trade` output, never raw legs.
+    The fast path a resampling test needs; the division goes through the same ``_ratio``, and
+    ``tests/test_dispersion.py`` pins exact agreement. Feed it :func:`per_trade` output, never
+    raw legs.
     """
     if name not in TRADE_PNL_STATISTICS:
         msg: str = (
@@ -482,11 +480,10 @@ Which makes them the only ones a *sequence* permutation can move, and the exact 
 
 
 def path_statistic(pnl: FloatArray, name: str) -> float:
-    """One :data:`PATH_STATISTICS` value from a per-trade P&L vector, in sequence order.
+    """Compute one :data:`PATH_STATISTICS` value from a per-trade P&L vector, in sequence order.
 
-    **Not a second definition**: both branches call the same helpers :func:`summarise` does,
-    and ``tests/test_montecarlo.py`` asserts exact agreement on real logs. Feed it
-    :func:`per_trade` output, never raw legs.
+    Both branches call the same helpers :func:`summarise` does, and ``tests/test_montecarlo.py``
+    pins exact agreement. Feed it :func:`per_trade` output, never raw legs.
     """
     if name not in PATH_STATISTICS:
         msg: str = f"{name!r} does not depend on trade order; choose from {list(PATH_STATISTICS)}"
@@ -502,7 +499,7 @@ def path_statistic(pnl: FloatArray, name: str) -> float:
 
 
 def leg_summary(trades: pd.DataFrame) -> dict[str, float]:
-    """NT8's view: every named entry counted as its own trade.
+    """Summarise NT8's view: every named entry counted as its own trade.
 
     Only for reconciling against Strategy Analyzer, whose "Total # of trades" is the leg count.
     """

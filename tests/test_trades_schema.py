@@ -1,9 +1,8 @@
 """The trade-log schema, and the layering M9 exists to establish.
 
-Two producers will write trade logs -- the jitted simulation and, later, an importer for
-real NT8 executions -- and a statistic is only comparable across them if they agree on
-what a row means. These tests pin that agreement and the module boundaries that keep it
-enforceable.
+The jitted simulation and the importer for real NT8 executions both write trade logs, and a
+statistic is only comparable across them if they agree on what a row means. These pin that
+agreement and the module boundaries that keep it enforceable -- ``docs/roadmap.md`` §M9.
 """
 
 import ast
@@ -20,7 +19,7 @@ PACKAGE = Path(__file__).resolve().parents[1] / "nqbt"
 
 
 def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
-    """A minimal schema-conforming log, in the shape an importer would produce."""
+    """Build a minimal schema-conforming log, in the shape an importer would produce."""
     frame = pd.DataFrame(
         {
             "source": pd.array(["manual"] * n, dtype="string"),
@@ -182,7 +181,7 @@ def test_an_exit_reason_outside_the_simulator_enum_is_allowed() -> None:
 
 
 def leg_matrix(n: int = 3, **overrides) -> trades.LegMatrix:
-    """A minimal schema-conforming leg matrix, as the jitted loop would leave it."""
+    """Build a minimal schema-conforming leg matrix, as the jitted loop would leave it."""
     matrix = np.zeros((n + 2, trades.N_COLUMNS))  # a tail of unwritten rows, like the real one
     matrix[:n, trades.C_TRADE_ID] = np.arange(1, n + 1)
     matrix[:n, trades.C_LEG] = 1
@@ -283,12 +282,10 @@ def test_trades_to_frame_requires_an_instrument() -> None:
 
 
 def imports_of(module: str) -> set[str]:
-    """Every module a file could be reaching, fully qualified.
+    """Return every module a file could be reaching, fully qualified.
 
-    ``from nqbt import trades`` has to resolve to ``nqbt.trades`` and not merely to
-    ``nqbt``, or a rule written as a prefix match passes while the import it forbids sits
-    in plain sight. That is exactly how these tests were vacuous when first written, so
-    both halves of a ``from`` are recorded: the package and each name under it.
+    ``from nqbt import trades`` resolves to ``nqbt.trades`` and not merely to ``nqbt``, so both
+    halves of a ``from`` are recorded: the package and each name under it.
     """
     tree = ast.parse((PACKAGE / module).read_text(encoding="utf-8"))
     found: set[str] = set()
@@ -303,7 +300,7 @@ def imports_of(module: str) -> set[str]:
 
 
 def names_used_in(module: str) -> set[str]:
-    """Every attribute name the file reads off something, so ``trades.EXIT_SIGNAL`` is seen.
+    """Return every attribute name the file reads off something, so ``trades.EXIT_SIGNAL`` is seen.
 
     ``imports_of`` cannot see it: the constant arrives through ``from nqbt import trades`` and
     is spent as an attribute, so a rule about who *produces* an exit reason has to read the
@@ -324,9 +321,8 @@ def test_the_import_analysis_sees_both_forms_of_import() -> None:
 def test_stats_does_not_import_from_the_simulator() -> None:
     """The rule the review layer depends on.
 
-    ``stats.py`` must work on any trade log, including one imported from real fills that
-    no strategy produced. It already did not import from ``nqbt.sim``; this makes that a
-    rule instead of an accident.
+    ``stats.py`` must work on any trade log, including one imported from real fills that no
+    strategy produced.
     """
     assert not {m for m in imports_of("stats.py") if m.startswith("nqbt.sim")}
 
@@ -341,7 +337,7 @@ def test_the_trade_schema_knows_nothing_about_bars_or_strategies() -> None:
 
 
 def references(module: str, name: str) -> bool:
-    """Whether ``module`` spends ``name``, imported either way.
+    """Return whether ``module`` spends ``name``, imported either way.
 
     ``names_used_in`` sees ``trades.EXIT_SIGNAL`` and ``imports_of`` sees
     ``from nqbt.trades import EXIT_SIGNAL``; the loops are split across both forms.
@@ -368,12 +364,9 @@ def test_the_maximum_hold_time_is_written_by_every_archetypes_loop() -> None:
 
 
 def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> None:
-    # A structural guard, not just a today-it-doesn't-happen-to-fire one. DeadCatBounce and
-    # InsideBar have no rule-driven exit and the shared bracket engine has no rules at all, so
-    # none of them should import the constant it would need to produce one. The two that do
-    # are EmaCrossover, which the reservation was made for, and InsideBarTrailing, whose
-    # NinjaScript exits on a trend violation -- docs/nt8-fidelity.md §M23. ElasticBand is the
-    # third: its invalidation exit and its time stop both write it -- §M26.
+    # DeadCatBounce, InsideBar and the bracket engine have no rule-driven exit, so none imports
+    # the constant. EmaCrossover, InsideBarTrailing (``docs/nt8-fidelity.md`` §M23) and
+    # ElasticBand (§M26) do.
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/bracket.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/pullback.py")
@@ -390,10 +383,8 @@ def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> 
 def test_the_registry_sits_above_the_layers_it_names_rather_than_inside_them() -> None:
     """``archetypes.py`` may reach down; nothing below it may reach back up.
 
-    It imports ``nqbt.sim`` by design -- knowing how to reach an archetype is exactly its
-    job. The rule that matters is the other direction: if ``context.py`` ever imported it,
-    the market context would depend transitively on the simulator and the review layer
-    could no longer annotate real trades with it.
+    It imports ``nqbt.sim`` by design; ``context.py`` importing it would make the market
+    context depend on the simulator.
     """
     for lower in ("context.py", "trades.py", "stats.py", "conditions.py", "indicators.py"):
         assert "nqbt.archetypes" not in imports_of(lower), (

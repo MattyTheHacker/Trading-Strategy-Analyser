@@ -1,21 +1,10 @@
 """Re-run a campaign shortlist with its trade logs kept, and store them beside the summary.
 
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --root MNQ
+    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
 
-The campaign sweep stores summary rows and nothing per trade, and turning ``keep_trades`` on
-there is not the fix: every combination's log is not a thing to store, and ``keep_trades``
-changes what ``sweep.run_combination`` returns and never what it measures. A bootstrap, a
-permutation test and a time-of-day review each need a per-trade vector, so the logs are made
-here instead -- rebuild a stored ``combos`` row, run that one configuration again with its log
-kept, and save it under the ``(sweep_id, combo_id)`` the summary row already carries.
-
-**``--held-out`` logs the pair a gate should read**: the held-out rows of the configurations
-the *selection* window ranked highest, so nothing whose log is stored here was ranked on the
-window it is then read from -- ``docs/roadmap.md`` §M28.13.
-
-Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every campaign
-tool that starts from a stored row needs. What :func:`store_logs` wrote is read back by
-``tools/campaign_report.py``'s ``load_trades``, beside the loader that reads the summary rows.
+Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every tool
+starting from a stored row uses -- ``tools/README.md`` § "campaign_shortlist.py".
 """
 
 from __future__ import annotations
@@ -33,8 +22,7 @@ import pandas as pd
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, logsetup, resample, results, sessions, splice, sweep
@@ -55,7 +43,7 @@ NET_PNL_TOLERANCE = 1e-9
 
 
 def _absent(value: object) -> bool:
-    """Whether a stored cell holds nothing.
+    """Return whether a stored cell holds nothing.
 
     A sequence cell never does, and ``pd.isna`` returns an array rather than a bool for one.
     """
@@ -66,9 +54,9 @@ def _absent(value: object) -> bool:
 
 
 def _coerced(value: object, default: object) -> object:
-    """One DuckDB cell as the field's own type. A stored list becomes a tuple again."""
+    """Convert one DuckDB cell to the field's own type. A stored list becomes a tuple again."""
     if isinstance(default, tuple):
-        return tuple(value)  # type: ignore[call-overload]  # a list by construction
+        return tuple(value)
 
     if isinstance(default, (bool, int, float, str)):
         return type(default)(value)
@@ -76,11 +64,11 @@ def _coerced(value: object, default: object) -> object:
     return value
 
 
-def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Params:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The parameter set a stored row came from, defaults filling anything not stored."""
+def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Params:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Rebuild the parameter set a stored row came from, defaults filling anything not stored."""
     params: archetypes.Params = archetype.params_cls()
     updates: dict[str, object] = {}
-    for field in fields(params):  # type: ignore[arg-type]  # a dataclass by construction
+    for field in fields(params):
         if field.name not in row.index or _absent(row[field.name]):
             continue
 
@@ -101,7 +89,7 @@ def shortlist(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The highest-ranked stored combinations for one archetype, root and stratum.
+    """Return the highest-ranked stored combinations for one archetype, root and stratum.
 
     A row whose ``by`` is undefined is dropped rather than ranked -- :func:`campaign_report.rank`.
     """
@@ -128,7 +116,7 @@ def shortlist(
     return ranked
 
 
-def best_row(
+def best_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     name: str,
     root: str,
     window: list[str],
@@ -136,13 +124,13 @@ def best_row(
     stratum: str | None = None,
     resolution: int | None = None,
     variant: str | None = None,
-) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The highest-ranked stored combination for one archetype, root and stratum."""
+) -> pd.Series:
+    """Return the highest-ranked stored combination for one archetype, root and stratum."""
     return shortlist(name, root, window, by, 1, stratum, resolution, variant).iloc[0]
 
 
 def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
-    """The bar range a stored row's ``window`` names."""
+    """Return the bar range a stored row's ``window`` names."""
     if window == "full":
         return bars
 
@@ -150,12 +138,10 @@ def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
 
 
 def swept_series(bars: pd.DataFrame, last_bar: pd.Timestamp) -> pd.DataFrame:
-    """The archive cut back to where it stood when a campaign was stored.
+    """Return the archive cut back to where it stood when a campaign was stored.
 
-    An extended archive moves the 60/40 split under every row swept before it, so a re-run over
-    the whole series reads a holdout the stored row never measured -- ``docs/roadmap.md``
-    § "Standing traps". Cutting first makes :func:`source` name the same window again, and the
-    control arm reproducing the stored figures is what says the earlier bars are also unchanged.
+    Cutting first makes :func:`source` name the window the row was swept on --
+    ``docs/roadmap.md`` § "Standing traps".
     """
     if last_bar >= bars.index[-1]:
         return bars
@@ -163,7 +149,7 @@ def swept_series(bars: pd.DataFrame, last_bar: pd.Timestamp) -> pd.DataFrame:
     return bars.loc[:last_bar]
 
 
-def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[type-arg]  # duckdb's dtypes
+def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Refuse a re-run that did not reproduce the trade count and net P&L the sweep stored.
 
     A log filed against a summary it does not match is worse than no log, because every
@@ -190,15 +176,10 @@ def prepared(
     price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
     exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
 ) -> tuple[list[archetypes.Params], context.Dataset]:
-    """Every row of ``block`` rebuilt, in order, and the one dataset all of them run on.
+    """Rebuild every row of ``block``, in order, and prepare the one dataset all of them run on.
 
-    The dataset is built from the rows as a combination grid, so that the union over them is
-    :meth:`~nqbt.sweep.Grid.required_context`'s rather than a second copy of it. ``price_basis``
-    says what the bars are; a rule reading an absolute level refuses the default --
-    ``docs/roadmap.md`` § "The build spec's three loose ends".
-
-    ``exit_on_close_seconds`` moves the forced flat off the value every stored row was swept at,
-    which is what ``tools/campaign_flatten.py`` needs and what nothing else should pass.
+    ``price_basis`` says what the bars are. ``exit_on_close_seconds`` moves the forced flat off
+    the value every stored row was swept at; only ``tools/campaign_flatten.py`` should pass it.
     """
     rebuilt: list[archetypes.Params] = [rebuild(row, archetype) for _, row in block.iterrows()]
     grid: sweep.Grid = sweep.Grid.of_combinations(rebuilt, archetype=archetype)
@@ -219,7 +200,7 @@ def run_logged(
     root: str,
     archetype: archetypes.Archetype,
 ) -> tuple[dict[str, object], pd.DataFrame]:
-    """One configuration run on a prepared dataset, with its summary and its log."""
+    """Run one configuration on a prepared dataset, returning its summary and its log."""
     summary, log = sweep.run_combination(data, params, get_instrument(root), archetype, keep_trades=True)
     if log is None:  # pragma: no cover - keep_trades always returns a log
         msg: str = "run_combination kept no log with keep_trades set"
@@ -228,7 +209,7 @@ def run_logged(
     return summary, log
 
 
-def rerun_group(
+def rerun_group(  # type: ignore[explicit-any]  # duckdb's dtypes
     block: pd.DataFrame,
     frame: pd.DataFrame,
     archetype: archetypes.Archetype,
@@ -236,7 +217,7 @@ def rerun_group(
     minutes: int,
     price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
     exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
-) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:  # type: ignore[type-arg]  # duckdb's dtypes
+) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:
     """Re-run every row measured on one resampled frame, yielding each with its summary and log.
 
     One :func:`prepared` dataset serves the whole block.
@@ -278,13 +259,8 @@ def store_group(
 def store_logs(name: str, rows: pd.DataFrame, root: str) -> int:
     """Re-run every shortlisted row with its log kept, and return how many were stored.
 
-    Grouped by window and resolution, because the resample and the prepared dataset are the
-    expensive parts and every row sharing those two shares both. A stored log replaces whatever
-    sits under the same ``(sweep_id, combo_id)``, so a second run refreshes rather than doubles.
-
-    The bars are :data:`~nqbt.context.PriceBasis.RAW`, which is what ``load_continuous`` returns
-    here and what the sweep measured them as, so a rule reading an absolute level re-runs rather
-    than being refused -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    A stored log replaces whatever sits under the same ``(sweep_id, combo_id)``, so a second run
+    refreshes rather than doubles.
     """
     archetype: archetypes.Archetype = archetypes.get(name)
     path: Path = db_path(name)

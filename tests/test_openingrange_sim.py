@@ -1,10 +1,9 @@
 """OpeningRange simulation tests on hand-built bars.
 
-The archetype has no NinjaScript, so there is no trade list to check against. What these pin
-instead are the three things it introduces -- a trigger that is a *level* and so rests for the
-whole session, a per-session entry cap, and a target expressed in range widths -- plus the two
-NT8 rules its entry mechanism inherits and the property the whole thing is worthless without:
-that nothing it reads comes from a bar it could not have seen.
+The archetype has no NinjaScript and no trade list. These pin what it introduces -- a trigger
+that is a *level* and so rests for the whole session, a per-session entry cap, and a target in
+range widths -- the two NT8 rules its entry inherits, and that nothing it reads comes from a
+bar it could not have seen.
 
 Prices are kept small and round so the arithmetic is checkable by eye: the range is 90 to 110
 unless a test says otherwise.
@@ -33,7 +32,6 @@ from nqbt.instruments import MNQ, NQ
 from nqbt.sim import openingrange
 from nqbt.sim.openingrange import entry_bound, openingrange_signal, run_openingrange
 from nqbt.sim.types import (
-    DeadCatParams,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
@@ -47,6 +45,7 @@ from nqbt.sim.types import (
     ORB_STOP_OPPOSITE,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
+    DeadCatParams,
     OpeningRangeParams,
 )
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
@@ -165,7 +164,7 @@ def simulate(
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 
@@ -206,8 +205,7 @@ def test_the_trigger_sits_the_entry_offset_beyond_the_range_extreme() -> None:
 def test_a_bar_closing_at_or_beyond_the_trigger_submits_nothing() -> None:
     """NT8 declines a stop entry at or through the market -- ``docs/nt8-fidelity.md`` §M18.
 
-    This is not a corner case here: it is every bar after the break, which is exactly why the
-    entry offset defaults to a tick rather than zero.
+    It binds on every bar after the break, which is why the entry offset defaults to a tick.
     """
     closed_at_trigger = (100.0, RANGE_HIGH, 95.0, RANGE_HIGH)
 
@@ -754,7 +752,7 @@ def test_only_the_legs_still_open_are_liquidated_at_the_end_of_the_data() -> Non
 
 
 def cash_bars(days: int = 5) -> pd.DataFrame:
-    """Random-walk minute bars over whole sessions, wide enough to break a 30-minute range."""
+    """Build random-walk minute bars over whole sessions, wide enough to break a 30-minute range."""
     rng = np.random.default_rng(11)
     n = days * 1440
     index = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
@@ -777,7 +775,7 @@ def cash_bars(days: int = 5) -> pd.DataFrame:
 
 
 def dataset_for(params: OpeningRangeParams, bars: pd.DataFrame | None = None) -> context.Dataset:
-    """A dataset carrying exactly what one combination reads."""
+    """Build a dataset carrying exactly what one combination reads."""
     frame = cash_bars() if bars is None else bars
     grid = sweep.Grid.of(params)
 
@@ -898,7 +896,7 @@ def test_the_matched_random_null_refuses_a_signal_this_dense() -> None:
 
 
 def levels_dataset(days: int = 30) -> tuple[OpeningRangeParams, context.Dataset]:
-    """A window long enough for the level draw's donor pool, with its params."""
+    """Build a window long enough for the level draw's donor pool, with its params."""
     params = OpeningRangeParams(bars_required_to_trade=0)
 
     return params, dataset_for(params, cash_bars(days))
@@ -1084,7 +1082,7 @@ REACHES = (115.0, 130.0, 112.0, 128.0)
 
 
 def scaled(**kwargs):
-    """A width-target combination on the fraction stop, which is what the scale can reach."""
+    """Build a width-target combination on the fraction stop, which is what the scale can reach."""
     return {
         "target_mode": ORB_TARGET_WIDTH,
         "levels": (1.0,),

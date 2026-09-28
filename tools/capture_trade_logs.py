@@ -1,35 +1,11 @@
-"""Capture every trade-log producer path to CSV, for byte-comparison across a refactor.
-
-The regression gate for anything that touches the simulation. Run it before the change and
-after, then diff the two directories: a refactor that is meant to preserve behaviour must
-reproduce every file byte-for-byte, and one that adds a column must leave every other
-column identical.
+"""Capture every trade-log producer path to CSV, for comparison across a refactor.
 
     ./.venv/Scripts/python.exe tools/capture_trade_logs.py before
     ...make the change...
     ./.venv/Scripts/python.exe tools/capture_trade_logs.py after
     ./.venv/Scripts/python.exe tools/compare_trade_logs.py before after
 
-Written for M9, which moved validated code and needed to prove it had not moved a number.
-M15 needs exactly the same gate and a stronger one -- every short-only trade log
-byte-identical after the loop is generalised -- so this is deliberately a tool rather than
-a throwaway. See ``docs/roadmap.md`` under M9 and M15.
-
-**Every frame is written with ``float_format="%.17g"``**, which is explicit and costs
-nothing but is *not* what makes the gate exact -- ``compare_trade_logs.py`` reading with
-``float_precision="round_trip"`` is. Either writer is exact against that reader, and 17-digit
-text against pandas' *default* parser is worse than the default writer. Measured in #113;
-the rules are in ``.claude/rules/regression-gate.md``. The claim this paragraph used to make -- "4 of 1,664
-``r_multiple`` values" -- was measuring the reader and attributing it to the writer.
-
-The four paths are chosen to cover what a single run does not:
-
-1. the pinned MNQ 03-24 reconciliation window, under the two settings that reproduce
-   ``verification/nt8_reconciliation_MNQ_03-24.csv`` (see ``verification/README.md``);
-2. the same contract at current fidelity settings, with costs applied;
-3. the same bars through the NQ spec, which proves instrument scaling is untouched;
-4. a real sweep over spliced continuous bars, serial *and* parallel, since the parallel
-   path memmaps the dataset and could diverge on its own.
+``tools/README.md`` § "capture_trade_logs.py".
 """
 
 from __future__ import annotations
@@ -52,13 +28,10 @@ SWEEP_FROM = "2024-01-01"
 EXPECTED_ARGV = 2
 
 JIT_CACHE_SUFFIXES = (".nbi", ".nbc")
-"""What ``@njit(cache=True)`` writes beside each module, and what a capture must not reuse.
+"""What ``@njit(cache=True)`` writes beside each module, and what a capture deletes first.
 
-**numba's cache does not track cross-module dependencies.** A change to ``bracket.py`` leaves
-every archetype's compiled loop holding the *old* inlined fill rules, so a capture taken over
-them compares new source against old machine code and reports no change -- the gate passing
-because it never ran the change. Measured on the ambiguity policy: identical source, caches
-deleted, different trade log. ``.claude/rules/regression-gate.md``.
+Do not remove that purge: numba's cache does not track cross-module dependencies --
+``.claude/rules/regression-gate.md``.
 """
 
 

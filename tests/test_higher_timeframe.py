@@ -56,7 +56,7 @@ LEAKED_AVERAGE = 150.0
 
 
 def minute_bars(closes: list[float], first_open: str = FIRST_OPEN) -> pd.DataFrame:
-    """1-minute bars carrying the given closes, from the first bar of an ETH session."""
+    """Build 1-minute bars carrying the given closes, from the first bar of an ETH session."""
     index = pd.date_range(first_open, periods=len(closes), freq="min", tz="UTC")
     close = np.asarray(closes, dtype=np.float64)
     frame = pd.DataFrame(
@@ -75,7 +75,7 @@ def minute_bars(closes: list[float], first_open: str = FIRST_OPEN) -> pd.DataFra
 
 
 def random_bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
-    """A drifting series long enough for a 60-minute average to mean something."""
+    """Build a drifting series long enough for a 60-minute average to mean something."""
     rng = np.random.default_rng(seed)
     index = pd.date_range(FIRST_OPEN, periods=days * 24 * 60, freq="min", tz="UTC")
     n = index.size
@@ -97,7 +97,7 @@ def random_bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
 
 
 def last_completed(coarse_stamps: pd.DatetimeIndex, values, stamps: pd.DatetimeIndex):
-    """The projection by an explicit loop: the last coarse value stamped at or before each bar."""
+    """Compute the projection by an explicit loop: the last coarse value stamped at or before each bar."""
     out = []
     for stamp in stamps:
         seen = [v for s, v in zip(coarse_stamps, values, strict=True) if s <= stamp]
@@ -194,7 +194,7 @@ def test_the_side_is_the_fine_close_against_the_coarse_average() -> None:
     np.testing.assert_array_equal(labelled, [Side.BELOW, Side.AT, Side.ABOVE, UNDEFINED])
 
 
-def test_one_resample_serves_every_period_at_the_same_resolution(monkeypatch) -> None:
+def test_one_resample_serves_every_period_at_the_same_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
     real = resample.resample
 

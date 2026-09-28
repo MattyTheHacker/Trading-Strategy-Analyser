@@ -3,29 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_ambiguity.py --strategy OpeningRange --root MNQ
     ./.venv/Scripts/python.exe tools/campaign_ambiguity.py --strategy OpeningRange --window holdout
 
-A shortlist ranks on profit factor, and nothing in that ranking stops it picking a configuration
-whose profit factor is an artefact of ``ambiguity_policy`` rather than of the strategy: where an
-archetype has configurations that resolve many bars by assumption, that is where the largest
-profit factors are -- ``docs/roadmap.md`` §M28.2.
-
-``ambiguous_share`` counts how often the assumption was invoked, which is not how much the
-answer depends on it, and the two come apart in both directions. This re-runs each shortlisted
-row under :data:`SECOND_ARM` as well and reports the **spread** between the two profit factors,
-which is the width of the band the bar data cannot narrow -- ``docs/roadmap.md`` §M28.3.
-
-**The ranking statistic stays :data:`RANKED_POLICY`, and nothing here re-orders a shortlist or
-drops a row.** The second arm is deliberately more pessimistic than NT8, so selecting on it
-would select against a fill rule the prime directive rejects -- ``docs/roadmap.md``
-§ "Eleven strata per root, one dimension at a time". It is attribution, not selection.
-
-Where the spread is wide enough to matter, a **third step settles it rather than bounding it**:
-``nqbt.disambiguate`` reads the minute bars inside each ambiguous bar and says which level price
-actually reached first, and the shortlist is re-summarised with every settled bar corrected. That
-step runs only above ``disambiguate.MIN_AMBIGUOUS_SHARE`` and never touches the simulation --
-``docs/roadmap.md`` §M28.4.
-
-Each row is re-run on the bars its own ``window`` names, so the first arm reproduces the stored
-figure exactly; ``tools/campaign_shortlist.verify`` refuses it otherwise.
+``tools/README.md`` § "campaign_ambiguity.py".
 """
 
 from __future__ import annotations
@@ -38,36 +16,31 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tools.campaign_montecarlo import labelled
-from tools.campaign_null import label_of
-from tools.campaign_report import SHARES, swept_axes
-from tools.campaign_shortlist import TOP, rebuild, shortlist, source, verify
 
 from nqbt import archetypes, context, disambiguate, logsetup, resample, splice, stats, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
+from tools.campaign_montecarlo import labelled
+from tools.campaign_null import label_of
+from tools.campaign_report import SHARES, swept_axes
+from tools.campaign_shortlist import TOP, rebuild, shortlist, source, verify
 
 logger = logging.getLogger(__name__)
 
 RANKED_POLICY = AMBIGUITY_NEAREST_TO_OPEN
 """What every stored row was measured under, and what a shortlist keeps ranking on.
 
-Forced rather than taken from the row, so a stored configuration carrying anything else fails
-``verify`` instead of quietly reporting a spread between two arms neither of which is NT8's."""
+Forced rather than read from the row, so ``verify`` fails a configuration carrying anything
+else.
+"""
 
 SECOND_ARM = AMBIGUITY_WORST_CASE
 """What the same configuration scores when every ambiguous bar is resolved against it."""
 
 THIRD_ARM = AMBIGUITY_BEST_CASE
-"""The other end of the band: every ambiguous bar resolved for it.
-
-Never reported on its own. It exists so that a bar the minute bars settle as target-first has an
-outcome to be taken from, which is what makes a resolved log a row selection rather than
-arithmetic on a price -- :data:`nqbt.disambiguate.ARM_FOR`."""
+"""The other end of the band, never reported on its own -- :data:`nqbt.disambiguate.ARM_FOR`."""
 
 RESOLVED = "profit_factor_resolved"
 MOVE = "resolved_move"
@@ -84,14 +57,14 @@ STATEMENT = "the claimed edge must survive the assumption"
 ``docs/roadmap.md`` §M28.3. Reported here; it gates no selection."""
 
 
-def measure_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     archetype: archetypes.Archetype,
     root: str,
     label: str,
 ) -> dict[str, object]:
-    """One configuration's two profit factors, their spread, and the shares beside them.
+    """Measure one configuration's two profit factors, their spread, and the shares beside them.
 
     The first arm is checked against the summary the sweep stored, so a spread is never
     reported for a row the re-run did not reproduce.
@@ -140,21 +113,14 @@ def measure_row(
 
 
 def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> pd.DataFrame:
-    """Every shortlisted configuration under both policies, one row each.
-
-    Grouped by window and resolution, because the resample and the prepared dataset are the
-    expensive parts and every row sharing those two shares both -- exactly as
-    ``tools/campaign_shortlist.store_logs`` groups them.
-    """
+    """Measure every shortlisted configuration under both policies, one row each."""
     axes: list[str] = swept_axes(rows)
     bars: pd.DataFrame = splice.load_continuous(root)
 
     measured: list[dict[str, object]] = []
     for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
         frame: pd.DataFrame = resample.resample(source(bars, str(window)), int(minutes))
-        rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
-            (row, rebuild(row, archetype)) for _, row in block.iterrows()
-        ]
+        rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
@@ -170,8 +136,8 @@ def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> p
     return pd.DataFrame(measured)
 
 
-def settle_row(  # noqa: PLR0913 - each argument is a distinct input to one measurement
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def settle_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     archetype: archetypes.Archetype,
     root: str,
@@ -179,7 +145,7 @@ def settle_row(  # noqa: PLR0913 - each argument is a distinct input to one meas
     coarse: pd.DataFrame,
     label: str,
 ) -> tuple[dict[str, object], pd.DataFrame]:
-    """One configuration's ambiguous bars settled against the minute bars inside them.
+    """Settle one configuration's ambiguous bars against the minute bars inside them.
 
     Runs all three arms so that a settled bar's outcome is taken from the arm that resolved it
     that way, rather than recomputed. Returns the headline row and the per-bar verdicts.
@@ -247,12 +213,7 @@ def settle_row(  # noqa: PLR0913 - each argument is a distinct input to one meas
 def settle(
     rows: pd.DataFrame, archetype: archetypes.Archetype, root: str
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Settle every shortlisted row whose ambiguity clears the threshold, and only those.
-
-    An extra step on a finished result rather than part of producing one: below
-    ``disambiguate.MIN_AMBIGUOUS_SHARE`` the assumption cannot have decided the verdict, so
-    there is nothing to correct and the rows are left alone.
-    """
+    """Settle every shortlisted row whose ambiguity clears the threshold, and only those."""
     qualifying: pd.DataFrame = rows[rows["ambiguous_share"].map(disambiguate.worth_resolving)]
     if qualifying.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -264,9 +225,7 @@ def settle(
     for (window, minutes), block in qualifying.groupby(["window", "resolution"], sort=False):
         fine: pd.DataFrame = source(bars, str(window))
         coarse: pd.DataFrame = resample.resample(fine, int(minutes))
-        rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
-            (row, rebuild(row, archetype)) for _, row in block.iterrows()
-        ]
+        rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
@@ -294,7 +253,7 @@ def settle(
 
 
 def survival(table: pd.DataFrame) -> list[str]:
-    """How much of the shortlist is left once the assumption is taken away.
+    """Report how much of the shortlist is left once the assumption is taken away.
 
     Read rather than applied: the widest spread is the row whose result is least attributable,
     and a shortlist where that row is also the highest-ranked one is the §M28.2 shape.
@@ -317,7 +276,7 @@ def survival(table: pd.DataFrame) -> list[str]:
 
 
 def unsettled(verdicts: pd.DataFrame) -> pd.DataFrame:
-    """The bars worth looking at: the ones the assumption got wrong, and the ones still open.
+    """Return the bars worth looking at: the ones the assumption got wrong, and the ones still open.
 
     A bar the assumption called correctly is evidence and not a finding, and printing every one
     of them buries the handful that moved the result.

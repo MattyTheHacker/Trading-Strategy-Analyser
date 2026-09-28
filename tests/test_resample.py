@@ -32,7 +32,7 @@ does not divide 1,020, so a midnight-anchored grid runs a bucket straight throug
 
 
 def minute_bars(sessions_wanted: int = 3, seed: int = 11) -> pd.DataFrame:
-    """Full ETH sessions of 1-minute bars, 18:00 -> 17:00 ET, weekdays only.
+    """Build full ETH sessions of 1-minute bars, 18:00 -> 17:00 ET, weekdays only.
 
     Built session by session from the open rather than by slicing a date range, so the
     first bucket of every session is complete and boundary assertions mean something.
@@ -199,7 +199,7 @@ def test_out_of_session_prints_are_dropped_rather_than_given_a_bucket() -> None:
 
 
 def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
-    """What a bare ``resample()`` would produce: buckets counted from midnight."""
+    """Return what a bare ``resample()`` would produce: buckets counted from midnight."""
     grouped = src.resample(f"{minutes}min", label="right", closed="right").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"},
     )
@@ -209,11 +209,7 @@ def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
 
 @pytest.mark.parametrize("minutes", AGREES_WITH_WALL_CLOCK)
 def test_session_and_midnight_anchoring_agree_for_divisors_of_sixty(minutes) -> None:
-    """The coincidence that makes the bug invisible, pinned as a property.
-
-    Every period anyone reaches for first is in this list, which is exactly why nobody
-    should "simplify" this module into a bare ``resample()`` on the strength of it.
-    """
+    """Session and midnight anchoring agree at every divisor of 60 -- ``docs/roadmap.md`` §M13."""
     assert 1080 % minutes == 0 and 1020 % minutes == 0, "this test's premise"
     src = minute_bars()
     assert resample.resample(src, minutes).index.equals(midnight_anchored(src, minutes))

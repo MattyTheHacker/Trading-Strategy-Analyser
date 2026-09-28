@@ -14,8 +14,7 @@ import pandas as pd
 import pytest
 
 from nqbt import archetypes, stats, trades
-from tools import campaign_report
-from tools import campaign_holdout
+from tools import campaign_holdout, campaign_report
 from tools.campaign_holdout import (
     GROUP_KEYS,
     JOIN_KEYS,
@@ -56,7 +55,7 @@ from tools.campaign_shortlist import rebuild
 
 
 def combos(**columns: object) -> pd.DataFrame:
-    """A results frame with the tag columns every stored row carries."""
+    """Build a results frame with the tag columns every stored row carries."""
     base = {
         "sweep_id": 1,
         "combo_id": range(4),
@@ -81,7 +80,7 @@ def combos(**columns: object) -> pd.DataFrame:
 
 def test_the_summary_columns_are_read_from_the_class_not_copied() -> None:
     """A statistic added to ``Summary`` would otherwise be reported as a swept parameter."""
-    assert STATISTICS == frozenset(stats.Summary.columns())
+    assert frozenset(stats.Summary.columns()) == STATISTICS
 
 
 def test_a_constant_parameter_is_not_reported_as_an_axis() -> None:
@@ -166,7 +165,7 @@ def test_a_frame_without_the_shares_is_profiled_rather_than_refused() -> None:
 
 
 def legs(reason: list[str], net_pnl: list[float], bars_held: list[int]) -> pd.DataFrame:
-    """A stored trade log, cut to the three columns a decomposition reads."""
+    """Build a stored trade log, cut to the three columns a decomposition reads."""
     return pd.DataFrame({"exit_reason": reason, "net_pnl": net_pnl, "bars_held": bars_held})
 
 
@@ -221,7 +220,9 @@ def test_a_log_with_no_legs_decomposes_into_nothing() -> None:
     assert exit_decomposition(pd.DataFrame()) == {}
 
 
-def test_the_decomposition_columns_follow_the_simulator_rather_than_the_alphabet(monkeypatch) -> None:
+def test_the_decomposition_columns_follow_the_simulator_rather_than_the_alphabet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``session_close`` sorts ahead of ``stop`` and ``target``, so an alphabetical grouping
     would put the flatten before the bracket legs that decide whether it is reached."""
     log = legs(["stop", "target", "session_close"], [-2.0, 5.0, 9.0], [10, 30, 400])
@@ -234,7 +235,9 @@ def test_the_decomposition_columns_follow_the_simulator_rather_than_the_alphabet
     assert EXIT_ORDER.index("stop") < EXIT_ORDER.index("session_close")
 
 
-def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(monkeypatch) -> None:
+def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``campaign_report`` ranks every stored row and ``tools/campaign_shortlist.py`` stores a
     log for a chosen few, so most ranked rows have none and are still rows."""
     logged = {0: legs(["stop"], [-2.0], [10])}
@@ -251,7 +254,7 @@ def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(monkeypatc
     assert decomposed["stop_net"].iloc[1:].isna().all()
 
 
-def test_a_shortlists_logs_are_keyed_by_the_ids_its_rows_carry(monkeypatch) -> None:
+def test_a_shortlists_logs_are_keyed_by_the_ids_its_rows_carry(monkeypatch: pytest.MonkeyPatch) -> None:
     """The mapping every gate-4 tool works from, so a stored log and one re-run by
     ``tools/campaign_swept.py`` are read through the same loop."""
     logged = {0: legs(["stop"], [-2.0], [10])}
@@ -329,7 +332,7 @@ def test_rank_correlation_is_one_for_an_order_that_survives_and_minus_one_for_a_
 
 
 def paired_rows(stratum: str, holdout: np.ndarray, size: int = TOP + 10) -> pd.DataFrame:
-    """One stratum's paired window, ranked so the shortlist is the last ``TOP`` rows."""
+    """Build one stratum's paired window, ranked so the shortlist is the last ``TOP`` rows."""
     return pd.DataFrame(
         {
             "root": "MNQ",
@@ -399,7 +402,7 @@ def test_the_windows_are_paired_on_a_key_that_identifies_one_configuration() -> 
 
 
 def windowed(window: str, profit_factor: list[float], **columns: object) -> pd.DataFrame:
-    """One window's stored rows for four configurations of one cell."""
+    """Build one window's stored rows for four configurations of one cell."""
     return pd.DataFrame(
         {
             "sweep_id": 1 if window == "selection" else 2,
@@ -419,7 +422,7 @@ def windowed(window: str, profit_factor: list[float], **columns: object) -> pd.D
     )
 
 
-def both_windows(monkeypatch, selection: pd.DataFrame, holdout: pd.DataFrame) -> None:
+def both_windows(monkeypatch: pytest.MonkeyPatch, selection: pd.DataFrame, holdout: pd.DataFrame) -> None:
     """Serve one frame per window, the way ``load`` reads the stored databases."""
     monkeypatch.setattr(
         campaign_holdout,
@@ -428,7 +431,7 @@ def both_windows(monkeypatch, selection: pd.DataFrame, holdout: pd.DataFrame) ->
     )
 
 
-def test_the_held_out_rows_are_the_ones_the_selection_window_ranked(monkeypatch) -> None:
+def test_the_held_out_rows_are_the_ones_the_selection_window_ranked(monkeypatch: pytest.MonkeyPatch) -> None:
     """The whole point of the pair: reading the rows the holdout window ranks itself is the
     trap §M28.12 records, and both orders look like a shortlist afterwards."""
     both_windows(
@@ -441,7 +444,9 @@ def test_the_held_out_rows_are_the_ones_the_selection_window_ranked(monkeypatch)
     assert list(rows["profit_factor"]) == [0.5, 0.6], "and every figure returned is the holdout's"
 
 
-def test_the_held_out_half_comes_back_under_the_names_a_stored_row_carries(monkeypatch) -> None:
+def test_the_held_out_half_comes_back_under_the_names_a_stored_row_carries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A tool reading stored logs uses these rows where it would use a shortlist, so a
     ``_hold`` suffix reaching one is a KeyError at every call site."""
     both_windows(monkeypatch, windowed("selection", [1.9, 1.1, 1.0, 0.9]), windowed("holdout", [1.2] * 4))
@@ -452,7 +457,7 @@ def test_the_held_out_half_comes_back_under_the_names_a_stored_row_carries(monke
     assert rows["ema_period"].iloc[0] == 20, "the parameters travel with it"
 
 
-def test_no_selection_window_figure_survives_into_the_returned_row(monkeypatch) -> None:
+def test_no_selection_window_figure_survives_into_the_returned_row(monkeypatch: pytest.MonkeyPatch) -> None:
     """One row carrying two windows' statistics under one set of names is how a selected
     maximum gets reported as a held-out result."""
     both_windows(monkeypatch, windowed("selection", [1.9, 1.1, 1.0, 0.9]), windowed("holdout", [1.2] * 4))
@@ -462,7 +467,7 @@ def test_no_selection_window_figure_survives_into_the_returned_row(monkeypatch) 
     assert list(rows[NET_TO_DRAWDOWN]) == [1.2] * 4
 
 
-def test_each_confinement_narrows_the_pair_before_it_is_ranked(monkeypatch) -> None:
+def test_each_confinement_narrows_the_pair_before_it_is_ranked(monkeypatch: pytest.MonkeyPatch) -> None:
     """A cell is one root x resolution x variant x stratum, and a flag that parses without
     reaching the filter reads exactly like one that works."""
     selection = pd.concat(
@@ -479,7 +484,9 @@ def test_each_confinement_narrows_the_pair_before_it_is_ranked(monkeypatch) -> N
     assert len(held_out("OpeningRange", "MNQ")) == 8, "unconfined, the pair holds both"
 
 
-def test_a_ranking_with_no_top_keeps_every_pair_in_selection_order_and_both_halves(monkeypatch) -> None:
+def test_a_ranking_with_no_top_keeps_every_pair_in_selection_order_and_both_halves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A pool filtered after ranking needs the whole ranking, or it ends smaller than asked."""
     both_windows(
         monkeypatch, windowed("selection", [1.1, 1.9, 0.9, 1.0]), windowed("holdout", [0.5, 0.6, 0.7, 2.5])
@@ -494,7 +501,9 @@ def test_a_ranking_with_no_top_keeps_every_pair_in_selection_order_and_both_halv
     assert set(selection["window"]) == {"selection"}
 
 
-def test_a_cell_with_no_paired_rows_raises_rather_than_returning_nothing(monkeypatch) -> None:
+def test_a_cell_with_no_paired_rows_raises_rather_than_returning_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An empty frame reads downstream as a shortlist whose logs were never stored, which
     sends the reader to re-run a step that would not have helped."""
     both_windows(monkeypatch, windowed("selection", [1.0] * 4), windowed("holdout", [1.2] * 4))
@@ -505,7 +514,9 @@ def test_a_cell_with_no_paired_rows_raises_rather_than_returning_nothing(monkeyp
         held_out("OpeningRange", "MNQ", stratum="phase=CLOSE")
 
 
-def test_a_split_that_was_never_run_raises_rather_than_pairing_nothing(monkeypatch) -> None:
+def test_a_split_that_was_never_run_raises_rather_than_pairing_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``paired`` returns an empty frame where one window has no rows at all, which is the
     state before ``tools/campaign_sweep.py --split`` has ever run."""
     both_windows(monkeypatch, windowed("selection", [1.0] * 4).iloc[:0], windowed("holdout", [1.2] * 4))
@@ -513,7 +524,7 @@ def test_a_split_that_was_never_run_raises_rather_than_pairing_nothing(monkeypat
         held_out("OpeningRange", "MNQ")
 
 
-def test_a_ranking_statistic_undefined_on_every_paired_row_raises(monkeypatch) -> None:
+def test_a_ranking_statistic_undefined_on_every_paired_row_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """``rank`` drops the rows it cannot order, so an undefined statistic empties the
     shortlist silently -- the defect ``rank`` exists for, one level up."""
     both_windows(
@@ -589,7 +600,9 @@ def test_the_scalar_and_the_vectorised_guard_agree_exactly() -> None:
     """Two implementations of one rule, so the faster route is pinned to the slower one rather
     than re-derived -- the shape ``guard.separate`` and ``review.rank_conditions`` use."""
     frame = combos(net_pnl=[100.0, -50.0, 7.0, 0.0], max_drawdown=[50.0, 25.0, 0.0, 10.0])
-    scalar = [ratio_to_drawdown(net, dd) for net, dd in zip(frame["net_pnl"], frame["max_drawdown"])]
+    scalar = [
+        ratio_to_drawdown(net, dd) for net, dd in zip(frame["net_pnl"], frame["max_drawdown"], strict=True)
+    ]
     assert net_to_drawdown(frame).to_numpy() == pytest.approx(scalar, nan_ok=True)
 
 

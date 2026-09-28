@@ -1,10 +1,8 @@
 """Tests for the random-entry control arm.
 
-The tests that matter here are not "does it return a number" but **is the null a fair
-control**: does it match what it claims to match, does it randomise what it claims to
-randomise, and does it report "no signal" on data that provably has none. A null that is
-subtly easier than the strategy makes every archetype look good, and nothing downstream
-would say so.
+Whether the null is a fair control: it matches what it claims to match, randomises what it
+claims to randomise, and reports "no signal" on data that provably has none --
+``docs/roadmap.md`` §M7a.
 """
 
 from __future__ import annotations
@@ -22,10 +20,9 @@ from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def session_bars(days: int = 30, seed: int = 11) -> pd.DataFrame:
-    """Minute bars laid out on real CME sessions rather than a bare date range.
+    """Build minute bars laid out on real CME sessions rather than a bare date range.
 
-    Session-shaped on purpose: the whole point of the null is the time-of-session marginal,
-    and a fixture that ignores sessions would let a broken anchoring pass.
+    Session-shaped, so a broken time-of-session anchoring cannot pass.
     """
     rng = np.random.default_rng(seed)
     index = pd.date_range("2024-01-02 00:00", periods=days * 1440, freq="min", tz="UTC")
@@ -69,13 +66,7 @@ def test_the_null_draws_exactly_as_many_entries_as_the_strategy(prepared) -> Non
 
 
 def test_the_time_of_session_distribution_is_matched_exactly_not_approximately(prepared) -> None:
-    """The substantive guarantee. Approximate matching would leave the confound in place.
-
-    Intraday futures volatility is strongly seasonal, and a fixed-tick bracket has different
-    hit probabilities in a volatile hour than a thin one -- so a null that drifted even
-    slightly toward the quiet overnight session would lose for a reason unrelated to entry
-    quality, and would flatter every strategy tested against it.
-    """
+    """The drawn signal matches the real one's minute-of-session counts exactly, not approximately."""
     data, _, signal = prepared
     minutes = randomentry.minute_of_session(data.index)
     for seed in range(5):
@@ -117,8 +108,7 @@ def test_the_pool_is_never_smaller_than_the_draw_it_must_serve(prepared) -> None
     """The structural guarantee behind drawing without replacement.
 
     Every real signal at minute *m* is itself one of the bars at minute *m*, so the pool is a
-    superset of what is being drawn from it. Asserted rather than trusted because it is what
-    lets the implementation skip a resample-on-collision loop.
+    superset of what is being drawn from it.
     """
     data, _, signal = prepared
     pool = randomentry.SessionMinutePool.build(data.index)
@@ -142,9 +132,8 @@ def test_the_hoisted_pool_gives_the_same_draw_as_building_it_inline(prepared) ->
 def test_the_null_runs_the_archetypes_own_simulation_not_a_copy(prepared) -> None:
     """Feeding the real signal back through the override must reproduce the real run.
 
-    This is the property that makes the comparison meaningful: brackets, ratchet, costs,
-    force-flat and direction are identical between arms because they are literally the same
-    call, not because two implementations were reviewed and found to agree.
+    Brackets, ratchet, costs, force-flat and direction are identical between the arms because
+    they are the same call.
     """
     data, params, signal = prepared
     normal = archetypes.DEADCATBOUNCE.run(data, params, NQ)
@@ -180,13 +169,7 @@ def test_the_null_keeps_the_direction_of_the_archetype_it_controls() -> None:
 
 
 def test_a_strategy_with_no_edge_reads_as_indistinguishable_from_random(prepared) -> None:
-    """The calibration check, and the one that would catch a rigged null.
-
-    These are random-walk bars, so no entry rule can have predictive power over them and the
-    honest answer is "indistinguishable". A null that were systematically easier than the
-    strategy would instead report "better than random" here, which is precisely the failure
-    that would make every real result untrustworthy.
-    """
+    """On random-walk bars the verdict is "indistinguishable", which a rigged null would not give."""
     data, params, _ = prepared
     results = randomentry.compare(data, params, instrument=NQ, iterations=120, seed=5)
     assert results["profit_factor"].verdict == randomentry.INDISTINGUISHABLE
@@ -389,7 +372,7 @@ def test_zero_iterations_is_refused(prepared) -> None:
 
 
 def stub_log(pnl_per_trade) -> pd.DataFrame:
-    """A minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
+    """Build a minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
 
     return pd.DataFrame(
@@ -411,7 +394,7 @@ def stub_log(pnl_per_trade) -> pd.DataFrame:
 
 
 def stub_legs(pnl_per_trade) -> trades.LegMatrix:
-    """The same stub as a raw leg matrix, which is what ``compare`` actually reads."""
+    """Build the same stub as a raw leg matrix, which is what ``compare`` actually reads."""
     matrix = np.zeros((len(pnl_per_trade), trades.N_COLUMNS))
     matrix[:, trades.C_TRADE_ID] = np.arange(1, len(pnl_per_trade) + 1)
     matrix[:, trades.C_LEG] = 1
@@ -430,15 +413,10 @@ def stub_legs(pnl_per_trade) -> trades.LegMatrix:
 
 
 def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared) -> None:
-    """A run with no losing trade reports an infinite profit factor.
+    """An infinite observed profit factor is refused rather than compared with the null.
 
-    "Infinity beats the null" is an artefact of a run with nothing on the other side of the
-    ratio, not a result, and returning it would put a meaningless row in the same table as
-    real ones.
-
-    Driven by a stub archetype rather than a lucky fixture: no random-walk seed produces an
-    all-winning DeadCatBounce run, so a data-driven version of this test would skip forever
-    and assert nothing.
+    Driven by a stub archetype, because no random-walk seed produces an all-winning
+    DeadCatBounce run.
     """
     data, params, signal = prepared
 
@@ -516,11 +494,9 @@ def test_a_signal_filling_every_pool_it_touches_is_refused_rather_than_drawn(pre
 
 
 def test_a_nearly_saturated_signal_is_refused_too(prepared) -> None:
-    """**The case a zero-freedom test misses**, and the one that occurs in practice.
+    """A signal leaving a sliver of spare bars is refused too, not only a saturating one.
 
-    An unfiltered OpeningRange leaves 0.0019 spare bars per signal rather than none, so an
-    exact-saturation guard passes it and the null then reports p = 1 with a spread of 1e-4.
-    Freeing one bar in a thousand is not a control.
+    ``docs/roadmap.md`` §M28.1.
     """
     data, _, _ = prepared
     nearly_every_bar = np.ones(len(data), dtype=bool)
@@ -544,11 +520,13 @@ def test_draw_freedom_separates_the_registry_from_the_degenerate_case(prepared) 
     assert pool.draw_freedom(np.zeros(len(data), dtype=bool)) == 0.0
 
 
-def test_a_null_whose_draws_all_agree_is_refused_from_the_result_side(prepared, monkeypatch) -> None:
+def test_a_null_whose_draws_all_agree_is_refused_from_the_result_side(
+    prepared, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The second guard: the same failure seen from the result, whatever caused the point mass.
 
     The draw-freedom check catches the dense-signal cause before the simulations run; this one
-    holds for any cause, which is why both exist.
+    holds for any cause.
     """
     data, params, _ = prepared
     monkeypatch.setattr(

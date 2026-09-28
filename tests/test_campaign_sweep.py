@@ -1,10 +1,8 @@
 """What the registry-wide campaign's plan claims, pinned.
 
-The sweeps themselves are not exercised here -- they need ``cache/continuous`` and take about
-an hour and a half. What is testable without data is the shape of the plan, which is where a
-silent mistake would live: a stratum that filters two dimensions at once, a variant whose grid
-cannot be built, a root whose commission is the other root's, or two archetypes pointed at one
-database.
+The sweeps themselves need ``cache/continuous`` and are not exercised here; the shape of the
+plan is: a stratum that filters two dimensions at once, a variant whose grid cannot be built, a
+root whose commission is the other root's, or two archetypes pointed at one database.
 """
 
 from __future__ import annotations
@@ -52,6 +50,7 @@ from nqbt.sim.types import (
     ORB_TARGET_WIDTH,
     SHAPE_ANY,
     SHAPE_REVERSAL,
+    SIZING_LABELS,
     STOP_ATR,
     STOP_BAND,
     STOP_CATASTROPHE,
@@ -59,7 +58,6 @@ from nqbt.sim.types import (
     TARGET_STRETCH,
     TRIGGER_EXTENDED,
     TRIGGER_RECOVERY,
-    SIZING_LABELS,
     DeadCatParams,
     OpeningRangeParams,
     sizing_labels,
@@ -70,14 +68,11 @@ from tools.campaign_sweep import (
     ALL_STRATA,
     CAMPAIGN,
     COMMISSION,
-    CONTEXT,
-    EMAPULLBACK_CONFIRM,
-    EMAPULLBACK_CONFIRM_VARIANTS,
-    EMAPULLBACK_HELD_KINDS,
-    EMAPULLBACK_TRAIL,
-    EMAPULLBACK_TRAIL_VARIANTS,
-    CORE,
+    CONFLUENCE_SIZING,
+    CONFLUENCE_SIZING_VARIANTS,
     CONSOLIDATING,
+    CONTEXT,
+    CORE,
     DIRECTIONAL,
     ELASTIC_BAND_STOP,
     ELASTIC_BAND_STOP_ARMS,
@@ -99,18 +94,21 @@ from tools.campaign_sweep import (
     ELASTIC_VOLUME_SHAPES,
     ELASTIC_VOLUME_TARGET,
     ELASTIC_VOLUME_VARIANTS,
+    EMAPULLBACK_CONFIRM,
+    EMAPULLBACK_CONFIRM_VARIANTS,
+    EMAPULLBACK_HELD_KINDS,
+    EMAPULLBACK_TRAIL,
+    EMAPULLBACK_TRAIL_VARIANTS,
+    IBT_SIZING,
+    IBT_SIZING_VARIANTS,
+    LONDON_OPEN_MINUTES,
+    MIDDAY,
     NARROW,
     NARROW_ATR,
     NARROW_ENTRY,
     NARROW_TP,
     NARROW_VARIANTS,
     NO_CUTS,
-    IBT_SIZING,
-    IBT_SIZING_VARIANTS,
-    MIDDAY,
-    SIZING_CONFLUENCE,
-    SIZING_QUANTITIES,
-    SizingCut,
     ORB,
     ORB_BRACKET,
     ORB_BRACKET_RANGES,
@@ -119,12 +117,12 @@ from tools.campaign_sweep import (
     ORB_FADE,
     ORB_FADE_LADDERS,
     ORB_FADE_VARIANTS,
-    ORB_FRACTIONS,
-    ORB_GEOMETRY,
-    ORB_GEOMETRY_ENTRIES,
     ORB_FOLLOW_THROUGH,
     ORB_FOLLOW_THROUGH_RANGES,
     ORB_FOLLOW_THROUGH_VARIANTS,
+    ORB_FRACTIONS,
+    ORB_GEOMETRY,
+    ORB_GEOMETRY_ENTRIES,
     ORB_GEOMETRY_VARIANTS,
     ORB_GEOMETRY_WINDOWS,
     ORB_LADDER_FRACTIONS,
@@ -136,7 +134,6 @@ from tools.campaign_sweep import (
     ORB_TIGHT_FRACTIONS,
     ORB_VARIANTS,
     ORB_WIDTH_LADDERS,
-    LONDON_OPEN_MINUTES,
     RECUTS,
     REGIME,
     REGIME_LOOKBACKS,
@@ -144,6 +141,10 @@ from tools.campaign_sweep import (
     RESOLUTIONS,
     SELECTION_SHARE,
     SERIAL_BELOW_COMBINATION_BARS,
+    SIZE_FIXED,
+    SIZING_CONFLUENCE,
+    SIZING_QUANTITIES,
+    SIZING_SYMMETRIC,
     SLIPPAGE_TICKS,
     STRATUM_SETS,
     UNFILTERED,
@@ -154,16 +155,21 @@ from tools.campaign_sweep import (
     VOLUME_TAILS,
     Cuts,
     RegimeCut,
+    SizingCut,
     Variant,
     VolumeCut,
     calibrate,
     calibrate_volume,
+    check_confluence_request,
     check_volume_request,
+    confluence_arms,
+    confluence_cuts,
     db_path,
     elastic_ladder,
     fit_regime,
     fit_volume,
     grids_for,
+    insidebartrailing_confluence_arms,
     insidebartrailing_sizing_variants,
     insidebartrailing_variants,
     named_forms,
@@ -175,25 +181,15 @@ from tools.campaign_sweep import (
     run_point,
     sizing_arms,
     sizing_cuts,
+    sizing_cuts_path,
     strata,
+    swept_on,
     tail_pairs,
+    unstored,
     variants_for,
     volume_series,
     windows,
     workers_for,
-)
-from tools.campaign_sweep import (
-    CONFLUENCE_SIZING,
-    CONFLUENCE_SIZING_VARIANTS,
-    SIZE_FIXED,
-    SIZING_SYMMETRIC,
-    check_confluence_request,
-    confluence_arms,
-    confluence_cuts,
-    insidebartrailing_confluence_arms,
-    sizing_cuts_path,
-    swept_on,
-    unstored,
 )
 
 EVERY_STATE = {
@@ -209,7 +205,7 @@ quietly narrowing the campaign."""
 
 
 def all_variants() -> list[Variant]:
-    """Every variant of every archetype, on both roots."""
+    """Build every variant of every archetype, on both roots."""
     return [variant for build in VARIANTS.values() for root in COMMISSION for variant in build(root)]
 
 
@@ -376,7 +372,7 @@ def test_the_split_windows_cover_every_bar_exactly_once() -> None:
     assert len(selection) == math.floor(len(bars) * SELECTION_SHARE)
 
 
-def test_each_archetype_gets_its_own_database(tmp_path, monkeypatch) -> None:
+def test_each_archetype_gets_its_own_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A convention since ``_append_or_create`` learned to widen, and still what the campaign
     ran on, so the report and holdout tools go on finding one file per archetype."""
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
@@ -415,7 +411,9 @@ def test_a_request_is_passed_through_in_joblibs_own_convention() -> None:
     assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS, 1) == 1
 
 
-def test_each_sweep_call_gets_the_worker_count_its_own_grid_earns(tmp_path, monkeypatch) -> None:
+def test_each_sweep_call_gets_the_worker_count_its_own_grid_earns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Chosen per (variant x stratum) rather than once per run, which is the unit a pool is
     opened at -- a run of many small calls is not a large call."""
     (wide,) = VARIANTS["InsideBar"]("MNQ")
@@ -483,7 +481,7 @@ FITTED = (
 
 
 def calibration_bars(n: int = 4000, seed: int = 4) -> pd.DataFrame:
-    """A one-minute frame whose held-out half is a straight line, which scores 1.0 everywhere.
+    """Build a one-minute frame whose held-out half is a straight line, which scores 1.0 everywhere.
 
     A fit that reached past the selection window would put the upper threshold at 1.0 and say so.
     """
@@ -496,7 +494,7 @@ def calibration_bars(n: int = 4000, seed: int = 4) -> pd.DataFrame:
 
 
 def calibrated_args(**overrides: object) -> argparse.Namespace:
-    """The arguments ``fit_regime`` reads, at one resolution so ``resample`` is a pass-through."""
+    """Build the arguments ``fit_regime`` reads, at one resolution so ``resample`` is a pass-through."""
     return argparse.Namespace(
         **{
             "resolutions": [1],
@@ -677,7 +675,7 @@ def test_the_opening_range_sweeps_both_sides_as_separate_combinations() -> None:
 
 
 def volume_bars(sessions_wanted: int = 30, seed: int = 7) -> pd.DataFrame:
-    """Whole sessions carrying volume, so a bar-of-session baseline has sessions to be taken over."""
+    """Build whole sessions carrying volume, so a bar-of-session baseline has sessions to be taken over."""
     n = sessions_wanted * 1440
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
@@ -699,7 +697,7 @@ def volume_bars(sessions_wanted: int = 30, seed: int = 7) -> pd.DataFrame:
 
 
 def volume_args(**overrides: object) -> argparse.Namespace:
-    """The arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
+    """Build the arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
     return argparse.Namespace(
         **{"resolutions": [1], "volume_quantiles": VOLUME_TAILS, **VOLUME_WINDOWS, **overrides}
     )
@@ -729,8 +727,8 @@ def test_a_volume_form_cell_names_the_series_and_the_cut_it_reads() -> None:
 def test_the_rolling_window_is_set_only_under_the_form_that_reads_it() -> None:
     """A cross of form x window would run duplicate combinations that ``dead_axes`` cannot see.
 
-    It knows one inert value per toggle and this axis is inert at two forms --
-    ``.claude/rules/sweep-and-context.md``.
+    It knows one inert value per toggle and this axis is inert at two forms -- ``docs/roadmap.md``
+    §M10.2.
     """
     for name, extra in strata(VOLUME_FORMS):
         rolling = "@rolling_" in name
@@ -905,7 +903,7 @@ def test_narrowing_the_forms_without_a_fitted_cut_is_refused() -> None:
 
 
 def test_a_window_the_form_is_degenerate_at_is_refused_by_name() -> None:
-    with pytest.raises(SystemExit, match="a one-bar window is VolumeForm.PER_BAR"):
+    with pytest.raises(SystemExit, match=r"a one-bar window is VolumeForm\.PER_BAR"):
         check_volume_request(volume_args(volume_rolling_bars=[1, 30]))
 
     with pytest.raises(SystemExit, match="baseline must span"):
@@ -1049,8 +1047,8 @@ def test_the_opening_ranges_re_sweep_states_its_strata_before_it_runs() -> None:
 
 
 def test_the_re_sweep_drops_the_atr_stop_and_keeps_the_one_that_worked() -> None:
-    """§M28.1's deferral: 0 of 10 cells and half the runtime, against a fraction axis whose
-    top value reproduces the opposite-extreme stop exactly."""
+    """§M28.1's deferral: dropped for a fraction axis whose top value reproduces the
+    opposite-extreme stop exactly."""
     variants = ORB_VARIANTS["OpeningRange"]("MNQ")
 
     assert {variant.base.stop_mode for variant in variants} == {ORB_STOP_FRACTION}
@@ -1204,7 +1202,7 @@ def test_the_parked_orb_grid_is_untouched_by_the_fades_re_run() -> None:
 
 
 def stored_orb_variants() -> list[Variant]:
-    """Every OpeningRange variant the three stored runs were produced by."""
+    """Return every OpeningRange variant the three stored runs were produced by."""
     return [
         variant
         for build in (VARIANTS, ORB_VARIANTS, ORB_FADE_VARIANTS, ORB_REJECTION_VARIANTS)
@@ -1453,7 +1451,7 @@ def test_the_stop_ladder_extends_the_stored_axis_instead_of_replacing_it() -> No
     assert ORB_LADDER_FRACTIONS[: len(ORB_FRACTIONS)] == ORB_FRACTIONS
     assert max(ORB_FRACTIONS) == 1.0
     assert [f for f in ORB_LADDER_FRACTIONS if f > 1.0]
-    assert ORB_LADDER_FRACTIONS == sorted(ORB_LADDER_FRACTIONS)
+    assert sorted(ORB_LADDER_FRACTIONS) == ORB_LADDER_FRACTIONS
 
 
 def test_a_stop_past_the_range_width_is_legal_rather_than_refused() -> None:
@@ -1592,7 +1590,7 @@ def test_the_bracket_run_carries_the_roots_real_costs() -> None:
 
 
 def volume_variants(root: str = "MNQ") -> list[Variant]:
-    """The control and the treatment of the volume run, in that order."""
+    """Return the control and the treatment of the volume run, in that order."""
     return ELASTIC_VOLUME_VARIANTS["ElasticBand"](root)
 
 
@@ -1625,9 +1623,8 @@ def test_the_control_and_the_treatment_differ_by_the_shape_alone() -> None:
 
 
 def test_the_volume_run_holds_the_three_axes_the_shape_campaign_spent() -> None:
-    """§M26.5 measured ``min_one_sided_bars``'s low end as a dead value and its high end as a
-    cost, the reversal shape as making ``min_bars_outside`` a duplicate on 82.7% of cells, and
-    the target ladder's η² on the held-out profit factor as 0.0000."""
+    """The axes §M26.5 measured as dead or as duplicates are narrowed -- ``docs/roadmap.md``
+    §M26.5."""
     for variant in volume_variants():
         assert "min_one_sided_bars" not in variant.axes
         assert "min_bars_outside" not in variant.axes
@@ -1690,7 +1687,7 @@ def test_variants_for_selects_the_volume_grid() -> None:
 
 
 def channel_variants(root: str = "MNQ") -> list[Variant]:
-    """Every arm of the channel run: both channels crossed with both shapes."""
+    """Return every arm of the channel run: both channels crossed with both shapes."""
     return ELASTIC_CHANNEL_VARIANTS["ElasticBand"](root)
 
 
@@ -1837,7 +1834,7 @@ def test_variants_for_selects_the_channel_grid() -> None:
 
 
 def recovery_variants(root: str = "MNQ") -> list[Variant]:
-    """Every arm of the recovery run, the two controls first."""
+    """Return every arm of the recovery run, the two controls first."""
     return ELASTIC_RECOVERY_VARIANTS["ElasticBand"](root)
 
 
@@ -1875,9 +1872,8 @@ def test_every_recovery_arm_differs_from_the_control_by_the_entry_alone() -> Non
 
 
 def test_the_recovery_run_keeps_the_run_length_the_shapes_made_a_duplicate() -> None:
-    """§M26.5 measured ``min_bars_outside`` as inert under ``reclaim`` on 100% of cells and
-    under ``reversal`` on 82.7%. The recovery trigger reads the run at the bar *before* the
-    signal, so it is the one entry here under which the axis is live."""
+    """The recovery trigger reads the run at the bar *before* the signal, so it is the one entry
+    under which ``min_bars_outside`` is live -- ``docs/roadmap.md`` §M26.6."""
     for variant in recovery_variants():
         assert variant.axes["min_bars_outside"] == [1, 2]
 
@@ -1891,8 +1887,8 @@ def test_the_recovery_run_drops_the_axis_the_shape_campaign_measured_as_dead() -
 
 
 def test_every_recovery_depth_is_inside_the_band_and_the_loosest_is_its_edge() -> None:
-    """A depth of 1.0 is the band edge itself; 0.5 was measured at 140 signals in 1.66M MNQ
-    bars and left out, which is the engulfing mode's failure -- ``docs/roadmap.md`` §M26.6."""
+    """A depth of 1.0 is the band edge itself; 0.5 is left out as near-empty --
+    ``docs/roadmap.md`` §M26.6."""
     depths = {depth for trigger, _, depth in ELASTIC_RECOVERY_ARMS.values() if trigger == TRIGGER_RECOVERY}
 
     assert depths == {1.0, 0.9, 0.75}
@@ -1949,7 +1945,7 @@ def test_variants_for_selects_the_recovery_grid() -> None:
 
 
 def band_stop_variants(root: str = "MNQ") -> list[Variant]:
-    """Every arm of the band-stop run, the three existing stops first."""
+    """Return every arm of the band-stop run, the three existing stops first."""
     return ELASTIC_BAND_STOP_VARIANTS["ElasticBand"](root)
 
 
@@ -2071,7 +2067,7 @@ def test_variants_for_selects_the_band_stop_grid() -> None:
 
 
 def trail_variants(root: str = "MNQ") -> list[Variant]:
-    """Both arms of the trail run, the fixed stop first."""
+    """Return both arms of the trail run, the fixed stop first."""
     return EMAPULLBACK_TRAIL_VARIANTS["EmaPullback"](root)
 
 
@@ -2113,7 +2109,7 @@ def test_every_trail_variant_grid_can_be_built_at_every_cell() -> None:
 
 
 def conditions_free_of_the_third_grid(grid: sweep.Grid) -> bool:
-    """Neither arm builds the trail's own grid: one never trails and the other trails on ``slow``."""
+    """Check neither arm builds the trail's own grid: one never trails and the other trails on ``slow``."""
     periods = {period for _, period in grid.required_context().ma_keys}
 
     return periods == set(grid.axes["fast_period"]) | set(grid.axes["slow_period"])
@@ -2123,7 +2119,7 @@ def conditions_free_of_the_third_grid(grid: sweep.Grid) -> bool:
 
 
 def confirm_variants(root: str = "MNQ") -> list[Variant]:
-    """All three arms of the confirmation run, the market entry first."""
+    """Return all three arms of the confirmation run, the market entry first."""
     return EMAPULLBACK_CONFIRM_VARIANTS["EmaPullback"](root)
 
 
@@ -2175,7 +2171,7 @@ FINDINGS = SOURCE.parent.parent / "docs" / "findings"
 
 
 def prepared_price_bases() -> list[str]:
-    """Every ``price_basis`` the campaign's own ``context.prepare`` calls state."""
+    """List every ``price_basis`` the campaign's own ``context.prepare`` calls state."""
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 
     return [
@@ -2188,7 +2184,7 @@ def prepared_price_bases() -> list[str]:
 
 
 def loaded_series() -> list[str]:
-    """Every ``splice.load_continuous`` call the campaign makes, as written."""
+    """List every ``splice.load_continuous`` call the campaign makes, as written."""
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 
     return [
@@ -2233,7 +2229,7 @@ def a_cut(
     labels: tuple[str, ...] = ("size_on_vwap", "size_on_regime"),
     symmetric_labels: tuple[str, ...] | None = None,
 ):
-    """A cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it.
+    """Build a cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it.
 
     The symmetric arm counts ``labels`` unless told otherwise.
     """
@@ -2305,12 +2301,14 @@ def test_a_cut_with_every_label_dropped_runs_no_confluence_arm() -> None:
     assert not any(arm.name.endswith(SIZING_CONFLUENCE) for arm in arms)
 
 
-def test_the_sizing_run_refuses_to_start_without_its_cuts(tmp_path) -> None:
-    with pytest.raises(SystemExit, match="campaign_sizing.py fit"):
+def test_the_sizing_run_refuses_to_start_without_its_cuts(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match=r"campaign_sizing\.py fit"):
         sizing_cuts(tmp_path / "absent.json")
 
 
-def test_the_sizing_variants_read_their_own_roots_cuts(monkeypatch, tmp_path) -> None:
+def test_the_sizing_variants_read_their_own_roots_cuts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     path = tmp_path / "cuts.json"
     rows = [
         dataclasses.asdict(a_cut("MNQ", 5)),
@@ -2324,7 +2322,9 @@ def test_the_sizing_variants_read_their_own_roots_cuts(monkeypatch, tmp_path) ->
     assert variants_for(IBT_SIZING) is IBT_SIZING_VARIANTS
 
 
-def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(tmp_path, monkeypatch) -> None:
+def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``save_sweep`` stamps one status per sweep; the rows have to carry their own first."""
     (campaign,) = insidebartrailing_variants("MNQ")
     control, *_, confluence = sizing_arms(campaign, a_cut())
@@ -2373,7 +2373,7 @@ def m47_cut(
     variant: str | None = None,
     symmetric_labels: tuple[str, ...] | None = None,
 ) -> SizingCut:
-    """A cut of the shape the fit writes outside InsideBarTrailing: no earliness in it.
+    """Build a cut of the shape the fit writes outside InsideBarTrailing: no earliness in it.
 
     The symmetric arm counts ``labels`` unless told otherwise.
     """
@@ -2415,7 +2415,7 @@ def test_a_cut_naming_no_variant_fits_every_one_and_one_naming_a_variant_fits_th
     assert not m47_cut(variant="stop=atr").fits("stop=swing")
 
 
-def test_a_cut_file_reads_back_with_and_without_the_newer_fields(tmp_path) -> None:
+def test_a_cut_file_reads_back_with_and_without_the_newer_fields(tmp_path: Path) -> None:
     """§M45's file carries no variant or symmetric labels, and only InsideBarTrailing's carry earliness."""
     newer = {"variant", "symmetric_labels"}
     legacy = {key: value for key, value in dataclasses.asdict(a_cut()).items() if key not in newer}
@@ -2532,7 +2532,9 @@ def test_every_combination_of_every_confluence_arm_is_a_legal_rule_set() -> None
                 assert sum(1 for _ in grid.combinations()) == arm.sized(), arm.name
 
 
-def test_the_confluence_variants_run_only_where_a_cut_was_fitted_for_them(monkeypatch, tmp_path) -> None:
+def test_the_confluence_variants_run_only_where_a_cut_was_fitted_for_them(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     variant = "window=5m stop=opposite target=R"
     monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
     write_cuts(
@@ -2549,9 +2551,11 @@ def test_the_confluence_variants_run_only_where_a_cut_was_fitted_for_them(monkey
     assert variants_for(CONFLUENCE_SIZING) is CONFLUENCE_SIZING_VARIANTS
 
 
-def test_the_strata_cut_regime_and_volume_where_the_labels_are_cut(monkeypatch, tmp_path) -> None:
+def test_the_strata_cut_regime_and_volume_where_the_labels_are_cut(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
-    ladders = [name for name in ELASTIC_LADDERS]
+    ladders = list(ELASTIC_LADDERS)
     write_cuts(sizing_cuts_path("ElasticBand"), [m47_cut(variant=ladder) for ladder in ladders])
     cuts = confluence_cuts("ElasticBand", "MNQ")
     assert set(cuts) == {5}
@@ -2566,7 +2570,9 @@ def test_the_strata_cut_regime_and_volume_where_the_labels_are_cut(monkeypatch, 
     assert len(cells) == 1 + 3 + len(timeofday.SessionPhase) + 3 + 3 + 3 + len(higher_timeframe.Side)
 
 
-def test_variants_fitted_at_two_cuts_at_one_resolution_are_refused(monkeypatch, tmp_path) -> None:
+def test_variants_fitted_at_two_cuts_at_one_resolution_are_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
     moved = dataclasses.replace(m47_cut(variant="target=+1.0s"), volume_heavy_above=2.0)
     write_cuts(sizing_cuts_path("ElasticBand"), [m47_cut(variant="target=0.0s"), moved])
@@ -2591,7 +2597,9 @@ def test_a_confluence_run_is_refused_under_another_cut_or_the_raw_volume_cells()
     check_confluence_request(argparse.Namespace(variants=CAMPAIGN, strata=ALL_STRATA))
 
 
-def test_the_planned_count_has_one_regime_and_one_volume_cut_per_dimension(monkeypatch, tmp_path) -> None:
+def test_the_planned_count_has_one_regime_and_one_volume_cut_per_dimension(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
     write_cuts(sizing_cuts_path("DeadCatBounce"), [m47_cut()])
     args = argparse.Namespace(
@@ -2621,7 +2629,7 @@ def test_a_cell_stored_on_these_bars_is_skipped_and_one_on_other_bars_refused() 
         unstored(named, {("a", UNFILTERED): {here._replace(bars=here.bars + 1)}}, frame)
 
 
-def test_a_point_run_twice_stores_each_cell_once(monkeypatch, tmp_path) -> None:
+def test_a_point_run_twice_stores_each_cell_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
     frame = walk_bars(3000, seed=5)
     tiny = Variant(
@@ -2655,7 +2663,7 @@ def test_insidebartrailing_with_no_kept_label_keeps_only_the_arms_that_need_none
     assert SIZING_CONFLUENCE not in arm_names(campaign, arms)
 
 
-def test_the_strata_read_each_roots_own_cut(monkeypatch, tmp_path) -> None:
+def test_the_strata_read_each_roots_own_cut(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
     nq = dataclasses.replace(m47_cut("NQ"), regime_directional_above=0.7)
     write_cuts(sizing_cuts_path("DeadCatBounce"), [m47_cut("MNQ"), nq])

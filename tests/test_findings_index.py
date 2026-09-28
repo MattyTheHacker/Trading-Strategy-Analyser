@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from nqbt import archetypes
 from tools.findings_index import (
     BY_ARCHETYPE,
     BY_GATE,
@@ -27,8 +28,6 @@ from tools.findings_index import (
     parse_front_matter,
     views,
 )
-
-from nqbt import archetypes
 
 FINDINGS = Path(__file__).resolve().parent.parent / "docs" / "findings"
 

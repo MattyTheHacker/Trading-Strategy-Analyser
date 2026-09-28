@@ -25,7 +25,7 @@ FIRST_OPEN = "2024-01-07 23:01"
 
 
 def minute_bars(days: int = 4, seed: int = 7) -> pd.DataFrame:
-    """1-minute bars from the first bar of an ETH session, long enough for an hourly EMA(50)."""
+    """Build 1-minute bars from the first bar of an ETH session, long enough for an hourly EMA(50)."""
     rng = np.random.default_rng(seed)
     index = pd.date_range(FIRST_OPEN, periods=days * 24 * 60, freq="min", tz="UTC")
     n = index.size
@@ -47,7 +47,7 @@ def minute_bars(days: int = 4, seed: int = 7) -> pd.DataFrame:
 
 
 def agreeing_export(bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """A probe export in which NinjaTrader agrees with nqbt on all four questions."""
+    """Build a probe export in which NinjaTrader agrees with nqbt on all four questions."""
     coarse = resample.resample(bars, COARSE_MINUTES)
     stamps = pd.DatetimeIndex(bars.index)
     reads = rht.nqbt_reads(pd.DatetimeIndex(coarse.index), stamps)
@@ -81,9 +81,8 @@ def export():
     bars = minute_bars()
     primary, coarse = agreeing_export(bars)
 
-    # Microsecond stamps, which is what read_csv hands back. Building the fixture with
-    # date_range instead gives nanoseconds and hides every resolution assumption in the
-    # tool -- one shipped that way and put the whole comparison in 1970.
+    # Microsecond stamps, which is what read_csv hands back; nanoseconds from date_range would
+    # hide the tool's resolution assumptions.
     return bars, as_microseconds(primary), as_microseconds(coarse)
 
 
@@ -190,7 +189,7 @@ def test_the_warmup_check_catches_a_different_number_of_unreadable_bars(export) 
 # -- the export parses, warm-up rows included ---------------------------------
 
 
-def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path, export) -> None:
+def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path: Path, export) -> None:
     _, primary, coarse = export
     stem = tmp_path / "MNQ-03-24_60min_20240107_20240111"
     write_probe_csv(primary, stem.with_name(stem.name + "_primary.csv"), coarse_columns=True)
@@ -205,7 +204,7 @@ def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path,
     assert read_primary["coarse_utc"].notna().any()
 
 
-def test_a_missing_coarse_half_is_refused_rather_than_half_checked(tmp_path, export) -> None:
+def test_a_missing_coarse_half_is_refused_rather_than_half_checked(tmp_path: Path, export) -> None:
     _, primary, _ = export
     path = tmp_path / "MNQ-03-24_60min_20240107_20240111_primary.csv"
     write_probe_csv(primary, path, coarse_columns=True)

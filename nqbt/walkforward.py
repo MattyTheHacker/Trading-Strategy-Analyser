@@ -133,7 +133,7 @@ class WalkForwardSummary:
     splits_test_better: int
 
     def as_dict(self) -> dict[str, str | float | int]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return dataclasses.asdict(self)
 
 
@@ -151,7 +151,7 @@ class WalkForwardResult:
     costs: TradingCosts
 
     def pooled_pnl(self) -> FloatArray:
-        """Per-trade P&L across every out-of-sample window, in split order.
+        """Pool per-trade P&L across every out-of-sample window, in split order.
 
         Grouped per split before the leg collapse, because ``trade_id`` restarts at 1 in each
         window -- collapsing the concatenated log would merge trades that only share a number.
@@ -216,7 +216,7 @@ def _window_log(
 
 
 def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
-    """``name`` and the trade count behind it, from a leg-level log."""
+    """Return ``name`` and the trade count behind it, from a leg-level log."""
     if log.empty:
         return np.nan, 0
 
@@ -243,9 +243,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
 ) -> WalkForwardResult:
     """Select on each training window, measure on the window that follows, and report both.
 
-    ``costs`` has no default: an uncosted walk-forward selects for trade frequency, which is
-    the one thing costs punish, so it would report a clean result that inverts the moment
-    costs are applied.
+    ``costs`` has no default -- ``docs/roadmap.md`` §M7b.
 
     ``warmup_bars`` prefixes every window so indicators are warm at its first tradeable bar;
     trades entered in the prefix are discarded. A grid reading an SMA(200) needs at least 200.

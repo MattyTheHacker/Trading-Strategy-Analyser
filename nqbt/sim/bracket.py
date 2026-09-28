@@ -1,18 +1,9 @@
-"""The bracket engine every archetype's exits go through.
+"""The bracket engine every archetype's exits go through, in one copy that must not be forked.
 
 One stop, up to four R-multiple targets, an ambiguity policy for the bar that holds both, and a
-forced exit at the session close -- resolved identically whichever archetype opened the
-position and whichever side it is on. **This is the fidelity-critical code**: every rule the
-NT8 reconciliations validated lives here, so a second copy is a second place for Tier 1 and
-Tier 2 to drift. **Do not fork it.** Each rule and its evidence: ``docs/nt8-fidelity.md``.
-
-The split is the entry half against the bracket half -- a new archetype writes only the first.
-Everything here is an ``@njit(cache=True)`` device function, which Numba inlines into the
-calling loop at no cost.
-
-The ``NamedTuple`` blobs below are what the loops pass each other in place of long positional
-lists. They have to live in an importable module for ``cache=True`` to reuse its disk cache --
-``docs/roadmap.md`` §M20c.
+forced exit at the session close, resolved identically for every archetype and either side. A
+new archetype writes the entry half only. Each rule and its evidence: ``docs/nt8-fidelity.md``;
+the design: ``nqbt/README.md`` § "sim/bracket.py".
 """
 
 from __future__ import annotations
@@ -56,10 +47,7 @@ if TYPE_CHECKING:
 class Bars(NamedTuple):
     """The per-bar series every loop indexes, held together so one bar cannot be split.
 
-    ``force_flat`` rides with the OHLC because it is a fact about the bar rather than about a
-    strategy: it marks bars at or past the exit-on-session-close cutoff. Keeping it here is
-    what stops the bracket engine being handed a different bar's flag than the one it is
-    resolving.
+    ``force_flat`` marks bars at or past the exit-on-session-close cutoff.
     """
 
     open_: FloatArray
@@ -96,9 +84,9 @@ class FillRules(NamedTuple):
 class OpenTrade(NamedTuple):
     """The position as it opened -- fixed for its whole life, whatever the stop does after.
 
-    ``filled_at_open`` is false for an entry that filled intrabar, which is what keeps the
-    gapped-stop rule off its entry bar: the position did not exist at that bar's open.
-    ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
+    ``filled_at_open`` is false for an entry that filled intrabar, which keeps the gapped-stop
+    rule off its entry bar -- ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar
+    gaps through it".
     """
 
     trade_id: int
@@ -151,13 +139,13 @@ class LegExit(NamedTuple):
 
 @njit(cache=True)
 def slippage_points(costs: Costs) -> float:
-    """Slippage as a price, from the tick count the NinjaScript expresses it in."""
+    """Convert slippage to a price, from the tick count the NinjaScript expresses it in."""
     return costs.slippage_ticks * costs.tick_size
 
 
 @njit(cache=True)
 def extend_excursion(excursion: Excursion, high: float, low: float) -> Excursion:
-    """The water marks after one more bar."""
+    """Extend the water marks by one more bar."""
     return Excursion(max(excursion.run_high, high), min(excursion.run_low, low))
 
 
@@ -180,12 +168,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
     means ``out`` overflowed and the caller must abandon the run.
 
     Order of resolution: the stop takes the whole position unless the ambiguity policy says the
-    targets were reached first; targets fill at their own price with no slippage, being limit
-    orders; anything still open after a targets-first bar leaves at the stop on that same bar;
-    and force-flat is last, so a position that reached a target and then ran out of session
-    records both.
-
-    Called by both the in-position path and the entry-bar path; **do not fork it again**.
+    targets were reached first; targets fill at their own price with no slippage; anything still
+    open after a targets-first bar leaves at the stop on that same bar; and force-flat is last.
+    Called by both the in-position path and the entry-bar path.
     """
     n_legs = legs.is_open.size
     direction = trade.direction
@@ -315,10 +300,8 @@ def flatten_position(
 ) -> int:
     """Close every still-open leg at one price for one reason. Returns the new row count.
 
-    What a market order flattening the whole position writes: the maximum-hold-time exit, an
-    archetype's own signal exit, and the liquidation of anything still open when the series
-    runs out. It takes a level from nowhere, so **this is not a fill rule** -- the caller has
-    already decided the bar, the price and the reason.
+    The writer for a market order flattening the whole position. Not a fill rule: the caller
+    decides the bar, the price and the reason.
     """
     for leg in range(legs.is_open.size):
         if not legs.is_open[leg]:
@@ -343,12 +326,11 @@ def size_legs(legs: Legs, sizing: Sizing, signal_bar: int) -> None:
 
 @njit(cache=True)
 def hold_expired(entry_bar: int, i: int, max_hold_bars: int) -> bool:
-    """Whether bar ``i``'s close is where the maximum-hold-time exit is submitted.
+    """Return whether bar ``i``'s close is where the maximum-hold-time exit is submitted.
 
-    Off at ``0``. The count is bars *since* the entry bar, so the order goes in at the close
-    of bar ``entry_bar + max_hold_bars`` and fills at the next bar's open -- a leg's
-    ``bars_held`` therefore reaches ``max_hold_bars + 1``. ``docs/nt8-fidelity.md``, "The
-    maximum hold time, and why it is its own exit code".
+    Off at ``0``. The order goes in at the close of bar ``entry_bar + max_hold_bars`` and fills
+    at the next bar's open -- ``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its
+    own exit code".
     """
     return max_hold_bars > 0 and i - entry_bar >= max_hold_bars
 
@@ -362,14 +344,13 @@ def entry_bracket(
     stop_offset: float,
     direction: float,
 ) -> tuple[float, float, float]:
-    """One signal bar's order arithmetic: trigger, initial stop, planned risk.
+    """Compute one signal bar's order arithmetic: trigger, initial stop, planned risk.
 
     The trigger is the *favourable* side of the signal bar, capped by whichever of it and
     ``close +/- entry_offset`` is further favourable still; the stop sits ``stop_offset``
     beyond the *adverse* side. ``direction`` is ``+1.0`` long / ``-1.0`` short.
 
-    Shared by the jitted loop and by ``explain.py``, so the audit trail is by construction the
-    arithmetic under audit. **Do not inline either copy back** -- ``docs/roadmap.md`` §M20a.
+    Shared by the jitted loop and by ``explain.py`` -- ``docs/roadmap.md`` §M20a.
     """
     adverse, favourable = sided(low, high, direction)
     close_based = close + direction * entry_offset
@@ -391,7 +372,7 @@ def stop_entry_fill(
     slippage: float,
     direction: float,
 ) -> tuple[bool, float]:
-    """Whether a resting stop-market entry fills on bar ``i``, and at what price.
+    """Return whether a resting stop-market entry fills on bar ``i``, and at what price.
 
     A market order once triggered, so a gap through the trigger fills at the open; otherwise the
     bar's favourable extreme has to reach it and the fill is the trigger. Shared by OpeningRange's
@@ -413,7 +394,7 @@ NO_BRACKET_FLOOR = 0.0
 
 @njit(cache=True)
 def atr_bracket_distance(atr_value: float, multiple: float, floor_points: float) -> float:
-    """How far an ATR multiple puts a bracket level from what it is measured against.
+    """Return how far an ATR multiple puts a bracket level from what it is measured against.
 
     ``floor_points`` is a per-contract dollar floor already converted on the instrument by
     :meth:`nqbt.instruments.Instrument.dollars_to_points`, and :data:`NO_BRACKET_FLOOR`
@@ -431,15 +412,11 @@ def swing_stop(
     offset: float,
     direction: float,
 ) -> float:
-    """A structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
+    """Return a structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
 
-    The window ends at ``signal_bar`` and includes it, and never reads the bar the fill happens
-    on. ``offset`` is a price rather than a tick count, and pushes the stop *beyond* the extreme
-    so it does not sit exactly on the level it protects. **Not floored** -- a structural level
-    widened to clear a cost floor stops being the level it is.
-
-    Shared by EmaCrossover's swing mode and ElasticBand's :data:`~nqbt.sim.types.STOP_SWING`.
-    **Do not fork it.**
+    The window ends at ``signal_bar`` and includes it. ``offset`` is a price rather than a tick
+    count, and pushes the stop *beyond* the extreme. Not floored. Shared by EmaCrossover's swing
+    mode and ElasticBand's :data:`~nqbt.sim.types.STOP_SWING`.
     """
     start = signal_bar - lookback + 1
     start = max(start, 0)
@@ -454,12 +431,9 @@ def swing_stop(
 
 @njit(cache=True)
 def tightened_stop(stop: float, candidate: float, direction: float) -> float:
-    """Whichever of the two is nearer the market, which is the one ratchet in the codebase.
+    """Return whichever of the two is nearer the market, which is the one ratchet in the codebase.
 
-    DeadCatBounce's candidate is a lagged bar's adverse extreme and EmaCrossover's is a moving
-    average, both already offset; all a ratchet does with either is refuse to loosen. A
-    ``nan`` candidate -- a moving average still warming up -- leaves the stop alone, because
-    every comparison against it is false. ``docs/nt8-fidelity.md``, "Ratchet reads the
+    A ``nan`` candidate leaves the stop alone -- ``docs/nt8-fidelity.md``, "Ratchet reads the
     just-closed bar".
     """
     if direction * candidate > direction * stop:
@@ -479,9 +453,8 @@ def avoid_round_number(
     """Push a stop that lands exactly on a multiple of ``spacing`` further from the entry.
 
     ``spacing`` is a price -- 25 points, say -- and a spacing of ``0`` switches the rule off.
-    Only an exact landing moves; a zone around the level would be a second parameter
-    nobody specified. **Meaningless on a back-adjusted series**, which shifts every level by
-    the roll offsets -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    Only an exact landing moves. Meaningless on a back-adjusted series -- ``docs/roadmap.md``
+    § "The build spec's three loose ends".
     """
     if spacing <= 0.0:
         return stop
@@ -495,11 +468,7 @@ def avoid_round_number(
 
 @njit(cache=True)
 def sided(low: float, high: float, direction: float) -> tuple[float, float]:
-    """Which raw price is adverse and which is favourable for this direction.
-
-    The one piece of the direction generalisation that is a data selection rather than an
-    arithmetic substitution, which is why it is a function rather than a multiplication.
-    """
+    """Return which raw price is adverse and which is favourable for this direction."""
     if direction > 0.0:
         return low, high
 
@@ -511,20 +480,16 @@ AMBIGUITY_NEAREST_TO_OPEN = 1
 AMBIGUITY_BEST_CASE = 2
 """NT8's guess, and the two outcomes it is guessing between.
 
-Only ``AMBIGUITY_NEAREST_TO_OPEN`` reproduces NT8, and it stays the default and the only one
-anything is ranked on. The other two are the ends of the band a bar cannot narrow, and they
-exist so that a diagnostic can ask which end the minute bars support -- ``nqbt/disambiguate.py``
-and ``docs/roadmap.md`` §M28.4."""
+Only ``AMBIGUITY_NEAREST_TO_OPEN`` reproduces NT8, and it is the only one anything is ranked on;
+the other two are for ``nqbt/disambiguate.py`` -- ``docs/roadmap.md`` §M28.4."""
 
 
 @njit(cache=True)
 def targets_reached_first(open_px: float, stop_px: float, target_px: float, policy: int) -> bool:
-    """On a bar holding both the stop and a target, did price reach the target first?
+    """Return whether price reached the target first, on a bar holding both the stop and a target.
 
-    Bar-close OHLC cannot say, so this is an assumption. ``AMBIGUITY_NEAREST_TO_OPEN``
-    reproduces NT8; the other two answer always-no and always-yes, which are the two ends of
-    the band rather than fill rules to rank on. Evidence: ``docs/nt8-fidelity.md``, "Ambiguous
-    bars resolve to whichever level is nearer the open".
+    ``AMBIGUITY_NEAREST_TO_OPEN`` reproduces NT8; the other two answer always-no and always-yes
+    -- ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer the open".
     """
     if policy == AMBIGUITY_NEAREST_TO_OPEN:
         return abs(open_px - target_px) < abs(stop_px - open_px)
@@ -534,11 +499,10 @@ def targets_reached_first(open_px: float, stop_px: float, target_px: float, poli
 
 @njit(cache=True)
 def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: float) -> bool:
-    """Whether a limit order at ``limit`` fills, given the bar's favourable-side extreme.
+    """Return whether a limit order at ``limit`` fills, given the bar's favourable-side extreme.
 
-    NT8 runs with ``IsFillLimitOnTouch = false``, so price merely *reaching* the limit is not a
-    fill -- it has to trade through. See ``docs/nt8-fidelity.md``, "Limit orders must trade
-    *through*, not touch".
+    Unless ``on_touch``, price has to trade through the limit -- ``docs/nt8-fidelity.md``, "Limit
+    orders must trade *through*, not touch".
     """
     if on_touch:
         return direction * favourable_px >= direction * limit
@@ -554,10 +518,9 @@ def round_to_tick(price: float, tick_size: float) -> float:
 
 @njit(cache=True)
 def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
-    """Optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
+    """Check the optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
 
-    Every target is expressed in R, so the check is independent of price: it either passes for
-    the rule set or never does.
+    Every target is in R, so the check passes for the whole rule set or for none of it.
     """
     if minimum <= 0.0:
         return True

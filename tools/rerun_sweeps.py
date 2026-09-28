@@ -1,23 +1,9 @@
 """Clear the sweep database and re-run the grids that still matter, stratified.
 
-Every row stored before this was computed against a continuous series with different roll
-dates, at a commission that is not the real one, and before the market-context labels
-existed. Those rows are answers to a different question, so they are dropped rather than
-added to -- ``docs/roadmap.md`` § "Stored sweeps -- dropped and re-run, stratified".
-
     ./.venv/Scripts/python.exe tools/rerun_sweeps.py            # drop, then re-run
     ./.venv/Scripts/python.exe tools/rerun_sweeps.py --n-jobs 8
 
-**This deletes ``sweeps``, ``combos`` and ``trades``.** The drop is not optional and not
-skippable, and the reason is the one above rather than a schema one: the stored rows answer a
-different question, so they go rather than being appended to.
-
-**One dimension at a time, never crossed.** Eleven strata per root -- unfiltered, then once
-per regime, then once per session phase -- rather than the 32 cells the product would give.
-The point is to tell "no edge anywhere" from "edge in one stratum, drowned by the others",
-and each label answers that on its own; crossing them is what #48's guard exists to refuse.
-Every stratum runs the same grid, so the stratum is the only thing that varies between two
-comparable rows.
+**This deletes ``sweeps``, ``combos`` and ``trades``** -- ``tools/README.md`` § "rerun_sweeps.py".
 """
 
 from __future__ import annotations
@@ -59,20 +45,14 @@ GRID_AXES: dict[str, list[AxisValue]] = {
     "slow_sma_period": [120, 175],
     "use_vwap": [True, False],
 }
-"""96 combinations: the dropped grid minus ``ambiguity_policy``.
-
-That axis is not swept. ``0`` is a blanket worst case, deliberately *more* pessimistic than
-NT8 rather than equal to it, so half the stored rows would rank a combination against a fill
-rule the prime directive rejects -- and the two policies were measured 0.009 profit factor
-apart. Fixed at ``1``, which is what NT8 does.
-"""
+"""96 combinations: the dropped grid minus ``ambiguity_policy``, which is fixed at NT8's ``1``."""
 
 TABLES = ("trades", "combos", "sweeps")
 """Dropped in this order so a later foreign key would not have to reorder it."""
 
 
 def strata() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The eleven stratifications, each an extra axis over :data:`GRID_AXES`.
+    """Yield the eleven stratifications, each an extra axis over :data:`GRID_AXES`.
 
     The unfiltered run comes first so every stratum has its own baseline to be read against,
     and the two labels never appear in the same grid.
@@ -101,7 +81,7 @@ def drop_tables(db_path: paths.Path) -> None:
 
 
 def grids() -> list[tuple[str, sweep.Grid]]:
-    """One named grid per stratum, all over the same base parameters."""
+    """Build one named grid per stratum, all over the same base parameters."""
     base = DeadCatParams(commission_per_contract=COMMISSION, slippage_ticks=SLIPPAGE_TICKS)
 
     return [

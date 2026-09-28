@@ -1,10 +1,8 @@
 """ElasticBand simulation tests on hand-built bars.
 
-The archetype has no NinjaScript, so like EmaCrossover there is no trade list to check against.
-What these pin instead are the things it introduces -- five stop schemes, a target expressed
-as a band level rather than as an R multiple, and two rule-driven exits -- plus the property
-the whole thing is worthless without: that nothing it reads comes from a bar it could not have
-seen.
+The archetype has no NinjaScript and no trade list. These pin what it introduces -- five stop
+schemes, a target expressed as a band level, and two rule-driven exits -- and that nothing it
+reads comes from a bar it could not have seen.
 
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
@@ -20,7 +18,6 @@ from nqbt.sim.elasticband import (
     beyond_band,
     closed_off_extreme,
     elasticband_signal,
-    swept_and_reclaimed,
     fade_direction,
     lagged,
     one_sided_bars,
@@ -28,6 +25,7 @@ from nqbt.sim.elasticband import (
     returned_inside,
     run_elasticband,
     run_extreme,
+    swept_and_reclaimed,
 )
 from nqbt.sim.types import (
     BAND_VWAP,
@@ -148,7 +146,7 @@ def simulate(
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 
@@ -618,7 +616,7 @@ def test_run_extreme_restarts_when_the_run_breaks_or_changes_side() -> None:
 
 
 def frame(close):
-    """A one-column bar frame at a fixed geometry, enough for the signal path."""
+    """Build a one-column bar frame at a fixed geometry, enough for the signal path."""
     close = np.asarray(close, dtype=np.float64)
     index = pd.date_range("2024-01-02 19:00", periods=close.size, freq="1min", tz="UTC")
 
@@ -751,7 +749,7 @@ def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
 
 
 def candle_frame(close, seed):
-    """A bar frame with real bodies and wicks, which :func:`frame` deliberately has neither of.
+    """Build a bar frame with real bodies and wicks, which :func:`frame` deliberately has neither of.
 
     Every random value is drawn per bar out of one array, so a prefix of a series is built
     from the same numbers as the series -- which is what the no-lookahead tests compare.
@@ -781,7 +779,7 @@ def candle_dataset(close, params, seed=101):
 
 
 def shape_params(**kwargs):
-    """A parameter set on the Bollinger source, warmed up enough for the signal path."""
+    """Build a parameter set on the Bollinger source, warmed up enough for the signal path."""
     defaults = {"band_period": 20, "entry_std": 2.0, "bars_required_to_trade": 30}
 
     return ElasticBandParams(**(defaults | kwargs))
@@ -934,7 +932,7 @@ def test_the_count_is_over_a_window_rather_than_over_an_unbroken_run() -> None:
     ],
 )
 def test_every_signal_bar_gate_reads_only_bars_up_to_and_including_its_own(params) -> None:
-    """The property the archetype is worthless without, run once per gate that was added."""
+    """Nothing the signal reads comes from a later bar, checked once per gate."""
     close = walk(59)
     full = elasticband_signal(candle_dataset(close, params), params)
     for cut in (120, 455, 799):
@@ -987,7 +985,7 @@ def test_a_shaped_run_produces_a_valid_trade_log() -> None:
 
 
 def vwap_params(**kwargs):
-    """A VWAP-source parameter set with the warm-up gate off unless a test sets it."""
+    """Build a VWAP-source parameter set with the warm-up gate off unless a test sets it."""
     defaults = {
         "band_source": BAND_VWAP,
         "entry_std": 2.0,
@@ -1094,7 +1092,7 @@ def test_a_negative_warm_up_is_refused() -> None:
 
 
 def recovery_params(**kwargs):
-    """A VWAP-source recovery set, on the channel §M26.6's campaign runs."""
+    """Build a VWAP-source recovery set, on the channel §M26.6's campaign runs."""
     defaults = {
         "band_source": BAND_VWAP,
         "entry_std": 2.0,

@@ -396,7 +396,9 @@ def test_sizing_off_takes_the_fixed_split_on_every_trade(bars, loop) -> None:
 
 
 @pytest.mark.parametrize("loop", sorted(LOOPS))
-def test_each_trade_takes_the_row_its_signal_bar_names_and_not_its_fill_bars(monkeypatch, bars, loop) -> None:
+def test_each_trade_takes_the_row_its_signal_bar_names_and_not_its_fill_bars(
+    monkeypatch: pytest.MonkeyPatch, bars, loop
+) -> None:
     """Alternating rows, so reading the fill bar instead would give every trade the other one."""
     name, params = LOOPS[loop]
     archetype = archetypes.get(name)

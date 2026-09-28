@@ -1,15 +1,10 @@
 """Check commit messages against the house rules in CONTRIBUTING.md, "Commits".
 
-Two callers, and they deliberately check different text:
-
-    # what GitHub squashes onto main -- the PR title, plus the suffix it appends
     python tools/lint_commit_messages.py --subject-suffix " (#165)" --message-file pr.txt
-
-    # every commit on the branch, NUL-separated on stdin
     git log --format=%B -z origin/main..HEAD | python tools/lint_commit_messages.py --stdin
 
-Exits 1 when any error-level rule fails; warnings never fail the run. ``--github`` emits
-workflow annotations alongside the text.
+Exits 1 when any error-level rule fails; warnings never fail the run.
+``tools/README.md`` § "lint_commit_messages.py".
 """
 
 from __future__ import annotations
@@ -29,7 +24,9 @@ SUBJECT_WARN_LENGTH = 55
 GENERATED_SUBJECT_PREFIXES = ("Merge ", "Revert ")
 """Subjects GitHub writes itself. Exempt from length, because their shape is not ours to pick."""
 
-CONVENTIONAL_TYPES = frozenset("build chore ci docs feat fix perf refactor revert style test".split())
+CONVENTIONAL_TYPES = frozenset(
+    ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"]
+)
 """Accepted but not recommended, so a bare imperative subject stays the house style."""
 
 CONVENTIONAL_PREFIX_PATTERN = re.compile(r"^(?P<type>\w+)(\([^)]*\))?!?: ")
@@ -80,14 +77,14 @@ def split_conventional_prefix(subject: str) -> tuple[str | None, str]:
 
 
 def first_word(subject: str) -> str:
-    """The first word of the subject, lowercased and stripped of surrounding punctuation."""
+    """Return the first word of the subject, lowercased and stripped of surrounding punctuation."""
     word = subject.strip().split(" ", maxsplit=1)[0]
 
     return word.strip("\"'`*_.,:;()[]").lower()
 
 
 def verb_candidate(subject: str) -> str:
-    """The word whose mood is judged: the first one after any conventional prefix."""
+    """Return the word whose mood is judged: the first one after any conventional prefix."""
     _, remainder = split_conventional_prefix(subject.strip())
 
     return first_word(remainder)
@@ -113,7 +110,7 @@ def check_subject_shape(remainder: str, conventional_type: str | None) -> list[F
 
 
 def check_subject_verb(remainder: str, conventional_type: str | None) -> list[Finding]:
-    """The subject must open with one of the ten verbs, unless a conventional type stands in.
+    """Check the subject opens with one of the ten verbs, unless a conventional type stands in.
 
     An allowlist of base forms settles the mood by construction: "Added" is simply not one of
     them, so no stemmer or mood heuristic is needed.
@@ -202,7 +199,7 @@ def check_subject_length(subject: str, suffix: str) -> list[Finding]:
 
 
 def check_body(lines: list[str]) -> list[Finding]:
-    """The one structural body rule. Wrapping is deliberately not checked.
+    """Check the one structural body rule. Wrapping is deliberately not checked.
 
     The body that reaches ``main`` is the pull request description, which GitHub renders as
     markdown and which is never hard-wrapped. CONTRIBUTING.md, "Commits".
@@ -260,7 +257,7 @@ def read_messages(args: argparse.Namespace) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """The command line, one source of messages and two presentation switches."""
+    """Build the command line: one source of messages and two presentation switches."""
     parser = argparse.ArgumentParser(description="Lint commit messages against CONTRIBUTING.md.")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--message-file", help="a file holding one whole commit message")

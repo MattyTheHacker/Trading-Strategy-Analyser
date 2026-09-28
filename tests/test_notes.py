@@ -10,6 +10,8 @@ last-one-wins: a fanned-out join would move every number computed over the resul
 like more rows of the same data.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -18,6 +20,9 @@ from nqbt import annotate, conditions, context, guard, notes, review, sessions
 from nqbt.context import ContextSpec
 from nqbt.notes import NotesError
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 BASE = 18000.0
 START = "2024-01-02 15:00"
 BARS = 200
@@ -25,7 +30,7 @@ SPEC = ContextSpec(ma_keys=conditions.ma_keys(ema=(3,)), needs_time_of_day=True)
 
 
 def bars(count: int = BARS) -> pd.DataFrame:
-    """One-minute bars whose price turns every ten bars, so a moving-average gate takes both values."""
+    """Build one-minute bars whose price turns every ten bars, so a moving-average gate takes both values."""
     index = pd.date_range(START, periods=count, freq="min", tz="UTC")
     close = BASE + 0.25 * np.cumsum(np.where((np.arange(count) // 10) % 2 == 0, 1.0, -1.0))
     open_ = np.concatenate(([close[0]], close[:-1]))
@@ -154,7 +159,7 @@ def test_a_sidecar_says_how_many_trades_are_noted_and_how_many_name_a_screenshot
 # -- stored, and read back ----------------------------------------------------
 
 
-def test_a_sidecar_survives_a_write_and_a_read_unchanged(tmp_path) -> None:
+def test_a_sidecar_survives_a_write_and_a_read_unchanged(tmp_path: Path) -> None:
     written = noted((3, "clean setup"))
     written = notes.record(written, 7, "chased it", screenshot="shots/7.png")
     path = tmp_path / "kept" / "notes.csv"
@@ -164,7 +169,7 @@ def test_a_sidecar_survives_a_write_and_a_read_unchanged(tmp_path) -> None:
 
 
 def test_a_note_containing_a_comma_and_a_newline_survives_the_round_trip(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     """Free text is free: the storage format may not decide what a note is allowed to say."""
     prose = "waited, then chased\nshould have skipped it"
@@ -175,7 +180,7 @@ def test_a_note_containing_a_comma_and_a_newline_survives_the_round_trip(
 
 
 def test_a_mistyped_header_is_refused_rather_than_read_as_a_note_nobody_wrote(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     path = tmp_path / "notes.csv"
     path.write_text("trade_id,note,screenshot,mood\n1,chased it,,calm\n", encoding="utf-8")
@@ -183,7 +188,7 @@ def test_a_mistyped_header_is_refused_rather_than_read_as_a_note_nobody_wrote(
         notes.read(path)
 
 
-def test_a_file_that_is_not_a_sidecar_is_refused_by_name(tmp_path) -> None:
+def test_a_file_that_is_not_a_sidecar_is_refused_by_name(tmp_path: Path) -> None:
     path = tmp_path / "notes.csv"
     path.write_text("id,text\n1,chased it\n", encoding="utf-8")
     with pytest.raises(NotesError, match="not a notes sidecar"):
@@ -191,7 +196,7 @@ def test_a_file_that_is_not_a_sidecar_is_refused_by_name(tmp_path) -> None:
 
 
 def test_a_trade_id_that_is_not_a_whole_number_names_the_row_it_is_on(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     path = tmp_path / "notes.csv"
     path.write_text("trade_id,note,screenshot\n1,fine,\nlast,chased it,\n", encoding="utf-8")

@@ -153,7 +153,7 @@ def walk(n: int = 20000, seed: int = 3) -> np.ndarray:
 
 
 def directional_share(ratios: np.ndarray, upper: float) -> float:
-    """The share of measured bars a threshold labels directional."""
+    """Return the share of measured bars a threshold labels directional."""
     labels = regime.label(ratios, 0.0, upper)
     measured = labels[labels != UNDEFINED]
 

@@ -3,16 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --n-jobs 8
     ./.venv/Scripts/python.exe tools/campaign_holdout.py
 
-A sweep table ranks configurations; it cannot say whether the ranking means anything. The
-question this answers is the one that decides whether an archetype is worth more work: **does
-picking the best 20 on the first 60% of the series beat not picking at all on the last 40%?**
-On this project's own data that has come out *below* the median of every configuration --
-``docs/findings/m26-elastic-band.md`` § "Selecting on one contract is worse than not selecting".
-
-**One row per root and stratum**, because a stratum is its own question and its own sample --
-see :data:`GROUP_KEYS`. A stratum the split never ran simply has no row.
-
-Reads what ``tools/campaign_sweep.py --split`` wrote, one database per archetype.
+One row per root and stratum -- ``tools/README.md`` § "campaign_holdout.py".
 """
 
 from __future__ import annotations
@@ -24,35 +15,23 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import logsetup
 from tools.campaign_report import NET_TO_DRAWDOWN, load, parameter_columns, rank
 from tools.campaign_sweep import VARIANTS
-
-from nqbt import logsetup
 
 logger = logging.getLogger(__name__)
 
 JOIN_KEYS = ["root", "resolution", "variant", "stratum", "combo_id"]
-"""What identifies the same configuration in two windows.
-
-``combo_id`` is the position in a deterministic product, and both windows run the same grids in
-the same order, so equal ids are equal parameters. The paired columns are checked rather than
-trusted -- see :func:`paired`."""
+"""What identifies the same configuration in two windows; the paired columns are checked, not trusted."""
 
 TOP = 20
 """How many the shortlist takes. The roadmap's own held-out test used twenty."""
 
 GROUP_KEYS = ["root", "stratum"]
-"""What a shortlist is chosen within. **A stratum is its own held-out test**, never pooled with
-the others: pooling lets the selection window pick the stratum as well as the parameters, and
-the twenty largest profit factors then come from whichever stratum has the fattest tail rather
-than from the one being asked about -- ``docs/roadmap.md`` §M27.4.
-
-**Variant is not here and a database holding more than one needs ``--variant``**, because the
-same argument applies to it and this does not yet make it -- ``docs/roadmap.md`` §M27.3."""
+"""What a shortlist is chosen within: a stratum is its own held-out test -- ``docs/roadmap.md`` §M27.4."""
 
 DEFAULT_BY = "profit_factor"
 """What the shortlist is chosen on unless ``--by`` says otherwise. §M27.4's table was measured
@@ -60,7 +39,7 @@ on this one; :data:`~tools.campaign_report.NET_TO_DRAWDOWN` is what §M27.3 rank
 
 
 def paired(name: str, variant: str | None = None) -> pd.DataFrame:
-    """One row per configuration that cleared the trade floor in **both** windows."""
+    """Return one row per configuration that cleared the trade floor in **both** windows."""
     selection: pd.DataFrame = load(name, ["selection"])
     holdout: pd.DataFrame = load(name, ["holdout"])
     if variant is not None:
@@ -71,7 +50,7 @@ def paired(name: str, variant: str | None = None) -> pd.DataFrame:
 
 
 def pair_windows(name: str, selection: pd.DataFrame, holdout: pd.DataFrame) -> pd.DataFrame:
-    """:func:`paired` over rows already loaded, each window's under its own name."""
+    """Run :func:`paired` over rows already loaded, each window's under its own name."""
     if selection.empty or holdout.empty:
         return pd.DataFrame()
 
@@ -98,7 +77,7 @@ HELD_OUT_SUFFIX = "_hold"
 """Which half of a :func:`paired` row :func:`held_out` keeps."""
 
 
-def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a different axis
+def held_out(
     name: str,
     root: str,
     by: str = DEFAULT_BY,
@@ -107,11 +86,10 @@ def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a diff
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The held-out rows of the configurations the selection window ranks highest.
+    """Return the held-out rows of the configurations the selection window ranks highest.
 
-    Shaped like :func:`campaign_report.load`'s rows, so a tool reading stored logs can use it
-    wherever it would use :func:`campaign_shortlist.shortlist` -- and unlike that one, nothing
-    it returns was ranked on the window it is then read from -- ``docs/roadmap.md`` §M28.13.
+    Shaped like :func:`campaign_report.load`'s rows, so it can stand in for
+    :func:`campaign_shortlist.shortlist`.
     """
     return half(ranked_pairs(name, root, by, top, stratum, resolution, variant), HELD_OUT_SUFFIX)
 
@@ -125,7 +103,7 @@ def ranked_pairs(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
+    """Return the :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
 
     ``top`` of ``None`` ranks every row.
     """
@@ -152,7 +130,7 @@ def ranked_pairs(
 
 
 def half(merged: pd.DataFrame, suffix: str) -> pd.DataFrame:
-    """One half of a paired frame, under the unsuffixed names the stored rows carry."""
+    """Return one half of a paired frame, under the unsuffixed names the stored rows carry."""
     renamed: dict[str, str] = {
         column: column.removesuffix(suffix) for column in merged.columns if column.endswith(suffix)
     }
@@ -161,7 +139,7 @@ def half(merged: pd.DataFrame, suffix: str) -> pd.DataFrame:
 
 
 def rank_correlation(block: pd.DataFrame) -> float:
-    """Spearman between the two windows' profit factors, as Pearson on the ranks.
+    """Compute Spearman between the two windows' profit factors, as Pearson on the ranks.
 
     Written out because ``Series.corr(method="spearman")`` needs scipy, which is not a
     dependency and must not become one for a report.
@@ -172,11 +150,10 @@ def rank_correlation(block: pd.DataFrame) -> float:
 
 
 def verdict(name: str, merged: pd.DataFrame, by: str = DEFAULT_BY) -> pd.DataFrame:
-    """The held-out test, per root and stratum: the shortlist against not shortlisting at all.
+    """Run the held-out test, per root and stratum: the shortlist against not shortlisting at all.
 
-    ``by`` names the selection-window statistic the shortlist is drawn on. A row it is undefined
-    on is not shortlistable and is dropped, so ``shortlisted`` can come back below :data:`TOP`
-    and is reported rather than assumed -- :func:`campaign_report.rank`.
+    ``by`` names the selection-window statistic ranked on. A row it is undefined on is dropped,
+    so ``shortlisted`` can come back below :data:`TOP`.
     """
     rows: list[dict[str, object]] = []
     for (root, stratum), block in merged.groupby(GROUP_KEYS):

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -40,17 +41,20 @@ from tools.campaign_propobjectives import (
 )
 from tools.campaign_shortlist import source
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 ROOT = "MNQ"
 START = dt.date(2024, 1, 2)
 
 
 def days_from(start: dt.date, n: int) -> np.ndarray:
-    """A calendar of ``n`` consecutive trading days, so a count of days is a count of dates."""
+    """Build a calendar of ``n`` consecutive trading days, so a count of days is a count of dates."""
     return np.datetime64(start, "D") + np.arange(n).astype("timedelta64[D]")
 
 
 def leg_log(daily: list[float]) -> pd.DataFrame:
-    """One single-leg MNQ trade per trading day, from each day's net P&L."""
+    """Build one single-leg MNQ trade per trading day, from each day's net P&L."""
     n = len(daily)
     exits = pd.Timestamp("2024-01-02 15:00", tz="UTC") + pd.to_timedelta(np.arange(n), unit="D")
 
@@ -78,7 +82,7 @@ def leg_log(daily: list[float]) -> pd.DataFrame:
 
 
 def evaluation(**overrides: object) -> propaccount.PropAccount:
-    """A plain evaluation on closed balances, so each test moves only the field it names."""
+    """Build a plain evaluation on closed balances, so each test moves only the field it names."""
     fields = {
         "starting_balance": 50_000.0,
         "profit_target": 3_000.0,
@@ -93,7 +97,7 @@ def evaluation(**overrides: object) -> propaccount.PropAccount:
 
 
 def funded(**overrides: object) -> propaccount.PropAccount:
-    """A funded account from its first day, the shape of a TakeProfitTrader PRO preset."""
+    """Build a funded account from its first day, the shape of a TakeProfitTrader PRO preset."""
     return propaccount.PropAccount(name="Funded", rules=evaluation(profit_target=0.0, **overrides).rules)
 
 
@@ -262,7 +266,7 @@ def test_a_cost_ranks_lowest_first_and_selection_profit_factor_breaks_a_tie() ->
 
 
 def selection_frame() -> pd.DataFrame:
-    """Four configurations measured through two presets on the selection window."""
+    """Measure four configurations through two presets on the selection window."""
     return pd.DataFrame(
         [
             {
@@ -317,7 +321,7 @@ def test_no_preset_with_a_measure_means_no_shortlist_rather_than_an_empty_row() 
 
 
 def held_frame() -> pd.DataFrame:
-    """The same four configurations through the same presets on the held-out window."""
+    """Build the same four configurations through the same presets on the held-out window."""
     held = selection_frame()
     held["pass_rate"] = [0.3, 0.3, 0.1, 0.0] * 2
     held[CONTROL] = [1.0, 0.9, 1.1, 1.2] * 2
@@ -355,7 +359,7 @@ def test_nothing_chosen_or_nothing_held_has_no_verdict() -> None:
 
 
 def paired_rows() -> pd.DataFrame:
-    """Four stored pairs, already in selection-window rank order."""
+    """Build four stored pairs, already in selection-window rank order."""
     return pd.DataFrame(
         {
             "root": ROOT,
@@ -377,7 +381,9 @@ def pool_args(size: int) -> argparse.Namespace:
     return argparse.Namespace(pool=size, stratum="unfiltered", resolution=None, variant=None)
 
 
-def test_the_pool_leaves_out_the_hold_caps_and_takes_a_configuration_once(monkeypatch) -> None:
+def test_the_pool_leaves_out_the_hold_caps_and_takes_a_configuration_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The ``narrow`` row is the ``bracket`` row's configuration under another name; re-run on
     one archive the two are the same trades, and two copies would fill two shortlist places."""
     monkeypatch.setattr(campaign_propobjectives, "ranked_pairs", lambda *_: paired_rows())
@@ -385,7 +391,7 @@ def test_the_pool_leaves_out_the_hold_caps_and_takes_a_configuration_once(monkey
     assert list(zip(kept["variant"], kept["combo_id"], strict=True)) == [("bracket", 0), ("bracket", 2)]
 
 
-def test_the_same_parameters_at_two_bar_sizes_are_two_configurations(monkeypatch) -> None:
+def test_the_same_parameters_at_two_bar_sizes_are_two_configurations(monkeypatch: pytest.MonkeyPatch) -> None:
     """Resolution is not a parameter, and it is the largest lever in the registry."""
     rows = pd.concat([paired_rows(), paired_rows().assign(resolution=15)], ignore_index=True)
     monkeypatch.setattr(campaign_propobjectives, "ranked_pairs", lambda *_: rows)
@@ -393,23 +399,31 @@ def test_the_same_parameters_at_two_bar_sizes_are_two_configurations(monkeypatch
     assert list(zip(kept["resolution"], kept["combo_id"], strict=True)) == [(5, 0), (5, 2), (15, 0), (15, 2)]
 
 
-def test_the_pool_stops_at_its_size_in_rank_order(monkeypatch) -> None:
+def test_the_pool_stops_at_its_size_in_rank_order(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_propobjectives, "ranked_pairs", lambda *_: paired_rows())
     assert list(pool("InsideBar", ROOT, pool_args(1))["atr_multiplier_sel"]) == [5.0]
 
 
-def test_the_pool_ranks_every_stored_pair_rather_than_a_shortlist_of_them(monkeypatch) -> None:
+def test_the_pool_ranks_every_stored_pair_rather_than_a_shortlist_of_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Hold arms and duplicates are removed after ranking, so a truncated ranking would leave a
     pool smaller than asked for."""
     asked: list[tuple[object, ...]] = []
-    monkeypatch.setattr(
-        campaign_propobjectives, "ranked_pairs", lambda *args: asked.append(args) or paired_rows()
-    )
+
+    def fake_ranked_pairs(*args: object) -> pd.DataFrame:
+        asked.append(args)
+
+        return paired_rows()
+
+    monkeypatch.setattr(campaign_propobjectives, "ranked_pairs", fake_ranked_pairs)
     pool("InsideBar", ROOT, pool_args(2))
     assert asked == [("InsideBar", ROOT, CONTROL, None, "unfiltered", None, None)]
 
 
-def test_a_row_the_fill_assumption_could_have_decided_never_enters_the_pool(monkeypatch) -> None:
+def test_a_row_the_fill_assumption_could_have_decided_never_enters_the_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Ranking a pool on profit factor selects for ``ambiguous_share``, and §M28.7's rejection is
     what that looks like -- profit factors past 200 that are the assumption and not the entry."""
     rows = paired_rows()
@@ -426,7 +440,7 @@ def test_a_row_the_fill_assumption_could_have_decided_never_enters_the_pool(monk
 
 
 def test_the_holdout_replays_only_the_shortlisted_configurations_through_their_own_presets(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Replaying the whole pool held out would cost as much again and read nothing more."""
     pairs = paired_rows().drop(index=1).reset_index(drop=True)
@@ -434,10 +448,16 @@ def test_the_holdout_replays_only_the_shortlisted_configurations_through_their_o
     pairs["variant"] = "bracket"
     monkeypatch.setattr(campaign_propobjectives, "pool", lambda *_: pairs)
 
-    calls: list[tuple[pd.DataFrame, dict]] = []
+    calls: list[tuple[pd.DataFrame, dict[tuple[str, int, str, str, int], list[propaccount.PropAccount]]]] = []
 
-    def fake_measure(*arguments: object) -> pd.DataFrame:
-        _, rows, _, _, wanted, _ = arguments
+    def fake_measure(
+        _name: str,
+        rows: pd.DataFrame,
+        _root: str,
+        _bars: pd.DataFrame,
+        wanted: dict[tuple[str, int, str, str, int], list[propaccount.PropAccount]],
+        _n_jobs: int,
+    ) -> pd.DataFrame:
         calls.append((rows, wanted))
         frame = selection_frame()
         frame = frame[(frame["account_name"] == "Apex 50K") & frame["combo_id"].isin(rows["combo_id"])]
@@ -459,7 +479,7 @@ def test_the_holdout_replays_only_the_shortlisted_configurations_through_their_o
     assert set(table["ranked_by"]) == {CONTROL, "pass_rate", "fees_per_pass", "days_to_payout", "funded_days"}
 
 
-def test_a_pool_nothing_was_measured_on_is_never_read_held_out(monkeypatch) -> None:
+def test_a_pool_nothing_was_measured_on_is_never_read_held_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_propobjectives, "pool", lambda *_: paired_rows())
     held: list[object] = []
 
@@ -498,7 +518,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def stored_selection(db, bars: pd.DataFrame) -> pd.DataFrame:
-    """Two InsideBar configurations swept on the selection window and read back as stored rows."""
+    """Sweep two InsideBar configurations on the selection window and read them back as stored rows."""
     frame = resample.resample(source(bars, "selection"), 5)
     grid = sweep.Grid.of(
         InsideBarParams(slow_sma_period=50, bars_required_to_trade=60), atr_multiplier=[5.0, 10.0]
@@ -522,7 +542,9 @@ def stored_selection(db, bars: pd.DataFrame) -> pd.DataFrame:
     return results.query("SELECT * FROM combos ORDER BY combo_id", db).assign(root=ROOT)
 
 
-def test_a_window_is_re_run_and_replayed_through_every_preset_each_configuration_asks_for(tmp_path) -> None:
+def test_a_window_is_re_run_and_replayed_through_every_preset_each_configuration_asks_for(
+    tmp_path: Path,
+) -> None:
     bars = synthetic_bars()
     rows = stored_selection(tmp_path / "InsideBar.duckdb", bars)
     assert rows["trades"].min() > 0, "fixture produced no trades; the test proves nothing"
@@ -545,7 +567,9 @@ def test_a_window_is_re_run_and_replayed_through_every_preset_each_configuration
     assert list(measured.drop_duplicates("combo_id")["trades"]) == list(rows["trades"])
 
 
-def test_a_stored_row_the_archive_no_longer_reproduces_is_re_measured_rather_than_refused(tmp_path) -> None:
+def test_a_stored_row_the_archive_no_longer_reproduces_is_re_measured_rather_than_refused(
+    tmp_path: Path,
+) -> None:
     """The archive moved under every campaign stored before 2026-09-16, so the figures a
     shortlist is read by are the re-run's own and never the stored row's."""
     bars = synthetic_bars()
@@ -561,14 +585,16 @@ def test_a_stored_row_the_archive_no_longer_reproduces_is_re_measured_rather_tha
 # -- the report --------------------------------------------------------------------------------
 
 
-def run_main(monkeypatch, table: pd.DataFrame, *extra: str) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, table: pd.DataFrame, *extra: str) -> int:
     monkeypatch.setattr(campaign_propobjectives.splice, "load_continuous", lambda _: pd.DataFrame())
     monkeypatch.setattr(campaign_propobjectives, "run_cell", lambda *_: (held_frame(), table))
 
     return main(["campaign_propobjectives.py", "--strategy", "InsideBar", "--preset", "Apex 50K", *extra])
 
 
-def test_a_run_with_a_verdict_writes_every_replay_and_the_verdict(monkeypatch, tmp_path) -> None:
+def test_a_run_with_a_verdict_writes_every_replay_and_the_verdict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     table = verdict(shortlists(selection_frame(), [propaccount.APEX_50K], top=2), held_frame())
     assert run_main(monkeypatch, table, "--out", str(tmp_path / "out")) == 0
     written = pd.read_csv(tmp_path / "out" / "verdict.csv")
@@ -578,14 +604,14 @@ def test_a_run_with_a_verdict_writes_every_replay_and_the_verdict(monkeypatch, t
 
 
 def test_a_run_with_nothing_replayed_held_out_fails_rather_than_writing_an_empty_table(
-    monkeypatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An empty report is indistinguishable from a cell with nothing to say."""
     assert run_main(monkeypatch, pd.DataFrame(), "--out", str(tmp_path / "out")) == 1
     assert not (tmp_path / "out").exists()
 
 
-def test_an_unknown_preset_is_refused_by_name(monkeypatch) -> None:
+def test_an_unknown_preset_is_refused_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_propobjectives, "run_cell", lambda *_: (held_frame(), pd.DataFrame()))
     with pytest.raises(propaccount.PropAccountError, match="unknown preset"):
         main(["campaign_propobjectives.py", "--strategy", "InsideBar", "--preset", "Apex 40K"])

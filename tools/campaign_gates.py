@@ -5,36 +5,9 @@ r"""Every per-cell read of a swept variant set, over every cell, from one load p
     ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
         --out <dir> --reads gate4 --cells <csv of strategy, root, resolution, variant and stratum>
 
-It loads the variant set's rows once per archetype, re-runs each shortlisted configuration once
-on the bars it was swept on, and hands that one log to every read: what
-``tools/campaign_holdout.py``, ``tools/campaign_sizing.py null``, ``tools/campaign_montecarlo.py``,
-``tools/campaign_exits.py``, ``tools/campaign_walkforward.py`` and
-``tools/campaign_propaccount.py`` each do for one cell.
-
-**The reads are those tools' own functions**, given what their command lines give them for one
-arm, root, resolution and stratum -- ``--variant``, ``--root``, ``--resolution`` and ``--stratum``
--- so a cell read here and the same cell read there agree wherever both run on the same bars:
-
-- ``gates``: gate 1, :func:`campaign_report.profile` on the selection window, and gate 2,
-  :func:`campaign_holdout.verdict`;
-- ``paired``: :func:`campaign_paired.paired` held out, stratum by stratum, over the pairs
-  :func:`controls` reads off the arms' names;
-- ``null``: :func:`campaign_sizing.shuffled_null` on the held-out shortlist of every arm whose
-  base sizes on a confluence count;
-- ``gate4``: :func:`campaign_montecarlo.resample_row`, :func:`campaign_exits.measure_row` and
-  :func:`campaign_walkforward.run_resolution`, on the cells ``--gate4-strata`` and ``--cells`` name;
-- ``prop``: :func:`campaign_propaccount.replay_shortlist` over the four presets, on the cells
-  ``--prop-strata`` names.
-
-Every re-run also writes what it reproduced of its stored row, and on which bars, which is read
-before anything the logs were re-run for -- :func:`campaign_swept.reconciliation`.
-
-The tables land under ``--out``, one file per archetype, root, resolution and arm, and each task
-records the strata every read has written. A run reads only what is missing, so an interrupted
-run resumes where it stopped and a later one adds reads or ``--cells`` without repeating any; one
-``--out`` holds one set of :data:`SETTINGS` and refuses a run asking for others. **Only this
-process opens a database**, and only once the sweep has stopped writing it:
-``nqbt.results.connect`` opens a file read-write.
+The reads are the per-cell tools' own functions, and a run reads only what ``--out`` is missing.
+Only this process opens a database, and only once the sweep has stopped writing it --
+``tools/README.md`` § "campaign_gates.py".
 """
 
 from __future__ import annotations
@@ -52,8 +25,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, logsetup, montecarlo, propaccount, splice, stats
@@ -169,17 +141,17 @@ class Task:
         return task_key(self.root, self.minutes, self.arm)
 
     def reads(self, read: str, stratum: str) -> bool:
-        """Whether this task writes ``read`` for ``stratum``."""
+        """Return whether this task writes ``read`` for ``stratum``."""
         return stratum in self.strata.get(read, frozenset())
 
 
 def slug(name: str) -> str:
-    """``name`` as a file name, every character a path could misread replaced."""
+    """Turn ``name`` into a file name, every character a path could misread replaced."""
     return re.sub(r"[^A-Za-z0-9=.+-]", "_", name)
 
 
 def task_key(root: str, minutes: int, arm: str) -> str:
-    """What one task's files are called: its root, resolution and arm."""
+    """Return what one task's files are called: its root, resolution and arm."""
     return f"{root}-{minutes}m-{slug(arm)}"
 
 
@@ -194,12 +166,12 @@ def refuse_clashes(arms: list[str]) -> None:
 
 
 def sizes_on_count(arm: Variant) -> bool:
-    """Whether ``arm``'s base sizes on a confluence count, which is what gate 3's shuffled null tests."""
+    """Return whether ``arm``'s base sizes on a confluence count, the thing gate 3's shuffled null tests."""
     return getattr(arm.base, "quantity_per_confluence", 0) > 0
 
 
 def controls(arms: list[str]) -> list[tuple[str, str]]:
-    """Every (control, treatment) pair the paired read sets against each other.
+    """List every (control, treatment) pair the paired read sets against each other.
 
     An arm named ``<stem> <rule>`` is read against its stem's control, the first of
     :data:`CONTROLS` present, unless it is one or it inverts another rule. One ending in
@@ -235,7 +207,7 @@ def controls(arms: list[str]) -> list[tuple[str, str]]:
 def arms_for(
     builders: dict[str, Callable[[str], list[Variant]]], name: str, root: str, resolutions: list[int]
 ) -> dict[tuple[str, int], Variant]:
-    """The arms the variant set builds for one archetype and root, by name and resolution."""
+    """Return the arms the variant set builds for one archetype and root, by name and resolution."""
     return {
         (arm.name, minutes): arm
         for arm in builders[name](root)
@@ -245,7 +217,7 @@ def arms_for(
 
 
 def gate_rows(name: str, selection: pd.DataFrame, merged: pd.DataFrame) -> pd.DataFrame:
-    """Gate 1 and gate 2 per cell: the selection window's profitable share, then the held-out test."""
+    """Read gate 1 and gate 2 per cell: the selection window's profitable share, then the held-out test."""
     first: pd.DataFrame = profile(selection, CELL).rename(
         columns=lambda column: column if column in CELL else f"gate1_{column}",
     )
@@ -261,7 +233,7 @@ def gate_rows(name: str, selection: pd.DataFrame, merged: pd.DataFrame) -> pd.Da
 
 
 def paired_rows(name: str, holdout: pd.DataFrame, arms: list[str]) -> pd.DataFrame:
-    """Every pair :func:`controls` names, held out, one verdict row per stratum, root and resolution."""
+    """Read every pair :func:`controls` names, held out, one verdict row per stratum, root and resolution."""
     rows: list[pd.DataFrame] = []
     for control, treatment in controls(arms):
         left: pd.DataFrame = holdout[holdout["variant"] == control]
@@ -287,7 +259,7 @@ def shortlists(
     gate4_strata: frozenset[str],
     top: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """One task's held-out shortlist per stratum, and its selection-window one where gate 4 is read.
+    """Return one task's held-out shortlist per stratum, and its selection-window one where gate 4 is read.
 
     Ranked as :func:`campaign_holdout.held_out` and :func:`campaign_shortlist.shortlist` rank them
     once narrowed to one cell: a row undefined on ``BY`` is dropped rather than ranked.
@@ -309,7 +281,7 @@ def shortlists(
 
 
 def walk_arguments() -> argparse.Namespace:
-    """What ``tools/campaign_walkforward.py``'s command line passes by default, on one core."""
+    """Return what ``tools/campaign_walkforward.py``'s command line passes by default, on one core."""
     return argparse.Namespace(
         by=BY,
         train_share=TRAIN_SHARE,
@@ -338,7 +310,7 @@ ARCHIVES: dict[str, pd.DataFrame] = {}
 
 
 def archive(root: str) -> pd.DataFrame:
-    """The continuous series for ``root``, loaded on first use in this process."""
+    """Return the continuous series for ``root``, loaded on first use in this process."""
     if root not in ARCHIVES:
         ARCHIVES[root] = splice.load_continuous(root)
 
@@ -346,11 +318,9 @@ def archive(root: str) -> pd.DataFrame:
 
 
 def reruns(task: Task) -> Iterator[Rerun]:
-    """Every configuration ``task.held`` holds re-run once, on one prepared dataset for the task.
+    """Re-run every configuration ``task.held`` holds once, on one prepared dataset for the task.
 
-    The archive is cut back at the newest bar those rows were swept on, where the per-cell tools
-    cut at the newest their root stored anywhere: the same bars unless one database holds
-    campaigns swept on archives of different lengths, and then the rows' own where theirs are not.
+    The archive is cut back at the newest bar those rows were swept on.
     """
     archetype: archetypes.Archetype = archetypes.get(task.name)
     frame, swept = bars_for(
@@ -363,7 +333,7 @@ def reruns(task: Task) -> Iterator[Rerun]:
 
 
 def run_task(task: Task) -> dict[str, pd.DataFrame]:
-    """Every re-running read one task asks for, as tables keyed by name."""
+    """Run every re-running read one task asks for, as tables keyed by name."""
     measured: dict[str, list[dict[str, object]]] = {table: [] for table in TABLES}
     spreads: list[pd.DataFrame] = []
     logs: dict[str, dict[tuple[int, int], pd.DataFrame]] = {}
@@ -412,7 +382,7 @@ def run_task(task: Task) -> dict[str, pd.DataFrame]:
 
 
 def nulled(task: Task, run: Rerun) -> dict[str, object]:
-    """One sizing configuration against its own sizes shuffled, as ``campaign_sizing.py null`` reads it."""
+    """Test one sizing configuration against its sizes shuffled, as ``campaign_sizing.py null`` reads it."""
     row = task.held.iloc[run.position]
     result: dict[str, float] = shuffled_null(
         run.data,
@@ -432,7 +402,7 @@ def nulled(task: Task, run: Rerun) -> dict[str, object]:
 
 
 def replayed(task: Task, logs: dict[str, dict[tuple[int, int], pd.DataFrame]]) -> pd.DataFrame:
-    """Each prop stratum's held-out shortlist through the four presets ``campaign_propaccount.py`` reads."""
+    """Replay each prop stratum's held-out shortlist through ``campaign_propaccount.py``'s four presets."""
     accounts: list[propaccount.PropAccount] = [propaccount.preset(name) for name in DEFAULT_PRESETS]
 
     return pd.concat(
@@ -445,7 +415,7 @@ def replayed(task: Task, logs: dict[str, dict[tuple[int, int], pd.DataFrame]]) -
 
 
 def walked(task: Task) -> pd.DataFrame:
-    """Each gate-4 stratum's selection-window shortlist walked forward, one verdict row each."""
+    """Walk each gate-4 stratum's selection-window shortlist forward, one verdict row each."""
     return pd.DataFrame(
         [
             {
@@ -461,12 +431,12 @@ def walked(task: Task) -> pd.DataFrame:
 
 
 def written(out: Path, table: str, name: str, key: str) -> Path:
-    """Where one task's table is written."""
+    """Return where one task's table is written."""
     return out / table / name / f"{key}.parquet"
 
 
 def done_marker(out: Path, name: str, key: str) -> Path:
-    """The file recording which strata each read has written for one task."""
+    """Return the file recording which strata each read has written for one task."""
     return out / "done" / name / f"{key}.json"
 
 
@@ -492,7 +462,7 @@ def write_json(path: Path, value: object) -> None:
 
 
 def recorded(out: Path, name: str, key: str) -> dict[str, frozenset[str]]:
-    """The strata each read has written for one task, as earlier runs recorded them."""
+    """Return the strata each read has written for one task, as earlier runs recorded them."""
     marker: Path = done_marker(out, name, key)
     if not marker.exists():
         return {}
@@ -546,7 +516,7 @@ def save(
 
 
 def remaining(asked: dict[str, frozenset[str]], done: dict[str, frozenset[str]]) -> dict[str, frozenset[str]]:
-    """What is left of each read once earlier runs' strata are taken off, and nothing if none is.
+    """Return what is left of each read once earlier runs' strata are taken off, and nothing if none is.
 
     Every stratum left is re-run, and :data:`RERUN` names those whose re-run is not yet written.
     """
@@ -568,7 +538,7 @@ def asked_of(
     *,
     counted: bool,
 ) -> dict[str, frozenset[str]]:
-    """The strata each re-running read is asked for on one arm, of the strata it has rows in."""
+    """Return the strata each re-running read is asked for on one arm, of the strata it has rows in."""
     return {
         "null": present if "null" in reads and counted else frozenset(),
         "gate4": present & gate4 if "gate4" in reads else frozenset(),
@@ -577,7 +547,7 @@ def asked_of(
 
 
 def extra_cells(path: Path | None) -> pd.DataFrame:
-    """The cells ``--cells`` names beyond the strata gate 4 is read on everywhere."""
+    """Return the cells ``--cells`` names beyond the strata gate 4 is read on everywhere."""
     if path is None:
         return pd.DataFrame(columns=NAMED_CELL)
 
@@ -591,7 +561,7 @@ def extra_cells(path: Path | None) -> pd.DataFrame:
 
 
 def gate4_for(extra: pd.DataFrame, task: tuple[str, str, int, str], strata: frozenset[str]) -> frozenset[str]:
-    """The strata gate 4 is read on for one archetype, root, resolution and arm, ``--cells`` included."""
+    """List the strata gate 4 is read on for one archetype, root, resolution and arm, ``--cells`` included."""
     name, root, minutes, arm = task
     named: pd.DataFrame = extra[
         (extra["strategy"] == name)

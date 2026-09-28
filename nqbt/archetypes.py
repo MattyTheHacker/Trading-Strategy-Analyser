@@ -5,7 +5,7 @@ parameter class, the legal axes, the series its signal reads, and how to run one
 Register a new archetype here rather than forking :mod:`nqbt.sweep`.
 
 Holds no strategy logic -- signal and run functions stay in :mod:`nqbt.sim`. What each field is
-for: ``docs/roadmap.md`` §M17.
+for: ``docs/roadmap.md`` §M17; the gate maps' blind spots: ``nqbt/README.md`` § "archetypes.py".
 """
 
 from __future__ import annotations
@@ -71,16 +71,12 @@ unread; with :class:`AnyOf`, any one of them can read it."""
 
 @runtime_checkable
 class Params(Protocol):
-    """One combination's parameters: what the sweep requires of any ``params_cls``.
-
-    Structural rather than a union of the concrete classes, because the point of the registry
-    is that :mod:`nqbt.sweep` does not name them.
-    """
+    """One combination's parameters: what the sweep requires of any ``params_cls``."""
 
     __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]  # dataclasses' own type
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         ...
 
 
@@ -112,7 +108,7 @@ MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
 
 
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
-    """Whether any combination actually restricts its entries to some session phases."""
+    """Return whether any combination actually restricts its entries to some session phases."""
     return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
 
 
@@ -127,18 +123,14 @@ def _reads_label(
     everything: int,
     sizing_name: str,
 ) -> bool:
-    """Whether some combination filters on a label or sizes on it -- either one reads its series."""
+    """Return whether some combination filters on a label or sizes on it -- either one reads its series."""
     filters: bool = any(int(v) != everything for v in values.get(filter_name, ()))
 
     return filters or any(values.get(sizing_name, ()))
 
 
 def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
-    """The efficiency-ratio lookbacks to build: none unless some combination filters or sizes on them.
-
-    The grid holds float64 rather than a boolean gate, so an unasked-for lookback is the most
-    expensive thing this function can add -- ``docs/roadmap.md`` §M10.1.
-    """
+    """Return the efficiency-ratio lookbacks to build: none unless some combination reads the label."""
     if not _reads_label(values, "regime_filter", regime.ALL_REGIMES, "size_on_regime"):
         return ()
 
@@ -146,10 +138,7 @@ def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, .
 
 
 def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.VolumeKey, ...]:
-    """List the relative-volume series to build: none unless some combination filters or sizes on them.
-
-    Sixteen bytes per bar per series, plus the baseline pass -- ``docs/roadmap.md`` §M10.2.
-    """
+    """List the relative-volume series to build: none unless some combination filters or sizes on them."""
     if not _reads_label(values, "volume_filter", volume.ALL_STATES, "size_on_volume"):
         return ()
 
@@ -168,10 +157,7 @@ def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.Volu
 def _compression_keys(
     values: Mapping[str, Sequence[AxisValue]],
 ) -> tuple[compression.CompressionKey, ...]:
-    """List the compression series to build: none unless some combination filters on them.
-
-    Sixteen bytes per bar per series, plus the trailing-rank pass -- ``docs/roadmap.md`` §M19.1.
-    """
+    """List the compression series to build: none unless some combination filters on them."""
     if not any(int(v) != compression.ALL_STATES for v in values.get("compression_filter", ())):
         return ()
 
@@ -188,11 +174,7 @@ def _compression_keys(
 
 
 def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendKey, ...]:
-    """List the trend labels to build: none unless some combination filters or sizes on them.
-
-    Eleven bytes per bar per label, and the averages behind them never reach the dataset --
-    ``docs/roadmap.md`` §M10.3.
-    """
+    """List the trend labels to build: none unless some combination filters or sizes on them."""
     if not _reads_label(values, "trend_filter", trend.ALL_TRENDS, "size_on_trend"):
         return ()
 
@@ -211,11 +193,7 @@ def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendK
 def _higher_timeframe_keys(
     values: Mapping[str, Sequence[AxisValue]],
 ) -> tuple[higher_timeframe.HigherTimeframeKey, ...]:
-    """List the coarse averages to build: none unless some combination filters or sizes on a side.
-
-    Nine bytes per bar per average, plus one resample per distinct resolution --
-    ``docs/roadmap.md`` § "Multi-timeframe moving averages".
-    """
+    """List the coarse averages to build: none unless some combination filters or sizes on a side."""
     if not _reads_label(
         values,
         "higher_timeframe_filter",
@@ -241,9 +219,8 @@ def _ma_keys(
 ) -> tuple[conditions.MovingAverageKey, ...]:
     """Cross each gate's kind axis with its period axis: every grid some combination may read.
 
-    A gate contributes nothing unless both of its axes are present, exactly as a missing
-    period axis built nothing before. Cost is linear in the number of kinds --
-    ``docs/roadmap.md`` § "Moving-average kind as a swept axis".
+    A gate contributes nothing unless both of its axes are present -- ``docs/roadmap.md``
+    § "Moving-average kind as a swept axis".
     """
     periods_by_kind: dict[str, set[int]] = {}
     for gate in gates:
@@ -255,7 +232,7 @@ def _ma_keys(
 
 
 def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """The context spec shared by every archetype built on the MA grids plus VWAP.
+    """Return the context spec shared by every archetype built on the MA grids plus VWAP.
 
     ``values`` maps each parameter name to every value the sweep will try for it, so a period
     that is only swept still gets its grid built. Which series are conditional and why:
@@ -274,11 +251,10 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
 
 
 def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
+    """Return what EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
 
-    ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
-    ``docs/roadmap.md`` §M17. The trailing average is a **third** grid and is built only where
-    some combination trails on it -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    The ATR is built only where some combination uses the ATR stop, and the trailing average, a
+    third grid, only where some combination trails on it -- ``docs/roadmap.md`` §M17.
     """
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
@@ -302,12 +278,10 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What EmaPullback reads: the two grids its trend names, their raw values, and no ATR.
+    """Return what EmaPullback reads: the two grids its trend names, their raw values, and no ATR.
 
-    :func:`crossover_context` without the ATR, because the stop is a level rather than a
-    distance. The trailing average is a **third** grid and is built only where some combination
-    trails on it rather than on the slow average -- ``docs/roadmap.md`` § "The build spec's
-    three loose ends".
+    :func:`crossover_context` without the ATR. The trailing average, a third grid, is built only
+    where some combination trails on it rather than on the slow average.
     """
     trails_on_third_grid: bool = any(values.get("trail_ma_stop", ())) and not all(
         values.get("trail_on_slow", (False,)),
@@ -328,12 +302,11 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
 
 def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
+    """Return what ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
 
-    **No moving-average grid at all** -- the basis is the band's own, so this is the first
-    archetype that builds none. The band multiple is not part of the key, so sweeping it is
-    free -- ``docs/roadmap.md`` §M26. A grid that never selects a Bollinger source builds no
-    period grid at all, and one that never selects the VWAP source builds no VWAP band.
+    No moving-average grid, and the band multiple is not part of the key -- ``docs/roadmap.md``
+    §M26. A grid that never selects a Bollinger source builds no period grid, and one that never
+    selects the VWAP source builds no VWAP band.
     """
     sources: set[int] = {int(v) for v in values.get("band_source", ())}
     periods: set[int] = {int(v) for v in values.get("band_period", ())} if sources != {BAND_VWAP} else set()
@@ -358,15 +331,11 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
 
 def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What OpeningRange reads: the ranges its anchors and windows name, and an ATR under one stop.
+    """Return what OpeningRange reads: the ranges its anchors and windows name, and an ATR under one stop.
 
-    **No moving-average grid and no band**, so this and ElasticBand are the two archetypes
-    that build neither. A range key is the anchor crossed with the window, exactly as an MA
-    key is a kind crossed with a period, and the resolution decides which of them are
-    buildable at all -- :func:`nqbt.sessionrange.validate_key`.
-
-    The trailing follow-through is built on the same terms as the ATR: only where some
-    combination selects a scaling mode that reads it.
+    No moving-average grid and no band. A range key is the anchor crossed with the window, and
+    the resolution decides which are buildable -- :func:`nqbt.sessionrange.validate_key`. The
+    trailing follow-through, like the ATR, is built only where some combination reads it.
     """
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())}
@@ -402,7 +371,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
 
 
 def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What SqueezeBreakout reads: its squeeze's series, that window's levels, and an ATR under one stop.
+    """Return what SqueezeBreakout reads: its squeeze series, that window's levels, and an ATR under one stop.
 
     The squeeze's own compression series and window levels are built for every combination,
     unlike the compression *filter's*, which :func:`_compression_keys` builds only where some
@@ -434,11 +403,11 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
+    """Return what InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
 
-    ``needs_ma_values`` because its three gates are **strict**, which the boolean grids do not
-    hold -- ``docs/nt8-fidelity.md`` §M22. The session clock is conditional on some combination
-    actually setting a no-entry window, and the VWAP on InsideBarTrailing sizing on it.
+    ``needs_ma_values`` because its three gates are strict -- ``docs/nt8-fidelity.md`` §M22. The
+    session clock is built only where some combination sets a no-entry window, and the VWAP only
+    where InsideBarTrailing sizes on it.
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
@@ -468,14 +437,13 @@ INERT_AT: Mapping[str, object] = {
 }
 """The value at which a toggle leaves its axes unread, where that is not simply ``False``.
 
-A filter mask is off at the value that admits everything, so ``dead_axes`` has to compare
-against that rather than test truthiness -- ``ALL_REGIMES`` is 7 and would read as on.
-``trail_on_slow`` is the one toggle that leaves axes unread by being on.
+A filter mask is off at the value that admits everything, and ``trail_on_slow`` leaves axes
+unread by being on.
 """
 
 
 def gate_toggles(gate: Gate) -> tuple[str, ...]:
-    """Every toggle one :data:`Gate` names, as a tuple whether it names one or several."""
+    """Return every toggle one :data:`Gate` names, as a tuple whether it names one or several."""
     if isinstance(gate, AnyOf):
         return gate.toggles
 
@@ -510,8 +478,7 @@ COMPRESSION_GATES: Mapping[str, str] = {
     "compression_expanded_above": "compression_filter",
 }
 """Shared by every archetype: the five compression axes do nothing while the filter admits all
-three states. Both forms read ``compression_period``, so unlike the volume axes none of these
-is inert under a form -- ``docs/roadmap.md`` §M19.1.
+three states.
 """
 
 TREND_GATES: Mapping[str, str] = {
@@ -573,10 +540,8 @@ CROSSOVER_GATES: Mapping[str, Gate] = {
 }
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
-Why ``swing_lookback`` cannot be guarded the same way: ``docs/roadmap.md`` §M17.
-``confluence_required`` is not here because it is refused at construction instead: a count
-that no combination could satisfy, or that is the plain conjunction again, raises out of
-:func:`nqbt.sim.types.validate_confluence` rather than running identical rows.
+``swing_lookback`` cannot be guarded -- ``docs/roadmap.md`` §M17 -- and ``confluence_required``
+is checked at construction by :func:`nqbt.sim.types.validate_confluence` instead.
 """
 
 
@@ -589,14 +554,11 @@ EMAPULLBACK_GATES: Mapping[str, Gate] = {
     "trail_on_slow": "trail_ma_stop",
     **CONTEXT_GATES,
 }
-"""EmaPullback reads both averages on every combination and has one stop mode, so only the
-confirmation entry, the trail and the shared context filters gate an axis. The stop order's
-offset and lifetime are unread at the market entry. The third grid's three axes are unread with
-the trail off *and* with it on the slow average, so they name both toggles.
+"""EmaPullback's gates: the confirmation entry, the trail and the shared context filters.
 
-Neither entry axis can be gated and neither needs to be: ``touch_mode`` and
-``min_bars_extended`` are read on every combination, and ``require_slow_intact`` is live under
-all three touch modes -- ``docs/findings/m34-ema-pullback-spec.md``.
+The third grid's three axes are unread with the trail off *and* with it on the slow average, so
+they name both toggles. Every entry axis is read on every combination --
+``docs/findings/m34-ema-pullback-spec.md``.
 """
 
 
@@ -621,7 +583,7 @@ extension and the trend-age cut are each read under one mode alone -- ``docs/nt8
 
 
 def _sizes_per_signal(params: Params) -> bool:
-    """Whether a combination sizes its entries per signal, which no reconciled NinjaScript does."""
+    """Return whether a combination sizes its entries per signal, which no reconciled NinjaScript does."""
     if isinstance(params, InsideBarTrailingParams) and params.earliness_mode != EARLINESS_OFF:
         return True
 
@@ -634,40 +596,24 @@ def _sizes_per_signal(params: Params) -> bool:
 ELASTICBAND_GATES: Mapping[str, Gate] = {
     **CONTEXT_GATES,
 }
-"""Only the shared context filters gate an axis here.
-
-**The stop and target axes cannot be gated and this is a known blind spot**: they are inert at
-every ``stop_mode`` but one, and ``dead_axes`` only knows how to compare a toggle against a
-single off value. Sweeping ``atr_stop_multiple`` under ``STOP_EXCURSION`` runs identical
-combinations and nothing will say so -- the same shape as ``volume_rolling_bars``,
-``.claude/rules/sweep-and-context.md``.
+"""Only the shared context filters gate an axis here; the stop and target axes cannot be gated
+-- ``nqbt/README.md`` § "archetypes.py".
 """
 
 
 OPENINGRANGE_GATES: Mapping[str, Gate] = {
     **CONTEXT_GATES,
 }
-"""Only the shared context filters gate an axis here.
-
-**The stop axes cannot be gated and this is ElasticBand's blind spot again**: ``atr_period``,
-``atr_stop_multiple`` and ``min_bracket_dollars`` are read under :data:`~nqbt.sim.types.
-ORB_STOP_ATR` alone, ``stop_range_fraction`` under :data:`~nqbt.sim.types.ORB_STOP_FRACTION`
-alone, and ``stop_offset_ticks`` under neither of the first two, so one off value per axis
-cannot express any of them. ``follow_through_sessions`` is the same shape against
-:data:`~nqbt.sim.types.ORB_SCALE_NONE`. ``dead_axes`` will not say so; the *memory* cost is
-still avoided, because :func:`openingrange_context` builds neither the ATR nor the trailing
-follow-through unless some combination selects the mode that reads it.
+"""Only the shared context filters gate an axis here; the stop axes and
+``follow_through_sessions`` cannot be gated -- ``nqbt/README.md`` § "archetypes.py".
 """
 
 
 SQUEEZE_GATES: Mapping[str, Gate] = {
     **CONTEXT_GATES,
 }
-"""Only the shared context filters gate an axis here.
-
-The squeeze's own axes are read on every combination, so none of them is gated. **The stop axes
-carry OpeningRange's blind spot unchanged** -- see :data:`OPENINGRANGE_GATES` -- because they are
-the same fields read by the same loop.
+"""Only the shared context filters gate an axis here. The squeeze's own axes are read on every
+combination, and the stop axes cannot be gated -- see :data:`OPENINGRANGE_GATES`.
 """
 
 
@@ -708,7 +654,7 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     ``TIER1_ONLY`` whatever :attr:`tier2` says -- :meth:`tier2_for`."""
 
     def tier2_for(self, params: Params) -> Tier2Status:
-        """The status one combination's results carry: :attr:`tier2`, unless it leaves the port."""
+        """Return the status one combination's results carry: :attr:`tier2`, unless it leaves the port."""
         departs: bool = self.departs_from_port is not None and self.departs_from_port(params)
         if departs and self.tier2 is Tier2Status.RECONCILED:
             return Tier2Status.TIER1_ONLY
@@ -800,10 +746,9 @@ INSIDEBARTRAILING = Archetype(
     context_for=insidebar_context,
     departs_from_port=_sizes_per_signal,
 )
-"""The fourth C#-backed port: InsideBar's entry, shared rather than copied, with split-lot
-exits. Diffed leg-for-leg against an MNQ 03-24 trade list, which overturned three of the four
-exit rules the port had inferred -- ``docs/nt8-fidelity.md`` §M23. Sizing per signal is not in
-that NinjaScript, so a row using it is ``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M45."""
+"""The fourth C#-backed port: InsideBar's entry with split-lot exits, diffed leg-for-leg against
+an MNQ 03-24 trade list -- ``docs/nt8-fidelity.md`` §M23. A row sizing per signal is
+``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M45."""
 
 ELASTICBAND = Archetype(
     name="ElasticBand",
@@ -816,9 +761,8 @@ ELASTICBAND = Archetype(
     context_for=elasticband_context,
     not_sweepable=frozenset({"target_r_multiples", "target_stretch_levels"}),
 )
-"""The second original and the first mean-reversion archetype: no NinjaScript, and
-TIER1_ONLY until there is one. Its three exit schemes are three grids rather than three
-archetypes -- ``docs/roadmap.md`` §M26."""
+"""The second original and the first mean-reversion archetype: no NinjaScript, and TIER1_ONLY
+until there is one -- ``docs/roadmap.md`` §M26."""
 
 OPENINGRANGE = Archetype(
     name="OpeningRange",
@@ -831,9 +775,8 @@ OPENINGRANGE = Archetype(
     context_for=openingrange_context,
     not_sweepable=frozenset({"target_r_multiples", "target_width_multiples"}),
 )
-"""The third original and the first archetype whose trigger is a level rather than an event:
-no NinjaScript, and TIER1_ONLY until there is one. One side per combination, because a
-two-sided range is not expressible -- ``docs/roadmap.md`` §M28."""
+"""The third original, whose trigger is a level rather than an event: no NinjaScript, and
+TIER1_ONLY until there is one -- ``docs/roadmap.md`` §M28."""
 
 SQUEEZEBREAKOUT = Archetype(
     name="SqueezeBreakout",
@@ -847,8 +790,7 @@ SQUEEZEBREAKOUT = Archetype(
     not_sweepable=frozenset({"target_r_multiples", "target_width_multiples"}),
 )
 """The fifth original: OpeningRange's resting breakout with the level taken from a compressed
-rolling window rather than a session's range. One side per combination, for OpeningRange's
-reason -- ``docs/findings/m19-2-squeeze-breakout-spec.md``."""
+rolling window -- ``docs/findings/m19-2-squeeze-breakout-spec.md``."""
 
 _REGISTRY: dict[str, Archetype] = {
     a.name: a
@@ -883,7 +825,7 @@ def register(archetype: Archetype) -> Archetype:
 
 
 def get(name: str) -> Archetype:
-    """The archetype registered under ``name``, or an error naming the ones that are."""
+    """Return the archetype registered under ``name``, or raise an error naming the ones that are."""
     if name not in _REGISTRY:
         msg: str = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
         raise ArchetypeError(msg)
@@ -892,17 +834,17 @@ def get(name: str) -> Archetype:
 
 
 def names() -> list[str]:
-    """Every registered archetype name, sorted."""
+    """Return every registered archetype name, sorted."""
     return sorted(_REGISTRY)
 
 
 def all_archetypes() -> list[Archetype]:
-    """Every registered archetype, in name order."""
+    """Return every registered archetype, in name order."""
     return [_REGISTRY[n] for n in names()]
 
 
 def for_params(params: Params) -> Archetype:
-    """The archetype whose ``params_cls`` is exactly ``type(params)``.
+    """Return the archetype whose ``params_cls`` is exactly ``type(params)``.
 
     Ambiguity raises rather than picking one.
     """

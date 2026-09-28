@@ -1,13 +1,8 @@
-"""The regression gate has to be able to fail, and once silently could not.
+"""The regression gate has to be able to fail.
 
-``tools/compare_trade_logs.py`` is what proves a refactor moved no number, so a bug in it
-is invisible by construction: it reports success either way. It read with a bare
-``pd.read_csv`` until #113, and pandas' default parser is not correctly rounded -- adjacent
-float64 values fold together, so a one-ULP difference in a captured log read as
-``BYTE-FOR-BYTE IDENTICAL``.
-
-These tests pin the sensitivity rather than the implementation, so the gate stays honest
-whichever way it is later rewritten.
+``tools/compare_trade_logs.py`` reports success either way, so these pin its sensitivity rather
+than its implementation -- ``docs/roadmap.md`` § "The trade-log gate, and the two times it was
+wrong".
 """
 
 import importlib.util
@@ -37,8 +32,8 @@ def gate():
 
 
 @pytest.fixture
-def capture(tmp_path):
-    """A pair of directories holding one identical trade-log-shaped CSV."""
+def capture(tmp_path: Path):
+    """Provide a pair of directories holding one identical trade-log-shaped CSV."""
     frame = pd.DataFrame(
         {
             "trade_id": [1, 2, 3],
@@ -101,7 +96,7 @@ def test_the_lax_parser_really_would_have_missed_it(capture) -> None:
     If pandas ever fixes its default parser this fails, and the guard above becomes
     belt-and-braces rather than load-bearing -- which is worth being told about.
     """
-    before, after = capture
+    _, after = capture
     perturbed = math.nextafter(0.5789473684210527, math.inf)
     edit_field(after / "live_mnq.csv", "r_multiple", 0, f"{perturbed:.17g}")
 
@@ -112,10 +107,9 @@ def test_the_lax_parser_really_would_have_missed_it(capture) -> None:
 
 
 def test_a_signed_zero_is_not_a_difference(gate, capture) -> None:
-    """M15.1 sent 6,908 zeros to ``-0.0`` via ``d = -1`` without moving a result.
+    """``0.0`` against ``-0.0`` is not a difference, though a file hash calls it one.
 
-    A file hash calls that a difference; the gate must not, or every direction-symmetric
-    change would read as a regression. See docs/roadmap.md M15.
+    ``docs/roadmap.md`` § "The trade-log gate, and the two times it was wrong".
     """
     before, after = capture
     changed = edit_field(after / "live_mnq.csv", "net_pnl", 2, "-0")

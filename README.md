@@ -149,7 +149,7 @@ All nine strategies are driven through these checks by the scripts in [tools/](t
 ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar        # compare those against the coin flip
 ```
 
-Other `campaign_*.py` scripts take up narrower questions. Among them, `campaign_holdout` and `campaign_walkforward` check whether a choice holds up on data it never saw, `campaign_montecarlo` sizes how much of a result was luck, `campaign_contracts` runs one contract at a time, and `campaign_propaccount` replays a shortlist through a prop firm's account rules. `campaign_gates` runs those reads over every cell of a variant set in one pass. The docstring at the top of each one says what it is for. The sweep stores its results in one database per strategy, `results/campaign/<Strategy>.duckdb`, and nearly every other script starts from what is stored there, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
+Other `campaign_*.py` scripts take up narrower questions. Among them, `campaign_holdout` and `campaign_walkforward` check whether a choice holds up on data it never saw, `campaign_montecarlo` sizes how much of a result was luck, `campaign_contracts` runs one contract at a time, and `campaign_propaccount` replays a shortlist through a prop firm's account rules. `campaign_gates` runs those reads over every cell of a variant set in one pass. [`tools/README.md`](tools/README.md) says what each one is for, how to run it, and the order a campaign usually runs them in. The sweep stores its results in one database per strategy, `results/campaign/<Strategy>.duckdb`, and nearly every other script starts from what is stored there, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
 
 ## The strategies
 
@@ -324,15 +324,17 @@ Every strategy has been swept across every setting it has, on both instruments, 
 
 ## Documentation
 
-| file                                         | what it holds                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [docs/findings/](docs/findings/)             | every search that has been run, what it returned, and what it settles                |
-| [docs/nt8-fidelity.md](docs/nt8-fidelity.md) | every NinjaTrader rule the simulation copies, and the evidence for each one          |
-| [docs/roadmap.md](docs/roadmap.md)           | why the work happened in this order, the standing traps, and the decisions taken     |
-| [CONTRIBUTING.md](CONTRIBUTING.md)           | how to change the code: style, tests, commits, pull requests and the regression gate |
-| [CLAUDE.md](CLAUDE.md)                       | the same ground rules, written for an AI assistant working in this repository        |
+| file                                         | what it holds                                                                           |
+| -------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [docs/findings/](docs/findings/)             | every search that has been run, what it returned, and what it settles                   |
+| [docs/nt8-fidelity.md](docs/nt8-fidelity.md) | every NinjaTrader rule the simulation copies, and the evidence for each one             |
+| [docs/roadmap.md](docs/roadmap.md)           | why the work happened in this order, the standing traps, and the decisions taken        |
+| [tools/README.md](tools/README.md)           | what each script in `tools/` does, how to run it, and why its options are what they are |
+| [nqbt/README.md](nqbt/README.md)             | the package's design notes that no campaign, NinjaTrader rule or decision covers        |
+| [CONTRIBUTING.md](CONTRIBUTING.md)           | how to change the code: style, tests, commits, pull requests and the regression gate    |
+| [CLAUDE.md](CLAUDE.md)                       | the same ground rules, written for an AI assistant working in this repository           |
 
-Explanations live in `docs/`, not in the code. Docstrings say what something is and stay short, and every reference to a document names a specific section.
+Explanations live in `docs/` (and in `tools/README.md` for the scripts and `nqbt/README.md` for the package's remaining design notes), not in the code. Docstrings say what something is or does and stay short, a function's docstring starts with a verb such as "Return" or "Build", and every reference to a document names a specific section.
 
 ## License
 

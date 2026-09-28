@@ -2,22 +2,8 @@
 
     ./.venv/Scripts/python.exe tools/reconcile_higher_timeframe.py <..._primary.csv> <contract> [from]
 
-The companion ``_coarse.csv`` is found beside it. ``from`` is an optional ISO date that trims
-the export, needed whenever NT8 was asked for more history than the contract itself has -- the
-same trap ``reconcile_nt8.py`` documents.
-
-Four questions, each reported separately because they fail for different reasons and a single
-verdict would hide which one moved:
-
-1. **Anchoring** -- does NinjaTrader cut the coarse series where ``resample.py`` cuts it?
-2. **Seeding** -- does ``EMA(Closes[1], n)`` match ``indicators.nt8_ema`` on a *secondary*
-   series? Computed over NT8's own coarse closes, so a failure here is seeding and not
-   anchoring leaking in.
-3. **Projection** -- which coarse bar does a 1-minute bar read? This is the one a trade list
-   cannot answer; see the probe's own header.
-4. **Warm-up** -- how long before the secondary series is readable, against nqbt's UNDEFINED.
-
-Reasoning: ``docs/roadmap.md`` § "Multi-timeframe moving averages". This is the mechanism.
+The companion ``_coarse.csv`` is found beside it; ``from`` is an optional ISO date trimming the export.
+``tools/README.md`` § "reconcile_higher_timeframe.py".
 """
 
 from __future__ import annotations
@@ -71,14 +57,14 @@ def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def report(name: str, *, agreed: bool, detail: str) -> bool:
-    """One question's verdict, in the form the other reconciliation tools print."""
+    """Log one question's verdict, in the form the other reconciliation tools print."""
     logger.info("  %-12s %-9s %s", name, "AGREES" if agreed else "DIFFERS", detail)
 
     return agreed
 
 
 def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) -> bool:
-    """Does NinjaTrader bucket the coarse series where :mod:`nqbt.resample` buckets it?"""
+    """Check that NinjaTrader buckets the coarse series where :mod:`nqbt.resample` buckets it."""
     ours: pd.DataFrame = resample.resample(bars, minutes)
     shared: pd.DatetimeIndex = nt8_coarse.index.intersection(ours.index)
     only_nt8: int = len(nt8_coarse.index.difference(ours.index))
@@ -116,13 +102,7 @@ def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) 
 
 
 def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.DatetimeIndex) -> str:
-    """Where the two series stop disagreeing, which is usually NT8's merge boundary.
-
-    Asked for more history than a contract has, NinjaTrader serves its *merged* series and a
-    per-contract archive cannot reproduce it -- so a long disagreeing prefix followed by exact
-    agreement is the expected shape, not a defect. Naming the changeover is what tells the two
-    apart, and a bare count does not.
-    """
+    """Find where the two series stop disagreeing, which is usually NT8's merge boundary."""
     differs = nt8_coarse.loc[shared, "close"].to_numpy() != ours.loc[shared, "close"].to_numpy()
     if not differs.any():
         return ""
@@ -134,7 +114,7 @@ def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.Dateti
 
 
 def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict[str, int]) -> bool:
-    """Does NT8's average over a secondary series match :func:`nqbt.indicators.nt8_ema`?
+    """Check that NT8's average over a secondary series matches :func:`nqbt.indicators.nt8_ema`.
 
     Taken over NT8's *own* coarse closes and read at the bars that close alongside one, so
     an anchoring difference cannot be mistaken for a seeding one.
@@ -168,16 +148,11 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
 
 
 def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.Series:
-    """Which coarse stamp nqbt's projection reads at each fine bar.
+    """Return which coarse stamp nqbt's projection reads at each fine bar.
 
-    Runs the coarse *stamps* through :func:`nqbt.higher_timeframe.project` itself rather than
-    re-deriving the rule here, so this compares NinjaTrader against the shipped code path and
-    not against a second implementation of it. Seconds rather than nanoseconds because
-    float64 carries 1.8e9 exactly and 1.8e18 does not.
-
-    ``dtype=`` is not optional on either conversion: ``read_csv`` hands back microsecond
-    stamps, and reading those as nanoseconds puts every bar in 1970 -- the same trap
-    ``resample.py`` records.
+    Runs the coarse stamps through :func:`nqbt.higher_timeframe.project` itself. ``dtype=`` is
+    not optional on either conversion: ``read_csv`` hands back microsecond stamps, and reading
+    those as nanoseconds puts every bar in 1970.
     """
     seconds: np.ndarray = epoch_seconds(coarse_stamps)
     read: np.ndarray = higher_timeframe.project(coarse_stamps, seconds.astype(np.float64), stamps)
@@ -186,14 +161,14 @@ def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.
 
 
 def epoch_seconds(stamps: pd.DatetimeIndex) -> np.ndarray:
-    """UTC seconds since the epoch, whatever resolution the index happens to carry."""
+    """Convert to UTC seconds since the epoch, whatever resolution the index happens to carry."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz else stamps
 
     return naive.to_numpy(dtype="datetime64[s]").astype("int64")
 
 
 def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
-    """Which coarse bar does each 1-minute bar read -- the question trades cannot answer."""
+    """Check which coarse bar each 1-minute bar reads -- the question trades cannot answer."""
     stamps = pd.DatetimeIndex(primary.index)
     ours: pd.Series = nqbt_reads(pd.DatetimeIndex(nt8_coarse.index), stamps)
     theirs: pd.Series = primary["coarse_utc"]
@@ -222,11 +197,9 @@ def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
 
 
 def check_warmup(primary: pd.DataFrame, key: higher_timeframe.HigherTimeframeKey) -> bool:
-    """How many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count.
+    """Check how many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count.
 
-    Measured over **the probe's own bars**, never the archive's. The two series rarely start
-    at the same minute, and a warm-up is counted from the series start: reading the archive
-    here compared 59 leading bars against 5 and called it a disagreement.
+    Measured over the probe's own bars, never the archive's.
     """
     theirs: int = int((primary["coarse_bar"] == NO_COARSE_BAR).sum())
     bars: pd.DataFrame = primary[list(OHLCV)].copy()
@@ -289,7 +262,7 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
 
 
 def infer_coarse_minutes(coarse_stamps: pd.DatetimeIndex) -> int:
-    """The coarse resolution, as the most common gap between consecutive coarse stamps."""
+    """Infer the coarse resolution, as the most common gap between consecutive coarse stamps."""
     if coarse_stamps.size < 2:
         msg: str = "the coarse export holds fewer than two bars; nothing to infer a resolution from"
         raise ValueError(msg)

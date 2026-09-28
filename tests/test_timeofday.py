@@ -1,10 +1,7 @@
 """Time-of-day labelling tests: session phase, bar of session, and the entry filter.
 
-The two things worth pinning hardest are the ones whose failures look like noise rather
-than like errors. **Eastern time**, because a UTC-bucketed cash open is split across two
-buckets for half the year and still returns a plausible-looking table. And the
-**end-of-bar convention**, because a boundary one minute out is invisible in aggregate and
-wrong at exactly the edges the labels exist to isolate.
+Pinned hardest, because their failures look like noise: **Eastern time** and the **end-of-bar
+convention** -- ``docs/roadmap.md`` §M10.4.
 """
 
 import numpy as np
@@ -27,7 +24,7 @@ def idx(*stamps: str) -> pd.DatetimeIndex:
 
 
 def session_index(open_utc: str, minutes: int = 1380) -> pd.DatetimeIndex:
-    """One full session's 1-minute bars, stamped end-of-bar from its first."""
+    """Build one full session's 1-minute bars, stamped end-of-bar from its first."""
     return pd.date_range(open_utc, periods=minutes, freq="min", tz="UTC")
 
 
@@ -87,12 +84,9 @@ def test_the_cash_open_is_one_bucket_on_both_sides_of_a_dst_transition(
     open_utc,
     utc_hour_of_cash_open,
 ) -> None:
-    """The pin the whole module exists for.
+    """The same Eastern hour lands in :attr:`SessionPhase.CASH_OPEN` in both sessions.
 
-    The same Eastern hour lands in :attr:`SessionPhase.CASH_OPEN` in both sessions, while
-    its **UTC hour differs by one** -- so a UTC-bucketed version of this label would split
-    the most distinctive hour of the day across two buckets for half the year and read as
-    noise rather than as a bug.
+    And its UTC hour differs by one, so the test also fails a UTC-bucketed label.
     """
     stamps = session_index(open_utc)
     phase = timeofday.classify(stamps).phase
@@ -145,9 +139,8 @@ def test_bar_of_session_runs_from_zero_to_the_session_length() -> None:
 def test_bar_of_session_is_clock_derived_so_a_missing_bar_does_not_shift_it() -> None:
     """The property #41's relative volume depends on.
 
-    An ordinal count of the bars actually present would renumber everything after a hole,
-    so index ``k`` would mean a different time of day in different sessions -- which is the
-    exact confound relative volume is meant to divide out.
+    A hole in the bars does not renumber the bars after it, so index ``k`` is the same time of
+    day in every session.
     """
     full = session_index(WINTER_OPEN)
     holed = full.delete([10, 11, 12])
@@ -201,9 +194,7 @@ def test_a_bar_outside_any_session_gets_no_phase_and_no_index(stamp, why) -> Non
 
 
 def test_an_out_of_session_bar_passes_no_mask_including_all_phases() -> None:
-    # Which is why an archetype skips the gate entirely at ALL_PHASES rather than ANDing
-    # it: the no-op has to be *no filter*, or switching the filter on to "every phase"
-    # would quietly drop the strays and move a result.
+    # Which is why an archetype skips the gate entirely at ALL_PHASES rather than ANDing it.
     tod = timeofday.classify(idx("2024-03-09 15:44:00"))
     assert not tod.gate(ALL_PHASES)[0]
     assert not tod.gate(CASH_OPEN.bit)[0]
@@ -240,9 +231,7 @@ def test_phase_boundaries_are_validated_against_the_template_they_are_read_with(
 
 
 def test_the_forced_exit_phase_is_named_so_a_caller_can_exclude_it() -> None:
-    # #16's flatten falls in the last phase by construction, so its exits are decided by
-    # the clock. Naming it is what lets a stratification say so rather than report it as a
-    # market finding.
+    # #16's flatten falls in the last phase by construction, so its exits are the clock's.
     assert timeofday.FORCED_EXIT_PHASE is SessionPhase.CLOSE
     stamps = session_index(WINTER_OPEN)
     tod = timeofday.classify(stamps)
@@ -421,7 +410,7 @@ def test_a_session_too_short_for_the_last_phase_raises() -> None:
         timeofday.phase_start_minutes(stub)
 
 
-def test_boundaries_that_stop_ascending_raise_rather_than_mislabel(monkeypatch) -> None:
+def test_boundaries_that_stop_ascending_raise_rather_than_mislabel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         timeofday,
         "PHASE_STARTS",
@@ -451,9 +440,7 @@ def test_the_labels_are_aligned_to_the_index_they_came_from() -> None:
 def test_the_seven_single_phase_filters_partition_the_unfiltered_signal() -> None:
     """Stratification, not selection: every signal lands in exactly one phase.
 
-    The property that makes "profit factor by phase" a decomposition of the whole rather
-    than seven overlapping subsets whose trade counts do not add up. Measured on real MNQ
-    too -- see ``docs/roadmap.md`` § M10.4.
+    So "profit factor by phase" decomposes the whole -- ``docs/roadmap.md`` §M10.4.
     """
     data = context.prepare(
         bars(),

@@ -1,23 +1,8 @@
 """One trade drawn on the bars it happened on: candles, the bracket it carried, and where it left.
 
-Archetype-agnostic, where :mod:`nqbt.sim.explain` is DeadCatBounce's alone, and reading a trade
-log rather than a strategy's parameters -- so a simulated leg and an imported one are drawn by
-the same code from the same schema.
-
-**Bar-close OHLC and nothing finer.** The candles are the bars the simulation ran on, and no
-line joins an entry to its exit, because the path between them is the one thing these bars do
-not record. Tick data would draw it and must not -- ``docs/roadmap.md`` § "Charting a trade".
-
-**A chart is a debugging instrument, not a selection instrument.** It can settle whether the
-simulator did what the rule says; it cannot settle whether the rule is any good, and a handful
-of charts read for that is the multiple-comparisons machine :mod:`nqbt.guard` exists to defend
-against. :data:`CAUTION` is drawn on every chart for the reason :data:`nqbt.review.STATUS` is
-printed in every report.
-
-**Indicators are drawn, and this module still knows nothing about archetypes.** An
-:class:`Overlay` is a named series the caller hands in, and :func:`overlays_for` returns every
-one a :class:`~nqbt.context.Dataset` holds -- which is what that archetype's own ``ContextSpec``
-declared. Price-panel series only, and clipped to the panel so none of them can rescale it --
+Reads a trade log rather than a strategy's parameters, so a simulated leg and an imported one
+are drawn by the same code. Bar-close OHLC only, with no line joining an entry to its exit;
+:class:`Overlay` series are clipped to the price panel; :data:`CAUTION` is drawn on every chart --
 ``docs/roadmap.md`` § "Charting a trade".
 
 ``README.md`` § "Looking at one trade" is the worked example, from bars to a written file::
@@ -113,9 +98,7 @@ so a log leaving one empty simply has no line for it.
 """
 
 SERIES_STYLES = 6
-"""Colours an overlay is drawn in, cycled by its position in the list. The legend is what
-names them, so a seventh overlay repeating the first's colour is legible rather than wrong.
-"""
+"""Colours an overlay is drawn in, cycled by its position in the list; the legend names them."""
 
 DEFAULT_BAND_MULTIPLE = 2.0
 """Standard deviations a band overlay is drawn at when the caller does not say."""
@@ -136,7 +119,7 @@ _NEEDED = (
     "ambiguous_bar",
 )
 """Columns a chart reads. The last seven are :func:`nqbt.stats.per_trade`'s, which the headline
-is read off rather than re-derived -- a chart defines no statistic, exactly as a review does not.
+is read off.
 """
 
 _SIDES = ("entry", "exit")
@@ -170,16 +153,13 @@ _OVERLAY_DIMENSIONS = 2
 
 _MARGIN_LEFT = 10.0
 _MARGIN_RIGHT = 64.0
-"""Room to the right of the panel for the price axis, which has that lane to itself: a level's
-label stays inside the panel rather than competing with a tick for it.
-"""
+"""Room to the right of the panel for the price axis, which has that lane to itself."""
 
 _HEADER = 48.0
 _TIME_AXIS = 22.0
 _FOOTER = 30.0
 """Pixels below the time axis before the caution starts, which the per-leg line occupies. The
-caution's own height is added to it, so a narrow chart that wraps it over five lines grows
-rather than clipping.
+caution's own wrapped height is added to it.
 """
 
 _LINE_HEIGHT = 11.0
@@ -247,8 +227,7 @@ class ChartError(ValueError):
 class Plot:
     """The mapping from a bar index and a price to a point on the canvas.
 
-    Carried on the result so a caller can place its own overlay on the same axes, and so a test
-    can assert a mark sits at a price rather than at a coordinate somebody wrote down.
+    Carried on the result so a caller can place its own marks on the same axes.
     """
 
     first_bar: int
@@ -266,11 +245,11 @@ class Plot:
         return self.bars * self.bar_width
 
     def x(self, bar: int) -> float:
-        """Canvas x of one bar's centre."""
+        """Return the canvas x of one bar's centre."""
         return self.left + (bar - self.first_bar + 0.5) * self.bar_width
 
     def y(self, price: float) -> float:
-        """Canvas y of one price. Inverted, since prices rise up the page and y grows down it."""
+        """Return the canvas y of one price. Inverted, since prices rise up the page and y grows down it."""
         return self.top + (self.price_max - price) / (self.price_max - self.price_min) * self.height
 
 
@@ -279,11 +258,8 @@ class Overlay:
     """One named indicator drawn over the candles, in the price panel's own units.
 
     ``values`` is one row per bar of the dataset, or ``[n_rows, n_bars]`` for a band -- one
-    colour and one legend entry whatever the row count. ``nan`` is a gap rather than a value,
-    so a series is broken across one instead of drawn through it.
-
-    Only what a price axis can carry: an ATR, an efficiency ratio or a relative volume would
-    need a second panel, which ``docs/roadmap.md`` § "Charting a trade" rules out.
+    colour and one legend entry whatever the row count. ``nan`` is a gap rather than a value.
+    Price-panel series only -- ``docs/roadmap.md`` § "Charting a trade".
     """
 
     label: str
@@ -357,9 +333,8 @@ def chart(
     are the indicators drawn over the candles -- :func:`overlays_for` builds every one ``data``
     holds, and the builders beside it take them one at a time.
 
-    Draw against the bars the trade happened on -- the per-contract series for an imported log,
-    never the back-adjusted continuous one, which shifts every historical price by the roll
-    offset while every lookup still succeeds. :func:`nqbt.annotate.contract_bars` reaches them.
+    Draw against the bars the trade happened on: for an imported log, the per-contract series
+    :func:`nqbt.annotate.contract_bars` returns, never the back-adjusted continuous one.
     """
     _check_columns(log)
     if bars_either_side < 0:
@@ -426,12 +401,12 @@ def charts(
 
 
 def moving_average(data: Dataset, kind: str, period: int) -> Overlay:
-    """One moving average of ``data``, which must have been prepared keeping its values."""
+    """Return one moving average of ``data``, which must have been prepared keeping its values."""
     return Overlay(label=f"{kind}({period})", values=data.ma_values(kind, period))
 
 
 def bollinger(data: Dataset, period: int, multiple: float = DEFAULT_BAND_MULTIPLE) -> Overlay:
-    """One Bollinger band as three rows: upper, midline, lower."""
+    """Return one Bollinger band as three rows: upper, midline, lower."""
     return Overlay(
         label=f"bb({period}, {multiple:g}sd)",
         values=_band_rows(data.band_basis(period), multiple * data.band_stddev(period)),
@@ -439,12 +414,12 @@ def bollinger(data: Dataset, period: int, multiple: float = DEFAULT_BAND_MULTIPL
 
 
 def session_vwap(data: Dataset) -> Overlay:
-    """The session-anchored VWAP as a single row."""
+    """Return the session-anchored VWAP as a single row."""
     return Overlay(label="vwap", values=data.vwap_values())
 
 
 def vwap_band(data: Dataset, multiple: float = DEFAULT_BAND_MULTIPLE) -> Overlay:
-    """The session-anchored band as three rows: upper, the VWAP itself, lower."""
+    """Return the session-anchored band as three rows: upper, the VWAP itself, lower."""
     return Overlay(
         label=f"vwap band({multiple:g}sd)",
         values=_band_rows(data.vwap_band_basis(), multiple * data.vwap_band_stddev()),
@@ -452,7 +427,7 @@ def vwap_band(data: Dataset, multiple: float = DEFAULT_BAND_MULTIPLE) -> Overlay
 
 
 def higher_timeframe_average(data: Dataset, key: higher_timeframe.HigherTimeframeKey) -> Overlay:
-    """One coarse moving average as the fine bars see it -- the last *completed* coarse bar."""
+    """Return one coarse moving average as the fine bars see it -- the last *completed* coarse bar."""
     return Overlay(
         label=f"{higher_timeframe.KIND}({key.period}) @ {key.minutes}m",
         values=data.higher_timeframe_values(key),
@@ -460,11 +435,10 @@ def higher_timeframe_average(data: Dataset, key: higher_timeframe.HigherTimefram
 
 
 def opening_range(data: Dataset, key: RangeKey) -> Overlay:
-    """One session range's high and low, on the bars that may read them and no others.
+    """Return one session range's high and low, on the bars that may read them and no others.
 
-    A range is one fact per session, so both rows are ``nan`` wherever it is not armed -- every
-    bar before its window completes included, which is the break keeping one session's level
-    off the session beside it.
+    Both rows are ``nan`` wherever the range is not armed, including every bar before its
+    window completes, so one session's level is not drawn into the next.
     """
     anchor, window = key
     armed: BoolArray = data.range_armed(key)
@@ -478,11 +452,9 @@ def opening_range(data: Dataset, key: RangeKey) -> Overlay:
 
 
 def overlays_for(data: Dataset, *, multiple: float = DEFAULT_BAND_MULTIPLE) -> list[Overlay]:
-    """Every price-panel series ``data`` holds, which is what its ``ContextSpec`` declared.
+    """Return every price-panel series ``data`` holds, which is what its ``ContextSpec`` declared.
 
-    Nothing here reads an archetype: :func:`nqbt.sweep.prepare_for` builds the dataset from the
-    archetype's own declaration, so what the dataset holds is what that signal reads. A
-    moving-average grid keeping only its boolean gate is skipped rather than refused -- set
+    A moving-average grid keeping only its boolean gate is skipped rather than refused -- set
     ``needs_ma_values`` to draw those.
     """
     drawn: list[Overlay] = []
@@ -496,8 +468,7 @@ def overlays_for(data: Dataset, *, multiple: float = DEFAULT_BAND_MULTIPLE) -> l
     if data.band is not None:
         drawn += [bollinger(data, int(period), multiple) for period in data.band.periods]
 
-    # The band's basis *is* the VWAP rather than a second estimate of it, so drawing both would
-    # draw one series twice -- :class:`nqbt.bands.VwapBand`.
+    # The band's basis *is* the VWAP, so the VWAP is not drawn a second time.
     if data.vwap is not None and data.vwap_band is None:
         drawn.append(session_vwap(data))
 
@@ -514,7 +485,7 @@ def overlays_for(data: Dataset, *, multiple: float = DEFAULT_BAND_MULTIPLE) -> l
 
 
 def _band_rows(basis: FloatArray, width: FloatArray) -> FloatArray:
-    """A band as the three rows every chart draws it in: upper, basis, lower."""
+    """Return a band as the three rows every chart draws it in: upper, basis, lower."""
     return np.vstack([basis + width, basis, basis - width])
 
 
@@ -544,7 +515,7 @@ def _check_columns(log: pd.DataFrame) -> None:
 
 
 def _legs_for(log: pd.DataFrame, trade_id: int) -> pd.DataFrame:
-    """Every leg of one trade, in leg order, or an error naming what the log does hold."""
+    """Return every leg of one trade, in leg order, or raise an error naming what the log does hold."""
     legs: pd.DataFrame = log[log["trade_id"] == trade_id]
     if legs.empty:
         known: list[int] = sorted(int(value) for value in log["trade_id"].dropna().unique())
@@ -578,7 +549,7 @@ def _bars_for(legs: pd.DataFrame, data: Dataset) -> tuple[IntArray, IntArray]:
 
 
 def _window(entry_bars: IntArray, exit_bars: IntArray, bars: int, either_side: int) -> tuple[int, int]:
-    """The bars to draw: the trade, plus ``either_side`` of context, clipped to the dataset."""
+    """Return the bars to draw: the trade, plus ``either_side`` of context, clipped to the dataset."""
     first: int = max(0, int(entry_bars.min()) - either_side)
     last: int = min(bars - 1, int(exit_bars.max()) + either_side)
 
@@ -621,10 +592,8 @@ def _axes(
 ) -> Plot:
     """Fit the price domain to the window and to every price the chart is about to draw.
 
-    A fill outside its own bar is drawn rather than refused: that is what a back-adjusted series
-    produces, and a chart is the instrument that makes it visible. **An overlay is not fitted**:
-    a long average sitting far from the window would squash the trade to nothing, so it is
-    clipped to the panel instead -- ``docs/roadmap.md`` § "Charting a trade".
+    A fill outside its own bar is drawn rather than refused, and an overlay is clipped to the
+    panel rather than fitted -- ``docs/roadmap.md`` § "Charting a trade".
     """
     drawn: list[float] = [value for value in _drawn_prices(legs, figures) if np.isfinite(value)]
     low: float = min([float(data.low[first : last + 1].min()), *drawn])
@@ -645,7 +614,7 @@ def _axes(
 
 
 def _drawn_prices(legs: pd.DataFrame, figures: Figures) -> list[float]:
-    """Every price the chart places a mark at, so none of them can land off the panel."""
+    """List every price the chart places a mark at, so none of them can land off the panel."""
     prices: list[float] = [
         *legs["entry_price"].astype(float),
         *legs["exit_price"].astype(float),
@@ -657,12 +626,11 @@ def _drawn_prices(legs: pd.DataFrame, figures: Figures) -> list[float]:
 
 
 def _excursions(legs: pd.DataFrame, figures: Figures) -> list[tuple[str, float]]:
-    """The trade's worst and best price while it was open, as a level each.
+    """Return the trade's worst and best price while it was open, as a level each.
 
-    The pair that says whether a target was ever within reach of where price actually went. Read
-    off :func:`nqbt.stats.per_trade`, so it is the trade's excursion rather than a leg's, and
-    absent on a log that leaves the columns null. **MAE and MFE here are this project's
-    definition, which is not NT8's** (#70).
+    Read off :func:`nqbt.stats.per_trade`, so it is the trade's excursion rather than a leg's,
+    and absent on a log that leaves the columns null. MAE and MFE here are this project's
+    definition, which is not NT8's (#70).
     """
     entry: float = float(legs["entry_price"].to_numpy(np.float64)[0])
     direction: float = float(legs["direction"].to_numpy(np.float64)[0])
@@ -723,7 +691,7 @@ def _render(
 
 
 def _candles(data: Dataset, plot: Plot, first: int, last: int) -> list[str]:
-    """One wick and one body per bar of the window. Bar-close OHLC, and nothing between."""
+    """Draw one wick and one body per bar of the window. Bar-close OHLC, and nothing between."""
     body_width: float = plot.bar_width * _BODY_SHARE
     drawn: list[str] = []
     for bar in range(first, last + 1):
@@ -746,7 +714,7 @@ def _candles(data: Dataset, plot: Plot, first: int, last: int) -> list[str]:
 
 
 def _overlay_lines(overlays: Sequence[Overlay], plot: Plot, first: int, last: int) -> list[str]:
-    """Every overlay's runs, clipped to the panel so none of them can rescale the price axis."""
+    """Draw every overlay's runs, clipped to the panel so none of them can rescale the price axis."""
     if not overlays:
         return []
 
@@ -767,28 +735,20 @@ def _overlay_lines(overlays: Sequence[Overlay], plot: Plot, first: int, last: in
 
 
 def _panel_box(plot: Plot) -> str:
-    """The panel as SVG rectangle attributes: the frame, and what an overlay is clipped to."""
+    """Return the panel as SVG rectangle attributes: the frame, and what an overlay is clipped to."""
     return f'x="{plot.left:.2f}" y="{plot.top:.2f}" width="{plot.width:.2f}" height="{plot.height:.2f}"'
 
 
 def _clip_id(plot: Plot) -> str:
-    """A clip path named after the rectangle it holds, rather than by a fixed name.
-
-    **An SVG id is document-scoped, and a page of charts is one document**: several charts
-    inlined together would every one resolve ``url(#...)`` to the first definition, and every
-    chart after the first would be clipped to the first one's panel -- silently, and looking
-    like a series that stops part-way. Naming the path after its own geometry means two ids
-    collide only where the two rectangles are identical, which is the case where sharing one
-    is correct.
-    """
+    """Name a clip path after the rectangle it holds -- ``docs/roadmap.md`` § "Charting a trade"."""
     return f"nqbt-clip-{sha256(_panel_box(plot).encode()).hexdigest()[:_CLIP_DIGEST]}"
 
 
 def _runs(values: FloatArray, plot: Plot, first: int, last: int) -> list[str]:
-    """One point list per unbroken run of finite values, stepping one bar at a time.
+    """Return one point list per unbroken run of finite values, stepping one bar at a time.
 
     ``nan`` is a gap and not a value, so a series is broken across one rather than drawn
-    through it -- which is what keeps a per-session level off the session beside it.
+    through it.
     """
     runs: list[str] = []
     run: list[str] = []
@@ -804,7 +764,7 @@ def _runs(values: FloatArray, plot: Plot, first: int, last: int) -> list[str]:
 
 
 def _points(run: Sequence[str]) -> list[str]:
-    """One run as a point list, a lone bar repeated so a round cap still draws it."""
+    """Return one run as a point list, a lone bar repeated so a round cap still draws it."""
     if not run:
         return []
 
@@ -812,7 +772,7 @@ def _points(run: Sequence[str]) -> list[str]:
 
 
 def _series_class(index: int) -> str:
-    """The CSS an overlay is drawn with, cycled by its place in the list -- :data:`SERIES_STYLES`."""
+    """Return the CSS an overlay is drawn with, cycled by its place in the list -- :data:`SERIES_STYLES`."""
     return f"series s{index % SERIES_STYLES}"
 
 
@@ -833,12 +793,12 @@ def _legend_rows(overlays: Sequence[Overlay], width: float) -> tuple[_LegendRow,
 
 
 def _entry_width(label: str) -> float:
-    """Canvas width one legend entry occupies, swatch and trailing gap included."""
+    """Return the canvas width one legend entry occupies, swatch and trailing gap included."""
     return _SWATCH + _LABEL_GAP + len(label) * _CHARACTER_WIDTH + _LEGEND_GAP
 
 
 def _legend(rows: Sequence[_LegendRow], plot: Plot) -> list[str]:
-    """A swatch and a name per overlay, between the subtitle and the panel it belongs to."""
+    """Draw a swatch and a name per overlay, between the subtitle and the panel it belongs to."""
     drawn: list[str] = []
     for number, row in enumerate(rows):
         baseline: float = _HEADER + number * _LEGEND_HEIGHT + _LEGEND_BASELINE
@@ -877,7 +837,7 @@ def _held(plot: Plot, entry_bars: IntArray, exit_bars: IntArray) -> list[str]:
 
 
 def _level_lines(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars: IntArray) -> list[str]:
-    """The stop and the target each leg carried, spanning the bars over which it carried them.
+    """Draw the stop and the target each leg carried, spanning the bars over which it carried them.
 
     ``initial_stop`` is the stop **as placed**: a trailed stop's path is not in the log, so a
     line drawn across the whole hold would claim a level that moved.
@@ -900,7 +860,7 @@ def _level_lines(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars
 
 
 def _excursion_lines(legs: pd.DataFrame, figures: Figures, plot: Plot, right: float) -> list[str]:
-    """How far price ran each way while the position was open, as a level each.
+    """Draw how far price ran each way while the position was open, as a level each.
 
     Labelled at the panel's left edge rather than its right, because the line spans the whole
     window and the right-hand lane belongs to the price axis.
@@ -921,7 +881,7 @@ def _labelled_line(
     label: str,
     anchor: float,
 ) -> list[str]:
-    """One horizontal level, named and priced beside ``anchor``, inside the panel either way."""
+    """Draw one horizontal level, named and priced beside ``anchor``, inside the panel either way."""
     left, right = span
     y: float = plot.y(price)
     text: str = f"{label} {price:.{_DECIMALS}f}"
@@ -948,7 +908,7 @@ def _label(text: str, anchor: float, y: float, *, right: float) -> str:
 
 
 def _markers(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars: IntArray) -> list[str]:
-    """A triangle where each leg entered, pointing the way it was taken, and a disc where it left."""
+    """Draw a triangle where each leg entered, pointing the way it was taken, and a disc where it left."""
     entry_prices: FloatArray = legs["entry_price"].to_numpy(np.float64)
     exit_prices: FloatArray = legs["exit_price"].to_numpy(np.float64)
     directions: FloatArray = legs["direction"].to_numpy(np.float64)
@@ -962,7 +922,7 @@ def _markers(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars: In
 
 
 def _entry_marker(x: float, y: float, direction: float) -> str:
-    """A triangle at the fill, apex up for a long and down for a short."""
+    """Draw a triangle at the fill, apex up for a long and down for a short."""
     long: bool = direction == trades.LONG
     apex: float = y - _MARKER if long else y + _MARKER
     base: float = y + _MARKER / 2 if long else y - _MARKER / 2
@@ -972,7 +932,7 @@ def _entry_marker(x: float, y: float, direction: float) -> str:
 
 
 def _exit_marker(x: float, y: float, reason: str) -> list[str]:
-    """A disc at the fill, coloured by why the leg left and named underneath it.
+    """Draw a disc at the fill, coloured by why the leg left and named underneath it.
 
     Underneath rather than beside, because a leg leaving at its stop or its target lands on
     that level's own line and the two labels would be drawn on top of each other.
@@ -992,7 +952,7 @@ def _exit_marker(x: float, y: float, reason: str) -> list[str]:
 
 
 def _price_axis(plot: Plot, width: float) -> list[str]:
-    """Evenly spaced gridlines across the price domain, each labelled in the right-hand margin."""
+    """Draw evenly spaced gridlines across the price domain, each labelled in the right-hand margin."""
     right: float = plot.left + plot.width
     drawn: list[str] = []
     for step in range(_GRIDLINES):
@@ -1010,7 +970,7 @@ def _price_axis(plot: Plot, width: float) -> list[str]:
 
 
 def _time_axis(data: Dataset, plot: Plot, first: int, last: int) -> list[str]:
-    """Clock labels under the panel, at a spacing that keeps about :data:`_TIME_LABELS` of them."""
+    """Draw clock labels under the panel, at a spacing that keeps about :data:`_TIME_LABELS` of them."""
     step: int = max(1, (last - first + 1) // _TIME_LABELS)
     y: float = plot.top + plot.height + 14.0
 
@@ -1029,7 +989,7 @@ def _headline(
     title: str | None,
     width: float,
 ) -> list[str]:
-    """What this trade was, and when. Every figure is :class:`Figures`', not one computed here."""
+    """State what this trade was, and when. Every figure is :class:`Figures`', not one computed here."""
     entry_bars, exit_bars = bars
     entered = data.index[int(entry_bars.min())]
     left = data.index[int(exit_bars.max())]
@@ -1053,7 +1013,7 @@ def _headline(
 
 
 def _title(legs: pd.DataFrame, figures: Figures) -> str:
-    """The default headline: which trade, which way, how big, and what it made."""
+    """Return the default headline: which trade, which way, how big, and what it made."""
     trade_id: int = int(legs["trade_id"].to_numpy(np.int64)[0])
     side: str = "long" if float(legs["direction"].to_numpy(np.float64)[0]) == trades.LONG else "short"
     quantity: int = int(legs["quantity"].sum()) if "quantity" in legs.columns else len(legs)
@@ -1064,7 +1024,7 @@ def _title(legs: pd.DataFrame, figures: Figures) -> str:
 
 
 def _footer(legs: pd.DataFrame, plot: Plot, caution: Sequence[str]) -> list[str]:
-    """The per-leg figures, and the sentence every chart states about itself."""
+    """Return the per-leg figures, and the sentence every chart states about itself."""
     y: float = plot.top + plot.height + _TIME_AXIS + 14.0
     per_leg: str = "  ".join(
         f"leg {number}: {reason} {value:+.2f}"

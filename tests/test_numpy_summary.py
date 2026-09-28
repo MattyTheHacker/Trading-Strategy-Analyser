@@ -24,7 +24,7 @@ from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def session_bars(days: int = 40, seed: int = 5) -> pd.DataFrame:
-    """Minute bars on real CME sessions, so the daily grouping has days to group by."""
+    """Build minute bars on real CME sessions, so the daily grouping has days to group by."""
     rng = np.random.default_rng(seed)
     index = pd.date_range("2024-01-02 00:00", periods=days * 1440, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0, 1.0, len(index)))
@@ -60,7 +60,7 @@ CASES = [
 
 
 def both_summaries(bars, archetype, params, instrument=NQ):
-    """The same combination down both paths."""
+    """Run the same combination down both paths."""
     data = sweep.prepare_for(bars, sweep.Grid.of(params, archetype=archetype))
     legs = archetype.legs(data, params, instrument)
     frame = archetype.run(data, params, instrument)
@@ -92,9 +92,7 @@ def test_they_agree_on_a_combination_that_never_trades(bars) -> None:
 def test_neither_path_will_compute_sharpe_without_times(bars) -> None:
     """``day_codes=None`` is the numpy spelling of a log with no ``exit_time`` column.
 
-    Both used to annualise a **per-trade** ratio as though it were daily, and both now
-    refuse. Agreeing about the refusal is the same invariant as agreeing about a number:
-    two Sharpes with different denominators would sit in one results column (#81).
+    Both paths refuse it rather than annualise a per-trade ratio (#81).
     """
     archetype, params = CASES[0]
     data = sweep.prepare_for(bars, sweep.Grid.of(params, archetype=archetype))
@@ -111,12 +109,12 @@ def test_neither_path_will_compute_sharpe_without_times(bars) -> None:
 
 
 def minute_index(bars: int) -> pd.DatetimeIndex:
-    """An index long enough to carry the leg matrices below, all on one calendar day."""
+    """Build an index long enough to carry the leg matrices below, all on one calendar day."""
     return pd.date_range("2024-01-02 00:00", periods=bars, freq="min", tz="UTC")
 
 
 def leg_matrix(trade_ids, net_pnl, exit_bars=None) -> trades.LegMatrix:
-    """A minimal but schema-valid leg matrix, for pinning the aggregation directly."""
+    """Build a minimal but schema-valid leg matrix, for pinning the aggregation directly."""
     n = len(trade_ids)
     matrix = np.zeros((n, trades.N_COLUMNS))
     matrix[:, trades.C_TRADE_ID] = trade_ids

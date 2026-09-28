@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -53,12 +53,15 @@ from tools.campaign_sizing import (
     unsized,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 BARS = 40_000
 """Enough one-minute sessions for the relative-volume baseline to be defined on most of them."""
 
 
 def base() -> InsideBarTrailingParams:
-    """Periods short enough that a synthetic walk holds many setups."""
+    """Build a base with periods short enough that a synthetic walk holds many setups."""
     return InsideBarTrailingParams(ema_period=5, fast_sma_period=8, slow_sma_period=13, error_margin=0.01)
 
 
@@ -183,7 +186,7 @@ def test_a_window_with_no_signal_cannot_be_fitted(bars) -> None:
         fit_cut(bars, "MNQ", 1, campaign_sweep.Variant("trailing", silent, base()))
 
 
-def test_fit_writes_cuts_the_sizing_arms_can_read(monkeypatch, tmp_path) -> None:
+def test_fit_writes_cuts_the_sizing_arms_can_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
     monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBarTrailing", lambda root: [ibt_variant()])
@@ -280,7 +283,7 @@ def test_the_traded_early_share_is_counted_over_trades_taken(bars, fitted) -> No
 
 
 def stored_confluence_row(combo_id: int) -> pd.Series:
-    """One held-out confluence-arm row, carrying the fields ``rebuild`` restores it from."""
+    """Build one held-out confluence-arm row, carrying the fields ``rebuild`` restores it from."""
     return pd.Series(
         {
             "sweep_id": 7,
@@ -293,7 +296,7 @@ def stored_confluence_row(combo_id: int) -> pd.Series:
     )
 
 
-def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch) -> None:
+def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch: pytest.MonkeyPatch) -> None:
     bars = walk_bars(6000, seed=9)
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
     monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
@@ -309,7 +312,7 @@ def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch
     assert table["p"].between(1 / 4, 1.0).all()
 
 
-def test_fit_is_the_default_path_of_its_subcommand(monkeypatch) -> None:
+def test_fit_is_the_default_path_of_its_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
     called = []
     monkeypatch.setattr(
         campaign_sizing,
@@ -322,7 +325,9 @@ def test_fit_is_the_default_path_of_its_subcommand(monkeypatch) -> None:
     assert called == [("InsideBarTrailing", ["NQ"], [5, 10], campaign_sweep.SIZING_CUTS)]
 
 
-def test_the_null_reads_the_confluence_arm_and_fails_where_it_has_no_rows(monkeypatch) -> None:
+def test_the_null_reads_the_confluence_arm_and_fails_where_it_has_no_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     asked = []
 
     def held_out(*args):
@@ -340,7 +345,7 @@ def test_the_null_reads_the_confluence_arm_and_fails_where_it_has_no_rows(monkey
     assert args[-3:-1] == ("phase=MIDDAY", 5)
 
 
-def test_the_null_reports_its_shortlist(monkeypatch) -> None:
+def test_the_null_reports_its_shortlist(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = pd.DataFrame([stored_confluence_row(1)])
     monkeypatch.setattr(campaign_sizing, "held_out", lambda *_: rows)
     monkeypatch.setattr(
@@ -382,7 +387,9 @@ def two_insidebar_variants(root: str) -> list[campaign_sweep.Variant]:
     ]
 
 
-def test_an_archetype_with_several_variants_records_each_and_no_earliness(monkeypatch, tmp_path) -> None:
+def test_an_archetype_with_several_variants_records_each_and_no_earliness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
     monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
@@ -397,7 +404,9 @@ def test_an_archetype_with_several_variants_records_each_and_no_earliness(monkey
     assert first.regime_directional_above == second.regime_directional_above, "a cut is a fact about the bars"
 
 
-def test_a_cut_already_in_the_file_is_kept_and_only_the_rest_are_fitted(monkeypatch, tmp_path) -> None:
+def test_a_cut_already_in_the_file_is_kept_and_only_the_rest_are_fitted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
     monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
@@ -426,14 +435,14 @@ SYMMETRIC_FIELDS = ("symmetric_labels", "opposing_share", "neutral_share")
 
 
 def without_symmetric_fields(path: Path) -> list[dict[str, object]]:
-    """The stored cuts at ``path`` as the fit wrote them before it read symmetric labels."""
+    """Return the stored cuts at ``path`` as the fit wrote them before it read symmetric labels."""
     rows = json.loads(path.read_text(encoding="utf-8"))
 
     return [{key: value for key, value in row.items() if key not in SYMMETRIC_FIELDS} for row in rows]
 
 
 def test_a_cut_stored_without_symmetric_labels_gains_them_and_nothing_else_moves(
-    monkeypatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The labels come back as a fresh fit reads them, at the stored cut's own thresholds."""
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
@@ -448,7 +457,9 @@ def test_a_cut_stored_without_symmetric_labels_gains_them_and_nothing_else_moves
     assert json.loads(path.read_text(encoding="utf-8")) == fresh
 
 
-def test_a_stored_cut_whose_signals_have_moved_is_refused_rather_than_filled(monkeypatch, tmp_path) -> None:
+def test_a_stored_cut_whose_signals_have_moved_is_refused_rather_than_filled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
     monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
@@ -606,7 +617,7 @@ def test_a_trade_at_a_size_its_table_does_not_hold_is_refused(short_walk) -> Non
         trade_rows(trades.LegMatrix(matrix, legs.count), np.asarray(params.size_table, dtype=np.int64))
 
 
-def test_a_strategy_other_than_insidebartrailing_needs_its_arm_named(monkeypatch) -> None:
+def test_a_strategy_other_than_insidebartrailing_needs_its_arm_named(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit, match="--variant names"):
         campaign_sizing.main(["campaign_sizing.py", "null", "--strategy", "ElasticBand"])
 
@@ -627,7 +638,7 @@ def test_a_strategy_other_than_insidebartrailing_needs_its_arm_named(monkeypatch
     assert (args[0], args[-1]) == ("ElasticBand", arm)
 
 
-def test_a_shortlist_is_nulled_through_its_own_archetype(monkeypatch, short_walk) -> None:
+def test_a_shortlist_is_nulled_through_its_own_archetype(monkeypatch: pytest.MonkeyPatch, short_walk) -> None:
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
     monkeypatch.setattr(splice, "load_continuous", lambda _root: short_walk)
     monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda stored, archive: (archive,))
@@ -651,7 +662,7 @@ def test_a_shortlist_is_nulled_through_its_own_archetype(monkeypatch, short_walk
 
 
 def test_the_null_is_refused_where_recomputing_the_sizes_taken_misses_the_simulation(
-    monkeypatch, short_walk
+    monkeypatch: pytest.MonkeyPatch, short_walk
 ) -> None:
     params = sized_insidebar()
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)

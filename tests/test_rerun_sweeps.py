@@ -8,11 +8,16 @@ all covered, or a grid that is not the same 96 combinations as its neighbours.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import duckdb
 import pytest
 
 from nqbt import archetypes, regime, timeofday
 from tools.rerun_sweeps import TABLES, drop_tables, grids, strata
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_every_regime_and_phase_gets_exactly_one_stratum() -> None:
@@ -78,7 +83,7 @@ def test_the_regime_strata_ask_for_the_efficiency_ratio_and_the_phase_strata_do_
     assert specs["phase=MIDDAY"].regime_lookbacks == ()
 
 
-def test_drop_tables_removes_the_stale_schema(tmp_path) -> None:
+def test_drop_tables_removes_the_stale_schema(tmp_path: Path) -> None:
     """Rows computed against different roll dates and a different commission have to go."""
     db = tmp_path / "sweeps.duckdb"
     con = duckdb.connect(str(db))
@@ -94,6 +99,6 @@ def test_drop_tables_removes_the_stale_schema(tmp_path) -> None:
     assert remaining.isdisjoint(TABLES)
 
 
-def test_drop_tables_is_quiet_when_there_is_no_database(tmp_path) -> None:
+def test_drop_tables_is_quiet_when_there_is_no_database(tmp_path: Path) -> None:
     drop_tables(tmp_path / "absent.duckdb")
     assert not (tmp_path / "absent.duckdb").exists()

@@ -26,9 +26,8 @@ if TYPE_CHECKING:
 class DeadCatRules(NamedTuple):
     """The scalar rule set :func:`simulate_deadcat` reads, one field per NT8 property.
 
-    Shared with PullBackAndGo, which sets the handful of fields the two strategies genuinely
-    differ on -- ``ratchet_offset_ticks`` above all, which is separate from
-    ``stop_offset_ticks`` for that reason. ``direction`` is ``+1.0`` long / ``-1.0`` short.
+    Shared with PullBackAndGo, which sets the fields the two strategies differ on.
+    ``direction`` is ``+1.0`` long / ``-1.0`` short.
     """
 
     stop_offset_ticks: float

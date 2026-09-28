@@ -1,14 +1,13 @@
 """Reading a campaign shortlist through a prop firm's account rules.
 
-Three things carry this module. The **attempt cap must not bind by default**, because §M28.13's
-capped population run was truncated badly enough to be wrong in sign and a truncated net looks
-exactly like a small one. A row the rules **refuse** has to be named rather than dropped, since
-a table of three presets where four were asked for reads as a firm that was never offered. And
-the **position size** has to reach the report, because four contracts is a different bet on each
-root and it is what decides whether an account has room to move at all.
+Three things carry it: the **attempt cap does not bind by default** -- ``docs/roadmap.md``
+§M28.13 -- a row the rules **refuse** is named rather than dropped, and the **position size**
+reaches the report.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -16,7 +15,6 @@ import pytest
 
 from nqbt import archetypes, propaccount, results, stats
 from tools import campaign_propaccount
-from tools.campaign_report import stored_logs
 from tools.campaign_propaccount import (
     CONTRACTS,
     QUANTITY,
@@ -33,6 +31,10 @@ from tools.campaign_propaccount import (
     verdict,
     with_own_profit_factor,
 )
+from tools.campaign_report import stored_logs
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 SWEEP_ID = 58
 COMBO_ID = 1473
@@ -41,7 +43,7 @@ LEGS = 4
 
 
 def stored_row(**columns: object) -> pd.Series:
-    """One held-out row, carrying the tags a result is filed under."""
+    """Build one held-out row, carrying the tags a result is filed under."""
     base = {
         "sweep_id": SWEEP_ID,
         "combo_id": COMBO_ID,
@@ -57,7 +59,7 @@ def stored_row(**columns: object) -> pd.Series:
 
 
 def leg_log(daily: list[float], *, legs: int = LEGS, excursions: bool = True) -> pd.DataFrame:
-    """A leg-level log, one trade per trading day, from each day's total net P&L.
+    """Build a leg-level log, one trade per trading day, from each day's total net P&L.
 
     Each trade is ``legs`` lots wide and closes mid-afternoon, so a day's P&L is what the
     account sees and no trade straddles a session boundary.
@@ -94,7 +96,7 @@ def leg_log(daily: list[float], *, legs: int = LEGS, excursions: bool = True) ->
 
 
 def trade_log(n: int = 40, *, legs: int = LEGS, excursions: bool = True) -> pd.DataFrame:
-    """A log of ``n`` mildly profitable days, which one Apex 50K survives."""
+    """Build a log of ``n`` mildly profitable days, which one Apex 50K survives."""
     rng = np.random.default_rng(11)
 
     return leg_log(list(rng.normal(240.0, 900.0, n)), legs=legs, excursions=excursions)
@@ -109,13 +111,13 @@ Eight at 700 clears Apex 50K's 3,000 target and its seven-day minimum, and the b
 
 
 def cycling_log(cycles: int = 4) -> pd.DataFrame:
-    """A log that funds, withdraws from and then blows one account after another."""
+    """Build a log that funds, withdraws from and then blows one account after another."""
     return leg_log(CYCLE * cycles)
 
 
 @pytest.fixture
-def stocked(tmp_path):
-    """A database holding one stored log, at the ids the held-out row names."""
+def stocked(tmp_path: Path):
+    """Provide a database holding one stored log, at the ids the held-out row names."""
     db = tmp_path / "OpeningRange.duckdb"
     results.save_trades(trade_log(), SWEEP_ID, COMBO_ID, db)
 
@@ -145,8 +147,8 @@ def test_a_log_with_one_trade_still_gets_an_attempt() -> None:
 
 
 def test_a_cap_that_binds_is_reported_rather_than_left_to_be_noticed() -> None:
-    """§M28.13's five-attempt cap bound on 98% of its population and truncated their net
-    figures; a truncated net reads exactly like a small one unless the row says so."""
+    """A row that hit the attempt cap says so, since a truncated net reads like a small one --
+    ``docs/roadmap.md`` §M28.13."""
     log = cycling_log()
     capped = replay_row(stored_row(), log, apex(), 2)
     assert capped is not None
@@ -221,7 +223,7 @@ def test_a_rule_set_that_refuses_the_log_is_named_rather_than_reported() -> None
 
 
 def closed_book() -> propaccount.PropAccount:
-    """A rule set measured on closed balances alone, which no shipped preset is.
+    """Build a rule set measured on closed balances alone, which no shipped preset is.
 
     All four presets §M28.13 read the registry through breach on open equity, so this is what
     a refusal is compared against rather than a second preset.
@@ -239,7 +241,7 @@ def closed_book() -> propaccount.PropAccount:
     )
 
 
-def test_a_refusal_costs_only_its_own_rule_set(tmp_path) -> None:
+def test_a_refusal_costs_only_its_own_rule_set(tmp_path: Path) -> None:
     """A rule set reading closed balances can answer a log Apex cannot, and a table that
     dropped both would read as a firm nobody offered."""
     db = tmp_path / "OpeningRange.duckdb"
@@ -322,7 +324,7 @@ def test_an_empty_table_has_no_verdict_rather_than_a_row_of_nothing() -> None:
 # -- the report ------------------------------------------------------------------------------
 
 
-def run_main(monkeypatch, rows: pd.DataFrame, db, *extra: str) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, *extra: str) -> int:
     monkeypatch.setattr(campaign_propaccount, "held_out", lambda *_, **__: rows)
     monkeypatch.setattr(campaign_propaccount, "db_path", lambda _: db)
     argv = ["campaign_propaccount.py", "--strategy", "OpeningRange", "--preset", "Apex 50K"]
@@ -330,19 +332,21 @@ def run_main(monkeypatch, rows: pd.DataFrame, db, *extra: str) -> int:
     return main([*argv, *extra])
 
 
-def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch, stocked) -> None:
+def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), stocked) == 0
 
 
 def test_a_shortlist_with_no_stored_logs_fails_rather_than_printing_an_empty_table(
-    monkeypatch,
-    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """An empty report is indistinguishable from a cell with nothing to say."""
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), tmp_path / "OpeningRange.duckdb") == 1
 
 
-def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(monkeypatch, tmp_path) -> None:
+def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """The flag a campaign the archive has moved under needs: no log can be stored for it at all,
     so the shortlist is re-run and the disagreement reported -- ``tools/campaign_swept.py``."""
     monkeypatch.setattr(
@@ -360,24 +364,26 @@ def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(monkeypatch, tmp
 
 
 def test_the_shortlist_is_the_held_out_pair_and_never_the_window_that_chose_it(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     stocked,
 ) -> None:
     """There is no ``--window`` here on purpose: a sequence of accounts read from the window
     that picked the configurations is the trap §M28.12 records."""
     called: list[tuple[object, ...]] = []
-    monkeypatch.setattr(
-        campaign_propaccount,
-        "held_out",
-        lambda *args: called.append(args) or pd.DataFrame([stored_row()]),
-    )
+
+    def fake_held_out(*args: object) -> pd.DataFrame:
+        called.append(args)
+
+        return pd.DataFrame([stored_row()])
+
+    monkeypatch.setattr(campaign_propaccount, "held_out", fake_held_out)
     monkeypatch.setattr(campaign_propaccount, "db_path", lambda _: stocked)
     argv = ["campaign_propaccount.py", "--strategy", "OpeningRange", "--preset", "Apex 50K"]
     assert main([*argv, "--stratum", "phase=MIDDAY", "--resolution", "5"]) == 0
     assert called == [("OpeningRange", "MNQ", "profit_factor", 20, "phase=MIDDAY", 5, None)]
 
 
-def test_the_excursion_order_flag_reaches_the_rules(monkeypatch, stocked) -> None:
+def test_the_excursion_order_flag_reaches_the_rules(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     """A flag that parses without changing the rule set reads exactly like one that works,
     and on NQ this one decides the answer -- ``docs/roadmap.md`` §M28.13."""
     orders: list[propaccount.ExcursionOrder] = []
@@ -398,7 +404,7 @@ def test_the_excursion_order_flag_reaches_the_rules(monkeypatch, stocked) -> Non
     assert orders == [propaccount.ExcursionOrder.PEAK_FIRST], "the default every preset carries"
 
 
-def test_an_unknown_preset_is_refused_by_name(monkeypatch, stocked) -> None:
+def test_an_unknown_preset_is_refused_by_name(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     monkeypatch.setattr(campaign_propaccount, "held_out", lambda *_, **__: pd.DataFrame([stored_row()]))
     monkeypatch.setattr(campaign_propaccount, "db_path", lambda _: stocked)
     with pytest.raises(propaccount.PropAccountError, match="unknown preset"):
@@ -433,7 +439,7 @@ def test_a_rung_reads_its_profit_factor_off_its_own_log() -> None:
 
 
 def fake_rerun(calls):
-    """A ``logs_for`` that records the size it was asked for and scales one log by it."""
+    """Build a ``logs_for`` that records the size it was asked for and scales one log by it."""
 
     def logs_for(name, rows, root):
         quantity = int(rows["order_quantity"].iloc[0])
@@ -446,8 +452,8 @@ def fake_rerun(calls):
     return logs_for
 
 
-def test_every_rung_is_re_run_and_tagged_with_its_size(monkeypatch) -> None:
-    calls = []
+def test_every_rung_is_re_run_and_tagged_with_its_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
     monkeypatch.setattr(campaign_propaccount, "logs_for", fake_rerun(calls))
     rows = pd.DataFrame([stored_row(order_quantity=6)])
     table = replay_rungs("InsideBarTrailing", rows, "MNQ", [2, 3, 8], [apex()], 5)
@@ -458,14 +464,16 @@ def test_every_rung_is_re_run_and_tagged_with_its_size(monkeypatch) -> None:
     assert set(by_size["account_name"]) == {"Apex 50K"}
 
 
-def test_no_rung_that_any_row_can_take_is_an_empty_table(monkeypatch) -> None:
+def test_no_rung_that_any_row_can_take_is_an_empty_table(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_propaccount, "logs_for", lambda *_: pytest.fail("re-ran a refused size"))
     rows = pd.DataFrame([stored_row()])
     assert replay_rungs("InsideBarTrailing", rows, "MNQ", [1], [apex()], 5).empty
 
 
-def test_quantities_re_run_rather_than_reading_the_stored_log(monkeypatch, tmp_path) -> None:
-    calls = []
+def test_quantities_re_run_rather_than_reading_the_stored_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[int] = []
     monkeypatch.setattr(campaign_propaccount, "logs_for", fake_rerun(calls))
     monkeypatch.setattr(campaign_propaccount, "stored_logs", lambda *_: pytest.fail("read a stored log"))
     rows = pd.DataFrame([stored_row(order_quantity=4)])

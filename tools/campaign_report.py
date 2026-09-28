@@ -3,29 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_report.py
     ./.venv/Scripts/python.exe tools/campaign_report.py --window selection holdout
 
-Reports **distributions, not winners**. The best profit factor in a 300,000-row sweep is a
-statement about the size of the sweep; the median and the profitable share are statements about
-the strategy -- ``docs/findings/m26-elastic-band.md`` § "Selecting on one contract is worse than not selecting".
-
-**Every stored stratum is read, one dimension at a time.** §M27 swept twenty strata and reported
-one pooled row per stratum, which is how session phase and relative volume went into the campaign
-and no finding about either came out -- ``docs/roadmap.md`` §M27.7 and §M27.8. A cell is only
-comparable within a resolution, so the dimension tables are cut by it rather than pooled over it,
-and :data:`SHARES` travels with every table.
-
-**Pooled over variants deliberately, which is why there is no ``--variant`` here.** The dilution
-§M28.9 measured is a *selection* effect and this tool selects nothing; the mixture is the thing
-the dimension tables exist to describe, and a variant is read on its own in the ``by variant``
-table below -- ``docs/roadmap.md`` §M28.9.
-
-**The one table that ranks carries what its exits were worth**, wherever
-``tools/campaign_shortlist.py`` has stored the log. ``session_close_share`` says how often the
-flatten took a leg and never what that leg returned, and on the survivor the two answers point
-opposite ways -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost, which
-``session_close_share`` cannot say". §M28.12 reads the column across the registry, where it
-does not say the same thing twice.
-
-Reads what ``tools/campaign_sweep.py`` wrote, one database per archetype.
+Reports distributions, not winners -- ``tools/README.md`` § "campaign_report.py".
 """
 
 from __future__ import annotations
@@ -38,13 +16,11 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_sweep import MIN_TRADES, VARIANTS, db_path
-
 from nqbt import logsetup, results, stats, trades
+from tools.campaign_sweep import MIN_TRADES, VARIANTS, db_path
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -65,32 +41,20 @@ NET_TO_DRAWDOWN = "net_to_drawdown"
 reads instead of profit factor."""
 
 DERIVED = frozenset({NET_TO_DRAWDOWN})
-"""Statistics :func:`load` computes from stored columns rather than reading.
-
-Separate from :data:`STATISTICS` so that one stays exactly ``stats.Summary``'s fields, and
-listed at all because :func:`parameter_columns` would otherwise call a derived statistic an
-axis."""
+"""Statistics :func:`load` computes from stored columns rather than reading, apart from :data:`STATISTICS`."""
 
 UNFILTERED = "unfiltered"
 """The stratum every other one is read against, and the only name that names no dimension."""
 
 SHARES = ("session_close_share", "ambiguous_share")
-"""What every table carries beside its statistics, because a result is read wrong without them.
-
-The final session phase holds the forced flat, so a stratification by the clock will always show
-it as anomalous and ``session_close_share`` is what tells the two apart -- ``docs/roadmap.md``
-§M10.4. ``ambiguous_share`` is the same obligation at a coarse resolution."""
+"""What every table carries beside its statistics, because a result is read wrong without them."""
 
 EXIT_ORDER = tuple(trades.EXIT_REASONS.values())
 """Every exit reason a simulated leg can carry, in the simulator's own order rather than
 alphabetically. Read out of :data:`nqbt.trades.EXIT_REASONS` so the two cannot drift apart."""
 
 DECOMPOSITION = ("legs", "net", "bars_med")
-"""What each exit reason contributes to a ranked row, beside :data:`SHARES`.
-
-A share says how often a leg left by one route and never what that route was worth, and on the
-opening range the two point opposite ways -- ``docs/roadmap.md`` §M28.9, "The bracket is a net
-cost, which ``session_close_share`` cannot say"."""
+"""What each exit reason contributes to a ranked row, beside :data:`SHARES`."""
 
 RANKED_COLUMNS = [
     "root",
@@ -122,18 +86,13 @@ TAGS = frozenset(
         "slippage_ticks",
     },
 )
-"""Columns that say which run a row came from rather than which parameters it used.
-
-The two cost fields are here because they vary with the root and nothing else, so reporting
-them as axes would report the root twice under a name that hides it."""
+"""Columns that say which run a row came from rather than which parameters it used, costs included."""
 
 
 def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
-    """One summary's net P&L over its own worst peak-to-trough, undefined at no drawdown.
+    """Return one summary's net P&L over its own worst peak-to-trough, undefined at no drawdown.
 
-    Undefined rather than infinite, because an unbounded statistic wins a ranking it was never
-    measured on -- the defect ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally" records
-    against profit factor. Rank with :func:`rank`, never with ``nlargest`` directly.
+    Rank with :func:`rank`, never with ``nlargest`` directly.
     """
     if max_drawdown <= 0.0:
         return float("nan")
@@ -141,23 +100,21 @@ def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
     return net_pnl / max_drawdown
 
 
-def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
-    """:func:`ratio_to_drawdown` over a whole results frame.
+def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Apply :func:`ratio_to_drawdown` over a whole results frame.
 
     The same guard by a faster route -- ``load`` runs it over every stored row, so it is
     vectorised rather than applied. Pinned equal to the scalar, never re-derived.
     """
-    drawdown: pd.Series = frame["max_drawdown"].where(frame["max_drawdown"] > 0.0)  # type: ignore[type-arg]  # duckdb's dtypes
+    drawdown = frame["max_drawdown"].where(frame["max_drawdown"] > 0.0)
 
     return frame["net_pnl"] / drawdown
 
 
 def rank(frame: pd.DataFrame, top: int, by: str) -> pd.DataFrame:
-    """The ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
+    """Return the ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
 
-    **``DataFrame.nlargest`` pads its result with undefined rows rather than returning fewer**,
-    so ranking a shortlist straight through it hands the null test and the per-contract step
-    configurations whose ranking statistic was never measured. Measured, not assumed:
+    ``DataFrame.nlargest`` pads its result with undefined rows rather than returning fewer;
     ``tests/test_campaign_report.py`` pins it.
     """
     return frame[frame[by].notna()].nlargest(top, by)
@@ -168,11 +125,10 @@ def narrowing(
     variants: Collection[str] | None = None,
     resolutions: Collection[int] | None = None,
 ) -> str:
-    """The clauses that narrow a stored-row query to these windows, variants and resolutions.
+    """Return the clauses that narrow a stored-row query to these windows, variants and resolutions.
 
-    Appended to a query that already has its ``WHERE``, so a database many campaigns deep is read
-    for the rows asked about rather than whole. A name holding a quote is refused rather than
-    escaped: no stored variant carries one.
+    Appended to a query that already has its ``WHERE``. A name holding a quote is refused rather
+    than escaped.
     """
     clauses: list[str] = []
     for column, names in (('c."window"', windows), ("c.variant", variants)):
@@ -200,7 +156,7 @@ def load(
     variants: Collection[str] | None = None,
     resolutions: Collection[int] | None = None,
 ) -> pd.DataFrame:
-    """Every viable combination stored for one archetype, tagged with its root.
+    """Load every viable combination stored for one archetype, tagged with its root.
 
     Read for ``windows`` alone, and for ``variants`` and ``resolutions`` where they are given.
     """
@@ -214,11 +170,10 @@ def load(
 
 
 def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
-    """The stored log of one combination, empty when no log has been stored for it.
+    """Load the stored log of one combination, empty when no log has been stored for it.
 
-    ``tools/campaign_shortlist.py`` writes them and only for the rows it was pointed at. Empty
-    rather than raising, so a caller reading a whole shortlist can name the rows that have no
-    log instead of stopping at the first one.
+    Empty rather than raising, so a caller reading a whole shortlist can name every row that has
+    no log.
     """
     if not path.exists():
         return pd.DataFrame()
@@ -236,23 +191,21 @@ def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
     )
 
 
-def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The ``(sweep_id, combo_id)`` a configuration's log is filed under."""
+def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return the ``(sweep_id, combo_id)`` a configuration's log is filed under."""
     return int(row["sweep_id"]), int(row["combo_id"])
 
 
 def stored_logs(rows: pd.DataFrame, path: Path) -> dict[tuple[int, int], pd.DataFrame]:
-    """Every shortlisted row's stored log, keyed by :func:`log_key`, absent where none was stored.
+    """Load every shortlisted row's stored log, keyed by :func:`log_key`, absent where none was stored.
 
-    The mapping a tool reading a shortlist works from, so the same loop serves a stored log and
-    one re-run by ``tools/campaign_swept.py`` -- and a row with no log is named by the caller
-    rather than silently dropped here.
+    Serves a stored log and one re-run by ``tools/campaign_swept.py`` through the same mapping.
     """
     return {log_key(row): load_trades(*log_key(row), path) for _, row in rows.iterrows()}
 
 
 def parameter_columns(frame: pd.DataFrame) -> list[str]:
-    """Columns holding a parameter rather than a tag or a statistic.
+    """List the columns holding a parameter rather than a tag or a statistic.
 
     Shared with ``tools/campaign_holdout.py`` because both held their own copy of the predicate
     and a derived statistic would have been a parameter to one of them.
@@ -265,12 +218,12 @@ def parameter_columns(frame: pd.DataFrame) -> list[str]:
 
 
 def swept_axes(frame: pd.DataFrame) -> list[str]:
-    """Parameter columns that actually vary here, so a constant is never reported as an axis."""
+    """List the parameter columns that actually vary here, so a constant is never reported as an axis."""
     return [column for column in parameter_columns(frame) if frame[column].nunique(dropna=False) > 1]
 
 
 def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
-    """Combination count, profitable share and the profit-factor distribution, per group.
+    """Return the combination count, profitable share and the profit-factor distribution, per group.
 
     The two share columns are here rather than optional because a coarse resolution and the
     final session phase are both read wrong without them -- :data:`SHARES`.
@@ -292,12 +245,10 @@ def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
 
 
 def exit_decomposition(log: pd.DataFrame) -> dict[str, float]:
-    """One stored log's leg count, net P&L and median bars held, per exit reason.
+    """Return one stored log's leg count, net P&L and median bars held, per exit reason.
 
-    ``stats.leg_summary`` supplies the first two, so this reads a summary over subsets and
-    defines no statistic of its own -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost,
-    which ``session_close_share`` cannot say". An exit reason the log never took is absent
-    rather than zero.
+    Built on ``stats.leg_summary`` and defining no statistic of its own. A reason the log never
+    took is absent rather than zero.
     """
     if log.empty:
         return {}
@@ -317,7 +268,7 @@ def exit_decomposition(log: pd.DataFrame) -> dict[str, float]:
 
 
 def decompose_exits(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
-    """The exit decomposition of every row of ``frame``, aligned to its index.
+    """Return the exit decomposition of every row of ``frame``, aligned to its index.
 
     Blank for a row ``tools/campaign_shortlist.py`` has stored no log for, since a shortlist
     ranked here is not necessarily one whose logs were kept.
@@ -333,7 +284,7 @@ def decompose_exits(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
 
 
 def dimension_of(stratum: str) -> str:
-    """Which context dimension one stratum name cuts, ``unfiltered`` cutting none.
+    """Return which context dimension one stratum name cuts, ``unfiltered`` cutting none.
 
     Stratum names are ``<dimension>=<cell>``, and a cell may carry its own cut after an ``@`` --
     ``regime=DIRECTIONAL@n=20``, ``volume=HEAVY@per_bar_20 q=0.20/0.80``.
@@ -342,19 +293,19 @@ def dimension_of(stratum: str) -> str:
 
 
 def dimensions(frame: pd.DataFrame) -> list[str]:
-    """Every context dimension this frame holds strata for, unfiltered excluded."""
+    """List every context dimension this frame holds strata for, unfiltered excluded."""
     found: set[str] = {dimension_of(str(name)) for name in frame["stratum"].unique()}
 
     return sorted(found - {UNFILTERED})
 
 
 def in_dimension(frame: pd.DataFrame, dimension: str) -> pd.DataFrame:
-    """The rows cut by one dimension, whatever cell of it each carries."""
+    """Return the rows cut by one dimension, whatever cell of it each carries."""
     return frame[frame["stratum"].map(lambda name: dimension_of(str(name)) == dimension)]
 
 
 def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
-    """How much of the profit-factor variance each dimension's cells explain, per resolution.
+    """Measure how much of the profit-factor variance each dimension's cells explain, per resolution.
 
     Measured **within** a resolution, never pooled over them: bar size is the largest lever in
     the campaign (§M27), so a figure taken across resolutions reports that instead.
@@ -366,7 +317,7 @@ def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
             rows.append(
                 {
                     "dimension": dimension,
-                    "resolution": int(resolution),  # type: ignore[call-overload]  # duckdb's dtypes
+                    "resolution": int(resolution),
                     "cells": int(block["stratum"].nunique()),
                     "eta2": eta_squared(block, "stratum"),
                     "pf_median": block["profit_factor"].median(),
@@ -379,7 +330,7 @@ def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def eta_squared(frame: pd.DataFrame, axis: str, statistic: str = "profit_factor") -> float:
-    """Share of ``statistic``'s variance the grouping by ``axis`` explains."""
+    """Return the share of ``statistic``'s variance the grouping by ``axis`` explains."""
     values = frame[statistic]
     grand: float = float(values.mean())
     total: float = float(((values - grand) ** 2).sum())
@@ -393,7 +344,7 @@ def eta_squared(frame: pd.DataFrame, axis: str, statistic: str = "profit_factor"
 
 
 def axis_influence(frame: pd.DataFrame, axes: list[str]) -> pd.DataFrame:
-    """How much of the profit-factor variance each axis explains, largest first.
+    """Measure how much of the profit-factor variance each axis explains, largest first.
 
     A property of the ranges swept rather than of the strategy -- ``docs/roadmap.md`` §M26.
     """

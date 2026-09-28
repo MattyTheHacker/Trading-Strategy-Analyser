@@ -1,16 +1,8 @@
-"""EmaCrossover archetype: the first original, and a deliberate known-negative control.
+"""EmaCrossover archetype: an original with no NinjaScript, and a known-negative control.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
-written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M18 names the NinjaScript each
-would become. **If it reads meaningfully better than the random-entry arm, the first
-hypothesis is lookahead**: every series read here is stamped from completed bars.
-
-It is the third entry mechanism (market-on-next-open, no trigger price), the only producer of
-``EXIT_SIGNAL``, and the first archetype to take both sides within one run. It is **flat
-between trades, not stop-and-reverse**, and its ``r_multiple`` is volatility-scaled rather than
-structure-scaled. The result it produced: ``docs/roadmap.md`` §M18.
-
-The loop is shared: :mod:`nqbt.sim.emapullback` drives it too, with the level stop mode.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md`` §M18.
+A market entry at the next open, taking both sides, flat between trades rather than
+stop-and-reverse. :mod:`nqbt.sim.emapullback` drives the same loop with the level stop mode.
 """
 
 from __future__ import annotations
@@ -48,11 +40,10 @@ NO_LEVEL = np.zeros(0, dtype=np.float64)
 
 
 class CrossoverSeries(NamedTuple):
-    """The three per-bar series a stop mode may read, held together to keep the loop under ten.
+    """The three per-bar series a stop mode may read.
 
     Each is empty in the mode that does not read it -- :data:`NO_ATR`, :data:`NO_TRAIL` and
-    :data:`NO_LEVEL` -- because Numba needs an array of the right dtype whether or not the
-    branch runs.
+    :data:`NO_LEVEL`.
     """
 
     atr: FloatArray
@@ -97,9 +88,8 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
 
     ``signal`` marks bars whose close schedules an entry for the next bar's open, and
     ``direction_at`` gives the prevailing regime on every bar -- ``LONG`` where the fast
-    average is above the slow one. The two are separate because an entry needs both *when*
-    and *which way*, and the control arm substitutes only the first. ``sizing`` names the size
-    each signal bar's entry takes.
+    average is above the slow one. The control arm substitutes only ``signal``. ``sizing`` names
+    the size each signal bar's entry takes.
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
@@ -268,14 +258,14 @@ def _protective_stop(
     rules: CrossoverRules,
     costs: bracket.Costs,
 ) -> float:
-    """Where the protective stop goes, in whichever of the three modes is selected.
+    """Return where the protective stop goes, in whichever of the three modes is selected.
 
     All three read the **signal** bar and the bars before it, never the bar the fill happens
     on. The level mode puts the stop on ``series.stop_level`` plus the usual offset and takes
     precedence over the other two; the ATR mode hangs the stop off the fill, so planned risk is
     the ATR multiple or the dollar floor, whichever is wider; the swing mode uses the adverse
     extreme of the last ``swing_lookback`` completed bars plus the same offset. Only the ATR
-    mode is floored -- the other two are structural levels rather than distances.
+    mode is floored.
     """
     if rules.use_level_stop:
         stop = series.stop_level[signal_bar] - direction * rules.stop_offset_ticks * costs.tick_size
@@ -306,7 +296,7 @@ def _trailed_stop(
     rules: CrossoverRules,
     costs: bracket.Costs,
 ) -> float:
-    """The stop after one completed bar of the moving-average trail.
+    """Return the stop after one completed bar of the moving-average trail.
 
     Round-number avoidance runs **before** the ratchet, so pushing a level away from a round
     number can only widen the candidate and never loosen the stop already in place.
@@ -324,7 +314,7 @@ def _off_the_round_number(
     rules: CrossoverRules,
     costs: bracket.Costs,
 ) -> float:
-    """The stop, moved off a round number it landed exactly on. Off at ``0`` spacing."""
+    """Move the stop off a round number it landed exactly on. Off at ``0`` spacing."""
     return bracket.avoid_round_number(
         stop,
         rules.round_number_points,
@@ -335,17 +325,16 @@ def _off_the_round_number(
 
 
 def regime_direction(fast: FloatArray, slow: FloatArray) -> FloatArray:
-    """Which side the prevailing regime is on: ``LONG`` where ``fast > slow``, else ``SHORT``.
+    """Return which side the prevailing regime is on: ``LONG`` where ``fast > slow``, else ``SHORT``.
 
-    The boundary matches :func:`nqbt.conditions.cross_above`'s. Defined on **every** bar rather
-    than only on cross bars, so the random-entry arm can drop a signal anywhere and still know
-    which side it would have been taken on.
+    The boundary matches :func:`nqbt.conditions.cross_above`'s. Defined on every bar, so the
+    random-entry arm can drop a signal anywhere.
     """
     return np.where(fast > slow, trades.LONG, trades.SHORT).astype(np.float64)
 
 
 def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[FloatArray, FloatArray]:
-    """The fast and slow EMA values this combination compares.
+    """Return the fast and slow EMA values this combination compares.
 
     Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
     """
@@ -356,7 +345,7 @@ def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[Float
 
 
 def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open.
+    """Flag bars whose close schedules an entry for the next bar's open.
 
     Each side's cross is ANDed with the prevailing regime, which matters once
     ``cross_lookback > 1``: the window stays true for ``n`` bars and the averages can cross
@@ -377,10 +366,8 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
 def _check_price_basis(data: Dataset, params: EmaCrossoverParams) -> None:
     """Refuse round-number avoidance on bars whose absolute levels may not be the traded ones.
 
-    Fails closed: :attr:`~nqbt.context.PriceBasis.UNKNOWN` is the default, so a caller who
-    never said which series this is gets the refusal rather than a silently meaningless run.
-    Back-adjustment shifts every level by the roll offsets -- ``docs/roadmap.md`` § "The
-    build spec's three loose ends".
+    Fails closed: :attr:`~nqbt.context.PriceBasis.UNKNOWN` is the default and is refused --
+    ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     if params.round_number_points <= 0.0 or data.price_basis is PriceBasis.RAW:
         return

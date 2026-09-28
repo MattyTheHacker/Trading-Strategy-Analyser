@@ -8,6 +8,8 @@ asserted identical to the populated log's. **Time of day is reported first and i
 order**, which alphabetical ordering would silently pass every other assertion.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,6 +30,9 @@ from nqbt.annotate import LabelThresholds
 from nqbt.context import ContextSpec
 from nqbt.review import ReviewError
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 BASE = 18000.0
 FIRST_DAY = "2024-01-02"
 DAYS = 6
@@ -44,7 +49,7 @@ SPEC = ContextSpec(
 
 
 def bars(days: int = DAYS, minutes: int = MINUTES, first_day: str = FIRST_DAY) -> pd.DataFrame:
-    """``minutes`` one-minute bars from 09:00 ET on each of ``days`` weekdays.
+    """Build ``minutes`` one-minute bars from 09:00 ET on each of ``days`` weekdays.
 
     Six sessions because relative volume is undefined until five sit behind it, and a triangular
     price because a straight line has an efficiency ratio of 1.0 on every bar and would leave the
@@ -86,7 +91,7 @@ def bars_in(
     *,
     session: int = -1,
 ) -> list[int]:
-    """``count`` bar indices in ``phase`` of one session -- the last, which alone has baselines.
+    """Pick ``count`` bar indices in ``phase`` of one session -- the last, which alone has baselines.
 
     Relative volume is null until five sessions sit behind the bar, so a trade placed in the
     first session would be paired with a volume nobody could measure.
@@ -168,7 +173,7 @@ def by_time_only(log: pd.DataFrame) -> pd.DataFrame:
 
 
 def alternating(count: int, *, win: float = 100.0, loss: float = -50.0) -> list[float]:
-    """P&L that gives a stratum both winners and losers, so a win rate is not 0 or 1."""
+    """Return P&L that gives a stratum both winners and losers, so a win rate is not 0 or 1."""
     return [win if i % 2 else loss for i in range(count)]
 
 
@@ -181,7 +186,7 @@ def two_phase_case(
     per_phase: int = 40,
     data: context.Dataset | None = None,
 ) -> tuple[pd.DataFrame, annotate.Annotation, context.Dataset]:
-    """``per_phase`` trades in the cash open and as many at midday, each phase both winning and losing."""
+    """Build ``per_phase`` trades in the cash open and as many at midday, each phase winning and losing."""
     data = dataset() if data is None else data
     entries = bars_in(data, timeofday.SessionPhase.CASH_OPEN, per_phase)
     entries += bars_in(data, timeofday.SessionPhase.MIDDAY, per_phase)
@@ -571,7 +576,7 @@ SAMPLE = [
 
 
 def sample_bars() -> pd.DataFrame:
-    """Minute bars over the sample's window, wide enough to hold every one of its fills."""
+    """Build minute bars over the sample's window, wide enough to hold every one of its fills."""
     index = pd.date_range("2026-08-10 16:50", periods=30, freq="min", tz="UTC")
     close = np.full(len(index), 29775.0)
     frame = pd.DataFrame(
@@ -589,7 +594,7 @@ def sample_bars() -> pd.DataFrame:
     return frame
 
 
-def test_a_real_imported_history_reviews_through_the_same_call_a_simulated_one_does(tmp_path) -> None:
+def test_a_real_imported_history_reviews_through_the_same_call_a_simulated_one_does(tmp_path: Path) -> None:
     path = tmp_path / "grid.csv"
     header = "Instrument,Action,Quantity,Price,Time,Position,Name,"
     path.write_text("\r\n".join([header, *SAMPLE, ""]), encoding="utf-8")
@@ -613,7 +618,7 @@ def test_a_real_imported_history_reviews_through_the_same_call_a_simulated_one_d
 
 
 def counted_case(per_phase: int = 40) -> tuple[pd.DataFrame, annotate.Annotation]:
-    """Two phases of trades, with a confluence count over three of the annotation's booleans."""
+    """Build two phases of trades, with a confluence count over three of the annotation's booleans."""
     log, annotation, _ = two_phase_case(per_phase)
     booleans = [c for c in annotation.conditions if str(annotation.frame[c].dtype) == "boolean"][:3]
 

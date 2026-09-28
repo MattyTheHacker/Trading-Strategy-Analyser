@@ -43,7 +43,7 @@ def tool():
     return load_tool()
 
 
-def export(tmp_path, entry_name, exit_name="Profit target", profit="$80.00"):
+def export(tmp_path: Path, entry_name, exit_name="Profit target", profit="$80.00"):
     path = tmp_path / "trades.csv"
     path.write_text(
         HEADER + ROW.format(strategy="X", entry_name=entry_name, exit_name=exit_name, profit=profit),
@@ -57,20 +57,16 @@ def export(tmp_path, entry_name, exit_name="Profit target", profit="$80.00"):
     ("entry_name", "leg"),
     [("S1", 1), ("S4", 4), ("L2", 2), ("entry1", 1), ("entry2", 2)],
 )
-def test_a_scale_out_port_carries_its_leg_in_the_entry_name(tool, tmp_path, entry_name, leg) -> None:
+def test_a_scale_out_port_carries_its_leg_in_the_entry_name(tool, tmp_path: Path, entry_name, leg) -> None:
     assert tool.parse_nt8(export(tmp_path, entry_name))["leg"].iloc[0] == leg
 
 
-def test_an_entry_name_with_no_digit_is_leg_one(tool, tmp_path) -> None:
-    """``InsideBar.cs`` brackets one order called "entry" and never scales out.
-
-    Before the fallback this raised on ``astype(int)`` -- with the export already produced,
-    which is when it costs the most.
-    """
+def test_an_entry_name_with_no_digit_is_leg_one(tool, tmp_path: Path) -> None:
+    """``InsideBar.cs`` brackets one order called "entry" and never scales out."""
     assert tool.parse_nt8(export(tmp_path, "entry"))["leg"].iloc[0] == 1
 
 
-def test_an_unmapped_exit_name_is_refused_rather_than_left_null(tool, tmp_path) -> None:
+def test_an_unmapped_exit_name_is_refused_rather_than_left_null(tool, tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="Sell short"):
         tool.parse_nt8(export(tmp_path, "entry", exit_name="Sell short"))
 
@@ -97,7 +93,7 @@ def test_an_unknown_config_names_the_ones_that_exist(tool) -> None:
         ("Exit Short Trend Violation", "signal"),
     ],
 )
-def test_insidebartrailings_three_new_exit_names_are_mapped(tool, tmp_path, exit_name, reason) -> None:
+def test_insidebartrailings_three_new_exit_names_are_mapped(tool, tmp_path: Path, exit_name, reason) -> None:
     """The names NT8 will write for `SetTrailStop` and for the two `ExitLong`/`ExitShort` calls.
 
     A trail is still a stop, and the trend violation is the archetype's ``EXIT_SIGNAL``. Getting
@@ -108,7 +104,7 @@ def test_insidebartrailings_three_new_exit_names_are_mapped(tool, tmp_path, exit
 
 
 @pytest.mark.parametrize("exit_name", ["Exit Long Max Loss", "Exit Short Max Loss"])
-def test_the_max_loss_exit_is_left_unmapped_on_purpose(tool, tmp_path, exit_name) -> None:
+def test_the_max_loss_exit_is_left_unmapped_on_purpose(tool, tmp_path: Path, exit_name) -> None:
     """It is unreachable at ``MaximumLossPerTrade = 0``, so an export carrying one is a finding.
 
     Mapping it would let the branch the port declares dead pass silently through a
@@ -229,7 +225,7 @@ def test_the_insidebar_config_switches_the_wall_clock_window_off(tool) -> None:
 
 
 @pytest.mark.parametrize("profit", ["-$80.00", "($80.00)"])
-def test_a_loss_stays_a_loss_in_either_of_nt8s_sign_conventions(tool, tmp_path, profit) -> None:
+def test_a_loss_stays_a_loss_in_either_of_nt8s_sign_conventions(tool, tmp_path: Path, profit) -> None:
     """Accounting format is a regional setting, and stripping the brackets is not enough.
 
     A dropped sign still joins, so it reads as a P&L disagreement on every losing leg rather
@@ -238,7 +234,7 @@ def test_a_loss_stays_a_loss_in_either_of_nt8s_sign_conventions(tool, tmp_path, 
     assert tool.parse_nt8(export(tmp_path, "entry", profit=profit))["net_pnl"].iloc[0] == -80.0
 
 
-def test_a_profit_is_left_alone(tool, tmp_path) -> None:
+def test_a_profit_is_left_alone(tool, tmp_path: Path) -> None:
     assert tool.parse_nt8(export(tmp_path, "entry", profit="$1080.00"))["net_pnl"].iloc[0] == 1080.0
 
 
@@ -253,7 +249,9 @@ def test_a_profit_is_left_alone(tool, tmp_path) -> None:
         ("MGC 02-24", 10.0),
     ],
 )
-def test_the_instrument_comes_from_the_contract_root(tool, monkeypatch, contract, point_value) -> None:
+def test_the_instrument_comes_from_the_contract_root(
+    tool, monkeypatch: pytest.MonkeyPatch, contract, point_value
+) -> None:
     """Every root but NQ was reconciled as MNQ.
 
     Chosen off a ``startswith("NQ")`` test, ES priced at $2 a point instead of $50 does not
@@ -273,8 +271,6 @@ def test_the_instrument_comes_from_the_contract_root(tool, monkeypatch, contract
     def spy_prepare(bars, spec, **kwargs):
         seen["price_basis"] = kwargs.get("price_basis")
 
-        return None
-
     monkeypatch.setattr(tool.ingest, "load_contract", lambda contract_id: None)
     monkeypatch.setattr(tool.context, "prepare", spy_prepare)
     monkeypatch.setattr(tool.archetypes, "for_params", lambda params: SpyArchetype())
@@ -293,7 +289,7 @@ def test_an_unknown_root_is_refused_rather_than_priced_as_something_else(tool) -
         tool.run_nqbt("DeadCatBounce", "ZZ 03-24")
 
 
-def test_the_bars_are_resampled_to_the_configs_own_resolution(tool, monkeypatch) -> None:
+def test_the_bars_are_resampled_to_the_configs_own_resolution(tool, monkeypatch: pytest.MonkeyPatch) -> None:
     """A 5-minute configuration run on 1-minute bars disagrees on almost every leg.
 
     The bar size is part of the configuration rather than of the invocation, so nothing at
@@ -315,8 +311,6 @@ def test_the_bars_are_resampled_to_the_configs_own_resolution(tool, monkeypatch)
 
     def spy_prepare(bars, spec, **kwargs):
         seen["bar_minutes"] = kwargs.get("bar_minutes")
-
-        return None
 
     monkeypatch.setattr(tool.ingest, "load_contract", lambda contract_id: None)
     monkeypatch.setattr(tool.resample, "resample", spy_resample)

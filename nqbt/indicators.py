@@ -47,7 +47,7 @@ MIN_HMA_PERIOD = 2
 
 @njit(cache=True)
 def nt8_ema(values: FloatArray, period: int) -> FloatArray:
-    """Exponential moving average using NT8's recursion and seeding.
+    """Compute an exponential moving average using NT8's recursion and seeding.
 
     Emits a value from index 0, seeded with ``values[0]`` rather than a warm-up average.
     """
@@ -67,7 +67,7 @@ def nt8_ema(values: FloatArray, period: int) -> FloatArray:
 
 @njit(cache=True)
 def nt8_sma(values: FloatArray, period: int) -> FloatArray:
-    """Simple moving average using NT8's expanding warm-up and recursive update.
+    """Compute a simple moving average using NT8's expanding warm-up and recursive update.
 
     Before ``period`` bars exist the result is the average of everything so far; from then on
     it is a rolling mean maintained by add/subtract rather than re-summing the window.
@@ -91,7 +91,7 @@ def nt8_sma(values: FloatArray, period: int) -> FloatArray:
 
 @njit(cache=True)
 def nt8_wma(values: FloatArray, period: int) -> FloatArray:
-    """Weighted moving average, weights ``1..k`` with the heaviest on the newest bar.
+    """Compute a weighted moving average, weights ``1..k`` with the heaviest on the newest bar.
 
     Emits from index 0 over an expanding window, exactly as :func:`nt8_sma` does. **The
     weighted sum is rebuilt every bar rather than updated**, which is what NT8's own
@@ -113,7 +113,7 @@ def nt8_wma(values: FloatArray, period: int) -> FloatArray:
 
 
 def nt8_hma(values: FloatArray, period: int) -> FloatArray:
-    """Hull moving average: ``WMA(2*WMA(p/2) - WMA(p), sqrt(p))``, all three NT8's WMA.
+    """Compute a Hull moving average: ``WMA(2*WMA(p/2) - WMA(p), sqrt(p))``, all three NT8's WMA.
 
     Both inner lengths **truncate**: ``period // 2`` and ``int(sqrt(period))``. NT8 caps the
     period with ``Range(2, ...)`` and this follows -- see :data:`MIN_HMA_PERIOD`.
@@ -130,7 +130,7 @@ def nt8_hma(values: FloatArray, period: int) -> FloatArray:
 
 @njit(cache=True)
 def nt8_true_range(high: FloatArray, low: FloatArray, close: FloatArray) -> FloatArray:
-    """True Range: ``max(H-L, |H-prevC|, |L-prevC|)``, and the bare range at bar 0.
+    """Compute True Range: ``max(H-L, |H-prevC|, |L-prevC|)``, and the bare range at bar 0.
 
     The previous close is read across session and roll boundaries alike, because NT8 does not
     reset it -- ``docs/nt8-fidelity.md``.
@@ -153,7 +153,7 @@ def nt8_true_range(high: FloatArray, low: FloatArray, close: FloatArray) -> Floa
 
 @njit(cache=True)
 def nt8_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -> FloatArray:
-    """Average True Range, seeded NT8's way rather than Wilder's.
+    """Compute Average True Range, seeded NT8's way rather than Wilder's.
 
     Emits from bar 0: an expanding simple average of True Range until ``period`` bars exist,
     then the Wilder recursion. The seed difference persists -- the recursion never forgets it.
@@ -178,7 +178,7 @@ def nt8_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -
 
 @njit(cache=True)
 def nt8_stddev(values: FloatArray, period: int) -> FloatArray:
-    """Population standard deviation over an expanding window capped at ``period``.
+    """Compute the population standard deviation over an expanding window capped at ``period``.
 
     Divisor is the sample count, not ``n-1``. **Two passes, subtracting the window mean
     explicitly**: the algebraically identical incremental update drifts -- ``docs/nt8-fidelity.md``
@@ -210,7 +210,7 @@ def nt8_bollinger(
     period: int,
     num_std: float,
 ) -> tuple[FloatArray, FloatArray, FloatArray]:
-    """Bollinger Bands as ``(upper, middle, lower)``: ``SMA +/- k * StdDev``."""
+    """Compute Bollinger Bands as ``(upper, middle, lower)``: ``SMA +/- k * StdDev``."""
     middle: FloatArray = nt8_sma(values, period)
     spread: FloatArray = num_std * nt8_stddev(values, period)
 
@@ -219,7 +219,7 @@ def nt8_bollinger(
 
 @njit(cache=True)
 def band_stretch(values: FloatArray, basis: FloatArray, stddev: FloatArray) -> FloatArray:
-    """How far each value sits from ``basis``, signed, in units of ``stddev``.
+    """Measure how far each value sits from ``basis``, signed, in units of ``stddev``.
 
     ``2.0`` is the upper band of a two-sigma channel and ``-2.0`` the lower, so the number is
     read against a band multiple directly. **Zero wherever ``stddev`` is zero** -- a window
@@ -243,7 +243,7 @@ def nt8_keltner(
     period: int,
     offset: float,
 ) -> tuple[FloatArray, FloatArray, FloatArray]:
-    """Keltner Channels as ``(upper, midline, lower)``.
+    """Compute Keltner Channels as ``(upper, midline, lower)``.
 
     **Neither half matches the common definition**: an SMA of *typical* price, widened by the
     mean **high-low range** rather than by ATR -- ``docs/nt8-fidelity.md`` §M16.
@@ -256,13 +256,13 @@ def nt8_keltner(
 
 @njit(cache=True)
 def typical_price(high: FloatArray, low: FloatArray, close: FloatArray) -> FloatArray:
-    """``(H + L + C) / 3`` -- the price VWAP weights by volume."""
+    """Compute ``(H + L + C) / 3`` -- the price VWAP weights by volume."""
     return (high + low + close) / 3.0
 
 
 @njit(cache=True)
 def session_vwap(price: FloatArray, volume: FloatArray, new_session: BoolArray) -> FloatArray:
-    """Volume weighted average price, re-anchored at each session open.
+    """Compute the volume weighted average price, re-anchored at each session open.
 
     Mirrors ``OrderFlowVWAP(VWAPResolution.Standard, Bars.TradingHours, ...)``, whose Standard
     resolution works from bar data rather than ticks -- ``docs/nt8-fidelity.md``. A zero-volume
@@ -296,7 +296,7 @@ def session_vwap_dispersion(
     vwap: FloatArray,
     new_session: BoolArray,
 ) -> FloatArray:
-    """Volume-weighted standard deviation of ``price`` about ``vwap``, re-anchored per session.
+    """Compute the volume-weighted standard deviation of ``price`` about ``vwap``, re-anchored per session.
 
     The half-width of the VWAP band at one multiple, so ``vwap +- k * this`` is the band and
     ``band_stretch`` reads a bar against it. Population divisor -- the summed weight, never a
@@ -341,7 +341,7 @@ def session_vwap_dispersion(
 
 @njit(cache=True)
 def bars_since_anchor(new_session: BoolArray) -> IntArray:
-    """Completed bars since each session's VWAP anchor, ``0`` on the anchor bar itself.
+    """Count completed bars since each session's VWAP anchor, ``0`` on the anchor bar itself.
 
     The VWAP band's own clock rather than :mod:`nqbt.timeofday`'s, so a warm-up gate on it
     cannot read one session's count against another's anchor.

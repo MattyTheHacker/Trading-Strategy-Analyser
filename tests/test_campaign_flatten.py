@@ -33,7 +33,7 @@ from tools.campaign_shortlist import source
 
 
 def arm(seconds: int, **columns: object) -> pd.DataFrame:
-    """A measured frame with the tag columns every rung carries."""
+    """Build a measured frame with the tag columns every rung carries."""
     base = {
         "root": "MNQ",
         "resolution": 5,
@@ -175,7 +175,9 @@ def test_only_the_control_rung_is_reconciled() -> None:
 # -- which rows a run measures -------------------------------------------------------------
 
 
-def test_the_resolutions_are_read_off_the_stored_cell_rather_than_assumed(monkeypatch) -> None:
+def test_the_resolutions_are_read_off_the_stored_cell_rather_than_assumed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     frame = pd.DataFrame(
         {
             "root": ["MNQ", "MNQ", "MNQ", "NQ"],
@@ -190,11 +192,13 @@ def test_the_resolutions_are_read_off_the_stored_cell_rather_than_assumed(monkey
     assert resolutions_for("InsideBarTrailing", "MNQ", None, "trailing") == [1, 5, 15]
 
 
-def test_a_shortlist_is_taken_inside_each_bar_size_rather_than_pooled(monkeypatch) -> None:
+def test_a_shortlist_is_taken_inside_each_bar_size_rather_than_pooled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Bar size is the largest lever in the campaign, so a pooled shortlist would rank it."""
     asked: list[int | None] = []
 
-    def fake(name, root, by, top, stratum, resolution, variant):  # noqa: ANN001, ANN202, PLR0913
+    def fake(name, root, by, top, stratum, resolution, variant):  # noqa: ANN001, ANN202
         asked.append(resolution)
 
         return pd.DataFrame({"resolution": [resolution]})
@@ -207,7 +211,9 @@ def test_a_shortlist_is_taken_inside_each_bar_size_rather_than_pooled(monkeypatc
     assert list(rows["resolution"]) == [5, 15]
 
 
-def test_a_cell_nothing_was_stored_for_says_so_rather_than_measuring_nothing(monkeypatch) -> None:
+def test_a_cell_nothing_was_stored_for_says_so_rather_than_measuring_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     empty = pd.DataFrame({"root": [], "stratum": [], "variant": [], "resolution": []})
     monkeypatch.setattr(module, "load", lambda name, windows: empty)
     with pytest.raises(SystemExit, match="no stored holdout rows"):
@@ -215,7 +221,7 @@ def test_a_cell_nothing_was_stored_for_says_so_rather_than_measuring_nothing(mon
 
 
 def argparse_namespace(**overrides: object):  # noqa: ANN201 - argparse's own namespace type
-    """The subset of ``main``'s parsed arguments the selection helpers read."""
+    """Build the subset of ``main``'s parsed arguments the selection helpers read."""
     import argparse
 
     base = {
@@ -232,7 +238,9 @@ def argparse_namespace(**overrides: object):  # noqa: ANN201 - argparse's own na
 # -- the measured rows ----------------------------------------------------------------------
 
 
-def test_every_configuration_is_measured_once_per_cutoff_and_carries_which(monkeypatch) -> None:
+def test_every_configuration_is_measured_once_per_cutoff_and_carries_which(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The plumbing the ladder reads: one row per (configuration, cutoff), tagged with the
     cutoff it was run at and with what the sweep stored for it."""
     bars = synthetic_bars(n=6000)
@@ -254,14 +262,16 @@ def test_every_configuration_is_measured_once_per_cutoff_and_carries_which(monke
 # -- the command line -----------------------------------------------------------------------
 
 
-def test_a_ladder_without_the_control_rung_is_refused_before_anything_runs(monkeypatch) -> None:
+def test_a_ladder_without_the_control_rung_is_refused_before_anything_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Every rung is read against the control, so a run without it measures nothing."""
     monkeypatch.setattr(module, "cell", lambda *_: pd.DataFrame())
     with pytest.raises(SystemExit, match="has to include the control rung"):
         module.main(["campaign_flatten.py", "--strategy", "InsideBar", "--seconds", "180", "300"])
 
 
-def test_a_run_prints_the_reconciliation_before_the_ladder(monkeypatch) -> None:
+def test_a_run_prints_the_reconciliation_before_the_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
     """The reconciliation is part of the reading rather than a footnote, so it comes first."""
     shown: list[str] = []
     measured = pd.concat([arm(CONTROL), arm(900)], ignore_index=True)

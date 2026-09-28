@@ -1,9 +1,8 @@
-"""The per-contract tally, and the unbounded statistic it used to be carried by.
+"""The per-contract tally.
 
-``tally`` is pure -- a frame of contract rows in, one row per root out -- and it is where the
-defect lived, so most of this builds the rows directly. ``one_contract`` is exercised on
-synthetic bars only to pin that every figure it reports is finite, which is a property of the
-statistic it chose rather than of the bars.
+``tally`` is pure -- a frame of contract rows in, one row per root out -- so most of this builds
+the rows directly. ``one_contract`` is exercised on synthetic bars to pin that every figure it
+reports is finite.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ MEDIAN_COLUMNS = ["median_expectancy", "median_null_expectancy", "median_excess"
 
 
 def contract_rows(**columns: object) -> pd.DataFrame:
-    """Three front-month contracts of one root, as ``run_root`` assembles them."""
+    """Build three front-month contracts of one root, as ``run_root`` assembles them."""
     base = {
         "root": ROOT,
         "contract": ["MNQ 03-24", "MNQ 06-24", "MNQ 09-24"],
@@ -44,8 +43,7 @@ def contract_rows(**columns: object) -> pd.DataFrame:
 
 
 def test_a_contract_with_no_losing_trade_leaves_every_tallied_figure_finite() -> None:
-    """The defect (#218): a gross loss of zero makes that contract's profit factor infinite,
-    and a mean over the column took the whole root's row infinite with it."""
+    """A contract with no gross loss does not take the whole root's row infinite (#218)."""
     frame = contract_rows(profit_factor=[1.4, 0.8, float("inf")])
     assert not math.isfinite(frame["profit_factor"].mean()), "the fixture no longer poses the defect"
     assert np.isfinite(tally(frame)[MEDIAN_COLUMNS].to_numpy(np.float64)).all()

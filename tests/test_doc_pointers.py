@@ -1,10 +1,7 @@
 """Every `docs/*.md` § "heading" pointer names something that is actually there.
 
-`CLAUDE.md` and `CONTRIBUTING.md` both require it and nothing enforced it, so a section that
-moved left its pointers behind silently. Splitting the findings out of the roadmap is exactly
-the change that breaks these, which is why the check is a test rather than a one-off.
-
-The comparison is deliberately loose about whitespace, emphasis and dash style: a docstring
+A section that moves leaves its pointers behind silently, so this is a test rather than a
+one-off check. The comparison is loose about whitespace, emphasis and dash style: a docstring
 wraps a heading across lines and writes `--` where the Markdown has an em dash, and neither is
 a broken pointer.
 """
@@ -33,14 +30,14 @@ def normalise(text: str) -> str:
 
 
 def documents() -> list[Path]:
-    """Every source and Markdown file that could carry a pointer."""
+    """List every source and Markdown file that could carry a pointer."""
     found = [p for name in SEARCHED for p in (ROOT / name).rglob("*") if p.suffix in (".py", ".md")]
 
     return [*found, *[ROOT / name for name in LOOSE]]
 
 
 def pointers() -> list[tuple[Path, str, str]]:
-    """Every pointer in the repository, as (source, target file, heading)."""
+    """Find every pointer in the repository, as (source, target file, heading)."""
     out: list[tuple[Path, str, str]] = []
     for path in documents():
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -51,7 +48,7 @@ def pointers() -> list[tuple[Path, str, str]]:
 
 @pytest.fixture(scope="module")
 def contents() -> dict[str, str]:
-    """Each pointed-at file, normalised once."""
+    """Read each pointed-at file, normalised once."""
     return {}
 
 

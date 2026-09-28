@@ -393,7 +393,7 @@ def test_the_band_grid_counts_towards_what_a_worker_is_handed() -> None:
 
 
 def session_bars(days: int = 3) -> pd.DataFrame:
-    """Whole sessions, so a cash-anchored range has a window to be measured over."""
+    """Build whole sessions, so a cash-anchored range has a window to be measured over."""
     return bars(n=days * 1440, seed=5)
 
 

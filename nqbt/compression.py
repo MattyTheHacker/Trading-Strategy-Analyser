@@ -1,29 +1,9 @@
 """Compressed, normal or expanded: how tight this bar's range is against its own recent past.
 
-One scalar per bar, cut by two thresholds into three labels. The scalar is a **trailing
-percentile rank**: a raw width measure, then where that measure sits among the
-``baseline_bars`` values before it. Both halves are swept -- :class:`CompressionForm` chooses
-the width measure, and the rank is what makes it comparable.
-
-**The rank is the point, not a convenience.** Neither raw form has a natural unit: Bollinger
-bandwidth is a fraction of price and reads about ``1e-3`` on NQ, a range-to-ATR ratio reads
-about the lookback, and both move with the resolution and the period. A raw threshold on
-either is therefore a different cut in every cell of a sweep, which is the failure
-``docs/roadmap.md`` §M27.5 and §M27.8 record for the efficiency ratio and for relative volume.
-Ranking against a trailing window is the same device :mod:`nqbt.volume` uses when it divides by
-a trailing median, and it leaves a quantity in ``0..1`` that a raw pair of thresholds can cut.
-
-**Nothing here reads a bar it does not close.** A bar's width comes from bars up to and
-including itself, and its rank compares that against the ``baseline_bars`` bars **strictly
-before** it, so no bar contributes to its own baseline. Lookahead is the trap this condition
-exists next to -- ``docs/roadmap.md`` §M19.
-
-The band period is not this module's to invent: the bandwidth form reads
-:class:`nqbt.bands.BandGrid`, so a sweep that already builds a Bollinger grid shares it --
-``docs/roadmap.md`` §M26.
-
-A state set is carried as a bitmask integer so that it is a legal sweep axis, exactly as
-:mod:`nqbt.regime`, :mod:`nqbt.volume` and :mod:`nqbt.timeofday` carry theirs.
+One **trailing percentile rank** per bar -- a raw width measure (:class:`CompressionForm`) ranked
+against the ``baseline_bars`` values strictly before it -- cut by two thresholds into three
+labels. The bandwidth form reads :class:`nqbt.bands.BandGrid`. A state set is a bitmask integer,
+so it is a legal sweep axis. Why a rank rather than the width: ``docs/roadmap.md`` §M19.1.
 """
 
 from __future__ import annotations
@@ -95,9 +75,7 @@ ten bars it can only take eleven values -- and the thresholds stop meaning what 
 BANDWIDTH_MULTIPLE = 2.0
 """The conventional Bollinger multiple, so :func:`bandwidth` matches the published quantity.
 
-**Not a parameter.** It is a constant scale factor on every bar alike, so it cannot move an
-ordering, a trailing rank, or a threshold fitted as a quantile -- sweeping it would run
-identical combinations.
+Not a parameter: a constant scale factor cannot move a trailing rank.
 """
 
 
@@ -125,12 +103,7 @@ class Compression(IntEnum):
 
 
 class CompressionForm(IntEnum):
-    """Which width measure the rank is taken of.
-
-    Two genuinely different statements, which is why the form is a sweep axis rather than a
-    choice made once: a narrow band is not a short range. Both are named in
-    ``Trading-Docs/trading_concepts.md`` § 3.2 as codeable compression measures.
-    """
+    """Which width measure the rank is taken of; a sweep axis, because a narrow band is not a short range."""
 
     BANDWIDTH = 0
     """Bollinger band width over its own midline -- see :func:`bandwidth`."""
@@ -271,12 +244,9 @@ def thresholds_from_quantiles(
     compressed_quantile: float,
     expanded_quantile: float,
 ) -> tuple[float, float]:
-    """Both thresholds as quantiles of the ranks in ``values``, unranked bars excluded.
+    """Return both thresholds as quantiles of the ranks in ``values``, unranked bars excluded.
 
-    A trailing rank is already close to uniform, so this and the raw pair nearly agree -- which
-    is the property neither :mod:`nqbt.regime` nor :mod:`nqbt.volume` has. *Close* is not
-    *equal*: width is strongly autocorrelated, so the ranks bunch at both ends. Fit on the
-    selection window alone -- fitting on the whole series leaks the holdout.
+    Fit on the selection window alone -- fitting on the whole series leaks the holdout.
     """
     validate_quantiles(compressed_quantile, expanded_quantile)
     measured: FloatArray = np.asarray(values, dtype=np.float64)
@@ -305,11 +275,9 @@ def key(form: int, period: int, baseline_bars: int) -> CompressionKey:
 
 @njit(cache=True)
 def _rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[FloatArray, FloatArray]:
-    """Highest high and lowest low over the ``period`` bars ending at each bar, ``nan`` until that many exist.
+    """Return the high and low extremes of each bar's last ``period`` bars, ``nan`` until that many exist.
 
-    Recomputed per bar rather than maintained: a running extreme cannot be un-extended when the
-    bar holding it leaves the window, so the state a rolling form would need is the window
-    itself -- the same reasoning ``docs/roadmap.md`` §M10.1 records for the efficiency ratio.
+    Recomputed per bar rather than maintained -- ``docs/roadmap.md`` §M10.1.
     """
     n = high.size
     top_out = np.full(n, np.nan, dtype=np.float64)
@@ -328,7 +296,7 @@ def _rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[F
 
 @njit(cache=True)
 def _rolling_range(high: FloatArray, low: FloatArray, period: int) -> FloatArray:
-    """Highest high less lowest low over ``period`` bars -- :func:`_rolling_extremes`' window."""
+    """Return the highest high less lowest low over ``period`` bars -- :func:`_rolling_extremes`' window."""
     top, bottom = _rolling_extremes(high, low, period)
 
     return top - bottom
@@ -336,7 +304,7 @@ def _rolling_range(high: FloatArray, low: FloatArray, period: int) -> FloatArray
 
 @njit(cache=True)
 def _ratio(values: FloatArray, scale: FloatArray) -> FloatArray:
-    """``values / scale``, ``nan`` wherever there is nothing positive to divide by."""
+    """Return ``values / scale``, ``nan`` wherever there is nothing positive to divide by."""
     n = values.size
     out = np.full(n, np.nan, dtype=np.float64)
     for i in range(n):
@@ -349,7 +317,7 @@ def _ratio(values: FloatArray, scale: FloatArray) -> FloatArray:
 
 @njit(cache=True)
 def _trailing_rank(values: FloatArray, baseline_bars: int) -> FloatArray:
-    """Share of the ``baseline_bars`` values before each bar that are below it.
+    """Return the share of the ``baseline_bars`` values before each bar that are below it.
 
     ``nan`` until a full window of *measured* values exists behind the bar, so a form's own
     warm-up cannot shorten the window a rank is taken over. A tie counts as half, which keeps a
@@ -408,7 +376,7 @@ def _label(ranks: FloatArray, compressed_below: float, expanded_above: float) ->
 
 @njit(cache=True)
 def _gate(ranks: FloatArray, compressed_below: float, expanded_above: float, mask: int) -> BoolArray:
-    """One pass from rank to boolean, so a sweep combination never builds a label array."""
+    """Map rank to boolean in one pass, so a sweep combination never builds a label array."""
     n = ranks.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):
@@ -420,10 +388,10 @@ def _gate(ranks: FloatArray, compressed_below: float, expanded_above: float, mas
 
 
 def bandwidth(basis: FloatArray, stddev: FloatArray) -> FloatArray:
-    """Bollinger band width as a fraction of its own midline: ``2 * sigma / basis``.
+    """Return the Bollinger band width as a fraction of its own midline: ``2 * sigma / basis``.
 
-    Taken off :class:`nqbt.bands.BandGrid`'s two rows rather than recomputed, so an archetype
-    already sweeping a Bollinger shares one grid -- ``docs/roadmap.md`` §M26.
+    Taken off :class:`nqbt.bands.BandGrid`'s two rows rather than recomputed --
+    ``docs/roadmap.md`` §M26.
     """
     return _ratio(
         BANDWIDTH_MULTIPLE * np.ascontiguousarray(stddev, dtype=np.float64),
@@ -432,11 +400,10 @@ def bandwidth(basis: FloatArray, stddev: FloatArray) -> FloatArray:
 
 
 def range_to_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -> FloatArray:
-    """The last ``period`` bars' high-low range, in ATRs of that same length.
+    """Return the last ``period`` bars' high-low range, in ATRs of that same length.
 
-    Scale-free by construction: a window that trended reads near ``period`` and one that went
-    nowhere reads near ``1``. One length for both halves rather than two axes, because the
-    quantity being asked for is how far the range falls short of the movement inside it.
+    Scale-free: a window that trended reads near ``period`` and one that went nowhere reads
+    near ``1``. One length serves both the range and the ATR.
     """
     validate_period(period)
     high = np.ascontiguousarray(high, dtype=np.float64)
@@ -449,7 +416,7 @@ def range_to_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: i
 
 
 def rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[FloatArray, FloatArray]:
-    """The highest high and lowest low of the ``period`` bars ending at each bar, that bar included.
+    """Return the highest high and lowest low of the ``period`` bars ending at each bar, that bar included.
 
     The window :func:`range_to_atr` measures, as two levels rather than a width.
     """
@@ -584,7 +551,7 @@ def _width_of(
     close: FloatArray,
     band: BandGrid | None,
 ) -> FloatArray:
-    """One key's raw width measure, taking the bandwidth form's two rows off ``band``."""
+    """Return one key's raw width measure, taking the bandwidth form's two rows off ``band``."""
     if wanted.form is CompressionForm.RANGE_TO_ATR:
         return range_to_atr(high, low, close, wanted.period)
 
@@ -651,11 +618,11 @@ class WindowRangeGrid:
             raise KeyError(msg) from None
 
     def high_for(self, period: int) -> FloatArray:
-        """The highest high of the ``period`` bars ending at each bar."""
+        """Return the highest high of the ``period`` bars ending at each bar."""
         return np.asarray(self.high[self.row(period)])
 
     def low_for(self, period: int) -> FloatArray:
-        """The lowest low of the ``period`` bars ending at each bar."""
+        """Return the lowest low of the ``period`` bars ending at each bar."""
         return np.asarray(self.low[self.row(period)])
 
     @property

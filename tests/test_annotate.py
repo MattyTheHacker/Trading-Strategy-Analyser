@@ -8,6 +8,8 @@ annotates successfully and is wrong at every comparison**, so that test asserts 
 still succeeds and only the price check refuses it.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -31,6 +33,9 @@ from nqbt.annotate import UNMATCHED, AnnotationError, LabelThresholds
 from nqbt.context import ContextSpec
 from nqbt.instruments import ContractId
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 BASE = 18000.0
 START = "2024-01-02 15:00"
 
@@ -46,7 +51,7 @@ FULL_SPEC = ContextSpec(
 
 
 def bars(n: int = 120, start: str = START) -> pd.DataFrame:
-    """One-minute bars inside a session, priced so a bar's range is known from its index.
+    """Build one-minute bars inside a session, priced so a bar's range is known from its index.
 
     Bar ``i`` opens at ``BASE + (i - 1) * 0.25``, closes a tick higher, and runs a point either
     side of that, so a fill inside a chosen bar can be written down rather than searched for.
@@ -100,7 +105,7 @@ def leg(
     entry_price: float,
     exit_price: float,
 ) -> dict[str, object]:
-    """One leg of a manual log, priced explicitly. Legs are numbered in the order they arrive."""
+    """Build one leg of a manual log, priced explicitly. Legs are numbered in the order they arrive."""
     return {
         "trade_id": trade_id,
         "entry_time": entry_time,
@@ -767,7 +772,7 @@ def test_an_empty_log_annotates_to_an_empty_frame_carrying_the_same_columns() ->
 # -- the bars a log must be annotated against ---------------------------------
 
 
-def test_contract_bars_reads_the_per_contract_cache(tmp_path) -> None:
+def test_contract_bars_reads_the_per_contract_cache(tmp_path: Path) -> None:
     frame = bars(10)
     path = ingest.contract_cache_path(ContractId.parse("MNQ 09-26"), tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -839,7 +844,7 @@ legs, and every fill between 16:58 and 17:08 UTC once the display zone is applie
 
 
 def sample_bars() -> pd.DataFrame:
-    """Minute bars over the sample's window, wide enough to hold every one of its fills."""
+    """Build minute bars over the sample's window, wide enough to hold every one of its fills."""
     index = pd.date_range("2026-08-10 16:50", periods=30, freq="min", tz="UTC")
     close = np.full(len(index), 29775.0)
     frame = pd.DataFrame(
@@ -857,7 +862,7 @@ def sample_bars() -> pd.DataFrame:
     return frame
 
 
-def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tmp_path) -> None:
+def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tmp_path: Path) -> None:
     path = tmp_path / "grid.csv"
     header = "Instrument,Action,Quantity,Price,Time,Position,Name,"
     path.write_text("\r\n".join([header, *SAMPLE, ""]), encoding="utf-8")
@@ -884,7 +889,7 @@ def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tm
 
 
 def counted(frame: pd.DataFrame, **columns: object) -> annotate.Annotation:
-    """An annotation carrying the boolean conditions a count can be taken over."""
+    """Build an annotation carrying the boolean conditions a count can be taken over."""
     index = pd.Index(np.arange(1, len(frame) + 1, dtype=np.int64), name="trade_id")
     base = pd.DataFrame({"matched": True}, index=index)
 
@@ -993,9 +998,7 @@ def test_the_count_reads_the_entry_bar_of_a_real_dataset() -> None:
 
 # -- compression, bands and session ranges ------------------------------------
 
-# The three context families that had no annotation columns until #251. Each is already
-# reachable as an entry filter, so the gap was that a trade could be gated on one and never
-# reviewed by it.
+# The three context families an entry can be gated on also reach the annotation (#251).
 
 COMPRESSION_KEY = compression.key(int(compression.CompressionForm.RANGE_TO_ATR), 5, 20)
 RANGE_KEY = sessionrange.validate_key(960, 30, 1)

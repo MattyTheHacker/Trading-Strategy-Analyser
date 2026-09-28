@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from nqbt import archetypes
+from nqbt.sim.types import DeadCatParams, OpeningRangeParams
 from tools.campaign_crossread import (
     CELL_KEYS,
     MISSING,
@@ -26,12 +28,9 @@ from tools.campaign_crossread import (
 )
 from tools.campaign_report import TAGS, UNFILTERED
 
-from nqbt import archetypes
-from nqbt.sim.types import DeadCatParams, OpeningRangeParams
-
 
 def rows(**columns: object) -> pd.DataFrame:
-    """A results frame carrying one parameter, one context filter and the stats the tool reads."""
+    """Build a results frame carrying one parameter, one context filter and the stats the tool reads."""
     base = {
         "sweep_id": 1,
         "combo_id": range(4),
@@ -55,7 +54,7 @@ def rows(**columns: object) -> pd.DataFrame:
 
 
 def twinned(arm_pf: list[float], base_pf: list[float], stratum: str = "phase=MIDDAY") -> pd.DataFrame:
-    """One filtered stratum and the unfiltered rows it pairs against, in one window."""
+    """Build one filtered stratum and the unfiltered rows it pairs against, in one window."""
     arm = rows(stratum=stratum, phase_filter=16, profit_factor=arm_pf)
     base = rows(profit_factor=base_pf)
 
@@ -234,7 +233,7 @@ def test_a_plain_cell_is_not_a_recut() -> None:
 
 
 def cells(selection: float, holdout: float, stratum: str = "phase=MIDDAY") -> pd.DataFrame:
-    """One cell's paired delta in each window, as :func:`per_window` would report it."""
+    """Build one cell's paired delta in each window, as :func:`per_window` would report it."""
     return pd.DataFrame(
         [
             {
@@ -362,7 +361,7 @@ def test_each_window_is_one_the_campaign_actually_stores(window: str) -> None:
 
 
 def recut_only(arm_pf: list[float], base_pf: list[float], variant: str = "channel=vwap") -> pd.DataFrame:
-    """A campaign whose every filtered stratum is a re-cut, which is §M33's shape."""
+    """Build a campaign whose every filtered stratum is a re-cut, which is §M33's shape."""
     cell = "volume=HEAVY@per_bar_20 q=0.20/0.80"
     arm = rows(stratum=cell, volume_filter=4, profit_factor=arm_pf, variant=variant)
     base = rows(profit_factor=base_pf, variant=variant)
@@ -409,7 +408,7 @@ def test_an_explicit_set_still_pairs_only_within_one_variant() -> None:
 
 
 def variant_cells(selection: float, holdout: float, variant: str) -> pd.DataFrame:
-    """One arm's paired delta in each window, as ``per_window(by_variant=True)`` reports it."""
+    """Build one arm's paired delta in each window, as ``per_window(by_variant=True)`` reports it."""
     return cells(selection, holdout, "volume=HEAVY@per_bar_20 q=0.20/0.80").assign(variant=variant)
 
 

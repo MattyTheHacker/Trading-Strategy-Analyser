@@ -126,7 +126,7 @@ def write_run(
 
 
 def one_fill(reported_bar: int) -> list[dict[str, object]]:
-    """A trial submitted at bar 0 whose fill callback reports ``reported_bar``."""
+    """Build a trial submitted at bar 0 whose fill callback reports ``reported_bar``."""
     return [
         event("SUBMIT", 1, 0, "probe1"),
         event("ORDER_UPDATE", 1, 0, "probe1", order_state="Working"),
@@ -330,14 +330,14 @@ def test_a_run_without_a_config_file_still_loads(tmp_path: Path) -> None:
 
 
 def test_a_path_that_is_not_an_events_file_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="expected a probe _events.csv"):
+    with pytest.raises(ValueError, match=r"expected a probe _events\.csv"):
         rol.read_run(tmp_path / "SYN_s2_bars.csv")
 
 
 def test_a_missing_bar_export_is_refused_by_name(tmp_path: Path) -> None:
     events_path = write_run(tmp_path, one_fill(reported_bar=0), REACHING_BARS)
     (tmp_path / "SYN_s2_bars.csv").unlink()
-    with pytest.raises(FileNotFoundError, match="SYN_s2_bars.csv"):
+    with pytest.raises(FileNotFoundError, match=r"SYN_s2_bars\.csv"):
         rol.read_run(events_path)
 
 

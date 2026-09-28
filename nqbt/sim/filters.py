@@ -1,15 +1,8 @@
 """The market-context filters every archetype's signal ends with.
 
-Session phase, market regime, relative volume, how compressed the range is, the compact trend
-label and the side of a higher-timeframe average are properties of the bars rather than of a
-strategy, so every archetype ANDs exactly the same six gates on after its own conditions. One
-conjunction here rather than one per signal function.
-
-**Each gate is skipped entirely at its everything value, and that is not an optimisation.** An
-out-of-session stray, an efficiency-ratio warm-up bar, a session with no volume baseline yet, a
-bar with no trailing window to rank against, a bar whose slope cannot be measured and a bar no
-coarse bar has closed before each pass *no* mask, so ANDing at the default would quietly drop
-them -- ``docs/roadmap.md`` §M10.4.
+Session phase, market regime, relative volume, compression, the compact trend label and the
+side of a higher-timeframe average, ANDed onto every archetype's own conditions. A gate at its
+everything value is skipped entirely -- ``nqbt/README.md`` § "sim/filters.py".
 """
 
 from __future__ import annotations
@@ -44,11 +37,7 @@ __all__ = [
 
 
 class ContextFiltered(Protocol):
-    """The parameters :func:`apply_context_filters` reads, shared by every archetype.
-
-    Structural rather than a union of the concrete classes, so a new archetype gets the six
-    filters by declaring the fields.
-    """
+    """The parameters :func:`apply_context_filters` reads; declaring them gives an archetype all six."""
 
     phase_filter: int
     regime_filter: int
@@ -89,8 +78,7 @@ class ContextFiltered(Protocol):
 class ConfluenceFiltered(ContextFiltered, Protocol):
     """A :class:`ContextFiltered` that also says how many of its gates have to agree.
 
-    Separate from :class:`ContextFiltered` because declaring the field is what opts an
-    archetype into the confluence pattern; the six ported ones keep the plain conjunction.
+    Declaring the field is what opts an archetype into the confluence pattern.
     """
 
     confluence_required: int
@@ -119,12 +107,10 @@ class LabelSized(ContextFiltered, ConfluenceSized, Protocol):
 
 
 def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
-    """The masks the six filters contribute, skipping every gate at its everything value.
+    """Return the masks the six filters contribute, skipping every gate at its everything value.
 
-    One list rather than a conjunction, so a caller can AND them or count them. **A gate at
-    its everything value contributes nothing at all** -- it is absent from this list rather
-    than present as an all-true row, because a warm-up bar passes *no* mask and counting one
-    would make the two readings disagree on exactly the bars the skip exists for.
+    One list rather than a conjunction, so a caller can AND them or count them. A gate at its
+    everything value is absent from the list rather than present as an all-true row.
     """
     gates: list[BoolArray] = []
     if params.phase_filter != timeofday.ALL_PHASES:
@@ -182,9 +168,8 @@ def apply_context_filters(signal: BoolArray, data: Dataset, params: ContextFilte
 def apply_confluence_filters(signal: BoolArray, data: Dataset, params: ConfluenceFiltered) -> BoolArray:
     """Narrow a signal to bars where at least ``confluence_required`` of the gates agree.
 
-    At :data:`REQUIRE_ALL` this is :func:`apply_context_filters` exactly, which is what keeps
-    the pattern off every archetype that has not asked for it. The count is over the *active*
-    gates -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    At :data:`REQUIRE_ALL` this is :func:`apply_context_filters` exactly. The count is over the
+    *active* gates -- ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     if params.confluence_required == REQUIRE_ALL:
         return apply_context_filters(signal, data, params)
@@ -213,7 +198,7 @@ OPPOSITE_VOLUME: Mapping[volume.VolumeState, volume.VolumeState] = {
 
 
 def _pointing(long_side: BoolArray, up: BoolArray, down: BoolArray) -> LabelSides:
-    """A label that points one way: it favours the side it points to and opposes the other."""
+    """Return a label that points one way: favouring the side it points to, opposing the other."""
     return LabelSides(np.where(long_side, up, down), np.where(long_side, down, up))
 
 

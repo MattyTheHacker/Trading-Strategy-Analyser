@@ -2,31 +2,7 @@
 
     ./.venv/Scripts/python.exe tools/campaign_crossroot.py --top 200 --min-trades 500
 
-Every other campaign tool asks whether a configuration survives a different *window* of the
-same instrument. This asks whether it survives a different *instrument*, which is a stronger
-test of the same kind: nothing in the target root was seen when the configuration was chosen.
-
-**Roots are paired by size class**, NQ to ES and GC, MNQ to MES and MGC, so that the round-turn
-commission is the same on both sides and the only thing changing is the market. The target
-root's commission is set explicitly rather than inherited from the stored row.
-
-**The ranking floor is the point of the tool, not a detail.** Ranked on profit factor at the
-campaign's own ``MIN_TRADES`` of 30, the top of every archetype is small-sample noise -- the
-median top-200 row holds 43 trades and two thirds hold under 50, and the median profit factor
-falls from 3.77 to 1.44 as the floor rises to 500. ``--min-trades`` defaults high for that
-reason, and a row whose profit factor is infinite is dropped rather than ranked first.
-
-**A shortlist also has to be readable, and profit factor does not say whether it is.** A row
-whose fill assumption decided most of its legs is an artifact of ``ambiguity_policy`` rather
-than a strategy, and it outranks everything real: OpeningRange's ``entry=rejection`` rows reach
-a stored profit factor of 3,955 on 613 trades with one loser, an ``ambiguous_share`` of 0.89
-and trades held under one bar. §M28.7 measured that family and found 0 of 20 keep a profit
-factor above 1.00 under the other policy. Rows above :data:`~nqbt.disambiguate.MIN_AMBIGUOUS_SHARE`
-are therefore dropped before ranking -- ``docs/findings/m28-7-rejection-swept.md``.
-
-Nothing here is a gate. It reports the distribution of a pre-chosen set on unseen instruments;
-picking the best performer *on the target* would re-introduce the selection bias one level up,
-which is why no ranking of the output is printed -- ``docs/findings/README.md``.
+``tools/README.md`` § "campaign_crossroot.py".
 """
 
 from __future__ import annotations
@@ -73,7 +49,7 @@ OUT_DIR = paths.RESULTS_DIR / "crossroot"
 
 
 def selected(name: str, root: str, top: int, min_trades: int) -> pd.DataFrame:
-    """The configurations a source root nominates, on a sample large enough to mean something."""
+    """Return the configurations a source root nominates, on a sample large enough to mean something."""
     frame: pd.DataFrame = load(name, [WINDOW])
     frame = frame[(frame["root"] == root) & (frame["trades"] >= min_trades)]
     # A variant swept into a stratum contaminates a later top-N -- docs/roadmap.md, "Standing traps".
@@ -126,7 +102,7 @@ def run_on(name: str, rows: pd.DataFrame, target: str) -> pd.DataFrame:
 
 
 def crossroot(names: Sequence[str], top: int, min_trades: int) -> pd.DataFrame:
-    """Every archetype's shortlist, run on every target root its source root pairs with."""
+    """Run every archetype's shortlist on every target root its source root pairs with."""
     frames: list[pd.DataFrame] = []
     for name in names:
         if not db_path(name).exists():
@@ -142,7 +118,7 @@ def crossroot(names: Sequence[str], top: int, min_trades: int) -> pd.DataFrame:
 
 
 def summarise(rows: pd.DataFrame) -> pd.DataFrame:
-    """Per archetype and target root: the distribution, never a ranking of it."""
+    """Summarise per archetype and target root: the distribution, never a ranking of it."""
     grouped = rows.groupby(["strategy", "target_root"])
 
     return pd.DataFrame(

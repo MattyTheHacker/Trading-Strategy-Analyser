@@ -15,7 +15,7 @@ __all__: Sequence[str] = ["EnsureBlankLineBeforeLastReturn"]
 
 
 def _is_docstring(stmt: cst.BaseStatement) -> bool:
-    """Whether a statement is a bare string expression, as a docstring is."""
+    """Return whether a statement is a bare string expression, as a docstring is."""
     if not isinstance(stmt, cst.SimpleStatementLine) or len(stmt.body) != 1:
         return False
 

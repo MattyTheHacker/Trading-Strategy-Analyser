@@ -13,8 +13,7 @@ step cannot be skipped.
 
 Reading is **incremental** where it safely can be: the manifest records how far into the file
 was parsed and a hash of exactly those bytes, so a genuine append reads only the tail while
-anything else falls back to a full reparse. Hashing only the head cannot see a rewritten tail,
-which froze stale bars in the cache and dropped real ones at the seam.
+anything else falls back to a full reparse -- ``nqbt/README.md`` § "ingest.py".
 
 The cache is deliberately lossless -- out-of-session prints are tagged, not dropped, so the raw
 export can always be reconstructed from Parquet. :func:`load_contract` drops them on the way
@@ -77,14 +76,7 @@ class ContractManifest:
     consumed_hash: str
     """SHA-256 of bytes ``[0, byte_offset)`` -- everything already parsed into the cache.
 
-    Hashing the *whole* consumed range, rather than a fixed-size head, is what makes
-    "appended to, or rewritten?" an exact question instead of a guess. Two producers write
-    these files and they give different guarantees: the NinjaScript AddOn genuinely
-    appends, while a manual Tools -> Historical Data export regenerates the file. NT8
-    regenerations routinely differ in the tail -- a bar exported mid-formation returns
-    with different values once complete, and bars occasionally vanish between exports.
-    Both leave the head untouched, so a head-only check calls it an append and the stale
-    or withdrawn bars then survive in the cache indefinitely.
+    The whole consumed range rather than a fixed-size head -- ``nqbt/README.md`` § "ingest.py".
     """
     last_timestamp: str
     rows: int
@@ -146,7 +138,7 @@ class IngestError(RuntimeError):
 
 
 def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifest]:
-    """Every manifest entry on disk, dropping any an older version wrote differently."""
+    """Load every manifest entry on disk, dropping any an older version wrote differently."""
     if not path.exists():
         return {}
 
@@ -171,7 +163,7 @@ def save_manifest(manifest: dict[str, ContractManifest], path: Path = paths.MANI
 
 
 def _hash_range(source: Path, length: int) -> str:
-    """SHA-256 of the first ``length`` bytes of ``source``.
+    """Hash the first ``length`` bytes of ``source`` with SHA-256.
 
     A file shorter than ``length`` hashes whatever it has, which simply produces a digest
     that will not match -- the same answer as an explicit error, without the branch.
@@ -308,7 +300,7 @@ def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None)
 
 
 def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> Path:
-    """Where one contract's cached bars live."""
+    """Return where one contract's cached bars live."""
     return cache_dir / "bars" / contract.root / f"{contract.cache_key}.parquet"
 
 

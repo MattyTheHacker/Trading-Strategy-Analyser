@@ -1,12 +1,8 @@
-"""ElasticBand archetype: fade an extension, target the middle. The first mean reversion here.
+"""ElasticBand archetype: fade an extension and target the middle.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
-written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M26 names the NinjaScript each
-would become, and ``docs/roadmap.md`` §M26 carries the design and the three exit schemes.
-
-The entry is EmaCrossover's mechanism -- market on the next open, no trigger price -- and the
-geometry is the inverted one: **the target is a level rather than an R multiple**, so
-``r_multiple`` here compares with nothing else in the registry.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md`` §M26.
+The design and the three exit schemes: ``docs/roadmap.md`` §M26. A market entry at the next
+open whose targets are band levels, so its ``r_multiple`` compares with no other archetype's.
 """
 
 from __future__ import annotations
@@ -52,8 +48,7 @@ Numba needs an array of the right dtype whether or not the branch reading it run
 class BandSeries(NamedTuple):
     """The derived per-bar series this archetype reads, beyond the OHLC in :class:`bracket.Bars`.
 
-    Held together so one bar's band cannot be read against another's, and so the jitted loop
-    takes a blob rather than a positional list -- ``docs/roadmap.md`` §M20c.
+    Held together so one bar's band cannot be read against another's.
     """
 
     basis: FloatArray
@@ -84,7 +79,7 @@ class ElasticBandRules(NamedTuple):
 
 @njit(cache=True)
 def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_at: FloatArray) -> FloatArray:
-    """The adverse extreme of the unbroken run of bars outside the band ending at each bar.
+    """Return the adverse extreme of the unbroken run of bars outside the band ending at each bar.
 
     The lowest low of a run below the band, the highest high of a run above it, and ``nan``
     on a bar that is not outside at all. One pass, reset whenever the run breaks or changes
@@ -125,11 +120,10 @@ def _protective_stop(
     direction: float,
     rules: ElasticBandRules,
 ) -> float:
-    """Where the protective stop goes, in whichever of the five schemes is selected.
+    """Return where the protective stop goes, in whichever of the five schemes is selected.
 
     All five read the **signal** bar and the bars before it, never the bar the fill happens
-    on. Only :data:`STOP_ATR` is floored, because only it is a distance rather than a level --
-    ``docs/nt8-fidelity.md`` §M26.
+    on. Only :data:`STOP_ATR` is floored -- ``docs/nt8-fidelity.md`` §M26.
     """
     if rules.stop_mode == STOP_SWING:
         return bracket.swing_stop(bars, signal_bar, rules.swing_lookback, rules.stop_offset, direction)
@@ -164,11 +158,10 @@ def _leg_target(
     direction: float,
     rules: ElasticBandRules,
 ) -> float:
-    """One leg's target price, in whichever coordinate its mode expresses it.
+    """Return one leg's target price, in whichever coordinate its mode expresses it.
 
     A stretch level is a position on the band, signed towards the target, so ``0.0`` is the
-    basis for both sides. An R multiple is a distance from the fill, **capped at the basis** --
-    a target past the mean is not a mean-reversion target.
+    basis for both sides. An R multiple is a distance from the fill, capped at the basis.
     """
     if rules.target_mode == TARGET_STRETCH:
         return basis + direction * level * stddev
@@ -327,8 +320,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
 
         # ---- close of bar i: schedule the next bar's orders --------------------------
         if in_position and rules.exit_on_invalidation and d * (bars.close[i] - entry_extreme) < 0.0:
-            # The close went further than the excursion the trade faded: the range broke and
-            # held, which is the mean-reversion definition of being wrong.
+            # The close went further than the excursion the trade faded.
             pending_exit = True
             pending_exit_reason = trades.EXIT_SIGNAL
 
@@ -365,7 +357,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
 
 
 def lagged(series: FloatArray, lag: int) -> FloatArray:
-    """``series`` shifted ``lag`` bars later, with ``nan`` where nothing has been read yet.
+    """Shift ``series`` ``lag`` bars later, with ``nan`` where nothing has been read yet.
 
     ``lag=0`` is the series itself. The head is ``nan`` rather than a repeated first value so
     that a bar with no band cannot signal -- every comparison against it is false.
@@ -381,7 +373,7 @@ def lagged(series: FloatArray, lag: int) -> FloatArray:
 
 
 def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, FloatArray, FloatArray]:
-    """The basis, dispersion and extension this combination reads, at its band lag.
+    """Return the basis, dispersion and extension this combination reads, at its band lag.
 
     One coordinate system, two windows: a rolling ``band_period`` under :data:`BAND_BOLLINGER`
     and the session so far under :data:`BAND_VWAP`.
@@ -404,7 +396,7 @@ def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, F
 
 
 def vwap_band_warmed_up(data: Dataset, params: ElasticBandParams) -> BoolArray:
-    """Bars whose VWAP band has enough of its own session behind it to be a band.
+    """Flag bars whose VWAP band has enough of its own session behind it to be a band.
 
     The lag is added to the requirement rather than applied to the counter, which also keeps a
     lagged read inside the session it was anchored in.
@@ -413,10 +405,9 @@ def vwap_band_warmed_up(data: Dataset, params: ElasticBandParams) -> BoolArray:
 
 
 def fade_direction(stretch: FloatArray) -> FloatArray:
-    """Which side a bar would be faded on: ``LONG`` below the basis, ``SHORT`` at or above it.
+    """Return which side a bar would be faded on: ``LONG`` below the basis, ``SHORT`` at or above it.
 
-    Defined on **every** bar rather than only on signal bars, so the random-entry arm can drop
-    a signal anywhere and still know which way the trade would have been taken.
+    Defined on every bar, so the random-entry arm can drop a signal anywhere.
     """
     return np.where(stretch < 0.0, trades.LONG, trades.SHORT).astype(np.float64)
 
@@ -430,16 +421,15 @@ def elasticband_long_side(data: Dataset, params: ElasticBandParams) -> BoolArray
 
 
 def beyond_band(stretch: FloatArray, params: ElasticBandParams) -> BoolArray:
-    """Bars whose close sits at least ``entry_std`` standard deviations from the basis."""
+    """Flag bars whose close sits at least ``entry_std`` standard deviations from the basis."""
     return np.abs(stretch) >= params.entry_std
 
 
 def returned_inside(stretch: FloatArray, params: ElasticBandParams) -> BoolArray:
-    """Bars whose close came back inside the band and stayed on the side it stretched to.
+    """Flag bars whose close came back inside the band and stayed on the side it stretched to.
 
     ``recovery_fraction`` of ``1.0`` is the band edge itself and anything less is a depth. A
-    close exactly on the basis passes on neither side, which is the symmetry one sign
-    multiplier asks for -- ``docs/nt8-fidelity.md`` §M26.6.
+    close exactly on the basis passes on neither side -- ``docs/nt8-fidelity.md`` §M26.6.
     """
     distance: FloatArray = np.abs(stretch)
     depth: float = params.recovery_fraction * params.entry_std
@@ -448,7 +438,7 @@ def returned_inside(stretch: FloatArray, params: ElasticBandParams) -> BoolArray
 
 
 def outside_run_length(outside: BoolArray, *, ends_before: bool) -> IntArray:
-    """The unbroken run of bars outside the band that each bar's trigger reads.
+    """Return the unbroken run of bars outside the band that each bar's trigger reads.
 
     ``ends_before`` is :data:`TRIGGER_RECOVERY`'s: the run ended at the bar before the signal,
     so the count the signal bar reads is the one that bar carried -- ``docs/roadmap.md`` §M26.6.
@@ -464,11 +454,10 @@ def outside_run_length(outside: BoolArray, *, ends_before: bool) -> IntArray:
 
 
 def swept_and_reclaimed(data: Dataset, direction: FloatArray) -> BoolArray:
-    """Bars that took out the previous bar's extreme against the fade and closed back past it.
+    """Flag bars that took out the previous bar's extreme against the fade and closed back past it.
 
-    The sweep-and-recovery shape rather than a body that happened to turn, which is what makes
-    it a failed break of the level -- ``docs/roadmap.md`` §M26.5. The extreme is
-    :class:`nqbt.conditions.BarGeometry`'s, already built for every dataset.
+    A failed break of the level -- ``docs/roadmap.md`` §M26.5. The extreme is
+    :class:`nqbt.conditions.BarGeometry`'s.
     """
     swept: BoolArray = np.where(
         direction > 0.0,
@@ -480,7 +469,7 @@ def swept_and_reclaimed(data: Dataset, direction: FloatArray) -> BoolArray:
 
 
 def closed_off_extreme(data: Dataset, direction: FloatArray, fraction: float) -> BoolArray:
-    """Bars whose close sits at least ``fraction`` of their range back from the stretched extreme.
+    """Flag bars whose close sits at least ``fraction`` of their range back from the stretched extreme.
 
     A zero-range bar never qualifies, which is the boundary
     :func:`nqbt.conditions.inverted_hammer` already takes for a body of zero.
@@ -496,10 +485,9 @@ def closed_off_extreme(data: Dataset, direction: FloatArray, fraction: float) ->
 
 
 def signal_bar_shape(data: Dataset, direction: FloatArray, params: ElasticBandParams) -> BoolArray:
-    """Which bars pass the candle requirement :attr:`ElasticBandParams.signal_shape` names.
+    """Return which bars pass the candle requirement :attr:`ElasticBandParams.signal_shape` names.
 
-    All-true at :data:`SHAPE_ANY`, the one value that reads nothing off the bar at all --
-    which is why :func:`elasticband_signal` skips the conjunction there rather than ANDing it.
+    All-true at :data:`SHAPE_ANY`, where :func:`elasticband_signal` skips the conjunction.
     """
     if params.signal_shape == SHAPE_REVERSAL:
         return conditions.closed_towards(data.open, data.close, direction)
@@ -514,7 +502,7 @@ def signal_bar_shape(data: Dataset, direction: FloatArray, params: ElasticBandPa
 
 
 def one_sided_bars(data: Dataset, direction: FloatArray, lookback: int) -> IntArray:
-    """How many of the last ``lookback`` bars closed the way the move into the band was going.
+    """Count how many of the last ``lookback`` bars closed the way the move into the band was going.
 
     Bodies rather than closes against the previous close, and they need not be consecutive --
     which is what separates this from :attr:`ElasticBandParams.min_bars_outside`.
@@ -526,7 +514,7 @@ def one_sided_bars(data: Dataset, direction: FloatArray, lookback: int) -> IntAr
 
 
 def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open.
+    """Flag bars whose close schedules an entry for the next bar's open.
 
     Where the extension is: it has lasted ``min_bars_outside`` unbroken bars on one side, it
     clears ``entry_std``, and it is under ``max_entry_std`` where that ceiling is on. The

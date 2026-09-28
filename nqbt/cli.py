@@ -236,7 +236,7 @@ def _write_run_outputs(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """The parser for every ``nqbt`` subcommand."""
+    """Build the parser for every ``nqbt`` subcommand."""
     from nqbt import conditions
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(prog="nqbt", description=__doc__)

@@ -5,40 +5,7 @@
     ./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing \
         --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
 
-:mod:`nqbt.propaccount` answers the question no gate in §M27 or §M28 can be expressed in --
-**not "is the edge real" but "would the account have survived it, and would it have made more
-than it cost"** -- and §M28.13 read the whole registry through it from a script that was never
-committed. This is that read as a tool, so a cell can be put through an account the way it is
-put through a null -- ``docs/roadmap.md`` §M28.13.
-
-**The shortlist is chosen on the selection window and replayed over the held-out one**, which
-is :func:`~tools.campaign_holdout.held_out` and not :func:`~tools.campaign_shortlist.shortlist`:
-a sequence of accounts read from the window that chose it is the trap §M28.12 records. There is
-no ``--window`` here for that reason.
-
-**The attempt cap must not bind, and by default it cannot.** §M28.13's population run capped
-attempts at five, which bound on 98% of configurations and truncated their net figures badly
-enough to be wrong in sign -- a blown account costs its fees and not its trading losses, so
-stopping early hides the wins that come after. :func:`uncapped` is the default and
-``capped`` says on every row whether the cap was reached.
-
-**Nothing here is a ranking.** ``net`` rewards variance and can put a configuration that loses
-money as a strategy above one that makes it, because each blown account caps the loss at the
-fee -- ``docs/roadmap.md`` §M28.13, "The reset economics subsidise a losing strategy". Read it
-beside the profit factor and the pass rate.
-
-Reads the logs ``tools/campaign_shortlist.py --held-out`` stored, so run that first; a row with
-no log, and one whose rule set refuses it, are each named and skipped rather than silently
-dropped.
-
-**``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
-the only way to replay a campaign the archive has moved under -- ``tools/campaign_swept.py``.
-
-**``--quantities`` re-runs the shortlist once per contract count** and replays each, because
-position size is what decides an account and a stored log holds only the size it was swept at --
-``docs/findings/m28-13-account-read.md`` § "The binding constraint is position size, not the
-strategy". Every rung is a re-run, since on InsideBarTrailing the size moves the trades
-themselves -- ``docs/nt8-fidelity.md`` §M45.
+Nothing here is a ranking -- ``tools/README.md`` § "campaign_propaccount.py".
 """
 
 from __future__ import annotations
@@ -52,18 +19,16 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, logsetup, propaccount, stats
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import LABEL_COLUMNS
 from tools.campaign_report import NET_TO_DRAWDOWN, log_key, stored_logs
 from tools.campaign_shortlist import TOP, rebuild
 from tools.campaign_sweep import db_path
 from tools.campaign_swept import CELL_KEYS, SWEPT_BARS, logs_for
-
-from nqbt import archetypes, logsetup, propaccount, stats
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -82,24 +47,13 @@ REPORTED = (
     "trades_taken",
     "trades_total",
 )
-"""Which of :class:`~nqbt.propaccount.PropReplay`'s lifetime figures reach a row.
-
-``pass_rate`` is left off because ``passes`` and ``attempts`` are both here and a ratio of two
-printed columns is a third way to read the same pair."""
+"""Which of :class:`~nqbt.propaccount.PropReplay`'s lifetime figures reach a row."""
 
 DEFAULT_PRESETS = ("Apex 50K", "Apex 150K", "TopStep 50K", "TopStep 150K")
-"""Which rule sets a run reports unless ``--preset`` says otherwise.
-
-The four §M28.13 read the registry through. TakeProfitTrader ships as six presets covering two
-phases each, which is a table three times the size for a question about one cell."""
+"""Which rule sets a run reports unless ``--preset`` says otherwise: the four §M28.13 read."""
 
 CONTRACTS = "contracts"
-"""Position size the account actually faced, per trade.
-
-Not a parameter of the replay and reported because it decides the answer: four contracts is a
-different instrument-sized bet on each root, and the trailing threshold divided by the dollar
-value of a point is the whole account's room to move -- ``docs/roadmap.md`` §M28.13, "The
-binding constraint is position size, not the strategy"."""
+"""Position size the account actually faced, per trade -- ``docs/roadmap.md`` §M28.13."""
 
 
 QUANTITY = "quantity"
@@ -111,7 +65,7 @@ trade count. Net is left out, because a row stored at one size is not reproduced
 
 
 def uncapped(log: pd.DataFrame) -> int:
-    """An attempt cap that cannot bind on this log.
+    """Return an attempt cap that cannot bind on this log.
 
     Each attempt consumes at least one trading day and a day holds at least one trade, so the
     trade count bounds the attempts from above.
@@ -120,32 +74,32 @@ def uncapped(log: pd.DataFrame) -> int:
 
 
 def contracts_per_trade(log: pd.DataFrame) -> float:
-    """Contracts one trade of this log put on, as the legs' quantities summed per trade."""
+    """Count the contracts one trade of this log put on, as the legs' quantities summed per trade."""
     return float(log.groupby("trade_id")["quantity"].sum().mean())
 
 
 def rules_with(
     account: propaccount.PropAccount, order: propaccount.ExcursionOrder
 ) -> propaccount.PropAccount:
-    """One preset with its excursion order replaced, the rest of the rule set untouched."""
+    """Return one preset with its excursion order replaced, the rest of the rule set untouched."""
     if order is account.rules.excursion_order:
         return account
 
     return dataclasses.replace(account, rules=dataclasses.replace(account.rules, excursion_order=order))
 
 
-def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result row belongs to."""
+def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def replay_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def replay_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     log: pd.DataFrame,
     account: propaccount.PropAccount,
     max_accounts: int,
 ) -> dict[str, object] | None:
-    """One configuration through one rule set, or ``None`` where the rules refuse the log."""
+    """Replay one configuration through one rule set, or return ``None`` where the rules refuse the log."""
     try:
         result: propaccount.PropReplay = propaccount.replay(log, account, max_accounts=max_accounts)
     except propaccount.PropAccountError as refused:
@@ -172,7 +126,7 @@ def replay_shortlist(
     accounts: list[propaccount.PropAccount],
     max_accounts: int | None,
 ) -> pd.DataFrame:
-    """Every shortlisted configuration through every rule set, one row each."""
+    """Replay every shortlisted configuration through every rule set, one row each."""
     replayed: list[dict[str, object]] = []
     for _, row in rows.iterrows():
         log: pd.DataFrame = logs.get(log_key(row), pd.DataFrame())
@@ -194,13 +148,13 @@ def replay_shortlist(
     return pd.DataFrame(replayed)
 
 
-def takes_quantity(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def takes_quantity(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     archetype: archetypes.Archetype,
     quantity: int,
 ) -> bool:
-    """Whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
-    resized: pd.Series = row.copy()  # type: ignore[type-arg]  # duckdb's dtypes
+    """Return whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
+    resized = row.copy()
     resized["order_quantity"] = quantity
     try:
         rebuild(resized, archetype)
@@ -215,7 +169,7 @@ def takes_quantity(
 
 
 def at_quantity(rows: pd.DataFrame, archetype: archetypes.Archetype, quantity: int) -> pd.DataFrame:
-    """The shortlist restated at ``quantity`` contracts, less any row whose rules refuse that size.
+    """Restate the shortlist at ``quantity`` contracts, less any row whose rules refuse that size.
 
     A refusal is named rather than dropped: InsideBarTrailing's 0.6 split leaves no second lot
     below three contracts, and a bracket with several targets needs a contract for each.
@@ -226,7 +180,7 @@ def at_quantity(rows: pd.DataFrame, archetype: archetypes.Archetype, quantity: i
 
 
 def with_own_profit_factor(rows: pd.DataFrame, logs: Mapping[tuple[int, int], pd.DataFrame]) -> pd.DataFrame:
-    """The rows with ``profit_factor`` read off their re-run logs rather than the stored size's."""
+    """Return the rows with ``profit_factor`` read off their re-run logs rather than the stored size's."""
     measured: list[float] = [
         stats.summarise(logs[log_key(row)]).profit_factor if log_key(row) in logs else float("nan")
         for _, row in rows.iterrows()
@@ -243,7 +197,7 @@ def replay_rungs(
     accounts: list[propaccount.PropAccount],
     max_accounts: int | None,
 ) -> pd.DataFrame:
-    """The shortlist re-run and replayed once per contract count, each row tagged with its rung."""
+    """Re-run and replay the shortlist once per contract count, each row tagged with its rung."""
     archetype: archetypes.Archetype = archetypes.get(strategy)
     tables: list[pd.DataFrame] = []
     for quantity in quantities:
@@ -268,12 +222,9 @@ def replay_rungs(
 
 
 def verdict(table: pd.DataFrame) -> pd.DataFrame:
-    """Each rule set's medians across the shortlist, and the two shares that are not medians.
+    """Return each rule set's medians across the shortlist, and the two shares that are not medians.
 
-    A median attempt count and a median net describe the sequence a configuration produced;
-    ``ever_passed`` and ``profitable`` are shares because both questions are yes or no per
-    configuration and a median of a boolean says nothing. A table of rungs gets one row per rule
-    set and contract count.
+    A table of rungs gets one row per rule set and contract count.
     """
     if table.empty:
         return pd.DataFrame()
@@ -316,7 +267,7 @@ def shortlist_logs(
     *,
     rerun: bool,
 ) -> Mapping[tuple[int, int], pd.DataFrame]:
-    """The shortlist's held-out logs at the size they were swept at: stored, or re-run."""
+    """Return the shortlist's held-out logs at the size they were swept at: stored, or re-run."""
     if not rerun:
         return stored_logs(rows, db_path(strategy))
 

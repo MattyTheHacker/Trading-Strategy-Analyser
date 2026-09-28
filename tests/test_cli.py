@@ -40,7 +40,7 @@ def output(caplog) -> str:
 # --- error handling ----------------------------------------------------------
 
 
-def failing_main(monkeypatch, error: Exception) -> None:
+def failing_main(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
     parser = MagicMock()
     parser.parse_args.return_value = argparse.Namespace(func=MagicMock(side_effect=error))
     monkeypatch.setattr(cli, "build_parser", MagicMock(return_value=parser))
@@ -50,7 +50,7 @@ def failing_main(monkeypatch, error: Exception) -> None:
     "error",
     [FileNotFoundError("no cached bars"), splice.SpliceError("no crossover"), ingest.IngestError("no bars")],
 )
-def test_main_explains_an_expected_failure_on_stderr(monkeypatch, capsys, error) -> None:
+def test_main_explains_an_expected_failure_on_stderr(monkeypatch: pytest.MonkeyPatch, capsys, error) -> None:
     """An expected failure is explained, not swallowed into a bare exit code.
 
     Reading ``capsys`` rather than ``caplog`` is the point: it exercises the real handler
@@ -64,7 +64,7 @@ def test_main_explains_an_expected_failure_on_stderr(monkeypatch, capsys, error)
     assert captured.out == ""
 
 
-def test_main_writes_results_to_stdout_so_they_can_be_piped(monkeypatch, capsys) -> None:
+def test_main_writes_results_to_stdout_so_they_can_be_piped(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     parser = MagicMock()
     parser.parse_args.return_value = argparse.Namespace(func=lambda _: _log_and_succeed())
     monkeypatch.setattr(cli, "build_parser", MagicMock(return_value=parser))
@@ -84,7 +84,9 @@ def _log_and_succeed() -> int:
 # --- ingest ------------------------------------------------------------------
 
 
-def test_cmd_ingest_reports_the_merge_and_the_bar_count(monkeypatch, base_args, console) -> None:
+def test_cmd_ingest_reports_the_merge_and_the_bar_count(
+    monkeypatch: pytest.MonkeyPatch, base_args, console
+) -> None:
     base_args.root = "MNQ"
     base_args.force = False
 
@@ -115,13 +117,17 @@ def test_cmd_ingest_reports_the_merge_and_the_bar_count(monkeypatch, base_args, 
 # --- contracts ---------------------------------------------------------------
 
 
-def test_cmd_contracts_says_so_when_nothing_is_ingested(monkeypatch, base_args, console) -> None:
+def test_cmd_contracts_says_so_when_nothing_is_ingested(
+    monkeypatch: pytest.MonkeyPatch, base_args, console
+) -> None:
     monkeypatch.setattr(cli.ingest, "load_manifest", MagicMock(return_value=None))
     assert cli._cmd_contracts(base_args) == 1
     assert "nothing ingested yet" in output(console)
 
 
-def test_cmd_contracts_tabulates_every_cached_contract(monkeypatch, base_args, console) -> None:
+def test_cmd_contracts_tabulates_every_cached_contract(
+    monkeypatch: pytest.MonkeyPatch, base_args, console
+) -> None:
     entry = MagicMock(rows=132454, last_timestamp="2024-03-17T14:55:00+00:00")
     monkeypatch.setattr(cli.ingest, "load_manifest", MagicMock(return_value={"MNQ 03-24": entry}))
 
@@ -146,7 +152,7 @@ def splice_args(base_args, *, diagnostics: bool):
     return base_args
 
 
-def spliced(monkeypatch, *, early_rolls, rolls=()):
+def spliced(monkeypatch: pytest.MonkeyPatch, *, early_rolls, rolls=()):
     series = pd.DataFrame(
         {"close": [1.0, 2.0]},
         index=pd.to_datetime(["2024-03-01", "2024-03-02"], utc=True),
@@ -158,7 +164,7 @@ def spliced(monkeypatch, *, early_rolls, rolls=()):
     return series
 
 
-def test_cmd_splice_reports_the_series_it_wrote(monkeypatch, base_args, console) -> None:
+def test_cmd_splice_reports_the_series_it_wrote(monkeypatch: pytest.MonkeyPatch, base_args, console) -> None:
     spliced(monkeypatch, early_rolls=[])
     assert cli._cmd_splice(splice_args(base_args, diagnostics=False)) == 0
 
@@ -168,7 +174,9 @@ def test_cmd_splice_reports_the_series_it_wrote(monkeypatch, base_args, console)
     assert "written to" in text
 
 
-def test_cmd_splice_prints_the_volume_tables_under_diagnostics(monkeypatch, base_args, console) -> None:
+def test_cmd_splice_prints_the_volume_tables_under_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, base_args, console
+) -> None:
     roll = MagicMock(notes=["rolled at the coverage boundary"])
     roll.front.nt8_name = "MNQ 03-24"
     roll.back.nt8_name = "MNQ 06-24"
@@ -183,7 +191,9 @@ def test_cmd_splice_prints_the_volume_tables_under_diagnostics(monkeypatch, base
     assert "note: rolled at the coverage boundary" in text
 
 
-def test_cmd_splice_stays_quiet_about_rolls_without_diagnostics(monkeypatch, base_args, console) -> None:
+def test_cmd_splice_stays_quiet_about_rolls_without_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, base_args, console
+) -> None:
     roll = MagicMock(notes=["rolled at the coverage boundary"])
     spliced(monkeypatch, early_rolls=[], rolls=[roll])
 
@@ -219,7 +229,7 @@ def run_args(base_args, **overrides):
 
 
 @pytest.fixture
-def stub_run(monkeypatch):
+def stub_run(monkeypatch: pytest.MonkeyPatch):
     """Stub everything ``_cmd_run`` calls; these tests are about what it reports."""
     bars = pd.DataFrame(
         {"close": [1.0, 2.0]},
@@ -233,11 +243,10 @@ def stub_run(monkeypatch):
 
 
 def trade_log() -> pd.DataFrame:
-    """A two-leg winner and a one-leg loser, carrying every column ``summarise`` reads.
+    """Build a two-leg winner and a one-leg loser, carrying every column ``summarise`` reads.
 
-    The figures are deliberately all different from each other -- net $15.00, drawdown
-    $25.00, expectancy $7.50, profit factor 1.600. They were not: net P&L and max drawdown
-    were both $20.00, so the drawdown assertion passed against the net P&L line.
+    The figures are all different from each other -- net $15.00, drawdown $25.00, expectancy
+    $7.50, profit factor 1.600 -- so each assertion can only match its own line.
     """
     return pd.DataFrame(
         {
@@ -258,7 +267,9 @@ def trade_log() -> pd.DataFrame:
     )
 
 
-def test_cmd_run_says_so_when_there_are_no_trades(monkeypatch, base_args, stub_run, console) -> None:
+def test_cmd_run_says_so_when_there_are_no_trades(
+    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
+) -> None:
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=pd.DataFrame()))
     explain = MagicMock()
     monkeypatch.setattr("nqbt.sim.explain.explain_trades", explain)
@@ -269,7 +280,7 @@ def test_cmd_run_says_so_when_there_are_no_trades(monkeypatch, base_args, stub_r
 
 
 def test_cmd_run_builds_a_grid_for_every_gate_when_two_of_them_share_a_kind(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     base_args,
     stub_run,
     console,
@@ -290,7 +301,7 @@ def test_cmd_run_builds_a_grid_for_every_gate_when_two_of_them_share_a_kind(
 
 
 def test_cmd_run_asks_for_the_kind_each_gate_was_given(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     base_args,
     stub_run,
     console,
@@ -307,17 +318,15 @@ def test_cmd_run_asks_for_the_kind_each_gate_was_given(
 
 @pytest.mark.parametrize(("explain", "kept"), [(None, False), (20, True)])
 def test_cmd_run_keeps_the_indicator_values_exactly_when_explain_asked_for_them(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     base_args,
     stub_run,
     explain,
     kept,
 ) -> None:
-    """``explain_trades`` raises without them, so this coupling is what makes --explain work.
+    """``--explain`` prepares the moving-average values ``explain_trades`` raises without.
 
-    Both halves of it are stubbed in the tests that read the audit trail, which is what let
-    ``keep_ma_values`` be set to a constant without a test failing -- and ``nqbt run
-    --explain`` would then have died on the ValueError ``explain_trades`` raises.
+    The tests that read the audit trail stub both halves, so this is the one that pins the coupling.
     """
     prepare = MagicMock()
     monkeypatch.setattr("nqbt.context.prepare", prepare)
@@ -327,8 +336,10 @@ def test_cmd_run_keeps_the_indicator_values_exactly_when_explain_asked_for_them(
     assert prepare.call_args.kwargs["keep_ma_values"] is kept
 
 
-def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub_run, console) -> None:
-    """The profit factor and drawdown were computed and dropped on the floor once."""
+def test_cmd_run_reports_the_statistics_it_computed(
+    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
+) -> None:
+    """The profit factor and drawdown reach the output."""
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
 
     assert cli._cmd_run(run_args(base_args)) == 0
@@ -348,7 +359,7 @@ def test_cmd_run_reports_the_statistics_it_computed(monkeypatch, base_args, stub
 
 
 def test_cmd_run_reports_an_infinite_profit_factor_rather_than_dividing_by_zero(
-    monkeypatch, base_args, stub_run, console
+    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
 ) -> None:
     winners = trade_log().assign(net_pnl=[30.0, 10.0, 20.0])
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=winners))
@@ -358,7 +369,7 @@ def test_cmd_run_reports_an_infinite_profit_factor_rather_than_dividing_by_zero(
 
 
 def test_cmd_run_reports_the_profit_factor_stats_defines_when_nothing_won_or_lost(
-    monkeypatch, base_args, stub_run, console
+    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
 ) -> None:
     """Scratches only. Two definitions disagreed here, and ``stats._ratio``'s is the one."""
     scratches = trade_log().assign(net_pnl=[0.0, 0.0, 0.0])
@@ -369,7 +380,9 @@ def test_cmd_run_reports_the_profit_factor_stats_defines_when_nothing_won_or_los
     assert "profit factor 0.000" in output(console)
 
 
-def test_cmd_run_names_every_file_it_wrote(monkeypatch, base_args, stub_run, console, tmp_path) -> None:
+def test_cmd_run_names_every_file_it_wrote(
+    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console, tmp_path: Path
+) -> None:
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
     detail = pd.DataFrame({"trade_id": [1, 2]})
     monkeypatch.setattr("nqbt.sim.explain.explain_trades", MagicMock(return_value=detail))

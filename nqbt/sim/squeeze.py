@@ -1,11 +1,9 @@
 """SqueezeBreakout archetype: rest a stop beyond a compressed window's extreme, one side at a time.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule below is
-written down rather than reconciled -- ``docs/nt8-fidelity.md`` §M19.2 names the NinjaScript each
-would become, and ``docs/findings/m19-2-squeeze-breakout-spec.md`` carries the design.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md``
+§M19.2. The design: ``docs/findings/m19-2-squeeze-breakout-spec.md``.
 
-The entry is OpeningRange's breakout with its level taken from a rolling window rather than from
-a session's opening range, so it runs through
+OpeningRange's breakout with its level taken from a rolling window, run through
 :func:`nqbt.sim.openingrange.simulate_openingrange` with **one level row per bar**. Only the
 signal and the levels are this module's.
 """
@@ -37,7 +35,7 @@ UNCAPPED = 0
 
 
 def squeeze_signal(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
-    """Bars that may submit an entry order: those whose window has been squeezed for long enough.
+    """Flag bars that may submit an entry order: those whose window has been squeezed for long enough.
 
     The squeeze is :data:`nqbt.compression.Compression.COMPRESSED` cut at ``squeeze_below``, so
     it is the compression filter's own rule rather than a second copy of it.
@@ -55,7 +53,7 @@ def squeeze_signal(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
 
 
 def squeeze_levels(data: Dataset, params: SqueezeBreakoutParams) -> openingrange.RangeSeries:
-    """The window this combination trades, as one level row per bar.
+    """Return the window this combination trades, as one level row per bar.
 
     A bar is armed wherever its window is complete, which is every bar past the first
     ``squeeze_period - 1`` whether or not it is squeezed -- the random-entry arm draws bars the
@@ -77,7 +75,7 @@ def squeeze_levels(data: Dataset, params: SqueezeBreakoutParams) -> openingrange
 
 
 def entry_bound(data: Dataset, levels: openingrange.RangeSeries, signal: BoolArray, direction: float) -> int:
-    """How many entries this combination can possibly fill -- what the output is sized from.
+    """Return how many entries this combination can possibly fill -- what the output is sized from.
 
     A fill needs an armed signal bar followed by a bar reaching that bar's level, so those pairs
     bound it. The signal's own count is far looser, because a squeeze holds for many bars and

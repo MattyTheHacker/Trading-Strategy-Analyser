@@ -1,16 +1,7 @@
 """Tests for the ``nqbt run --explain`` audit trail.
 
-The audit trail is the instrument a human uses to tick a trade off against a chart before
-trusting anything downstream, so the property that matters is not that it produces
-plausible numbers -- it is that it produces *the simulation's* numbers. It did not: it
-recomputed the entry arithmetic independently and dropped the ``Close[0] - 2 ticks``
-trigger cap, which binds on roughly a third of all signals measured over a whole window.
-It agreed on the stop, which is what made it survive inspection.
-
-These tests compare every trade rather than a sample, because the defect was a
-disagreement on a large minority of rows and any single row could easily look fine.
-Capped signals are not evenly distributed -- the rate reads far higher over the first
-twenty trades and decays -- so a prefix of a trade log is not a sample of it.
+The property that matters is that it reports the simulation's own numbers, checked over every
+trade rather than a sample -- ``docs/roadmap.md`` §M20a.
 """
 
 import itertools
@@ -28,7 +19,7 @@ from nqbt.trades import SHORT
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
-    """Random-walk minute bars with wicks wide enough to throw inverted hammers.
+    """Build random-walk minute bars with wicks wide enough to throw inverted hammers.
 
     A share of bars open away from the previous close rather than exactly on it. Without
     that the entry bar can never gap through the trigger, because the trigger is capped at
@@ -59,7 +50,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def audited():
-    """A trade log and the audit trail over the whole of it, not a prefix."""
+    """Provide a trade log and the audit trail over the whole of it, not a prefix."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(),
@@ -79,11 +70,9 @@ def audited():
 
 
 def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited) -> None:
-    """The regression test for the defect: it disagreed on 50% of trades.
+    """The audit trail's stop and risk match the simulation on every trade, and so its trigger does.
 
-    ``trigger`` is not a column of the trade log, but the log pins it exactly --
-    ``risk_points`` is ``initial_stop - trigger`` by construction, so agreeing on both
-    named columns is agreeing on the trigger too.
+    ``risk_points`` is ``initial_stop - trigger`` by construction.
     """
     log, detail = audited
     first_leg = log.groupby("trade_id").first()
@@ -99,9 +88,8 @@ def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited) -
 def test_the_capped_trigger_actually_binds_in_this_fixture(audited) -> None:
     """Guards the test above from passing vacuously.
 
-    If the close-based cap never bound, the old ``trigger = Low[0]`` would agree with the
-    simulation everywhere and the comparison would prove nothing. It has to bind on a
-    substantial share of trades for that test to have teeth.
+    The close-based cap has to bind on a substantial share of trades, or a bare
+    ``trigger = Low[0]`` would agree with the simulation everywhere.
     """
     _, detail = audited
     capped = detail["trigger"] < detail["sig_low"]
@@ -109,7 +97,7 @@ def test_the_capped_trigger_actually_binds_in_this_fixture(audited) -> None:
 
 
 def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited) -> None:
-    """``fill_type`` reads the trigger too, so it was wrong on the same rows."""
+    """``fill_type`` reads the trigger too, so it matches the simulation's fill on every row."""
     _log, detail = audited
     gapped = detail["fill_type"] == "gap_at_open"
     assert (detail.loc[gapped, "entry_price"] == detail.loc[gapped, "entry_open"]).all()
@@ -120,10 +108,7 @@ def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited) -
 def test_both_fill_types_actually_occur_in_this_fixture(audited) -> None:
     """Guards the test above from passing vacuously.
 
-    Each half of it asserts over one branch's rows, so a fixture holding only one fill type
-    leaves the other asserting over an empty frame -- and the classification could then be
-    inverted, or hard-coded, without a test failing. It was: every trade read
-    ``trigger_touched`` until the fixture learned to gap.
+    Each half of it asserts over one branch's rows, so the fixture has to hold both fill types.
     """
     _log, detail = audited
     counts = detail["fill_type"].value_counts()
@@ -219,7 +204,7 @@ def test_ratchet_history_raises_keyerror_on_unknown_trade() -> None:
 
 @pytest.fixture
 def ratchet():
-    """One trade's bar-by-bar stop history, with the dataset it was built from."""
+    """Return one trade's bar-by-bar stop history, with the dataset it was built from."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(n=1500),

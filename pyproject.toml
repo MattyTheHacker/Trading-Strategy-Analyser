@@ -100,7 +100,6 @@ ignore = [
     "D400",  # A summary that asks a question ends in "?". D415 still requires terminal punctuation.
     "D105",  # A dunder's contract is the language's; the ones that surprise carry a docstring anyway.
     "D213",  # D212 is the convention here: a multi-line summary starts on the first line.
-    "D401",  # A docstring here says *what* a thing is -- CONTRIBUTING.md, "Where reasoning goes" -- which is a noun phrase, where D401 wants an imperative verb.
 ]
 
 

@@ -80,7 +80,7 @@ def test_a_context_declaring_no_lookback_at_all_needs_no_prefix() -> None:
 
 
 def stored_rows(**columns: object) -> pd.DataFrame:
-    """Two shortlisted InsideBar rows, as the campaign databases store them."""
+    """Build two shortlisted InsideBar rows, as the campaign databases store them."""
     base = {
         "ema_period": [11, 44],
         "fast_sma_period": [20, 50],
@@ -153,7 +153,7 @@ def options(**overrides: object) -> argparse.Namespace:
 
 @pytest.fixture(scope="module")
 def verdict() -> dict[str, object]:
-    """One real walk-forward over a two-row shortlist. Costed, because ``walk_forward``
+    """Run one real walk-forward over a two-row shortlist. Costed, because ``walk_forward``
     refuses a free one -- reaching a verdict at all is what says the tool passed costs in."""
     return run_resolution(STRATEGY, stored_rows(), ROOT, 5, synthetic_bars(), options())
 
@@ -184,7 +184,9 @@ def test_the_verdict_is_the_pooled_out_of_sample_figure_and_not_a_median_of_medi
 # -- the run over a whole shortlist --------------------------------------------------------
 
 
-def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(monkeypatch) -> None:
+def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Two candidates at different bar sizes are different frames and cannot be selected
     between, so pooling them would rank a 5-minute profit factor against a 10-minute one."""
     rows = pd.concat([stored_rows(resolution=[5, 5]), stored_rows(resolution=[10, 10])])
@@ -205,7 +207,7 @@ def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(monk
     assert ran == [5, 10]
 
 
-def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch) -> None:
+def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of, and a
     flag that parses without reaching ``shortlist`` reads exactly like one that works."""
     rows = stored_rows(

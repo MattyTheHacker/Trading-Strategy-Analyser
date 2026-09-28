@@ -1,9 +1,16 @@
+"""Ingesting NT8 text exports into the bar cache."""
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from nqbt import ingest
 from nqbt.instruments import ContractId
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 CONTRACT = ContractId.parse("MNQ 03-24")
 
@@ -16,7 +23,7 @@ LINES = [
 
 
 def session_lines(count, start="2024-03-08 18:00"):
-    """``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
+    """Write ``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
     stamps = pd.date_range(start, periods=count, freq="min")
 
     return [f"{ts:%Y%m%d %H%M%S};18000.25;18002.00;17999.50;18001.00;120" for ts in stamps]
@@ -30,7 +37,7 @@ def write(path, lines, *, trailing_newline=True):
 
 
 @pytest.fixture
-def export(tmp_path):
+def export(tmp_path: Path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 
@@ -38,7 +45,7 @@ def export(tmp_path):
 
 
 @pytest.fixture
-def cache(tmp_path):
+def cache(tmp_path: Path):
     return tmp_path / "cache"
 
 
@@ -111,11 +118,9 @@ def test_partial_trailing_line_is_deferred_until_complete(export, cache) -> None
 
 
 def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cache) -> None:
-    """The failure that silently corrupted the real cache.
+    """A part-formed last bar that a later export completes is replaced, not frozen.
 
-    Exporting during a session captures the newest bar part-formed. When it completes,
-    NT8 rewrites that line with the true high/low/close/volume. Detecting an append from
-    the file head alone cannot see that, so the partial bar used to be frozen forever.
+    A head-only append check cannot see the rewrite -- ``nqbt/README.md`` § "ingest.py".
     """
     partial = "20240308 213300;18001.75;18002.00;18001.50;18001.80;12"
     write(export, [*LINES, partial])
@@ -166,7 +171,9 @@ def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export, cache) -
     assert frame["close"].iloc[-1] == pytest.approx(18003.75)
 
 
-def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(export, cache, tmp_path) -> None:
+def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(
+    export, cache, tmp_path: Path
+) -> None:
     import json
 
     run(export, cache)
@@ -215,7 +222,7 @@ def test_force_reparses_even_when_unchanged(export, cache) -> None:
     assert result.rows_total == 3
 
 
-def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path) -> None:
+def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -231,7 +238,7 @@ def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path) -> None:
     assert frame["close"].iloc[0] == pytest.approx(18004.00)
 
 
-def test_out_of_session_prints_are_cached_but_not_handed_out(cache, tmp_path) -> None:
+def test_out_of_session_prints_are_cached_but_not_handed_out(cache, tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -251,7 +258,7 @@ def test_out_of_session_prints_are_cached_but_not_handed_out(cache, tmp_path) ->
 
 
 def cached_frame(flags: list[bool]) -> pd.DataFrame:
-    """A frame shaped like the parquet cache, flagged as ``flags`` says rather than by clock."""
+    """Build a frame shaped like the parquet cache, flagged as ``flags`` says rather than by clock."""
     prices = np.arange(len(flags), dtype=np.float64)
 
     return pd.DataFrame(
@@ -295,7 +302,7 @@ def test_an_empty_frame_has_no_stray_share_to_divide_by() -> None:
     assert ingest.drop_out_of_session(empty, source_name=CONTRACT.nt8_name).empty
 
 
-def test_ohlc_violations_are_rejected_loudly(cache, tmp_path) -> None:
+def test_ohlc_violations_are_rejected_loudly(cache, tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -306,7 +313,7 @@ def test_ohlc_violations_are_rejected_loudly(cache, tmp_path) -> None:
         run(src, cache)
 
 
-def test_discover_exports_finds_and_parses_contract_names(tmp_path) -> None:
+def test_discover_exports_finds_and_parses_contract_names(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     for name in ["MNQ 03-24.Last.txt", "NQ 12-25.Last.txt", "notes.txt", "junk.Last.txt"]:
@@ -319,7 +326,7 @@ def test_discover_exports_finds_and_parses_contract_names(tmp_path) -> None:
     assert {c.nt8_name for c in mnq_only} == {"MNQ 03-24"}
 
 
-def test_discover_exports_reports_names_it_cannot_place(tmp_path) -> None:
+def test_discover_exports_reports_names_it_cannot_place(tmp_path: Path) -> None:
     """An export whose name will not parse must be reported, not silently dropped."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -335,7 +342,7 @@ def test_discover_exports_reports_names_it_cannot_place(tmp_path) -> None:
     assert "cannot parse contract name" in reasons["junk.Last.txt"]
 
 
-def test_a_skipped_export_is_still_reported_when_filtered_to_one_root(tmp_path) -> None:
+def test_a_skipped_export_is_still_reported_when_filtered_to_one_root(tmp_path: Path) -> None:
     """The root filter narrows what ingests; it must not narrow what is reported."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -357,24 +364,24 @@ def test_ingest_all_returns_the_files_it_skipped(export, cache) -> None:
     assert "unknown root 'NG'" in skipped[0].reason
 
 
-def test_ingest_all_names_the_skipped_files_when_none_are_ingestable(tmp_path) -> None:
+def test_ingest_all_names_the_skipped_files_when_none_are_ingestable(tmp_path: Path) -> None:
     """A folder of misnamed exports must not report only that it found nothing."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "NG 02-26.Last.txt").write_text("", encoding="utf-8")
 
-    with pytest.raises(ingest.IngestError, match="skipped NG 02-26.Last.txt"):
+    with pytest.raises(ingest.IngestError, match=r"skipped NG 02-26\.Last\.txt"):
         ingest.ingest_all(data_dir=data_dir, cache_dir=tmp_path / "cache")
 
 
-def test_ingest_all_reports_when_nothing_is_found(tmp_path) -> None:
+def test_ingest_all_reports_when_nothing_is_found(tmp_path: Path) -> None:
     empty = tmp_path / "data"
     empty.mkdir()
     with pytest.raises(ingest.IngestError, match="no NT8 exports"):
         ingest.ingest_all(data_dir=empty, cache_dir=tmp_path / "cache")
 
 
-def test_empty_export_raises_ingest_error(cache, tmp_path) -> None:
+def test_empty_export_raises_ingest_error(cache, tmp_path: Path) -> None:
     """Ensure that an empty or whitespace-only file is rejected cleanly."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -385,7 +392,7 @@ def test_empty_export_raises_ingest_error(cache, tmp_path) -> None:
         run(src, cache)
 
 
-def test_tick_export_is_rejected_early(cache, tmp_path) -> None:
+def test_tick_export_is_rejected_early(cache, tmp_path: Path) -> None:
     """Verify tick-level exports are rejected rather than parsed incorrectly.
 
     NinjaTrader tick files have 5 fields instead of 6, and a 3-part timestamp
@@ -402,7 +409,7 @@ def test_tick_export_is_rejected_early(cache, tmp_path) -> None:
         run(src, cache)
 
 
-def test_unparseable_timestamps_raise_error(cache, tmp_path) -> None:
+def test_unparseable_timestamps_raise_error(cache, tmp_path: Path) -> None:
     """Ensures export files with malformed timestamps trigger a failure."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -414,13 +421,15 @@ def test_unparseable_timestamps_raise_error(cache, tmp_path) -> None:
         run(src, cache)
 
 
-def test_load_contract_raises_file_not_found_when_missing(tmp_path) -> None:
+def test_load_contract_raises_file_not_found_when_missing(tmp_path: Path) -> None:
     """Loading a contract that has not been cached should abort safely."""
     with pytest.raises(FileNotFoundError, match="no cached bars for MNQ 03-24"):
         ingest.load_contract(CONTRACT, tmp_path)
 
 
-def test_ingest_all_builds_archive_when_data_dir_is_none(monkeypatch, export, cache) -> None:
+def test_ingest_all_builds_archive_when_data_dir_is_none(
+    monkeypatch: pytest.MonkeyPatch, export, cache
+) -> None:
     """Verifies that ingest_all defaults to refreshing the archive if no data_dir is provided."""
     from unittest.mock import MagicMock
 

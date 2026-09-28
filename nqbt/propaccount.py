@@ -1,25 +1,10 @@
 """Replaying a prop-firm account's rules over a trade log.
 
-The question a ranking by profit factor cannot answer: **would this account have survived, and
-would it have made more than it cost?** A strategy that breaches the trailing threshold on the
-way to a good profit factor does not get funded, and a strategy that blows three accounts while
-withdrawing more than the four of them cost is still a business.
-
-Nothing here defines a performance statistic. Every figure describing *the trades* comes from
-:func:`nqbt.stats.summarise`; the figures this module owns describe *the account* -- where the
-floor sat, which day it was breached on, what was withdrawn and what the attempts cost.
-
-**Unrealised P&L is modelled, and it is why this needs more than ``net_pnl``.** Most firms
-measure both the trailing threshold and the daily loss limit against open equity, so a trade
-that dips far enough before turning around can end an account it finished profitably. Each
-trade's worst and best open equity come from its legs' ``mae_points`` and ``mfe_points``, priced
-through :mod:`nqbt.instruments` -- bar-resolution excursions, in keeping with the prime
-directive, and never tick data.
-
-The rule set is entirely parameterised because firms genuinely disagree on every axis. What
-each preset number rests on, the three assumptions the replay makes where bar data cannot
-decide, and what is deliberately not modelled: ``docs/roadmap.md`` § "Replaying a prop account
-over the trade log".
+Every figure describing *the trades* comes from :func:`nqbt.stats.summarise`; this module owns
+the figures describing *the account*. Open equity is priced from each leg's ``mae_points`` and
+``mfe_points`` through :mod:`nqbt.instruments`. The presets' sources, the assumptions bar data
+cannot decide, and what is not modelled: ``docs/roadmap.md`` § "Replaying a prop account over
+the trade log".
 """
 
 from __future__ import annotations
@@ -87,10 +72,8 @@ REQUIRED_COLUMNS = (
 :func:`nqbt.stats.summarise` reads, plus the two that price an excursion in dollars."""
 
 EXCURSION_COLUMNS = ("mae_points", "mfe_points")
-"""Columns that must additionally be **non-null** when a rule measures open equity.
-
-An imported log may legitimately leave them empty -- :data:`nqbt.trades.NULLABLE` -- which is
-why their presence is required and their contents only conditionally.
+"""Columns that must also be **non-null** when a rule measures open equity; an imported log may
+leave them empty -- :data:`nqbt.trades.NULLABLE`.
 """
 
 
@@ -134,9 +117,8 @@ class TrailLock(StrEnum):
 class ExcursionOrder(StrEnum):
     """Which of one trade's two excursions is applied first, where bar data cannot say.
 
-    Read only under :attr:`TrailBasis.INTRADAY`, which is the only basis a trade's own peak can
-    move the floor under. It is the single largest lever in the model on a full-size
-    contract -- ``docs/roadmap.md`` §M28.13.
+    Read only under :attr:`TrailBasis.INTRADAY`, the only basis a trade's own peak can move the
+    floor under -- ``docs/roadmap.md`` §M28.13.
     """
 
     PEAK_FIRST = "peak-first"
@@ -200,10 +182,8 @@ class AccountRules:
     """Dollars above the starting balance the floor freezes at, under that lock only."""
 
     excursion_order: ExcursionOrder = ExcursionOrder.PEAK_FIRST
-    """Which of a trade's excursions moves the floor first, under an intraday basis.
-
-    Measured, not incidental: it decides whether a full-size NQ account dies on its first trade
-    or trades on -- ``docs/roadmap.md`` §M28.13.
+    """Which of a trade's excursions moves the floor first, under an intraday basis --
+    ``docs/roadmap.md`` §M28.13.
     """
 
     daily_loss_limit: float = 0.0
@@ -219,16 +199,14 @@ class AccountRules:
     withdrawal_threshold: float = 0.0
     """Profit left in the account after a withdrawal -- the safety net a firm requires.
 
-    Set it at or above the locked floor: a withdrawal is not stopped from breaching the account,
-    because a rule set that permits one is a rule set under which it would happen.
+    Set it at or above the locked floor: nothing stops a withdrawal from breaching the account.
     """
 
     profit_split: float = 1.0
     """The trader's share of each withdrawal. ``1.0`` is no split at all.
 
-    The account still gives up the whole withdrawal -- the split decides what reaches the
-    trader, not what leaves the balance, which is why :attr:`AccountRun.withdrawn` and
-    :attr:`AccountRun.payout` are separate figures.
+    The account still gives up the whole withdrawal: :attr:`AccountRun.withdrawn` is what left
+    it and :attr:`AccountRun.payout` what reached the trader.
     """
 
     def __post_init__(self) -> None:
@@ -291,7 +269,7 @@ class AccountRules:
 
 
 def _is_negative(value: object) -> bool:
-    """Whether a field holds a negative number, with bool excluded as it is not a quantity."""
+    """Return whether a field holds a negative number, with bool excluded as it is not a quantity."""
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0
 
 
@@ -514,14 +492,11 @@ PRESETS: dict[str, PropAccount] = {
         TPT_150K_PRO,
     )
 }
-"""Three firms at the commonest sizes.
+"""Three firms at the commonest sizes; TakeProfitTrader's evaluation and funded account are two
+presets per size.
 
-TakeProfitTrader ships as two presets per size because its evaluation and its funded account
-are different rule sets, which one :class:`AccountRules` cannot hold at once.
-
-**Dated, and not quotable terms** -- published rules and prices move, which is why every field
-is overridable. Where each number came from, and which are conservative stand-ins rather than
-published figures: ``docs/roadmap.md`` § "Replaying a prop account over the trade log".
+Dated, and not quotable terms. Where each number came from: ``docs/roadmap.md`` § "Where the
+preset numbers came from".
 """
 
 
@@ -590,7 +565,7 @@ class AccountRun:
     summary: stats.Summary
 
     def as_dict(self) -> dict[str, str | float | int | bool | None]:
-        """Flat mapping of the account's own figures, for a report row.
+        """Return a flat mapping of the account's own figures, for a report row.
 
         The performance half is :attr:`summary`, which carries its own ``as_dict``.
         """
@@ -624,8 +599,7 @@ class PropReplay:
 
     fees_paid: float
     net: float
-    """:attr:`payout` minus :attr:`fees_paid`. **The figure the issue exists for**: an
-    account may be blown and the sequence still profitable."""
+    """:attr:`payout` minus :attr:`fees_paid`: what the whole sequence of attempts was worth."""
 
     trades_taken: int
     trades_total: int
@@ -636,7 +610,7 @@ class PropReplay:
     """:func:`nqbt.stats.summarise` over every trade any attempt took."""
 
     def as_dict(self) -> dict[str, str | float | int]:
-        """Flat mapping of the lifetime figures, for a ranking row."""
+        """Return a flat mapping of the lifetime figures, for a ranking row."""
         return {
             f.name: getattr(self, f.name)
             for f in dataclasses.fields(self)
@@ -754,7 +728,7 @@ def _lifetime(
 
 
 def _legs_taken(log: pd.DataFrame, table: _TradeTable, positions: list[int]) -> pd.DataFrame:
-    """The legs of the trades at ``positions``, so every performance figure is ``summarise``'s."""
+    """Return the legs of the trades at ``positions``, so every performance figure is ``summarise``'s."""
     if not positions:
         return log.iloc[:0]
 
@@ -819,7 +793,7 @@ def _require_columns(log: pd.DataFrame, rules: AccountRules) -> None:
 
 
 def _excursion_dollars(log: pd.DataFrame, rules: AccountRules) -> pd.DataFrame:
-    """Each trade's worst and best open equity in dollars, summed over its legs.
+    """Return each trade's worst and best open equity in dollars, summed over its legs.
 
     Zero on both when no enabled limit reads them, so a log with no excursions still replays.
     """
@@ -843,7 +817,7 @@ def _excursion_dollars(log: pd.DataFrame, rules: AccountRules) -> pd.DataFrame:
 
 
 def _point_values(log: pd.DataFrame) -> FloatArray:
-    """Dollars per point for each leg's own instrument, since a log may span both roots."""
+    """Return dollars per point for each leg's own instrument, since a log may span both roots."""
     per_symbol: dict[str, float] = {
         str(symbol): instruments.get_instrument(str(symbol)).point_value
         for symbol in log["instrument"].unique()
@@ -853,14 +827,14 @@ def _point_values(log: pd.DataFrame) -> FloatArray:
 
 
 def _day_starts(trading_day: DateArray) -> IntArray:
-    """Half-open bounds of each run of equal trading days, plus a closing sentinel."""
+    """Return half-open bounds of each run of equal trading days, plus a closing sentinel."""
     changed: IntArray = np.flatnonzero(trading_day[1:] != trading_day[:-1]) + 1
 
     return np.concatenate(([0], changed, [trading_day.size])).astype(np.int64)
 
 
 def _trailing_floor(high_water: float, rules: AccountRules) -> float:
-    """Where the account dies, given the highest equity it has reached."""
+    """Return where the account dies, given the highest equity it has reached."""
     if rules.trailing_threshold <= 0.0:
         return float("-inf")
 
@@ -872,7 +846,7 @@ def _trailing_floor(high_water: float, rules: AccountRules) -> float:
 
 
 def _probe_low(balance: float, table: _TradeTable, pos: int, basis: EquityBasis) -> float:
-    """Lowest equity one trade reaches, on the basis a rule measures itself against."""
+    """Return the lowest equity one trade reaches, on the basis a rule measures itself against."""
     if basis is EquityBasis.UNREALISED:
         return balance - float(table.adverse[pos]) - float(table.commission[pos])
 
@@ -880,15 +854,15 @@ def _probe_low(balance: float, table: _TradeTable, pos: int, basis: EquityBasis)
 
 
 def _probe_high(balance: float, table: _TradeTable, pos: int) -> float:
-    """Highest equity one trade reaches, which only an intraday high-water mark reads."""
+    """Return the highest equity one trade reaches, which only an intraday high-water mark reads."""
     return balance + float(table.favourable[pos]) - float(table.commission[pos])
 
 
 def _take_trade(table: _TradeTable, pos: int, rules: AccountRules, state: _AccountState) -> Outcome:
     """Apply one trade to the account and report how it left it.
 
-    Which excursion moves the floor first is ``rules.excursion_order`` -- the bars cannot order
-    them, and it decides real outcomes. ``docs/roadmap.md`` §M28.13.
+    Which excursion moves the floor first is ``rules.excursion_order`` -- ``docs/roadmap.md``
+    §M28.13.
     """
     tracks_peak: bool = rules.trail_basis is TrailBasis.INTRADAY
     peak: float = _probe_high(state.balance, table, pos)
@@ -1000,12 +974,12 @@ def _check_pass(table: _TradeTable, day: int, rules: AccountRules, state: _Accou
 
 
 def _as_date(day: np.datetime64[dt.date | int | None]) -> dt.date:
-    """One trading day as the calendar date a report prints."""
+    """Return one trading day as the calendar date a report prints."""
     return pd.Timestamp(day).date()
 
 
 def _consistent(daily: list[float], profit: float, ratio: float) -> bool:
-    """Whether no single day contributed more than ``ratio`` of the account's total profit."""
+    """Return whether no single day contributed more than ``ratio`` of the account's total profit."""
     if ratio <= 0.0:
         return True
 
@@ -1102,7 +1076,7 @@ def _fees_paid(
     *,
     passed_on: dt.date | None,
 ) -> float:
-    """One attempt's cost: the entry fee, a month for every month it was billed, and activation."""
+    """Return one attempt's cost: the entry fee, a month for every month it was billed, and activation."""
     billed_to: dt.date = closed
     if fees.monthly_fee_ends_at_pass and passed_on is not None:
         billed_to = passed_on

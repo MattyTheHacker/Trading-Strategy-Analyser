@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
-    """Conjunction of every active entry filter.
+    """Combine every active entry filter.
 
     The inverted hammer is not optional -- ``DeadCatBounce.cs`` has no toggle for it.
     """

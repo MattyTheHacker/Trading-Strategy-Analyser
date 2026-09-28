@@ -7,10 +7,9 @@ inferring state from order ids, and ``Name`` carries the exit reason a fills exp
 loses.
 
 What the grid cannot supply -- planned stops and targets, and therefore R, plus MAE/MFE and bar
-indices -- is left null and named in :data:`UNPOPULATED` with a reason, so the review omits those
-statistics rather than reporting a column of NaNs as if it had been measured. Why the Control
-Center log was rejected as a source, and the traps this parser exists to survive:
-``docs/roadmap.md`` §M11.1.
+indices -- is left null and named in :data:`UNPOPULATED` with a reason. Why the Control Center
+log was rejected as a source, and the traps this parser exists to survive: ``docs/roadmap.md``
+§M11.1.
 """
 
 from __future__ import annotations
@@ -137,10 +136,8 @@ _FRAME_COLUMNS = [
 ]
 """The simulator's own layout -- :func:`nqbt.trades.trades_to_frame`'s -- plus two of our own.
 
-The **contract** and not merely the root, because a real trade must be annotated against its own
-per-contract series rather than against the back-adjusted continuous one. The **timezone** the
-fills were read under, per row rather than per import, because rows from two machines can end up
-in one table and the zone is the one thing no timestamp can be re-derived without.
+The **contract**, which a real trade is annotated against, and the **timezone** the fills were
+read under, per row because rows from two machines can share one table.
 """
 
 
@@ -170,7 +167,7 @@ class ContractCoverage:
 
     @override
     def __str__(self) -> str:
-        """One line naming the contract and the range, or saying there is none."""
+        """Return one line naming the contract and the range, or saying there is none."""
         if not self.cached:
             return f"{self.contract.nt8_name:<12} not cached"
 
@@ -244,7 +241,7 @@ class ImportedTrades:
 
     @override
     def __str__(self) -> str:
-        """Leg count, the coverage report, and what could not be built into a trade."""
+        """Return the leg count, the coverage report, and what could not be built into a trade."""
         return f"{len(self.frame)} legs, {self.coverage}\n  {self.incomplete}"
 
 
@@ -357,7 +354,7 @@ def _quantities(column: pd.Series[str]) -> IntArray:
 
 
 def _signed(column: pd.Series[str], quantities: IntArray) -> IntArray:
-    """Signed size of each fill: positive bought, negative sold."""
+    """Return the signed size of each fill: positive bought, negative sold."""
     action: pd.Series[str] = column.str.strip()
     unknown: list[str] = sorted(set(action.dropna().unique()) - {BUY, SELL})
     if unknown:
@@ -388,7 +385,7 @@ def _positions(column: pd.Series[str]) -> IntArray:
 
 
 def _check_ascending(times: pd.Series[pd.Timestamp], *, source: str) -> None:
-    """Reversed file order must be non-decreasing in time, or the export was not newest-first."""
+    """Check that reversed file order is non-decreasing in time, or the export was not newest-first."""
     if times.is_monotonic_increasing:
         return
 

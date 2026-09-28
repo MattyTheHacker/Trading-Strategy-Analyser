@@ -42,7 +42,7 @@ def run(
 ):
     """Simulate hand-written OHLC rows. ``signal_at`` lists signal bar indices."""
     arr = np.asarray(rows, dtype=np.float64)
-    o, h, l, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+    o, h, low, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
     n = len(arr)
 
     signal = np.zeros(n, dtype=np.bool_)
@@ -54,7 +54,7 @@ def run(
 
     out = bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
     count = deadcat.simulate_deadcat(
-        bracket.Bars(o, h, l, c, force_flat),
+        bracket.Bars(o, h, low, c, force_flat),
         signal,
         bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(targets, dtype=np.float64),
@@ -138,9 +138,8 @@ def test_touching_the_trigger_exactly_fills() -> None:
 
 def test_a_buy_stop_at_the_market_is_never_submitted() -> None:
     # PullBackAndGo triggers on a bare High[0]. When the signal bar closes on its high the
-    # trigger equals the market it would be submitted into, which is not a stop order at
-    # all -- NT8 declines it. This was 86 of the 502 PullBackAndGo trades on MNQ 03-24,
-    # and the signal bar closed on its high in 86 of 86 of them against 2 of 416 taken.
+    # trigger equals the market it would be submitted into, which NT8 declines --
+    # ``docs/nt8-fidelity.md``, "A stop entry at or through the market is never submitted".
     rows = [
         (101, 104, 100, 104),  # 0: signal, closes ON its high -> trigger 104 == market
         (104, 106, 103, 105),  # 1: would have filled easily
@@ -161,8 +160,7 @@ def test_a_sell_stop_at_the_market_is_never_submitted_either() -> None:
 
     # DeadCatBounce is immune by construction: its trigger is min(Low[0], Close[0] - 2
     # ticks), so the cap puts it 2 ticks under the close on exactly the bars that would
-    # otherwise be unsubmittable. No DeadCatBounce signal in MNQ 03-24's 132,454 bars
-    # has a trigger at or above its close, which is why this rule never showed up there.
+    # otherwise be unsubmittable.
     assert len(run(rows, signal_at=[0], entry_offset=2.0)) == 4
 
 
@@ -270,9 +268,8 @@ def test_stop_can_fire_on_the_entry_bar() -> None:
 
 
 def test_a_bar_that_gaps_through_the_stop_fills_at_its_open() -> None:
-    # A stop is a market order once triggered, so a bar that opens beyond it offers no
-    # trade at the stop level. Filling at the stop anyway was worth $222.50 of a $292.50
-    # result over the 1,664-leg PullBackAndGo reconciliation; NT8 fills at the open.
+    # A stop is a market order once triggered, so a bar that opens beyond it fills at the open
+    # -- ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
     trades = run(
         [
             (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
@@ -433,7 +430,7 @@ def test_a_rising_high_does_not_loosen_the_stop() -> None:
         [
             (102, 104, 100, 101),
             (101, 102, 100, 101),  # 1: fill, stop 104.5
-            (100, 100.5, 99, 100),  # 2: close -> stop 101 (High[1]=102... wait, 102.5)
+            (100, 100.5, 99, 100),  # 2: close -> stop 102.5 (High[1]=102 + 0.5)
             (100, 103, 99, 100),  # 3: high rises; stop must not widen back out
             (100, 102.6, 99, 100),  # 4: above the loosened level, below the kept one
         ],
@@ -672,9 +669,8 @@ def test_long_side_is_the_mirror_image_of_the_short_side() -> None:
 
 
 def test_targets_reached_first_is_direction_free() -> None:
-    # _targets_reached_first takes no direction argument -- it works from the bar's open
-    # alone, via abs() distance, which is already mirror-invariant. This pins that down so
-    # a future "fix" that adds a sign to it cannot silently break just the long side.
+    # targets_reached_first takes no direction argument: abs() distance from the open is
+    # already mirror-invariant.
     short_case = bracket.targets_reached_first(100.0, 104.0, 95.0, 1)
     long_case = bracket.targets_reached_first(100.0, 96.0, 105.0, 1)  # mirrored around 100
     assert short_case == long_case

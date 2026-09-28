@@ -1,22 +1,9 @@
-"""What a separation has to survive before it is even a candidate.
+"""What a separation has to survive before it is even a candidate -- ``docs/roadmap.md`` §M11.4.
 
-A few hundred trades against a few dozen conditions is a multiple-comparisons machine: some
-condition *will* split that sample impressively, and most of the time it will be noise. Three
-mitigations, none of them expensive -- ``docs/roadmap.md`` §M11.4.
-
-**A minimum sample per stratum** is :mod:`nqbt.review`'s floor, imported rather than restated.
-**A permutation test** shuffles the P&L against the labels, which holds every stratum's size
-fixed and destroys only the association, and reports where the real separation fell in that
-distribution. Every condition is shuffled by the *same* permutation, so the maximum across them
-is a family-wise null and :data:`FAMILY_COLUMN` is the number to read when the condition was
-picked by looking. **A holdout** re-reads the split the earlier trades chose over the most recent
-ones, without re-choosing it.
-
-**Nothing here defines a statistic, and nothing here is review-specific.** A stratum's value comes
-from :func:`nqbt.stats.trade_statistic` and a separation is :func:`nqbt.review.rank_conditions`'
-quantity reached by a faster route, both pinned in ``tests/test_guard.py``. The array-level
-functions take a per-trade P&L vector and one label per trade, which is the shape the best of
-nineteen contracts (#31) and a ranking over archetypes x combinations (#24) both reduce to.
+Three mitigations: :mod:`nqbt.review`'s minimum sample per stratum; a permutation test that
+shuffles the P&L against the labels, every condition under the same shuffle so the maximum is a
+family-wise null (:data:`FAMILY_COLUMN`); and a holdout that re-reads the split the earlier
+trades chose over the most recent ones. Nothing here defines a statistic.
 """
 
 from __future__ import annotations
@@ -76,36 +63,18 @@ type Labels = Sequence[object] | Column | AnyArray  # type: ignore[explicit-any]
 """One label per trade, however the caller holds them."""
 
 DEFAULT_ITERATIONS = 2000
-"""Label shuffles drawn by default.
-
-A p-value cannot resolve below ``1 / iterations``, and a family-wise one has to separate the best
-of a few dozen conditions from the rest -- so it needs to resolve well under one over that count,
-which the 1000 used elsewhere in the project does not do comfortably.
-"""
+"""Label shuffles drawn by default, so a family-wise p-value resolves well below one in a few dozen."""
 
 DEFAULT_HOLDOUT_SHARE = 0.25
-"""Share of the trades held back, most recent first.
-
-A share rather than a count because both halves have to clear :data:`nqbt.review.MIN_TRADES` per
-stratum, and the sample size is not known when the default is written.
-"""
+"""Share of the trades held back, most recent first."""
 
 STATISTICS = tuple(name for name in review.REPORTED if name in stats.TRADE_PNL_STATISTICS)
-"""The statistics a separation may be measured in: the reported ones a shuffle can move.
-
-Both halves of that intersection matter. A statistic outside :data:`nqbt.review.REPORTED` is not
-one the review printed, so testing it would answer a question nobody asked; one outside
-:data:`nqbt.stats.TRADE_PNL_STATISTICS` cannot be had from a P&L vector alone, and thousands of
-:func:`nqbt.stats.summarise` calls is not a test anyone runs. It excludes ``net_pnl`` for a third
-reason that would apply on its own: a sum separates strata by how many trades they hold.
-"""
+"""The statistics a separation may be measured in: the reported ones a per-trade P&L vector gives."""
 
 FAMILY_COLUMN = "family_p_value"
 """The p-value of the best of several conditions, against the maximum over the same shuffles.
 
-``p_value`` answers "would *this* condition have split the trades this well by chance?", which is
-the right question only for a condition chosen for a reason. Taking the widest separation on
-offer and reading its ``p_value`` is the multiple-comparisons machine again, one level up.
+The one to read, rather than ``p_value``, when the condition was picked by looking.
 """
 
 SCREEN_COLUMNS = (*review.RANKING_COLUMNS, "p_value", FAMILY_COLUMN)
@@ -187,7 +156,7 @@ class SeparationTest:
     trades_ranked: int
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
@@ -214,7 +183,7 @@ class Holdout:
     """Whether both held-out strata met the floor. Rarely, on a few hundred trades."""
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
@@ -289,7 +258,7 @@ class _Grouping:
 
 
 def _positional(labels: Labels) -> Column:  # type: ignore[explicit-any]  # a condition's dtype is its own
-    """One label per trade, indexed by position, whatever the caller held them in."""
+    """Return one label per trade, indexed by position, whatever the caller held them in."""
     return pd.Series(labels).reset_index(drop=True)
 
 
@@ -351,12 +320,11 @@ def separate(  # type: ignore[explicit-any]  # a condition's dtype is its own
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
 ) -> Separation:
-    """How far ``statistic`` separates the strata one condition cuts ``pnl`` into.
+    """Measure how far ``statistic`` separates the strata one condition cuts ``pnl`` into.
 
     The quantity :func:`nqbt.review.rank_conditions` ranks on, computed from a per-trade P&L
-    vector rather than from a :func:`nqbt.stats.summarise` per stratum, because a null needs
-    thousands of them. **Not a second definition**: ``tests/test_guard.py`` asserts the two agree
-    on real logs, as ``tests/test_dispersion.py`` does for the statistic underneath.
+    vector rather than a :func:`nqbt.stats.summarise` per stratum. ``tests/test_guard.py`` pins
+    the two equal.
     """
     _check_statistic(statistic)
     values = _positional(labels)
@@ -448,7 +416,7 @@ def _family_null(draws: Draws) -> Floats:
 
 
 def _p_value(null: Floats, observed: float) -> tuple[float, int]:
-    """Share of a null's measurable draws that reached ``observed``, and how many voted."""
+    """Return the share of a null's measurable draws that reached ``observed``, and how many voted."""
     finite: FloatArray = null[np.isfinite(null)]
     if not np.isfinite(observed) or finite.size == 0:
         return np.nan, int(finite.size)
@@ -535,11 +503,9 @@ def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is it
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
 ) -> SeparationTest:
-    """One condition's separation against shuffled labels.
+    """Test one condition's separation against shuffled labels.
 
-    **For a condition chosen for a reason.** Running it over several and reading the smallest
-    ``p_value`` is what :func:`screen` exists to stop; both draw one :class:`_Null`, so the two
-    cannot drift apart.
+    For a condition chosen for a reason; :func:`screen` is the test over several.
     """
     drawn: _Null = _null(
         pnl,
@@ -584,8 +550,7 @@ def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its ow
     """Choose the split on the earlier trades, then read it over the most recent ones.
 
     ``pnl`` and ``labels`` must be in chronological order, which is what makes the held-out
-    trades the recent ones. The held-out strata are **not** re-ranked: re-choosing the best one
-    there would hold nothing out, and the answer would be the in-sample answer again.
+    trades the recent ones. The held-out strata are **not** re-ranked.
 
     A condition the earlier trades could not cut, and one whose strata tied exactly, both name
     one stratum at each end and so have no split to read.
@@ -619,7 +584,7 @@ def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its ow
 
 
 def _is(labels: Column, value: object) -> Flags:  # type: ignore[explicit-any]  # a condition's dtype is its own
-    """Mask of the trades carrying one label, with a null reading as "not this one"."""
+    """Mask the trades carrying one label, with a null reading as "not this one"."""
     return np.asarray((labels == value).fillna(value=False), dtype=np.bool_)
 
 
@@ -634,7 +599,7 @@ def _gap(best: Floats, worst: Floats, statistic: str) -> float:
 
 
 def _cut(trades: int, *, share: float, held_out: int | None) -> int:
-    """Where the recent trades begin, refusing a split that would leave one side empty."""
+    """Find where the recent trades begin, refusing a split that would leave one side empty."""
     if held_out is None:
         if not 0.0 < share < 1.0:
             msg: str = f"a holdout share must sit strictly between 0 and 1; got {share}"
@@ -802,10 +767,7 @@ def _check_length(pnl: Floats, given: int, what: str) -> None:
 def _complete(pnl: Floats, labels: Mapping[str, Labels]) -> tuple[Counts, pd.DataFrame, int]:  # type: ignore[explicit-any]  # a condition's dtype is its own
     """Find the trades every condition labels: where they are, what they carry, how many are not.
 
-    A maximum over conditions measured on different trades would not be comparing like with
-    like, so the screen narrows to the trades all of them cover rather than to each one's own.
-    The labels come back re-indexed from zero, because a stratum is positions into the P&L the
-    caller keeps rather than into the P&L it started with.
+    The labels come back re-indexed from zero, as positions into the P&L the caller keeps.
     """
     if not labels:
         return np.arange(pnl.size, dtype=np.int64), pd.DataFrame(index=pd.RangeIndex(pnl.size)), 0

@@ -88,11 +88,9 @@ def test_previous_bar_green_treats_a_flat_close_as_green() -> None:
 
 
 def test_previous_bar_red_rejects_a_flat_close() -> None:
-    # PullBackAndGo.cs rejects on Close[1] >= Open[1], so a doji is not red. This is the
-    # one boundary the two strategies do not mirror: previous_bar_green admits a doji and
-    # this rejects one, making the pair exact complements rather than overlapping at
-    # equality. The C# used to read Close[1] > Open[1]; the strictening cost 13.6% of
-    # signals on MNQ 03-24, so the operator is worth reading rather than assuming.
+    # PullBackAndGo.cs rejects on Close[1] >= Open[1], so a doji is not red: the one boundary
+    # the two strategies do not mirror -- ``docs/nt8-fidelity.md``, "The entry filters' equality
+    # boundaries".
     flat = bars([(10, 11, 9, 10), (1, 2, 0, 1)])
     assert not conditions.previous_bar_red(flat)[1]
     assert conditions.previous_bar_green(flat)[1]

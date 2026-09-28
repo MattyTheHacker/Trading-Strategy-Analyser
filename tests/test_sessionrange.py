@@ -29,7 +29,7 @@ CASH_WINDOW_30 = (CASH_OPEN_MINUTES, 30)
 
 
 def minute_frame(days: int = 4, start: str = "2024-01-02 00:00") -> pd.DataFrame:
-    """In-session 1-minute bars over ``days`` calendar days, every bar priced identically.
+    """Build in-session 1-minute bars over ``days`` calendar days, every bar priced identically.
 
     Flat on purpose: a test states the geometry by writing highs and lows into the window it
     cares about, rather than reverse-engineering a series that produces them.
@@ -52,14 +52,14 @@ def minute_frame(days: int = 4, start: str = "2024-01-02 00:00") -> pd.DataFrame
 
 
 def eastern_minutes(frame: pd.DataFrame) -> pd.Index:
-    """Wall-clock minutes past midnight Eastern, for placing a bar by the clock."""
+    """Return wall-clock minutes past midnight Eastern, for placing a bar by the clock."""
     eastern = sessions.to_eastern(pd.DatetimeIndex(frame.index)).tz_localize(None)
 
     return eastern.hour * 60 + eastern.minute
 
 
 def in_cash_window(frame: pd.DataFrame, minutes: int = 30) -> np.ndarray:
-    """Mask of the bars covering the first ``minutes`` of cash trading, by the wall clock.
+    """Mask the bars covering the first ``minutes`` of cash trading, by the wall clock.
 
     Independent of :mod:`nqbt.sessionrange`'s own arithmetic, which is the point.
     """
@@ -73,8 +73,8 @@ def in_cash_window(frame: pd.DataFrame, minutes: int = 30) -> np.ndarray:
 
 def test_the_cash_anchor_is_derived_from_the_phase_table_not_written_down() -> None:
     """930 is a consequence of the 18:00 open and the 09:30 phase start, not a constant."""
-    assert CASH_OPEN_MINUTES == anchor_for(SessionPhase.CASH_OPEN)
-    assert CASH_OPEN_MINUTES == int(timeofday.phase_start_minutes()[int(SessionPhase.CASH_OPEN)])
+    assert anchor_for(SessionPhase.CASH_OPEN) == CASH_OPEN_MINUTES
+    assert int(timeofday.phase_start_minutes()[int(SessionPhase.CASH_OPEN)]) == CASH_OPEN_MINUTES
     assert CASH_OPEN_MINUTES == 930, "the ETH template moved; every window axis moves with it"
 
 
@@ -187,7 +187,7 @@ def test_a_series_that_never_reaches_the_window_arms_nowhere() -> None:
 
 
 def buildable_at(bar_minutes: int, anchor: int = CASH_OPEN_MINUTES, window: int = 30) -> bool:
-    """Whether one range is expressible at one bar size."""
+    """Return whether one range is expressible at one bar size."""
     try:
         validate_key(anchor, window, bar_minutes)
     except RangeError:

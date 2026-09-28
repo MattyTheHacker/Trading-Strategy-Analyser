@@ -3,31 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
     ./.venv/Scripts/python.exe tools/campaign_exits.py --strategy OpeningRange
 
-``tools/campaign_report.py``'s ranked table says what each exit reason was worth. It cannot say
-what is left without one, because net P&L is additive and profit factor and drawdown are not --
-so "the flatten earned +57,256 against a bracket of −32,458" leaves the question of whether the
-rest of the book stands up unasked. This asks it: drop one reason's legs and run
-:func:`nqbt.stats.summarise` over what remains -- ``docs/roadmap.md`` §M28.12 and §M28.15.
-
-**It is a decomposition and not a counterfactual.** A leg the clock closed is a leg the stop did
-not take, so nothing here supports "remove this half and keep the other" -- the position would
-have gone on to some other exit, and these bars do not say which. What it supports is the weaker
-and sufficient statement about whether a configuration's result rests on one exit reason.
-
-**Every figure is ``summarise``'s, over subsets**, which is the same discipline a review keeps:
-a second definition of a profit factor here would drift from the sweep's silently. The whole-log
-column therefore reproduces the stored row exactly, and :func:`verify` refuses a run where it
-does not.
-
-**The shortlist is chosen on the selection window and read on the held-out one**, the pair
-``tools/campaign_holdout.py``'s :func:`~tools.campaign_holdout.held_out` builds, so nothing is
-read from the window that chose it -- ``docs/roadmap.md`` §M28.13.
-
-Reads the logs ``tools/campaign_shortlist.py --held-out`` stored, so run that first; a row with
-no log is named and skipped rather than silently dropped.
-
-**``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
-what a campaign the archive has moved under needs -- ``tools/campaign_swept.py``.
+A decomposition, not a counterfactual -- ``tools/README.md`` § "campaign_exits.py".
 """
 
 from __future__ import annotations
@@ -44,10 +20,10 @@ import pandas as pd
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import logsetup, stats, trades
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import LABEL_COLUMNS
 from tools.campaign_report import NET_TO_DRAWDOWN, log_key, ratio_to_drawdown, stored_logs
@@ -55,25 +31,17 @@ from tools.campaign_shortlist import NET_PNL_TOLERANCE, TOP
 from tools.campaign_sweep import db_path
 from tools.campaign_swept import logs_for
 
-from nqbt import logsetup, stats, trades
-
 logger = logging.getLogger(__name__)
 
 REPORTED = ("trades", "profit_factor", "net_pnl", "max_drawdown")
-"""Which of :class:`~nqbt.stats.Summary`'s fields each half of the split reports.
-
-Profit factor and net-to-drawdown are §M27's Gate 4 read together, and ``trades`` is here
-because a residual book below the trade floor is not a result at all."""
+"""Which of :class:`~nqbt.stats.Summary`'s fields each half of the split reports."""
 
 PASS_MARK = 1.0
-"""What both the residual profit factor and its net-to-drawdown have to clear.
-
-The same two thresholds ``tools/campaign_holdout.py``'s ``passes`` and ``clears_drawdown`` use,
-so a residual read can be compared with the gate the whole book went through."""
+"""What both the residual profit factor and its net-to-drawdown have to clear, as in ``campaign_holdout``."""
 
 
 def summary_of(log: pd.DataFrame) -> dict[str, float]:
-    """:data:`REPORTED` plus net-to-drawdown for one set of legs, zeroed where there are none."""
+    """Return :data:`REPORTED` plus net-to-drawdown for one set of legs, zeroed where there are none."""
     summary: stats.Summary = stats.summarise(log)
     figures: dict[str, float] = {field: float(getattr(summary, field)) for field in REPORTED}
     figures[NET_TO_DRAWDOWN] = ratio_to_drawdown(summary.net_pnl, summary.max_drawdown)
@@ -82,19 +50,14 @@ def summary_of(log: pd.DataFrame) -> dict[str, float]:
 
 
 def split_on(log: pd.DataFrame, reason: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """One log's legs that left by ``reason``, and the ones that did not."""
+    """Split one log's legs into those that left by ``reason`` and those that did not."""
     taken = log["exit_reason"] == reason
 
     return log[taken], log[~taken]
 
 
-def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[type-arg]  # duckdb's dtypes
-    """Refuse a log whose own summary does not reproduce the net P&L its stored row carries.
-
-    A residual read of a log filed against the wrong summary would attribute every figure below
-    to a configuration that did not produce it -- the same guard
-    ``tools/campaign_shortlist.verify`` puts on the re-run that wrote it.
-    """
+def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Refuse a log whose own summary does not reproduce the net P&L its stored row carries."""
     stored: float = float(row["net_pnl"])
     if not math.isclose(whole["net_pnl"], stored, rel_tol=NET_PNL_TOLERANCE):
         msg: str = (
@@ -104,23 +67,22 @@ def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[typ
         raise RuntimeError(msg)
 
 
-def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result row belongs to."""
+def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def measure_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     log: pd.DataFrame,
     reason: str,
     *,
     require_stored: bool = True,
 ) -> dict[str, object]:
-    """One configuration's whole book, the legs one reason took, and what is left without them.
+    """Measure one configuration's whole book, the legs one reason took, and what is left without them.
 
-    ``require_stored`` is what a stored log is held to and a re-run one is not: the archive can
-    have moved under the row since it was swept, and ``tools/campaign_swept.py`` reports that
-    disagreement rather than refusing it.
+    ``require_stored`` holds a stored log to its row; a log re-run by
+    ``tools/campaign_swept.py`` is not held to it.
     """
     whole: dict[str, float] = summary_of(log)
     if require_stored:
@@ -159,7 +121,7 @@ def measure(
     *,
     require_stored: bool = True,
 ) -> pd.DataFrame:
-    """Every shortlisted configuration split on ``reason``, one row each."""
+    """Measure every shortlisted configuration split on ``reason``, one row each."""
     measured: list[dict[str, object]] = []
     for _, row in rows.iterrows():
         log: pd.DataFrame = logs.get(log_key(row), pd.DataFrame())
@@ -177,7 +139,7 @@ def measure(
 
 
 def survival(table: pd.DataFrame, reason: str) -> list[str]:
-    """What the exclusion leaves, as lines rather than a one-row table."""
+    """Return what the exclusion leaves, as lines rather than a one-row table."""
     if table.empty:
         return ["  (nothing was measured)"]
 

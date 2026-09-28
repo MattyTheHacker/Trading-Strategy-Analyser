@@ -1,18 +1,13 @@
 """A moving average computed on coarser bars, read by a strategy running on fine ones.
 
-"Only short below the hourly trend" is standard practice and was not expressible: every
-average this project computes reads the 1-minute close. Here the average is computed on bars
-:mod:`nqbt.resample` aggregates, then **stamped back onto the fine index from the most recently
-*completed* coarse bar**, which is the whole of the difficulty -- ``docs/roadmap.md``
+The average is computed on bars :mod:`nqbt.resample` aggregates, then **stamped back onto the
+fine index from the most recently *completed* coarse bar** -- ``docs/roadmap.md``
 § "Multi-timeframe moving averages".
 
 Price against that average is a single ``int8`` per bar: :attr:`Side.BELOW`, :attr:`Side.AT` or
-:attr:`Side.ABOVE`, :data:`UNDEFINED` before the first coarse bar has closed. A side set is
-carried as a bitmask integer so that it is a legal sweep axis, exactly as :mod:`nqbt.regime`,
-:mod:`nqbt.timeofday`, :mod:`nqbt.volume` and :mod:`nqbt.trend` carry theirs.
-
-Distinct from :mod:`nqbt.trend`, which reads a coarse *condition* off 1-minute averages, and
-from running the whole strategy on coarse bars. The three share the resampler and nothing else.
+:attr:`Side.ABOVE`, :data:`UNDEFINED` before the first coarse bar has closed. A side set is a
+bitmask integer, so it is a legal sweep axis. Distinct from :mod:`nqbt.trend`, which reads a
+coarse condition off 1-minute averages.
 """
 
 from __future__ import annotations
@@ -175,7 +170,7 @@ def key(minutes: int, period: int) -> HigherTimeframeKey:
 
 
 def _nanoseconds(index: pd.DatetimeIndex) -> IntArray:
-    """UTC nanoseconds since the epoch, the one form two indices can be compared in."""
+    """Convert to UTC nanoseconds since the epoch, the one form two indices can be compared in."""
     naive: pd.DatetimeIndex = index.tz_convert("UTC").tz_localize(None) if index.tz is not None else index
 
     return naive.to_numpy(dtype="datetime64[ns]").astype("int64")

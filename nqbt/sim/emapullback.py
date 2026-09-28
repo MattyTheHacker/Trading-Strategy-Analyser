@@ -1,14 +1,11 @@
 """EmaPullback archetype: buy the first pullback into the trend the two averages define.
 
-**There is no NinjaScript**, so this is ``Tier2Status.TIER1_ONLY`` and every rule is written
-down rather than reconciled -- ``docs/nt8-fidelity.md`` §M34 names the NinjaScript each would
-become. The design and the alternatives rejected: ``docs/findings/m34-ema-pullback-spec.md``.
+``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md`` §M34.
+The design: ``docs/findings/m34-ema-pullback-spec.md``.
 
-The market entry reuses :func:`nqbt.sim.crossover.simulate_crossover` itself, not a fork of it:
-the entry is the same market-on-next-open, the side comes from the same
-:func:`~nqbt.sim.crossover.regime_direction`, and the stop is the shared loop's level mode
-reading the slow average. The confirmation entry is a stop order resting beyond the signal bar,
-so it is its own entry loop over the same bracket engine -- ``docs/nt8-fidelity.md`` §M39.
+The market entry runs :func:`nqbt.sim.crossover.simulate_crossover` in its level-stop mode on
+the slow average. The confirmation entry is a stop order resting beyond the signal bar, in its
+own loop over the same bracket engine -- ``docs/nt8-fidelity.md`` §M39.
 """
 
 from __future__ import annotations
@@ -33,7 +30,7 @@ if TYPE_CHECKING:
 
 
 def pullback_averages(data: Dataset, params: EmaPullbackParams) -> tuple[FloatArray, FloatArray]:
-    """The fast and slow average values this combination reads.
+    """Return the fast and slow average values this combination reads.
 
     Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
     """
@@ -49,7 +46,7 @@ def extension_run(
     slow: FloatArray,
     direction: float,
 ) -> IntArray:
-    """Unbroken bars spent entirely beyond the fast average, as the *next* bar reads it.
+    """Count unbroken bars spent entirely beyond the fast average, as the *next* bar reads it.
 
     A bar that reaches the average ends the run, so the count a touch bar reads is the one the
     bar before it carried -- ``docs/nt8-fidelity.md`` §M34.
@@ -63,10 +60,9 @@ def extension_run(
 
 
 def touch_shape(close: FloatArray, fast: FloatArray, direction: float, touch_mode: int) -> BoolArray:
-    """Where the signal bar had to close, in whichever of the three touch modes is selected.
+    """Return where the signal bar had to close, in whichever of the three touch modes is selected.
 
-    A close exactly on the average is a close *through* it: one sign multiplier means the long
-    and short arms have to be the same rule -- ``docs/nt8-fidelity.md`` §M34.
+    A close exactly on the average is a close *through* it -- ``docs/nt8-fidelity.md`` §M34.
     """
     if touch_mode == TOUCH_ANY:
         return np.ones(close.size, dtype=np.bool_)
@@ -84,7 +80,7 @@ def side_signal(
     params: EmaPullbackParams,
     direction: float,
 ) -> BoolArray:
-    """One side's entry bars: an extension away from the fast average, then a bar back to it.
+    """Return one side's entry bars: an extension away from the fast average, then a bar back to it.
 
     ``require_turn`` adds the reaction: the signal bar's own body has to have turned back into
     the trend, which is :func:`nqbt.conditions.closed_towards`'s doji boundary.
@@ -111,7 +107,7 @@ def side_signal(
 
 
 def emapullback_signal(data: Dataset, params: EmaPullbackParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open."""
+    """Flag bars whose close schedules an entry for the next bar's open."""
     fast, slow = pullback_averages(data, params)
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
@@ -128,7 +124,7 @@ def trailed_level(
     slow: FloatArray,
     params: EmaPullbackParams,
 ) -> tuple[FloatArray, float]:
-    """The average the stop trails and its offset in ticks.
+    """Return the average the stop trails and its offset in ticks.
 
     The average is :data:`~nqbt.sim.crossover.NO_TRAIL` while the trail is off. On the slow
     average both are the initial stop's own, so an average that has not moved leaves the stop
@@ -179,7 +175,7 @@ def confirmation_bracket(
     rules: ConfirmationRules,
     tick_size: float,
 ) -> tuple[float, float, float, float]:
-    """One signal bar's order arithmetic: side, trigger, initial stop, planned risk.
+    """Compute one signal bar's order arithmetic: side, trigger, initial stop, planned risk.
 
     The trigger sits ``entry_offset_ticks`` beyond the signal bar's favourable extreme and the
     stop ``stop_offset_ticks`` beyond the slow average at that bar, so the whole bracket is known
@@ -391,7 +387,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
 
 def confirmation_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> ConfirmationRules:
-    """The confirmation loop's rule set for one combination."""
+    """Build the confirmation loop's rule set for one combination."""
     return ConfirmationRules(
         entry_offset_ticks=float(params.entry_offset_ticks),
         stop_offset_ticks=float(params.stop_offset_ticks),
@@ -407,7 +403,7 @@ def confirmation_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> 
 
 
 def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crossover.CrossoverRules:
-    """The shared crossover loop's rule set for one combination, in its level-stop mode."""
+    """Build the shared crossover loop's rule set for one combination, in its level-stop mode."""
     return crossover.CrossoverRules(
         use_level_stop=True,
         # The three fields the other two stop modes read, and this archetype exposes neither.
@@ -418,8 +414,7 @@ def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crosso
         stop_offset_ticks=float(params.stop_offset_ticks),
         trail_ma_stop=params.trail_ma_stop,
         trail_offset_ticks=trail_offset_ticks,
-        # No round-number avoidance: an average is a statistic rather than a level the
-        # market traded at -- ``docs/nt8-fidelity.md`` §M34.
+        # No round-number avoidance on an average -- ``docs/nt8-fidelity.md`` §M34.
         round_number_points=0.0,
         round_number_offset_ticks=0.0,
         tp_multiplier=params.tp_multiplier,

@@ -26,7 +26,7 @@ from tools.campaign_paired import (
 
 
 def arm(variant: str, **columns: object) -> pd.DataFrame:
-    """A results frame with the tag columns every stored row carries."""
+    """Build a results frame with the tag columns every stored row carries."""
     base = {
         "sweep_id": 1,
         "combo_id": range(4),
@@ -169,7 +169,7 @@ def test_one_row_per_root_and_resolution() -> None:
 
 
 def two_strata() -> pd.DataFrame:
-    """Four pairs unfiltered where the treatment wins, and four at midday where it loses."""
+    """Build four pairs unfiltered where the treatment wins, and four at midday where it loses."""
     periods = [9, 13, 20, 30]
 
     return pd.concat(
@@ -183,7 +183,7 @@ def two_strata() -> pd.DataFrame:
     )
 
 
-def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch) -> None:
+def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
     pooled = report("EmaCrossover", "off", "on", ["full"], "profit_factor").iloc[0]
     midday = report("EmaCrossover", "off", "on", ["full"], "profit_factor", "phase=MIDDAY").iloc[0]
@@ -191,7 +191,7 @@ def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch) -> None:
     assert (midday["pairs"], midday["improved"]) == (4, 0)
 
 
-def test_a_stratum_holding_neither_arm_is_refused_by_name(monkeypatch) -> None:
+def test_a_stratum_holding_neither_arm_is_refused_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
     with pytest.raises(SystemExit, match="stratum 'regime=DIRECTIONAL'"):
         report("EmaCrossover", "off", "on", ["full"], "profit_factor", "regime=DIRECTIONAL")

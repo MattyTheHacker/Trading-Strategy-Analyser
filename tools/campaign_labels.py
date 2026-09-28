@@ -4,17 +4,7 @@
     ./.venv/Scripts/python.exe tools/campaign_labels.py --dimension volume --resolutions 5
     ./.venv/Scripts/python.exe tools/campaign_labels.py --dimension windows --volume-rolling-bars 10 90
 
-A stratum is named for a state and cut by a threshold pair, so a result quoted under a label is
-a result about a cut. This measures how much of that label survives being re-cut: the share of
-bars each raw state keeps, and where the rest of them go.
-
-**No sweep and no database.** The bars are the spliced continuous series and both cuts are
-computed here, so this says what the two stratifications label differently and nothing about
-what either one earns -- ``docs/findings/m30-volume-regime-recut.md`` reads it against the
-paired scores.
-
-The fit is taken on the selection window alone, exactly as ``tools/campaign_sweep.py`` takes
-it, so the cut compared against is the cut the sweep ran.
+``tools/README.md`` § "campaign_labels.py".
 """
 
 from __future__ import annotations
@@ -30,10 +20,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import context, logsetup, regime, resample, splice, volume
 from tools.campaign_sweep import (
     REGIME_QUANTILES,
     SELECTION_SHARE,
@@ -43,8 +33,6 @@ from tools.campaign_sweep import (
     named_forms,
     volume_series,
 )
-
-from nqbt import context, logsetup, regime, resample, splice, volume
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray
@@ -67,26 +55,26 @@ RAW_VOLUME = (0.7, 1.5)
 
 
 def selection_bars(root: str) -> pd.DataFrame:
-    """The window a cut is fitted on, taken exactly as ``campaign_sweep.fit_regime`` takes it."""
+    """Return the window a cut is fitted on, taken exactly as ``campaign_sweep.fit_regime`` takes it."""
     bars: pd.DataFrame = splice.load_continuous(root)
 
     return bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
 
 
 def confusion(raw: pd.Series, fitted: pd.Series, order: tuple[str, ...]) -> pd.DataFrame:
-    """Row-normalised percentages: where each raw state's bars land under the fitted cut."""
+    """Return row-normalised percentages: where each raw state's bars land under the fitted cut."""
     table: pd.DataFrame = pd.crosstab(raw, fitted, normalize="index") * 100.0
 
     return table.reindex(index=list(order), columns=list(order))
 
 
 def named(labels: np.ndarray, states: dict[int, str], keep: BoolArray, name: str) -> pd.Series:
-    """One label array as state names, warm-up bars dropped."""
+    """Return one label array as state names, warm-up bars dropped."""
     return pd.Series([states[int(value)] for value in labels[keep]], name=name)
 
 
 def regime_rows(root: str, minutes: int, lookbacks: list[int]) -> list[pd.DataFrame]:
-    """One confusion table per lookback, raw pair against the fitted quantiles."""
+    """Build one confusion table per lookback, raw pair against the fitted quantiles."""
     close: FloatArray = resample.resample(selection_bars(root), minutes)["close"].to_numpy(dtype=float)
     states: dict[int, str] = {int(state): state.name for state in regime.Regime}
     tables: list[pd.DataFrame] = []
@@ -118,7 +106,7 @@ def labelled(
     tails: tuple[float, float],
     series: tuple[volume.VolumeKey, ...],
 ) -> dict[str, pd.Series]:
-    """Each series' states over the same bars, every one fitted to its own distribution.
+    """Label each series' states over the same bars, every one fitted to its own distribution.
 
     Keyed by ``volume.describe_key``, so two series differing only in a window are separable.
     """
@@ -141,7 +129,7 @@ def pair_rows(
     minutes: int,
     series: tuple[volume.VolumeKey, ...],
 ) -> list[pd.DataFrame]:
-    """One confusion table per (tail size, ordered pair of series): who agrees with whom.
+    """Build one confusion table per (tail size, ordered pair of series): who agrees with whom.
 
     The cut is held at one tail size across both, so every series labels the same share of bars
     and any disagreement is about *which* bars -- ``docs/roadmap.md`` §M10.2.
@@ -174,7 +162,7 @@ def pair_rows(
 
 
 def volume_rows(root: str, minutes: int) -> list[pd.DataFrame]:
-    """One confusion table per (form, tail size), raw pair against the fitted tails."""
+    """Build one confusion table per (form, tail size), raw pair against the fitted tails."""
     series: tuple[volume.VolumeKey, ...] = volume_series()
     frame: pd.DataFrame = resample.resample(selection_bars(root), minutes)
     spec = context.ContextSpec(volume_keys=series, needs_time_of_day=True)

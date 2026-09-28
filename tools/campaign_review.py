@@ -3,27 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --window holdout
     ./.venv/Scripts/python.exe tools/campaign_review.py --strategy InsideBar --window holdout
 
-Filtering entries to a phase and re-running the grid answers *does this strategy work if it only
-trades then*, which ``tools/campaign_sweep.py`` swept and ``tools/campaign_report.py`` reads. The
-other question -- *when did these trades actually happen, and what was true when they did* -- is
-:mod:`nqbt.review`'s, and no campaign tool asked it: the sweep discards its logs, so until
-``tools/campaign_shortlist.py`` there was no per-trade vector to ask it of --
-``docs/roadmap.md`` §M27.7.
-
-Two things come out of one annotation, because they are two halves of one question:
-
-- :func:`nqbt.review.time_of_day` in session order, with **both forms of volume beside it**.
-  Relative volume says whether an hour was unusually busy and absolute volume says whether there
-  was anything there to trade at all, which is the half a profit factor cannot see --
-  ``docs/roadmap.md`` §M27.8. ``session_close_share`` is in the same table, because the forced
-  flat makes a poor result late in the session the clock until that column says otherwise.
-- :func:`nqbt.guard.guard` over the clock and the three volume labels together. A stratum picked
-  by reading a table is the multiple-comparisons machine one level up, and
-  :data:`nqbt.guard.FAMILY_COLUMN` is the number that answers it.
-
-Reads the logs ``tools/campaign_shortlist.py`` stored, so run that first; a row with no log, or
-one that cannot honestly be joined to its bars, is named and skipped rather than silently
-dropped -- and the second of those is not hypothetical here, see :data:`SLIPPAGE_TOLERANCE`.
+``tools/README.md`` § "campaign_review.py".
 """
 
 from __future__ import annotations
@@ -35,16 +15,14 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from tools.campaign_report import load_trades
-from tools.campaign_shortlist import shortlist, source
-from tools.campaign_sweep import VOLUME_BASELINE_SESSIONS, VOLUME_ROLLING_BARS, db_path
 
 from nqbt import annotate, context, guard, logsetup, resample, review, splice, timeofday, volume
 from nqbt.instruments import get_instrument
+from tools.campaign_report import load_trades
+from tools.campaign_shortlist import shortlist, source
+from tools.campaign_sweep import VOLUME_BASELINE_SESSIONS, VOLUME_ROLLING_BARS, db_path
 
 logger = logging.getLogger(__name__)
 
@@ -57,19 +35,15 @@ two reports of one shortlist can be read side by side."""
 
 BY = "expectancy"
 """What a separation is measured in. Bounded by the largest win and defined where gross loss is
-zero, which profit factor is not -- ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally"."""
+zero, which profit factor is not -- ``docs/findings/m27-registry-campaign.md``
+§ "Reading the per-contract tally"."""
 
 SLIPPAGE_TOLERANCE = -1.0
-"""``--price-tolerance`` unset: take the run's own slippage, which is the documented default.
-
-A simulated log is expected to land outside its bar by at most that, and on this project's own
-shortlists it does not -- a profit target that a bar gapped through fills at the target price
-and lands further out. Widen it deliberately and the widening is printed; do not raise it past
-the point where a back-adjusted series would still be caught -- ``docs/roadmap.md`` §M27.7."""
+"""``--price-tolerance`` unset: take the run's own slippage -- ``tools/README.md`` § "campaign_review.py"."""
 
 
 def volume_keys() -> tuple[volume.VolumeKey, ...]:
-    """All three relative-volume series, so the clock is read against every form at once.
+    """Return all three relative-volume series, so the clock is read against every form at once.
 
     The campaign swept one of them; which of the three a result belongs to is exactly what
     reading them side by side settles -- ``docs/roadmap.md`` §M27.8.
@@ -80,12 +54,12 @@ def volume_keys() -> tuple[volume.VolumeKey, ...]:
 
 
 def review_spec() -> context.ContextSpec:
-    """What a review needs of a dataset: the clock, and every form of volume beside it."""
+    """Return what a review needs of a dataset: the clock, and every form of volume beside it."""
     return context.ContextSpec(needs_time_of_day=True, volume_keys=volume_keys())
 
 
-def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The cut this configuration ran at, so the review states the configuration's own cut.
+def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return the cut this configuration ran at, so the review states the configuration's own cut.
 
     A review has to be able to say where it cut a raw series, and the honest answer here is
     already stored: it is what the sweep measured this row with.
@@ -97,11 +71,10 @@ def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[
 
 
 def conditions_of(annotation: annotate.Annotation) -> tuple[str, ...]:
-    """The clock and the three volume labels: the family this tool screens.
+    """Return the clock and the three volume labels: the family this tool screens.
 
-    Named rather than taken from :func:`nqbt.review.stratifiable`, which would put every
-    moving-average gate in the same family and dilute the family-wise null with conditions
-    nobody asked about.
+    Named rather than taken from :func:`nqbt.review.stratifiable`, which would add every
+    moving-average gate to the family.
     """
     volumes: tuple[str, ...] = tuple(
         name for name in annotation.conditions if name.startswith(VOLUME_STATE_PREFIX)
@@ -110,16 +83,16 @@ def conditions_of(annotation: annotate.Annotation) -> tuple[str, ...]:
     return (review.PHASE_COLUMN, *volumes)
 
 
-def tolerance_for(row: pd.Series, root: str, given: float) -> float:  # type: ignore[type-arg]  # duckdb's dtypes
-    """How far a fill of this run may land outside its bar: the run's slippage, or the override."""
+def tolerance_for(row: pd.Series, root: str, given: float) -> float:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return how far a fill of this run may land outside its bar: the run's slippage, or the override."""
     if given >= 0.0:
         return given
 
     return float(row["slippage_ticks"]) * get_instrument(root).tick_size
 
 
-def annotate_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def annotate_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     log: pd.DataFrame,
     data: context.Dataset,
     root: str,
@@ -134,20 +107,20 @@ def annotate_row(
     )
 
 
-def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result belongs to."""
+def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return the tag columns that say which stored configuration a result belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def review_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def review_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     path: Path,
     root: str,
     iterations: int,
     tolerance: float = SLIPPAGE_TOLERANCE,
 ) -> pd.DataFrame:
-    """One configuration's clock table, printed with its guard beneath it.
+    """Print one configuration's clock table, with its guard beneath it.
 
     Returns the clock table alone: the guard is a report about a family rather than a row per
     stratum, so concatenating the two would produce a frame with two meanings.

@@ -9,20 +9,33 @@ it would annotate every trade against prices that never traded.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
 import pytest
-from test_campaign_review import COMBO_ID, HEAVY, THIN, bars, data, stored_row, trade_log  # noqa: F401 - fixtures
+from test_campaign_review import (  # noqa: F401 - fixtures
+    COMBO_ID,
+    HEAVY,
+    THIN,
+    bars,
+    data,
+    stored_row,
+    trade_log,
+)
 
 from nqbt import annotate, archetypes, context, notes, results
 from tools import campaign_annotate
 from tools.campaign_annotate import annotation_spec, main, store_row, thresholds_for
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 COMPRESSED = 0.25
 EXPANDED = 0.75
 
 
 def combo_frame() -> pd.DataFrame:
-    """The summary row the view joins to, carrying one parameter to filter on."""
+    """Build the summary row the view joins to, carrying one parameter to filter on."""
     return pd.DataFrame(
         {
             "combo_id": [COMBO_ID],
@@ -35,8 +48,8 @@ def combo_frame() -> pd.DataFrame:
 
 
 @pytest.fixture
-def stocked(tmp_path, data):
-    """A database holding one combination's summary row and its stored trade log."""
+def stocked(tmp_path: Path, data):
+    """Provide a database holding one combination's summary row and its stored trade log."""
     db = tmp_path / "InsideBar.duckdb"
     sweep_id = results.save_sweep(
         combo_frame(),
@@ -127,12 +140,14 @@ def test_storing_a_row_twice_replaces_rather_than_doubles_it(stocked, data) -> N
     assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == len(trade_log(data))
 
 
-def test_a_row_with_no_stored_log_is_named_and_skipped(tmp_path, data) -> None:
+def test_a_row_with_no_stored_log_is_named_and_skipped(tmp_path: Path, data) -> None:
     empty = tmp_path / "empty.duckdb"
     assert not store_row(stored_row(), data, empty, "MNQ", -1.0)
 
 
-def test_a_log_whose_fill_lands_outside_its_bar_is_skipped_rather_than_annotated(tmp_path, data) -> None:
+def test_a_log_whose_fill_lands_outside_its_bar_is_skipped_rather_than_annotated(
+    tmp_path: Path, data
+) -> None:
     """The price check is the only thing that catches a back-adjusted series."""
     db = tmp_path / "InsideBar.duckdb"
     moved = trade_log(data)
@@ -148,7 +163,7 @@ def test_a_log_whose_fill_lands_outside_its_bar_is_skipped_rather_than_annotated
 # -- end to end ----------------------------------------------------------------
 
 
-def run_main(monkeypatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
     monkeypatch.setattr(campaign_annotate, "shortlist", lambda *_: rows)
     monkeypatch.setattr(campaign_annotate, "db_path", lambda _: db)
     monkeypatch.setattr(campaign_annotate, "source", lambda bars, _window: bars)
@@ -159,7 +174,7 @@ def run_main(monkeypatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
 
 
 def test_a_shortlist_with_a_stored_log_is_annotated_and_leaves_a_queryable_view(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     stocked,
 ) -> None:
     db, sweep_id = stocked
@@ -172,7 +187,7 @@ def test_a_shortlist_with_a_stored_log_is_annotated_and_leaves_a_queryable_view(
     assert "net_pnl" in rows.columns, "and the leg's own P&L, not the combination's"
 
 
-def test_the_view_answers_the_question_the_tool_exists_for(monkeypatch, stocked) -> None:
+def test_the_view_answers_the_question_the_tool_exists_for(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     """Profitable, and taken in a named phase -- one query over the three tables."""
     db, sweep_id = stocked
     run_main(monkeypatch, pd.DataFrame([stored_row(sweep_id=sweep_id)]), db, bars())
@@ -186,8 +201,8 @@ def test_the_view_answers_the_question_the_tool_exists_for(monkeypatch, stocked)
 
 
 def test_a_shortlist_with_no_stored_logs_fails_rather_than_leaving_an_empty_view(
-    monkeypatch,
-    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     db = tmp_path / "InsideBar.duckdb"
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), db, bars()) == 1

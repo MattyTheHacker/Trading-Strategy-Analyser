@@ -1,10 +1,9 @@
 """EmaPullback simulation tests on hand-built bars.
 
-The archetype has no NinjaScript, so there is no trade list to check against. What these pin
-instead are the rules it introduces -- the extension that has to precede the touch, the three
-touch modes and their shared boundary, and a stop placed on the slow average rather than at a
-distance -- plus the property the whole thing is worthless without: that nothing it reads comes
-from a bar it could not have seen.
+The archetype has no NinjaScript and no trade list. These pin the rules it introduces -- the
+extension that has to precede the touch, the three touch modes and their shared boundary, and a
+stop placed on the slow average -- and that nothing it reads comes from a bar it could not have
+seen.
 
 The signal functions take the two averages as arguments, so the tests hand them flat synthetic
 values and keep the arithmetic checkable by eye. The end-to-end tests use the real grids.
@@ -51,7 +50,7 @@ def params(**overrides) -> EmaPullbackParams:
 
 
 def frame(rows) -> pd.DataFrame:
-    """A bar frame from hand-written OHLC rows."""
+    """Build a bar frame from hand-written OHLC rows."""
     arr = np.asarray(rows, dtype=np.float64)
     idx = pd.date_range("2024-01-02 00:00", periods=len(arr), freq="min", tz="UTC")
     out = pd.DataFrame(
@@ -78,14 +77,14 @@ def flat(value: float, n: int):
 
 
 def signal_for(rows, combination: EmaPullbackParams, *, fast=FAST, slow=SLOW, direction=LONG):
-    """One side's signal over ``rows``, with both averages held flat at stated values."""
+    """Compute one side's signal over ``rows``, with both averages held flat at stated values."""
     data = dataset(rows, combination)
 
     return side_signal(data, flat(fast, len(rows)), flat(slow, len(rows)), combination, direction)
 
 
 def mirrored(rows, pivot: float = 200.0):
-    """The same bars reflected about ``pivot`` -- an uptrend's rows become a downtrend's."""
+    """Reflect the bars about ``pivot`` -- an uptrend's rows become a downtrend's."""
     return [(pivot - o, pivot - low, pivot - high, pivot - c) for o, high, low, c in rows]
 
 
@@ -298,9 +297,8 @@ def test_r_is_the_distance_from_the_fill_to_the_stop_on_the_slow_average() -> No
 def test_nothing_the_signal_reads_comes_from_a_bar_it_could_not_have_seen() -> None:
     """Recompute over a prefix: every value must be what the full series already said.
 
-    The test this archetype exists to make possible to fail. A pullback is easy to compute one
-    bar early -- the extension run and the touch are one bar apart -- and the symptom is a
-    profit factor above 1 rather than an exception.
+    The extension run and the touch are one bar apart, so a pullback computed a bar early shows
+    up as a profit factor above 1, not as an exception.
     """
     combination = EmaPullbackParams(bars_required_to_trade=50, touch_mode=TOUCH_ANY)
     bars = walk_bars()
@@ -368,7 +366,7 @@ def trade_on_slow(
     direction: float = LONG,
     **overrides: object,
 ) -> pd.DataFrame:
-    """One runner leg traded from a signal on bar 0, with the slow average stated per bar.
+    """Trade one runner leg from a signal on bar 0, with the slow average stated per bar.
 
     The averages are substituted rather than computed, so the rule is read against levels the
     test chose; the fast one sits five points on the trend's side of the slow one.
@@ -539,7 +537,7 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
     block_entry_at_close: bool = True,
     max_hold_bars: int = 0,
 ) -> pd.DataFrame:
-    """The confirmation loop over hand-written rows, one leg per target and every level stated.
+    """Run the confirmation loop over hand-written rows, one leg per target and every level stated.
 
     ``flip_at`` lists the bars from which the averages sit on the other side, and ``stop_level``
     is the slow average: a number held on every bar, or one value per bar.

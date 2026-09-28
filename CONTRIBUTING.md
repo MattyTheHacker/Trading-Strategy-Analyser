@@ -16,18 +16,23 @@ This governs `nqbt/sim/` and everything feeding it. Before changing anything the
 
 Code should be readable on its own terms. Prefer a clearer name, a smaller function or an intermediate variable over a comment explaining an unclear one.
 
-- **Docstrings say *what* a thing is and how to use it**, and stay short. One line is often enough; a paragraph is plenty.
+- **Docstrings say *what* a thing is or does and how to use it**, and stay short. One line is often enough; a paragraph is plenty.
+- **A function's summary opens with an imperative verb** — `Return the row holding period`, not `The row holding period`. ruff's `D401` checks this, but only against words it recognises, so a summary opening `One`, `Every` or `Whether` passes it and still breaks the rule. Two kinds of function are exempt, as they are from `D401`: a `test_*` function's docstring states the claim the test makes, and a property's docstring names the value it holds.
 - **Comments should be confined to unintuitive or unexpected behaviour** — a subtle index, a deliberate deviation from what a reader would expect, a workaround. Use them sparingly, and only where the code's behaviour departs from what a competent reader would predict.
 - **Code should generally be self-documenting**, by using clear variable names and logical flow, comments and long explanations should be few and far between. A large quantity of comments or doc strings suggest the code is unreadable, unintuitive, or that the comments are not needed.
 - **Arguments, justifications, measurements, decision records, history and traps go in `docs/`**, with at most a one-line pointer from the code.
 
-Three homes, and they are not interchangeable:
+Five homes, and they are not interchangeable:
 
-| goes in                                        | what it holds                                                                   |
-| ---------------------------------------------- | ------------------------------------------------------------------------------- |
-| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it  |
-| [`docs/findings/`](docs/findings/)             | one file per campaign: what was measured, what it returned, and what it settles |
-| [`docs/roadmap.md`](docs/roadmap.md)           | the standing constraints, the rubric, the traps and the decisions taken         |
+| goes in                                        | what it holds                                                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it                |
+| [`docs/findings/`](docs/findings/)             | one file per campaign: what was measured, what it returned, and what it settles               |
+| [`docs/roadmap.md`](docs/roadmap.md)           | the standing constraints, the rubric, the traps and the decisions taken                       |
+| [`tools/README.md`](tools/README.md)           | what each tool does, how to run it, and why its options, defaults and grids are what they are |
+| [`nqbt/README.md`](nqbt/README.md)             | the package's design notes that no campaign, NT8 rule or decision record covers               |
+
+A tool's module docstring is its summary line, its usage lines and a pointer to its section of `tools/README.md`.
 
 A pointer must name a section that exists, in the form the source already uses:
 
