@@ -187,7 +187,7 @@ def test_session_vwap_survives_zero_volume_bars() -> None:
 
 
 def reference_vwap_dispersion(price, volume, vwap, new_session):
-    """Two-pass volume-weighted dispersion about the running VWAP, written the obvious way.
+    """Compute two-pass volume-weighted dispersion about the running VWAP, written the obvious way.
 
     The definition ``session_vwap_dispersion`` implements in one pass; slow enough to be
     unusable and simple enough to be obviously right, which is the point of it.

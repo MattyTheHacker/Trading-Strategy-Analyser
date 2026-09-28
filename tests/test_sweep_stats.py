@@ -350,7 +350,7 @@ def test_a_kind_axis_is_dead_while_the_filter_reading_it_is_off() -> None:
 
 
 def shortlist_grid() -> sweep.Grid:
-    """Two configurations no cross of axes produces: the pairs, but not the four of them."""
+    """Build two configurations no cross of axes produces: the pairs, but not the four of them."""
     return sweep.Grid.of_combinations(
         [
             DeadCatParams(ema_period=9, fast_sma_period=40),
@@ -383,7 +383,7 @@ def test_a_combination_grid_builds_the_context_every_member_needs() -> None:
 
 
 def paired_range_grid() -> sweep.Grid:
-    """Two ranges each valid on its own, whose cross is not: 990+930 runs past the close."""
+    """Build two ranges each valid on its own, whose cross is not: 990+930 runs past the close."""
     return sweep.Grid.of_combinations(
         [
             OpeningRangeParams(anchor_minutes=990, window_minutes=120),
@@ -467,7 +467,7 @@ def test_chunk_bounds_respects_an_explicit_size() -> None:
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
-    """Random-walk minute bars with wicks wide enough to throw inverted hammers.
+    """Build random-walk minute bars with wicks wide enough to throw inverted hammers.
 
     Not a market model -- just a series the whole prepare/simulate path will actually
     trade on, so the parallel comparison has something to compare.
@@ -571,7 +571,7 @@ def test_a_combination_grid_keys_its_rows_by_position_in_the_list(prepared) -> N
 
 @pytest.fixture(scope="module")
 def axis_bars():
-    """Enough bars that a 15-minute resample still has a workable series."""
+    """Build enough bars that a 15-minute resample still has a workable series."""
     return synthetic_bars(n=12_000)
 
 
@@ -648,7 +648,7 @@ def test_the_one_minute_path_is_the_untouched_frame(axis_bars) -> None:
 
 
 def contract_frames(bars) -> dict:
-    """Two disjoint halves standing in for two front-month windows."""
+    """Split the bars into two disjoint halves standing in for two front-month windows."""
     midpoint = len(bars) // 2
 
     return {"MNQ 03-24": bars.iloc[:midpoint], "MNQ 06-24": bars.iloc[midpoint:]}
@@ -948,7 +948,7 @@ def test_replacing_into_a_database_with_no_trades_table_yet_just_stores(db) -> N
 
 
 def save(db, results_frame=None, **kwargs) -> int:
-    """``save_sweep`` with the arguments that are noise for these tests filled in."""
+    """Run ``save_sweep`` with the arguments that are noise for these tests filled in."""
     defaults = {"root": "MNQ", "instrument": "MNQ", "bars": fake_bars(), "axes": {}}
 
     return results.save_sweep(

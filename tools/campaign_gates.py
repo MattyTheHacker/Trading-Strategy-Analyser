@@ -170,12 +170,12 @@ class Task:
         return task_key(self.root, self.minutes, self.arm)
 
     def reads(self, read: str, stratum: str) -> bool:
-        """Whether this task writes ``read`` for ``stratum``."""
+        """Return whether this task writes ``read`` for ``stratum``."""
         return stratum in self.strata.get(read, frozenset())
 
 
 def slug(name: str) -> str:
-    """``name`` as a file name, every character a path could misread replaced."""
+    """Turn ``name`` into a file name, every character a path could misread replaced."""
     return re.sub(r"[^A-Za-z0-9=.+-]", "_", name)
 
 
@@ -195,12 +195,12 @@ def refuse_clashes(arms: list[str]) -> None:
 
 
 def sizes_on_count(arm: Variant) -> bool:
-    """Whether ``arm``'s base sizes on a confluence count, which is what gate 3's shuffled null tests."""
+    """Return whether ``arm``'s base sizes on a confluence count, the thing gate 3's shuffled null tests."""
     return getattr(arm.base, "quantity_per_confluence", 0) > 0
 
 
 def controls(arms: list[str]) -> list[tuple[str, str]]:
-    """Every (control, treatment) pair the paired read sets against each other.
+    """List every (control, treatment) pair the paired read sets against each other.
 
     An arm named ``<stem> <rule>`` is read against its stem's control, the first of
     :data:`CONTROLS` present, unless it is one or it inverts another rule. One ending in
@@ -246,7 +246,7 @@ def arms_for(
 
 
 def gate_rows(name: str, selection: pd.DataFrame, merged: pd.DataFrame) -> pd.DataFrame:
-    """Gate 1 and gate 2 per cell: the selection window's profitable share, then the held-out test."""
+    """Read gate 1 and gate 2 per cell: the selection window's profitable share, then the held-out test."""
     first: pd.DataFrame = profile(selection, CELL).rename(
         columns=lambda column: column if column in CELL else f"gate1_{column}",
     )
@@ -262,7 +262,7 @@ def gate_rows(name: str, selection: pd.DataFrame, merged: pd.DataFrame) -> pd.Da
 
 
 def paired_rows(name: str, holdout: pd.DataFrame, arms: list[str]) -> pd.DataFrame:
-    """Every pair :func:`controls` names, held out, one verdict row per stratum, root and resolution."""
+    """Read every pair :func:`controls` names, held out, one verdict row per stratum, root and resolution."""
     rows: list[pd.DataFrame] = []
     for control, treatment in controls(arms):
         left: pd.DataFrame = holdout[holdout["variant"] == control]
@@ -288,7 +288,7 @@ def shortlists(
     gate4_strata: frozenset[str],
     top: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """One task's held-out shortlist per stratum, and its selection-window one where gate 4 is read.
+    """Return one task's held-out shortlist per stratum, and its selection-window one where gate 4 is read.
 
     Ranked as :func:`campaign_holdout.held_out` and :func:`campaign_shortlist.shortlist` rank them
     once narrowed to one cell: a row undefined on ``BY`` is dropped rather than ranked.
@@ -347,7 +347,7 @@ def archive(root: str) -> pd.DataFrame:
 
 
 def reruns(task: Task) -> Iterator[Rerun]:
-    """Every configuration ``task.held`` holds re-run once, on one prepared dataset for the task.
+    """Re-run every configuration ``task.held`` holds once, on one prepared dataset for the task.
 
     The archive is cut back at the newest bar those rows were swept on, where the per-cell tools
     cut at the newest their root stored anywhere: the same bars unless one database holds
@@ -364,7 +364,7 @@ def reruns(task: Task) -> Iterator[Rerun]:
 
 
 def run_task(task: Task) -> dict[str, pd.DataFrame]:
-    """Every re-running read one task asks for, as tables keyed by name."""
+    """Run every re-running read one task asks for, as tables keyed by name."""
     measured: dict[str, list[dict[str, object]]] = {table: [] for table in TABLES}
     spreads: list[pd.DataFrame] = []
     logs: dict[str, dict[tuple[int, int], pd.DataFrame]] = {}
@@ -413,7 +413,7 @@ def run_task(task: Task) -> dict[str, pd.DataFrame]:
 
 
 def nulled(task: Task, run: Rerun) -> dict[str, object]:
-    """One sizing configuration against its own sizes shuffled, as ``campaign_sizing.py null`` reads it."""
+    """Test one sizing configuration against its sizes shuffled, as ``campaign_sizing.py null`` reads it."""
     row = task.held.iloc[run.position]
     if not isinstance(run.params, InsideBarTrailingParams):
         msg: str = f"{task.name}: the shuffled-size null reads InsideBarTrailing's sizes alone"
@@ -436,7 +436,7 @@ def nulled(task: Task, run: Rerun) -> dict[str, object]:
 
 
 def replayed(task: Task, logs: dict[str, dict[tuple[int, int], pd.DataFrame]]) -> pd.DataFrame:
-    """Each prop stratum's held-out shortlist through the four presets ``campaign_propaccount.py`` reads."""
+    """Replay each prop stratum's held-out shortlist through ``campaign_propaccount.py``'s four presets."""
     accounts: list[propaccount.PropAccount] = [propaccount.preset(name) for name in DEFAULT_PRESETS]
 
     return pd.concat(
@@ -449,7 +449,7 @@ def replayed(task: Task, logs: dict[str, dict[tuple[int, int], pd.DataFrame]]) -
 
 
 def walked(task: Task) -> pd.DataFrame:
-    """Each gate-4 stratum's selection-window shortlist walked forward, one verdict row each."""
+    """Walk each gate-4 stratum's selection-window shortlist forward, one verdict row each."""
     return pd.DataFrame(
         [
             {
@@ -465,7 +465,7 @@ def walked(task: Task) -> pd.DataFrame:
 
 
 def written(out: Path, table: str, name: str, key: str) -> Path:
-    """Where one task's table is written."""
+    """Return where one task's table is written."""
     return out / table / name / f"{key}.parquet"
 
 

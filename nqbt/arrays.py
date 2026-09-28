@@ -77,7 +77,7 @@ itself generic, so naming that dtype would be an explicit ``Any``.
 
 
 def float_column(bars: pd.DataFrame, name: str) -> FloatArray:
-    """One column of a bar frame as :data:`FloatArray`, whatever dtype the frame stores it as."""
+    """Return one column of a bar frame as :data:`FloatArray`, whatever dtype the frame stores it as."""
     return bars[name].to_numpy(np.float64)
 
 

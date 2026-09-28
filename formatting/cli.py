@@ -53,7 +53,7 @@ def format_file(filepath: Path, check: bool = False) -> Outcome:  # noqa: FBT002
 
 
 def python_files(directory: Path) -> list[Path]:
-    """Every ``.py`` file under a directory, skipping the dot-directories beneath it."""
+    """List every ``.py`` file under a directory, skipping the dot-directories beneath it."""
     return [
         path
         for path in sorted(directory.rglob("*.py"))

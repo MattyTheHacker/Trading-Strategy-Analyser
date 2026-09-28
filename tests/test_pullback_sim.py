@@ -234,7 +234,7 @@ def test_round_targets_true_would_have_snapped_the_same_bars() -> None:
 
 
 def synthetic_bars(n: int = 4000, seed: int = 11) -> pd.DataFrame:
-    """Random-walk minute bars, matching test_explain.py's pattern for a live sweep."""
+    """Build random-walk minute bars, matching test_explain.py's pattern for a live sweep."""
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))

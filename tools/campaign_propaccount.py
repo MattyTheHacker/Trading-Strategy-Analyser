@@ -120,14 +120,14 @@ def uncapped(log: pd.DataFrame) -> int:
 
 
 def contracts_per_trade(log: pd.DataFrame) -> float:
-    """Contracts one trade of this log put on, as the legs' quantities summed per trade."""
+    """Count the contracts one trade of this log put on, as the legs' quantities summed per trade."""
     return float(log.groupby("trade_id")["quantity"].sum().mean())
 
 
 def rules_with(
     account: propaccount.PropAccount, order: propaccount.ExcursionOrder
 ) -> propaccount.PropAccount:
-    """One preset with its excursion order replaced, the rest of the rule set untouched."""
+    """Return one preset with its excursion order replaced, the rest of the rule set untouched."""
     if order is account.rules.excursion_order:
         return account
 
@@ -145,7 +145,7 @@ def replay_row(
     account: propaccount.PropAccount,
     max_accounts: int,
 ) -> dict[str, object] | None:
-    """One configuration through one rule set, or ``None`` where the rules refuse the log."""
+    """Replay one configuration through one rule set, or return ``None`` where the rules refuse the log."""
     try:
         result: propaccount.PropReplay = propaccount.replay(log, account, max_accounts=max_accounts)
     except propaccount.PropAccountError as refused:
@@ -172,7 +172,7 @@ def replay_shortlist(
     accounts: list[propaccount.PropAccount],
     max_accounts: int | None,
 ) -> pd.DataFrame:
-    """Every shortlisted configuration through every rule set, one row each."""
+    """Replay every shortlisted configuration through every rule set, one row each."""
     replayed: list[dict[str, object]] = []
     for _, row in rows.iterrows():
         log: pd.DataFrame = logs.get(log_key(row), pd.DataFrame())
@@ -199,7 +199,7 @@ def takes_quantity(
     archetype: archetypes.Archetype,
     quantity: int,
 ) -> bool:
-    """Whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
+    """Return whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
     resized: pd.Series = row.copy()  # type: ignore[type-arg]  # duckdb's dtypes
     resized["order_quantity"] = quantity
     try:
@@ -268,7 +268,7 @@ def replay_rungs(
 
 
 def verdict(table: pd.DataFrame) -> pd.DataFrame:
-    """Each rule set's medians across the shortlist, and the two shares that are not medians.
+    """Return each rule set's medians across the shortlist, and the two shares that are not medians.
 
     A median attempt count and a median net describe the sequence a configuration produced;
     ``ever_passed`` and ``profitable`` are shares because both questions are yes or no per

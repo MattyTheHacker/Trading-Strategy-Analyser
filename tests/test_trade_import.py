@@ -49,7 +49,7 @@ def grid(tmp_path, rows, *, header=HEADER, name="grid.csv"):
 
 
 def fill(time, order, price, position, name="Entry"):
-    """One row of the minimal column set. ``order`` reads as it does on the grid: ``"Sell 4"``."""
+    """Build one row of the minimal column set. ``order`` reads as it does on the grid: ``"Sell 4"``."""
     action, quantity = order.split()
 
     return f"MNQ 09-26,{action},{quantity},{price},{time},{position},{name},"
@@ -61,7 +61,7 @@ def chronological(tmp_path, rows, **kwargs: str):
 
 
 def short_scale_out(tmp_path):
-    """Four short at 100, out one at 99, then three at 105. One trade, four legs."""
+    """Go four short at 100, out one at 99, then three at 105. One trade, four legs."""
     return chronological(
         tmp_path,
         [

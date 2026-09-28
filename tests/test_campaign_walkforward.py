@@ -80,7 +80,7 @@ def test_a_context_declaring_no_lookback_at_all_needs_no_prefix() -> None:
 
 
 def stored_rows(**columns: object) -> pd.DataFrame:
-    """Two shortlisted InsideBar rows, as the campaign databases store them."""
+    """Build two shortlisted InsideBar rows, as the campaign databases store them."""
     base = {
         "ema_period": [11, 44],
         "fast_sma_period": [20, 50],
@@ -153,7 +153,7 @@ def options(**overrides: object) -> argparse.Namespace:
 
 @pytest.fixture(scope="module")
 def verdict() -> dict[str, object]:
-    """One real walk-forward over a two-row shortlist. Costed, because ``walk_forward``
+    """Run one real walk-forward over a two-row shortlist. Costed, because ``walk_forward``
     refuses a free one -- reaching a verdict at all is what says the tool passed costs in."""
     return run_resolution(STRATEGY, stored_rows(), ROOT, 5, synthetic_bars(), options())
 

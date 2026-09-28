@@ -148,7 +148,7 @@ def simulate(
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 

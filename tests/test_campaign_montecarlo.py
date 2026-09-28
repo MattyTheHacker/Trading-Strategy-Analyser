@@ -23,7 +23,7 @@ COMBO_ID = 417
 
 
 def stored_row(**columns: object) -> pd.Series:
-    """One ranked row, carrying the tags the report labels a result with."""
+    """Build one ranked row, carrying the tags the report labels a result with."""
     base = {
         "sweep_id": SWEEP_ID,
         "combo_id": COMBO_ID,
@@ -39,7 +39,7 @@ def stored_row(**columns: object) -> pd.Series:
 
 
 def resample_stored(row: pd.Series, db, iterations: int, seed: int):  # noqa: ANN001, ANN201 - a path and the function's own return
-    """:func:`resample_row` over whatever log ``db`` holds for that row.
+    """Run :func:`resample_row` over whatever log ``db`` holds for that row.
 
     Loading is the caller's job now, so that ``--rerun`` can hand it a freshly re-run log
     instead -- ``tools/campaign_swept.py``.

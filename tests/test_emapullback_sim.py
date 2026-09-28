@@ -78,7 +78,7 @@ def flat(value: float, n: int):
 
 
 def signal_for(rows, combination: EmaPullbackParams, *, fast=FAST, slow=SLOW, direction=LONG):
-    """One side's signal over ``rows``, with both averages held flat at stated values."""
+    """Compute one side's signal over ``rows``, with both averages held flat at stated values."""
     data = dataset(rows, combination)
 
     return side_signal(data, flat(fast, len(rows)), flat(slow, len(rows)), combination, direction)
@@ -368,7 +368,7 @@ def trade_on_slow(
     direction: float = LONG,
     **overrides: object,
 ) -> pd.DataFrame:
-    """One runner leg traded from a signal on bar 0, with the slow average stated per bar.
+    """Trade one runner leg from a signal on bar 0, with the slow average stated per bar.
 
     The averages are substituted rather than computed, so the rule is read against levels the
     test chose; the fast one sits five points on the trend's side of the slow one.

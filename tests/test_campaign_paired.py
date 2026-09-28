@@ -169,7 +169,7 @@ def test_one_row_per_root_and_resolution() -> None:
 
 
 def two_strata() -> pd.DataFrame:
-    """Four pairs unfiltered where the treatment wins, and four at midday where it loses."""
+    """Build four pairs unfiltered where the treatment wins, and four at midday where it loses."""
     periods = [9, 13, 20, 30]
 
     return pd.concat(

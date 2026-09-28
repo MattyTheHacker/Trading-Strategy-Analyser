@@ -44,12 +44,12 @@ FIRST_OPEN = "2024-01-07 23:01"
 
 
 def stamps(days: int = 35) -> pd.DatetimeIndex:
-    """One minute bar per minute for ``days`` calendar days, breaks and weekends included."""
+    """Build one minute bar per minute for ``days`` calendar days, breaks and weekends included."""
     return pd.date_range(FIRST_OPEN, periods=days * 24 * 60, freq="min", tz="UTC")
 
 
 def clock(index: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Trading day, in-session flag and bar-of-session index for one series of stamps."""
+    """Return the trading day, in-session flag and bar-of-session index for one series of stamps."""
     info = sessions.classify(index)
     labels = timeofday.classify(index, bar_minutes=1, info=info)
 
@@ -63,7 +63,7 @@ def grid_of(counts: np.ndarray, index: pd.DatetimeIndex, *keys: volume.VolumeKey
 
 
 def hump(index: pd.DatetimeIndex) -> np.ndarray:
-    """Volume that depends on **nothing but the time of day**, identical every session.
+    """Build volume that depends on **nothing but the time of day**, identical every session.
 
     A Gaussian peak over the cash open on a flat overnight floor -- the shape that makes a
     rolling average over adjacent bars produce a table of findings out of a clock.

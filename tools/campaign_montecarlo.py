@@ -86,7 +86,7 @@ def resample_row(
     iterations: int,
     seed: int,
 ) -> tuple[dict[str, object], pd.DataFrame] | None:
-    """One configuration's permutation row and bootstrap table, or ``None`` with no log."""
+    """Return one configuration's permutation row and bootstrap table, or ``None`` with no log."""
     if log.empty:
         logger.warning(
             "  sweep %-4d combo %-6d has no stored log; run tools/campaign_shortlist.py first",

@@ -1035,9 +1035,9 @@ Two things this does not settle: the threshold was measured at eight workers, wh
 
 **The stubs are still not the runtime.** mypy proves an annotation is consistent with the stubs, which is what `DateArray` was before numpy 2.5. So the 178 array-alias locals were also checked the other way, by instrumenting a throwaway copy of the package with a dtype assertion after each one and running the suite over it — all 178 match. `OffsetArray` is the one alias this pass added: `np.intp` is what `flatnonzero`, `argsort` and `searchsorted` return, and it is not `int64` on every platform, so `IntArray` would have been a promise the package cannot keep.
 
-Three decisions the configuration now carries, each with its reason beside it in `pyproject.toml`:
+Three decisions the configuration carried when this landed, each with its reason beside it in `pyproject.toml`. The first has since been reversed:
 
-- **`D401` is off.** It wants an imperative verb where `CONTRIBUTING.md` says a docstring names *what* a thing is, which is a noun phrase. The two rules cannot both hold.
+- **`D401` was off, and [#152] turned it on.** It wants an imperative verb where `CONTRIBUTING.md` said a docstring names *what* a thing is, which is a noun phrase, so the two rules could not both hold. [#152] changed the house rule rather than the linter: a function's summary now opens with an imperative verb, and every function docstring that did not was rewritten to match — including the ones `D401` passes because it does not recognise their first word. `test_*` functions and properties keep their claims and noun phrases, as `D401` exempts them.
 - **`max-args` is 10, not ruff's 5.** An entry point taking one keyword per choice its caller must state is the shape of this codebase. What is left above ten is the parameter blobs [#59] fixes, and each of those carries its own `noqa` naming the issue — so the rule still points at the real problem instead of being blanket-disabled.
 - **numba has no keyword-only arguments**, so a jitted loop's toggles are positional booleans and `FBT001`/`FBT003` are ignored for exactly the five modules that contain one — per file rather than per line, because a jitted module's every toggle is one and an inline `noqa` at each of the 27 sites would say the same thing 27 times.
 
@@ -1298,6 +1298,7 @@ ______________________________________________________________________
 [#126]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/126
 [#127]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/127
 [#13]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/13
+[#152]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/152
 [#16]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/16
 [#160]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/160
 [#161]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/161

@@ -80,7 +80,7 @@ class Params(Protocol):
     __dataclass_fields__: ClassVar[dict[str, Any]]  # type: ignore[explicit-any]  # dataclasses' own type
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         ...
 
 
@@ -112,7 +112,7 @@ MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
 
 
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
-    """Whether any combination actually restricts its entries to some session phases."""
+    """Return whether any combination actually restricts its entries to some session phases."""
     return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
 
 
@@ -122,7 +122,7 @@ def _reads_label(
     everything: int,
     sizing_name: str,
 ) -> bool:
-    """Whether some combination filters on a label or sizes on it -- either one reads its series."""
+    """Return whether some combination filters on a label or sizes on it -- either one reads its series."""
     filters: bool = any(int(v) != everything for v in values.get(filter_name, ()))
 
     return filters or any(values.get(sizing_name, ()))
@@ -464,7 +464,7 @@ against that rather than test truthiness -- ``ALL_REGIMES`` is 7 and would read 
 
 
 def gate_toggles(gate: Gate) -> tuple[str, ...]:
-    """Every toggle one :data:`Gate` names, as a tuple whether it names one or several."""
+    """Return every toggle one :data:`Gate` names, as a tuple whether it names one or several."""
     if isinstance(gate, AnyOf):
         return gate.toggles
 
@@ -596,7 +596,7 @@ context filters gate an axis.
 
 
 def _read_by_filter_or_sizing(gates: Mapping[str, str], sizing_toggle: str) -> dict[str, Gate]:
-    """One filter's axes, re-gated so that sizing on the same label also reads them."""
+    """Return one filter's axes, re-gated so that sizing on the same label also reads them."""
     return {axis: AnyOf((toggle, sizing_toggle)) for axis, toggle in gates.items()}
 
 
@@ -617,7 +617,7 @@ trend-age cut are each read under one mode alone -- ``docs/nt8-fidelity.md`` §M
 
 
 def _sizes_per_signal(params: Params) -> bool:
-    """Whether a combination sizes its lots per signal, which the reconciled NinjaScript does not."""
+    """Return whether a combination sizes its lots per signal, which the reconciled NinjaScript does not."""
     return isinstance(params, InsideBarTrailingParams) and (
         params.earliness_mode != EARLINESS_OFF or params.quantity_per_confluence > 0
     )
@@ -888,12 +888,12 @@ def get(name: str) -> Archetype:
 
 
 def names() -> list[str]:
-    """Every registered archetype name, sorted."""
+    """Return every registered archetype name, sorted."""
     return sorted(_REGISTRY)
 
 
 def all_archetypes() -> list[Archetype]:
-    """Every registered archetype, in name order."""
+    """Return every registered archetype, in name order."""
     return [_REGISTRY[n] for n in names()]
 
 

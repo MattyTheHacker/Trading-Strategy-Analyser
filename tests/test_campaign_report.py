@@ -329,7 +329,7 @@ def test_rank_correlation_is_one_for_an_order_that_survives_and_minus_one_for_a_
 
 
 def paired_rows(stratum: str, holdout: np.ndarray, size: int = TOP + 10) -> pd.DataFrame:
-    """One stratum's paired window, ranked so the shortlist is the last ``TOP`` rows."""
+    """Build one stratum's paired window, ranked so the shortlist is the last ``TOP`` rows."""
     return pd.DataFrame(
         {
             "root": "MNQ",
@@ -399,7 +399,7 @@ def test_the_windows_are_paired_on_a_key_that_identifies_one_configuration() -> 
 
 
 def windowed(window: str, profit_factor: list[float], **columns: object) -> pd.DataFrame:
-    """One window's stored rows for four configurations of one cell."""
+    """Build one window's stored rows for four configurations of one cell."""
     return pd.DataFrame(
         {
             "sweep_id": 1 if window == "selection" else 2,

@@ -165,7 +165,7 @@ def simulate(
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 
@@ -754,7 +754,7 @@ def test_only_the_legs_still_open_are_liquidated_at_the_end_of_the_data() -> Non
 
 
 def cash_bars(days: int = 5) -> pd.DataFrame:
-    """Random-walk minute bars over whole sessions, wide enough to break a 30-minute range."""
+    """Build random-walk minute bars over whole sessions, wide enough to break a 30-minute range."""
     rng = np.random.default_rng(11)
     n = days * 1440
     index = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")

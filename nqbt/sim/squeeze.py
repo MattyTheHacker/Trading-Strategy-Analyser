@@ -37,7 +37,7 @@ UNCAPPED = 0
 
 
 def squeeze_signal(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
-    """Bars that may submit an entry order: those whose window has been squeezed for long enough.
+    """Flag bars that may submit an entry order: those whose window has been squeezed for long enough.
 
     The squeeze is :data:`nqbt.compression.Compression.COMPRESSED` cut at ``squeeze_below``, so
     it is the compression filter's own rule rather than a second copy of it.
@@ -77,7 +77,7 @@ def squeeze_levels(data: Dataset, params: SqueezeBreakoutParams) -> openingrange
 
 
 def entry_bound(data: Dataset, levels: openingrange.RangeSeries, signal: BoolArray, direction: float) -> int:
-    """How many entries this combination can possibly fill -- what the output is sized from.
+    """Return how many entries this combination can possibly fill -- what the output is sized from.
 
     A fill needs an armed signal bar followed by a bar reaching that bar's level, so those pairs
     bound it. The signal's own count is far looser, because a squeeze holds for many bars and

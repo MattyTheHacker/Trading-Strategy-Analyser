@@ -104,7 +104,7 @@ combination and a rule set has to be able to say "all of them" without knowing i
 
 
 def active_context_filters(params: ContextFilterParams) -> int:
-    """How many of the six context filters this combination actually restricts anything with.
+    """Count how many of the six context filters this combination actually restricts anything with.
 
     What a confluence count is measured against, and the reason it can be validated at
     construction: a rule set knows how many gates it switched on.
@@ -401,7 +401,7 @@ class DeadCatParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)
@@ -589,7 +589,7 @@ class PullBackAndGoParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)
@@ -854,7 +854,7 @@ class EmaCrossoverParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)
@@ -1051,7 +1051,7 @@ class InsideBarParams:
         return (self.order_quantity,)
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)
@@ -1095,7 +1095,7 @@ SIZING_LABELS = (
 
 
 def split_lots(quantity: int, share: float) -> tuple[int, int]:
-    """InsideBarTrailing's two entry sizes: ``(int) Math.Ceiling(quantity * share)`` and the rest."""
+    """Return InsideBarTrailing's two entry sizes: ``(int) Math.Ceiling(quantity * share)`` and the rest."""
     first: int = math.ceil(quantity * share)
 
     return (first, quantity - first)
@@ -1742,7 +1742,7 @@ class ElasticBandParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)
@@ -2188,7 +2188,7 @@ class OpeningRangeParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)
@@ -2466,7 +2466,7 @@ class EmaPullbackParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)
@@ -2729,7 +2729,7 @@ class SqueezeBreakoutParams:
         return tuple([base] * (n - 1) + [base + remainder])
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping of every parameter, keyed by field name."""
+        """Return a flat mapping of every parameter, keyed by field name."""
         out: dict[str, object] = {}
         for f in fields(self):
             value: object = getattr(self, f.name)

@@ -103,7 +103,7 @@ def probe_params(base: InsideBarTrailingParams) -> InsideBarTrailingParams:
 
 
 def age_at(data: context.Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
-    """How many bars the trend on each bar's side has run, the bar included."""
+    """Count how many bars the trend on each bar's side has run, the bar included."""
     up, down = insidebar.insidebar_trends(data, params)
     long_side: BoolArray = direction_at == trades.LONG
 
@@ -111,7 +111,7 @@ def age_at(data: context.Dataset, params: InsideBarTrailingParams, direction_at:
 
 
 def extension_at(data: context.Dataset, params: InsideBarTrailingParams) -> FloatArray:
-    """How far each close sits from the slow SMA, in ATRs."""
+    """Measure how far each close sits from the slow SMA, in ATRs."""
     slow: FloatArray = data.ma_values(params.slow_sma_kind, params.slow_sma_period)
     with np.errstate(divide="ignore", invalid="ignore"):
         extension: FloatArray = np.abs(data.close - slow) / data.atr_values(params.atr_length)
@@ -125,7 +125,7 @@ def fit_cut(
     minutes: int,
     base: InsideBarTrailingParams,
 ) -> tuple[SizingCut, dict[str, dict[str, float]]]:
-    """One root and resolution's cut, with what it was read off.
+    """Fit one root and resolution's cut, with what it was read off.
 
     The report holds each label's favourable share at the fitted signals and, per earliness rule,
     the share of the base configuration's own trades that came out early under the fitted cut.
@@ -186,7 +186,7 @@ def traded_early_shares(
     base: InsideBarTrailingParams,
     instrument: Instrument,
 ) -> dict[str, float]:
-    """Per earliness rule, the share of the base configuration's trades whose signal bar was early.
+    """Return, per earliness rule, the share of the base configuration's trades whose signal bar was early.
 
     Counted over the trades taken rather than the signals, because a setup that arrives while a
     position is open is never traded: a rule near either end leaves its tier running as one of
@@ -264,7 +264,7 @@ def permuted_sizing(
     signal: BoolArray,
     rng: np.random.Generator,
 ) -> insidebartrailing.LotSizing:
-    """``sizing`` with the rows its signal bars take shuffled among them, and every other bar kept."""
+    """Shuffle the rows ``sizing``'s signal bars take among them, keeping every other bar."""
     rows: IntArray = sizing.row_at.copy()
     rows[signal] = rng.permutation(rows[signal])
 
@@ -315,7 +315,7 @@ def null_for_shortlist(
     draws: int,
     seed: int,
 ) -> pd.DataFrame:
-    """Every shortlisted confluence-sized configuration against its shuffled sizes, held out."""
+    """Test every shortlisted confluence-sized configuration against its shuffled sizes, held out."""
     archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING
     stored: pd.DataFrame = stored_rows(archetype.name, root, HELD_OUT)
     candidates: tuple[pd.DataFrame, ...] = candidate_bars(stored, splice.load_continuous(root))
@@ -353,7 +353,7 @@ def null_row(
     *,
     swept: bool,
 ) -> dict[str, object]:
-    """One configuration's null, tagged with its stored row's ids and the size it was read at."""
+    """Return one configuration's null, tagged with its stored row's ids and the size it was read at."""
     sweep_id, combo_id = key
 
     return {

@@ -46,7 +46,7 @@ HEAVY = 1.5
 
 
 def bars() -> pd.DataFrame:
-    """``MINUTES`` one-minute bars from 09:00 ET on each of ``SESSIONS`` weekdays."""
+    """Build ``MINUTES`` one-minute bars from 09:00 ET on each of ``SESSIONS`` weekdays."""
     days = pd.bdate_range("2024-01-02", periods=SESSIONS)
     stamps = [pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=MINUTES, freq="min", tz="UTC") for day in days]
     index = stamps[0].append(stamps[1:])
@@ -77,7 +77,7 @@ def data() -> context.Dataset:
 
 
 def entry_bars(data: context.Dataset, per_phase: int = 60) -> np.ndarray:  # type: ignore[type-arg]  # a bar index array
-    """``per_phase`` labelled bars from each session phase, so every phase clears the floor."""
+    """Pick ``per_phase`` labelled bars from each session phase, so every phase clears the floor."""
     phases = data.phase_values()
     labelled_volume = np.isfinite(data.relative_volume(volume_keys()[0]))
     chosen: list[int] = []
@@ -128,7 +128,7 @@ def trade_log(data: context.Dataset, seed: int = 5) -> pd.DataFrame:
 
 
 def stored_row(**columns: object) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
-    """One ranked row, carrying the tags and the cut the configuration was measured at."""
+    """Build one ranked row, carrying the tags and the cut the configuration was measured at."""
     base: dict[str, object] = {
         "sweep_id": SWEEP_ID,
         "combo_id": COMBO_ID,

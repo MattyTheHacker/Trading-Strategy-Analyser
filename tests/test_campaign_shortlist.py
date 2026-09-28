@@ -220,7 +220,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def grid() -> sweep.Grid:
-    """Two InsideBar combinations, both of which trade on the synthetic bars."""
+    """Build two InsideBar combinations, both of which trade on the synthetic bars."""
     return sweep.Grid.of(
         InsideBarParams(slow_sma_period=50, bars_required_to_trade=60),
         atr_multiplier=[5.0, 10.0],

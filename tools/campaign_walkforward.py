@@ -91,7 +91,7 @@ def candidate_grid(rows: pd.DataFrame, archetype: archetypes.Archetype) -> sweep
 
 
 def geometry(n_bars: int, train_share: float, test_share: float) -> tuple[int, int]:
-    """Train and test window lengths, as bar counts taken from shares of the series."""
+    """Return train and test window lengths, as bar counts taken from shares of the series."""
     train_bars: int = math.floor(n_bars * train_share)
     test_bars: int = math.floor(n_bars * test_share)
     if train_bars < 1 or test_bars < 1:

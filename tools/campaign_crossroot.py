@@ -126,7 +126,7 @@ def run_on(name: str, rows: pd.DataFrame, target: str) -> pd.DataFrame:
 
 
 def crossroot(names: Sequence[str], top: int, min_trades: int) -> pd.DataFrame:
-    """Every archetype's shortlist, run on every target root its source root pairs with."""
+    """Run every archetype's shortlist on every target root its source root pairs with."""
     frames: list[pd.DataFrame] = []
     for name in names:
         if not db_path(name).exists():
@@ -142,7 +142,7 @@ def crossroot(names: Sequence[str], top: int, min_trades: int) -> pd.DataFrame:
 
 
 def summarise(rows: pd.DataFrame) -> pd.DataFrame:
-    """Per archetype and target root: the distribution, never a ranking of it."""
+    """Summarise per archetype and target root: the distribution, never a ranking of it."""
     grouped = rows.groupby(["strategy", "target_root"])
 
     return pd.DataFrame(

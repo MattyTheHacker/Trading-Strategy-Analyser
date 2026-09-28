@@ -72,7 +72,7 @@ def bars(
     start: str = FIRST_MINUTE,
     base: float = BASE,
 ) -> pd.DataFrame:
-    """``count`` one-minute bars with a zig-zag close, or one flat price when ``flat``.
+    """Build ``count`` one-minute bars with a zig-zag close, or one flat price when ``flat``.
 
     The zig-zag gives every bar a body and a wick either side; the flat case is the degenerate
     window whose price span would otherwise be zero.
@@ -105,7 +105,7 @@ def dataset(**kwargs: int | bool) -> context.Dataset:
 
 
 def with_indicators() -> tuple[context.Dataset, list[chart.Overlay]]:
-    """Two trading days of bars carrying every series a chart can overlay, and those overlays."""
+    """Build two trading days of bars carrying every series a chart can overlay, and those overlays."""
     frame = pd.concat([bars(), bars(start=SECOND_DAY, base=BASE + LIFT)])
     data = context.prepare(frame, INDICATOR_SPEC, price_basis=PriceBasis.RAW)
 
@@ -164,7 +164,7 @@ def log(
 
 
 def case(**kwargs: object) -> tuple[chart.TradeChart, context.Dataset, pd.DataFrame]:
-    """One long trade entering on bar 100 and taking its target on bar 110."""
+    """Chart one long trade entering on bar 100 and taking its target on bar 110."""
     data = dataset()
     trades_log = log([100], [110], data)
 
@@ -172,7 +172,7 @@ def case(**kwargs: object) -> tuple[chart.TradeChart, context.Dataset, pd.DataFr
 
 
 def elements(drawn: chart.TradeChart, tag: str, css: str | None = None) -> list[ElementTree.Element]:
-    """Every ``tag`` element of the document, optionally only those carrying one CSS class."""
+    """Find every ``tag`` element of the document, optionally only those carrying one CSS class."""
     root = ElementTree.fromstring(drawn.svg)
 
     return [
@@ -200,14 +200,14 @@ def at(value: float) -> object:
 
 
 def vertices(element: ElementTree.Element) -> list[tuple[float, float]]:
-    """One polyline's points, in the order it draws them."""
+    """Return one polyline's points, in the order it draws them."""
     points = (element.get("points") or "").split()
 
     return [(float(x), float(y)) for x, y in (point.split(",") for point in points)]
 
 
 def number(element: ElementTree.Element, attribute: str) -> float:
-    """One numeric attribute of an element."""
+    """Read one numeric attribute of an element."""
     value = element.get(attribute)
     assert value is not None, f"{element.tag} carries no {attribute}"
 

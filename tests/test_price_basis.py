@@ -49,7 +49,7 @@ EXEMPT: dict[tuple[str, str], str] = {
 
 
 def enclosing(tree: ast.Module) -> dict[ast.AST, str]:
-    """Each node's nearest enclosing function name, for naming a call site stably.
+    """Map each node to its nearest enclosing function name, for naming a call site stably.
 
     By name rather than by line, so the exemption list survives an edit above it.
     """
@@ -65,7 +65,7 @@ def enclosing(tree: ast.Module) -> dict[ast.AST, str]:
 
 
 def builders_in(path: Path) -> list[tuple[str, str, bool]]:
-    """Every dataset-building call in one file, as ``(function, call, states_a_basis)``."""
+    """Find every dataset-building call in one file, as ``(function, call, states_a_basis)``."""
     tree: ast.Module = ast.parse(path.read_text(encoding="utf-8"))
     names: dict[ast.AST, str] = enclosing(tree)
 
@@ -81,7 +81,7 @@ def builders_in(path: Path) -> list[tuple[str, str, bool]]:
 
 
 def call_sites() -> list[tuple[str, str, str, bool]]:
-    """Every dataset-building call in the searched packages."""
+    """Find every dataset-building call in the searched packages."""
     found: list[tuple[str, str, str, bool]] = []
     for package in SEARCHED:
         for path in sorted((ROOT / package).rglob("*.py")):

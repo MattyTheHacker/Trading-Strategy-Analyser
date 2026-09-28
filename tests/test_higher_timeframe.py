@@ -56,7 +56,7 @@ LEAKED_AVERAGE = 150.0
 
 
 def minute_bars(closes: list[float], first_open: str = FIRST_OPEN) -> pd.DataFrame:
-    """1-minute bars carrying the given closes, from the first bar of an ETH session."""
+    """Build 1-minute bars carrying the given closes, from the first bar of an ETH session."""
     index = pd.date_range(first_open, periods=len(closes), freq="min", tz="UTC")
     close = np.asarray(closes, dtype=np.float64)
     frame = pd.DataFrame(

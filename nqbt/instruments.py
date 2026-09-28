@@ -91,23 +91,23 @@ class Instrument:
     # -- conversions -----------------------------------------------------------
 
     def ticks_to_dollars(self, ticks: float, quantity: int = 1) -> float:
-        """Value of ``ticks`` on this instrument, for ``quantity`` contracts."""
+        """Return the value of ``ticks`` on this instrument, for ``quantity`` contracts."""
         return ticks * self.tick_value * quantity
 
     def points_to_dollars(self, points: float, quantity: int = 1) -> float:
-        """Value of ``points`` on this instrument, for ``quantity`` contracts."""
+        """Return the value of ``points`` on this instrument, for ``quantity`` contracts."""
         return points * self.point_value * quantity
 
     def dollars_to_points(self, dollars: float, quantity: int = 1) -> float:
-        """Price distance ``dollars`` buys, for ``quantity`` contracts."""
+        """Return the price distance ``dollars`` buys, for ``quantity`` contracts."""
         return dollars / (self.point_value * quantity)
 
     def points_to_ticks(self, points: float) -> float:
-        """``points`` expressed in ticks."""
+        """Express ``points`` in ticks."""
         return points / self.tick_size
 
     def ticks_to_points(self, ticks: float) -> float:
-        """``ticks`` expressed in points."""
+        """Express ``ticks`` in points."""
         return ticks * self.tick_size
 
     # -- price alignment -------------------------------------------------------
@@ -135,13 +135,13 @@ class Instrument:
         return round(n * self.tick_size, self.price_decimals)
 
     def is_on_tick(self, price: float) -> bool:
-        """Whether ``price`` sits exactly on this instrument's tick grid."""
+        """Return whether ``price`` sits exactly on this instrument's tick grid."""
         return abs(price - self.round_to_tick(price)) < ON_TICK_TOLERANCE
 
     # -- risk ------------------------------------------------------------------
 
     def position_size_for_risk(self, risk_dollars: float, stop_distance_points: float) -> int:
-        """Largest whole contract count whose worst case stays within ``risk_dollars``.
+        """Return the largest whole contract count whose worst case stays within ``risk_dollars``.
 
         Rounds down, so the realised risk is always at or below the cap. Returns 0 when
         even a single contract would breach it -- callers must treat 0 as "no trade"
@@ -257,7 +257,7 @@ def get_instrument(symbol: str) -> Instrument:
 
 
 def known_roots() -> str:
-    """Every registered root symbol, for an error message to name."""
+    """List every registered root symbol, for an error message to name."""
     return ", ".join(sorted(INSTRUMENTS))
 
 

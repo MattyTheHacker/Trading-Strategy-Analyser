@@ -60,7 +60,7 @@ on this one; :data:`~tools.campaign_report.NET_TO_DRAWDOWN` is what §M27.3 rank
 
 
 def paired(name: str, variant: str | None = None) -> pd.DataFrame:
-    """One row per configuration that cleared the trade floor in **both** windows."""
+    """Return one row per configuration that cleared the trade floor in **both** windows."""
     selection: pd.DataFrame = load(name, ["selection"])
     holdout: pd.DataFrame = load(name, ["holdout"])
     if variant is not None:
@@ -71,7 +71,7 @@ def paired(name: str, variant: str | None = None) -> pd.DataFrame:
 
 
 def pair_windows(name: str, selection: pd.DataFrame, holdout: pd.DataFrame) -> pd.DataFrame:
-    """:func:`paired` over rows already loaded, each window's under its own name."""
+    """Run :func:`paired` over rows already loaded, each window's under its own name."""
     if selection.empty or holdout.empty:
         return pd.DataFrame()
 
@@ -152,7 +152,7 @@ def ranked_pairs(
 
 
 def half(merged: pd.DataFrame, suffix: str) -> pd.DataFrame:
-    """One half of a paired frame, under the unsuffixed names the stored rows carry."""
+    """Return one half of a paired frame, under the unsuffixed names the stored rows carry."""
     renamed: dict[str, str] = {
         column: column.removesuffix(suffix) for column in merged.columns if column.endswith(suffix)
     }
@@ -161,7 +161,7 @@ def half(merged: pd.DataFrame, suffix: str) -> pd.DataFrame:
 
 
 def rank_correlation(block: pd.DataFrame) -> float:
-    """Spearman between the two windows' profit factors, as Pearson on the ranks.
+    """Compute Spearman between the two windows' profit factors, as Pearson on the ranks.
 
     Written out because ``Series.corr(method="spearman")`` needs scipy, which is not a
     dependency and must not become one for a report.

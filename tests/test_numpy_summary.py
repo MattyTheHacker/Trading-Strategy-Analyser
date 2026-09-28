@@ -24,7 +24,7 @@ from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def session_bars(days: int = 40, seed: int = 5) -> pd.DataFrame:
-    """Minute bars on real CME sessions, so the daily grouping has days to group by."""
+    """Build minute bars on real CME sessions, so the daily grouping has days to group by."""
     rng = np.random.default_rng(seed)
     index = pd.date_range("2024-01-02 00:00", periods=days * 1440, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0, 1.0, len(index)))

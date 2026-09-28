@@ -248,7 +248,7 @@ def moving_frame(prices: dict[str, float], volumes: dict[str, int]) -> pd.DataFr
 
 
 def drifting_basis_frames() -> dict[ContractId, pd.DataFrame]:
-    """Two contracts whose basis widens 8 -> 10 -> 22 over the three days.
+    """Build two contracts whose basis widens 8 -> 10 -> 22 over the three days.
 
     An offset measured on any bar but the last one the front contract contributes would
     therefore leave a residual at the seam.

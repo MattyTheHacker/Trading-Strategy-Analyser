@@ -33,14 +33,14 @@ def normalise(text: str) -> str:
 
 
 def documents() -> list[Path]:
-    """Every source and Markdown file that could carry a pointer."""
+    """List every source and Markdown file that could carry a pointer."""
     found = [p for name in SEARCHED for p in (ROOT / name).rglob("*") if p.suffix in (".py", ".md")]
 
     return [*found, *[ROOT / name for name in LOOSE]]
 
 
 def pointers() -> list[tuple[Path, str, str]]:
-    """Every pointer in the repository, as (source, target file, heading)."""
+    """Find every pointer in the repository, as (source, target file, heading)."""
     out: list[tuple[Path, str, str]] = []
     for path in documents():
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -51,7 +51,7 @@ def pointers() -> list[tuple[Path, str, str]]:
 
 @pytest.fixture(scope="module")
 def contents() -> dict[str, str]:
-    """Each pointed-at file, normalised once."""
+    """Read each pointed-at file, normalised once."""
     return {}
 
 

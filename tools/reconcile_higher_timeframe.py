@@ -71,7 +71,7 @@ def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def report(name: str, *, agreed: bool, detail: str) -> bool:
-    """One question's verdict, in the form the other reconciliation tools print."""
+    """Log one question's verdict, in the form the other reconciliation tools print."""
     logger.info("  %-12s %-9s %s", name, "AGREES" if agreed else "DIFFERS", detail)
 
     return agreed
@@ -116,7 +116,7 @@ def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) 
 
 
 def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.DatetimeIndex) -> str:
-    """Where the two series stop disagreeing, which is usually NT8's merge boundary.
+    """Find where the two series stop disagreeing, which is usually NT8's merge boundary.
 
     Asked for more history than a contract has, NinjaTrader serves its *merged* series and a
     per-contract archive cannot reproduce it -- so a long disagreeing prefix followed by exact
@@ -168,7 +168,7 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
 
 
 def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.Series:
-    """Which coarse stamp nqbt's projection reads at each fine bar.
+    """Return which coarse stamp nqbt's projection reads at each fine bar.
 
     Runs the coarse *stamps* through :func:`nqbt.higher_timeframe.project` itself rather than
     re-deriving the rule here, so this compares NinjaTrader against the shipped code path and
@@ -186,14 +186,14 @@ def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.
 
 
 def epoch_seconds(stamps: pd.DatetimeIndex) -> np.ndarray:
-    """UTC seconds since the epoch, whatever resolution the index happens to carry."""
+    """Convert to UTC seconds since the epoch, whatever resolution the index happens to carry."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz else stamps
 
     return naive.to_numpy(dtype="datetime64[s]").astype("int64")
 
 
 def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
-    """Which coarse bar does each 1-minute bar read -- the question trades cannot answer."""
+    """Check which coarse bar each 1-minute bar reads -- the question trades cannot answer."""
     stamps = pd.DatetimeIndex(primary.index)
     ours: pd.Series = nqbt_reads(pd.DatetimeIndex(nt8_coarse.index), stamps)
     theirs: pd.Series = primary["coarse_utc"]
@@ -222,7 +222,7 @@ def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
 
 
 def check_warmup(primary: pd.DataFrame, key: higher_timeframe.HigherTimeframeKey) -> bool:
-    """How many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count.
+    """Check how many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count.
 
     Measured over **the probe's own bars**, never the archive's. The two series rarely start
     at the same minute, and a warm-up is counted from the series start: reading the archive

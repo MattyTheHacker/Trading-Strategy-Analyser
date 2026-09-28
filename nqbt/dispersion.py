@@ -46,7 +46,7 @@ def front_month_windows(
     back_adjust: bool = True,
     cache_dir: Path = paths.CACHE_DIR,
 ) -> pd.DataFrame:
-    """Each contract's front-month window, read off the continuous series' ``contract`` column.
+    """Return each contract's front-month window, read off the continuous series' ``contract`` column.
 
     The windows are therefore the splicer's decisions rather than a second opinion about where
     the rolls are: non-overlapping, summing to the continuous series, and moving automatically
@@ -76,7 +76,7 @@ def contract_frames(
     back_adjust: bool = True,
     cache_dir: Path = paths.CACHE_DIR,
 ) -> dict[str, pd.DataFrame]:
-    """Raw bars per contract, sliced to the front-month window by default.
+    """Return raw bars per contract, sliced to the front-month window by default.
 
     ``full_life=True`` returns each contract's entire cached history instead, in which case
     adjacent contracts overlap by months and anything aggregated across them double-counts
@@ -99,7 +99,7 @@ def contract_frames(
 
 
 def coverage(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Bars and sessions per contract, joined onto every performance figure.
+    """Count bars and sessions per contract, joined onto every performance figure.
 
     Not optional: the first contract of a root carries its whole pre-roll listing history and
     the newest is always partial, so a profit factor from 30 trades would otherwise sit
@@ -174,7 +174,7 @@ def dispersion(
     *,
     min_trades: int = MIN_TRADES,
 ) -> pd.DataFrame:
-    """How much ``by`` varies across contracts, per combination.
+    """Measure how much ``by`` varies across contracts, per combination.
 
     **Rows come back in ``combo_id`` order, never sorted by performance** -- ``docs/roadmap.md``
     §M14. Read ``contracts_dropped`` beside the spread.

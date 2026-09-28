@@ -120,7 +120,7 @@ def simulate(
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 
@@ -550,7 +550,7 @@ def prepared(params: EmaCrossoverParams):
 
 
 def basis_prepared(params: EmaCrossoverParams, basis: context.PriceBasis):
-    """:func:`prepared` for a caller that states what its prices are."""
+    """Run :func:`prepared` for a caller that states what its prices are."""
     return context.prepare(bars(), sweep.Grid.of(params).required_context(), price_basis=basis)
 
 

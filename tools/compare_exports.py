@@ -37,7 +37,7 @@ def load(path: Path) -> pd.DataFrame:
 
 
 def timezone_offset_hours(baseline: pd.DataFrame, candidate: pd.DataFrame) -> int:
-    """Whole-hour shift that best aligns the two, or 0.
+    """Find the whole-hour shift that best aligns the two, or 0.
 
     A timezone mistake in the exporter shifts every bar by a whole number of hours and
     errors nowhere -- prices stay plausible, the file parses, and the damage only shows up
@@ -57,7 +57,7 @@ def timezone_offset_hours(baseline: pd.DataFrame, candidate: pd.DataFrame) -> in
 
 
 def identical_share(baseline: pd.DataFrame, candidate: pd.DataFrame) -> float:
-    """Fraction of shared timestamps whose OHLCV agree exactly."""
+    """Return the fraction of shared timestamps whose OHLCV agree exactly."""
     common = baseline.index.intersection(candidate.index)
     if not len(common):
         return 0.0
@@ -105,7 +105,7 @@ def compare(name: str, baseline: pd.DataFrame, candidate: pd.DataFrame) -> dict:
 
 
 def sessions_of(index: pd.DatetimeIndex) -> pd.Series:
-    """Bars per trading day for a set of timestamps, for locating whole-session changes."""
+    """Count bars per trading day for a set of timestamps, for locating whole-session changes."""
     if not len(index):
         return pd.Series(dtype="int64")
 

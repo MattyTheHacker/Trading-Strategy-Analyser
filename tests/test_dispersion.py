@@ -84,7 +84,7 @@ def test_an_empty_trade_vector_is_zero_not_a_crash() -> None:
 
 
 def results_table(rows) -> pd.DataFrame:
-    """``(contract, combo_id, trades, profit_factor)`` tuples as a results frame."""
+    """Build a results frame from ``(contract, combo_id, trades, profit_factor)`` tuples."""
     return pd.DataFrame(rows, columns=["contract", "combo_id", "trades", "profit_factor"])
 
 
@@ -220,7 +220,7 @@ def test_the_observed_statistic_matches_the_reference_per_contract() -> None:
 
 
 def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFrame:
-    """One contract's cached bars: whole ETH sessions, wicks wide enough to trade."""
+    """Build one contract's cached bars: whole ETH sessions, wicks wide enough to trade."""
     rng = np.random.default_rng(seed)
     stamps: list[pd.Timestamp] = []
     open_et = pd.Timestamp(start, tz=sessions.EASTERN)

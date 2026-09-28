@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> BoolArray:
-    """Conjunction of every active entry condition. The hammer is the only unconditional one."""
+    """Combine every active entry condition. The hammer is the only unconditional one."""
     signal: BoolArray = data.geometry.hammer.copy()
     if params.require_new_low:
         signal &= data.geometry.made_new_low

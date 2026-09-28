@@ -55,7 +55,7 @@ NET_PNL_TOLERANCE = 1e-9
 
 
 def _absent(value: object) -> bool:
-    """Whether a stored cell holds nothing.
+    """Return whether a stored cell holds nothing.
 
     A sequence cell never does, and ``pd.isna`` returns an array rather than a bool for one.
     """
@@ -66,7 +66,7 @@ def _absent(value: object) -> bool:
 
 
 def _coerced(value: object, default: object) -> object:
-    """One DuckDB cell as the field's own type. A stored list becomes a tuple again."""
+    """Convert one DuckDB cell to the field's own type. A stored list becomes a tuple again."""
     if isinstance(default, tuple):
         return tuple(value)  # type: ignore[call-overload]  # a list by construction
 
@@ -190,7 +190,7 @@ def prepared(
     price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
     exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
 ) -> tuple[list[archetypes.Params], context.Dataset]:
-    """Every row of ``block`` rebuilt, in order, and the one dataset all of them run on.
+    """Rebuild every row of ``block``, in order, and prepare the one dataset all of them run on.
 
     The dataset is built from the rows as a combination grid, so that the union over them is
     :meth:`~nqbt.sweep.Grid.required_context`'s rather than a second copy of it. ``price_basis``
@@ -219,7 +219,7 @@ def run_logged(
     root: str,
     archetype: archetypes.Archetype,
 ) -> tuple[dict[str, object], pd.DataFrame]:
-    """One configuration run on a prepared dataset, with its summary and its log."""
+    """Run one configuration on a prepared dataset, returning its summary and its log."""
     summary, log = sweep.run_combination(data, params, get_instrument(root), archetype, keep_trades=True)
     if log is None:  # pragma: no cover - keep_trades always returns a log
         msg: str = "run_combination kept no log with keep_trades set"

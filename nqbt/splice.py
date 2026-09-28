@@ -157,7 +157,7 @@ def _session_bar_counts(frame: pd.DataFrame) -> pd.Series[int]:
 
 
 def overlap_volume(front: pd.DataFrame, back: pd.DataFrame) -> pd.DataFrame:
-    """Per-session volume for both contracts over the bars they share.
+    """Return per-session volume for both contracts over the bars they share.
 
     Restricting to shared timestamps is what makes the comparison meaningful when one
     export ends mid-session: otherwise a 120-bar stub is compared against a 1380-bar
@@ -264,7 +264,7 @@ def detect_roll(
 
 
 def _first_confirmed_crossover(table: pd.DataFrame, confirm_sessions: int) -> pd.Timestamp | None:
-    """First session where the back contract leads and keeps leading.
+    """Find the first session where the back contract leads and keeps leading.
 
     Inconclusive sessions are skipped rather than allowed to decide, but are still eligible to
     be *confirmed* by -- the run only has to start somewhere trustworthy. See
@@ -286,7 +286,7 @@ def _first_confirmed_crossover(table: pd.DataFrame, confirm_sessions: int) -> pd
 
 
 def _coverage_boundary_roll(front: pd.DataFrame, back: pd.DataFrame) -> pd.Timestamp | None:
-    """First session where the front contract is partial but the back is complete."""
+    """Find the first session where the front contract is partial but the back is complete."""
     fa, ba = _in_session(front), _in_session(back)
     fcount, bcount = _session_bar_counts(fa), _session_bar_counts(ba)
     if fcount.empty or bcount.empty:
@@ -314,7 +314,7 @@ def _boundary_offset(
     front_id: ContractId,
     back_id: ContractId,
 ) -> float:
-    """Price gap between the two contracts at the last bar they share before the roll."""
+    """Measure the price gap between the two contracts at the last bar they share before the roll."""
     fa, ba = _in_session(front), _in_session(back)
     fa = fa[fa["trading_day"] < roll_day]
     ba = ba[ba["trading_day"] < roll_day]
@@ -519,7 +519,7 @@ def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
 
 
 def continuous_path(root: str, *, back_adjust: bool, cache_dir: Path = paths.CACHE_DIR) -> Path:
-    """Where one root's spliced continuous series is cached."""
+    """Return where one root's spliced continuous series is cached."""
     suffix: str = "backadj" if back_adjust else "raw"
 
     return cache_dir / "continuous" / f"{root}_{suffix}.parquet"

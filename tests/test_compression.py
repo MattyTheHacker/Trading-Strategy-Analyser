@@ -45,7 +45,7 @@ FIRST_OPEN = "2024-01-07 23:01"
 
 
 def stamps(days: int = 12) -> pd.DatetimeIndex:
-    """One minute bar per minute for ``days`` calendar days, breaks and weekends included."""
+    """Build one minute bar per minute for ``days`` calendar days, breaks and weekends included."""
     return pd.date_range(FIRST_OPEN, periods=days * 24 * 60, freq="min", tz="UTC")
 
 
@@ -71,7 +71,7 @@ def bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
 
 
 def widening(n: int = 400, step: float = 0.5) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Bars whose range grows monotonically: high, low and close for an unambiguous ordering."""
+    """Build bars whose range grows monotonically: high, low and close for an unambiguous ordering."""
     close = np.full(n, 100.0)
     half = step * np.arange(1, n + 1)
 

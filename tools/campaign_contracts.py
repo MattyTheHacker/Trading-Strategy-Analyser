@@ -58,7 +58,7 @@ def one_contract(
     iterations: int,
     n_jobs: int,
 ) -> dict[str, object]:
-    """Observed statistics and the matched null's median, for one contract."""
+    """Return observed statistics and the matched null's median, for one contract."""
     frame: pd.DataFrame = resample.resample(bars, minutes)
     data = sweep.prepare_for(
         frame,
@@ -112,7 +112,7 @@ def run_root(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """Every front-month contract of one root, under the configuration the window chose."""
+    """Run every front-month contract of one root, under the configuration the window chose."""
     archetype: archetypes.Archetype = archetypes.get(name)
     params, minutes = chosen(name, root, window, by, stratum, resolution, variant)
     logger.info("")
@@ -144,7 +144,7 @@ def run_root(
 
 
 def tally(frame: pd.DataFrame) -> pd.DataFrame:
-    """How many contracts beat their own null, and how many simply made money.
+    """Count how many contracts beat their own null, and how many simply made money.
 
     The verdict is the sign tally; the medians beside it describe the spread and never carry it.
     ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally".

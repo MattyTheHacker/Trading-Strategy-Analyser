@@ -41,7 +41,7 @@ LEGS = 4
 
 
 def stored_row(**columns: object) -> pd.Series:
-    """One held-out row, carrying the tags a result is filed under."""
+    """Build one held-out row, carrying the tags a result is filed under."""
     base = {
         "sweep_id": SWEEP_ID,
         "combo_id": COMBO_ID,

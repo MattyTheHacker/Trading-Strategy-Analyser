@@ -151,7 +151,7 @@ def ratchet_history(
     trade_id: int,
     instrument: Instrument,
 ) -> pd.DataFrame:
-    """Bar-by-bar stop history for one trade, to check the ratchet by hand.
+    """Return the bar-by-bar stop history for one trade, to check the ratchet by hand.
 
     Reproduces the rule from ``DeadCatBounce.cs``: at the close of each bar the stop
     becomes ``High[bar-1] + 2 ticks`` when that is tighter, and the stop set at the close

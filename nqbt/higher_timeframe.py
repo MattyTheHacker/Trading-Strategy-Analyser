@@ -175,7 +175,7 @@ def key(minutes: int, period: int) -> HigherTimeframeKey:
 
 
 def _nanoseconds(index: pd.DatetimeIndex) -> IntArray:
-    """UTC nanoseconds since the epoch, the one form two indices can be compared in."""
+    """Convert to UTC nanoseconds since the epoch, the one form two indices can be compared in."""
     naive: pd.DatetimeIndex = index.tz_convert("UTC").tz_localize(None) if index.tz is not None else index
 
     return naive.to_numpy(dtype="datetime64[ns]").astype("int64")

@@ -72,7 +72,7 @@ def last_swept(stored: pd.DataFrame, bars: pd.DataFrame) -> pd.Timestamp:
 
 
 def on_swept_bars(stored: pd.DataFrame, block: pd.DataFrame, frame: pd.DataFrame) -> bool:
-    """Whether every row in ``block`` was swept on exactly the bars ``frame`` holds."""
+    """Return whether every row in ``block`` was swept on exactly the bars ``frame`` holds."""
     references = [stored_for(stored, row) for _, row in block.iterrows()]
 
     return all(ref is not None and not series_moved(ref, frame) for ref in references)
@@ -113,7 +113,7 @@ def stored_figures(row: pd.Series) -> dict[str, object]:  # type: ignore[type-ar
 
 
 def reconciliation(table: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
-    """Per cell, how far a re-run reproduced the rows it was read back against.
+    """Measure, per cell, how far a re-run reproduced the rows it was read back against.
 
     Read it before whatever the logs were re-run for: a cell reproducing nothing is a cell whose
     *levels* belong to this run rather than to the campaign that stored them.
@@ -144,7 +144,7 @@ def logs_for(
     rows: pd.DataFrame,
     root: str,
 ) -> tuple[dict[tuple[int, int], pd.DataFrame], pd.DataFrame]:
-    """Each shortlisted configuration's held-out log, keyed by its stored ids, and what it reproduced.
+    """Return each shortlisted configuration's held-out log, keyed by its stored ids, and what it reproduced.
 
     Grouped by resolution because the resample and the prepared dataset are what a block shares,
     and the bars a cell runs on are the ones its rows were swept on wherever that survives. The

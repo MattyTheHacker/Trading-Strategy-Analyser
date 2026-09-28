@@ -146,7 +146,7 @@ class IngestError(RuntimeError):
 
 
 def load_manifest(path: Path = paths.MANIFEST_PATH) -> dict[str, ContractManifest]:
-    """Every manifest entry on disk, dropping any an older version wrote differently."""
+    """Load every manifest entry on disk, dropping any an older version wrote differently."""
     if not path.exists():
         return {}
 
@@ -171,7 +171,7 @@ def save_manifest(manifest: dict[str, ContractManifest], path: Path = paths.MANI
 
 
 def _hash_range(source: Path, length: int) -> str:
-    """SHA-256 of the first ``length`` bytes of ``source``.
+    """Hash the first ``length`` bytes of ``source`` with SHA-256.
 
     A file shorter than ``length`` hashes whatever it has, which simply produces a digest
     that will not match -- the same answer as an explicit error, without the branch.
@@ -308,7 +308,7 @@ def discover_exports(data_dir: Path = paths.MINUTE_DIR, root: str | None = None)
 
 
 def contract_cache_path(contract: ContractId, cache_dir: Path = paths.CACHE_DIR) -> Path:
-    """Where one contract's cached bars live."""
+    """Return where one contract's cached bars live."""
     return cache_dir / "bars" / contract.root / f"{contract.cache_key}.parquet"
 
 

@@ -17,5 +17,5 @@ __all__: Sequence[str] = ["has_blank_line_above"]
 
 
 def has_blank_line_above(leading_lines: Sequence[cst.EmptyLine]) -> bool:
-    """Whether a blank line already sits above a statement and everything attached to it."""
+    """Return whether a blank line already sits above a statement and everything attached to it."""
     return bool(leading_lines) and leading_lines[0].comment is None

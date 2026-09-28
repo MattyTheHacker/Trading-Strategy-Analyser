@@ -25,7 +25,7 @@ FIRST_OPEN = "2024-01-07 23:01"
 
 
 def minute_bars(days: int = 4, seed: int = 7) -> pd.DataFrame:
-    """1-minute bars from the first bar of an ETH session, long enough for an hourly EMA(50)."""
+    """Build 1-minute bars from the first bar of an ETH session, long enough for an hourly EMA(50)."""
     rng = np.random.default_rng(seed)
     index = pd.date_range(FIRST_OPEN, periods=days * 24 * 60, freq="min", tz="UTC")
     n = index.size

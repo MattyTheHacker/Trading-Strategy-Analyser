@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[type-arg]  # duckdb's dtypes
-    """Every cut this configuration ran at, read off its stored row by name.
+    """Return every cut this configuration ran at, read off its stored row by name.
 
     :class:`nqbt.annotate.LabelThresholds`' fields and ``ContextFilterParams``' threshold
     parameters are the same words, so a pair added to one flows through here without a change.
@@ -67,7 +67,7 @@ def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[
 
 
 def annotation_spec(block: pd.DataFrame, archetype: archetypes.Archetype) -> context.ContextSpec:
-    """Every series these configurations read, plus the clock and volume a review wants beside it.
+    """Return every series these configurations read, plus the clock and volume a review wants beside it.
 
     The union is what lets one prepared dataset serve a whole block, exactly as
     ``tools/campaign_shortlist.store_group`` builds one for the re-run.

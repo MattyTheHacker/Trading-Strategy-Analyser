@@ -406,12 +406,12 @@ NO_CUTS = Cuts()
 
 
 def _unfiltered() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """No context filter at all: the baseline every other stratum is read against."""
+    """Yield the stratum with no context filter at all: the baseline every other stratum is read against."""
     yield UNFILTERED, {}
 
 
 def _regime() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per efficiency-ratio regime."""
+    """Yield once per efficiency-ratio regime."""
     for state in regime.Regime:
         yield f"regime={state.name}", {"regime_filter": [state.bit]}
 
@@ -445,7 +445,7 @@ def _trend_up() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _phase() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per session phase."""
+    """Yield once per session phase."""
     for phase in timeofday.SessionPhase:
         yield f"phase={phase.name}", {"phase_filter": [phase.bit]}
 
@@ -461,7 +461,7 @@ def _midday() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _volume() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per relative-volume state, at the one form and the one cut §M27 ran."""
+    """Yield once per relative-volume state, at the one form and the one cut §M27 ran."""
     for state in volume.VolumeState:
         yield f"volume={state.name}", {"volume_filter": [state.bit]}
 
@@ -471,7 +471,7 @@ def volume_series(
     rolling_bars: Sequence[int] = (VOLUME_ROLLING_BARS,),
     baseline_sessions: Sequence[int] = (VOLUME_BASELINE_SESSIONS,),
 ) -> tuple[volume.VolumeKey, ...]:
-    """One relative-volume series per (form, rolling window, baseline), deduplicated.
+    """Return one relative-volume series per (form, rolling window, baseline), deduplicated.
 
     Built through :func:`nqbt.volume.key`, which drops the rolling window from every form but
     ``ROLLING`` -- the blind spot ``dead_axes`` cannot see, avoided rather than rediscovered.
@@ -517,7 +517,7 @@ def _volume_axes(cut: VolumeCut) -> dict[str, list[AxisValue]]:
 
 
 def _volume_cells(cuts: VolumeCalibration) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per (series, tail size, state): which of the three statements an edge belongs to."""
+    """Yield once per (series, tail size, state): which of the three statements an edge belongs to."""
     for cut in cuts:
         for state in volume.VolumeState:
             yield f"volume={state.name}@{cut.name}", _volume_axes(cut) | {"volume_filter": [state.bit]}
@@ -538,13 +538,13 @@ def _compression_axes(form: compression.CompressionForm) -> dict[str, list[AxisV
 
 
 def _compression() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per compression state, at the one form and the one cut a first pass runs."""
+    """Yield once per compression state, at the one form and the one cut a first pass runs."""
     for state in compression.Compression:
         yield f"compression={state.name}", {"compression_filter": [state.bit]}
 
 
 def _compression_forms() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per (form, state): whether a narrow band and a short range say the same thing.
+    """Yield once per (form, state): whether a narrow band and a short range say the same thing.
 
     The cut stays the campaign's raw pair rather than a fitted one, because a trailing rank
     already means the same share of bars in every cell -- ``docs/roadmap.md`` §M19.1.
@@ -558,13 +558,13 @@ def _compression_forms() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _trend() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per compact trend label."""
+    """Yield once per compact trend label."""
     for label in trend.Trend:
         yield f"trend={label.name}", {"trend_filter": [label.bit]}
 
 
 def _higher_timeframe() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """Once per side of the 60-minute average."""
+    """Yield once per side of the 60-minute average."""
     for side in higher_timeframe.Side:
         yield f"htf={side.name}", {"higher_timeframe_filter": [side.bit]}
 
@@ -737,7 +737,7 @@ class Variant:
     """
 
     def sized(self) -> int:
-        """How many combinations this variant's own axes make."""
+        """Count how many combinations this variant's own axes make."""
         total: int = 1
         for values in self.axes.values():
             total *= len(values)
@@ -745,7 +745,7 @@ class Variant:
         return total
 
     def runs_at(self, minutes: int) -> bool:
-        """Whether this variant is expressible at one resolution."""
+        """Return whether this variant is expressible at one resolution."""
         return minutes in self.resolutions
 
 
@@ -755,7 +755,7 @@ def _costed(params: Params, root: str) -> Params:
 
 
 def deadcat_variants(root: str) -> list[Variant]:
-    """One variant: the entry gates, the moving-average kind, and how far the targets sit."""
+    """Build one variant: the entry gates, the moving-average kind, and how far the targets sit."""
     return [
         Variant(
             name="bracket",
@@ -773,7 +773,7 @@ def deadcat_variants(root: str) -> list[Variant]:
 
 
 def pullback_variants(root: str) -> list[Variant]:
-    """One variant: all three gates are on by default, so all three periods are live."""
+    """Build one variant: all three gates are on by default, so all three periods are live."""
     return [
         Variant(
             name="ratchet",
@@ -791,7 +791,7 @@ def pullback_variants(root: str) -> list[Variant]:
 
 
 def crossover_variants(root: str) -> list[Variant]:
-    """Two variants, one per stop geometry, because each reads an axis the other ignores.
+    """Build two variants, one per stop geometry, because each reads an axis the other ignores.
 
     Sweeping ``atr_stop_multiple`` under the swing stop would run identical combinations and
     ``dead_axes`` cannot see it -- ``.claude/rules/sweep-and-context.md``.
@@ -821,7 +821,7 @@ def crossover_variants(root: str) -> list[Variant]:
 
 
 def emapullback_variants(root: str) -> list[Variant]:
-    """One variant: both averages crossed over kind and period, and the entry's own three axes.
+    """Build one variant: both averages crossed over kind and period, and the entry's own three axes.
 
     **Both kinds are swept and both periods with them**, which no earlier campaign here did --
     EmaCrossover swept the fast kind alone. §M27 measured the moving averages as nearly inert
@@ -853,7 +853,7 @@ def emapullback_variants(root: str) -> list[Variant]:
 
 
 def insidebar_variants(root: str) -> list[Variant]:
-    """One variant: the three gates, the breakout margin and the lopsided ATR geometry."""
+    """Build one variant: the three gates, the breakout margin and the lopsided ATR geometry."""
     return [
         Variant(
             name="bracket",
@@ -894,7 +894,7 @@ since a tighter stop is the other half of the same asymmetry."""
 
 
 def insidebar_narrow_variants(root: str) -> list[Variant]:
-    """One variant per resolution: the campaign's entry, crossed over the bracket it never swept.
+    """Build one variant per resolution: the campaign's entry, crossed over the bracket it never swept.
 
     Two variants rather than one because the entry §M27 chose differs between five and ten
     minutes, and a ``Variant`` carries one base -- ``docs/roadmap.md`` §M27.3.
@@ -912,7 +912,7 @@ def insidebar_narrow_variants(root: str) -> list[Variant]:
 
 
 def insidebartrailing_variants(root: str) -> list[Variant]:
-    """One variant: InsideBar's entry against the split-lot trailing exit's own axes."""
+    """Build one variant: InsideBar's entry against the split-lot trailing exit's own axes."""
     return [
         Variant(
             name="trailing",
@@ -956,7 +956,7 @@ def elastic_ladder(variant: str) -> tuple[float, ...]:
 
 
 def elasticband_variants(root: str) -> list[Variant]:
-    """One variant per target ladder, each sweeping the entry, the stop mode and a time stop."""
+    """Build one variant per target ladder, each sweeping the entry, the stop mode and a time stop."""
     axes: dict[str, list[AxisValue]] = {
         "band_period": [10, 20, 50],
         "entry_std": [1.5, 2.0, 2.5, 3.0],
@@ -1002,7 +1002,7 @@ axes, over the entry §M26.4 left the archetype at, with no requirement on the b
 
 
 def elasticband_shape_variants(root: str) -> list[Variant]:
-    """§M26.5's run: what the signal bar looks like, over the source §M26.4 left standing.
+    """Build §M26.5's run: what the signal bar looks like, over the source §M26.4 left standing.
 
     The VWAP source alone, because §M26.4 is what established that the Bollinger one does not
     survive a holdout -- so the question here is the signal bar and not the channel.
@@ -1064,7 +1064,7 @@ rather than sharing the dict, so nothing downstream can mutate both sets at once
 
 
 def elasticband_volume_variants(root: str) -> list[Variant]:
-    """§M26.9's run: the shape crossed with the volume states, over a bracket held still.
+    """Build §M26.9's run: the shape crossed with the volume states, over a bracket held still.
 
     Three of §M26.5's five axes are held rather than swept, so that the cells this adds are the
     volume strata and not a wider grid: ``min_one_sided_bars`` because §M26.5 measured its low
@@ -1112,7 +1112,7 @@ by one thing, which costs the Bollinger arm the best-of-three every §M30 cell h
 
 
 def elasticband_channel_variants(root: str) -> list[Variant]:
-    """§M33's run: the channel crossed with the shape, over §M26.9's bracket.
+    """Build §M33's run: the channel crossed with the shape, over §M26.9's bracket.
 
     §M26.9 and §M30 put the same nine fitted volume cuts through grids differing in three ways
     at once and returned opposite answers. Here the channel and the shape are the only things
@@ -1167,7 +1167,7 @@ counts per resolution.
 
 
 def elasticband_recovery_variants(root: str) -> list[Variant]:
-    """§M26.6's run: the recovery trigger against the shapes, over §M26.5's channel.
+    """Build §M26.6's run: the recovery trigger against the shapes, over §M26.5's channel.
 
     §M26.5's grid minus ``min_one_sided_bars``, which it measured as a dead value at its low
     end and a cost at its high one. ``min_bars_outside`` stays, because the recovery trigger is
@@ -1235,7 +1235,7 @@ are arms here rather than stored rows, because a stored row came out of a differ
 
 
 def elasticband_band_stop_variants(root: str) -> list[Variant]:
-    """§M26.8's run: a stop on the channel itself, against the three that are not.
+    """Build §M26.8's run: a stop on the channel itself, against the three that are not.
 
     ``stop_mode`` leaves the axes and becomes the arm, so every cell differs from its control by
     where the stop went and nothing else. ``min_one_sided_bars`` is dropped for §M26.5's reason
@@ -1275,7 +1275,7 @@ ORB_WINDOWS = (5, 15, 30)
 
 
 def orb_resolutions(anchor: int, window: int) -> tuple[int, ...]:
-    """Which campaign resolutions can express a range of ``window`` minutes from ``anchor``.
+    """Return which campaign resolutions can express a range of ``window`` minutes from ``anchor``.
 
     Both the anchor and the window have to be whole numbers of bars, which is why this is
     computed rather than written down: off the 930-minute cash anchor, 5-minute ranges survive
@@ -1285,7 +1285,7 @@ def orb_resolutions(anchor: int, window: int) -> tuple[int, ...]:
 
 
 def openingrange_variants(root: str) -> list[Variant]:
-    """One variant per (window, stop, target), because each triple reads axes the others do not.
+    """Build one variant per (window, stop, target), because each triple reads axes the others do not.
 
     The window has to be a variant rather than an axis: it decides which resolutions the range
     exists at, and a sweep crosses its axes uniformly across every axis point.
@@ -1322,7 +1322,7 @@ def openingrange_variants(root: str) -> list[Variant]:
 
 
 def squeeze_variants(root: str) -> list[Variant]:
-    """One variant per (stop, target), for OpeningRange's reason: each pair reads axes the others do not.
+    """Build one variant per (stop, target), for OpeningRange's reason: each pair reads axes others do not.
 
     The squeeze's own axes are shared by all four. Both forms read the period, the baseline and
     the threshold, so the form is an axis rather than a variant dimension --
@@ -1405,7 +1405,7 @@ swept where it lives rather than shared -- ``docs/roadmap.md`` §M28.2.
 
 
 def _orb_further_targets() -> list[OrbTarget]:
-    """:data:`ORB_TARGETS` in the shape :func:`_orb_fade_targets` returns.
+    """Return :data:`ORB_TARGETS` in the shape :func:`_orb_fade_targets` returns.
 
     The ladder is the parameter default rather than a copy of it, so a variant built here and
     one §M28.2 stored carry the same tuple.
@@ -1426,7 +1426,7 @@ which is §M28.1's own deferral: 0 of 10 cells and half the runtime.
 
 
 def openingrange_further_variants(root: str) -> list[Variant]:
-    """§M28.2's re-sweep: the anchor axis, the three entry mechanisms and one stop axis.
+    """Build §M28.2's re-sweep: the anchor axis, the three entry mechanisms and one stop axis.
 
     One variant per (range, entry, target), because each triple reads axes the others do not
     and because the range decides which resolutions exist at all -- ``Variant.resolutions``.
@@ -1483,7 +1483,7 @@ band-reversion convention §M26 records — and which the swept space has never 
 
 
 def openingrange_fade_variants(root: str) -> list[Variant]:
-    """§M28.5's re-run: the fade alone, with the bracket §M28.2 parked it for.
+    """Build §M28.5's re-run: the fade alone, with the bracket §M28.2 parked it for.
 
     The entry axes are held at exactly what §M28.2 swept, so the only thing that moved is the
     bracket — which is what § "Parked is not abandoned" asks a re-run to be able to say.
@@ -1545,7 +1545,7 @@ has to break -- ``docs/roadmap.md`` §M28.7.
 
 
 def openingrange_rejection_variants(root: str) -> list[Variant]:
-    """§M28.7's run: the rejection alone, over the bracket §M28.5 measured the fade on.
+    """Build §M28.7's run: the rejection alone, over the bracket §M28.5 measured the fade on.
 
     The bracket axes are held at exactly what §M28.5 swept, so the entry is the only thing that
     moved -- which is the comparison § "Parked is not abandoned" asks a re-run to be able to
@@ -1648,7 +1648,7 @@ gradient to a stored measurement instead of running beside it -- ``docs/roadmap.
 
 
 def orb_geometry_ranges() -> dict[str, sessionrange.RangeKey]:
-    """Every (anchor, window) the session leaves room to trade, one entry per cell of the cross.
+    """Return every (anchor, window) the session leaves room to trade, one entry per cell of the cross.
 
     The anchors are the session's own phase starts, and a range must complete before the phase
     the forced flat falls in -- so which cells exist is derived from the session template
@@ -1669,7 +1669,7 @@ def orb_geometry_ranges() -> dict[str, sessionrange.RangeKey]:
 
 
 def openingrange_geometry_variants(root: str) -> list[Variant]:
-    """§M28.8's run: the range's anchor crossed with its length, on all four entries.
+    """Build §M28.8's run: the range's anchor crossed with its length, on all four entries.
 
     One variant per (range, entry, target), because the range decides which resolutions exist
     at all and each entry reads axes the others do not -- ``Variant.resolutions``.
@@ -1735,7 +1735,7 @@ one arm each is what says whether either is the one that matters.
 
 
 def openingrange_follow_through_variants(root: str) -> list[Variant]:
-    """§M28.10's run: the bracket denominated in trailing reach, against an unscaled control.
+    """Build §M28.10's run: the bracket denominated in trailing reach, against an unscaled control.
 
     **A variant dimension rather than an axis**, for :data:`SPEC_TRAILS`' reason:
     ``follow_through_sessions`` is inert at :data:`ORB_SCALE_NONE`, so crossing the two as axes
@@ -1820,7 +1820,7 @@ and ``target=w1.0+2.0`` is the only cell that scales out at two distances -- ``d
 
 
 def openingrange_bracket_variants(root: str) -> list[Variant]:
-    """§M28.11's run: the stop ladder past its boundary, crossed with the width ladder.
+    """Build §M28.11's run: the stop ladder past its boundary, crossed with the width ladder.
 
     One variant per (range, ladder), because a ladder is a tuple and tuples are not sweepable --
     see :class:`Variant`. The entry is the breakout alone, held at exactly the axes §M28.2 and
@@ -2061,7 +2061,7 @@ arm that cannot bind has to read as its control, and one that does not is a defe
 
 
 def _held(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
-    """One archetype's stored campaign variants, re-emitted once per rung of the hold ladder.
+    """Re-emit one archetype's stored campaign variants once per rung of the hold ladder.
 
     The axes are §M27's otherwise untouched, so every arm holds the same number of combinations
     and the comparison is paired rather than a best-of-more -- ``tools/campaign_paired.py``.
@@ -2106,7 +2106,7 @@ run on the same bars in the same pass *and* the check that adding the mode moved
 
 
 def emapullback_trail_variants(root: str) -> list[Variant]:
-    """§M35's variant once per stop, so the two arms share every axis and differ by the trail."""
+    """Build §M35's variant once per stop, so the two arms share every axis and differ by the trail."""
     (campaign,) = emapullback_variants(root)
 
     return [
@@ -2137,7 +2137,7 @@ arms inside §M35's run time -- ``docs/findings/m39-ema-pullback-confirmation-en
 
 
 def emapullback_confirm_variants(root: str) -> list[Variant]:
-    """§M35's variant once per entry, so the three arms share every axis and differ by the order."""
+    """Build §M35's variant once per entry, so the three arms share every axis and differ by the order."""
     (campaign,) = emapullback_variants(root)
     axes: dict[str, list[AxisValue]] = {
         axis: values for axis, values in campaign.axes.items() if axis not in EMAPULLBACK_HELD_KINDS
@@ -2240,7 +2240,7 @@ SIZING_STEP = 1
 
 
 def sizing_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
-    """Every sizing arm on one root and resolution: the stored grid with the split held.
+    """Build every sizing arm on one root and resolution: the stored grid with the split held.
 
     The arms share every axis, so :func:`tools.campaign_paired` reads each against its control
     cell by cell rather than as two shortlists of different sizes.
@@ -2300,7 +2300,7 @@ def sizing_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
 
 
 def insidebartrailing_sizing_variants(root: str) -> list[Variant]:
-    """[#295] and [#353] over InsideBarTrailing's stored grid, one set of arms per fitted resolution."""
+    """Build [#295] and [#353] over InsideBarTrailing's stored grid, one set of arms per fitted resolution."""
     (campaign,) = insidebartrailing_variants(root)
 
     return [arm for cut in sizing_cuts() if cut.root == root for arm in sizing_arms(campaign, cut)]
@@ -2373,7 +2373,7 @@ def grids_for(
     which: str,
     cuts: Cuts = NO_CUTS,
 ) -> list[tuple[str, sweep.Grid]]:
-    """One grid per stratum over ``variant``, named by the stratum."""
+    """Build one grid per stratum over ``variant``, named by the stratum."""
     return [
         (name, sweep.Grid(axes=variant.axes | extra, base=variant.base, archetype=variant.archetype))
         for name, extra in strata(which, cuts)
@@ -2391,14 +2391,14 @@ def windows(bars: pd.DataFrame, *, split: bool) -> list[tuple[str, pd.DataFrame]
 
 
 def db_path(name: str) -> paths.Path:
-    """Where one archetype's results live. Separate files, not separate tables -- see above."""
+    """Return where one archetype's results live. Separate files, not separate tables -- see above."""
     CAMPAIGN_DIR.mkdir(parents=True, exist_ok=True)
 
     return CAMPAIGN_DIR / f"{name}.duckdb"
 
 
 def _merged_axes(grids: list[sweep.Grid]) -> dict[str, list[AxisValue]]:
-    """Every value any grid tries for any axis, for the stored ``axes`` column."""
+    """Merge every value any grid tries for any axis, for the stored ``axes`` column."""
     merged: dict[str, list[AxisValue]] = {}
     for grid in grids:
         for axis, values in grid.axes.items():
@@ -2514,7 +2514,7 @@ def run_point(
 
 
 def cell_shape(argv: argparse.Namespace) -> Cuts:
-    """Cuts with the right cells and no thresholds in them, for counting cells only."""
+    """Return cuts with the right cells and no thresholds in them, for counting cells only."""
     regime_cells: Calibration = (
         tuple(RegimeCut(lookback, NAN, NAN, argv.regime_quantiles) for lookback in argv.regime_lookbacks)
         if argv.regime_quantiles
@@ -2534,7 +2534,7 @@ def cell_shape(argv: argparse.Namespace) -> Cuts:
 
 
 def planned_combinations(argv: argparse.Namespace) -> int:
-    """How many combinations the requested run will simulate, before it starts."""
+    """Count how many combinations the requested run will simulate, before it starts."""
     per_window: int = 0
     cells: int = len(list(strata(argv.strata, cell_shape(argv))))
     builders = variants_for(argv.variants)
@@ -2624,7 +2624,7 @@ def check_volume_request(argv: argparse.Namespace) -> None:
 
 
 def requested_volume_series(argv: argparse.Namespace) -> tuple[volume.VolumeKey, ...]:
-    """Every series the requested forms and window ladders name, the inert rungs dropped."""
+    """Return every series the requested forms and window ladders name, the inert rungs dropped."""
     return volume_series(argv.volume_forms, argv.volume_rolling_bars, argv.volume_baseline_sessions)
 
 
@@ -2664,7 +2664,7 @@ def log_volume_calibration(fitted: dict[int, VolumeCalibration], selection_bars:
 
 
 def fit_volume(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, VolumeCalibration]:
-    """One calibration per resolution, fitted on the selection window whether or not it is split.
+    """Fit one calibration per resolution on the selection window, whether or not it is split.
 
     The held-out window reads the selection window's cut, exactly as :func:`fit_regime`'s does.
     """
@@ -2685,7 +2685,7 @@ def fit_volume(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, Volume
 
 
 def fit_regime(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, Calibration]:
-    """One calibration per resolution, fitted on the selection window whether or not it is split.
+    """Fit one calibration per resolution on the selection window, whether or not it is split.
 
     The held-out window reads the selection window's cut, so nothing about the holdout reaches
     the definition of the stratum -- ``docs/roadmap.md`` §M27.5.

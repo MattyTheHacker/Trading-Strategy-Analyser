@@ -303,7 +303,7 @@ def render_register(findings: list[Finding]) -> str:
 
 
 def render_by_archetype(findings: list[Finding]) -> str:
-    """Every finding that touches each archetype, so one archetype reads as one story."""
+    """Render every finding that touches each archetype, so one archetype reads as one story."""
     out = [
         *_header(),
         "# Findings by archetype",
@@ -351,7 +351,7 @@ def render_by_archetype(findings: list[Finding]) -> str:
 
 
 def render_by_gate(findings: list[Finding]) -> str:
-    """Every finding that reports on each gate, which is what "has anything passed" asks."""
+    """Render every finding that reports on each gate, which is what "has anything passed" asks."""
     out = [
         *_header(),
         "# Findings by gate",
@@ -406,7 +406,7 @@ def formatted(markdown: str) -> str:
 
 
 def views(findings: list[Finding]) -> dict[str, str]:
-    """Each generated file's name and the content it should hold."""
+    """Return each generated file's name and the content it should hold."""
     return {
         REGISTER: formatted(render_register(findings)),
         BY_ARCHETYPE: formatted(render_by_archetype(findings)),

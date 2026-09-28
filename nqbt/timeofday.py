@@ -130,12 +130,12 @@ def describe_mask(mask: int) -> str:
 
 
 def session_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> int:
-    """How many minutes a full session runs -- 1,380 for the 18:00-17:00 ET template."""
+    """Return how many minutes a full session runs -- 1,380 for the 18:00-17:00 ET template."""
     return ((template.close_seconds - template.open_seconds) % SECONDS_PER_DAY) // 60
 
 
 def phase_start_minutes(template: SessionTemplate = CME_US_INDEX_FUTURES_ETH) -> IntArray:
-    """:data:`PHASE_STARTS` as minutes past the session open, validated and ascending.
+    """Return :data:`PHASE_STARTS` as minutes past the session open, validated and ascending.
 
     Validated on every call, not once at import, because the boundaries are relative to the
     template's open -- ``docs/roadmap.md`` §M10.4.
@@ -179,7 +179,7 @@ def phase_from_minutes(
 
 
 def bits_from_phase(phase: LabelArray) -> BitsArray:
-    """``1 << phase`` per bar, and ``0`` for :data:`OUT_OF_SESSION`.
+    """Return ``1 << phase`` per bar, and ``0`` for :data:`OUT_OF_SESSION`.
 
     Precomputed so testing a filter is one ``&`` over the series.
     """
@@ -192,7 +192,7 @@ def bits_from_phase(phase: LabelArray) -> BitsArray:
 
 
 def bar_index_from_minutes(minutes: IntArray, bar_minutes: int) -> IndexArray:
-    """Zero-based bar of session, from minute-of-session and the bar size.
+    """Return the zero-based bar of session, from minute-of-session and the bar size.
 
     **Derived from the clock, never counted off the data** -- ``docs/roadmap.md`` §M10.4. Same
     quantity :func:`nqbt.resample.bucket_index` groups by.
@@ -247,7 +247,7 @@ class TimeOfDay:
         return self.phase.nbytes + self.phase_bits.nbytes + self.bar_of_session.nbytes
 
     def gate(self, mask: int) -> BoolArray:
-        """Per-bar boolean: does this bar's phase pass ``mask``?
+        """Return a per-bar boolean: does this bar's phase pass ``mask``?
 
         An out-of-session bar passes nothing, :data:`ALL_PHASES` included, which is why an
         archetype's signal skips this call entirely at the default -- ``docs/roadmap.md`` §M10.4.

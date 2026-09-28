@@ -50,7 +50,7 @@ def days_from(start: dt.date, n: int) -> np.ndarray:
 
 
 def leg_log(daily: list[float]) -> pd.DataFrame:
-    """One single-leg MNQ trade per trading day, from each day's net P&L."""
+    """Build one single-leg MNQ trade per trading day, from each day's net P&L."""
     n = len(daily)
     exits = pd.Timestamp("2024-01-02 15:00", tz="UTC") + pd.to_timedelta(np.arange(n), unit="D")
 
@@ -262,7 +262,7 @@ def test_a_cost_ranks_lowest_first_and_selection_profit_factor_breaks_a_tie() ->
 
 
 def selection_frame() -> pd.DataFrame:
-    """Four configurations measured through two presets on the selection window."""
+    """Measure four configurations through two presets on the selection window."""
     return pd.DataFrame(
         [
             {
@@ -355,7 +355,7 @@ def test_nothing_chosen_or_nothing_held_has_no_verdict() -> None:
 
 
 def paired_rows() -> pd.DataFrame:
-    """Four stored pairs, already in selection-window rank order."""
+    """Build four stored pairs, already in selection-window rank order."""
     return pd.DataFrame(
         {
             "root": ROOT,
@@ -498,7 +498,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def stored_selection(db, bars: pd.DataFrame) -> pd.DataFrame:
-    """Two InsideBar configurations swept on the selection window and read back as stored rows."""
+    """Sweep two InsideBar configurations on the selection window and read them back as stored rows."""
     frame = resample.resample(source(bars, "selection"), 5)
     grid = sweep.Grid.of(
         InsideBarParams(slow_sma_period=50, bars_required_to_trade=60), atr_multiplier=[5.0, 10.0]

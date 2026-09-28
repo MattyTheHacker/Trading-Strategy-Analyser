@@ -125,7 +125,7 @@ def stored_rows(
     variants: Collection[str] | None = None,
     resolutions: Collection[int] | None = None,
 ) -> pd.DataFrame:
-    """Every row one archetype stored for a root and window, with the bars its sweep ran on.
+    """Load every row one archetype stored for a root and window, with the bars its sweep ran on.
 
     Keyed by :data:`~tools.campaign_holdout.JOIN_KEYS`, which is what identifies the same
     configuration in two windows. ``tools/campaign_holdout.py`` pairs the windows one-to-one on
@@ -162,7 +162,7 @@ def stored_for(stored: pd.DataFrame, row: pd.Series) -> pd.Series | None:  # typ
 
 
 def _naive(when: pd.Timestamp) -> pd.Timestamp:
-    """One bar stamp without its zone, which is how :func:`nqbt.results.save_sweep` stores it."""
+    """Strip one bar stamp of its zone, which is how :func:`nqbt.results.save_sweep` stores it."""
     if when.tz is None:
         return when
 
@@ -170,7 +170,7 @@ def _naive(when: pd.Timestamp) -> pd.Timestamp:
 
 
 def series_moved(reference: pd.Series, frame: pd.DataFrame) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
-    """Which ends of the series a stored sweep ran on have moved, empty where neither has."""
+    """Report which ends of the series a stored sweep ran on have moved, empty where neither has."""
     ends: list[str] = [
         f"{end} bar was {stored}, now {current}"
         for end, stored, current in (
@@ -228,7 +228,7 @@ def verify_observation(
 
 
 def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
-    """One configuration named by whatever actually varies across the shortlist."""
+    """Name one configuration by whatever actually varies across the shortlist."""
     if not axes:
         return f"sweep {int(row['sweep_id'])} combo {int(row['combo_id'])}"
 
@@ -245,7 +245,7 @@ def measure_row(  # noqa: PLR0913 - each argument is a distinct axis of one meas
     n_jobs: int,
     draw: str = randomentry.OVER_BARS,
 ) -> dict[str, object]:
-    """One configuration against its own matched null, or a row saying it was refused.
+    """Measure one configuration against its own matched null, or return a row saying it was refused.
 
     Every measured column is the **test window's**, including net-to-drawdown; the stored row
     supplies the parameters and its own ranking-window figures stay out, so that one row is not
@@ -313,7 +313,7 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
     n_jobs: int,
     draw: str = randomentry.OVER_BARS,
 ) -> pd.DataFrame:
-    """Every shortlisted configuration against its own null, one row each.
+    """Measure every shortlisted configuration against its own null, one row each.
 
     Grouped by resolution because the resample and the prepared dataset are the expensive parts,
     exactly as ``tools/campaign_shortlist.store_group`` groups them.
@@ -368,7 +368,7 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
 
 
 def rankings(table: pd.DataFrame) -> list[str]:
-    """Which configuration each ranking picks, and whether they agree.
+    """Report which configuration each ranking picks, and whether they agree.
 
     The disagreement is the finding: a bracket that suits the bars raises the observed statistic
     and its null together, so the two orders part exactly where profit factor misleads.
@@ -394,7 +394,7 @@ def rankings(table: pd.DataFrame) -> list[str]:
 
 
 def family(table: pd.DataFrame) -> pd.DataFrame:
-    """One row per cell of a family run: what it beat, how often, and at what p.
+    """Return one row per cell of a family run: what it beat, how often, and at what p.
 
     The row is a range rather than a mean because ten configurations of one cell are ten
     overlapping runs over the same bars, so their spread is the honest summary and their
@@ -450,7 +450,7 @@ def cell(
     root: str,
     stratum: str | None,
 ) -> pd.DataFrame:
-    """One root x stratum cell of a family run, shortlisted and placed against its own null."""
+    """Shortlist one root x stratum cell of a family run and place it against its own null."""
     rows: pd.DataFrame = shortlist(
         args.strategy,
         root,

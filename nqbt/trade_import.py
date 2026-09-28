@@ -170,7 +170,7 @@ class ContractCoverage:
 
     @override
     def __str__(self) -> str:
-        """One line naming the contract and the range, or saying there is none."""
+        """Return one line naming the contract and the range, or saying there is none."""
         if not self.cached:
             return f"{self.contract.nt8_name:<12} not cached"
 
@@ -244,7 +244,7 @@ class ImportedTrades:
 
     @override
     def __str__(self) -> str:
-        """Leg count, the coverage report, and what could not be built into a trade."""
+        """Return the leg count, the coverage report, and what could not be built into a trade."""
         return f"{len(self.frame)} legs, {self.coverage}\n  {self.incomplete}"
 
 
@@ -357,7 +357,7 @@ def _quantities(column: pd.Series[str]) -> IntArray:
 
 
 def _signed(column: pd.Series[str], quantities: IntArray) -> IntArray:
-    """Signed size of each fill: positive bought, negative sold."""
+    """Return the signed size of each fill: positive bought, negative sold."""
     action: pd.Series[str] = column.str.strip()
     unknown: list[str] = sorted(set(action.dropna().unique()) - {BUY, SELL})
     if unknown:
@@ -388,7 +388,7 @@ def _positions(column: pd.Series[str]) -> IntArray:
 
 
 def _check_ascending(times: pd.Series[pd.Timestamp], *, source: str) -> None:
-    """Reversed file order must be non-decreasing in time, or the export was not newest-first."""
+    """Check that reversed file order is non-decreasing in time, or the export was not newest-first."""
     if times.is_monotonic_increasing:
         return
 

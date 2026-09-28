@@ -41,7 +41,7 @@ BARS = 40_000
 
 
 def base() -> InsideBarTrailingParams:
-    """Periods short enough that a synthetic walk holds many setups."""
+    """Build a base with periods short enough that a synthetic walk holds many setups."""
     return InsideBarTrailingParams(ema_period=5, fast_sma_period=8, slow_sma_period=13, error_margin=0.01)
 
 
@@ -223,7 +223,7 @@ def test_the_traded_early_share_is_counted_over_trades_taken(bars, fitted) -> No
 
 
 def stored_confluence_row(combo_id: int) -> pd.Series:
-    """One held-out confluence-arm row, carrying the fields ``rebuild`` restores it from."""
+    """Build one held-out confluence-arm row, carrying the fields ``rebuild`` restores it from."""
     return pd.Series(
         {
             "sweep_id": 7,

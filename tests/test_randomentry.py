@@ -22,7 +22,7 @@ from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def session_bars(days: int = 30, seed: int = 11) -> pd.DataFrame:
-    """Minute bars laid out on real CME sessions rather than a bare date range.
+    """Build minute bars laid out on real CME sessions rather than a bare date range.
 
     Session-shaped on purpose: the whole point of the null is the time-of-session marginal,
     and a fixture that ignores sessions would let a broken anchoring pass.

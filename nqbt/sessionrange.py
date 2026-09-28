@@ -62,7 +62,7 @@ def anchor_for(
     phase: SessionPhase,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> int:
-    """Minutes from the session open to the start of ``phase`` -- one anchor per clock.
+    """Return the minutes from the session open to the start of ``phase`` -- one anchor per clock.
 
     Derived from :func:`nqbt.timeofday.phase_start_minutes` rather than written down, so the
     two clocks cannot drift apart if the template's open ever moves.
@@ -180,15 +180,15 @@ class SessionRangeGrid:
         return self.keys.index(key)
 
     def armed_for(self, key: RangeKey) -> BoolArray:
-        """Per bar: whether one range is complete and readable."""
+        """Return, per bar, whether one range is complete and readable."""
         return np.asarray(self.armed[self.row(key)])
 
     def high_for(self, key: RangeKey) -> FloatArray:
-        """Per session: one range's high, ``nan`` where the session has no range."""
+        """Return, per session, one range's high, ``nan`` where the session has no range."""
         return np.asarray(self.high[self.row(key)])
 
     def low_for(self, key: RangeKey) -> FloatArray:
-        """Per session: one range's low, ``nan`` where the session has no range."""
+        """Return, per session, one range's low, ``nan`` where the session has no range."""
         return np.asarray(self.low[self.row(key)])
 
     @property
@@ -198,7 +198,7 @@ class SessionRangeGrid:
 
 
 def _session_ids(trading_day: DateArray) -> IndexArray:
-    """Each bar's session as a dense index from zero, in bar order."""
+    """Return each bar's session as a dense index from zero, in bar order."""
     return (np.cumsum(indicators.new_session_flags(trading_day)) - 1).astype(np.int32)
 
 
@@ -232,7 +232,7 @@ def _extremes(
     n_sessions: int,
     expected_bars: int,
 ) -> tuple[FloatArray, FloatArray]:
-    """One high and one low per session, ``nan`` unless the window is entirely present."""
+    """Return one high and one low per session, ``nan`` unless the window is entirely present."""
     session_high: FloatArray = np.full(n_sessions, np.nan, dtype=np.float64)
     session_low: FloatArray = np.full(n_sessions, np.nan, dtype=np.float64)
     inside: OffsetArray
@@ -332,7 +332,7 @@ def _reach(
     armed: BoolArray,
     n_sessions: int,
 ) -> tuple[FloatArray, FloatArray]:
-    """Per session: the extreme prices of the bars that may trade the range, ``nan`` where none.
+    """Return, per session, the extreme prices of the bars that may trade the range, ``nan`` where none.
 
     The armed bars are the whole of the session past the window, so this is how far price
     actually went while an order could have been resting -- and therefore what a bracket
@@ -360,7 +360,7 @@ def follow_through(
     reach_high: FloatArray,
     reach_low: FloatArray,
 ) -> FloatArray:
-    """How far past the range price travelled, in range widths -- the further of the two sides.
+    """Measure how far past the range price travelled, in range widths -- the further of the two sides.
 
     One number per session: ``0`` where the range held all day, ``1`` where price extended a
     whole further range width beyond it. A session with no range, no bars past its window or a
@@ -374,7 +374,7 @@ def follow_through(
 
 
 def trailing_median(values: FloatArray, sessions: int) -> FloatArray:
-    """Per session: the median of the ``sessions`` most recent **earlier** sessions with a value.
+    """Return, per session, the median of the ``sessions`` most recent **earlier** sessions with a value.
 
     Strictly earlier, so no session contributes to its own statistic, and ``nan`` until that
     many have accumulated -- a scale with no history behind it is refused rather than
@@ -439,11 +439,11 @@ class FollowThroughGrid:
         return self.lookbacks.index(sessions)
 
     def raw_for(self, key: RangeKey) -> FloatArray:
-        """Per session: one range's own follow-through."""
+        """Return, per session, one range's own follow-through."""
         return np.asarray(self.raw[self.row(key)])
 
     def scale_for(self, key: RangeKey, sessions: int) -> FloatArray:
-        """Per session: the trailing follow-through a bracket is denominated against."""
+        """Return, per session, the trailing follow-through a bracket is denominated against."""
         return np.asarray(self.trailing[self.row(key), self.lookback_row(sessions)])
 
     @property

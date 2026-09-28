@@ -76,7 +76,7 @@ USAGE_ERROR = "2"
 
 
 def stored_frame(cells: tuple[tuple[str, int], ...] = (("MNQ", 10),), combos: int = 30) -> pd.DataFrame:
-    """Both windows of a small sizing campaign, shaped as ``campaign_report.load`` returns them."""
+    """Build both windows of a small sizing campaign, shaped as ``campaign_report.load`` returns them."""
     rng: np.random.Generator = np.random.default_rng(0)
     rows: list[dict[str, object]] = []
     for window, sweep_id in (("selection", 1), ("holdout", 2)):
@@ -154,7 +154,7 @@ def built() -> dict[str, Variant]:
 
 
 def point_at(monkeypatch, frame: pd.DataFrame) -> pd.DataFrame:
-    """Every loader ``tasks_for`` reads through, pointed at ``frame``."""
+    """Point every loader ``tasks_for`` reads through at ``frame``."""
     monkeypatch.setattr(campaign_gates, "load", by_window(frame))
     monkeypatch.setattr(campaign_holdout, "load", by_window(frame))
     monkeypatch.setattr(campaign_paired, "load", by_window(frame))
@@ -494,7 +494,7 @@ def walk():
 
 
 def shortlisted_rows() -> pd.DataFrame:
-    """Two configurations whose contexts differ, so the task's one dataset is a union."""
+    """Build two configurations whose contexts differ, so the task's one dataset is a union."""
     rows = []
     for combo_id, fields in ((3, {}), (4, {"slow_sma_period": 21, "order_quantity": 6})):
         params = dataclasses.replace(sized(), **fields)
@@ -519,7 +519,7 @@ def shortlisted_rows() -> pd.DataFrame:
 
 @pytest.fixture
 def on_the_walk(monkeypatch, walk):
-    """Every loader a re-run reads through, pointed at the synthetic walk."""
+    """Point every loader a re-run reads through at the synthetic walk."""
     monkeypatch.setattr(campaign_gates, "archive", lambda root: walk)
     monkeypatch.setattr(campaign_gates, "candidate_bars", lambda stored, bars: (bars,))
     monkeypatch.setattr(
@@ -560,7 +560,7 @@ def a_task(rows: pd.DataFrame, **fields) -> Task:
 
 
 def own_logs(rows: pd.DataFrame, walk: pd.DataFrame) -> dict[tuple[int, int], pd.DataFrame]:
-    """Each row's log as ``campaign_shortlist``'s re-run builds it, for the reads to be set against."""
+    """Return each row's log as ``campaign_shortlist``'s re-run builds it, for the reads to be set against."""
     return {
         log_key(row): log
         for row, _, log in rerun_group(

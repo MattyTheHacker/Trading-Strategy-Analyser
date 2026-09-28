@@ -16,7 +16,7 @@ LINES = [
 
 
 def session_lines(count, start="2024-03-08 18:00"):
-    """``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
+    """Write ``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
     stamps = pd.date_range(start, periods=count, freq="min")
 
     return [f"{ts:%Y%m%d %H%M%S};18000.25;18002.00;17999.50;18001.00;120" for ts in stamps]

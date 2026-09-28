@@ -185,7 +185,7 @@ class ContextSpec:
         return tuple(sorted({*self.band_periods, *implied}))
 
     def periods_by_kind(self) -> dict[str, tuple[int, ...]]:
-        """One sorted period list per kind, which is one grid call each.
+        """Return one sorted period list per kind, which is one grid call each.
 
         :attr:`ma_keys` regrouped, and the only thing :func:`prepare` reads it through.
         """
@@ -288,7 +288,7 @@ class Dataset:
         return self.mas[kind]
 
     def ma_gate(self, kind: str, period: int, *, above: bool) -> BoolArray:
-        """Per-bar boolean: is the close above (or below) ``kind(period)``?
+        """Return a per-bar boolean: is the close above (or below) ``kind(period)``?
 
         Not ``~below`` -- the two overlap at ``close == ma``, see ``docs/nt8-fidelity.md``.
         """
@@ -297,11 +297,11 @@ class Dataset:
         return g.above_for(period) if above else g.below_for(period)
 
     def ma_values(self, kind: str, period: int) -> FloatArray:
-        """Raw moving-average values, for the audit trail and the MA trailing stop."""
+        """Return raw moving-average values, for the audit trail and the MA trailing stop."""
         return self.grid(kind).values_for(period)
 
     def atr_values(self, period: int) -> FloatArray:
-        """NT8-seeded ATR for one period, or a pointed error."""
+        """Return the NT8-seeded ATR for one period, or raise a pointed error."""
         if period not in self.atrs:
             msg: str = (
                 f"no ATR({period}) in this dataset; prepare() was asked for "
@@ -326,15 +326,15 @@ class Dataset:
         return self.band
 
     def band_basis(self, period: int) -> FloatArray:
-        """One period's band midline -- the level a reversion targets."""
+        """Return one period's band midline -- the level a reversion targets."""
         return self._band().basis_for(period)
 
     def band_stddev(self, period: int) -> FloatArray:
-        """One period's standard deviation -- the band's half-width at one multiple."""
+        """Return one period's standard deviation -- the band's half-width at one multiple."""
         return self._band().stddev_for(period)
 
     def band_stretch(self, period: int) -> FloatArray:
-        """One period's signed extension in standard deviations, for gating and stratifying."""
+        """Return one period's signed extension in standard deviations, for gating and stratifying."""
         return self._band().stretch_for(period)
 
     def _vwap_band(self) -> bands.VwapBand:
@@ -354,19 +354,19 @@ class Dataset:
         return self._vwap_band().basis
 
     def vwap_band_stddev(self) -> FloatArray:
-        """Volume-weighted dispersion about the VWAP -- the band's half-width at one multiple."""
+        """Return the volume-weighted dispersion about the VWAP -- the band's half-width at one multiple."""
         return self._vwap_band().stddev
 
     def vwap_band_stretch(self) -> FloatArray:
-        """Signed extension from the VWAP in those units, for gating and stratifying."""
+        """Return the signed extension from the VWAP in those units, for gating and stratifying."""
         return self._vwap_band().stretch
 
     def vwap_band_age(self) -> IntArray:
-        """Completed bars since each bar's VWAP anchor -- what a warm-up gate counts."""
+        """Count the completed bars since each bar's VWAP anchor -- what a warm-up gate counts."""
         return self._vwap_band().bars_since_anchor
 
     def vwap_gate(self, *, above: bool) -> BoolArray:
-        """Per-bar boolean: is the close above (or below) the session VWAP?"""
+        """Return a per-bar boolean: is the close above (or below) the session VWAP?"""
         if self.below_vwap is None or self.above_vwap is None:
             msg: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
@@ -379,7 +379,7 @@ class Dataset:
         return self.above_vwap if above else self.below_vwap
 
     def vwap_values(self) -> FloatArray:
-        """Session VWAP per bar, or a pointed error."""
+        """Return the session VWAP per bar, or raise a pointed error."""
         if self.vwap is None:
             msg: str = (
                 "no session VWAP in this dataset; prepare() was not asked for it. "
@@ -404,7 +404,7 @@ class Dataset:
         return self.time_of_day
 
     def phase_gate(self, mask: int) -> BoolArray:
-        """Per-bar boolean: does this bar's session phase pass ``mask``?
+        """Return a per-bar boolean: does this bar's session phase pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` -- see
         :meth:`nqbt.timeofday.TimeOfDay.gate`.
@@ -412,11 +412,11 @@ class Dataset:
         return self._time_of_day().gate(mask)
 
     def phase_values(self) -> LabelArray:
-        """Per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
+        """Return the per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
         return self._time_of_day().phase
 
     def bar_of_session(self) -> IndexArray:
-        """Per-bar index from the session open, the fine form of the same clock."""
+        """Return the per-bar index from the session open, the fine form of the same clock."""
         return self._time_of_day().bar_of_session
 
     def _session_ranges(self) -> SessionRangeGrid:
@@ -432,19 +432,19 @@ class Dataset:
         return self.session_ranges
 
     def range_armed(self, key: sessionrange.RangeKey) -> BoolArray:
-        """Per bar: whether one session range is complete and may be traded off."""
+        """Return, per bar, whether one session range is complete and may be traded off."""
         return self._session_ranges().armed_for(key)
 
     def range_high(self, key: sessionrange.RangeKey) -> FloatArray:
-        """Per **session**: one range's high, read through :meth:`range_session_id`."""
+        """Return one range's high per **session**, read through :meth:`range_session_id`."""
         return self._session_ranges().high_for(key)
 
     def range_low(self, key: sessionrange.RangeKey) -> FloatArray:
-        """Per **session**: one range's low, read through :meth:`range_session_id`."""
+        """Return one range's low per **session**, read through :meth:`range_session_id`."""
         return self._session_ranges().low_for(key)
 
     def range_session_id(self) -> IndexArray:
-        """Per bar: which session it belongs to, which is the index into the range levels."""
+        """Return, per bar, which session it belongs to, which is the index into the range levels."""
         return self._session_ranges().session_id
 
     def _follow_through(self) -> FollowThroughGrid:
@@ -458,11 +458,11 @@ class Dataset:
         return self.follow_through
 
     def range_follow_through(self, key: sessionrange.RangeKey) -> FloatArray:
-        """Per **session**: how far past one range price travelled, in that range's widths."""
+        """Return, per **session**, how far past one range price travelled, in that range's widths."""
         return self._follow_through().raw_for(key)
 
     def range_follow_through_scale(self, key: sessionrange.RangeKey, sessions: int) -> FloatArray:
-        """Per **session**: the trailing follow-through a bracket may be denominated against."""
+        """Return, per **session**, the trailing follow-through a bracket may be denominated against."""
         return self._follow_through().scale_for(key, sessions)
 
     def _regimes(self) -> regime.EfficiencyRatioGrid:
@@ -484,7 +484,7 @@ class Dataset:
         consolidating_below: float,
         directional_above: float,
     ) -> BoolArray:
-        """Per-bar boolean: does this bar's regime pass ``mask``?
+        """Return a per-bar boolean: does this bar's regime pass ``mask``?
 
         Callers skip this entirely at :data:`nqbt.regime.ALL_REGIMES` -- see
         :func:`nqbt.regime.gate`.
@@ -492,7 +492,7 @@ class Dataset:
         return self._regimes().gate_for(lookback, mask, consolidating_below, directional_above)
 
     def regime_values(self, lookback: int) -> FloatArray:
-        """Per-bar efficiency ratio, the raw quantity behind the labels."""
+        """Return the per-bar efficiency ratio, the raw quantity behind the labels."""
         return self._regimes().values_for(lookback)
 
     def regime_labels(
@@ -501,7 +501,7 @@ class Dataset:
         consolidating_below: float,
         directional_above: float,
     ) -> LabelArray:
-        """Per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
+        """Return the per-bar :class:`nqbt.regime.Regime`, for stratifying results."""
         return self._regimes().labels_for(lookback, consolidating_below, directional_above)
 
     def _volumes(self) -> volume.VolumeGrid:
@@ -523,7 +523,7 @@ class Dataset:
         thin_below: float,
         heavy_above: float,
     ) -> BoolArray:
-        """Per-bar boolean: whether this bar's volume state passes ``mask``.
+        """Return a per-bar boolean: whether this bar's volume state passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.volume.ALL_STATES` -- see
         :func:`nqbt.volume.gate`.
@@ -531,11 +531,11 @@ class Dataset:
         return self._volumes().gate_for(key, mask, thin_below, heavy_above)
 
     def volume_values(self, key: volume.VolumeKey) -> FloatArray:
-        """Per-bar **absolute** volume, the form that answers execution feasibility."""
+        """Return the per-bar **absolute** volume, the form that answers execution feasibility."""
         return self._volumes().absolute_for(key)
 
     def relative_volume(self, key: volume.VolumeKey) -> FloatArray:
-        """Per-bar volume over its bar-of-session baseline -- the quantity behind the labels."""
+        """Return the per-bar volume over its bar-of-session baseline -- the quantity behind the labels."""
         return self._volumes().relative_for(key)
 
     def volume_labels(
@@ -544,7 +544,7 @@ class Dataset:
         thin_below: float,
         heavy_above: float,
     ) -> LabelArray:
-        """Per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
+        """Return the per-bar :class:`nqbt.volume.VolumeState`, for stratifying results."""
         return self._volumes().labels_for(key, thin_below, heavy_above)
 
     def _compressions(self) -> compression.CompressionGrid:
@@ -566,7 +566,7 @@ class Dataset:
         compressed_below: float,
         expanded_above: float,
     ) -> BoolArray:
-        """Per-bar boolean: whether this bar's compression state passes ``mask``.
+        """Return a per-bar boolean: whether this bar's compression state passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.compression.ALL_STATES` -- see
         :func:`nqbt.compression.gate`.
@@ -574,11 +574,11 @@ class Dataset:
         return self._compressions().gate_for(key, mask, compressed_below, expanded_above)
 
     def compression_width(self, key: compression.CompressionKey) -> FloatArray:
-        """Per-bar raw width measure, in whatever unit its form is in -- for reporting only."""
+        """Return the per-bar raw width measure, in whatever unit its form is in -- for reporting only."""
         return self._compressions().width_for(key)
 
     def compression_rank(self, key: compression.CompressionKey) -> FloatArray:
-        """Per-bar trailing rank in ``0..1`` -- the quantity behind the labels."""
+        """Return the per-bar trailing rank in ``0..1`` -- the quantity behind the labels."""
         return self._compressions().rank_for(key)
 
     def compression_labels(
@@ -587,7 +587,7 @@ class Dataset:
         compressed_below: float,
         expanded_above: float,
     ) -> LabelArray:
-        """Per-bar :class:`nqbt.compression.Compression`, for stratifying results."""
+        """Return the per-bar :class:`nqbt.compression.Compression`, for stratifying results."""
         return self._compressions().labels_for(key, compressed_below, expanded_above)
 
     def _window_ranges(self) -> compression.WindowRangeGrid:
@@ -601,11 +601,11 @@ class Dataset:
         return self.window_ranges
 
     def window_high(self, period: int) -> FloatArray:
-        """Per bar: the highest high of the ``period`` bars ending at it."""
+        """Return, per bar, the highest high of the ``period`` bars ending at it."""
         return self._window_ranges().high_for(period)
 
     def window_low(self, period: int) -> FloatArray:
-        """Per bar: the lowest low of the ``period`` bars ending at it."""
+        """Return, per bar, the lowest low of the ``period`` bars ending at it."""
         return self._window_ranges().low_for(period)
 
     def _trends(self) -> trend.TrendGrid:
@@ -621,7 +621,7 @@ class Dataset:
         return self.trends
 
     def trend_gate(self, key: trend.TrendKey, mask: int, min_agreement: int) -> BoolArray:
-        """Per-bar boolean: whether this bar's trend passes ``mask``.
+        """Return a per-bar boolean: whether this bar's trend passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.trend.ALL_TRENDS` -- see
         :func:`nqbt.trend.gate`.
@@ -629,15 +629,15 @@ class Dataset:
         return self._trends().gate_for(key, mask, min_agreement)
 
     def trend_values(self, key: trend.TrendKey) -> FloatArray:
-        """Per-bar agreement score, the raw quantity behind the labels."""
+        """Return the per-bar agreement score, the raw quantity behind the labels."""
         return self._trends().agreement_for(key)
 
     def trend_labels(self, key: trend.TrendKey, min_agreement: int) -> LabelArray:
-        """Per-bar :class:`nqbt.trend.Trend`, for stratifying results."""
+        """Return the per-bar :class:`nqbt.trend.Trend`, for stratifying results."""
         return self._trends().labels_for(key, min_agreement)
 
     def trend_components(self, key: trend.TrendKey) -> LabelArray:
-        """Per-bar ``[3, n_bars]`` votes, so a review can say which component dissented."""
+        """Return the per-bar ``[3, n_bars]`` votes, so a review can say which component dissented."""
         return self._trends().votes_for(key)
 
     def _higher_timeframes(self) -> higher_timeframe.HigherTimeframeGrid:
@@ -653,7 +653,7 @@ class Dataset:
         return self.higher_timeframes
 
     def higher_timeframe_gate(self, key: higher_timeframe.HigherTimeframeKey, mask: int) -> BoolArray:
-        """Per-bar boolean: whether this bar's side of the coarse average passes ``mask``.
+        """Return a per-bar boolean: whether this bar's side of the coarse average passes ``mask``.
 
         Callers skip this entirely at :data:`nqbt.higher_timeframe.ALL_SIDES` -- see
         :func:`nqbt.higher_timeframe.gate`.
@@ -661,15 +661,15 @@ class Dataset:
         return self._higher_timeframes().gate_for(key, mask)
 
     def higher_timeframe_values(self, key: higher_timeframe.HigherTimeframeKey) -> FloatArray:
-        """Per-bar coarse average as the fine series sees it, the raw quantity behind the sides."""
+        """Return the per-bar coarse average as the fine series sees it, the raw quantity behind the sides."""
         return self._higher_timeframes().values_for(key)
 
     def higher_timeframe_labels(self, key: higher_timeframe.HigherTimeframeKey) -> LabelArray:
-        """Per-bar :class:`nqbt.higher_timeframe.Side`, for stratifying results."""
+        """Return the per-bar :class:`nqbt.higher_timeframe.Side`, for stratifying results."""
         return self._higher_timeframes().labels_for(key)
 
     def session_end_gate(self, minutes: float) -> BoolArray:
-        """Per-bar boolean: is this bar more than ``minutes`` from its session's close?
+        """Return a per-bar boolean: is this bar more than ``minutes`` from its session's close?
 
         The no-entry window before the close, which is *not* the force-flat mask -- see
         ``docs/nt8-fidelity.md``, "A no-entry window before the session close". Callers skip
@@ -732,7 +732,7 @@ class Dataset:
 
 
 def day_codes(index: pd.Index) -> IndexArray | None:  # type: ignore[explicit-any]  # any index; the isinstance check below is the point
-    """Each bar's calendar day as an ``int32``, in the index's own timezone.
+    """Return each bar's calendar day as an ``int32``, in the index's own timezone.
 
     ``None`` when the index is not datetime-like. Local rather than UTC because that is what
     ``DatetimeIndex.date`` gives, which the pandas summary path groups by.

@@ -37,7 +37,7 @@ FAR_TRAIL = 10.0
 
 
 def fixed_sizing(quantities, n):
-    """One split for every entry, which is the NinjaScript as ported."""
+    """Size every entry with one split, which is the NinjaScript as ported."""
     return insidebartrailing.LotSizing(np.asarray([quantities], dtype=np.int64), np.zeros(n, dtype=np.int64))
 
 
@@ -119,7 +119,7 @@ def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 propert
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 
@@ -579,7 +579,7 @@ SESSION_CLOSE = "2024-01-16 22:00"
 
 
 def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
-    """Hand-written bars on a minute index, with the session closed by a copy of the last."""
+    """Build hand-written bars on a minute index, with the session closed by a copy of the last."""
     arr = np.asarray(rows, dtype=np.float64)
     idx = pd.date_range(start, periods=len(arr), freq="min", tz="UTC")
     idx = idx.append(pd.DatetimeIndex([pd.Timestamp(SESSION_CLOSE, tz="UTC")]))
@@ -605,7 +605,7 @@ def prepared(bars: pd.DataFrame, params):
 
 
 def signalling(**overrides) -> InsideBarTrailingParams:
-    """Short periods, so three real averages sit under a rising close on hand-built bars."""
+    """Build params with short periods, so three real averages sit under a rising close on hand-built bars."""
     defaults = {
         "ema_period": 2,
         "fast_sma_period": 2,
@@ -868,7 +868,7 @@ def walk_bars(n=4000, seed=3):
 
 
 def short_periods(**overrides) -> InsideBarTrailingParams:
-    """Periods short enough for trends to start and stop many times in :func:`walk_bars`."""
+    """Build params with periods short enough for trends to start and stop many times in :func:`walk_bars`."""
     defaults = {"ema_period": 5, "fast_sma_period": 8, "slow_sma_period": 13, "error_margin": 0.01}
 
     return InsideBarTrailingParams(**{**defaults, **overrides})

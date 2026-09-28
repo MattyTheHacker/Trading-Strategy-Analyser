@@ -69,7 +69,7 @@ the point where a back-adjusted series would still be caught -- ``docs/roadmap.m
 
 
 def volume_keys() -> tuple[volume.VolumeKey, ...]:
-    """All three relative-volume series, so the clock is read against every form at once.
+    """Return all three relative-volume series, so the clock is read against every form at once.
 
     The campaign swept one of them; which of the three a result belongs to is exactly what
     reading them side by side settles -- ``docs/roadmap.md`` §M27.8.
@@ -111,7 +111,7 @@ def conditions_of(annotation: annotate.Annotation) -> tuple[str, ...]:
 
 
 def tolerance_for(row: pd.Series, root: str, given: float) -> float:  # type: ignore[type-arg]  # duckdb's dtypes
-    """How far a fill of this run may land outside its bar: the run's slippage, or the override."""
+    """Return how far a fill of this run may land outside its bar: the run's slippage, or the override."""
     if given >= 0.0:
         return given
 
@@ -147,7 +147,7 @@ def review_row(
     iterations: int,
     tolerance: float = SLIPPAGE_TOLERANCE,
 ) -> pd.DataFrame:
-    """One configuration's clock table, printed with its guard beneath it.
+    """Print one configuration's clock table, with its guard beneath it.
 
     Returns the clock table alone: the guard is a report about a family rather than a row per
     stratum, so concatenating the two would produce a frame with two meanings.

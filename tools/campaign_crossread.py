@@ -71,7 +71,7 @@ SCALARS = (bool, int, float, str)
 
 
 def ran_at(strategy: str) -> dict[str, bool | int | float | str]:
-    """Every parameter's default for one archetype: what a row stored before it ran at.
+    """Return every parameter's default for one archetype: what a row stored before it ran at.
 
     A sweep predating a parameter leaves its column null, and null is not the value it ran at,
     so **every pair between a row stored before the column and one stored after is dropped** --
@@ -102,7 +102,7 @@ def probe_cuts() -> Cuts:
 
 
 def context_columns() -> frozenset[str]:
-    """Every parameter a stratum generator sets, read out of the generators themselves.
+    """Return every parameter a stratum generator sets, read out of the generators themselves.
 
     Derived rather than listed so that a dimension added to ``STRATUM_GROUPS`` cannot leave a
     column behind here -- one left in the join key would pair a stratum only against itself.
@@ -127,7 +127,7 @@ def pairing_columns(frame: pd.DataFrame) -> list[str]:
 
 
 def is_recut(stratum: str) -> bool:
-    """Whether a stratum re-cuts a dimension another group already owns.
+    """Return whether a stratum re-cuts a dimension another group already owns.
 
     ``volume=HEAVY@per_bar_20 q=0.20/0.80`` and ``regime=CONSOLIDATING@n=20`` are the shape --
     ``campaign_sweep.RECUTS``, and :func:`campaign_report.dimension_of` documents the ``@``.
@@ -158,7 +158,7 @@ def common_variants(frame: pd.DataFrame) -> set[str]:
 
 
 def paired(frame: pd.DataFrame, variants: set[str] | None = None) -> pd.DataFrame:
-    """Each filtered row beside the unfiltered row of the same combination, in one window.
+    """Pair each filtered row with the unfiltered row of the same combination, in one window.
 
     ``variants`` states the set outright where the caller knows it, which is what a campaign
     whose every filtered stratum is a re-cut needs: :func:`common_variants` intersects the
@@ -292,7 +292,7 @@ def agreement(cells: pd.DataFrame, *, by_variant: bool = False) -> pd.DataFrame:
 
 
 def matrix(scored: pd.DataFrame, dimension: str) -> pd.DataFrame:
-    """One dimension's scores as cells down the rows and archetypes across the columns."""
+    """Lay out one dimension's scores as cells down the rows and archetypes across the columns."""
     block: pd.DataFrame = scored[scored["dimension"] == dimension]
 
     return block.pivot_table(index="cell", columns="strategy", values="score", aggfunc="first")

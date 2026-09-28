@@ -243,7 +243,7 @@ def insidebar_trends(data: Dataset, params: InsideBarParams) -> tuple[BoolArray,
 
 
 def insidebar_breakouts(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
-    """Whether this bar's close clears the mother bar by ``error_margin`` of its range.
+    """Return whether this bar's close clears the mother bar by ``error_margin`` of its range.
 
     Stamped on the bar whose close judges it, so the mother bar is two back.
     """
@@ -260,7 +260,7 @@ def insidebar_breakouts(data: Dataset, params: InsideBarParams) -> tuple[BoolArr
 
 
 def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
-    """Which side each bar would be entered on: ``LONG`` where the averages say uptrend.
+    """Return which side each bar would be entered on: ``LONG`` where the averages say uptrend.
 
     Defined on **every** bar rather than only on signal bars, so the random-entry arm can drop
     a signal anywhere. The two gates are not complements, so a bar agreeing with neither reads
@@ -285,7 +285,7 @@ def insidebar_patterns(data: Dataset, params: InsideBarParams) -> tuple[BoolArra
 
 
 def insidebar_signal(data: Dataset, params: InsideBarParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open: a pattern the filters admit."""
+    """Flag bars whose close schedules an entry for the next bar's open: a pattern the filters admit."""
     long_pattern, short_pattern = insidebar_patterns(data, params)
     signal: BoolArray = long_pattern | short_pattern
     if params.no_entry_minutes_before_close > 0:

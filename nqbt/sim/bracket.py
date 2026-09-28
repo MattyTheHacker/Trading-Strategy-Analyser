@@ -140,7 +140,7 @@ class LegExit(NamedTuple):
 
 @njit(cache=True)
 def slippage_points(costs: Costs) -> float:
-    """Slippage as a price, from the tick count the NinjaScript expresses it in."""
+    """Convert slippage to a price, from the tick count the NinjaScript expresses it in."""
     return costs.slippage_ticks * costs.tick_size
 
 
@@ -324,7 +324,7 @@ def flatten_position(
 
 @njit(cache=True)
 def hold_expired(entry_bar: int, i: int, max_hold_bars: int) -> bool:
-    """Whether bar ``i``'s close is where the maximum-hold-time exit is submitted.
+    """Return whether bar ``i``'s close is where the maximum-hold-time exit is submitted.
 
     Off at ``0``. The count is bars *since* the entry bar, so the order goes in at the close
     of bar ``entry_bar + max_hold_bars`` and fills at the next bar's open -- a leg's
@@ -343,7 +343,7 @@ def entry_bracket(
     stop_offset: float,
     direction: float,
 ) -> tuple[float, float, float]:
-    """One signal bar's order arithmetic: trigger, initial stop, planned risk.
+    """Compute one signal bar's order arithmetic: trigger, initial stop, planned risk.
 
     The trigger is the *favourable* side of the signal bar, capped by whichever of it and
     ``close +/- entry_offset`` is further favourable still; the stop sits ``stop_offset``
@@ -372,7 +372,7 @@ def stop_entry_fill(
     slippage: float,
     direction: float,
 ) -> tuple[bool, float]:
-    """Whether a resting stop-market entry fills on bar ``i``, and at what price.
+    """Return whether a resting stop-market entry fills on bar ``i``, and at what price.
 
     A market order once triggered, so a gap through the trigger fills at the open; otherwise the
     bar's favourable extreme has to reach it and the fill is the trigger. Shared by OpeningRange's
@@ -394,7 +394,7 @@ NO_BRACKET_FLOOR = 0.0
 
 @njit(cache=True)
 def atr_bracket_distance(atr_value: float, multiple: float, floor_points: float) -> float:
-    """How far an ATR multiple puts a bracket level from what it is measured against.
+    """Return how far an ATR multiple puts a bracket level from what it is measured against.
 
     ``floor_points`` is a per-contract dollar floor already converted on the instrument by
     :meth:`nqbt.instruments.Instrument.dollars_to_points`, and :data:`NO_BRACKET_FLOOR`
@@ -435,7 +435,7 @@ def swing_stop(
 
 @njit(cache=True)
 def tightened_stop(stop: float, candidate: float, direction: float) -> float:
-    """Whichever of the two is nearer the market, which is the one ratchet in the codebase.
+    """Return whichever of the two is nearer the market, which is the one ratchet in the codebase.
 
     DeadCatBounce's candidate is a lagged bar's adverse extreme and EmaCrossover's is a moving
     average, both already offset; all a ratchet does with either is refuse to loosen. A
@@ -476,7 +476,7 @@ def avoid_round_number(
 
 @njit(cache=True)
 def sided(low: float, high: float, direction: float) -> tuple[float, float]:
-    """Which raw price is adverse and which is favourable for this direction.
+    """Return which raw price is adverse and which is favourable for this direction.
 
     The one piece of the direction generalisation that is a data selection rather than an
     arithmetic substitution, which is why it is a function rather than a multiplication.
@@ -500,7 +500,7 @@ and ``docs/roadmap.md`` §M28.4."""
 
 @njit(cache=True)
 def targets_reached_first(open_px: float, stop_px: float, target_px: float, policy: int) -> bool:
-    """On a bar holding both the stop and a target, did price reach the target first?
+    """Return whether price reached the target first, on a bar holding both the stop and a target.
 
     Bar-close OHLC cannot say, so this is an assumption. ``AMBIGUITY_NEAREST_TO_OPEN``
     reproduces NT8; the other two answer always-no and always-yes, which are the two ends of
@@ -515,7 +515,7 @@ def targets_reached_first(open_px: float, stop_px: float, target_px: float, poli
 
 @njit(cache=True)
 def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: float) -> bool:
-    """Whether a limit order at ``limit`` fills, given the bar's favourable-side extreme.
+    """Return whether a limit order at ``limit`` fills, given the bar's favourable-side extreme.
 
     NT8 runs with ``IsFillLimitOnTouch = false``, so price merely *reaching* the limit is not a
     fill -- it has to trade through. See ``docs/nt8-fidelity.md``, "Limit orders must trade

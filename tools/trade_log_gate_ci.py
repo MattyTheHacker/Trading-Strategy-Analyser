@@ -60,7 +60,7 @@ PASSING = frozenset({Verdict.IDENTICAL, Verdict.ACCEPTED})
 
 
 def is_documentation(path: str) -> bool:
-    """Whether a changed path is documentation, which is all the gate lets a pull request skip it for."""
+    """Test whether a changed path is documentation, which is all the gate lets a pull request skip it for."""
     return (
         path in DOCUMENTATION_FILES
         or path.startswith(DOCUMENTATION_DIRECTORIES)
@@ -69,7 +69,7 @@ def is_documentation(path: str) -> bool:
 
 
 def applies(changed_paths: Iterable[str]) -> bool:
-    """Whether the gate runs: on every pull request that changes anything but documentation."""
+    """Return whether the gate runs: on every pull request that changes anything but documentation."""
     return not all(is_documentation(path) for path in changed_paths)
 
 

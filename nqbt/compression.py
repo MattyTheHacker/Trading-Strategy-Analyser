@@ -271,7 +271,7 @@ def thresholds_from_quantiles(
     compressed_quantile: float,
     expanded_quantile: float,
 ) -> tuple[float, float]:
-    """Both thresholds as quantiles of the ranks in ``values``, unranked bars excluded.
+    """Return both thresholds as quantiles of the ranks in ``values``, unranked bars excluded.
 
     A trailing rank is already close to uniform, so this and the raw pair nearly agree -- which
     is the property neither :mod:`nqbt.regime` nor :mod:`nqbt.volume` has. *Close* is not
@@ -305,7 +305,7 @@ def key(form: int, period: int, baseline_bars: int) -> CompressionKey:
 
 @njit(cache=True)
 def _rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[FloatArray, FloatArray]:
-    """Highest high and lowest low over the ``period`` bars ending at each bar, ``nan`` until that many exist.
+    """Return the high and low extremes of each bar's last ``period`` bars, ``nan`` until that many exist.
 
     Recomputed per bar rather than maintained: a running extreme cannot be un-extended when the
     bar holding it leaves the window, so the state a rolling form would need is the window
@@ -328,7 +328,7 @@ def _rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[F
 
 @njit(cache=True)
 def _rolling_range(high: FloatArray, low: FloatArray, period: int) -> FloatArray:
-    """Highest high less lowest low over ``period`` bars -- :func:`_rolling_extremes`' window."""
+    """Return the highest high less lowest low over ``period`` bars -- :func:`_rolling_extremes`' window."""
     top, bottom = _rolling_extremes(high, low, period)
 
     return top - bottom
@@ -336,7 +336,7 @@ def _rolling_range(high: FloatArray, low: FloatArray, period: int) -> FloatArray
 
 @njit(cache=True)
 def _ratio(values: FloatArray, scale: FloatArray) -> FloatArray:
-    """``values / scale``, ``nan`` wherever there is nothing positive to divide by."""
+    """Return ``values / scale``, ``nan`` wherever there is nothing positive to divide by."""
     n = values.size
     out = np.full(n, np.nan, dtype=np.float64)
     for i in range(n):
@@ -349,7 +349,7 @@ def _ratio(values: FloatArray, scale: FloatArray) -> FloatArray:
 
 @njit(cache=True)
 def _trailing_rank(values: FloatArray, baseline_bars: int) -> FloatArray:
-    """Share of the ``baseline_bars`` values before each bar that are below it.
+    """Return the share of the ``baseline_bars`` values before each bar that are below it.
 
     ``nan`` until a full window of *measured* values exists behind the bar, so a form's own
     warm-up cannot shorten the window a rank is taken over. A tie counts as half, which keeps a
@@ -408,7 +408,7 @@ def _label(ranks: FloatArray, compressed_below: float, expanded_above: float) ->
 
 @njit(cache=True)
 def _gate(ranks: FloatArray, compressed_below: float, expanded_above: float, mask: int) -> BoolArray:
-    """One pass from rank to boolean, so a sweep combination never builds a label array."""
+    """Map rank to boolean in one pass, so a sweep combination never builds a label array."""
     n = ranks.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):
@@ -420,7 +420,7 @@ def _gate(ranks: FloatArray, compressed_below: float, expanded_above: float, mas
 
 
 def bandwidth(basis: FloatArray, stddev: FloatArray) -> FloatArray:
-    """Bollinger band width as a fraction of its own midline: ``2 * sigma / basis``.
+    """Return the Bollinger band width as a fraction of its own midline: ``2 * sigma / basis``.
 
     Taken off :class:`nqbt.bands.BandGrid`'s two rows rather than recomputed, so an archetype
     already sweeping a Bollinger shares one grid -- ``docs/roadmap.md`` §M26.
@@ -584,7 +584,7 @@ def _width_of(
     close: FloatArray,
     band: BandGrid | None,
 ) -> FloatArray:
-    """One key's raw width measure, taking the bandwidth form's two rows off ``band``."""
+    """Return one key's raw width measure, taking the bandwidth form's two rows off ``band``."""
     if wanted.form is CompressionForm.RANGE_TO_ATR:
         return range_to_atr(high, low, close, wanted.period)
 

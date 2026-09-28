@@ -55,7 +55,7 @@ def _lcg_states(count: int, seed: int) -> list[int]:
 
 
 def deterministic_bars(count: int = BARS) -> pd.DataFrame:
-    """Bars on the tick grid, built from integer arithmetic alone.
+    """Build bars on the tick grid from integer arithmetic alone.
 
     Every price is a whole number of ticks, so every value is exact in float64 and the frame is
     identical on any platform and any numpy.

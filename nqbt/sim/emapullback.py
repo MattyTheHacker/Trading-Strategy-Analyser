@@ -49,7 +49,7 @@ def extension_run(
     slow: FloatArray,
     direction: float,
 ) -> IntArray:
-    """Unbroken bars spent entirely beyond the fast average, as the *next* bar reads it.
+    """Count unbroken bars spent entirely beyond the fast average, as the *next* bar reads it.
 
     A bar that reaches the average ends the run, so the count a touch bar reads is the one the
     bar before it carried -- ``docs/nt8-fidelity.md`` §M34.
@@ -63,7 +63,7 @@ def extension_run(
 
 
 def touch_shape(close: FloatArray, fast: FloatArray, direction: float, touch_mode: int) -> BoolArray:
-    """Where the signal bar had to close, in whichever of the three touch modes is selected.
+    """Return where the signal bar had to close, in whichever of the three touch modes is selected.
 
     A close exactly on the average is a close *through* it: one sign multiplier means the long
     and short arms have to be the same rule -- ``docs/nt8-fidelity.md`` §M34.
@@ -84,7 +84,7 @@ def side_signal(
     params: EmaPullbackParams,
     direction: float,
 ) -> BoolArray:
-    """One side's entry bars: an extension away from the fast average, then a bar back to it.
+    """Return one side's entry bars: an extension away from the fast average, then a bar back to it.
 
     ``require_turn`` adds the reaction: the signal bar's own body has to have turned back into
     the trend, which is :func:`nqbt.conditions.closed_towards`'s doji boundary.
@@ -111,7 +111,7 @@ def side_signal(
 
 
 def emapullback_signal(data: Dataset, params: EmaPullbackParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open."""
+    """Flag bars whose close schedules an entry for the next bar's open."""
     fast, slow = pullback_averages(data, params)
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
     if params.trade_long:
@@ -179,7 +179,7 @@ def confirmation_bracket(
     rules: ConfirmationRules,
     tick_size: float,
 ) -> tuple[float, float, float, float]:
-    """One signal bar's order arithmetic: side, trigger, initial stop, planned risk.
+    """Compute one signal bar's order arithmetic: side, trigger, initial stop, planned risk.
 
     The trigger sits ``entry_offset_ticks`` beyond the signal bar's favourable extreme and the
     stop ``stop_offset_ticks`` beyond the slow average at that bar, so the whole bracket is known
