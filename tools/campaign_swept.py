@@ -18,11 +18,10 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, context, resample, splice
 from tools.campaign_null import series_moved, stored_for, stored_rows
 from tools.campaign_report import log_key
 from tools.campaign_shortlist import NET_PNL_TOLERANCE, rerun_group, source, swept_series
-
-from nqbt import archetypes, context, resample, splice
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +82,7 @@ def candidate_bars(stored: pd.DataFrame, archive: pd.DataFrame) -> tuple[pd.Data
     return swept_series(archive, last_swept(stored, archive)), archive
 
 
-def stored_figures(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
+def stored_figures(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return what the sweep stored for one configuration, tagged so a re-run reads back against it."""
     return {f"stored_{field}": row[field] for field in RECONCILED}
 

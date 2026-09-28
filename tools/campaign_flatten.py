@@ -18,6 +18,7 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, context, logsetup, sessions, splice
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import labelled
 from tools.campaign_null import stored_rows
@@ -33,8 +34,6 @@ from tools.campaign_swept import (
     reconciliation,
     stored_figures,
 )
-
-from nqbt import archetypes, context, logsetup, sessions, splice
 
 logger = logging.getLogger(__name__)
 

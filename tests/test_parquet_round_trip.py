@@ -134,7 +134,7 @@ def test_the_fixture_spans_both_dst_offsets_and_the_session_break(frame) -> None
 # -- the writer, not only the reader -------------------------------------------
 
 
-def test_todays_writer_round_trips_the_fixture_exactly(frame, tmp_path) -> None:
+def test_todays_writer_round_trips_the_fixture_exactly(frame, tmp_path: Path) -> None:
     """The same call ``ingest`` and ``splice`` make, so a writer change fails here too."""
     out = tmp_path / "round_trip.parquet"
     frame.to_parquet(out, engine="pyarrow", compression="zstd", index=True)

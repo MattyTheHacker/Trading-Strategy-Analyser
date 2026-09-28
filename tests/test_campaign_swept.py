@@ -191,7 +191,9 @@ def test_the_stored_figures_a_re_run_is_read_back_against_are_tagged_as_stored()
 # -- the logs a gate-4 read works from -------------------------------------------------------
 
 
-def test_every_configuration_gets_a_log_keyed_by_the_ids_its_row_carries(monkeypatch) -> None:
+def test_every_configuration_gets_a_log_keyed_by_the_ids_its_row_carries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A log filed under the wrong key would attribute a whole decomposition to another
     configuration, which is the failure ``campaign_shortlist.verify`` exists to stop."""
     bars = synthetic_bars(n=6000)
@@ -208,7 +210,9 @@ def test_every_configuration_gets_a_log_keyed_by_the_ids_its_row_carries(monkeyp
     assert set(reconciled.columns) >= {"rows", "same_trades", "same_net", "net_gap", SWEPT_BARS}
 
 
-def test_a_cell_read_off_bars_it_was_not_swept_on_reaches_the_reconciliation(monkeypatch) -> None:
+def test_a_cell_read_off_bars_it_was_not_swept_on_reaches_the_reconciliation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     bars = synthetic_bars(n=6000)
     monkeypatch.setattr(module.splice, "load_continuous", lambda root: bars)
     monkeypatch.setattr(module, "stored_rows", lambda name, root, window: stored_frame(bars, 0, 10))

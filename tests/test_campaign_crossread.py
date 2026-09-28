@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from nqbt import archetypes
+from nqbt.sim.types import DeadCatParams, OpeningRangeParams
 from tools.campaign_crossread import (
     CELL_KEYS,
     MISSING,
@@ -25,9 +27,6 @@ from tools.campaign_crossread import (
     ran_at,
 )
 from tools.campaign_report import TAGS, UNFILTERED
-
-from nqbt import archetypes
-from nqbt.sim.types import DeadCatParams, OpeningRangeParams
 
 
 def rows(**columns: object) -> pd.DataFrame:

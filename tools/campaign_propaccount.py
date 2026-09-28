@@ -22,14 +22,13 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, logsetup, propaccount, stats
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import LABEL_COLUMNS
 from tools.campaign_report import NET_TO_DRAWDOWN, log_key, stored_logs
 from tools.campaign_shortlist import TOP, rebuild
 from tools.campaign_sweep import db_path
 from tools.campaign_swept import CELL_KEYS, SWEPT_BARS, logs_for
-
-from nqbt import archetypes, logsetup, propaccount, stats
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -89,13 +88,13 @@ def rules_with(
     return dataclasses.replace(account, rules=dataclasses.replace(account.rules, excursion_order=order))
 
 
-def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
+def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def replay_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def replay_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     log: pd.DataFrame,
     account: propaccount.PropAccount,
     max_accounts: int,
@@ -149,13 +148,13 @@ def replay_shortlist(
     return pd.DataFrame(replayed)
 
 
-def takes_quantity(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def takes_quantity(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     archetype: archetypes.Archetype,
     quantity: int,
 ) -> bool:
     """Return whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
-    resized: pd.Series = row.copy()  # type: ignore[type-arg]  # duckdb's dtypes
+    resized = row.copy()
     resized["order_quantity"] = quantity
     try:
         rebuild(resized, archetype)

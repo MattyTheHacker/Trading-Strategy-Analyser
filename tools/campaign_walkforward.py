@@ -18,13 +18,12 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_shortlist import TOP, rebuild, shortlist
-from tools.campaign_sweep import COMMISSION, SLIPPAGE_TICKS
-
 from nqbt import archetypes, context, logsetup, resample, splice, sweep, walkforward
 from nqbt.costs import TradingCosts
 from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import get_instrument
+from tools.campaign_shortlist import TOP, rebuild, shortlist
+from tools.campaign_sweep import COMMISSION, SLIPPAGE_TICKS
 
 logger = logging.getLogger(__name__)
 

@@ -35,7 +35,7 @@ def stored(n: int = 40) -> pd.DataFrame:
 
 
 @pytest.fixture
-def loaded(monkeypatch):
+def loaded(monkeypatch: pytest.MonkeyPatch):
     frame = stored()
     monkeypatch.setattr(campaign_crossroot, "load", lambda name, windows: frame)
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -35,6 +36,9 @@ from tools.campaign_sizing import (
     selection_window,
     shuffled_null,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 BARS = 40_000
 """Enough one-minute sessions for the relative-volume baseline to be defined on most of them."""
@@ -112,7 +116,7 @@ def test_the_fit_reads_the_selection_window_alone() -> None:
     assert selection_window(bars).index[-1] < bars.index[600]
 
 
-def test_a_window_with_no_signal_cannot_be_fitted(monkeypatch, bars) -> None:
+def test_a_window_with_no_signal_cannot_be_fitted(monkeypatch: pytest.MonkeyPatch, bars) -> None:
     monkeypatch.setattr(
         campaign_sizing.insidebar, "insidebar_signal", lambda data, _: np.zeros(len(data), bool)
     )
@@ -120,7 +124,7 @@ def test_a_window_with_no_signal_cannot_be_fitted(monkeypatch, bars) -> None:
         fit_cut(bars, "MNQ", 1, base())
 
 
-def test_fit_writes_cuts_the_sizing_arms_can_read(monkeypatch, tmp_path) -> None:
+def test_fit_writes_cuts_the_sizing_arms_can_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
     monkeypatch.setattr(
@@ -236,7 +240,7 @@ def stored_confluence_row(combo_id: int) -> pd.Series:
     )
 
 
-def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch) -> None:
+def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch: pytest.MonkeyPatch) -> None:
     bars = walk_bars(6000, seed=9)
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
     monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
@@ -252,7 +256,7 @@ def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch
     assert table["p"].between(1 / 4, 1.0).all()
 
 
-def test_fit_is_the_default_path_of_its_subcommand(monkeypatch) -> None:
+def test_fit_is_the_default_path_of_its_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
     called = []
     monkeypatch.setattr(
         campaign_sizing, "fit", lambda roots, resolutions, path: called.append((roots, resolutions, path))
@@ -263,7 +267,9 @@ def test_fit_is_the_default_path_of_its_subcommand(monkeypatch) -> None:
     assert called == [(["NQ"], [5, 10], campaign_sweep.SIZING_CUTS)]
 
 
-def test_the_null_reads_the_confluence_arm_and_fails_where_it_has_no_rows(monkeypatch) -> None:
+def test_the_null_reads_the_confluence_arm_and_fails_where_it_has_no_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     asked = []
 
     def held_out(*args):
@@ -281,7 +287,7 @@ def test_the_null_reads_the_confluence_arm_and_fails_where_it_has_no_rows(monkey
     assert args[-3:-1] == ("phase=MIDDAY", 5)
 
 
-def test_the_null_reports_its_shortlist(monkeypatch) -> None:
+def test_the_null_reports_its_shortlist(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = pd.DataFrame([stored_confluence_row(1)])
     monkeypatch.setattr(campaign_sizing, "held_out", lambda *_: rows)
     monkeypatch.setattr(

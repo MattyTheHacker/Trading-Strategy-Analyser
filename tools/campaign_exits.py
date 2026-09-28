@@ -23,14 +23,13 @@ if TYPE_CHECKING:
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import logsetup, stats, trades
 from tools.campaign_holdout import held_out
 from tools.campaign_montecarlo import LABEL_COLUMNS
 from tools.campaign_report import NET_TO_DRAWDOWN, log_key, ratio_to_drawdown, stored_logs
 from tools.campaign_shortlist import NET_PNL_TOLERANCE, TOP
 from tools.campaign_sweep import db_path
 from tools.campaign_swept import logs_for
-
-from nqbt import logsetup, stats, trades
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,7 @@ def split_on(log: pd.DataFrame, reason: str) -> tuple[pd.DataFrame, pd.DataFrame
     return log[taken], log[~taken]
 
 
-def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[type-arg]  # duckdb's dtypes
+def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Refuse a log whose own summary does not reproduce the net P&L its stored row carries."""
     stored: float = float(row["net_pnl"])
     if not math.isclose(whole["net_pnl"], stored, rel_tol=NET_PNL_TOLERANCE):
@@ -68,13 +67,13 @@ def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[typ
         raise RuntimeError(msg)
 
 
-def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
+def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def measure_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     log: pd.DataFrame,
     reason: str,
     *,

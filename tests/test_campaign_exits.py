@@ -12,13 +12,14 @@ since a leg counted in both or in neither moves a total nothing else would check
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from nqbt import results, stats, trades
 from tools import campaign_exits
-from tools.campaign_report import stored_logs
 from tools.campaign_exits import (
     PASS_MARK,
     REPORTED,
@@ -31,7 +32,10 @@ from tools.campaign_exits import (
     survival,
     verify,
 )
-from tools.campaign_report import NET_TO_DRAWDOWN
+from tools.campaign_report import NET_TO_DRAWDOWN, stored_logs
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 SWEEP_ID = 58
 COMBO_ID = 1473
@@ -87,7 +91,7 @@ def stored_row(log: pd.DataFrame, **columns: object) -> pd.Series:
 
 
 @pytest.fixture
-def stocked(tmp_path):
+def stocked(tmp_path: Path):
     """Provide a database holding one stored log, at the ids the held-out row names."""
     db = tmp_path / "OpeningRange.duckdb"
     results.save_trades(leg_log(CARRIED), SWEEP_ID, COMBO_ID, db)
@@ -252,14 +256,16 @@ def test_an_empty_table_says_so_rather_than_dividing_by_nothing() -> None:
 # -- the report ------------------------------------------------------------------------------
 
 
-def run_main(monkeypatch, rows: pd.DataFrame, db, *extra: str) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, *extra: str) -> int:
     monkeypatch.setattr(campaign_exits, "held_out", lambda *_, **__: rows)
     monkeypatch.setattr(campaign_exits, "db_path", lambda _: db)
 
     return main(["campaign_exits.py", "--strategy", "OpeningRange", *extra])
 
 
-def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(monkeypatch, stocked) -> None:
+def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(
+    monkeypatch: pytest.MonkeyPatch, stocked
+) -> None:
     """The flag a campaign the archive has moved under needs: no log can be stored for it at all,
     so the shortlist is re-run and the disagreement reported -- ``tools/campaign_swept.py``."""
     log = leg_log(CARRIED)
@@ -274,20 +280,22 @@ def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(monkeypatch, sto
     assert run_main(monkeypatch, rows, stocked, "--rerun") == 0, "a moved stored row is not a refusal"
 
 
-def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch, stocked) -> None:
+def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     assert run_main(monkeypatch, pd.DataFrame([stored_row(leg_log(CARRIED))]), stocked) == 0
 
 
 def test_a_shortlist_with_no_stored_logs_fails_rather_than_printing_an_empty_table(
-    monkeypatch,
-    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """An empty report is indistinguishable from a cell that survives the exclusion."""
     rows = pd.DataFrame([stored_row(leg_log(CARRIED))])
     assert run_main(monkeypatch, rows, tmp_path / "OpeningRange.duckdb") == 1
 
 
-def test_the_reason_offered_is_the_simulator_s_own_vocabulary(monkeypatch, stocked, capsys) -> None:
+def test_the_reason_offered_is_the_simulator_s_own_vocabulary(
+    monkeypatch: pytest.MonkeyPatch, stocked, capsys
+) -> None:
     """An imported log's reasons are its source's, so a free-text reason would silently
     remove nothing and report the whole book twice -- ``docs/roadmap.md`` §M9."""
     rows = pd.DataFrame([stored_row(leg_log(CARRIED))])
@@ -298,18 +306,20 @@ def test_the_reason_offered_is_the_simulator_s_own_vocabulary(monkeypatch, stock
     assert "flattened" in capsys.readouterr().err
 
 
-def test_the_default_reason_is_the_one_no_strategy_chose(monkeypatch, stocked) -> None:
+def test_the_default_reason_is_the_one_no_strategy_chose(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     """The flatten is an account rule rather than a rule of any archetype, which is what
     makes it the exclusion worth defaulting to -- ``docs/roadmap.md`` §M28.15."""
     assert campaign_exits.main.__module__
     assert FLATTEN in trades.EXIT_REASONS.values()
 
     measured: list[str] = []
-    monkeypatch.setattr(
-        campaign_exits,
-        "measure",
-        lambda rows, logs, reason, **__: measured.append(reason) or pd.DataFrame(),
-    )
+
+    def fake_measure(_rows: object, _logs: object, reason: str, **_: object) -> pd.DataFrame:
+        measured.append(reason)
+
+        return pd.DataFrame()
+
+    monkeypatch.setattr(campaign_exits, "measure", fake_measure)
     monkeypatch.setattr(
         campaign_exits, "held_out", lambda *_, **__: pd.DataFrame([stored_row(leg_log(CARRIED))])
     )
@@ -319,16 +329,18 @@ def test_the_default_reason_is_the_one_no_strategy_chose(monkeypatch, stocked) -
 
 
 def test_the_shortlist_is_the_held_out_pair_and_never_the_window_that_chose_it(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     stocked,
 ) -> None:
     """There is no ``--window`` here on purpose -- ``docs/roadmap.md`` §M28.13."""
     called: list[tuple[object, ...]] = []
-    monkeypatch.setattr(
-        campaign_exits,
-        "held_out",
-        lambda *args: called.append(args) or pd.DataFrame([stored_row(leg_log(CARRIED))]),
-    )
+
+    def fake_held_out(*args: object) -> pd.DataFrame:
+        called.append(args)
+
+        return pd.DataFrame([stored_row(leg_log(CARRIED))])
+
+    monkeypatch.setattr(campaign_exits, "held_out", fake_held_out)
     monkeypatch.setattr(campaign_exits, "db_path", lambda _: stocked)
     argv = ["campaign_exits.py", "--strategy", "OpeningRange", "--root", "NQ", "--top", "5"]
     assert main([*argv, "--stratum", "phase=MIDDAY", "--resolution", "5"]) == 0

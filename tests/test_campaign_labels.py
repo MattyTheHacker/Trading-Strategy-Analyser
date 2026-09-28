@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from nqbt import regime, volume
+from nqbt.sim.types import DeadCatParams
 from tools.campaign_labels import (
     RAW_REGIME,
     RAW_VOLUME,
@@ -19,7 +21,6 @@ from tools.campaign_labels import (
     confusion,
     named,
 )
-
 from tools.campaign_sweep import (
     VOLUME_BASELINE_SESSIONS,
     VOLUME_ROLLING_BARS,
@@ -27,22 +28,18 @@ from tools.campaign_sweep import (
     volume_series,
 )
 
-from nqbt import regime, volume
-from nqbt.sim.types import DeadCatParams
-
-
 # -- the pair the stored strata were cut by ---------------------------------------------------
 
 
 def test_the_raw_regime_pair_is_the_one_every_stored_stratum_was_cut_by() -> None:
     """A changed default would otherwise make this tool compare against a cut nobody ran."""
     params = DeadCatParams()
-    assert RAW_REGIME == (params.regime_consolidating_below, params.regime_directional_above)
+    assert (params.regime_consolidating_below, params.regime_directional_above) == RAW_REGIME
 
 
 def test_the_raw_volume_pair_is_the_one_every_stored_stratum_was_cut_by() -> None:
     params = DeadCatParams()
-    assert RAW_VOLUME == (params.volume_thin_below, params.volume_heavy_above)
+    assert (params.volume_thin_below, params.volume_heavy_above) == RAW_VOLUME
 
 
 def test_both_orders_name_every_state_of_their_dimension() -> None:

@@ -26,21 +26,6 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_holdout import held_out
-from tools.campaign_null import stored_rows
-from tools.campaign_report import log_key
-from tools.campaign_shortlist import TOP, rebuild
-from tools.campaign_sweep import (
-    RESOLUTIONS,
-    ROOTS,
-    SELECTION_SHARE,
-    SIZING_CONFLUENCE,
-    SIZING_CUTS,
-    SizingCut,
-    insidebartrailing_variants,
-)
-from tools.campaign_swept import HELD_OUT, bars_for, candidate_bars
-
 from nqbt import (
     archetypes,
     conditions,
@@ -57,6 +42,20 @@ from nqbt import (
 from nqbt.instruments import get_instrument
 from nqbt.sim import filters, insidebar, insidebartrailing
 from nqbt.sim.types import EARLINESS_MODES, EARLINESS_OFF, SIZING_LABELS, InsideBarTrailingParams
+from tools.campaign_holdout import held_out
+from tools.campaign_null import stored_rows
+from tools.campaign_report import log_key
+from tools.campaign_shortlist import TOP, rebuild
+from tools.campaign_sweep import (
+    RESOLUTIONS,
+    ROOTS,
+    SELECTION_SHARE,
+    SIZING_CONFLUENCE,
+    SIZING_CUTS,
+    SizingCut,
+    insidebartrailing_variants,
+)
+from tools.campaign_swept import HELD_OUT, bars_for, candidate_bars
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray, IntArray

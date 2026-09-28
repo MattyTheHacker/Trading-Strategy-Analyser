@@ -520,7 +520,9 @@ def test_draw_freedom_separates_the_registry_from_the_degenerate_case(prepared) 
     assert pool.draw_freedom(np.zeros(len(data), dtype=bool)) == 0.0
 
 
-def test_a_null_whose_draws_all_agree_is_refused_from_the_result_side(prepared, monkeypatch) -> None:
+def test_a_null_whose_draws_all_agree_is_refused_from_the_result_side(
+    prepared, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The second guard: the same failure seen from the result, whatever caused the point mass.
 
     The draw-freedom check catches the dense-signal cause before the simulations run; this one

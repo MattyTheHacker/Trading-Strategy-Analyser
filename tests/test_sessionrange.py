@@ -73,8 +73,8 @@ def in_cash_window(frame: pd.DataFrame, minutes: int = 30) -> np.ndarray:
 
 def test_the_cash_anchor_is_derived_from_the_phase_table_not_written_down() -> None:
     """930 is a consequence of the 18:00 open and the 09:30 phase start, not a constant."""
-    assert CASH_OPEN_MINUTES == anchor_for(SessionPhase.CASH_OPEN)
-    assert CASH_OPEN_MINUTES == int(timeofday.phase_start_minutes()[int(SessionPhase.CASH_OPEN)])
+    assert anchor_for(SessionPhase.CASH_OPEN) == CASH_OPEN_MINUTES
+    assert int(timeofday.phase_start_minutes()[int(SessionPhase.CASH_OPEN)]) == CASH_OPEN_MINUTES
     assert CASH_OPEN_MINUTES == 930, "the ETH template moved; every window axis moves with it"
 
 

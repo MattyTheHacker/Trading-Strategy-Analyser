@@ -412,7 +412,7 @@ TREND_AXES = {
     [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER],
 )
 def test_every_archetype_can_sweep_every_trend_axis(archetype) -> None:
-    assert TREND_AXES <= archetype.sweepable, archetype.name
+    assert archetype.sweepable >= TREND_AXES, archetype.name
 
 
 @pytest.mark.parametrize(

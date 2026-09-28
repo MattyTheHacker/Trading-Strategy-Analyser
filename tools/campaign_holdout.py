@@ -18,10 +18,9 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import logsetup
 from tools.campaign_report import NET_TO_DRAWDOWN, load, parameter_columns, rank
 from tools.campaign_sweep import VARIANTS
-
-from nqbt import logsetup
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ HELD_OUT_SUFFIX = "_hold"
 """Which half of a :func:`paired` row :func:`held_out` keeps."""
 
 
-def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a different axis
+def held_out(
     name: str,
     root: str,
     by: str = DEFAULT_BY,

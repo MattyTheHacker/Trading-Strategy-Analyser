@@ -6,12 +6,17 @@ has. And the **framing** must survive: the module exists to report a spread rath
 winner, so the tests that matter are the ones that would fail if it quietly started ranking.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from nqbt import dispersion, sessions, stats
 from nqbt.dispersion import DispersionError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.DataFrame:
@@ -251,7 +256,7 @@ def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFr
 
 
 @pytest.fixture
-def cache(tmp_path):
+def cache(tmp_path: Path):
     """Provide a cache holding two contracts and the continuous series spliced from them.
 
     The contracts **overlap in time** on purpose -- real ones do, and that overlap is the
@@ -340,7 +345,7 @@ def test_coverage_reports_a_sample_size_for_every_contract(cache) -> None:
     assert cover["start"].is_monotonic_increasing
 
 
-def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path) -> None:
+def test_a_cache_with_no_contract_bars_says_so(cache, tmp_path: Path) -> None:
     """The continuous series names contracts whose per-contract cache is missing."""
     from nqbt import splice
 

@@ -38,7 +38,7 @@ def fixed_sizing(quantities, n):
     return insidebartrailing.LotSizing(np.asarray([quantities], dtype=np.int64), np.zeros(n, dtype=np.int64))
 
 
-def simulate(  # noqa: PLR0913, PLR0917 - one argument per simulated NT8 property
+def simulate(  # noqa: PLR0913 - one argument per simulated NT8 property
     rows,
     signal_at=(),
     *,

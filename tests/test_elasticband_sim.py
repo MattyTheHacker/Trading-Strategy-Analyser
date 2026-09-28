@@ -18,7 +18,6 @@ from nqbt.sim.elasticband import (
     beyond_band,
     closed_off_extreme,
     elasticband_signal,
-    swept_and_reclaimed,
     fade_direction,
     lagged,
     one_sided_bars,
@@ -26,6 +25,7 @@ from nqbt.sim.elasticband import (
     returned_inside,
     run_elasticband,
     run_extreme,
+    swept_and_reclaimed,
 )
 from nqbt.sim.types import (
     BAND_VWAP,

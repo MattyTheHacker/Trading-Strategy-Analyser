@@ -1,8 +1,13 @@
 """The archive merge: the layer that stops a moving-window export from erasing history."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from nqbt import archive, ingest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 BASE = [
     "20240308 213000;18000.25;18002.00;17999.50;18001.00;120",
@@ -19,7 +24,7 @@ def write(path, lines):
 
 
 @pytest.fixture
-def dirs(tmp_path):
+def dirs(tmp_path: Path):
     manual, addon, arch = tmp_path / "minute", tmp_path / "addon", tmp_path / "archive"
     for d in (manual, addon):
         d.mkdir()
@@ -166,7 +171,7 @@ def test_root_filter_only_touches_matching_contracts(dirs) -> None:
     assert not (arch / "MNQ 03-24.Last.txt").exists()
 
 
-def test_ingest_reads_the_archive_and_sees_both_sources(dirs, tmp_path) -> None:
+def test_ingest_reads_the_archive_and_sees_both_sources(dirs, tmp_path: Path) -> None:
     manual, addon, arch = dirs
     early = "20240308 212800;17998.00;17999.00;17997.50;17998.50;60"
     write(manual / "MNQ 03-24.Last.txt", BASE)

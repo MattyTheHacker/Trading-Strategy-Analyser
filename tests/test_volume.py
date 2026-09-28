@@ -96,7 +96,7 @@ def test_the_rolling_form_sums_the_trailing_window_and_is_undefined_before_it_fi
 
 def test_the_session_to_date_form_restarts_at_every_open() -> None:
     index = stamps(12)
-    trading_day, in_session, bar_of_session = clock(index)
+    trading_day, in_session, _ = clock(index)
     counts = np.arange(index.size, dtype=np.float64) % 97 + 1.0
     absolute = grid_of(counts, index, SESSION_TO_DATE).absolute_for(SESSION_TO_DATE)
 
@@ -122,7 +122,7 @@ def test_an_out_of_session_print_is_not_session_volume() -> None:
 
 
 def test_a_one_bar_rolling_window_is_refused_as_the_per_bar_form_under_another_name() -> None:
-    with pytest.raises(VolumeError, match="one-bar window is VolumeForm.PER_BAR"):
+    with pytest.raises(VolumeError, match=r"one-bar window is VolumeForm\.PER_BAR"):
         volume.validate_rolling_bars(1)
 
 
@@ -613,7 +613,7 @@ VOLUME_AXES = {
     [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER],
 )
 def test_every_archetype_can_sweep_every_volume_axis(archetype) -> None:
-    assert VOLUME_AXES <= archetype.sweepable, archetype.name
+    assert archetype.sweepable >= VOLUME_AXES, archetype.name
 
 
 def test_a_grid_asks_for_the_series_only_when_some_combination_narrows_the_states() -> None:

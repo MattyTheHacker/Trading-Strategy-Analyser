@@ -169,7 +169,7 @@ def load(directory: Path = FINDINGS) -> list[Finding]:
             continue
 
         fields = parse_front_matter(path.read_text(encoding="utf-8"), path.stem)
-        named = [str(a) for a in fields["archetypes"]]  # type: ignore[union-attr]
+        named = [str(a) for a in fields["archetypes"]]
         unknown = sorted(set(named) - known)
         if unknown:
             msg = f"{path.stem}: unknown archetypes {unknown}; registered: {sorted(known)}"
@@ -180,7 +180,7 @@ def load(directory: Path = FINDINGS) -> list[Finding]:
             msg = f"{path.stem}: unknown outcome {outcome!r}; known: {sorted(OUTCOMES)}"
             raise FrontMatterError(msg)
 
-        gates = [int(g) for g in fields["gates"]]  # type: ignore[union-attr]
+        gates = [int(g) for g in fields["gates"]]
         unknown_gates = sorted(set(gates) - set(GATES))
         if unknown_gates:
             msg = f"{path.stem}: unknown gates {unknown_gates}; known: {sorted(GATES)}"
@@ -192,7 +192,7 @@ def load(directory: Path = FINDINGS) -> list[Finding]:
                 id=str(fields["id"]) if fields.get("id") else None,
                 title=str(fields["title"]),
                 archetypes=tuple(named),
-                issues=tuple(int(i) for i in fields["issues"]),  # type: ignore[union-attr]
+                issues=tuple(int(i) for i in fields["issues"]),
                 gates=tuple(gates),
                 outcome=outcome,
                 verdict=str(fields["verdict"]),

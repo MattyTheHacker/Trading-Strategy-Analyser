@@ -17,11 +17,10 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import logsetup
 from tools.campaign_paired import CELL_KEYS, cells, paired, shared_columns, verdict
 from tools.campaign_report import load
 from tools.campaign_sweep import HOLD_BARS
-
-from nqbt import logsetup
 
 logger = logging.getLogger(__name__)
 

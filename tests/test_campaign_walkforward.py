@@ -184,7 +184,9 @@ def test_the_verdict_is_the_pooled_out_of_sample_figure_and_not_a_median_of_medi
 # -- the run over a whole shortlist --------------------------------------------------------
 
 
-def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(monkeypatch) -> None:
+def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Two candidates at different bar sizes are different frames and cannot be selected
     between, so pooling them would rank a 5-minute profit factor against a 10-minute one."""
     rows = pd.concat([stored_rows(resolution=[5, 5]), stored_rows(resolution=[10, 10])])
@@ -205,7 +207,7 @@ def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(monk
     assert ran == [5, 10]
 
 
-def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch) -> None:
+def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of, and a
     flag that parses without reaching ``shortlist`` reads exactly like one that works."""
     rows = stored_rows(

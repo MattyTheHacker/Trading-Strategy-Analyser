@@ -18,10 +18,9 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_shortlist import best_row, rebuild
-
 from nqbt import archetypes, context, dispersion, logsetup, randomentry, resample, stats, sweep
 from nqbt.instruments import get_instrument
+from tools.campaign_shortlist import best_row, rebuild
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ def chosen(
     variant: str | None = None,
 ) -> tuple[archetypes.Params, int]:
     """Return the configuration a window's ranking picked, and the resolution it was ranked at."""
-    row: pd.Series = best_row(name, root, window, by, stratum, resolution, variant)  # type: ignore[type-arg]  # duckdb's dtypes
+    row = best_row(name, root, window, by, stratum, resolution, variant)
 
     return rebuild(row, archetypes.get(name)), int(row["resolution"])
 

@@ -1,3 +1,5 @@
+"""Instrument specs: tick size, tick value and the conversions between them."""
+
 import pytest
 
 from nqbt.instruments import (

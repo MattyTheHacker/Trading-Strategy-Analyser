@@ -194,7 +194,7 @@ def test_the_side_is_the_fine_close_against_the_coarse_average() -> None:
     np.testing.assert_array_equal(labelled, [Side.BELOW, Side.AT, Side.ABOVE, UNDEFINED])
 
 
-def test_one_resample_serves_every_period_at_the_same_resolution(monkeypatch) -> None:
+def test_one_resample_serves_every_period_at_the_same_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
     real = resample.resample
 

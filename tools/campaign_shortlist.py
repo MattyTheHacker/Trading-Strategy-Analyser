@@ -56,7 +56,7 @@ def _absent(value: object) -> bool:
 def _coerced(value: object, default: object) -> object:
     """Convert one DuckDB cell to the field's own type. A stored list becomes a tuple again."""
     if isinstance(default, tuple):
-        return tuple(value)  # type: ignore[call-overload]  # a list by construction
+        return tuple(value)
 
     if isinstance(default, (bool, int, float, str)):
         return type(default)(value)
@@ -64,11 +64,11 @@ def _coerced(value: object, default: object) -> object:
     return value
 
 
-def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Params:  # type: ignore[type-arg]  # duckdb's dtypes
+def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Params:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Rebuild the parameter set a stored row came from, defaults filling anything not stored."""
     params: archetypes.Params = archetype.params_cls()
     updates: dict[str, object] = {}
-    for field in fields(params):  # type: ignore[arg-type]  # a dataclass by construction
+    for field in fields(params):
         if field.name not in row.index or _absent(row[field.name]):
             continue
 
@@ -116,7 +116,7 @@ def shortlist(
     return ranked
 
 
-def best_row(
+def best_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     name: str,
     root: str,
     window: list[str],
@@ -124,7 +124,7 @@ def best_row(
     stratum: str | None = None,
     resolution: int | None = None,
     variant: str | None = None,
-) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
+) -> pd.Series:
     """Return the highest-ranked stored combination for one archetype, root and stratum."""
     return shortlist(name, root, window, by, 1, stratum, resolution, variant).iloc[0]
 
@@ -149,7 +149,7 @@ def swept_series(bars: pd.DataFrame, last_bar: pd.Timestamp) -> pd.DataFrame:
     return bars.loc[:last_bar]
 
 
-def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[type-arg]  # duckdb's dtypes
+def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Refuse a re-run that did not reproduce the trade count and net P&L the sweep stored.
 
     A log filed against a summary it does not match is worse than no log, because every
@@ -209,7 +209,7 @@ def run_logged(
     return summary, log
 
 
-def rerun_group(
+def rerun_group(  # type: ignore[explicit-any]  # duckdb's dtypes
     block: pd.DataFrame,
     frame: pd.DataFrame,
     archetype: archetypes.Archetype,
@@ -217,7 +217,7 @@ def rerun_group(
     minutes: int,
     price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
     exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
-) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:  # type: ignore[type-arg]  # duckdb's dtypes
+) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:
     """Re-run every row measured on one resampled frame, yielding each with its summary and log.
 
     One :func:`prepared` dataset serves the whole block.

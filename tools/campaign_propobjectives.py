@@ -174,8 +174,8 @@ def measure(
     return measured
 
 
-def replay_configuration(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def replay_configuration(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     summary: dict[str, object],
     log: pd.DataFrame,
     accounts: list[propaccount.PropAccount],
@@ -209,12 +209,12 @@ def replay_configuration(
     return measured
 
 
-def rerun_logs(
+def rerun_logs(  # type: ignore[explicit-any]  # duckdb's dtypes
     name: str,
     rows: pd.DataFrame,
     root: str,
     bars: pd.DataFrame,
-) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:  # type: ignore[type-arg]  # duckdb's dtypes
+) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:
     """Yield every row of one window re-run with its summary and log, one resample per resolution."""
     archetype: archetypes.Archetype = archetypes.get(name)
     for minutes, block in rows.groupby("resolution", sort=False):
@@ -242,7 +242,7 @@ def measure_window(
     return pd.DataFrame([measured for batch in batches for measured in batch])
 
 
-def key_of(row: pd.Series) -> tuple[str, int, str, str, int]:  # type: ignore[type-arg]  # duckdb's dtypes
+def key_of(row: pd.Series) -> tuple[str, int, str, str, int]:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the :data:`~tools.campaign_holdout.JOIN_KEYS` that name one configuration in both windows."""
     return (
         str(row["root"]),
@@ -331,7 +331,7 @@ def verdict(chosen: pd.DataFrame, held: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _share(part: pd.Series, whole: pd.Series) -> float:  # type: ignore[type-arg]  # duckdb's dtypes
+def _share(part: pd.Series, whole: pd.Series) -> float:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return ``part`` over ``whole`` summed, or ``nan`` when the whole is empty."""
     total: float = float(whole.sum())
 
@@ -361,7 +361,7 @@ def pool(name: str, root: str, args: argparse.Namespace) -> pd.DataFrame:
     ranked: pd.DataFrame = ranked_pairs(
         name, root, CONTROL, None, args.stratum, args.resolution, args.variant
     )
-    readable: pd.Series[bool] = (  # type: ignore[type-arg]  # duckdb's dtypes
+    readable: pd.Series[bool] = (
         ranked[f"ambiguous_share{SELECTION_SUFFIX}"] <= disambiguate.MIN_AMBIGUOUS_SHARE
     )
     logger.info(

@@ -64,14 +64,9 @@ from tools.campaign_sweep import (
     ALL_STRATA,
     CAMPAIGN,
     COMMISSION,
-    CONTEXT,
-    EMAPULLBACK_CONFIRM,
-    EMAPULLBACK_CONFIRM_VARIANTS,
-    EMAPULLBACK_HELD_KINDS,
-    EMAPULLBACK_TRAIL,
-    EMAPULLBACK_TRAIL_VARIANTS,
-    CORE,
     CONSOLIDATING,
+    CONTEXT,
+    CORE,
     DIRECTIONAL,
     ELASTIC_BAND_STOP,
     ELASTIC_BAND_STOP_ARMS,
@@ -93,18 +88,21 @@ from tools.campaign_sweep import (
     ELASTIC_VOLUME_SHAPES,
     ELASTIC_VOLUME_TARGET,
     ELASTIC_VOLUME_VARIANTS,
+    EMAPULLBACK_CONFIRM,
+    EMAPULLBACK_CONFIRM_VARIANTS,
+    EMAPULLBACK_HELD_KINDS,
+    EMAPULLBACK_TRAIL,
+    EMAPULLBACK_TRAIL_VARIANTS,
+    IBT_SIZING,
+    IBT_SIZING_VARIANTS,
+    LONDON_OPEN_MINUTES,
+    MIDDAY,
     NARROW,
     NARROW_ATR,
     NARROW_ENTRY,
     NARROW_TP,
     NARROW_VARIANTS,
     NO_CUTS,
-    IBT_SIZING,
-    IBT_SIZING_VARIANTS,
-    MIDDAY,
-    SIZING_CONFLUENCE,
-    SIZING_QUANTITIES,
-    SizingCut,
     ORB,
     ORB_BRACKET,
     ORB_BRACKET_RANGES,
@@ -113,12 +111,12 @@ from tools.campaign_sweep import (
     ORB_FADE,
     ORB_FADE_LADDERS,
     ORB_FADE_VARIANTS,
-    ORB_FRACTIONS,
-    ORB_GEOMETRY,
-    ORB_GEOMETRY_ENTRIES,
     ORB_FOLLOW_THROUGH,
     ORB_FOLLOW_THROUGH_RANGES,
     ORB_FOLLOW_THROUGH_VARIANTS,
+    ORB_FRACTIONS,
+    ORB_GEOMETRY,
+    ORB_GEOMETRY_ENTRIES,
     ORB_GEOMETRY_VARIANTS,
     ORB_GEOMETRY_WINDOWS,
     ORB_LADDER_FRACTIONS,
@@ -130,7 +128,6 @@ from tools.campaign_sweep import (
     ORB_TIGHT_FRACTIONS,
     ORB_VARIANTS,
     ORB_WIDTH_LADDERS,
-    LONDON_OPEN_MINUTES,
     RECUTS,
     REGIME,
     REGIME_LOOKBACKS,
@@ -138,6 +135,8 @@ from tools.campaign_sweep import (
     RESOLUTIONS,
     SELECTION_SHARE,
     SERIAL_BELOW_COMBINATION_BARS,
+    SIZING_CONFLUENCE,
+    SIZING_QUANTITIES,
     SLIPPAGE_TICKS,
     STRATUM_SETS,
     UNFILTERED,
@@ -148,6 +147,7 @@ from tools.campaign_sweep import (
     VOLUME_TAILS,
     Cuts,
     RegimeCut,
+    SizingCut,
     Variant,
     VolumeCut,
     calibrate,
@@ -357,7 +357,7 @@ def test_the_split_windows_cover_every_bar_exactly_once() -> None:
     assert len(selection) == math.floor(len(bars) * SELECTION_SHARE)
 
 
-def test_each_archetype_gets_its_own_database(tmp_path, monkeypatch) -> None:
+def test_each_archetype_gets_its_own_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A convention since ``_append_or_create`` learned to widen, and still what the campaign
     ran on, so the report and holdout tools go on finding one file per archetype."""
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
@@ -396,7 +396,9 @@ def test_a_request_is_passed_through_in_joblibs_own_convention() -> None:
     assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS, 1) == 1
 
 
-def test_each_sweep_call_gets_the_worker_count_its_own_grid_earns(tmp_path, monkeypatch) -> None:
+def test_each_sweep_call_gets_the_worker_count_its_own_grid_earns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Chosen per (variant x stratum) rather than once per run, which is the unit a pool is
     opened at -- a run of many small calls is not a large call."""
     (wide,) = VARIANTS["InsideBar"]("MNQ")
@@ -880,7 +882,7 @@ def test_narrowing_the_forms_without_a_fitted_cut_is_refused() -> None:
 
 
 def test_a_window_the_form_is_degenerate_at_is_refused_by_name() -> None:
-    with pytest.raises(SystemExit, match="a one-bar window is VolumeForm.PER_BAR"):
+    with pytest.raises(SystemExit, match=r"a one-bar window is VolumeForm\.PER_BAR"):
         check_volume_request(volume_args(volume_rolling_bars=[1, 30]))
 
     with pytest.raises(SystemExit, match="baseline must span"):
@@ -1428,7 +1430,7 @@ def test_the_stop_ladder_extends_the_stored_axis_instead_of_replacing_it() -> No
     assert ORB_LADDER_FRACTIONS[: len(ORB_FRACTIONS)] == ORB_FRACTIONS
     assert max(ORB_FRACTIONS) == 1.0
     assert [f for f in ORB_LADDER_FRACTIONS if f > 1.0]
-    assert ORB_LADDER_FRACTIONS == sorted(ORB_LADDER_FRACTIONS)
+    assert sorted(ORB_LADDER_FRACTIONS) == ORB_LADDER_FRACTIONS
 
 
 def test_a_stop_past_the_range_width_is_legal_rather_than_refused() -> None:
@@ -2269,12 +2271,14 @@ def test_a_cut_with_every_label_dropped_runs_no_confluence_arm() -> None:
     assert not any(arm.name.endswith(SIZING_CONFLUENCE) for arm in arms)
 
 
-def test_the_sizing_run_refuses_to_start_without_its_cuts(tmp_path) -> None:
-    with pytest.raises(SystemExit, match="campaign_sizing.py fit"):
+def test_the_sizing_run_refuses_to_start_without_its_cuts(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match=r"campaign_sizing\.py fit"):
         sizing_cuts(tmp_path / "absent.json")
 
 
-def test_the_sizing_variants_read_their_own_roots_cuts(monkeypatch, tmp_path) -> None:
+def test_the_sizing_variants_read_their_own_roots_cuts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     path = tmp_path / "cuts.json"
     rows = [
         dataclasses.asdict(a_cut("MNQ", 5)),
@@ -2288,7 +2292,9 @@ def test_the_sizing_variants_read_their_own_roots_cuts(monkeypatch, tmp_path) ->
     assert variants_for(IBT_SIZING) is IBT_SIZING_VARIANTS
 
 
-def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(tmp_path, monkeypatch) -> None:
+def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``save_sweep`` stamps one status per sweep; the rows have to carry their own first."""
     (campaign,) = insidebartrailing_variants("MNQ")
     control, *_, confluence = sizing_arms(campaign, a_cut())

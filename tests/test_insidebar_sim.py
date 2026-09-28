@@ -643,6 +643,6 @@ def test_the_hold_limit_does_not_extend_mae_or_mfe_past_the_open() -> None:
 
 def test_the_hold_limit_reaches_the_loop_from_the_parameters() -> None:
     params = signalling(max_hold_bars=1)
-    log = run_insidebar(prepared(frame(BREAKOUT + [*FLAT]), params), params, MNQ)
+    log = run_insidebar(prepared(frame([*BREAKOUT, *FLAT]), params), params, MNQ)
     assert not log.empty, "fixture produced no trades; the test proves nothing"
     assert set(log["exit_reason"]) == {"time_limit"}

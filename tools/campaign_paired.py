@@ -19,9 +19,8 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_report import load, parameter_columns
-
 from nqbt import logsetup
+from tools.campaign_report import load, parameter_columns
 
 logger = logging.getLogger(__name__)
 
