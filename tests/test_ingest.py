@@ -111,11 +111,9 @@ def test_partial_trailing_line_is_deferred_until_complete(export, cache) -> None
 
 
 def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cache) -> None:
-    """The failure that silently corrupted the real cache.
+    """A part-formed last bar that a later export completes is replaced, not frozen.
 
-    Exporting during a session captures the newest bar part-formed. When it completes,
-    NT8 rewrites that line with the true high/low/close/volume. Detecting an append from
-    the file head alone cannot see that, so the partial bar used to be frozen forever.
+    A head-only append check cannot see the rewrite -- ``nqbt/README.md`` § "ingest.py".
     """
     partial = "20240308 213300;18001.75;18002.00;18001.50;18001.80;12"
     write(export, [*LINES, partial])

@@ -243,9 +243,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
 ) -> WalkForwardResult:
     """Select on each training window, measure on the window that follows, and report both.
 
-    ``costs`` has no default: an uncosted walk-forward selects for trade frequency, which is
-    the one thing costs punish, so it would report a clean result that inverts the moment
-    costs are applied.
+    ``costs`` has no default -- ``docs/roadmap.md`` §M7b.
 
     ``warmup_bars`` prefixes every window so indicators are warm at its first tradeable bar;
     trades entered in the prefix are discarded. A grid reading an SMA(200) needs at least 200.

@@ -1,10 +1,9 @@
 """EmaPullback simulation tests on hand-built bars.
 
-The archetype has no NinjaScript, so there is no trade list to check against. What these pin
-instead are the rules it introduces -- the extension that has to precede the touch, the three
-touch modes and their shared boundary, and a stop placed on the slow average rather than at a
-distance -- plus the property the whole thing is worthless without: that nothing it reads comes
-from a bar it could not have seen.
+The archetype has no NinjaScript and no trade list. These pin the rules it introduces -- the
+extension that has to precede the touch, the three touch modes and their shared boundary, and a
+stop placed on the slow average -- and that nothing it reads comes from a bar it could not have
+seen.
 
 The signal functions take the two averages as arguments, so the tests hand them flat synthetic
 values and keep the arithmetic checkable by eye. The end-to-end tests use the real grids.
@@ -298,9 +297,8 @@ def test_r_is_the_distance_from_the_fill_to_the_stop_on_the_slow_average() -> No
 def test_nothing_the_signal_reads_comes_from_a_bar_it_could_not_have_seen() -> None:
     """Recompute over a prefix: every value must be what the full series already said.
 
-    The test this archetype exists to make possible to fail. A pullback is easy to compute one
-    bar early -- the extension run and the touch are one bar apart -- and the symptom is a
-    profit factor above 1 rather than an exception.
+    The extension run and the touch are one bar apart, so a pullback computed a bar early shows
+    up as a profit factor above 1, not as an exception.
     """
     combination = EmaPullbackParams(bars_required_to_trade=50, touch_mode=TOUCH_ANY)
     bars = walk_bars()

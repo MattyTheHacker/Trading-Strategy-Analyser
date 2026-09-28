@@ -1,11 +1,9 @@
 """PullBackAndGo simulation tests on hand-built bars.
 
-The shared bracket engine (entry_bracket, _resolve_brackets, _limit_filled, _write) is
-already exercised thoroughly by test_deadcat_sim.py and pinned bidirectional by M15.1's
-mirrored long-side test. What is specific to this archetype and needs its own coverage is
-the handful of places PullBackAndGo.cs genuinely differs from DeadCatBounce.cs rather than
-merely mirroring it -- see nqbt.sim.types.PullBackAndGoParams for the full list -- plus
-the entry-condition wiring (nqbt.sim.pullback.pullback_signal), which is new code.
+The shared bracket engine is exercised by ``test_deadcat_sim.py``. These cover where
+``PullBackAndGo.cs`` differs from ``DeadCatBounce.cs`` rather than mirroring it -- see
+:class:`nqbt.sim.types.PullBackAndGoParams` -- and the entry-condition wiring in
+:func:`nqbt.sim.pullback.pullback_signal`.
 """
 
 from dataclasses import replace
@@ -149,8 +147,7 @@ def test_ratchet_tightens_immediately_on_the_entry_bar_because_the_offsets_diffe
     # ratchet_lag=1 means the ratchet evaluates at ref = entry_bar - 1 = the signal bar
     # itself on the very bar the fill happens, reading Low[0] with *no* offset -- 97, not
     # 96.5. Since 97 is tighter it applies immediately, before any bar has even closed
-    # with the position open. DeadCatBounce never shows this because its ratchet and entry
-    # share one offset, so the two formulas coincide exactly on the signal bar.
+    # with the position open.
     trades = run(
         [
             (100, 101.5, 97, 101),  # 0: signal, trigger 101.5, entry-stop 96.5
@@ -187,10 +184,8 @@ def test_ratchet_keeps_tracking_the_bare_low_one_bar_back_and_never_loosens() ->
 
 
 def test_targets_are_left_unrounded() -> None:
-    # An engine test for the round_targets flag, not a claim about the archetype: the
-    # M15.5 reconciliation showed NT8 snaps PullBackAndGo's targets even though the C#
-    # never calls RoundToTickSize, so PullBackAndGoParams now defaults it to True. What
-    # this pins is that the flag is what does the rounding and nothing else does.
+    # An engine test for the round_targets flag: the flag does the rounding and nothing else
+    # does -- ``docs/nt8-fidelity.md``, "Targets snap to the tick grid".
     #
     # Trigger 104.25 (bare High[0]), stop 99.5 (Low[0] - 2 ticks), risk 4.75. Leg 2's
     # target is 104.25 + 4.75*1.5 = 111.375 -- a genuine half tick on the 0.25 grid.
@@ -316,10 +311,8 @@ def test_params_reject_an_order_quantity_that_cannot_fill_every_leg() -> None:
 
 
 def test_default_filters_are_the_reconciled_configuration() -> None:
-    # The C# leaves all six uninitialised in SetDefaults, so there is no NinjaScript
-    # default to mirror. These reproduce the M15.5 reconciliation, the only combination
-    # with a trade list behind it; VWAP is off because nqbt's has never been checked
-    # against OrderFlowVWAP. See docs/nt8-fidelity.md.
+    # The reconciled configuration -- ``docs/nt8-fidelity.md``, "Reconciliation result --
+    # PullBackAndGo".
     p = PullBackAndGoParams()
     assert (p.use_ema, p.use_slow_sma, p.use_fast_sma, p.use_vwap) == (
         True,

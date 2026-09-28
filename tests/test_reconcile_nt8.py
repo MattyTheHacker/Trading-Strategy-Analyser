@@ -62,11 +62,7 @@ def test_a_scale_out_port_carries_its_leg_in_the_entry_name(tool, tmp_path, entr
 
 
 def test_an_entry_name_with_no_digit_is_leg_one(tool, tmp_path) -> None:
-    """``InsideBar.cs`` brackets one order called "entry" and never scales out.
-
-    Before the fallback this raised on ``astype(int)`` -- with the export already produced,
-    which is when it costs the most.
-    """
+    """``InsideBar.cs`` brackets one order called "entry" and never scales out."""
     assert tool.parse_nt8(export(tmp_path, "entry"))["leg"].iloc[0] == 1
 
 

@@ -1,25 +1,10 @@
 """Replaying a prop-firm account's rules over a trade log.
 
-The question a ranking by profit factor cannot answer: **would this account have survived, and
-would it have made more than it cost?** A strategy that breaches the trailing threshold on the
-way to a good profit factor does not get funded, and a strategy that blows three accounts while
-withdrawing more than the four of them cost is still a business.
-
-Nothing here defines a performance statistic. Every figure describing *the trades* comes from
-:func:`nqbt.stats.summarise`; the figures this module owns describe *the account* -- where the
-floor sat, which day it was breached on, what was withdrawn and what the attempts cost.
-
-**Unrealised P&L is modelled, and it is why this needs more than ``net_pnl``.** Most firms
-measure both the trailing threshold and the daily loss limit against open equity, so a trade
-that dips far enough before turning around can end an account it finished profitably. Each
-trade's worst and best open equity come from its legs' ``mae_points`` and ``mfe_points``, priced
-through :mod:`nqbt.instruments` -- bar-resolution excursions, in keeping with the prime
-directive, and never tick data.
-
-The rule set is entirely parameterised because firms genuinely disagree on every axis. What
-each preset number rests on, the three assumptions the replay makes where bar data cannot
-decide, and what is deliberately not modelled: ``docs/roadmap.md`` § "Replaying a prop account
-over the trade log".
+Every figure describing *the trades* comes from :func:`nqbt.stats.summarise`; this module owns
+the figures describing *the account*. Open equity is priced from each leg's ``mae_points`` and
+``mfe_points`` through :mod:`nqbt.instruments`. The presets' sources, the assumptions bar data
+cannot decide, and what is not modelled: ``docs/roadmap.md`` § "Replaying a prop account over
+the trade log".
 """
 
 from __future__ import annotations
@@ -87,10 +72,8 @@ REQUIRED_COLUMNS = (
 :func:`nqbt.stats.summarise` reads, plus the two that price an excursion in dollars."""
 
 EXCURSION_COLUMNS = ("mae_points", "mfe_points")
-"""Columns that must additionally be **non-null** when a rule measures open equity.
-
-An imported log may legitimately leave them empty -- :data:`nqbt.trades.NULLABLE` -- which is
-why their presence is required and their contents only conditionally.
+"""Columns that must also be **non-null** when a rule measures open equity; an imported log may
+leave them empty -- :data:`nqbt.trades.NULLABLE`.
 """
 
 
@@ -134,9 +117,8 @@ class TrailLock(StrEnum):
 class ExcursionOrder(StrEnum):
     """Which of one trade's two excursions is applied first, where bar data cannot say.
 
-    Read only under :attr:`TrailBasis.INTRADAY`, which is the only basis a trade's own peak can
-    move the floor under. It is the single largest lever in the model on a full-size
-    contract -- ``docs/roadmap.md`` §M28.13.
+    Read only under :attr:`TrailBasis.INTRADAY`, the only basis a trade's own peak can move the
+    floor under -- ``docs/roadmap.md`` §M28.13.
     """
 
     PEAK_FIRST = "peak-first"
@@ -200,10 +182,8 @@ class AccountRules:
     """Dollars above the starting balance the floor freezes at, under that lock only."""
 
     excursion_order: ExcursionOrder = ExcursionOrder.PEAK_FIRST
-    """Which of a trade's excursions moves the floor first, under an intraday basis.
-
-    Measured, not incidental: it decides whether a full-size NQ account dies on its first trade
-    or trades on -- ``docs/roadmap.md`` §M28.13.
+    """Which of a trade's excursions moves the floor first, under an intraday basis --
+    ``docs/roadmap.md`` §M28.13.
     """
 
     daily_loss_limit: float = 0.0
@@ -219,16 +199,14 @@ class AccountRules:
     withdrawal_threshold: float = 0.0
     """Profit left in the account after a withdrawal -- the safety net a firm requires.
 
-    Set it at or above the locked floor: a withdrawal is not stopped from breaching the account,
-    because a rule set that permits one is a rule set under which it would happen.
+    Set it at or above the locked floor: nothing stops a withdrawal from breaching the account.
     """
 
     profit_split: float = 1.0
     """The trader's share of each withdrawal. ``1.0`` is no split at all.
 
-    The account still gives up the whole withdrawal -- the split decides what reaches the
-    trader, not what leaves the balance, which is why :attr:`AccountRun.withdrawn` and
-    :attr:`AccountRun.payout` are separate figures.
+    The account still gives up the whole withdrawal: :attr:`AccountRun.withdrawn` is what left
+    it and :attr:`AccountRun.payout` what reached the trader.
     """
 
     def __post_init__(self) -> None:
@@ -514,14 +492,11 @@ PRESETS: dict[str, PropAccount] = {
         TPT_150K_PRO,
     )
 }
-"""Three firms at the commonest sizes.
+"""Three firms at the commonest sizes; TakeProfitTrader's evaluation and funded account are two
+presets per size.
 
-TakeProfitTrader ships as two presets per size because its evaluation and its funded account
-are different rule sets, which one :class:`AccountRules` cannot hold at once.
-
-**Dated, and not quotable terms** -- published rules and prices move, which is why every field
-is overridable. Where each number came from, and which are conservative stand-ins rather than
-published figures: ``docs/roadmap.md`` § "Replaying a prop account over the trade log".
+Dated, and not quotable terms. Where each number came from: ``docs/roadmap.md`` § "Where the
+preset numbers came from".
 """
 
 
@@ -624,8 +599,7 @@ class PropReplay:
 
     fees_paid: float
     net: float
-    """:attr:`payout` minus :attr:`fees_paid`. **The figure the issue exists for**: an
-    account may be blown and the sequence still profitable."""
+    """:attr:`payout` minus :attr:`fees_paid`: what the whole sequence of attempts was worth."""
 
     trades_taken: int
     trades_total: int
@@ -887,8 +861,8 @@ def _probe_high(balance: float, table: _TradeTable, pos: int) -> float:
 def _take_trade(table: _TradeTable, pos: int, rules: AccountRules, state: _AccountState) -> Outcome:
     """Apply one trade to the account and report how it left it.
 
-    Which excursion moves the floor first is ``rules.excursion_order`` -- the bars cannot order
-    them, and it decides real outcomes. ``docs/roadmap.md`` §M28.13.
+    Which excursion moves the floor first is ``rules.excursion_order`` -- ``docs/roadmap.md``
+    §M28.13.
     """
     tracks_peak: bool = rules.trail_basis is TrailBasis.INTRADAY
     peak: float = _probe_high(state.balance, table, pos)

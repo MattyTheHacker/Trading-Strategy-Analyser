@@ -3,10 +3,8 @@
 Two claims are pinned harder than the rest because their failures are silent. **No label is
 ever taken off two components**, because a bar whose slope cannot be measured still has a
 knowable price and stack, and letting those two decide would manufacture a trend out of a
-warm-up. And **asking for the label must not switch on the raw moving-average values**, the
-66 MB -> 595 MB memory switch: that is enforced by building the averages inside
-``trend_grid`` and dropping them there, and the tests below state it as a property of a
-prepared dataset rather than as an intention.
+warm-up. And **asking for the label must not switch on the raw moving-average values** --
+``docs/roadmap.md`` §M10.3 and §M20b.
 """
 
 import numpy as np
@@ -372,11 +370,7 @@ def test_the_trend_labels_are_present_and_counted_when_the_spec_asks() -> None:
 
 
 def test_asking_for_a_trend_label_does_not_switch_on_the_raw_moving_averages() -> None:
-    """The 66 MB -> 595 MB switch, enforced rather than intended.
-
-    ``trend_grid`` builds its own averages over its own two periods and drops them with the
-    labels kept, so the shared grids a parallel worker is handed stay boolean-only.
-    """
+    """Asking for a trend label leaves the shared moving-average grids boolean-only."""
     data = prepared(trend_keys=(KEY,))
     assert data.spec.trend_keys == (KEY,)
     assert not data.spec.needs_ma_values

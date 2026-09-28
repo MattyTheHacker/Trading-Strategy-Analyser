@@ -161,7 +161,7 @@ def test_a_micro_cannot_be_derived_from_its_full_size_root() -> None:
 
 
 def test_a_root_may_carry_a_digit_and_the_registry_still_decides() -> None:
-    """M2K used to fail the regex, which hid the real answer behind a parse error."""
+    """A root carrying digits, such as M2K, parses."""
     with pytest.raises(ValueError, match="unknown root 'M2K'"):
         ContractId.parse("M2K 03-26")
 

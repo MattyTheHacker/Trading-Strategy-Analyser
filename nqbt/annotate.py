@@ -1,21 +1,9 @@
 """Market context at the bars a trade was entered and left on.
 
 One annotation row per trade, carrying every condition the :class:`~nqbt.context.Dataset` holds,
-so a review can stratify realised P&L by them. Nothing here knows where the trades came from: a
-sweep's log and an imported NT8 history annotate through the same call, which is what lets a
-hypothesis raised on a few hundred real trades be tested against thousands of simulated ones.
-
-Two traps this module exists to close, both of which produce plausible numbers rather than an
-error -- ``docs/roadmap.md`` §M11.2:
-
-**Back-adjustment.** A real fill at 18076.75 appears nowhere in a back-adjusted continuous
-series, and the bar lookup still succeeds. Every fill price is therefore checked against the bar
-it matched, and :func:`contract_bars` reads the per-contract cache rather than either continuous
-series.
-
-**Bar alignment.** Timestamps are end-of-bar, so a fill at 14:23:47 belongs to the bar stamped
-14:24. A log that already carries bar indices keeps them; only one without them is resolved from
-its timestamps, because a bar's own stamp is not a fill time.
+so a review can stratify realised P&L by them. A sweep's log and an imported NT8 history
+annotate through the same call. Every fill price is checked against the bar it matched, and a
+log carrying bar indices keeps them -- ``docs/roadmap.md`` §M11.2.
 """
 
 from __future__ import annotations
@@ -98,9 +86,8 @@ def _check_pair(first: str, low: float | None, second: str, high: float | None) 
 class LabelThresholds:
     """The cut points a raw series needs before it is a label.
 
-    Every field defaults to ``None``, which emits the raw series and no label: a threshold is a
-    choice the review has to be able to state, so there is no default that could be right. Each
-    pair is both or neither.
+    Every field defaults to ``None``, which emits the raw series and no label. Each pair is both
+    or neither.
     """
 
     regime_consolidating_below: float | None = None
@@ -235,10 +222,7 @@ MAX_CROSSED_VALUES = 12
 """Most values a cross may take and still be a stratification.
 
 Pinned equal to :data:`nqbt.review.MAX_STRATA` by ``tests/test_annotate.py`` rather than
-imported, because :mod:`nqbt.review` imports this module and the dependency cannot run both
-ways. Above it every stratum would fall under :data:`nqbt.review.MIN_TRADES` and the cross
-would be reported as a skipped condition rather than refused -- which is the silence the
-check exists to replace.
+imported, because :mod:`nqbt.review` imports this module.
 """
 
 CROSSED_SEPARATOR = " & "
@@ -253,20 +237,10 @@ def confluence(
 ) -> Annotation:
     """Count how many of ``columns`` were true at each trade's entry bar, as a new condition.
 
-    This is the *descriptive* half of the confluence pattern and needs no strategy to gate on
-    anything: the trades already happened, and the count says what was true when each one was
-    taken. :func:`nqbt.review.stratify` then reads it like any other condition, which is what
-    turns it into "trades with three of these did X". The gating half is
-    ``EmaCrossoverParams.confluence_required`` -- ``docs/roadmap.md`` § "Counting the
-    confluence a trade actually had".
-
-    **The set is named by the caller and never derived**, because a count is only meaningful
-    against a stated denominator: counting whatever booleans an annotation happens to carry
-    would change the number when a dataset is built with one more moving-average period, and
-    nothing would say so.
-
-    A condition that is false because it could not be computed -- a moving average inside its
-    warm-up -- counts as not true, exactly as it does everywhere else in the codebase.
+    The descriptive half of the confluence pattern, read by :func:`nqbt.review.stratify` like
+    any other condition; the gating half is ``EmaCrossoverParams.confluence_required`` --
+    ``docs/roadmap.md`` § "Counting the confluence a trade actually had". The set is named by
+    the caller and never derived, and a condition that could not be computed counts as not true.
     """
     frame: pd.DataFrame = annotation.frame
     _check_confluence(frame, columns, name)
@@ -326,19 +300,11 @@ def crossed(
 ) -> Annotation:
     """Combine two or more categorical conditions into one, as a new condition.
 
-    ``"up & directional"`` rather than two separate tables, which is the only way to ask what
-    held *together* at a trade's entry bar: :func:`nqbt.review.stratify` cuts by one condition,
-    and a pair read side by side cannot show an interaction. The result is an ordinary
-    condition, so :func:`nqbt.review.review` ranks it and :func:`nqbt.guard.guard` puts it in
-    the same family as everything else -- **no statistic is defined here.**
-
-    ``name`` defaults to the crossed columns joined by ``_x_``. A trade missing any part is
-    null in the cross, as it is in each part.
-
-    **Cardinality is the hazard.** The product grows multiplicatively while the sample does
-    not, so a cross of three three-valued labels is 27 strata over the same trades and
-    :data:`nqbt.review.MIN_TRADES` would report almost none of them. Above
-    :data:`MAX_CROSSED_VALUES` this refuses, naming the count.
+    ``"up & directional"``, as an ordinary condition that :func:`nqbt.review.review` ranks and
+    :func:`nqbt.guard.guard` puts in the same family as everything else. ``name`` defaults to
+    the crossed columns joined by ``_x_``. A trade missing any part is null in the cross. Refuses
+    a cross taking more than :data:`MAX_CROSSED_VALUES` values -- ``docs/roadmap.md``
+    § "Filtering trades by context and configuration".
     """
     frame: pd.DataFrame = annotation.frame
     chosen: str = name if name is not None else "_x_".join(columns)
@@ -439,12 +405,7 @@ def bars_for_fills(
 
 
 def contract_bars(log: pd.DataFrame, *, cache_dir: Path = paths.CACHE_DIR) -> pd.DataFrame:
-    """Read the per-contract bars a log must be annotated against.
-
-    Neither continuous series is an option here: the back-adjusted one shifts every historical
-    price by the cumulative roll offset, so the lookup succeeds and every comparison is wrong,
-    and the raw one splices two contracts' prices into one series across a roll.
-    """
+    """Read the per-contract bars a log must be annotated against, never either continuous series."""
     if "contract" not in log.columns:
         msg: str = (
             "this log does not name a contract, so the bars it happened on cannot be read for "
@@ -546,11 +507,8 @@ def _check_columns(log: pd.DataFrame) -> None:
 def resolve_bars(log: pd.DataFrame, data: Dataset, side: str) -> IntArray:
     """Find the bar behind each leg's ``side`` fill: the log's own index, or one from its time.
 
-    A log that carries bar indices keeps them. Resolving them from the timestamps instead would
-    shift every simulated trade one bar forward, because a bar's own stamp is not a fill time.
-
-    Public because :mod:`nqbt.chart` needs the same bar and the same two checks with it; a
-    second copy would be a chart drawn over bars an annotation would have refused.
+    A log that carries bar indices keeps them, because a bar's own stamp is not a fill time.
+    Shared with :mod:`nqbt.chart`, which needs the same bar and the same checks.
     """
     bar_column, time_column = f"{side}_bar", f"{side}_time"
     known: BoolArray = (
@@ -667,8 +625,7 @@ def _per_trade_bars(
     """Collapse leg bars into one entry and one exit bar per trade, and say which trades matched.
 
     A trade enters on its earliest leg and leaves on its latest. It matches only when every leg
-    of it does, at both ends: half a trade annotated and half excluded would misstate the trade
-    itself, which is the rule :mod:`nqbt.trade_import` already applies to coverage.
+    of it does, at both ends, as :mod:`nqbt.trade_import` applies to coverage.
     """
     frame: pd.DataFrame = pd.DataFrame(
         {
@@ -818,9 +775,8 @@ def _compression_conditions(
 ) -> dict[str, Column]:
     """Gather the raw width and its trailing rank for every series built, and the state where asked.
 
-    Both are reported because they answer different questions and only one of them is
-    comparable: the width's scale belongs to the form, the period and the resolution at once,
-    while the rank is a share of a trailing window -- ``docs/roadmap.md`` §M19.1.
+    Only the rank is comparable across forms, periods and resolutions -- ``docs/roadmap.md``
+    §M19.1.
     """
     grid: compression.CompressionGrid = data.compressions  # type: ignore[assignment]  # the caller checked
     out: dict[str, Column] = {}
@@ -865,9 +821,8 @@ def _band_conditions(data: Dataset, at: IntArray) -> dict[str, Column]:
 def _range_conditions(data: Dataset, at: IntArray) -> dict[str, Column]:
     """Gather each session range's levels and whether the bar could trade off them yet.
 
-    **The levels are stored per session and the flag per bar**, so a level is read through the
-    bar's own ``session_id`` rather than at ``at`` -- indexing them by the bar succeeds and
-    silently returns another session's range. ``docs/roadmap.md`` §M28.1.
+    The levels are stored per session and the flag per bar, so a level is read through the
+    bar's own ``session_id`` rather than at ``at`` -- ``docs/roadmap.md`` §M28.1.
     """
     grid: sessionrange.SessionRangeGrid = data.session_ranges  # type: ignore[assignment]  # the caller checked
     sessions: IndexArray = data.range_session_id()[at]

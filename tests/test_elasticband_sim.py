@@ -1,10 +1,8 @@
 """ElasticBand simulation tests on hand-built bars.
 
-The archetype has no NinjaScript, so like EmaCrossover there is no trade list to check against.
-What these pin instead are the things it introduces -- five stop schemes, a target expressed
-as a band level rather than as an R multiple, and two rule-driven exits -- plus the property
-the whole thing is worthless without: that nothing it reads comes from a bar it could not have
-seen.
+The archetype has no NinjaScript and no trade list. These pin what it introduces -- five stop
+schemes, a target expressed as a band level, and two rule-driven exits -- and that nothing it
+reads comes from a bar it could not have seen.
 
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
@@ -934,7 +932,7 @@ def test_the_count_is_over_a_window_rather_than_over_an_unbroken_run() -> None:
     ],
 )
 def test_every_signal_bar_gate_reads_only_bars_up_to_and_including_its_own(params) -> None:
-    """The property the archetype is worthless without, run once per gate that was added."""
+    """Nothing the signal reads comes from a later bar, checked once per gate."""
     close = walk(59)
     full = elasticband_signal(candle_dataset(close, params), params)
     for cut in (120, 455, 799):

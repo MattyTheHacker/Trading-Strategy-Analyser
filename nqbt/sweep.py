@@ -48,13 +48,9 @@ class Grid:
     """Values to try for each parameter. Anything omitted keeps its default.
 
     ``Grid.of(ema_period=[9, 21], use_vwap=[True, False])`` is 4 combinations; every other
-    field of the archetype's parameter class stays at its default for all of them.
-
-    The archetype belongs to the grid rather than to :func:`sweep`, because it decides what
-    ``base`` and ``axes`` mean.
-
-    A shortlist is not a product, so :meth:`of_combinations` takes the combinations outright
-    instead -- ``docs/roadmap.md`` §M27.6.
+    field of the archetype's parameter class stays at its default for all of them. A shortlist
+    is not a product, so :meth:`of_combinations` takes the combinations outright instead --
+    ``docs/roadmap.md`` §M27.6.
     """
 
     axes: dict[str, list[AxisValue]] = field(default_factory=dict)
@@ -136,9 +132,9 @@ class Grid:
     def dead_axes(self) -> dict[str, str]:
         """Find swept axes their toggles leave unread on every combination, each with why.
 
-        Easy to do by accident: sweeping ``slow_sma_period`` while ``use_slow_sma`` is false
-        everywhere yields identical rows and a proportional runtime bill. A toggle that is a
-        mask rather than a boolean is off at its everything value -- :data:`nqbt.archetypes.INERT_AT`.
+        Sweeping ``slow_sma_period`` while ``use_slow_sma`` is false everywhere yields identical
+        rows. A toggle that is a mask is off at its everything value --
+        :data:`nqbt.archetypes.INERT_AT`.
         """
         dead: dict[str, str] = {}
         for axis, gate in self.archetype.gated_by.items():
@@ -194,9 +190,8 @@ class Grid:
     ) -> Grid:
         """Build a grid from the combinations themselves, for a set no product describes.
 
-        A shortlist is an arbitrary subset of the product that produced it, so it cannot be
-        stated as axes. Everything downstream is unchanged: ``combo_id`` is the position in
-        this list, and :meth:`required_context` covers every one of them.
+        ``combo_id`` is the position in this list, and :meth:`required_context` covers every one
+        of them.
         """
         listed: list[Params] = list(combos)
         if not listed:
@@ -236,11 +231,7 @@ class Grid:
             yield replace(self.base, **dict(zip(names, values, strict=True)))
 
     def axis_values(self) -> dict[str, list[AxisValue]]:
-        """Return every value each parameter will take across the sweep, swept or not.
-
-        The whole parameter set rather than just ``axes``, because a period that is never
-        swept still has to have its grid built.
-        """
+        """Return every value each parameter will take across the sweep, swept or not."""
         if self.combos is not None:
             return {
                 name: list(dict.fromkeys(getattr(params, name) for params in self.combos))
@@ -507,8 +498,7 @@ def sweep_axes(
     that a caller cannot reach into -- ``docs/roadmap.md`` § "The build spec's three loose
     ends".
 
-    Comparing a profit factor across resolutions at the same period number is meaningless
-    unless the periods are scaled with the bar size. Reasoning: ``docs/roadmap.md`` §M17.
+    Periods are not scaled with the bar size -- ``docs/roadmap.md`` §M17.
     """
     grid_list: list[Grid] = [grids] if isinstance(grids, Grid) else list(grids)
     if not grid_list:
@@ -602,11 +592,7 @@ def rank(
     top: int = 20,
     min_trades: int = 30,
 ) -> pd.DataFrame:
-    """Shortlist candidates, ignoring combinations with fewer than ``min_trades`` trades.
-
-    The floor is not optional: the smallest samples produce the most extreme statistics, so
-    without it they dominate the ranking.
-    """
+    """Shortlist candidates, ignoring combinations with fewer than ``min_trades`` trades."""
     if results.empty:
         return results
 

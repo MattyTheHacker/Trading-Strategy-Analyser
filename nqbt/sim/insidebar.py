@@ -1,15 +1,9 @@
 """InsideBar archetype: break an inside bar out of its mother bar, both sides.
 
-Ported from ``ninjatrader-scripts/Strategies/InsideBar.cs``. The entry mechanism is
-M18's market-on-next-open, but three things here reach parts of the fill model no other
-archetype does -- ``IsFillLimitOnTouch = true``, a bracket computed in ``OnExecutionUpdate``
-from the **fill** price with the stop anchored to the **signal bar**, and a no-entry window
-before the session close. Each rule, and which of them still has no evidence:
-``docs/nt8-fidelity.md`` §M22.
-
-Diffed leg-for-leg against an MNQ 03-24 Strategy Analyzer export, which overturned two of
-the three rules the port originally had to infer -- ``docs/nt8-fidelity.md``,
-"Reconciliation result -- InsideBar".
+Ported from ``ninjatrader-scripts/Strategies/InsideBar.cs``: a market entry at the next open,
+``IsFillLimitOnTouch = true``, a bracket computed at the fill, and a no-entry window before the
+session close. Each rule: ``docs/nt8-fidelity.md`` §M22 and "Reconciliation result --
+InsideBar".
 """
 
 from __future__ import annotations
@@ -61,13 +55,13 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     """Run the InsideBar archetype over one dataset, writing one row per leg exit.
 
     ``signal`` marks bars whose close schedules a market entry for the next bar's open and
-    ``direction_at`` says which side each bar is on, separated for the reason
-    :func:`nqbt.sim.crossover.simulate_crossover` separates them.
+    ``direction_at`` says which side each bar is on, as in
+    :func:`nqbt.sim.crossover.simulate_crossover`.
 
-    The bracket is built at the **fill**, not at the signal: the target is ``tp_multiplier``
-    ATRs from the fill price and the stop ``atr_multiplier`` ATRs beyond the signal bar's
-    adverse extreme, both reading the ATR of the bar the fill lands on. Returns the number of
-    rows written, or ``-1`` if ``out`` overflowed.
+    The bracket is built at the **fill**: the target is ``tp_multiplier`` ATRs from the fill
+    price and the stop ``atr_multiplier`` ATRs beyond the inside bar's adverse extreme, both
+    reading the signal bar's ATR. Returns the number of rows written, or ``-1`` if ``out``
+    overflowed.
     """
     n = bars.close.size
     n_legs = leg_quantities.size
@@ -135,13 +129,11 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
             d = pending_direction
             fill = bars.open_[i] + d * slippage
             # ``OnExecutionUpdate`` runs with the **signal** bar still current, so its
-            # ATR[0] is the signal bar's and its Low[1] is the inside bar's -- the bar
-            # before it. Both established leg-for-leg against a trade list, against an
-            # inference that had them one bar later -- ``docs/nt8-fidelity.md`` §M22.
+            # ATR[0] is the signal bar's and its Low[1] is the inside bar's --
+            # ``docs/nt8-fidelity.md`` §M22.
             bar_atr = atr[pending_bar]
             adverse, _ = bracket.sided(bars.low[pending_bar - 1], bars.high[pending_bar - 1], d)
-            # The NinjaScript floors nothing, so the port passes none -- ``docs/roadmap.md``
-            # § "ATR-multiple brackets and the dollar floor".
+            # The NinjaScript floors nothing.
             stop_distance = bracket.atr_bracket_distance(
                 bar_atr,
                 rules.atr_multiplier,
@@ -149,10 +141,8 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
             )
             candidate_stop = adverse - d * stop_distance
             if fills.round_targets:
-                # An ATR multiple lands off the grid, and an exchange takes a stop no more
-                # than it takes a target there -- ``docs/nt8-fidelity.md``, "Targets snap to
-                # the tick grid". Snapped before the risk, which the submittability test
-                # and every R multiple are measured from.
+                # Snapped before the risk is measured -- ``docs/nt8-fidelity.md``, "Targets snap
+                # to the tick grid".
                 candidate_stop = bracket.round_to_tick(candidate_stop, costs.tick_size)
 
             candidate_risk = d * (fill - candidate_stop)
@@ -229,9 +219,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 def insidebar_trends(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
     """Return the two three-average gates: close **strictly** above all three, or below all three.
 
-    Strict on each comparison, so equality fails both -- ``InsideBar.cs`` writes the positive
-    form rather than a rejection, unlike the two ports, and the raw values are read for that
-    reason. ``docs/nt8-fidelity.md`` §M22.
+    Strict on each comparison, so equality fails both -- ``docs/nt8-fidelity.md`` §M22.
     """
     ema: FloatArray = data.ma_values(params.ema_kind, params.ema_period)
     fast: FloatArray = data.ma_values(params.fast_sma_kind, params.fast_sma_period)
@@ -262,9 +250,8 @@ def insidebar_breakouts(data: Dataset, params: InsideBarParams) -> tuple[BoolArr
 def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
     """Return which side each bar would be entered on: ``LONG`` where the averages say uptrend.
 
-    Defined on **every** bar rather than only on signal bars, so the random-entry arm can drop
-    a signal anywhere. The two gates are not complements, so a bar agreeing with neither reads
-    ``SHORT`` -- unreachable through :func:`insidebar_signal`, which requires one of them.
+    Defined on every bar, so the random-entry arm can drop a signal anywhere. A bar agreeing
+    with neither gate reads ``SHORT``, which :func:`insidebar_signal` never reaches.
     """
     up, _ = insidebar_trends(data, params)
 

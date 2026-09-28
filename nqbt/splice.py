@@ -53,11 +53,8 @@ METHOD_VOLUME = "volume_crossover"
 METHOD_COVERAGE = "coverage_boundary"
 
 EARLY_ROLL_RATIO = 0.4
-"""Handover volume ratio below which a coverage-boundary roll looks premature.
-
-At a healthy handover the back contract is already closing on the front -- observed
-ratios across the MNQ set run 0.49-0.95. A ratio far below that means the front contract
-was still overwhelmingly dominant when its data ran out, so the roll is worth a look.
+"""Handover volume ratio below which a coverage-boundary roll looks premature: the front contract
+was still dominant when its data ran out -- ``nqbt/README.md`` § "splice.py".
 """
 
 

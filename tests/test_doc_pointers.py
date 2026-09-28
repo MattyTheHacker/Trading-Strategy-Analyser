@@ -1,10 +1,7 @@
 """Every `docs/*.md` § "heading" pointer names something that is actually there.
 
-`CLAUDE.md` and `CONTRIBUTING.md` both require it and nothing enforced it, so a section that
-moved left its pointers behind silently. Splitting the findings out of the roadmap is exactly
-the change that breaks these, which is why the check is a test rather than a one-off.
-
-The comparison is deliberately loose about whitespace, emphasis and dash style: a docstring
+A section that moves leaves its pointers behind silently, so this is a test rather than a
+one-off check. The comparison is loose about whitespace, emphasis and dash style: a docstring
 wraps a heading across lines and writes `--` where the Markdown has an em dash, and neither is
 a broken pointer.
 """

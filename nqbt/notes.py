@@ -1,16 +1,10 @@
 """Free-text context on a trade: stored, shown, and never an input to a statistic.
 
-Why a trade was taken, what was going on at the time, a screenshot to look at later. All of it
-is worth keeping and none of it may reach a ``groupby``. A note is written after the fact,
-knowing the outcome, so a loser attracts "I was impatient" and a winner attracts "clean setup";
-stratifying by one would rediscover the outcome and present it as a finding --
-``docs/roadmap.md`` §M11.5.
-
-**The exclusion is structural rather than intended.** Notes live here, in a sidecar keyed by
-``trade_id``, and never as columns on a trade log or on an annotation. :func:`alongside` is the
-one join that attaches them, for a viewer or a per-trade export, and :func:`check_excluded` is
-what :mod:`nqbt.annotate`, :mod:`nqbt.review` and :mod:`nqbt.guard` call to refuse a frame that
-carries one.
+Why a trade was taken, what was going on at the time, a screenshot to look at later. Notes live
+in a sidecar keyed by ``trade_id``, never as columns on a trade log or an annotation;
+:func:`alongside` is the one join that attaches them, and :func:`check_excluded` is what
+:mod:`nqbt.annotate`, :mod:`nqbt.review` and :mod:`nqbt.guard` call to refuse a frame carrying
+one -- ``docs/roadmap.md`` §M11.5.
 """
 
 from __future__ import annotations
@@ -173,9 +167,7 @@ def alongside(frame: pd.DataFrame, notes: Notes) -> pd.DataFrame:
 def check_excluded(frame: pd.DataFrame, *, what: str) -> None:
     """Refuse a frame carrying free text into anything that evaluates a trade.
 
-    Called at each door into the evaluation path rather than left to a convention, because a
-    note merged onto a trade log or an annotation is one ``groupby`` away from a finding that
-    restates the outcome it was written after -- ``docs/roadmap.md`` §M11.5.
+    Called at each door into the evaluation path -- ``docs/roadmap.md`` §M11.5.
     """
     found: list[str] = [name for name in TEXT_COLUMNS if name in frame.columns]
     if not found:

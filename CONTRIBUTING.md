@@ -22,7 +22,7 @@ Code should be readable on its own terms. Prefer a clearer name, a smaller funct
 - **Code should generally be self-documenting**, by using clear variable names and logical flow, comments and long explanations should be few and far between. A large quantity of comments or doc strings suggest the code is unreadable, unintuitive, or that the comments are not needed.
 - **Arguments, justifications, measurements, decision records, history and traps go in `docs/`**, with at most a one-line pointer from the code.
 
-Four homes, and they are not interchangeable:
+Five homes, and they are not interchangeable:
 
 | goes in                                        | what it holds                                                                                 |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -30,6 +30,7 @@ Four homes, and they are not interchangeable:
 | [`docs/findings/`](docs/findings/)             | one file per campaign: what was measured, what it returned, and what it settles               |
 | [`docs/roadmap.md`](docs/roadmap.md)           | the standing constraints, the rubric, the traps and the decisions taken                       |
 | [`tools/README.md`](tools/README.md)           | what each tool does, how to run it, and why its options, defaults and grids are what they are |
+| [`nqbt/README.md`](nqbt/README.md)             | the package's design notes that no campaign, NT8 rule or decision record covers               |
 
 A tool's module docstring is its summary line, its usage lines and a pointer to its section of `tools/README.md`.
 

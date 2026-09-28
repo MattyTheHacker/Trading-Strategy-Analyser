@@ -1,10 +1,9 @@
 """OpeningRange simulation tests on hand-built bars.
 
-The archetype has no NinjaScript, so there is no trade list to check against. What these pin
-instead are the three things it introduces -- a trigger that is a *level* and so rests for the
-whole session, a per-session entry cap, and a target expressed in range widths -- plus the two
-NT8 rules its entry mechanism inherits and the property the whole thing is worthless without:
-that nothing it reads comes from a bar it could not have seen.
+The archetype has no NinjaScript and no trade list. These pin what it introduces -- a trigger
+that is a *level* and so rests for the whole session, a per-session entry cap, and a target in
+range widths -- the two NT8 rules its entry inherits, and that nothing it reads comes from a
+bar it could not have seen.
 
 Prices are kept small and round so the arithmetic is checkable by eye: the range is 90 to 110
 unless a test says otherwise.
@@ -206,8 +205,7 @@ def test_the_trigger_sits_the_entry_offset_beyond_the_range_extreme() -> None:
 def test_a_bar_closing_at_or_beyond_the_trigger_submits_nothing() -> None:
     """NT8 declines a stop entry at or through the market -- ``docs/nt8-fidelity.md`` §M18.
 
-    This is not a corner case here: it is every bar after the break, which is exactly why the
-    entry offset defaults to a tick rather than zero.
+    It binds on every bar after the break, which is why the entry offset defaults to a tick.
     """
     closed_at_trigger = (100.0, RANGE_HIGH, 95.0, RANGE_HIGH)
 

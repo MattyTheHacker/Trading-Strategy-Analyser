@@ -277,9 +277,7 @@ def test_a_stored_log_is_filed_under_the_row_that_produced_it(tmp_path) -> None:
 
 
 def test_a_round_number_configuration_can_be_stored_rather_than_refused(tmp_path) -> None:
-    """``store_logs`` reads raw bars and used to declare them ``UNKNOWN``, so a rule reading an
-    absolute level was refused by the safety default and the §M40 EmaCrossover cell failed
-    outright ([#330]). The sweep can measure what the shortlist cannot re-run is the defect."""
+    """``store_logs`` declares its raw bars ``RAW``, so a rule reading an absolute level re-runs ([#330])."""
     db = tmp_path / "EmaCrossover.duckdb"
     bars = synthetic_bars()
     frame = resample.resample(bars, 5)

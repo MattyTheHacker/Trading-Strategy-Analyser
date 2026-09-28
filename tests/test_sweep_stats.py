@@ -28,9 +28,8 @@ from nqbt.sim.types import DeadCatParams, OpeningRangeParams, PullBackAndGoParam
 def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
     """Build a leg-level log. Each row is (trade_id, leg, net_pnl, bars, ambiguous).
 
-    ``exit_reasons`` defaults to every leg exiting at its target, which is a real reason
-    rather than a placeholder -- ``session_close_share`` reads this column, so a log full of
-    ``""`` would make that statistic vacuously 0 in every test that does not set it.
+    ``exit_reasons`` defaults to every leg exiting at its target, a real reason rather than a
+    placeholder, so ``session_close_share`` is not vacuously 0.
     """
     frame = pd.DataFrame(rows, columns=["trade_id", "leg", "net_pnl", "bars_held", "ambiguous_bar"])
     frame["commission"] = 0.5
@@ -116,12 +115,7 @@ def test_session_close_share_is_zero_when_nothing_runs_into_the_close() -> None:
 
 
 def test_session_close_share_is_measured_over_legs_like_ambiguous_share() -> None:
-    """Denominator pinned, because the two defensible choices differ by 4x here.
-
-    One trade of four legs, one of which the clock closed. Over legs that is 0.25; over
-    trades it would be 1.0, since the trade did end at the close. Legs is chosen to match
-    ``ambiguous_share``, so the two diagnostics in adjacent columns are comparable.
-    """
+    """``session_close_share`` is over legs, as ``ambiguous_share`` is: 0.25 here rather than 1.0."""
     log = trade_log(
         [(1, leg, 5.0, 1, False) for leg in range(1, 5)],
         exit_reasons=["target", "target", "target", "session_close"],
@@ -133,11 +127,7 @@ def test_session_close_share_is_measured_over_legs_like_ambiguous_share() -> Non
 
 
 def test_session_close_share_reads_the_label_the_simulator_actually_writes() -> None:
-    """Guards the guard: the tests above would pass on a typo shared with the source.
-
-    ``stats.SESSION_CLOSE`` is derived from ``trades.EXIT_REASONS`` rather than spelled
-    twice, and this asserts the derivation lands on the string the mapping produces.
-    """
+    """``stats.SESSION_CLOSE`` is the string ``trades.EXIT_REASONS`` produces for the clock."""
     # Left-to-right follows the docstring's derivation; SIM300 misfires here because
     # neither side is a literal.
     assert stats.SESSION_CLOSE == trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE]  # noqa: SIM300
@@ -145,11 +135,7 @@ def test_session_close_share_reads_the_label_the_simulator_actually_writes() -> 
 
 
 def test_a_log_without_an_exit_reason_raises_rather_than_reporting_zero() -> None:
-    """A missing column is a wiring bug, and 0.0 would read as a finding about the market.
-
-    The same shape as #81's Sharpe branch below, which is why this is indexed rather than
-    defaulted -- ``trades.validate`` requires the column of every producer.
-    """
+    """A log without ``exit_reason`` raises rather than reporting a ``session_close_share`` of 0.0 (#81)."""
     log = trade_log([(1, 1, 5.0, 1, False)]).drop(columns=["exit_reason"])
     with pytest.raises(KeyError, match="exit_reason"):
         stats.summarise(log)
@@ -159,11 +145,9 @@ def test_a_log_without_an_exit_reason_raises_rather_than_reporting_zero() -> Non
 
 
 def test_a_log_without_exit_times_is_refused_rather_than_summarised_per_trade() -> None:
-    """A per-trade ratio annualised as though it were daily is a plausible wrong number.
+    """A log with no times is refused rather than given a per-trade Sharpe.
 
-    Refusing is the loud half of the choice #11 made for the empty log: the branch this
-    replaces returned one, and two Sharpes with different denominators would have sat in
-    the same results column with nothing distinguishing them.
+    ``docs/roadmap.md`` § "Sharpe and Sortino are refused rather than approximated".
     """
     log = trade_log([(1, 1, 5.0, 1, False), (2, 1, -5.0, 1, False)]).drop(columns=["exit_time"])
     with pytest.raises(stats.MissingTimesError, match="exit_time"):
@@ -182,21 +166,13 @@ def test_a_log_whose_exit_times_are_null_is_refused_too() -> None:
 
 
 def test_the_times_are_checked_before_the_log_is_found_to_be_empty() -> None:
-    """Schema first, then emptiness -- the order ``trades.validate`` already uses.
-
-    A producer that attaches no times is a wiring bug whether or not it happened to trade,
-    and an empty frame is the case where the mistake is cheapest to make.
-    """
+    """An empty log with no times is refused too: schema first, then emptiness."""
     with pytest.raises(stats.MissingTimesError, match="exit_time"):
         stats.summarise(pd.DataFrame())
 
 
 def test_sharpe_is_denominated_in_days_not_trades() -> None:
-    """The property the refusal exists to protect: same trades, different closing days.
-
-    Six identical P&Ls, once two to a day and once one to a day. Every other statistic is
-    the same across the pair, and a per-trade denominator could not tell them apart either.
-    """
+    """Sharpe separates the same six trades closed two to a day from one to a day."""
     pnl = [10.0, -5.0, 25.0, 10.0, -5.0, 25.0]
     log = trade_log([(i + 1, 1, p, 1, False) for i, p in enumerate(pnl)])
     day = pd.Timestamp("2024-01-02 20:00", tz="UTC")
@@ -214,7 +190,7 @@ def test_leg_summary_matches_nt8s_way_of_counting() -> None:
     assert stats.summarise(log).trades == 1
 
 
-# -- the empty log, which used to raise ---------------------------------------
+# -- the empty log -------------------------------------------------------------
 
 
 def test_summarising_an_empty_log_returns_zeros_rather_than_raising() -> None:
@@ -234,11 +210,7 @@ INTEGER_SUMMARY_FIELDS = {
     "scratches",
     "max_consecutive_losses",
 }
-"""Stated here independently of ``Summary``'s annotations, so this is a second opinion.
-
-``max_consecutive_losses`` is the one that matters: it sits at field 17, so the splat this
-replaced would have handed it a float even had someone fixed the argument count.
-"""
+"""Stated here independently of ``Summary``'s annotations, so this is a second opinion."""
 
 
 def test_the_empty_summary_gives_each_field_its_declared_type() -> None:
@@ -252,11 +224,7 @@ def test_the_empty_summary_gives_each_field_its_declared_type() -> None:
 
 
 def test_a_barren_combination_summarises_exactly_like_an_empty_log() -> None:
-    """One empty-log policy, not two.
-
-    ``run_combination`` used to build its own all-int zero dict, which disagreed with
-    ``summarise``'s empty case on the dtype of 22 of the 28 columns.
-    """
+    """``run_combination`` and ``summarise`` share one empty-log policy -- ``docs/roadmap.md`` §M20a."""
     bars = synthetic_bars(n=800)
     # No bar can clear the warm-up, so the signal never fires and the log comes back empty.
     params = DeadCatParams(bars_required_to_trade=10_000)
@@ -625,11 +593,7 @@ def test_the_resolution_axis_runs_each_bar_size_and_tags_it(axis_bars, axis_grid
 
 
 def test_a_coarser_resolution_really_is_run_on_coarser_bars(axis_bars, axis_grid) -> None:
-    """Guards the guard: tagging a row '5' while running 1-minute bars would look fine.
-
-    Fewer bars means fewer signals, so the leg counts must actually move -- and the 5-minute
-    run must match what resampling by hand and sweeping directly produces.
-    """
+    """A row tagged 5-minute really ran on 5-minute bars: its leg counts match resampling by hand."""
     frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5])
     one = frame[frame["resolution"] == 1].reset_index(drop=True)
     five = frame[frame["resolution"] == 5].reset_index(drop=True)
@@ -733,12 +697,7 @@ def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
 
 
 def test_every_grid_at_one_axis_point_shares_a_single_dataset(axis_bars, monkeypatch) -> None:
-    """The memory argument, pinned.
-
-    ``prepare`` is the expensive part and the parallel path memmaps its arrays to every
-    worker, so a dataset per grid would multiply that by the number of strategies. The union
-    of the grids' ``ContextSpec``s is what makes one dataset serve them all.
-    """
+    """One dataset, built from the union of the grids' specs, serves every grid at an axis point."""
     calls = []
     real = context.prepare
 
@@ -987,12 +946,10 @@ def test_an_untagged_save_still_works_and_leaves_the_axes_null(db) -> None:
 
 
 def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db) -> None:
-    """The trap that makes this worth pinning rather than trusting.
+    """A first sweep with a null ``contract`` still types the column VARCHAR, not INTEGER.
 
-    DuckDB types a new table from the frame that creates it, and an all-null *object*
-    column infers as INTEGER -- so a first sweep over the continuous series, where
-    ``contract`` is null by definition, would create ``combos.contract`` as an integer and
-    every later per-contract sweep would fail to insert into it.
+    DuckDB types a new table from the frame that creates it, and an all-null object column
+    infers as INTEGER.
     """
     save(db)  # contract is null throughout: the case that sets the column's type
     described = {
@@ -1080,13 +1037,10 @@ def test_an_existing_database_gains_the_columns_and_keeps_its_rows(db) -> None:
 
 
 def test_a_migrated_database_puts_every_value_in_the_column_it_names(db) -> None:
-    """Why ``save_sweep`` inserts by name, and not merely because a positional one raised.
+    """``save_sweep`` inserts by name, so a migrated database and a fresh one store the same row.
 
-    ALTER appends the axis columns at the end, while a fresh database declares them in the
-    middle, so one positional insert statement cannot serve both. The clash that surfaced
-    this was ``'MNQ'`` into a BOOLEAN, which raises -- but ``root``/``instrument``/
-    ``strategy``/``contract`` are four adjacent VARCHARs, and transposing those stores a
-    plausible row that reads as a result rather than an error.
+    ALTER appends the axis columns at the end while a fresh database declares them in the
+    middle, and four of them are adjacent VARCHARs a positional insert would transpose.
     """
     legacy_database(db)
     results.save_sweep(
@@ -1141,12 +1095,7 @@ def test_a_migrated_database_stores_tags_on_new_rows_beside_untagged_old_ones(db
 
 
 def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db) -> None:
-    """The other half of writing by name, and the one that would read as a result.
-
-    A frame *narrower* than the table has to be widened with nulls in the right places. By
-    position it would instead slide every value left, so ``net_pnl`` would be stored under
-    ``brand_new_stat`` and the row would look entirely plausible.
-    """
+    """A frame narrower than the table is widened with nulls in the right places, not slid left."""
     wider = fake_results()
     wider["brand_new_stat"] = [1.0, 2.0, 3.0]
     save(db, results_frame=wider)
@@ -1192,9 +1141,8 @@ def test_best_can_be_narrowed_to_one_sweep(db) -> None:
 def test_the_axis_columns_arrive_at_connect_and_every_other_column_at_its_first_insert(db) -> None:
     """The distinction ``AXIS_COLUMNS`` still makes now that nothing is dropped.
 
-    Both kinds of column reach a legacy table, but only these four are there before a frame
-    carrying them is written -- so a query against an untouched old database can group by
-    ``contract`` and read nulls, rather than failing on a column that does not exist yet.
+    Only these four are migrated onto a legacy table before a frame carrying them is written,
+    so a query against an untouched old database can group by ``contract`` and read nulls.
     """
     legacy_database(db)
     results.connect(db).close()
@@ -1224,11 +1172,7 @@ def insidebar_shaped() -> pd.DataFrame:
 
 
 def test_a_second_parameter_class_widens_the_table_rather_than_losing_its_columns(db) -> None:
-    """The trap this exists to close: one ``combos`` table holding two parameter classes.
-
-    Appending an InsideBar-shaped frame to a table created from a DeadCat-shaped one used to
-    store it with ``error_margin``, ``atr_length`` and ``atr_multiplier`` thrown away.
-    """
+    """One ``combos`` table holds two parameter classes, each keeping its own columns (#201)."""
     save(db, strategy="DeadCatBounce")
     save(db, results_frame=insidebar_shaped(), strategy="InsideBar")
     stored = results.query("SELECT * FROM combos WHERE strategy = 'InsideBar' ORDER BY combo_id", db)
@@ -1283,9 +1227,8 @@ def test_a_column_named_like_a_sql_keyword_survives_the_widening(db) -> None:
 
 # -- the stored annotation, and the view that joins it (#251) ------------------
 
-# What turns "filter trades by what was true when they were taken" from a Python session into
-# a query. The parameters come along through ``combos`` as a *filter*; grouping by one is
-# ``tools/campaign_report.py``'s job, because neighbouring combinations share their entries.
+# Parameters reach the view as a filter, never a grouping -- ``docs/roadmap.md``
+# § "Filtering trades by context and configuration".
 
 
 def fake_annotation(n=2, **columns: object) -> pd.DataFrame:

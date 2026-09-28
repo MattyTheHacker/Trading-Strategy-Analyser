@@ -13,8 +13,7 @@ step cannot be skipped.
 
 Reading is **incremental** where it safely can be: the manifest records how far into the file
 was parsed and a hash of exactly those bytes, so a genuine append reads only the tail while
-anything else falls back to a full reparse. Hashing only the head cannot see a rewritten tail,
-which froze stale bars in the cache and dropped real ones at the seam.
+anything else falls back to a full reparse -- ``nqbt/README.md`` § "ingest.py".
 
 The cache is deliberately lossless -- out-of-session prints are tagged, not dropped, so the raw
 export can always be reconstructed from Parquet. :func:`load_contract` drops them on the way
@@ -77,14 +76,7 @@ class ContractManifest:
     consumed_hash: str
     """SHA-256 of bytes ``[0, byte_offset)`` -- everything already parsed into the cache.
 
-    Hashing the *whole* consumed range, rather than a fixed-size head, is what makes
-    "appended to, or rewritten?" an exact question instead of a guess. Two producers write
-    these files and they give different guarantees: the NinjaScript AddOn genuinely
-    appends, while a manual Tools -> Historical Data export regenerates the file. NT8
-    regenerations routinely differ in the tail -- a bar exported mid-formation returns
-    with different values once complete, and bars occasionally vanish between exports.
-    Both leave the head untouched, so a head-only check calls it an append and the stale
-    or withdrawn bars then survive in the cache indefinitely.
+    The whole consumed range rather than a fixed-size head -- ``nqbt/README.md`` § "ingest.py".
     """
     last_timestamp: str
     rows: int

@@ -125,13 +125,7 @@ def test_sweepable_is_every_field_except_the_declared_exclusions() -> None:
 
 
 def test_sweepable_sees_inherited_fields_that_slots_would_hide() -> None:
-    """The #60 failure, made to actually fail rather than asserted about.
-
-    ``__slots__`` holds only the fields declared on the class itself. A params class that
-    inherits one would silently lose that axis -- and a dropped axis does not raise, it
-    makes every combination along it identical. This pins the difference between the two
-    readings on a class where they genuinely disagree.
-    """
+    """``sweepable`` keeps an inherited field that ``__slots__`` would drop (#60)."""
 
     @dataclass(slots=True)
     class Base:
@@ -305,11 +299,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def test_a_pullbackandgo_grid_sweeps_end_to_end() -> None:
-    """What M17 is for: a second archetype swept without forking ``sweep.py``.
-
-    Before the registry this was impossible -- ``run_combination`` named ``run_deadcat``
-    and ``SWEEPABLE`` was scraped off ``DeadCatParams``.
-    """
+    """A second archetype sweeps end to end without forking ``sweep.py`` -- ``docs/roadmap.md`` §M17."""
     bars = synthetic_bars()
     grid = sweep.Grid.of(
         PullBackAndGoParams(bars_required_to_trade=20, use_slow_sma=False),

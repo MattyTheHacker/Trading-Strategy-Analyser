@@ -993,9 +993,7 @@ def test_the_count_reads_the_entry_bar_of_a_real_dataset() -> None:
 
 # -- compression, bands and session ranges ------------------------------------
 
-# The three context families that had no annotation columns until #251. Each is already
-# reachable as an entry filter, so the gap was that a trade could be gated on one and never
-# reviewed by it.
+# The three context families an entry can be gated on also reach the annotation (#251).
 
 COMPRESSION_KEY = compression.key(int(compression.CompressionForm.RANGE_TO_ATR), 5, 20)
 RANGE_KEY = sessionrange.validate_key(960, 30, 1)

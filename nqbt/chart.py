@@ -1,23 +1,8 @@
 """One trade drawn on the bars it happened on: candles, the bracket it carried, and where it left.
 
-Archetype-agnostic, where :mod:`nqbt.sim.explain` is DeadCatBounce's alone, and reading a trade
-log rather than a strategy's parameters -- so a simulated leg and an imported one are drawn by
-the same code from the same schema.
-
-**Bar-close OHLC and nothing finer.** The candles are the bars the simulation ran on, and no
-line joins an entry to its exit, because the path between them is the one thing these bars do
-not record. Tick data would draw it and must not -- ``docs/roadmap.md`` § "Charting a trade".
-
-**A chart is a debugging instrument, not a selection instrument.** It can settle whether the
-simulator did what the rule says; it cannot settle whether the rule is any good, and a handful
-of charts read for that is the multiple-comparisons machine :mod:`nqbt.guard` exists to defend
-against. :data:`CAUTION` is drawn on every chart for the reason :data:`nqbt.review.STATUS` is
-printed in every report.
-
-**Indicators are drawn, and this module still knows nothing about archetypes.** An
-:class:`Overlay` is a named series the caller hands in, and :func:`overlays_for` returns every
-one a :class:`~nqbt.context.Dataset` holds -- which is what that archetype's own ``ContextSpec``
-declared. Price-panel series only, and clipped to the panel so none of them can rescale it --
+Reads a trade log rather than a strategy's parameters, so a simulated leg and an imported one
+are drawn by the same code. Bar-close OHLC only, with no line joining an entry to its exit;
+:class:`Overlay` series are clipped to the price panel; :data:`CAUTION` is drawn on every chart --
 ``docs/roadmap.md`` § "Charting a trade".
 
 ``README.md`` § "Looking at one trade" is the worked example, from bars to a written file::
@@ -113,9 +98,7 @@ so a log leaving one empty simply has no line for it.
 """
 
 SERIES_STYLES = 6
-"""Colours an overlay is drawn in, cycled by its position in the list. The legend is what
-names them, so a seventh overlay repeating the first's colour is legible rather than wrong.
-"""
+"""Colours an overlay is drawn in, cycled by its position in the list; the legend names them."""
 
 DEFAULT_BAND_MULTIPLE = 2.0
 """Standard deviations a band overlay is drawn at when the caller does not say."""
@@ -136,7 +119,7 @@ _NEEDED = (
     "ambiguous_bar",
 )
 """Columns a chart reads. The last seven are :func:`nqbt.stats.per_trade`'s, which the headline
-is read off rather than re-derived -- a chart defines no statistic, exactly as a review does not.
+is read off.
 """
 
 _SIDES = ("entry", "exit")
@@ -170,16 +153,13 @@ _OVERLAY_DIMENSIONS = 2
 
 _MARGIN_LEFT = 10.0
 _MARGIN_RIGHT = 64.0
-"""Room to the right of the panel for the price axis, which has that lane to itself: a level's
-label stays inside the panel rather than competing with a tick for it.
-"""
+"""Room to the right of the panel for the price axis, which has that lane to itself."""
 
 _HEADER = 48.0
 _TIME_AXIS = 22.0
 _FOOTER = 30.0
 """Pixels below the time axis before the caution starts, which the per-leg line occupies. The
-caution's own height is added to it, so a narrow chart that wraps it over five lines grows
-rather than clipping.
+caution's own wrapped height is added to it.
 """
 
 _LINE_HEIGHT = 11.0
@@ -247,8 +227,7 @@ class ChartError(ValueError):
 class Plot:
     """The mapping from a bar index and a price to a point on the canvas.
 
-    Carried on the result so a caller can place its own overlay on the same axes, and so a test
-    can assert a mark sits at a price rather than at a coordinate somebody wrote down.
+    Carried on the result so a caller can place its own marks on the same axes.
     """
 
     first_bar: int
@@ -279,11 +258,8 @@ class Overlay:
     """One named indicator drawn over the candles, in the price panel's own units.
 
     ``values`` is one row per bar of the dataset, or ``[n_rows, n_bars]`` for a band -- one
-    colour and one legend entry whatever the row count. ``nan`` is a gap rather than a value,
-    so a series is broken across one instead of drawn through it.
-
-    Only what a price axis can carry: an ATR, an efficiency ratio or a relative volume would
-    need a second panel, which ``docs/roadmap.md`` § "Charting a trade" rules out.
+    colour and one legend entry whatever the row count. ``nan`` is a gap rather than a value.
+    Price-panel series only -- ``docs/roadmap.md`` § "Charting a trade".
     """
 
     label: str
@@ -357,9 +333,8 @@ def chart(
     are the indicators drawn over the candles -- :func:`overlays_for` builds every one ``data``
     holds, and the builders beside it take them one at a time.
 
-    Draw against the bars the trade happened on -- the per-contract series for an imported log,
-    never the back-adjusted continuous one, which shifts every historical price by the roll
-    offset while every lookup still succeeds. :func:`nqbt.annotate.contract_bars` reaches them.
+    Draw against the bars the trade happened on: for an imported log, the per-contract series
+    :func:`nqbt.annotate.contract_bars` returns, never the back-adjusted continuous one.
     """
     _check_columns(log)
     if bars_either_side < 0:
@@ -462,9 +437,8 @@ def higher_timeframe_average(data: Dataset, key: higher_timeframe.HigherTimefram
 def opening_range(data: Dataset, key: RangeKey) -> Overlay:
     """Return one session range's high and low, on the bars that may read them and no others.
 
-    A range is one fact per session, so both rows are ``nan`` wherever it is not armed -- every
-    bar before its window completes included, which is the break keeping one session's level
-    off the session beside it.
+    Both rows are ``nan`` wherever the range is not armed, including every bar before its
+    window completes, so one session's level is not drawn into the next.
     """
     anchor, window = key
     armed: BoolArray = data.range_armed(key)
@@ -480,9 +454,7 @@ def opening_range(data: Dataset, key: RangeKey) -> Overlay:
 def overlays_for(data: Dataset, *, multiple: float = DEFAULT_BAND_MULTIPLE) -> list[Overlay]:
     """Return every price-panel series ``data`` holds, which is what its ``ContextSpec`` declared.
 
-    Nothing here reads an archetype: :func:`nqbt.sweep.prepare_for` builds the dataset from the
-    archetype's own declaration, so what the dataset holds is what that signal reads. A
-    moving-average grid keeping only its boolean gate is skipped rather than refused -- set
+    A moving-average grid keeping only its boolean gate is skipped rather than refused -- set
     ``needs_ma_values`` to draw those.
     """
     drawn: list[Overlay] = []
@@ -496,8 +468,7 @@ def overlays_for(data: Dataset, *, multiple: float = DEFAULT_BAND_MULTIPLE) -> l
     if data.band is not None:
         drawn += [bollinger(data, int(period), multiple) for period in data.band.periods]
 
-    # The band's basis *is* the VWAP rather than a second estimate of it, so drawing both would
-    # draw one series twice -- :class:`nqbt.bands.VwapBand`.
+    # The band's basis *is* the VWAP, so the VWAP is not drawn a second time.
     if data.vwap is not None and data.vwap_band is None:
         drawn.append(session_vwap(data))
 
@@ -621,10 +592,8 @@ def _axes(
 ) -> Plot:
     """Fit the price domain to the window and to every price the chart is about to draw.
 
-    A fill outside its own bar is drawn rather than refused: that is what a back-adjusted series
-    produces, and a chart is the instrument that makes it visible. **An overlay is not fitted**:
-    a long average sitting far from the window would squash the trade to nothing, so it is
-    clipped to the panel instead -- ``docs/roadmap.md`` § "Charting a trade".
+    A fill outside its own bar is drawn rather than refused, and an overlay is clipped to the
+    panel rather than fitted -- ``docs/roadmap.md`` § "Charting a trade".
     """
     drawn: list[float] = [value for value in _drawn_prices(legs, figures) if np.isfinite(value)]
     low: float = min([float(data.low[first : last + 1].min()), *drawn])
@@ -659,10 +628,9 @@ def _drawn_prices(legs: pd.DataFrame, figures: Figures) -> list[float]:
 def _excursions(legs: pd.DataFrame, figures: Figures) -> list[tuple[str, float]]:
     """Return the trade's worst and best price while it was open, as a level each.
 
-    The pair that says whether a target was ever within reach of where price actually went. Read
-    off :func:`nqbt.stats.per_trade`, so it is the trade's excursion rather than a leg's, and
-    absent on a log that leaves the columns null. **MAE and MFE here are this project's
-    definition, which is not NT8's** (#70).
+    Read off :func:`nqbt.stats.per_trade`, so it is the trade's excursion rather than a leg's,
+    and absent on a log that leaves the columns null. MAE and MFE here are this project's
+    definition, which is not NT8's (#70).
     """
     entry: float = float(legs["entry_price"].to_numpy(np.float64)[0])
     direction: float = float(legs["direction"].to_numpy(np.float64)[0])
@@ -772,15 +740,7 @@ def _panel_box(plot: Plot) -> str:
 
 
 def _clip_id(plot: Plot) -> str:
-    """Name a clip path after the rectangle it holds, rather than by a fixed name.
-
-    **An SVG id is document-scoped, and a page of charts is one document**: several charts
-    inlined together would every one resolve ``url(#...)`` to the first definition, and every
-    chart after the first would be clipped to the first one's panel -- silently, and looking
-    like a series that stops part-way. Naming the path after its own geometry means two ids
-    collide only where the two rectangles are identical, which is the case where sharing one
-    is correct.
-    """
+    """Name a clip path after the rectangle it holds -- ``docs/roadmap.md`` § "Charting a trade"."""
     return f"nqbt-clip-{sha256(_panel_box(plot).encode()).hexdigest()[:_CLIP_DIGEST]}"
 
 
@@ -788,7 +748,7 @@ def _runs(values: FloatArray, plot: Plot, first: int, last: int) -> list[str]:
     """Return one point list per unbroken run of finite values, stepping one bar at a time.
 
     ``nan`` is a gap and not a value, so a series is broken across one rather than drawn
-    through it -- which is what keeps a per-session level off the session beside it.
+    through it.
     """
     runs: list[str] = []
     run: list[str] = []

@@ -1,29 +1,9 @@
 """Compressed, normal or expanded: how tight this bar's range is against its own recent past.
 
-One scalar per bar, cut by two thresholds into three labels. The scalar is a **trailing
-percentile rank**: a raw width measure, then where that measure sits among the
-``baseline_bars`` values before it. Both halves are swept -- :class:`CompressionForm` chooses
-the width measure, and the rank is what makes it comparable.
-
-**The rank is the point, not a convenience.** Neither raw form has a natural unit: Bollinger
-bandwidth is a fraction of price and reads about ``1e-3`` on NQ, a range-to-ATR ratio reads
-about the lookback, and both move with the resolution and the period. A raw threshold on
-either is therefore a different cut in every cell of a sweep, which is the failure
-``docs/roadmap.md`` §M27.5 and §M27.8 record for the efficiency ratio and for relative volume.
-Ranking against a trailing window is the same device :mod:`nqbt.volume` uses when it divides by
-a trailing median, and it leaves a quantity in ``0..1`` that a raw pair of thresholds can cut.
-
-**Nothing here reads a bar it does not close.** A bar's width comes from bars up to and
-including itself, and its rank compares that against the ``baseline_bars`` bars **strictly
-before** it, so no bar contributes to its own baseline. Lookahead is the trap this condition
-exists next to -- ``docs/roadmap.md`` §M19.
-
-The band period is not this module's to invent: the bandwidth form reads
-:class:`nqbt.bands.BandGrid`, so a sweep that already builds a Bollinger grid shares it --
-``docs/roadmap.md`` §M26.
-
-A state set is carried as a bitmask integer so that it is a legal sweep axis, exactly as
-:mod:`nqbt.regime`, :mod:`nqbt.volume` and :mod:`nqbt.timeofday` carry theirs.
+One **trailing percentile rank** per bar -- a raw width measure (:class:`CompressionForm`) ranked
+against the ``baseline_bars`` values strictly before it -- cut by two thresholds into three
+labels. The bandwidth form reads :class:`nqbt.bands.BandGrid`. A state set is a bitmask integer,
+so it is a legal sweep axis. Why a rank rather than the width: ``docs/roadmap.md`` §M19.1.
 """
 
 from __future__ import annotations
@@ -95,9 +75,7 @@ ten bars it can only take eleven values -- and the thresholds stop meaning what 
 BANDWIDTH_MULTIPLE = 2.0
 """The conventional Bollinger multiple, so :func:`bandwidth` matches the published quantity.
 
-**Not a parameter.** It is a constant scale factor on every bar alike, so it cannot move an
-ordering, a trailing rank, or a threshold fitted as a quantile -- sweeping it would run
-identical combinations.
+Not a parameter: a constant scale factor cannot move a trailing rank.
 """
 
 
@@ -125,12 +103,7 @@ class Compression(IntEnum):
 
 
 class CompressionForm(IntEnum):
-    """Which width measure the rank is taken of.
-
-    Two genuinely different statements, which is why the form is a sweep axis rather than a
-    choice made once: a narrow band is not a short range. Both are named in
-    ``Trading-Docs/trading_concepts.md`` § 3.2 as codeable compression measures.
-    """
+    """Which width measure the rank is taken of; a sweep axis, because a narrow band is not a short range."""
 
     BANDWIDTH = 0
     """Bollinger band width over its own midline -- see :func:`bandwidth`."""
@@ -273,10 +246,7 @@ def thresholds_from_quantiles(
 ) -> tuple[float, float]:
     """Return both thresholds as quantiles of the ranks in ``values``, unranked bars excluded.
 
-    A trailing rank is already close to uniform, so this and the raw pair nearly agree -- which
-    is the property neither :mod:`nqbt.regime` nor :mod:`nqbt.volume` has. *Close* is not
-    *equal*: width is strongly autocorrelated, so the ranks bunch at both ends. Fit on the
-    selection window alone -- fitting on the whole series leaks the holdout.
+    Fit on the selection window alone -- fitting on the whole series leaks the holdout.
     """
     validate_quantiles(compressed_quantile, expanded_quantile)
     measured: FloatArray = np.asarray(values, dtype=np.float64)
@@ -307,9 +277,7 @@ def key(form: int, period: int, baseline_bars: int) -> CompressionKey:
 def _rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[FloatArray, FloatArray]:
     """Return the high and low extremes of each bar's last ``period`` bars, ``nan`` until that many exist.
 
-    Recomputed per bar rather than maintained: a running extreme cannot be un-extended when the
-    bar holding it leaves the window, so the state a rolling form would need is the window
-    itself -- the same reasoning ``docs/roadmap.md`` §M10.1 records for the efficiency ratio.
+    Recomputed per bar rather than maintained -- ``docs/roadmap.md`` §M10.1.
     """
     n = high.size
     top_out = np.full(n, np.nan, dtype=np.float64)
@@ -422,8 +390,8 @@ def _gate(ranks: FloatArray, compressed_below: float, expanded_above: float, mas
 def bandwidth(basis: FloatArray, stddev: FloatArray) -> FloatArray:
     """Return the Bollinger band width as a fraction of its own midline: ``2 * sigma / basis``.
 
-    Taken off :class:`nqbt.bands.BandGrid`'s two rows rather than recomputed, so an archetype
-    already sweeping a Bollinger shares one grid -- ``docs/roadmap.md`` §M26.
+    Taken off :class:`nqbt.bands.BandGrid`'s two rows rather than recomputed --
+    ``docs/roadmap.md`` §M26.
     """
     return _ratio(
         BANDWIDTH_MULTIPLE * np.ascontiguousarray(stddev, dtype=np.float64),
@@ -434,9 +402,8 @@ def bandwidth(basis: FloatArray, stddev: FloatArray) -> FloatArray:
 def range_to_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -> FloatArray:
     """Return the last ``period`` bars' high-low range, in ATRs of that same length.
 
-    Scale-free by construction: a window that trended reads near ``period`` and one that went
-    nowhere reads near ``1``. One length for both halves rather than two axes, because the
-    quantity being asked for is how far the range falls short of the movement inside it.
+    Scale-free: a window that trended reads near ``period`` and one that went nowhere reads
+    near ``1``. One length serves both the range and the ATR.
     """
     validate_period(period)
     high = np.ascontiguousarray(high, dtype=np.float64)

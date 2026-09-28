@@ -1,15 +1,8 @@
 """Market context: bars plus every derived condition, computed once and shared.
 
-The half of a backtest that has nothing to do with a strategy. One :class:`Dataset` serves
-every parameter combination of a sweep and every archetype, so everything expensive lives here
-and a combination costs only a boolean AND plus one pass of the simulation.
-
-**What gets computed is declared, not assumed**: a :class:`ContextSpec` says which series an
-archetype's signal will read and :func:`prepare` builds exactly that -- ``docs/roadmap.md``
-§M17.
-
-Nothing here knows what a trade is; :mod:`nqbt.trades` owns that, and the two never import
-each other.
+One :class:`Dataset` serves every parameter combination and archetype of a sweep. A
+:class:`ContextSpec` declares which series a signal will read and :func:`prepare` builds exactly
+that -- ``nqbt/README.md`` § "context.py". Nothing here knows what a trade is.
 """
 
 from __future__ import annotations
@@ -57,9 +50,8 @@ class ContextError(KeyError):
 class PriceBasis(StrEnum):
     """Whether these bars carry the prices that traded, and it has to be stated.
 
-    Only :data:`RAW` admits a rule that reads an absolute price level -- round-number stop
-    avoidance is the one -- and :data:`UNKNOWN` is the default so that a caller who never said
-    is refused rather than assumed right. ``docs/roadmap.md`` § "The build spec's three loose ends".
+    Only :data:`RAW` admits a rule that reads an absolute price level, and the default,
+    :data:`UNKNOWN`, refuses one -- ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
 
     RAW = "raw"
@@ -76,12 +68,7 @@ class PriceBasis(StrEnum):
 class ContextSpec:
     """Everything a strategy's signal will read out of a :class:`Dataset`.
 
-    Declared up front rather than discovered mid-loop, because the grids refuse a period they
-    were not built for rather than returning a wrong row. ``__or__`` is what lets several
-    archetypes at one axis point share a single dataset.
-
-    Lives here rather than beside the archetype registry because it describes a
-    :class:`Dataset`, and ``context.py`` must not import from :mod:`nqbt.sim`.
+    ``__or__`` merges two, so several archetypes at one axis point can share one dataset.
     """
 
     ma_keys: tuple[conditions.MovingAverageKey, ...] = ()
@@ -96,8 +83,7 @@ class ContextSpec:
     needs_vwap: bool = False
     needs_vwap_band: bool = False
     """Build the session-anchored VWAP band (:class:`nqbt.bands.VwapBand`). Implies
-    :attr:`needs_vwap`, because the band's basis is that VWAP rather than a second estimate
-    of it."""
+    :attr:`needs_vwap`, because the band's basis is that VWAP."""
 
     needs_time_of_day: bool = False
     """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
@@ -110,8 +96,7 @@ class ContextSpec:
     follow_through_sessions: tuple[int, ...] = ()
     """Trailing follow-through windows to build (:mod:`nqbt.sessionrange`), in sessions.
 
-    Empty builds nothing, and an entry implies :attr:`range_keys` -- follow-through is measured
-    against a range, so a lookback without one has nothing to measure."""
+    Empty builds nothing, and an entry needs :attr:`range_keys`, which it is measured against."""
 
     regime_lookbacks: tuple[int, ...] = ()
     """Efficiency-ratio lookbacks to build (:mod:`nqbt.regime`). Empty builds nothing."""
@@ -138,14 +123,12 @@ class ContextSpec:
     and an entry costs one resample per distinct resolution rather than one per period."""
 
     needs_ma_values: bool = False
-    """Keep the raw moving-average values, not just the boolean gates -- eight bytes per
-    element against one, so off unless something reads the numbers themselves."""
+    """Keep the raw moving-average values, not just the boolean gates. Eight times the memory,
+    so off unless something reads the numbers themselves."""
 
     needs_session_clock: bool = False
-    """Build the per-bar seconds-to-session-close clock (:mod:`nqbt.sessions`).
-
-    Read by an archetype whose entries stop some window before the close, which is a
-    different rule from the force-flat mask every archetype already gets."""
+    """Build the per-bar seconds-to-session-close clock (:mod:`nqbt.sessions`), for a no-entry
+    window before the close."""
 
     def __or__(self, other: ContextSpec) -> ContextSpec:
         return ContextSpec(
@@ -174,9 +157,7 @@ class ContextSpec:
     def band_periods_needed(self) -> tuple[int, ...]:
         """Return the declared :attr:`band_periods`, plus the ones a bandwidth compression key reads.
 
-        A bandwidth form is defined off the band's own two rows rather than a second estimate
-        of them, so asking for one asks for the period behind it -- exactly as
-        :attr:`needs_vwap_band` implies :attr:`needs_vwap`.
+        A bandwidth form reads the band's own rows, so asking for one asks for its period.
         """
         implied: set[int] = {
             k.period for k in self.compression_keys if k.form is compression.CompressionForm.BANDWIDTH
@@ -697,8 +678,7 @@ class Dataset:
         total += self.force_flat.nbytes
         total += sum(g.nbytes for g in self.mas.values())
         total += sum(a.nbytes for a in self.atrs.values())
-        # Every optional series and grid reports its own size, so one loop rather than one
-        # branch each -- a new one is then counted by being declared.
+        # Every optional series and grid reports its own size.
         for held in (
             self.vwap,
             self.below_vwap,
@@ -746,7 +726,7 @@ def day_codes(index: pd.Index) -> IndexArray | None:  # type: ignore[explicit-an
 
 
 DEFAULT_SPEC = ContextSpec(ma_keys=conditions.ma_keys(ema=(21,), sma=(60, 175)), needs_vwap=True)
-"""What :func:`prepare` builds when nothing says otherwise: the pre-#27 unconditional set."""
+"""What :func:`prepare` builds when nothing says otherwise."""
 
 
 class PrepareOptions(TypedDict, total=False):
@@ -773,13 +753,11 @@ def prepare(
     """Precompute exactly the conditions ``spec`` declares.
 
     ``spec`` must cover every value the sweep will ask for;
-    :meth:`nqbt.sweep.Grid.required_context` derives it from the grid, which is the only way to
-    be sure it does. ``bar_minutes`` sizes the bar-of-session index and is inferred from the
-    index when not given -- pass it wherever the resolution is already known.
-    ``price_basis`` is stated rather than inferred, and defaults to
-    :attr:`PriceBasis.UNKNOWN` so a rule needing raw levels refuses instead of guessing.
-    ``exit_on_close_seconds`` is one default rather than a per-archetype value --
-    :data:`~nqbt.sessions.EXIT_ON_CLOSE_SECONDS`.
+    :meth:`nqbt.sweep.Grid.required_context` derives it from the grid. ``bar_minutes`` sizes the
+    bar-of-session index and is inferred from the index when not given -- pass it wherever the
+    resolution is already known. ``price_basis`` is stated rather than inferred, and defaults to
+    :attr:`PriceBasis.UNKNOWN`. ``exit_on_close_seconds`` is one default rather than a
+    per-archetype value -- :data:`~nqbt.sessions.EXIT_ON_CLOSE_SECONDS`.
     """
     if spec.follow_through_sessions and not spec.range_keys:
         msg: str = (
@@ -801,8 +779,7 @@ def prepare(
         if spec.needs_time_of_day or spec.volume_keys
         else None
     )
-    # The range needs a stated bar size rather than an inferred one per key, and it is the
-    # only series whose *existence* depends on it -- ``docs/roadmap.md`` §M28.
+    # The only series whose existence depends on the bar size -- ``docs/roadmap.md`` §M28.
     ranges: SessionRangeGrid | None = (
         sessionrange.range_grid(
             bars,
@@ -840,8 +817,7 @@ def prepare(
         else None
     )
 
-    # Hoisted out of the Dataset call below because the bandwidth compression form is defined
-    # off these two rows rather than off a second Bollinger of its own.
+    # Built before the compressions, whose bandwidth form reads it.
     band_periods: tuple[int, ...] = spec.band_periods_needed()
     band: BandGrid | None = bands.band_grid(close, band_periods) if band_periods else None
     compressions: CompressionGrid | None = (
@@ -855,8 +831,7 @@ def prepare(
         else None
     )
 
-    # Built before the VWAP so that a dataset holding both takes the basis off the band rather
-    # than computing the same series a second time.
+    # Built before the VWAP, which then takes the band's basis.
     vwap_band: bands.VwapBand | None = (
         bands.vwap_band(
             high,

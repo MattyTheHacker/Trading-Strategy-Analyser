@@ -1,15 +1,9 @@
 """Every dataset built for a simulation says what its bars are.
 
-`context.prepare` defaults to `PriceBasis.UNKNOWN` on purpose, so a rule reading an absolute
-level is refused rather than run on levels that may not be the traded ones -- `docs/roadmap.md`
-§ "The build spec's three loose ends". The cost of that default falls on the caller, and it was
-paid twice before anything checked: [#330] for `campaign_shortlist.store_logs` and [#340] for
-`campaign_null.measure`, each of which blocked a whole gate on EmaCrossover's round-number arm.
-
-This is the check that was missing. It reads the source rather than running anything, because
-what has to hold is a property of every call site including the ones no test reaches --
-`tools/campaign_sweep.py`'s own `test_the_campaign_runs_on_the_prices_that_traded` is the same
-idea over one file.
+`context.prepare` defaults to `PriceBasis.UNKNOWN`, which refuses a rule reading an absolute
+level -- `docs/roadmap.md` § "The build spec's three loose ends" -- so every call site has to
+state a basis ([#330], [#340]). This reads the source rather than running anything, so it covers
+call sites no test reaches.
 
 **A call that genuinely cannot state a basis is exempt by name in :data:`EXEMPT`, with its
 reason.** Adding an entry is the deliberate act; forgetting a keyword is not.

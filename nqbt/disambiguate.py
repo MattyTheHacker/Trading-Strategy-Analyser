@@ -4,18 +4,10 @@
 
 A bar holding both the stop and a target cannot say which came first, so the simulation
 assumes -- ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer the
-open". The minute bars *inside* that bar usually can say, and §M13 is what makes reading them
-exact rather than approximate: OHLC aggregation is associative, so a 5-minute bar **is** five
-1-minute bars and no tick data is involved.
+open". The minute bars inside that bar usually can say.
 
-**This is a diagnostic and must never reach ``nqbt/sim/``.** NT8 guesses on the same bars, so a
-simulation resolving them truthfully would disagree with Tier 2 on exactly the bars where a
-disagreement cannot be attributed -- the more-precise-than-NT8 error. Nothing here is
-simulated: an assumption already made is being scored, which is the trade-review side's
-reasoning rather than the simulator's. ``docs/roadmap.md`` §M28.4.
-
-It also runs **after** a result exists rather than inside one, and only where the assumption is
-common enough to be worth the pass -- :data:`MIN_AMBIGUOUS_SHARE`.
+**A diagnostic that must never reach ``nqbt/sim/``**, run after a result exists and only above
+:data:`MIN_AMBIGUOUS_SHARE` -- ``docs/roadmap.md`` §M28.4.
 """
 
 from __future__ import annotations
@@ -35,39 +27,24 @@ STOP_FIRST = "stop_first"
 """What the minute bars settle, and the only two verdicts a resolved log is rebuilt from."""
 
 STILL_AMBIGUOUS = "still_ambiguous"
-"""One minute bar held both levels, so a minute is not fine enough.
-
-The residue this module sizes rather than resolves; only ``data/tick/`` goes further, and that
-is a separate question from this one."""
+"""One minute bar held both levels, so a minute is not fine enough."""
 
 MISALIGNED = "misaligned"
-"""The minute bars picked out do not aggregate back to the coarse bar they should be inside.
-
-A refusal rather than a verdict: the window is wrong, so anything read from it would be read
-off the wrong bars."""
+"""The minute bars picked out do not aggregate back to the coarse bar they should be inside."""
 
 ENTRY_UNLOCATED = "entry_unlocated"
-"""The trade opened inside this very bar and no minute bar in it holds the entry fill.
-
-A refusal: without knowing which minute the position opened in, the minutes before it would be
-read as if the trade were already live."""
+"""The trade opened inside this very bar and no minute bar in it holds the entry fill."""
 
 STOP_MOVED = "stop_moved"
 """The stop at the exit differs from the one the trade opened with, so the log's ``initial_stop``
-is not the level that was live.
-
-A trailing archetype reaches this on every leg, which is the intended outcome: refused with a
-reason beats resolved against the wrong level."""
+is not the level that was live. A trailing archetype reaches this on every leg."""
 
 DECIDED = (TARGET_FIRST, STOP_FIRST)
 """The verdicts :func:`resolved_log` acts on. Everything else keeps NT8's guess and is counted."""
 
 MIN_AMBIGUOUS_SHARE = 0.05
-"""Below this share of ambiguous leg exits, the pass is not run at all.
-
-Stated as a meaning rather than tuned: **a result whose verdict the assumption could not have
-decided does not need the assumption scored.** The registry's healthy archetypes sit two orders
-of magnitude under it and §M28.2's retest sits seven times over it -- ``docs/roadmap.md`` §M28.4.
+"""Below this share of ambiguous leg exits, the pass is not run at all -- ``docs/roadmap.md``
+§M28.4.
 """
 
 
@@ -99,9 +76,8 @@ def sub_bars(fine: pd.DataFrame, owner: IntArray, position: int) -> pd.DataFrame
 def rebuilds(window: pd.DataFrame, coarse_bar: pd.Series[float]) -> bool:
     """Return whether these minute bars aggregate back to exactly the coarse bar they came from.
 
-    §M13's associativity used as a **guard on the alignment** rather than as an argument for it:
-    if the window is off by a bar the four prices stop matching, and the leg is refused instead
-    of answered off the wrong bars.
+    §M13's associativity used as a guard on the alignment: if the window is off by a bar the
+    four prices stop matching, and the leg is refused.
     """
     if window.empty:
         return False
@@ -145,14 +121,10 @@ def first_level_reached(
 ) -> str:
     """Return which level the minute bars reach first, or why they cannot say.
 
-    Reads the simulator's own two predicates rather than restating them, so the question asked
-    of a minute bar is the question ``resolve_brackets`` asks of the bar above it.
-
-    ``opened_in`` is the minute the position opened inside, and the minutes before it are not
-    the trade's -- **the case is the rule rather than the exception here**, since a limit entry
-    that exits on its own entry bar is most of what makes a bar ambiguous at all
-    (``docs/roadmap.md`` §M28.2). A level reached inside that same minute cannot be ordered
-    against the fill, so it is reported as unsettled rather than guessed at a second time.
+    Reads the simulator's own two predicates rather than restating them. ``opened_in`` is the
+    minute the position opened inside, and the minutes before it are not the trade's; a level
+    reached inside that same minute cannot be ordered against the fill, so it is reported as
+    unsettled -- ``docs/roadmap.md`` §M28.4.
     """
     low: FloatArray = window["low"].to_numpy()
     high: FloatArray = window["high"].to_numpy()
@@ -179,13 +151,9 @@ def first_target(
 ) -> float:
     """Return the reachable target price would reach first, which is the one nearest the **fill**.
 
-    Not the one nearest the bar's open. That is what ``resolve_brackets`` compares distances
-    against, but the question here is which level price touches first once the position exists,
-    and on a ladder that is the closest rung to the entry -- measuring from the open instead
-    puts a further target in the walk and biases every verdict towards the stop.
-
-    ``nan`` when no leg's target is reachable on the bar, which cannot happen on a bar the
-    simulation called ambiguous and is therefore a refusal rather than a case.
+    Not the one nearest the bar's open, which ``resolve_brackets`` compares against --
+    ``docs/roadmap.md`` §M28.4. ``nan`` when no leg's target is reachable on the bar, which is a
+    refusal rather than a case.
     """
     _, favourable = sided(coarse_bar["low"], coarse_bar["high"], direction)
     targets: FloatArray = legs["target_price"].to_numpy()
@@ -345,9 +313,8 @@ on a price."""
 def aligned(ranked: pd.DataFrame, worst: pd.DataFrame, best: pd.DataFrame) -> bool:
     """Return whether the three arms are the same trades, leg for leg, in the same order.
 
-    They are, because the whole position closes on an ambiguous bar under either policy, so the
-    next bar starts flat in every arm. Checked rather than assumed, since a resolved log built
-    on a false alignment would attribute one configuration's legs to another's.
+    They are, because the whole position closes on an ambiguous bar under either policy; this
+    checks rather than assumes it.
     """
     keys = ["trade_id", "leg", "entry_bar", "exit_bar"]
 
