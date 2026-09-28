@@ -105,7 +105,7 @@ def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[typ
 
 
 def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result row belongs to."""
+    """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
@@ -177,7 +177,7 @@ def measure(
 
 
 def survival(table: pd.DataFrame, reason: str) -> list[str]:
-    """What the exclusion leaves, as lines rather than a one-row table."""
+    """Return what the exclusion leaves, as lines rather than a one-row table."""
     if table.empty:
         return ["  (nothing was measured)"]
 

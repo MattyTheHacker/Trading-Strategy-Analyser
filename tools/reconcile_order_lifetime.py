@@ -79,7 +79,7 @@ def read_run(events_path: Path) -> Run:
 
 
 def entry_fills(run: Run) -> pd.DataFrame:
-    """Execution rows for the probe's own entry orders, which are the price-triggered ones."""
+    """Select the execution rows for the probe's own entry orders, which are the price-triggered ones."""
     events = run.events
 
     return events[(events["kind"] == EXECUTION) & events["signal_name"].isin(PROBE_SIGNALS)]
@@ -175,7 +175,7 @@ def offsets_from_submit(frame: pd.DataFrame, column: str) -> dict[int, int]:
 
 
 def describe_offsets(frame: pd.DataFrame, column: str) -> str:
-    """The distribution where it is short enough to read, its shape where it is not.
+    """Describe the distribution where it is short enough to read, and its shape where it is not.
 
     A one-bar lifetime is the whole finding for a three-argument entry, so the exact
     distribution matters; an until-cancelled order spreads over hundreds of values and only its

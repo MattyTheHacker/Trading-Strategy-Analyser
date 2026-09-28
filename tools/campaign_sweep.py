@@ -417,7 +417,7 @@ def _regime() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _directional() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The one regime cell a narrow re-sweep runs inside, without its four siblings.
+    """Yield the one regime cell a narrow re-sweep runs inside, without its four siblings.
 
     Its own group rather than ``--strata regime`` because four cells nobody is asking about are
     four more comparisons -- ``docs/roadmap.md`` §M27.3.
@@ -426,7 +426,7 @@ def _directional() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _consolidating() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The regime cell a fade's own thesis names, without its four siblings.
+    """Yield the regime cell a fade's own thesis names, without its four siblings.
 
     :func:`_directional` is the breakout's thesis, and running a fade inside it would be
     stating the wrong hypothesis in advance -- ``docs/roadmap.md`` §M28.5.
@@ -435,7 +435,7 @@ def _consolidating() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _trend_up() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The one trend cell §M28.1's gate 3 passed in on both roots, without its siblings.
+    """Yield the one trend cell §M28.1's gate 3 passed in on both roots, without its siblings.
 
     Its own group so that the opening range's re-sweep can **name its strata before it runs**
     rather than pick them from the results afterwards, which is the caveat §M28.1 left for
@@ -451,7 +451,7 @@ def _phase() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 
 
 def _midday() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The one phase InsideBarTrailing's live candidate trades in, without its six siblings.
+    """Yield the one phase InsideBarTrailing's live candidate trades in, without its six siblings.
 
     Named before the sizing run, as :func:`_trend_up` was for the opening range --
     ``docs/findings/m43-midday-candidates-ranked.md``.
@@ -489,7 +489,7 @@ def volume_series(
 
 
 def raw_volume_cuts() -> VolumeCalibration:
-    """The three forms at the campaign's own thresholds, which is what an unfitted run compares."""
+    """Return the three forms at the campaign's own thresholds, which is what an unfitted run compares."""
     defaults: DeadCatParams = DeadCatParams()
 
     return tuple(
@@ -499,7 +499,7 @@ def raw_volume_cuts() -> VolumeCalibration:
 
 
 def _volume_axes(cut: VolumeCut) -> dict[str, list[AxisValue]]:
-    """The series and the cut one volume-form stratum reads.
+    """Return the series and the cut one volume-form stratum reads.
 
     The rolling window is set only under the form that reads it, so the axis does not vary where
     it is inert and no combination is run twice -- ``.claude/rules/sweep-and-context.md``.
@@ -524,12 +524,12 @@ def _volume_cells(cuts: VolumeCalibration) -> Iterator[tuple[str, dict[str, list
 
 
 def _volume_forms() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The form stratification at the raw thresholds, which is what an unfitted run gets."""
+    """Yield the form stratification at the raw thresholds, which is what an unfitted run gets."""
     yield from _volume_cells(raw_volume_cuts())
 
 
 def _compression_axes(form: compression.CompressionForm) -> dict[str, list[AxisValue]]:
-    """The series one compression stratum reads. Both forms read every axis, so none is dropped."""
+    """Return the series one compression stratum reads. Both forms read every axis, so none is dropped."""
     return {
         "compression_form": [int(form)],
         "compression_period": [COMPRESSION_PERIOD],
@@ -665,7 +665,7 @@ def strata(
     which: str,
     cuts: Cuts = NO_CUTS,
 ) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The stratifications ``which`` names, unfiltered first wherever it is included."""
+    """Yield the stratifications ``which`` names, unfiltered first wherever it is included."""
     for group in STRATUM_SETS[which]:
         if group == VOLUME_FORMS and cuts.volume:
             yield from _volume_cells(cuts.volume)
@@ -750,7 +750,7 @@ class Variant:
 
 
 def _costed(params: Params, root: str) -> Params:
-    """The same rule set with this root's real costs on it."""
+    """Return the same rule set with this root's real costs on it."""
     return replace(params, commission_per_contract=COMMISSION[root], slippage_ticks=SLIPPAGE_TICKS)
 
 
@@ -941,7 +941,7 @@ trade. A variant each because a tuple is not a sweepable axis -- ``docs/roadmap.
 
 
 def elastic_ladder(variant: str) -> tuple[float, ...]:
-    """The target ladder a stored ElasticBand variant name carries.
+    """Return the target ladder a stored ElasticBand variant name carries.
 
     The ladder is a tuple and tuples are not sweepable, so it is not a stored column and has to
     be read back off the variant name -- which carries other words in the §M26.5 set, hence the
@@ -1521,7 +1521,7 @@ def openingrange_fade_variants(root: str) -> list[Variant]:
 
 
 def _orb_fade_targets() -> list[OrbTarget]:
-    """The three target schemes §M28.5 crosses: the R ladder and two width ladders.
+    """Return the three target schemes §M28.5 crosses: the R ladder and two width ladders.
 
     A ladder is a tuple, so it is a variant rather than an axis -- see :class:`Variant`. The
     width multiples ride along under :data:`ORB_TARGET_R` too, where nothing reads them.
@@ -1927,7 +1927,7 @@ only legal count is 1, which is the union.
 
 
 def spec_variants(root: str) -> list[Variant]:
-    """The [#74] axes, each against a control run on the same bars in the same pass.
+    """Build the [#74] axes, each against a control run on the same bars in the same pass.
 
     Its own set rather than an edit to :data:`VARIANTS`, which is what §M27 measured --
     ``docs/roadmap.md`` § "The build spec's three loose ends, measured".
@@ -2177,7 +2177,7 @@ class SizingCut:
     """The ``size_on_*`` labels the confluence arm counts: the ones the fit did not drop."""
 
     def fitted(self) -> dict[str, AxisValue]:
-        """The parameter values every arm on this cell takes, whichever of them it reads."""
+        """Return the parameter values every arm on this cell takes, whichever of them it reads."""
         return {
             "early_max_extension_atr": self.early_max_extension_atr,
             "early_max_trend_bars": self.early_max_trend_bars,
@@ -2189,7 +2189,7 @@ class SizingCut:
 
 
 def sizing_cuts(path: paths.Path | None = None) -> list[SizingCut]:
-    """The fitted cuts, refused by name where nothing has been fitted yet."""
+    """Load the fitted cuts, or refuse by name where nothing has been fitted yet."""
     source: paths.Path = SIZING_CUTS if path is None else path
     if not source.exists():
         msg: str = f"no sizing cuts at {source}; run tools/campaign_sizing.py fit first"
@@ -2344,7 +2344,7 @@ lands in the same database as the campaign it follows and is still separable fro
 
 
 def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
-    """The variant builders one ``--variants`` name selects."""
+    """Return the variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
         EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
@@ -2381,7 +2381,7 @@ def grids_for(
 
 
 def windows(bars: pd.DataFrame, *, split: bool) -> list[tuple[str, pd.DataFrame]]:
-    """The bar ranges to run: the whole series, or a selection window and a held-out one."""
+    """Return the bar ranges to run: the whole series, or a selection window and a held-out one."""
     if not split:
         return [("full", bars)]
 
@@ -2408,7 +2408,7 @@ def _merged_axes(grids: list[sweep.Grid]) -> dict[str, list[AxisValue]]:
 
 
 def workers_for(combinations: int, bars: int, n_jobs: int) -> int:
-    """The joblib worker count for one sweep call of ``combinations`` over ``bars``."""
+    """Return the joblib worker count for one sweep call of ``combinations`` over ``bars``."""
     if combinations * bars < SERIAL_BELOW_COMBINATION_BARS:
         return 1
 
@@ -2548,7 +2548,7 @@ def planned_combinations(argv: argparse.Namespace) -> int:
 
 
 def quantile_pair(given: list[float] | None) -> tuple[float, float] | None:
-    """The pair to fit at: ``None`` for the raw thresholds, and bare for :data:`REGIME_QUANTILES`."""
+    """Return the pair to fit at: ``None`` for the raw thresholds, and bare for :data:`REGIME_QUANTILES`."""
     if given is None:
         return None
 
@@ -2563,7 +2563,7 @@ def quantile_pair(given: list[float] | None) -> tuple[float, float] | None:
 
 
 def tail_pairs(given: list[float] | None) -> tuple[tuple[float, float], ...]:
-    """The tail sizes to fit: empty for the raw thresholds, and bare for :data:`VOLUME_TAILS`."""
+    """Return the tail sizes to fit: empty for the raw thresholds, and bare for :data:`VOLUME_TAILS`."""
     if given is None:
         return ()
 
@@ -2578,7 +2578,7 @@ def tail_pairs(given: list[float] | None) -> tuple[tuple[float, float], ...]:
 
 
 def named_forms(given: list[str]) -> tuple[volume.VolumeForm, ...]:
-    """The forms a volume-form stratification runs, deduplicated into enum order."""
+    """Return the forms a volume-form stratification runs, deduplicated into enum order."""
     wanted: set[volume.VolumeForm] = {volume.VolumeForm[name] for name in given}
 
     return tuple(form for form in volume.VolumeForm if form in wanted)

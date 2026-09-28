@@ -233,7 +233,7 @@ def stub_run(monkeypatch):
 
 
 def trade_log() -> pd.DataFrame:
-    """A two-leg winner and a one-leg loser, carrying every column ``summarise`` reads.
+    """Build a two-leg winner and a one-leg loser, carrying every column ``summarise`` reads.
 
     The figures are deliberately all different from each other -- net $15.00, drawdown
     $25.00, expectancy $7.50, profit factor 1.600. They were not: net P&L and max drawdown

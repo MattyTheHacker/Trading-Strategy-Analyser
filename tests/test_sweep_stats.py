@@ -907,7 +907,7 @@ def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db) -> None:
 
 
 def fake_log(n=2) -> pd.DataFrame:
-    """The columns ``save_trades`` needs to see; the schema itself is pinned elsewhere."""
+    """Build the columns ``save_trades`` needs to see; the schema itself is pinned elsewhere."""
     return pd.DataFrame(
         {
             "source": ["sim"] * n,
@@ -1044,7 +1044,7 @@ def test_list_sweeps_shows_what_a_row_was_run_on(db) -> None:
 
 
 def legacy_database(db) -> None:
-    """A ``sweeps``/``combos`` pair in the pre-M17.5 shape, with a row in each.
+    """Write a ``sweeps``/``combos`` pair in the pre-M17.5 shape, with a row in each.
 
     Written with raw SQL rather than by an older ``save_sweep``, so the test does not
     depend on code that no longer exists.
@@ -1214,7 +1214,7 @@ def test_the_axis_columns_arrive_at_connect_and_every_other_column_at_its_first_
 
 
 def insidebar_shaped() -> pd.DataFrame:
-    """A frame from a different parameter class: three columns the first sweep never had."""
+    """Build a frame from a different parameter class: three columns the first sweep never had."""
     frame = fake_results()
     frame["error_margin"] = [0.01, 0.05, 0.1]
     frame["atr_length"] = [3, 14, 14]
@@ -1289,7 +1289,7 @@ def test_a_column_named_like_a_sql_keyword_survives_the_widening(db) -> None:
 
 
 def fake_annotation(n=2, **columns: object) -> pd.DataFrame:
-    """An ``Annotation.frame``: one row per trade, indexed by ``trade_id``."""
+    """Build an ``Annotation.frame``: one row per trade, indexed by ``trade_id``."""
     index = pd.Index(range(n), name="trade_id")
     base = pd.DataFrame({"matched": [True] * n, "entry_bar": range(n)}, index=index)
 
@@ -1358,7 +1358,7 @@ def test_an_annotation_carrying_a_note_is_refused_rather_than_made_queryable(db)
 
 
 def stocked(db) -> None:
-    """A database holding one combination's trades, annotation and summary row."""
+    """Stock a database with one combination's trades, annotation and summary row."""
     results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
     results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
     results.save_annotation(fake_annotation(entry_trend=["up", "down"]), 1, 0, A_CUT, db)

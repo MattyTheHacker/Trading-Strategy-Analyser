@@ -199,7 +199,7 @@ def test_out_of_session_prints_are_dropped_rather_than_given_a_bucket() -> None:
 
 
 def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
-    """What a bare ``resample()`` would produce: buckets counted from midnight."""
+    """Return what a bare ``resample()`` would produce: buckets counted from midnight."""
     grouped = src.resample(f"{minutes}min", label="right", closed="right").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"},
     )

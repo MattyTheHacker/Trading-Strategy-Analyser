@@ -64,7 +64,7 @@ spanning two bar sizes would hide a root that reproduced at one of them and not 
 
 
 def last_swept(stored: pd.DataFrame, bars: pd.DataFrame) -> pd.Timestamp:
-    """The newest bar any of these stored rows was swept on, in the archive's own zone.
+    """Return the newest bar any of these stored rows was swept on, in the archive's own zone.
 
     ``save_sweep`` stores the stamp naive, and the spliced series is tz-aware.
     """
@@ -84,7 +84,7 @@ def bars_for(
     block: pd.DataFrame,
     minutes: int,
 ) -> tuple[pd.DataFrame, bool]:
-    """The held-out frame to run, preferring the one these rows were swept on.
+    """Return the held-out frame to run, preferring the one these rows were swept on.
 
     An archive that only grew at the end is recovered by cutting it back; one that gained history
     earlier moves the 60/40 split and cannot be. Neither is refused -- which bars a cell ran on
@@ -99,7 +99,7 @@ def bars_for(
 
 
 def candidate_bars(stored: pd.DataFrame, archive: pd.DataFrame) -> tuple[pd.DataFrame, ...]:
-    """The archive cut back to where these rows were swept, then the archive as it stands.
+    """Return the archive cut back to where these rows were swept, then the archive as it stands.
 
     In that order, so :func:`bars_for` prefers the window a stored row was measured on and falls
     back to today's only where no truncation recovers it.
@@ -108,7 +108,7 @@ def candidate_bars(stored: pd.DataFrame, archive: pd.DataFrame) -> tuple[pd.Data
 
 
 def stored_figures(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """What the sweep stored for one configuration, tagged so a re-run reads back against it."""
+    """Return what the sweep stored for one configuration, tagged so a re-run reads back against it."""
     return {f"stored_{field}": row[field] for field in RECONCILED}
 
 

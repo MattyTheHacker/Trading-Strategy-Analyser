@@ -47,7 +47,7 @@ def minute_bars(days: int = 4, seed: int = 7) -> pd.DataFrame:
 
 
 def agreeing_export(bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """A probe export in which NinjaTrader agrees with nqbt on all four questions."""
+    """Build a probe export in which NinjaTrader agrees with nqbt on all four questions."""
     coarse = resample.resample(bars, COARSE_MINUTES)
     stamps = pd.DatetimeIndex(bars.index)
     reads = rht.nqbt_reads(pd.DatetimeIndex(coarse.index), stamps)

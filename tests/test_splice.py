@@ -243,7 +243,7 @@ def test_shifts_accumulate_across_multiple_rolls() -> None:
 
 
 def moving_frame(prices: dict[str, float], volumes: dict[str, int]) -> pd.DataFrame:
-    """A contract whose price changes day to day, so a seam carries a real move."""
+    """Build a contract whose price changes day to day, so a seam carries a real move."""
     return pd.concat([make_frame([day], price, {day: volumes[day]}) for day, price in prices.items()])
 
 

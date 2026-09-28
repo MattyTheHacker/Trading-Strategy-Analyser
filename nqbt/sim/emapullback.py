@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 def pullback_averages(data: Dataset, params: EmaPullbackParams) -> tuple[FloatArray, FloatArray]:
-    """The fast and slow average values this combination reads.
+    """Return the fast and slow average values this combination reads.
 
     Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
     """
@@ -128,7 +128,7 @@ def trailed_level(
     slow: FloatArray,
     params: EmaPullbackParams,
 ) -> tuple[FloatArray, float]:
-    """The average the stop trails and its offset in ticks.
+    """Return the average the stop trails and its offset in ticks.
 
     The average is :data:`~nqbt.sim.crossover.NO_TRAIL` while the trail is off. On the slow
     average both are the initial stop's own, so an average that has not moved leaves the stop
@@ -387,7 +387,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
 
 def confirmation_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> ConfirmationRules:
-    """The confirmation loop's rule set for one combination."""
+    """Build the confirmation loop's rule set for one combination."""
     return ConfirmationRules(
         entry_offset_ticks=float(params.entry_offset_ticks),
         stop_offset_ticks=float(params.stop_offset_ticks),
@@ -403,7 +403,7 @@ def confirmation_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> 
 
 
 def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crossover.CrossoverRules:
-    """The shared crossover loop's rule set for one combination, in its level-stop mode."""
+    """Build the shared crossover loop's rule set for one combination, in its level-stop mode."""
     return crossover.CrossoverRules(
         use_level_stop=True,
         # The three fields the other two stop modes read, and this archetype exposes neither.

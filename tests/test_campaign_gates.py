@@ -110,7 +110,7 @@ def stored_frame(cells: tuple[tuple[str, int], ...] = (("MNQ", 10),), combos: in
 
 
 def by_window(frame: pd.DataFrame):
-    """A stand-in for ``campaign_report.load`` over ``frame``, narrowed as the real one narrows."""
+    """Build a stand-in for ``campaign_report.load`` over ``frame``, narrowed as the real one narrows."""
 
     def load(name, windows, *, variants=None, resolutions=None):
         narrowed = frame[frame["window"].isin(windows)]
@@ -143,7 +143,7 @@ def arguments(**fields) -> argparse.Namespace:
 
 
 def built() -> dict[str, Variant]:
-    """The three arms, each over the base its rule runs: the control's sizes on no count."""
+    """Build the three arms, each over the base its rule runs: the control's sizes on no count."""
     fixed: InsideBarTrailingParams = InsideBarTrailingParams()
 
     return {
@@ -178,12 +178,12 @@ def point_at(monkeypatch, frame: pd.DataFrame) -> pd.DataFrame:
 
 @pytest.fixture
 def campaign(monkeypatch):
-    """The synthetic campaign behind every loader ``tasks_for`` reads through."""
+    """Provide the synthetic campaign behind every loader ``tasks_for`` reads through."""
     return point_at(monkeypatch, stored_frame())
 
 
 def every_read_recorded() -> dict[str, frozenset[str]]:
-    """What a default run records for a sizing arm: every stratum re-run and nulled, the rest unfiltered."""
+    """Return what a sizing arm's default run records: each stratum re-run and nulled, the rest unfiltered."""
     return {
         RERUN: frozenset(STRATA),
         "null": frozenset(STRATA),
@@ -427,7 +427,7 @@ def test_a_table_replaces_the_strata_it_read_and_keeps_the_rest(tmp_path) -> Non
 
 
 def half_written(path) -> None:
-    """What a run killed partway through writing ``path`` leaves there."""
+    """Write what a run killed partway through writing ``path`` leaves there."""
     Path(path).write_bytes(b"PAR1{")
     msg = "killed mid-write"
     raise OSError(msg)
@@ -536,7 +536,7 @@ def on_the_walk(monkeypatch, walk):
 
 
 def reading(*reads: str, stratum: str = UNFILTERED) -> dict[str, frozenset[str]]:
-    """A task's strata that re-runs ``stratum`` and writes each of ``reads`` for it."""
+    """Return a task's strata that re-runs ``stratum`` and writes each of ``reads`` for it."""
     return {read: frozenset({stratum}) for read in (RERUN, *reads)}
 
 
@@ -676,7 +676,7 @@ def argv_for(tmp_path) -> list[str]:
 
 
 def reproduced(task: Task) -> dict[str, pd.DataFrame]:
-    """What a task that reproduced its one stored row would write."""
+    """Return what a task that reproduced its one stored row would write."""
     return {
         RERUN: pd.DataFrame(
             [
@@ -699,7 +699,7 @@ def reproduced(task: Task) -> dict[str, pd.DataFrame]:
 
 @pytest.fixture
 def in_threads(monkeypatch):
-    """The pool run in threads, so a stubbed ``run_task`` reaches it."""
+    """Run the pool in threads, so a stubbed ``run_task`` reaches it."""
     monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
 
 
@@ -794,7 +794,7 @@ class DeadPool(concurrent.futures.Executor):
     given: int = 0
 
     def submit(self, _fn: object, /, *_: object, **__: object) -> concurrent.futures.Future[object]:
-        """A future failed as a dead worker fails it, or a refusal once one has been handed out."""
+        """Return a future failed as a dead worker fails it, or refuse once one has been handed out."""
         msg = "a child process terminated abruptly"
         if self.given:
             raise BrokenProcessPool(msg)

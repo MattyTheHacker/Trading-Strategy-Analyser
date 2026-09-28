@@ -72,7 +72,7 @@ TABLES = ("trades", "combos", "sweeps")
 
 
 def strata() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The eleven stratifications, each an extra axis over :data:`GRID_AXES`.
+    """Yield the eleven stratifications, each an extra axis over :data:`GRID_AXES`.
 
     The unfiltered run comes first so every stratum has its own baseline to be read against,
     and the two labels never appear in the same grid.

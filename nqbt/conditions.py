@@ -194,7 +194,7 @@ def prior_bar_inside(bars: pd.DataFrame) -> BoolArray:
 
 
 def below_series(close: FloatArray, series: FloatArray) -> BoolArray:
-    """The downtrend gate: the negation of ``DeadCatBounce.cs``'s rejection, so equality passes.
+    """Return the downtrend gate: the negation of ``DeadCatBounce.cs``'s rejection, so equality passes.
 
     Writing the positive ``close < series`` would silently drop those bars.
     """
@@ -202,7 +202,7 @@ def below_series(close: FloatArray, series: FloatArray) -> BoolArray:
 
 
 def above_series(close: FloatArray, series: FloatArray) -> BoolArray:
-    """The uptrend gate: the negation of ``PullBackAndGo.cs``'s rejection, so equality passes.
+    """Return the uptrend gate: the negation of ``PullBackAndGo.cs``'s rejection, so equality passes.
 
     **Not** ``~below_series`` -- the two overlap at ``close == series`` rather than
     partitioning it. See ``docs/nt8-fidelity.md``.
@@ -394,7 +394,7 @@ class MovingAverageGrid:
     """
 
     def row(self, period: int) -> int:
-        """The row holding ``period``, or an error naming what the grid was built for."""
+        """Return the row holding ``period``, or raise an error naming what the grid was built for."""
         idx: int = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
             msg: str = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"

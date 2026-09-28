@@ -89,7 +89,7 @@ def ran_at(strategy: str) -> dict[str, bool | int | float | str]:
 
 
 def probe_cuts() -> Cuts:
-    """A calibration whose only job is to make the fitted stratum generators yield their axes.
+    """Return a calibration whose only job is to make the fitted stratum generators yield their axes.
 
     The values are never run; :func:`context_columns` reads the keys alone.
     """
@@ -116,7 +116,7 @@ def context_columns() -> frozenset[str]:
 
 
 def pairing_columns(frame: pd.DataFrame) -> list[str]:
-    """The columns that identify the same combination across two strata.
+    """Return the columns that identify the same combination across two strata.
 
     Every parameter except the ones a stratum exists to move -- varying those is what a stratum
     *is*, so keeping them would make each stratum pair only with itself.
@@ -136,7 +136,7 @@ def is_recut(stratum: str) -> bool:
 
 
 def common_variants(frame: pd.DataFrame) -> set[str]:
-    """The variants every plain filtered stratum holds, empty where the frame holds none.
+    """Return the variants every plain filtered stratum holds, empty where the frame holds none.
 
     A stratum run by a later campaign carries that campaign's variants and no earlier stratum's:
     OpeningRange's ``regime=CONSOLIDATING`` holds the fade and rejection arms that only the
@@ -200,7 +200,7 @@ def per_window(
     *,
     by_variant: bool = False,
 ) -> pd.DataFrame:
-    """The paired difference per cell, one row per stratum, cell and window.
+    """Return the paired difference per cell, one row per stratum, cell and window.
 
     ``by_variant`` keeps the variant in the key rather than pooling the arms of one set, which
     is what a campaign measuring the variant dimension itself needs -- ``docs/roadmap.md`` §M33.

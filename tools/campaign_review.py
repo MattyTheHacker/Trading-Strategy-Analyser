@@ -80,12 +80,12 @@ def volume_keys() -> tuple[volume.VolumeKey, ...]:
 
 
 def review_spec() -> context.ContextSpec:
-    """What a review needs of a dataset: the clock, and every form of volume beside it."""
+    """Return what a review needs of a dataset: the clock, and every form of volume beside it."""
     return context.ContextSpec(needs_time_of_day=True, volume_keys=volume_keys())
 
 
 def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The cut this configuration ran at, so the review states the configuration's own cut.
+    """Return the cut this configuration ran at, so the review states the configuration's own cut.
 
     A review has to be able to say where it cut a raw series, and the honest answer here is
     already stored: it is what the sweep measured this row with.
@@ -97,7 +97,7 @@ def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[
 
 
 def conditions_of(annotation: annotate.Annotation) -> tuple[str, ...]:
-    """The clock and the three volume labels: the family this tool screens.
+    """Return the clock and the three volume labels: the family this tool screens.
 
     Named rather than taken from :func:`nqbt.review.stratifiable`, which would put every
     moving-average gate in the same family and dilute the family-wise null with conditions
@@ -135,7 +135,7 @@ def annotate_row(
 
 
 def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result belongs to."""
+    """Return the tag columns that say which stored configuration a result belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 

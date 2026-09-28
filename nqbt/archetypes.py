@@ -129,7 +129,7 @@ def _reads_label(
 
 
 def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
-    """The efficiency-ratio lookbacks to build: none unless some combination filters or sizes on them.
+    """Return the efficiency-ratio lookbacks to build: none unless some combination filters or sizes on them.
 
     The grid holds float64 rather than a boolean gate, so an unasked-for lookback is the most
     expensive thing this function can add -- ``docs/roadmap.md`` §M10.1.
@@ -250,7 +250,7 @@ def _ma_keys(
 
 
 def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """The context spec shared by every archetype built on the MA grids plus VWAP.
+    """Return the context spec shared by every archetype built on the MA grids plus VWAP.
 
     ``values`` maps each parameter name to every value the sweep will try for it, so a period
     that is only swept still gets its grid built. Which series are conditional and why:
@@ -269,7 +269,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
 
 
 def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
+    """Return what EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
 
     ``needs_ma_values`` costs 8x the memory of a boolean gate and the ATR is conditional --
     ``docs/roadmap.md`` §M17. The trailing average is a **third** grid and is built only where
@@ -296,7 +296,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What EmaPullback reads: the two grids its trend names, their raw values, and no ATR.
+    """Return what EmaPullback reads: the two grids its trend names, their raw values, and no ATR.
 
     :func:`crossover_context` without the ATR, because the stop is a level rather than a
     distance. The trailing average is a **third** grid and is built only where some combination
@@ -321,7 +321,7 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
 
 def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
+    """Return what ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
 
     **No moving-average grid at all** -- the basis is the band's own, so this is the first
     archetype that builds none. The band multiple is not part of the key, so sweeping it is
@@ -350,7 +350,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
 
 def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What OpeningRange reads: the ranges its anchors and windows name, and an ATR under one stop.
+    """Return what OpeningRange reads: the ranges its anchors and windows name, and an ATR under one stop.
 
     **No moving-average grid and no band**, so this and ElasticBand are the two archetypes
     that build neither. A range key is the anchor crossed with the window, exactly as an MA
@@ -393,7 +393,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
 
 
 def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What SqueezeBreakout reads: its squeeze's series, that window's levels, and an ATR under one stop.
+    """Return what SqueezeBreakout reads: its squeeze series, that window's levels, and an ATR under one stop.
 
     The squeeze's own compression series and window levels are built for every combination,
     unlike the compression *filter's*, which :func:`_compression_keys` builds only where some
@@ -424,7 +424,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """What InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
+    """Return what InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
 
     ``needs_ma_values`` because its three gates are **strict**, which the boolean grids do not
     hold -- ``docs/nt8-fidelity.md`` §M22. The session clock is conditional on some combination
@@ -712,7 +712,7 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     ``TIER1_ONLY`` whatever :attr:`tier2` says -- :meth:`tier2_for`."""
 
     def tier2_for(self, params: Params) -> Tier2Status:
-        """The status one combination's results carry: :attr:`tier2`, unless it leaves the port."""
+        """Return the status one combination's results carry: :attr:`tier2`, unless it leaves the port."""
         departs: bool = self.departs_from_port is not None and self.departs_from_port(params)
         if departs and self.tier2 is Tier2Status.RECONCILED:
             return Tier2Status.TIER1_ONLY
@@ -879,7 +879,7 @@ def register(archetype: Archetype) -> Archetype:
 
 
 def get(name: str) -> Archetype:
-    """The archetype registered under ``name``, or an error naming the ones that are."""
+    """Return the archetype registered under ``name``, or raise an error naming the ones that are."""
     if name not in _REGISTRY:
         msg: str = f"unknown archetype {name!r}; known: {sorted(_REGISTRY)}"
         raise ArchetypeError(msg)
@@ -898,7 +898,7 @@ def all_archetypes() -> list[Archetype]:
 
 
 def for_params(params: Params) -> Archetype:
-    """The archetype whose ``params_cls`` is exactly ``type(params)``.
+    """Return the archetype whose ``params_cls`` is exactly ``type(params)``.
 
     Ambiguity raises rather than picking one.
     """

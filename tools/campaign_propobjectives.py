@@ -255,7 +255,7 @@ def measure_window(
 
 
 def key_of(row: pd.Series) -> tuple[str, int, str, str, int]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The :data:`~tools.campaign_holdout.JOIN_KEYS` that name one configuration in both windows."""
+    """Return the :data:`~tools.campaign_holdout.JOIN_KEYS` that name one configuration in both windows."""
     return (
         str(row["root"]),
         int(row["resolution"]),
@@ -266,7 +266,7 @@ def key_of(row: pd.Series) -> tuple[str, int, str, str, int]:  # type: ignore[ty
 
 
 def ranking(measured: pd.DataFrame, by: str, *, higher_is_better: bool, top: int) -> pd.DataFrame:
-    """The ``top`` rows ``by`` ranks highest, selection-window profit factor breaking ties."""
+    """Return the ``top`` rows ``by`` ranks highest, selection-window profit factor breaking ties."""
     return measured.sort_values(
         [by, CONTROL],
         ascending=[not higher_is_better, False],
@@ -364,7 +364,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def pool(name: str, root: str, args: argparse.Namespace) -> pd.DataFrame:
-    """The ``args.pool`` distinct configurations stored selection-window profit factor ranks highest.
+    """Return the ``args.pool`` distinct configurations stored selection-window profit factor ranks highest.
 
     The maximum-hold arms are left out, a configuration stored under two variant names at one bar
     size enters once at its higher rank, and a row the fill assumption could have decided is left

@@ -59,7 +59,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def audited():
-    """A trade log and the audit trail over the whole of it, not a prefix."""
+    """Provide a trade log and the audit trail over the whole of it, not a prefix."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(),

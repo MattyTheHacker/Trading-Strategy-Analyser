@@ -45,7 +45,7 @@ START = dt.date(2024, 1, 2)
 
 
 def days_from(start: dt.date, n: int) -> np.ndarray:
-    """A calendar of ``n`` consecutive trading days, so a count of days is a count of dates."""
+    """Build a calendar of ``n`` consecutive trading days, so a count of days is a count of dates."""
     return np.datetime64(start, "D") + np.arange(n).astype("timedelta64[D]")
 
 
@@ -78,7 +78,7 @@ def leg_log(daily: list[float]) -> pd.DataFrame:
 
 
 def evaluation(**overrides: object) -> propaccount.PropAccount:
-    """A plain evaluation on closed balances, so each test moves only the field it names."""
+    """Build a plain evaluation on closed balances, so each test moves only the field it names."""
     fields = {
         "starting_balance": 50_000.0,
         "profit_target": 3_000.0,
@@ -93,7 +93,7 @@ def evaluation(**overrides: object) -> propaccount.PropAccount:
 
 
 def funded(**overrides: object) -> propaccount.PropAccount:
-    """A funded account from its first day, the shape of a TakeProfitTrader PRO preset."""
+    """Build a funded account from its first day, the shape of a TakeProfitTrader PRO preset."""
     return propaccount.PropAccount(name="Funded", rules=evaluation(profit_target=0.0, **overrides).rules)
 
 
@@ -317,7 +317,7 @@ def test_no_preset_with_a_measure_means_no_shortlist_rather_than_an_empty_row() 
 
 
 def held_frame() -> pd.DataFrame:
-    """The same four configurations through the same presets on the held-out window."""
+    """Build the same four configurations through the same presets on the held-out window."""
     held = selection_frame()
     held["pass_rate"] = [0.3, 0.3, 0.1, 0.0] * 2
     held[CONTROL] = [1.0, 0.9, 1.1, 1.2] * 2

@@ -439,12 +439,12 @@ def bollinger(data: Dataset, period: int, multiple: float = DEFAULT_BAND_MULTIPL
 
 
 def session_vwap(data: Dataset) -> Overlay:
-    """The session-anchored VWAP as a single row."""
+    """Return the session-anchored VWAP as a single row."""
     return Overlay(label="vwap", values=data.vwap_values())
 
 
 def vwap_band(data: Dataset, multiple: float = DEFAULT_BAND_MULTIPLE) -> Overlay:
-    """The session-anchored band as three rows: upper, the VWAP itself, lower."""
+    """Return the session-anchored band as three rows: upper, the VWAP itself, lower."""
     return Overlay(
         label=f"vwap band({multiple:g}sd)",
         values=_band_rows(data.vwap_band_basis(), multiple * data.vwap_band_stddev()),
@@ -514,7 +514,7 @@ def overlays_for(data: Dataset, *, multiple: float = DEFAULT_BAND_MULTIPLE) -> l
 
 
 def _band_rows(basis: FloatArray, width: FloatArray) -> FloatArray:
-    """A band as the three rows every chart draws it in: upper, basis, lower."""
+    """Return a band as the three rows every chart draws it in: upper, basis, lower."""
     return np.vstack([basis + width, basis, basis - width])
 
 
@@ -578,7 +578,7 @@ def _bars_for(legs: pd.DataFrame, data: Dataset) -> tuple[IntArray, IntArray]:
 
 
 def _window(entry_bars: IntArray, exit_bars: IntArray, bars: int, either_side: int) -> tuple[int, int]:
-    """The bars to draw: the trade, plus ``either_side`` of context, clipped to the dataset."""
+    """Return the bars to draw: the trade, plus ``either_side`` of context, clipped to the dataset."""
     first: int = max(0, int(entry_bars.min()) - either_side)
     last: int = min(bars - 1, int(exit_bars.max()) + either_side)
 
@@ -657,7 +657,7 @@ def _drawn_prices(legs: pd.DataFrame, figures: Figures) -> list[float]:
 
 
 def _excursions(legs: pd.DataFrame, figures: Figures) -> list[tuple[str, float]]:
-    """The trade's worst and best price while it was open, as a level each.
+    """Return the trade's worst and best price while it was open, as a level each.
 
     The pair that says whether a target was ever within reach of where price actually went. Read
     off :func:`nqbt.stats.per_trade`, so it is the trade's excursion rather than a leg's, and
@@ -767,12 +767,12 @@ def _overlay_lines(overlays: Sequence[Overlay], plot: Plot, first: int, last: in
 
 
 def _panel_box(plot: Plot) -> str:
-    """The panel as SVG rectangle attributes: the frame, and what an overlay is clipped to."""
+    """Return the panel as SVG rectangle attributes: the frame, and what an overlay is clipped to."""
     return f'x="{plot.left:.2f}" y="{plot.top:.2f}" width="{plot.width:.2f}" height="{plot.height:.2f}"'
 
 
 def _clip_id(plot: Plot) -> str:
-    """A clip path named after the rectangle it holds, rather than by a fixed name.
+    """Name a clip path after the rectangle it holds, rather than by a fixed name.
 
     **An SVG id is document-scoped, and a page of charts is one document**: several charts
     inlined together would every one resolve ``url(#...)`` to the first definition, and every
@@ -812,7 +812,7 @@ def _points(run: Sequence[str]) -> list[str]:
 
 
 def _series_class(index: int) -> str:
-    """The CSS an overlay is drawn with, cycled by its place in the list -- :data:`SERIES_STYLES`."""
+    """Return the CSS an overlay is drawn with, cycled by its place in the list -- :data:`SERIES_STYLES`."""
     return f"series s{index % SERIES_STYLES}"
 
 
@@ -838,7 +838,7 @@ def _entry_width(label: str) -> float:
 
 
 def _legend(rows: Sequence[_LegendRow], plot: Plot) -> list[str]:
-    """A swatch and a name per overlay, between the subtitle and the panel it belongs to."""
+    """Draw a swatch and a name per overlay, between the subtitle and the panel it belongs to."""
     drawn: list[str] = []
     for number, row in enumerate(rows):
         baseline: float = _HEADER + number * _LEGEND_HEIGHT + _LEGEND_BASELINE
@@ -877,7 +877,7 @@ def _held(plot: Plot, entry_bars: IntArray, exit_bars: IntArray) -> list[str]:
 
 
 def _level_lines(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars: IntArray) -> list[str]:
-    """The stop and the target each leg carried, spanning the bars over which it carried them.
+    """Draw the stop and the target each leg carried, spanning the bars over which it carried them.
 
     ``initial_stop`` is the stop **as placed**: a trailed stop's path is not in the log, so a
     line drawn across the whole hold would claim a level that moved.
@@ -948,7 +948,7 @@ def _label(text: str, anchor: float, y: float, *, right: float) -> str:
 
 
 def _markers(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars: IntArray) -> list[str]:
-    """A triangle where each leg entered, pointing the way it was taken, and a disc where it left."""
+    """Draw a triangle where each leg entered, pointing the way it was taken, and a disc where it left."""
     entry_prices: FloatArray = legs["entry_price"].to_numpy(np.float64)
     exit_prices: FloatArray = legs["exit_price"].to_numpy(np.float64)
     directions: FloatArray = legs["direction"].to_numpy(np.float64)
@@ -962,7 +962,7 @@ def _markers(legs: pd.DataFrame, plot: Plot, entry_bars: IntArray, exit_bars: In
 
 
 def _entry_marker(x: float, y: float, direction: float) -> str:
-    """A triangle at the fill, apex up for a long and down for a short."""
+    """Draw a triangle at the fill, apex up for a long and down for a short."""
     long: bool = direction == trades.LONG
     apex: float = y - _MARKER if long else y + _MARKER
     base: float = y + _MARKER / 2 if long else y - _MARKER / 2
@@ -972,7 +972,7 @@ def _entry_marker(x: float, y: float, direction: float) -> str:
 
 
 def _exit_marker(x: float, y: float, reason: str) -> list[str]:
-    """A disc at the fill, coloured by why the leg left and named underneath it.
+    """Draw a disc at the fill, coloured by why the leg left and named underneath it.
 
     Underneath rather than beside, because a leg leaving at its stop or its target lands on
     that level's own line and the two labels would be drawn on top of each other.
@@ -1029,7 +1029,7 @@ def _headline(
     title: str | None,
     width: float,
 ) -> list[str]:
-    """What this trade was, and when. Every figure is :class:`Figures`', not one computed here."""
+    """State what this trade was, and when. Every figure is :class:`Figures`', not one computed here."""
     entry_bars, exit_bars = bars
     entered = data.index[int(entry_bars.min())]
     left = data.index[int(exit_bars.max())]
@@ -1053,7 +1053,7 @@ def _headline(
 
 
 def _title(legs: pd.DataFrame, figures: Figures) -> str:
-    """The default headline: which trade, which way, how big, and what it made."""
+    """Return the default headline: which trade, which way, how big, and what it made."""
     trade_id: int = int(legs["trade_id"].to_numpy(np.int64)[0])
     side: str = "long" if float(legs["direction"].to_numpy(np.float64)[0]) == trades.LONG else "short"
     quantity: int = int(legs["quantity"].sum()) if "quantity" in legs.columns else len(legs)
@@ -1064,7 +1064,7 @@ def _title(legs: pd.DataFrame, figures: Figures) -> str:
 
 
 def _footer(legs: pd.DataFrame, plot: Plot, caution: Sequence[str]) -> list[str]:
-    """The per-leg figures, and the sentence every chart states about itself."""
+    """Return the per-leg figures, and the sentence every chart states about itself."""
     y: float = plot.top + plot.height + _TIME_AXIS + 14.0
     per_leg: str = "  ".join(
         f"leg {number}: {reason} {value:+.2f}"

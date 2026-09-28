@@ -51,7 +51,7 @@ def params(**overrides) -> EmaPullbackParams:
 
 
 def frame(rows) -> pd.DataFrame:
-    """A bar frame from hand-written OHLC rows."""
+    """Build a bar frame from hand-written OHLC rows."""
     arr = np.asarray(rows, dtype=np.float64)
     idx = pd.date_range("2024-01-02 00:00", periods=len(arr), freq="min", tz="UTC")
     out = pd.DataFrame(
@@ -85,7 +85,7 @@ def signal_for(rows, combination: EmaPullbackParams, *, fast=FAST, slow=SLOW, di
 
 
 def mirrored(rows, pivot: float = 200.0):
-    """The same bars reflected about ``pivot`` -- an uptrend's rows become a downtrend's."""
+    """Reflect the bars about ``pivot`` -- an uptrend's rows become a downtrend's."""
     return [(pivot - o, pivot - low, pivot - high, pivot - c) for o, high, low, c in rows]
 
 
@@ -539,7 +539,7 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
     block_entry_at_close: bool = True,
     max_hold_bars: int = 0,
 ) -> pd.DataFrame:
-    """The confirmation loop over hand-written rows, one leg per target and every level stated.
+    """Run the confirmation loop over hand-written rows, one leg per target and every level stated.
 
     ``flip_at`` lists the bars from which the averages sit on the other side, and ``stop_level``
     is the slow average: a number held on every bar, or one value per bar.

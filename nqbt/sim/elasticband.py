@@ -84,7 +84,7 @@ class ElasticBandRules(NamedTuple):
 
 @njit(cache=True)
 def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_at: FloatArray) -> FloatArray:
-    """The adverse extreme of the unbroken run of bars outside the band ending at each bar.
+    """Return the adverse extreme of the unbroken run of bars outside the band ending at each bar.
 
     The lowest low of a run below the band, the highest high of a run above it, and ``nan``
     on a bar that is not outside at all. One pass, reset whenever the run breaks or changes
@@ -379,7 +379,7 @@ def lagged(series: FloatArray, lag: int) -> FloatArray:
 
 
 def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, FloatArray, FloatArray]:
-    """The basis, dispersion and extension this combination reads, at its band lag.
+    """Return the basis, dispersion and extension this combination reads, at its band lag.
 
     One coordinate system, two windows: a rolling ``band_period`` under :data:`BAND_BOLLINGER`
     and the session so far under :data:`BAND_VWAP`.
@@ -438,7 +438,7 @@ def returned_inside(stretch: FloatArray, params: ElasticBandParams) -> BoolArray
 
 
 def outside_run_length(outside: BoolArray, *, ends_before: bool) -> IntArray:
-    """The unbroken run of bars outside the band that each bar's trigger reads.
+    """Return the unbroken run of bars outside the band that each bar's trigger reads.
 
     ``ends_before`` is :data:`TRIGGER_RECOVERY`'s: the run ended at the bar before the signal,
     so the count the signal bar reads is the one that bar carried -- ``docs/roadmap.md`` §M26.6.

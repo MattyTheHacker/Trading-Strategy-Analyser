@@ -432,7 +432,7 @@ def bandwidth(basis: FloatArray, stddev: FloatArray) -> FloatArray:
 
 
 def range_to_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -> FloatArray:
-    """The last ``period`` bars' high-low range, in ATRs of that same length.
+    """Return the last ``period`` bars' high-low range, in ATRs of that same length.
 
     Scale-free by construction: a window that trended reads near ``period`` and one that went
     nowhere reads near ``1``. One length for both halves rather than two axes, because the
@@ -449,7 +449,7 @@ def range_to_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: i
 
 
 def rolling_extremes(high: FloatArray, low: FloatArray, period: int) -> tuple[FloatArray, FloatArray]:
-    """The highest high and lowest low of the ``period`` bars ending at each bar, that bar included.
+    """Return the highest high and lowest low of the ``period`` bars ending at each bar, that bar included.
 
     The window :func:`range_to_atr` measures, as two levels rather than a width.
     """
@@ -651,11 +651,11 @@ class WindowRangeGrid:
             raise KeyError(msg) from None
 
     def high_for(self, period: int) -> FloatArray:
-        """The highest high of the ``period`` bars ending at each bar."""
+        """Return the highest high of the ``period`` bars ending at each bar."""
         return np.asarray(self.high[self.row(period)])
 
     def low_for(self, period: int) -> FloatArray:
-        """The lowest low of the ``period`` bars ending at each bar."""
+        """Return the lowest low of the ``period`` bars ending at each bar."""
         return np.asarray(self.low[self.row(period)])
 
     @property

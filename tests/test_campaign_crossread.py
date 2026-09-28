@@ -31,7 +31,7 @@ from nqbt.sim.types import DeadCatParams, OpeningRangeParams
 
 
 def rows(**columns: object) -> pd.DataFrame:
-    """A results frame carrying one parameter, one context filter and the stats the tool reads."""
+    """Build a results frame carrying one parameter, one context filter and the stats the tool reads."""
     base = {
         "sweep_id": 1,
         "combo_id": range(4),
@@ -362,7 +362,7 @@ def test_each_window_is_one_the_campaign_actually_stores(window: str) -> None:
 
 
 def recut_only(arm_pf: list[float], base_pf: list[float], variant: str = "channel=vwap") -> pd.DataFrame:
-    """A campaign whose every filtered stratum is a re-cut, which is §M33's shape."""
+    """Build a campaign whose every filtered stratum is a re-cut, which is §M33's shape."""
     cell = "volume=HEAVY@per_bar_20 q=0.20/0.80"
     arm = rows(stratum=cell, volume_filter=4, profit_factor=arm_pf, variant=variant)
     base = rows(profit_factor=base_pf, variant=variant)

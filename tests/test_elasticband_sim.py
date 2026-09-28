@@ -618,7 +618,7 @@ def test_run_extreme_restarts_when_the_run_breaks_or_changes_side() -> None:
 
 
 def frame(close):
-    """A one-column bar frame at a fixed geometry, enough for the signal path."""
+    """Build a one-column bar frame at a fixed geometry, enough for the signal path."""
     close = np.asarray(close, dtype=np.float64)
     index = pd.date_range("2024-01-02 19:00", periods=close.size, freq="1min", tz="UTC")
 
@@ -751,7 +751,7 @@ def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
 
 
 def candle_frame(close, seed):
-    """A bar frame with real bodies and wicks, which :func:`frame` deliberately has neither of.
+    """Build a bar frame with real bodies and wicks, which :func:`frame` deliberately has neither of.
 
     Every random value is drawn per bar out of one array, so a prefix of a series is built
     from the same numbers as the series -- which is what the no-lookahead tests compare.
@@ -781,7 +781,7 @@ def candle_dataset(close, params, seed=101):
 
 
 def shape_params(**kwargs):
-    """A parameter set on the Bollinger source, warmed up enough for the signal path."""
+    """Build a parameter set on the Bollinger source, warmed up enough for the signal path."""
     defaults = {"band_period": 20, "entry_std": 2.0, "bars_required_to_trade": 30}
 
     return ElasticBandParams(**(defaults | kwargs))
@@ -987,7 +987,7 @@ def test_a_shaped_run_produces_a_valid_trade_log() -> None:
 
 
 def vwap_params(**kwargs):
-    """A VWAP-source parameter set with the warm-up gate off unless a test sets it."""
+    """Build a VWAP-source parameter set with the warm-up gate off unless a test sets it."""
     defaults = {
         "band_source": BAND_VWAP,
         "entry_std": 2.0,
@@ -1094,7 +1094,7 @@ def test_a_negative_warm_up_is_refused() -> None:
 
 
 def recovery_params(**kwargs):
-    """A VWAP-source recovery set, on the channel §M26.6's campaign runs."""
+    """Build a VWAP-source recovery set, on the channel §M26.6's campaign runs."""
     defaults = {
         "band_source": BAND_VWAP,
         "entry_std": 2.0,

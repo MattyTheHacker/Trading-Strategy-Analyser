@@ -203,7 +203,7 @@ def matched_random_signal(
     pool: SessionMinutePool | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> BoolArray:
-    """A random entry signal with ``signal``'s count and time-of-session distribution.
+    """Draw a random entry signal with ``signal``'s count and time-of-session distribution.
 
     For every minute-of-session at which the real rule fired, the same number of entries is
     drawn without replacement from all bars sharing that minute, across every trading day.
@@ -331,7 +331,7 @@ def _range_key_for(
     archetype: Archetype,
     draw: str,
 ) -> sessionrange.RangeKey | None:
-    """The range a level draw randomises, or ``None`` for the draw over bars.
+    """Return the range a level draw randomises, or ``None`` for the draw over bars.
 
     Refuses a level draw for an archetype whose trigger is not a level, rather than falling
     back to the draw over bars: a null silently taken over the wrong thing is the failure

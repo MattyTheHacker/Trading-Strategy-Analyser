@@ -38,7 +38,7 @@ def gate():
 
 @pytest.fixture
 def capture(tmp_path):
-    """A pair of directories holding one identical trade-log-shaped CSV."""
+    """Provide a pair of directories holding one identical trade-log-shaped CSV."""
     frame = pd.DataFrame(
         {
             "trade_id": [1, 2, 3],

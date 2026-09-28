@@ -125,7 +125,7 @@ class SpliceReport:
         return [r for r in self.rolls if r.looks_early]
 
     def summary(self) -> str:
-        """The whole report as text, for eyeballing before trusting a sweep."""
+        """Render the whole report as text, for eyeballing before trusting a sweep."""
         lines: list[str] = [
             f"{self.root} continuous series{' (back-adjusted)' if self.back_adjusted else ' (raw prices)'}",
             "",
@@ -487,7 +487,7 @@ SEAM_COLUMNS = [
 
 
 def roll_seams(series: pd.DataFrame) -> pd.DataFrame:
-    """The first bar of each contract's segment, with the break it sits across.
+    """Return the first bar of each contract's segment, with the break it sits across.
 
     ``carry_over`` is the seam bar's open against the previous bar's close and ``gap_minutes``
     the wall-clock distance between them. On a back-adjusted series the carry-over holds no

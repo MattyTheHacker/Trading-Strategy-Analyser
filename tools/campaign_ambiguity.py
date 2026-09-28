@@ -317,7 +317,7 @@ def survival(table: pd.DataFrame) -> list[str]:
 
 
 def unsettled(verdicts: pd.DataFrame) -> pd.DataFrame:
-    """The bars worth looking at: the ones the assumption got wrong, and the ones still open.
+    """Return the bars worth looking at: the ones the assumption got wrong, and the ones still open.
 
     A bar the assumption called correctly is evidence and not a finding, and printing every one
     of them buries the handful that moved the result.

@@ -76,7 +76,7 @@ two reports of one shortlist can be read side by side."""
 
 
 def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result row belongs to."""
+    """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 

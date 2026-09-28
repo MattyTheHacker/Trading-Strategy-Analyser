@@ -77,7 +77,7 @@ def _coerced(value: object, default: object) -> object:
 
 
 def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Params:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The parameter set a stored row came from, defaults filling anything not stored."""
+    """Rebuild the parameter set a stored row came from, defaults filling anything not stored."""
     params: archetypes.Params = archetype.params_cls()
     updates: dict[str, object] = {}
     for field in fields(params):  # type: ignore[arg-type]  # a dataclass by construction
@@ -101,7 +101,7 @@ def shortlist(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The highest-ranked stored combinations for one archetype, root and stratum.
+    """Return the highest-ranked stored combinations for one archetype, root and stratum.
 
     A row whose ``by`` is undefined is dropped rather than ranked -- :func:`campaign_report.rank`.
     """
@@ -137,12 +137,12 @@ def best_row(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The highest-ranked stored combination for one archetype, root and stratum."""
+    """Return the highest-ranked stored combination for one archetype, root and stratum."""
     return shortlist(name, root, window, by, 1, stratum, resolution, variant).iloc[0]
 
 
 def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
-    """The bar range a stored row's ``window`` names."""
+    """Return the bar range a stored row's ``window`` names."""
     if window == "full":
         return bars
 
@@ -150,7 +150,7 @@ def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
 
 
 def swept_series(bars: pd.DataFrame, last_bar: pd.Timestamp) -> pd.DataFrame:
-    """The archive cut back to where it stood when a campaign was stored.
+    """Return the archive cut back to where it stood when a campaign was stored.
 
     An extended archive moves the 60/40 split under every row swept before it, so a re-run over
     the whole series reads a holdout the stored row never measured -- ``docs/roadmap.md``

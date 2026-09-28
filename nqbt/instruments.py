@@ -34,7 +34,7 @@ CODE_MONTHS: dict[str, int] = {v: k for k, v in MONTH_CODES.items()}
 
 
 def months_from_codes(codes: str) -> frozenset[int]:
-    """The months a run of futures month codes names, so ``"HMUZ"`` is the March cycle."""
+    """Return the months a run of futures month codes names, so ``"HMUZ"`` is the March cycle."""
     unknown: str = "".join(sorted(set(codes) - set(CODE_MONTHS)))
     if unknown:
         listed: str = "".join(MONTH_CODES.values())

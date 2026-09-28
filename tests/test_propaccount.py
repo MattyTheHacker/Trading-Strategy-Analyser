@@ -34,7 +34,7 @@ COMMISSION = 6.0
 
 
 def leg_log(rows, *, instrument: str = "MNQ", start: str = "2024-01-02 15:00") -> pd.DataFrame:
-    """A one-leg-per-trade log from ``(day_offset, net_pnl, mae_points)`` triples.
+    """Build a one-leg-per-trade log from ``(day_offset, net_pnl, mae_points)`` triples.
 
     Times are UTC and mid-afternoon, so every trade lands on the trading day its offset names
     unless a test deliberately moves one across the session boundary.
@@ -68,7 +68,7 @@ def leg_log(rows, *, instrument: str = "MNQ", start: str = "2024-01-02 15:00") -
 
 
 def account(**overrides) -> PropAccount:
-    """A deliberately plain rule set, so each test switches on exactly the field it names."""
+    """Build a deliberately plain rule set, so each test switches on exactly the field it names."""
     fields = {
         "starting_balance": 50_000.0,
         "profit_target": 3_000.0,
@@ -369,7 +369,7 @@ def test_a_monthly_fee_that_ends_at_the_pass_bills_an_attempt_that_never_passed(
 
 
 def paying(**overrides) -> PropAccount:
-    """A rule set that passes and then withdraws without walking onto its own floor."""
+    """Build a rule set that passes and then withdraws without walking onto its own floor."""
     return account(
         withdrawal_threshold=1_000.0,
         trail_lock=TrailLock.AT_STARTING_BALANCE,

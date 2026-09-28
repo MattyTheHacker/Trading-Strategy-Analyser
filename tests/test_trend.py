@@ -43,7 +43,7 @@ FIRST_OPEN = "2024-01-07 23:01"
 
 
 def votes_of(close, fast, slow, slope_lookback: int = SLOPE):
-    """The vote block and agreement score for three series given directly, not via averages."""
+    """Return the vote block and agreement score for three series given directly, not via averages."""
     return trend.components(
         np.asarray(close, dtype=np.float64),
         np.asarray(fast, dtype=np.float64),

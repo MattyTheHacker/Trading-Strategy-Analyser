@@ -153,7 +153,7 @@ def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[type-arg]
 
 
 def rank(frame: pd.DataFrame, top: int, by: str) -> pd.DataFrame:
-    """The ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
+    """Return the ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
 
     **``DataFrame.nlargest`` pads its result with undefined rows rather than returning fewer**,
     so ranking a shortlist straight through it hands the null test and the per-contract step
@@ -168,7 +168,7 @@ def narrowing(
     variants: Collection[str] | None = None,
     resolutions: Collection[int] | None = None,
 ) -> str:
-    """The clauses that narrow a stored-row query to these windows, variants and resolutions.
+    """Return the clauses that narrow a stored-row query to these windows, variants and resolutions.
 
     Appended to a query that already has its ``WHERE``, so a database many campaigns deep is read
     for the rows asked about rather than whole. A name holding a quote is refused rather than
@@ -214,7 +214,7 @@ def load(
 
 
 def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
-    """The stored log of one combination, empty when no log has been stored for it.
+    """Load the stored log of one combination, empty when no log has been stored for it.
 
     ``tools/campaign_shortlist.py`` writes them and only for the rows it was pointed at. Empty
     rather than raising, so a caller reading a whole shortlist can name the rows that have no
@@ -237,7 +237,7 @@ def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
 
 
 def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The ``(sweep_id, combo_id)`` a configuration's log is filed under."""
+    """Return the ``(sweep_id, combo_id)`` a configuration's log is filed under."""
     return int(row["sweep_id"]), int(row["combo_id"])
 
 
@@ -270,7 +270,7 @@ def swept_axes(frame: pd.DataFrame) -> list[str]:
 
 
 def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
-    """Combination count, profitable share and the profit-factor distribution, per group.
+    """Return the combination count, profitable share and the profit-factor distribution, per group.
 
     The two share columns are here rather than optional because a coarse resolution and the
     final session phase are both read wrong without them -- :data:`SHARES`.
@@ -317,7 +317,7 @@ def exit_decomposition(log: pd.DataFrame) -> dict[str, float]:
 
 
 def decompose_exits(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
-    """The exit decomposition of every row of ``frame``, aligned to its index.
+    """Return the exit decomposition of every row of ``frame``, aligned to its index.
 
     Blank for a row ``tools/campaign_shortlist.py`` has stored no log for, since a shortlist
     ranked here is not necessarily one whose logs were kept.
@@ -349,7 +349,7 @@ def dimensions(frame: pd.DataFrame) -> list[str]:
 
 
 def in_dimension(frame: pd.DataFrame, dimension: str) -> pd.DataFrame:
-    """The rows cut by one dimension, whatever cell of it each carries."""
+    """Return the rows cut by one dimension, whatever cell of it each carries."""
     return frame[frame["stratum"].map(lambda name: dimension_of(str(name)) == dimension)]
 
 

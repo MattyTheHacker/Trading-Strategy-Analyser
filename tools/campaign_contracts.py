@@ -43,7 +43,7 @@ def chosen(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> tuple[archetypes.Params, int]:
-    """The configuration a window's ranking picked, and the resolution it was ranked at."""
+    """Return the configuration a window's ranking picked, and the resolution it was ranked at."""
     row: pd.Series = best_row(name, root, window, by, stratum, resolution, variant)  # type: ignore[type-arg]  # duckdb's dtypes
 
     return rebuild(row, archetypes.get(name)), int(row["resolution"])

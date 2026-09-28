@@ -75,7 +75,7 @@ def minute_bars(closes: list[float], first_open: str = FIRST_OPEN) -> pd.DataFra
 
 
 def random_bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
-    """A drifting series long enough for a 60-minute average to mean something."""
+    """Build a drifting series long enough for a 60-minute average to mean something."""
     rng = np.random.default_rng(seed)
     index = pd.date_range(FIRST_OPEN, periods=days * 24 * 60, freq="min", tz="UTC")
     n = index.size
@@ -97,7 +97,7 @@ def random_bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
 
 
 def last_completed(coarse_stamps: pd.DatetimeIndex, values, stamps: pd.DatetimeIndex):
-    """The projection by an explicit loop: the last coarse value stamped at or before each bar."""
+    """Compute the projection by an explicit loop: the last coarse value stamped at or before each bar."""
     out = []
     for stamp in stamps:
         seen = [v for s, v in zip(coarse_stamps, values, strict=True) if s <= stamp]

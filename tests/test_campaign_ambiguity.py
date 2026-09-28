@@ -35,7 +35,7 @@ STRATEGY = "InsideBar"
 
 
 def measured(**columns: object) -> pd.DataFrame:
-    """A table shaped like :func:`~tools.campaign_ambiguity.measure`'s output."""
+    """Build a table shaped like :func:`~tools.campaign_ambiguity.measure`'s output."""
     base = {
         "label": ["a", "b", "c"],
         "stratum": "unfiltered",

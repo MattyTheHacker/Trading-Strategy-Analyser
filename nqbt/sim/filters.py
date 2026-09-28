@@ -103,7 +103,7 @@ class LabelSized(ContextFiltered, Protocol):
 
 
 def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
-    """The masks the six filters contribute, skipping every gate at its everything value.
+    """Return the masks the six filters contribute, skipping every gate at its everything value.
 
     One list rather than a conjunction, so a caller can AND them or count them. **A gate at
     its everything value contributes nothing at all** -- it is absent from this list rather

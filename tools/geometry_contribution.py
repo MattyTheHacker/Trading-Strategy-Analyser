@@ -157,7 +157,7 @@ def measure(contract: str, iterations: int, n_jobs: int) -> pd.DataFrame:
 
 
 def report(table: pd.DataFrame, statistic: str = "profit_factor") -> str:
-    """The two rankings side by side, which is the whole point of the exercise."""
+    """Render the two rankings side by side, which is the whole point of the exercise."""
     lines: list[str] = []
     for scheme, group in table.groupby("scheme"):
         by_observed = group.nlargest(1, f"{statistic}_observed").iloc[0]

@@ -146,7 +146,7 @@ def slippage_points(costs: Costs) -> float:
 
 @njit(cache=True)
 def extend_excursion(excursion: Excursion, high: float, low: float) -> Excursion:
-    """The water marks after one more bar."""
+    """Extend the water marks by one more bar."""
     return Excursion(max(excursion.run_high, high), min(excursion.run_low, low))
 
 
@@ -412,7 +412,7 @@ def swing_stop(
     offset: float,
     direction: float,
 ) -> float:
-    """A structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
+    """Return a structural stop: the adverse extreme of the last ``lookback`` completed bars, offset.
 
     The window ends at ``signal_bar`` and includes it, and never reads the bar the fill happens
     on. ``offset`` is a price rather than a tick count, and pushes the stop *beyond* the extreme
@@ -535,7 +535,7 @@ def round_to_tick(price: float, tick_size: float) -> float:
 
 @njit(cache=True)
 def passes_reward_risk(target_r: FloatArray, minimum: float) -> bool:
-    """Optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
+    """Check the optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
 
     Every target is expressed in R, so the check is independent of price: it either passes for
     the rule set or never does.

@@ -600,7 +600,7 @@ def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
 
 
 def prepared(bars: pd.DataFrame, params):
-    """The dataset the archetype's own ``ContextSpec`` asks for."""
+    """Prepare the dataset the archetype's own ``ContextSpec`` asks for."""
     return context.prepare(bars, sweep.Grid.of(params).required_context())
 
 
@@ -725,7 +725,7 @@ def test_a_lot_that_already_left_is_not_flattened_twice_by_the_clock() -> None:
 
 
 def two_row_sizing(signal_row, n, *, rows=((4, 2), (1, 3))):
-    """A two-split table with every bar on row 0 except the ones ``signal_row`` names."""
+    """Build a two-split table with every bar on row 0 except the ones ``signal_row`` names."""
     row_at = np.zeros(n, dtype=np.int64)
     for bar, row in signal_row.items():
         row_at[bar] = row
@@ -845,7 +845,7 @@ def test_tiers_that_differ_at_some_count_are_not_refused() -> None:
 
 
 def walk_bars(n=4000, seed=3):
-    """A trending random walk, so both sides' trends run long enough to hold several setups."""
+    """Build a trending random walk, so both sides' trends run long enough to hold several setups."""
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0.05, 1.0, n))

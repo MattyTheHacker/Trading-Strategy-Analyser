@@ -22,7 +22,7 @@ EXPANDED = 0.75
 
 
 def combo_frame() -> pd.DataFrame:
-    """The summary row the view joins to, carrying one parameter to filter on."""
+    """Build the summary row the view joins to, carrying one parameter to filter on."""
     return pd.DataFrame(
         {
             "combo_id": [COMBO_ID],
@@ -36,7 +36,7 @@ def combo_frame() -> pd.DataFrame:
 
 @pytest.fixture
 def stocked(tmp_path, data):
-    """A database holding one combination's summary row and its stored trade log."""
+    """Provide a database holding one combination's summary row and its stored trade log."""
     db = tmp_path / "InsideBar.duckdb"
     sweep_id = results.save_sweep(
         combo_frame(),

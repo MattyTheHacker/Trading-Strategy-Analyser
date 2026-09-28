@@ -15,7 +15,7 @@ from nqbt.dispersion import DispersionError
 
 
 def leg_log(pnl_per_trade, *, legs: int = 2, start: str = "2024-01-02") -> pd.DataFrame:
-    """A leg-level log whose trades sum to ``pnl_per_trade``.
+    """Build a leg-level log whose trades sum to ``pnl_per_trade``.
 
     Split across legs on purpose: everything here has to survive the leg -> trade collapse,
     and a one-leg-per-trade fixture would never exercise it.
@@ -256,7 +256,7 @@ def synthetic_contract(start: str, sessions_wanted: int, seed: int) -> pd.DataFr
 
 @pytest.fixture
 def cache(tmp_path):
-    """A cache holding two contracts and the continuous series spliced from them.
+    """Provide a cache holding two contracts and the continuous series spliced from them.
 
     The contracts **overlap in time** on purpose -- real ones do, and that overlap is the
     whole reason the front-month window exists.

@@ -103,7 +103,7 @@ class Summary:
 
     @classmethod
     def empty(cls) -> Summary:
-        """The zero summary, for a combination that produced no trades.
+        """Return the zero summary, for a combination that produced no trades.
 
         Keyed by field name and typed from the annotations rather than splatted positionally.
         **Do not "simplify" it back to a splat** -- the version this replaces passed 26

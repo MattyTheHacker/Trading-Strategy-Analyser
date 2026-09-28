@@ -227,7 +227,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
 
 def insidebar_trends(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
-    """The two three-average gates: close **strictly** above all three, or below all three.
+    """Return the two three-average gates: close **strictly** above all three, or below all three.
 
     Strict on each comparison, so equality fails both -- ``InsideBar.cs`` writes the positive
     form rather than a rejection, unlike the two ports, and the raw values are read for that
@@ -272,7 +272,7 @@ def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
 
 
 def insidebar_patterns(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
-    """The long and short setups on their own, before any clock or context filter narrows them.
+    """Return the long and short setups on their own, before any clock or context filter narrows them.
 
     An inside bar behind this one, a close clearing the mother bar's extreme by the error
     margin, and all three averages agreeing with the direction of the break.

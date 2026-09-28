@@ -74,7 +74,7 @@ def frame_of(rows: Sequence[Row]) -> pd.DataFrame:
 
 
 def dataset_for(params: SqueezeBreakoutParams, frame: pd.DataFrame) -> context.Dataset:
-    """A dataset carrying exactly what one combination reads."""
+    """Build a dataset carrying exactly what one combination reads."""
     return context.prepare(frame, sweep.Grid.of(params).required_context(), bar_minutes=1)
 
 
@@ -212,7 +212,7 @@ def test_the_output_bound_counts_the_bars_that_could_fill() -> None:
 
 
 def with_ranks(params: SqueezeBreakoutParams, ranks: Sequence[float]) -> context.Dataset:
-    """A dataset whose squeeze series is exactly ``ranks``, one per bar."""
+    """Build a dataset whose squeeze series is exactly ``ranks``, one per bar."""
     stated = np.asarray(ranks, dtype=np.float64)
     data = dataset_for(params, frame_of([QUIET[0]] * stated.size))
     data.compressions = compression.CompressionGrid(

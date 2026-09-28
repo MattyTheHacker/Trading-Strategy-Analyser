@@ -754,7 +754,7 @@ def _lifetime(
 
 
 def _legs_taken(log: pd.DataFrame, table: _TradeTable, positions: list[int]) -> pd.DataFrame:
-    """The legs of the trades at ``positions``, so every performance figure is ``summarise``'s."""
+    """Return the legs of the trades at ``positions``, so every performance figure is ``summarise``'s."""
     if not positions:
         return log.iloc[:0]
 

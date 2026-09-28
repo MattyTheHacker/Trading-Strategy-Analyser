@@ -67,7 +67,7 @@ RAW_VOLUME = (0.7, 1.5)
 
 
 def selection_bars(root: str) -> pd.DataFrame:
-    """The window a cut is fitted on, taken exactly as ``campaign_sweep.fit_regime`` takes it."""
+    """Return the window a cut is fitted on, taken exactly as ``campaign_sweep.fit_regime`` takes it."""
     bars: pd.DataFrame = splice.load_continuous(root)
 
     return bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]

@@ -460,7 +460,7 @@ FITTED = (
 
 
 def calibration_bars(n: int = 4000, seed: int = 4) -> pd.DataFrame:
-    """A one-minute frame whose held-out half is a straight line, which scores 1.0 everywhere.
+    """Build a one-minute frame whose held-out half is a straight line, which scores 1.0 everywhere.
 
     A fit that reached past the selection window would put the upper threshold at 1.0 and say so.
     """
@@ -473,7 +473,7 @@ def calibration_bars(n: int = 4000, seed: int = 4) -> pd.DataFrame:
 
 
 def calibrated_args(**overrides: object) -> argparse.Namespace:
-    """The arguments ``fit_regime`` reads, at one resolution so ``resample`` is a pass-through."""
+    """Build the arguments ``fit_regime`` reads, at one resolution so ``resample`` is a pass-through."""
     return argparse.Namespace(
         **{
             "resolutions": [1],
@@ -676,7 +676,7 @@ def volume_bars(sessions_wanted: int = 30, seed: int = 7) -> pd.DataFrame:
 
 
 def volume_args(**overrides: object) -> argparse.Namespace:
-    """The arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
+    """Build the arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
     return argparse.Namespace(
         **{"resolutions": [1], "volume_quantiles": VOLUME_TAILS, **VOLUME_WINDOWS, **overrides}
     )
@@ -1569,7 +1569,7 @@ def test_the_bracket_run_carries_the_roots_real_costs() -> None:
 
 
 def volume_variants(root: str = "MNQ") -> list[Variant]:
-    """The control and the treatment of the volume run, in that order."""
+    """Return the control and the treatment of the volume run, in that order."""
     return ELASTIC_VOLUME_VARIANTS["ElasticBand"](root)
 
 
@@ -2205,7 +2205,7 @@ def test_no_findings_file_calls_the_campaigns_series_back_adjusted() -> None:
 
 
 def a_cut(root: str = "MNQ", minutes: int = 5, labels: tuple[str, ...] = ("size_on_vwap", "size_on_regime")):
-    """A cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it."""
+    """Build a cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it."""
     return SizingCut(
         root=root,
         minutes=minutes,

@@ -485,7 +485,7 @@ def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
 
 
 def prepared(bars: pd.DataFrame, params: InsideBarParams):
-    """The dataset the archetype's own ``ContextSpec`` asks for."""
+    """Prepare the dataset the archetype's own ``ContextSpec`` asks for."""
     return context.prepare(bars, sweep.Grid.of(params).required_context())
 
 

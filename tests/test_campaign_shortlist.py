@@ -34,7 +34,7 @@ STRATEGY = "InsideBar"
 
 
 def stored_rows(**columns: object) -> pd.DataFrame:
-    """A ranked frame with the tag columns a selection reads."""
+    """Build a ranked frame with the tag columns a selection reads."""
     base = {
         "root": ROOT,
         "stratum": "unfiltered",

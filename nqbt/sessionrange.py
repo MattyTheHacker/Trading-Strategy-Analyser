@@ -172,7 +172,7 @@ class SessionRangeGrid:
         return int(self.high.shape[1])
 
     def row(self, key: RangeKey) -> int:
-        """The row holding ``key``, or an error naming what the grid was built for."""
+        """Return the row holding ``key``, or raise an error naming what the grid was built for."""
         if key not in self.keys:
             msg: str = f"range {key} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg)
@@ -206,7 +206,7 @@ def _session_runs(
     session_id: IndexArray,
     mask: BoolArray,
 ) -> tuple[OffsetArray, OffsetArray, IndexArray]:
-    """The masked bars, where each session's run of them starts, and whose session each run is.
+    """Return the masked bars, where each session's run of them starts, and whose session each run is.
 
     Every mask this module reduces over is contiguous within a session -- a window is a span of
     minutes and an armed flag a suffix of one -- so a group is a slice and ``reduceat`` is the
@@ -420,7 +420,7 @@ class FollowThroughGrid:
     """``[n_keys, n_lookbacks, n_sessions]``: :func:`trailing_median` of :attr:`raw`."""
 
     def row(self, key: RangeKey) -> int:
-        """The row holding ``key``, or an error naming what the grid was built for."""
+        """Return the row holding ``key``, or raise an error naming what the grid was built for."""
         if key not in self.keys:
             msg: str = f"range {key} is not in this grid; built for {list(self.keys)}"
             raise KeyError(msg)
@@ -428,7 +428,7 @@ class FollowThroughGrid:
         return self.keys.index(key)
 
     def lookback_row(self, sessions: int) -> int:
-        """The row holding one trailing window, or an error naming the ones built."""
+        """Return the row holding one trailing window, or raise an error naming the ones built."""
         if sessions not in self.lookbacks:
             msg: str = (
                 f"follow-through over {sessions} sessions is not in this grid; built for "

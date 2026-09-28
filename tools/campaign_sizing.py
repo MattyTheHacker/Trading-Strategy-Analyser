@@ -98,7 +98,7 @@ CONFLUENCE_VARIANT = f"trailing {SIZING_CONFLUENCE}"
 
 
 def probe_params(base: InsideBarTrailingParams) -> InsideBarTrailingParams:
-    """``base`` with every label switched on, so one prepared dataset holds all five."""
+    """Return ``base`` with every label switched on, so one prepared dataset holds all five."""
     return dataclasses.replace(base, quantity_per_confluence=1, **dict.fromkeys(SIZING_LABELS, True))
 
 
@@ -215,14 +215,14 @@ def traded_early_shares(
 
 
 def kept_labels(shares: dict[str, float]) -> tuple[str, ...]:
-    """The labels whose favourable share at the fitted signals leaves them something to sort."""
+    """Return the labels whose favourable share at the fitted signals leaves them something to sort."""
     return tuple(
         label for label, share in shares.items() if MIN_FAVOURABLE_SHARE <= share <= MAX_FAVOURABLE_SHARE
     )
 
 
 def selection_window(bars: pd.DataFrame) -> pd.DataFrame:
-    """The bars the campaign's selection window holds, which is all a fit may read."""
+    """Return the bars the campaign's selection window holds, which is all a fit may read."""
     return bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
 
 
@@ -280,7 +280,7 @@ def shuffled_null(
     draws: int,
     seed: int,
 ) -> dict[str, float]:
-    """The configuration's own ``by`` against the same sizes shuffled across its signals.
+    """Compare the configuration's own ``by`` against the same sizes shuffled across its signals.
 
     ``p`` is the share of shuffles at least as good, counting the observation itself, so it is
     never zero -- the convention ``nqbt/randomentry.py`` reports its matched null in.

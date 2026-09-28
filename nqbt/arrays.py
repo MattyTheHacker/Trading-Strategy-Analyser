@@ -82,7 +82,7 @@ def float_column(bars: pd.DataFrame, name: str) -> FloatArray:
 
 
 def ohlc(bars: pd.DataFrame) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
-    """A bar frame's open, high, low and close, in that order."""
+    """Return a bar frame's open, high, low and close, in that order."""
     return (
         float_column(bars, "open"),
         float_column(bars, "high"),

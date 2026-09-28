@@ -112,7 +112,7 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def _count(con: duckdb.DuckDBPyConnection, sql: str, parameters: Sequence[object] = ()) -> int:
-    """The single number an aggregate query returns."""
+    """Fetch the single number an aggregate query returns."""
     row = con.execute(sql, list(parameters)).fetchone()
     if row is None:  # pragma: no cover - an aggregate always returns exactly one row
         msg: str = f"no row from {sql!r}"
@@ -244,7 +244,7 @@ def _tag_axes(
 
 
 def _quoted(name: str) -> str:
-    """A column name as a SQL identifier, so a statistic named like a keyword still inserts."""
+    """Quote a column name as a SQL identifier, so a statistic named like a keyword still inserts."""
     escaped: str = name.replace('"', '""')
 
     return f'"{escaped}"'

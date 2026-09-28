@@ -48,7 +48,7 @@ def resample_stored(row: pd.Series, db, iterations: int, seed: int):  # noqa: AN
 
 
 def trade_log(n: int = 120, seed: int = 3) -> pd.DataFrame:
-    """A leg-level log with wins and losses, in the shape ``save_trades`` stores."""
+    """Build a leg-level log with wins and losses, in the shape ``save_trades`` stores."""
     rng = np.random.default_rng(seed)
     pnl = rng.normal(5.0, 60.0, n)
     entry = pd.Timestamp("2025-01-02 14:30", tz="UTC") + pd.to_timedelta(np.arange(n), unit="h")
@@ -76,7 +76,7 @@ def trade_log(n: int = 120, seed: int = 3) -> pd.DataFrame:
 
 @pytest.fixture
 def stocked(tmp_path):
-    """A database holding one stored log, at the ids the ranked row names."""
+    """Provide a database holding one stored log, at the ids the ranked row names."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(), SWEEP_ID, COMBO_ID, db)
 

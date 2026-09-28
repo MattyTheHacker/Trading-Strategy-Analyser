@@ -72,7 +72,7 @@ def bars() -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def data() -> context.Dataset:
-    """The bars a stored log would have been simulated over, with the clock and all three forms."""
+    """Provide the bars a stored log would have been simulated over, with the clock and all three forms."""
     return context.prepare(bars(), review_spec(), bar_minutes=1)
 
 
@@ -89,7 +89,7 @@ def entry_bars(data: context.Dataset, per_phase: int = 60) -> np.ndarray:  # typ
 
 
 def trade_log(data: context.Dataset, seed: int = 5) -> pd.DataFrame:
-    """A one-leg-per-trade log entered on those bars, in the shape ``save_trades`` stores.
+    """Build a one-leg-per-trade log entered on those bars, in the shape ``save_trades`` stores.
 
     Prices are the bars' own closes, which is what lets the annotation's price check pass with
     no tolerance -- a fill outside its bar is how a back-adjusted series announces itself.
@@ -148,7 +148,7 @@ def stored_row(**columns: object) -> pd.Series:  # type: ignore[type-arg]  # duc
 
 @pytest.fixture
 def stocked(tmp_path, data):
-    """A database holding one stored log, at the ids the ranked row names."""
+    """Provide a database holding one stored log, at the ids the ranked row names."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(data), SWEEP_ID, COMBO_ID, db)
 
@@ -156,7 +156,7 @@ def stocked(tmp_path, data):
 
 
 def annotation_of(data: context.Dataset) -> annotate.Annotation:
-    """The annotation the tool builds, for the tests that do not need the whole report."""
+    """Return the annotation the tool builds, for the tests that do not need the whole report."""
     return annotate.annotate_trades(
         trade_log(data),
         data,

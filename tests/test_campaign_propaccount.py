@@ -57,7 +57,7 @@ def stored_row(**columns: object) -> pd.Series:
 
 
 def leg_log(daily: list[float], *, legs: int = LEGS, excursions: bool = True) -> pd.DataFrame:
-    """A leg-level log, one trade per trading day, from each day's total net P&L.
+    """Build a leg-level log, one trade per trading day, from each day's total net P&L.
 
     Each trade is ``legs`` lots wide and closes mid-afternoon, so a day's P&L is what the
     account sees and no trade straddles a session boundary.
@@ -94,7 +94,7 @@ def leg_log(daily: list[float], *, legs: int = LEGS, excursions: bool = True) ->
 
 
 def trade_log(n: int = 40, *, legs: int = LEGS, excursions: bool = True) -> pd.DataFrame:
-    """A log of ``n`` mildly profitable days, which one Apex 50K survives."""
+    """Build a log of ``n`` mildly profitable days, which one Apex 50K survives."""
     rng = np.random.default_rng(11)
 
     return leg_log(list(rng.normal(240.0, 900.0, n)), legs=legs, excursions=excursions)
@@ -109,13 +109,13 @@ Eight at 700 clears Apex 50K's 3,000 target and its seven-day minimum, and the b
 
 
 def cycling_log(cycles: int = 4) -> pd.DataFrame:
-    """A log that funds, withdraws from and then blows one account after another."""
+    """Build a log that funds, withdraws from and then blows one account after another."""
     return leg_log(CYCLE * cycles)
 
 
 @pytest.fixture
 def stocked(tmp_path):
-    """A database holding one stored log, at the ids the held-out row names."""
+    """Provide a database holding one stored log, at the ids the held-out row names."""
     db = tmp_path / "OpeningRange.duckdb"
     results.save_trades(trade_log(), SWEEP_ID, COMBO_ID, db)
 
@@ -221,7 +221,7 @@ def test_a_rule_set_that_refuses_the_log_is_named_rather_than_reported() -> None
 
 
 def closed_book() -> propaccount.PropAccount:
-    """A rule set measured on closed balances alone, which no shipped preset is.
+    """Build a rule set measured on closed balances alone, which no shipped preset is.
 
     All four presets §M28.13 read the registry through breach on open equity, so this is what
     a refusal is compared against rather than a second preset.
@@ -433,7 +433,7 @@ def test_a_rung_reads_its_profit_factor_off_its_own_log() -> None:
 
 
 def fake_rerun(calls):
-    """A ``logs_for`` that records the size it was asked for and scales one log by it."""
+    """Build a ``logs_for`` that records the size it was asked for and scales one log by it."""
 
     def logs_for(name, rows, root):
         quantity = int(rows["order_quantity"].iloc[0])

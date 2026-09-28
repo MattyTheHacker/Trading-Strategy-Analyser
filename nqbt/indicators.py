@@ -67,7 +67,7 @@ def nt8_ema(values: FloatArray, period: int) -> FloatArray:
 
 @njit(cache=True)
 def nt8_sma(values: FloatArray, period: int) -> FloatArray:
-    """Simple moving average using NT8's expanding warm-up and recursive update.
+    """Compute a simple moving average using NT8's expanding warm-up and recursive update.
 
     Before ``period`` bars exist the result is the average of everything so far; from then on
     it is a rolling mean maintained by add/subtract rather than re-summing the window.
@@ -130,7 +130,7 @@ def nt8_hma(values: FloatArray, period: int) -> FloatArray:
 
 @njit(cache=True)
 def nt8_true_range(high: FloatArray, low: FloatArray, close: FloatArray) -> FloatArray:
-    """True Range: ``max(H-L, |H-prevC|, |L-prevC|)``, and the bare range at bar 0.
+    """Compute True Range: ``max(H-L, |H-prevC|, |L-prevC|)``, and the bare range at bar 0.
 
     The previous close is read across session and roll boundaries alike, because NT8 does not
     reset it -- ``docs/nt8-fidelity.md``.
@@ -178,7 +178,7 @@ def nt8_atr(high: FloatArray, low: FloatArray, close: FloatArray, period: int) -
 
 @njit(cache=True)
 def nt8_stddev(values: FloatArray, period: int) -> FloatArray:
-    """Population standard deviation over an expanding window capped at ``period``.
+    """Compute the population standard deviation over an expanding window capped at ``period``.
 
     Divisor is the sample count, not ``n-1``. **Two passes, subtracting the window mean
     explicitly**: the algebraically identical incremental update drifts -- ``docs/nt8-fidelity.md``

@@ -90,7 +90,7 @@ def owning_bar(fine_index: pd.DatetimeIndex, coarse_index: pd.DatetimeIndex) -> 
 
 
 def sub_bars(fine: pd.DataFrame, owner: IntArray, position: int) -> pd.DataFrame:
-    """The minute bars one coarse bar was built from, in order."""
+    """Return the minute bars one coarse bar was built from, in order."""
     start, stop = np.searchsorted(owner, [position, position + 1])
 
     return fine.iloc[int(start) : int(stop)]
@@ -177,7 +177,7 @@ def first_level_reached(
 def first_target(
     legs: pd.DataFrame, coarse_bar: pd.Series[float], direction: float, *, fill_limit_on_touch: bool
 ) -> float:
-    """The reachable target price would reach first, which is the one nearest the **fill**.
+    """Return the reachable target price would reach first, which is the one nearest the **fill**.
 
     Not the one nearest the bar's open. That is what ``resolve_brackets`` compares distances
     against, but the question here is which level price touches first once the position exists,
@@ -258,7 +258,7 @@ def _verdict(
 
 
 def guessed(legs: pd.DataFrame) -> str:
-    """What the simulation assumed on this bar, read back from how its legs left."""
+    """Return what the simulation assumed on this bar, read back from how its legs left."""
     if (legs["exit_reason"] == "target").any():
         return TARGET_FIRST
 

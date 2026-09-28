@@ -78,7 +78,7 @@ def report(name: str, *, agreed: bool, detail: str) -> bool:
 
 
 def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) -> bool:
-    """Does NinjaTrader bucket the coarse series where :mod:`nqbt.resample` buckets it?"""
+    """Check that NinjaTrader buckets the coarse series where :mod:`nqbt.resample` buckets it."""
     ours: pd.DataFrame = resample.resample(bars, minutes)
     shared: pd.DatetimeIndex = nt8_coarse.index.intersection(ours.index)
     only_nt8: int = len(nt8_coarse.index.difference(ours.index))
@@ -134,7 +134,7 @@ def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.Dateti
 
 
 def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict[str, int]) -> bool:
-    """Does NT8's average over a secondary series match :func:`nqbt.indicators.nt8_ema`?
+    """Check that NT8's average over a secondary series matches :func:`nqbt.indicators.nt8_ema`.
 
     Taken over NT8's *own* coarse closes and read at the bars that close alongside one, so
     an anchoring difference cannot be mistaken for a seeding one.
@@ -289,7 +289,7 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
 
 
 def infer_coarse_minutes(coarse_stamps: pd.DatetimeIndex) -> int:
-    """The coarse resolution, as the most common gap between consecutive coarse stamps."""
+    """Infer the coarse resolution, as the most common gap between consecutive coarse stamps."""
     if coarse_stamps.size < 2:
         msg: str = "the coarse export holds fewer than two bars; nothing to infer a resolution from"
         raise ValueError(msg)

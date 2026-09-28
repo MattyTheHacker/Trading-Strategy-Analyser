@@ -196,7 +196,7 @@ def validate_multiples(consolidating_multiple: float, directional_multiple: floa
 
 
 def random_walk_ratio(lookback: int) -> float:
-    """The efficiency ratio a driftless random walk averages over ``lookback`` bars: ``1/sqrt(n)``.
+    """Return the efficiency ratio a driftless random walk averages over ``lookback`` bars: ``1/sqrt(n)``.
 
     The anchor a raw threshold is otherwise read against by eye -- ``docs/roadmap.md`` §M27.5.
     """

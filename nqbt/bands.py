@@ -85,7 +85,7 @@ class BandGrid:
         return int(self.basis.shape[1])
 
     def row(self, period: int) -> int:
-        """The row holding ``period``, or an error naming what the grid was built for."""
+        """Return the row holding ``period``, or raise an error naming what the grid was built for."""
         idx: int = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
             msg: str = f"band period {period} is not in this grid; built for {self.periods.tolist()}"

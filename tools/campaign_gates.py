@@ -180,7 +180,7 @@ def slug(name: str) -> str:
 
 
 def task_key(root: str, minutes: int, arm: str) -> str:
-    """What one task's files are called: its root, resolution and arm."""
+    """Return what one task's files are called: its root, resolution and arm."""
     return f"{root}-{minutes}m-{slug(arm)}"
 
 
@@ -236,7 +236,7 @@ def controls(arms: list[str]) -> list[tuple[str, str]]:
 def arms_for(
     builders: dict[str, Callable[[str], list[Variant]]], name: str, root: str, resolutions: list[int]
 ) -> dict[tuple[str, int], Variant]:
-    """The arms the variant set builds for one archetype and root, by name and resolution."""
+    """Return the arms the variant set builds for one archetype and root, by name and resolution."""
     return {
         (arm.name, minutes): arm
         for arm in builders[name](root)
@@ -310,7 +310,7 @@ def shortlists(
 
 
 def walk_arguments() -> argparse.Namespace:
-    """What ``tools/campaign_walkforward.py``'s command line passes by default, on one core."""
+    """Return what ``tools/campaign_walkforward.py``'s command line passes by default, on one core."""
     return argparse.Namespace(
         by=BY,
         train_share=TRAIN_SHARE,
@@ -339,7 +339,7 @@ ARCHIVES: dict[str, pd.DataFrame] = {}
 
 
 def archive(root: str) -> pd.DataFrame:
-    """The continuous series for ``root``, loaded on first use in this process."""
+    """Return the continuous series for ``root``, loaded on first use in this process."""
     if root not in ARCHIVES:
         ARCHIVES[root] = splice.load_continuous(root)
 
@@ -470,7 +470,7 @@ def written(out: Path, table: str, name: str, key: str) -> Path:
 
 
 def done_marker(out: Path, name: str, key: str) -> Path:
-    """The file recording which strata each read has written for one task."""
+    """Return the file recording which strata each read has written for one task."""
     return out / "done" / name / f"{key}.json"
 
 
@@ -496,7 +496,7 @@ def write_json(path: Path, value: object) -> None:
 
 
 def recorded(out: Path, name: str, key: str) -> dict[str, frozenset[str]]:
-    """The strata each read has written for one task, as earlier runs recorded them."""
+    """Return the strata each read has written for one task, as earlier runs recorded them."""
     marker: Path = done_marker(out, name, key)
     if not marker.exists():
         return {}
@@ -550,7 +550,7 @@ def save(
 
 
 def remaining(asked: dict[str, frozenset[str]], done: dict[str, frozenset[str]]) -> dict[str, frozenset[str]]:
-    """What is left of each read once earlier runs' strata are taken off, and nothing if none is.
+    """Return what is left of each read once earlier runs' strata are taken off, and nothing if none is.
 
     Every stratum left is re-run, and :data:`RERUN` names those whose re-run is not yet written.
     """
@@ -572,7 +572,7 @@ def asked_of(
     *,
     counted: bool,
 ) -> dict[str, frozenset[str]]:
-    """The strata each re-running read is asked for on one arm, of the strata it has rows in."""
+    """Return the strata each re-running read is asked for on one arm, of the strata it has rows in."""
     return {
         "null": present if "null" in reads and counted else frozenset(),
         "gate4": present & gate4 if "gate4" in reads else frozenset(),
@@ -581,7 +581,7 @@ def asked_of(
 
 
 def extra_cells(path: Path | None) -> pd.DataFrame:
-    """The cells ``--cells`` names beyond the strata gate 4 is read on everywhere."""
+    """Return the cells ``--cells`` names beyond the strata gate 4 is read on everywhere."""
     if path is None:
         return pd.DataFrame(columns=NAMED_CELL)
 
@@ -595,7 +595,7 @@ def extra_cells(path: Path | None) -> pd.DataFrame:
 
 
 def gate4_for(extra: pd.DataFrame, task: tuple[str, str, int, str], strata: frozenset[str]) -> frozenset[str]:
-    """The strata gate 4 is read on for one archetype, root, resolution and arm, ``--cells`` included."""
+    """List the strata gate 4 is read on for one archetype, root, resolution and arm, ``--cells`` included."""
     name, root, minutes, arm = task
     named: pd.DataFrame = extra[
         (extra["strategy"] == name)

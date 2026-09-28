@@ -80,14 +80,14 @@ def split_conventional_prefix(subject: str) -> tuple[str | None, str]:
 
 
 def first_word(subject: str) -> str:
-    """The first word of the subject, lowercased and stripped of surrounding punctuation."""
+    """Return the first word of the subject, lowercased and stripped of surrounding punctuation."""
     word = subject.strip().split(" ", maxsplit=1)[0]
 
     return word.strip("\"'`*_.,:;()[]").lower()
 
 
 def verb_candidate(subject: str) -> str:
-    """The word whose mood is judged: the first one after any conventional prefix."""
+    """Return the word whose mood is judged: the first one after any conventional prefix."""
     _, remainder = split_conventional_prefix(subject.strip())
 
     return first_word(remainder)
@@ -113,7 +113,7 @@ def check_subject_shape(remainder: str, conventional_type: str | None) -> list[F
 
 
 def check_subject_verb(remainder: str, conventional_type: str | None) -> list[Finding]:
-    """The subject must open with one of the ten verbs, unless a conventional type stands in.
+    """Check the subject opens with one of the ten verbs, unless a conventional type stands in.
 
     An allowlist of base forms settles the mood by construction: "Added" is simply not one of
     them, so no stemmer or mood heuristic is needed.
@@ -202,7 +202,7 @@ def check_subject_length(subject: str, suffix: str) -> list[Finding]:
 
 
 def check_body(lines: list[str]) -> list[Finding]:
-    """The one structural body rule. Wrapping is deliberately not checked.
+    """Check the one structural body rule. Wrapping is deliberately not checked.
 
     The body that reaches ``main`` is the pull request description, which GitHub renders as
     markdown and which is never hard-wrapped. CONTRIBUTING.md, "Commits".
@@ -260,7 +260,7 @@ def read_messages(args: argparse.Namespace) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """The command line, one source of messages and two presentation switches."""
+    """Build the command line: one source of messages and two presentation switches."""
     parser = argparse.ArgumentParser(description="Lint commit messages against CONTRIBUTING.md.")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--message-file", help="a file holding one whole commit message")

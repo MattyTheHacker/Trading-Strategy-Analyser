@@ -88,7 +88,7 @@ def verdict(status: int, output: str, labels: Iterable[str]) -> Verdict:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """The command line: one subcommand per question the workflow asks."""
+    """Build the command line: one subcommand per question the workflow asks."""
     parser = argparse.ArgumentParser(description="Drive the trade-log gate from CI.")
     commands = parser.add_subparsers(dest="command", required=True)
 

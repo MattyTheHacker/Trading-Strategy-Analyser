@@ -60,7 +60,7 @@ CASES = [
 
 
 def both_summaries(bars, archetype, params, instrument=NQ):
-    """The same combination down both paths."""
+    """Run the same combination down both paths."""
     data = sweep.prepare_for(bars, sweep.Grid.of(params, archetype=archetype))
     legs = archetype.legs(data, params, instrument)
     frame = archetype.run(data, params, instrument)
@@ -111,12 +111,12 @@ def test_neither_path_will_compute_sharpe_without_times(bars) -> None:
 
 
 def minute_index(bars: int) -> pd.DatetimeIndex:
-    """An index long enough to carry the leg matrices below, all on one calendar day."""
+    """Build an index long enough to carry the leg matrices below, all on one calendar day."""
     return pd.date_range("2024-01-02 00:00", periods=bars, freq="min", tz="UTC")
 
 
 def leg_matrix(trade_ids, net_pnl, exit_bars=None) -> trades.LegMatrix:
-    """A minimal but schema-valid leg matrix, for pinning the aggregation directly."""
+    """Build a minimal but schema-valid leg matrix, for pinning the aggregation directly."""
     n = len(trade_ids)
     matrix = np.zeros((n, trades.N_COLUMNS))
     matrix[:, trades.C_TRADE_ID] = trade_ids

@@ -172,7 +172,7 @@ class ContextSpec:
         )
 
     def band_periods_needed(self) -> tuple[int, ...]:
-        """Declared :attr:`band_periods`, plus the ones a bandwidth compression key reads.
+        """Return the declared :attr:`band_periods`, plus the ones a bandwidth compression key reads.
 
         A bandwidth form is defined off the band's own two rows rather than a second estimate
         of them, so asking for one asks for the period behind it -- exactly as
@@ -275,7 +275,7 @@ class Dataset:
         return cast("pd.DatetimeIndex", self.bars.index)
 
     def grid(self, kind: str) -> MovingAverageGrid:
-        """The grid for one moving-average kind, or a pointed error."""
+        """Return the grid for one moving-average kind, or raise a pointed error."""
         if kind not in self.mas:
             msg: str = (
                 f"no {kind} grid in this dataset; prepare() was asked for "
@@ -350,7 +350,7 @@ class Dataset:
         return self.vwap_band
 
     def vwap_band_basis(self) -> FloatArray:
-        """The session VWAP, which is the band's midline and the level a reversion targets."""
+        """Return the session VWAP, which is the band's midline and the level a reversion targets."""
         return self._vwap_band().basis
 
     def vwap_band_stddev(self) -> FloatArray:
@@ -723,7 +723,7 @@ class Dataset:
         return total
 
     def slim(self) -> Dataset:
-        """A copy carrying only what the simulation reads, for crossing a process boundary.
+        """Return a copy carrying only what the simulation reads, for crossing a process boundary.
 
         Everything the sweep needs from ``bars`` was already lifted into the arrays beside it
         except the index, so an index-only frame is enough. The arrays are shared, not copied.

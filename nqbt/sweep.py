@@ -113,7 +113,7 @@ class Grid:
             )
 
     def _default_base(self) -> Params:
-        """What ``base`` means when the caller gave none: the first combination, or defaults."""
+        """Resolve what ``base`` means when the caller gave none: the first combination, or defaults."""
         if self.combos:
             return self.combos[0]
 

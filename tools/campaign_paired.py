@@ -75,7 +75,7 @@ def under_test(left: set[object], right: set[object]) -> bool:
 
 
 def shared_columns(control: pd.DataFrame, treatment: pd.DataFrame) -> list[str]:
-    """The parameter columns the two arms agree about, which are what a cell is keyed on.
+    """Return the parameter columns the two arms agree about, which are what a cell is keyed on.
 
     Derived rather than declared, by :func:`under_test`: nothing has to name the axis the
     variant pair exists to compare.
@@ -179,7 +179,7 @@ def report(
     by: str,
     stratum: str | None = None,
 ) -> pd.DataFrame:
-    """The paired verdict for one control/treatment pair of variants, in one stratum if named.
+    """Return the paired verdict for one control/treatment pair of variants, in one stratum if named.
 
     A report row pools every stratum of a root and resolution, so a verdict pre-registered on one
     cell has to name it -- ``docs/findings/m45-ibt-sizing-preregistration.md``.

@@ -777,7 +777,7 @@ def cash_bars(days: int = 5) -> pd.DataFrame:
 
 
 def dataset_for(params: OpeningRangeParams, bars: pd.DataFrame | None = None) -> context.Dataset:
-    """A dataset carrying exactly what one combination reads."""
+    """Build a dataset carrying exactly what one combination reads."""
     frame = cash_bars() if bars is None else bars
     grid = sweep.Grid.of(params)
 
@@ -898,7 +898,7 @@ def test_the_matched_random_null_refuses_a_signal_this_dense() -> None:
 
 
 def levels_dataset(days: int = 30) -> tuple[OpeningRangeParams, context.Dataset]:
-    """A window long enough for the level draw's donor pool, with its params."""
+    """Build a window long enough for the level draw's donor pool, with its params."""
     params = OpeningRangeParams(bars_required_to_trade=0)
 
     return params, dataset_for(params, cash_bars(days))
@@ -1084,7 +1084,7 @@ REACHES = (115.0, 130.0, 112.0, 128.0)
 
 
 def scaled(**kwargs):
-    """A width-target combination on the fraction stop, which is what the scale can reach."""
+    """Build a width-target combination on the fraction stop, which is what the scale can reach."""
     return {
         "target_mode": ORB_TARGET_WIDTH,
         "levels": (1.0,),

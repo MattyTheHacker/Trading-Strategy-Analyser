@@ -389,7 +389,7 @@ def test_zero_iterations_is_refused(prepared) -> None:
 
 
 def stub_log(pnl_per_trade) -> pd.DataFrame:
-    """A minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
+    """Build a minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
 
     return pd.DataFrame(
@@ -411,7 +411,7 @@ def stub_log(pnl_per_trade) -> pd.DataFrame:
 
 
 def stub_legs(pnl_per_trade) -> trades.LegMatrix:
-    """The same stub as a raw leg matrix, which is what ``compare`` actually reads."""
+    """Build the same stub as a raw leg matrix, which is what ``compare`` actually reads."""
     matrix = np.zeros((len(pnl_per_trade), trades.N_COLUMNS))
     matrix[:, trades.C_TRADE_ID] = np.arange(1, len(pnl_per_trade) + 1)
     matrix[:, trades.C_LEG] = 1

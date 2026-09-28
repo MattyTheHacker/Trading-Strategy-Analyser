@@ -107,7 +107,7 @@ def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a diff
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The held-out rows of the configurations the selection window ranks highest.
+    """Return the held-out rows of the configurations the selection window ranks highest.
 
     Shaped like :func:`campaign_report.load`'s rows, so a tool reading stored logs can use it
     wherever it would use :func:`campaign_shortlist.shortlist` -- and unlike that one, nothing
@@ -125,7 +125,7 @@ def ranked_pairs(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
+    """Return the :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
 
     ``top`` of ``None`` ranks every row.
     """
@@ -172,7 +172,7 @@ def rank_correlation(block: pd.DataFrame) -> float:
 
 
 def verdict(name: str, merged: pd.DataFrame, by: str = DEFAULT_BY) -> pd.DataFrame:
-    """The held-out test, per root and stratum: the shortlist against not shortlisting at all.
+    """Run the held-out test, per root and stratum: the shortlist against not shortlisting at all.
 
     ``by`` names the selection-window statistic the shortlist is drawn on. A row it is undefined
     on is not shortlistable and is dropped, so ``shortlisted`` can come back below :data:`TOP`

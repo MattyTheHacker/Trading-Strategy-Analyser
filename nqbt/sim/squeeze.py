@@ -55,7 +55,7 @@ def squeeze_signal(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
 
 
 def squeeze_levels(data: Dataset, params: SqueezeBreakoutParams) -> openingrange.RangeSeries:
-    """The window this combination trades, as one level row per bar.
+    """Return the window this combination trades, as one level row per bar.
 
     A bar is armed wherever its window is complete, which is every bar past the first
     ``squeeze_period - 1`` whether or not it is squeezed -- the random-entry arm draws bars the

@@ -73,7 +73,7 @@ OUT_DIR = paths.RESULTS_DIR / "crossroot"
 
 
 def selected(name: str, root: str, top: int, min_trades: int) -> pd.DataFrame:
-    """The configurations a source root nominates, on a sample large enough to mean something."""
+    """Return the configurations a source root nominates, on a sample large enough to mean something."""
     frame: pd.DataFrame = load(name, [WINDOW])
     frame = frame[(frame["root"] == root) & (frame["trades"] >= min_trades)]
     # A variant swept into a stratum contaminates a later top-N -- docs/roadmap.md, "Standing traps".

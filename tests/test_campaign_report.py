@@ -56,7 +56,7 @@ from tools.campaign_shortlist import rebuild
 
 
 def combos(**columns: object) -> pd.DataFrame:
-    """A results frame with the tag columns every stored row carries."""
+    """Build a results frame with the tag columns every stored row carries."""
     base = {
         "sweep_id": 1,
         "combo_id": range(4),
@@ -166,7 +166,7 @@ def test_a_frame_without_the_shares_is_profiled_rather_than_refused() -> None:
 
 
 def legs(reason: list[str], net_pnl: list[float], bars_held: list[int]) -> pd.DataFrame:
-    """A stored trade log, cut to the three columns a decomposition reads."""
+    """Build a stored trade log, cut to the three columns a decomposition reads."""
     return pd.DataFrame({"exit_reason": reason, "net_pnl": net_pnl, "bars_held": bars_held})
 
 

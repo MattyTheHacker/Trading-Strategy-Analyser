@@ -102,7 +102,7 @@ class OpeningRangeRules(NamedTuple):
 
 @njit(cache=True)
 def entry_level(range_high: float, range_low: float, rules: OpeningRangeRules) -> float:
-    """The range extreme this combination's order rests at.
+    """Return the range extreme this combination's order rests at.
 
     A breakout and a retest both work off the extreme in the direction traded -- one waiting
     to go through it, the other to come back to it -- and a fade and a rejection work off the
@@ -153,7 +153,7 @@ def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
 def _limit_entry_fill(
     bars: bracket.Bars, i: int, trigger: float, fills: bracket.FillRules, direction: float
 ) -> tuple[bool, float]:
-    """The limit test the retest and the rejection share, which is the stop's mirror in both halves.
+    """Apply the limit test the retest and the rejection share, which is the stop's mirror in both halves.
 
     A limit fills at its price or better, so a bar opening past it fills at the open and the
     trade is *better* than planned rather than worse; and it takes no slippage, which is the

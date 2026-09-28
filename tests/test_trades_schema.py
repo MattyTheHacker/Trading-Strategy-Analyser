@@ -20,7 +20,7 @@ PACKAGE = Path(__file__).resolve().parents[1] / "nqbt"
 
 
 def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
-    """A minimal schema-conforming log, in the shape an importer would produce."""
+    """Build a minimal schema-conforming log, in the shape an importer would produce."""
     frame = pd.DataFrame(
         {
             "source": pd.array(["manual"] * n, dtype="string"),
@@ -182,7 +182,7 @@ def test_an_exit_reason_outside_the_simulator_enum_is_allowed() -> None:
 
 
 def leg_matrix(n: int = 3, **overrides) -> trades.LegMatrix:
-    """A minimal schema-conforming leg matrix, as the jitted loop would leave it."""
+    """Build a minimal schema-conforming leg matrix, as the jitted loop would leave it."""
     matrix = np.zeros((n + 2, trades.N_COLUMNS))  # a tail of unwritten rows, like the real one
     matrix[:n, trades.C_TRADE_ID] = np.arange(1, n + 1)
     matrix[:n, trades.C_LEG] = 1

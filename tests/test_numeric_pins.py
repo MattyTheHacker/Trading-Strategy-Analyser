@@ -44,7 +44,7 @@ NAN_SENTINEL = -8.5070591730234616e37
 
 
 def _lcg_states(count: int, seed: int) -> list[int]:
-    """A linear congruential sequence in Python ints, so no library owns the stream."""
+    """Generate a linear congruential sequence in Python ints, so no library owns the stream."""
     state: int = seed
     states: list[int] = []
     for _ in range(count):

@@ -25,7 +25,7 @@ class Outcome(enum.Enum):
 
 
 def format_file(filepath: Path, check: bool = False) -> Outcome:  # noqa: FBT002, FBT001
-    """Applies rules to a file, reporting whether it changed or could not be parsed."""
+    """Apply rules to a file, reporting whether it changed or could not be parsed."""
     original_code = filepath.read_text(encoding="utf-8")
 
     try:

@@ -232,7 +232,7 @@ def spread_vs_resampling(
     seed: int = 0,
     min_trades: int = MIN_TRADES,
 ) -> dict[str, object]:
-    """Does the between-contract spread exceed what relabelling the same trades produces?
+    """Test whether the between-contract spread exceeds what relabelling the same trades produces.
 
     A permutation test over whole trades, restricted to
     :data:`nqbt.stats.TRADE_PNL_STATISTICS`. Both measures in :data:`SPREAD_MEASURES` are

@@ -884,7 +884,7 @@ def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tm
 
 
 def counted(frame: pd.DataFrame, **columns: object) -> annotate.Annotation:
-    """An annotation carrying the boolean conditions a count can be taken over."""
+    """Build an annotation carrying the boolean conditions a count can be taken over."""
     index = pd.Index(np.arange(1, len(frame) + 1, dtype=np.int64), name="trade_id")
     base = pd.DataFrame({"matched": True}, index=index)
 

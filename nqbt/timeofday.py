@@ -103,7 +103,7 @@ def phases_mask(phases: Iterable[SessionPhase]) -> int:
 
 
 def phases_in(mask: int) -> tuple[SessionPhase, ...]:
-    """The phases a mask admits, in session order."""
+    """Return the phases a mask admits, in session order."""
     validate_mask(mask)
 
     return tuple(p for p in SessionPhase if mask & p.bit)
@@ -125,7 +125,7 @@ def validate_mask(mask: int) -> int:
 
 
 def describe_mask(mask: int) -> str:
-    """A readable phase list, for a results table or an error message."""
+    """Describe a mask as a readable phase list, for a results table or an error message."""
     return "+".join(p.name for p in phases_in(mask))
 
 
@@ -205,7 +205,7 @@ def bar_index_from_minutes(minutes: IntArray, bar_minutes: int) -> IndexArray:
 
 
 def infer_bar_minutes(index: pd.DatetimeIndex) -> int:
-    """The bar size in minutes, as the most common gap between consecutive stamps.
+    """Infer the bar size in minutes, as the most common gap between consecutive stamps.
 
     The mode, not the minimum or the mean -- ``docs/roadmap.md`` §M10.4. Falls back to 1 for an
     index too short to have a gap.

@@ -148,7 +148,7 @@ def stored_rows(
 
 
 def stored_for(stored: pd.DataFrame, row: pd.Series) -> pd.Series | None:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The stored row of one configuration in the window the null runs on, or ``None``.
+    """Return the stored row of one configuration in the window the null runs on, or ``None``.
 
     ``None`` where that window never swept it, which a shortlist spanning two variant sets can
     reach -- a check that could not run is not a check that passed, so it is said out loud in
