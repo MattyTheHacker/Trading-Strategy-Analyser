@@ -92,7 +92,7 @@ def simulate(
 
 
 def run(rows, signal_at=(), **kwargs):
-    """:func:`simulate` with the count checked and the matrix turned into a trade log."""
+    """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
     count, out = simulate(rows, signal_at, **kwargs)
     assert count >= 0, "trade buffer overflowed"
 
@@ -460,7 +460,7 @@ so without it a handful of hand-written rows would be a session ending wherever 
 
 
 def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
-    """Hand-written bars on a minute index, stamped mid-session unless told otherwise.
+    """Build hand-written bars on a minute index, stamped mid-session unless told otherwise.
 
     A copy of the final row is appended at :data:`SESSION_CLOSE` to close the session, so the
     rows a test wrote about are never the ones the flatten and the no-entry window act on.
@@ -485,12 +485,12 @@ def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
 
 
 def prepared(bars: pd.DataFrame, params: InsideBarParams):
-    """The dataset the archetype's own ``ContextSpec`` asks for."""
+    """Prepare the dataset the archetype's own ``ContextSpec`` asks for."""
     return context.prepare(bars, sweep.Grid.of(params).required_context())
 
 
 def signalling(**overrides) -> InsideBarParams:
-    """Short periods, so three real averages sit under a rising close on hand-built bars."""
+    """Build params with short periods, so three real averages sit under a rising close on hand-built bars."""
     defaults = {
         "ema_period": 2,
         "fast_sma_period": 2,

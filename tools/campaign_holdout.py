@@ -60,7 +60,7 @@ on this one; :data:`~tools.campaign_report.NET_TO_DRAWDOWN` is what §M27.3 rank
 
 
 def paired(name: str, variant: str | None = None) -> pd.DataFrame:
-    """One row per configuration that cleared the trade floor in **both** windows."""
+    """Return one row per configuration that cleared the trade floor in **both** windows."""
     selection: pd.DataFrame = load(name, ["selection"])
     holdout: pd.DataFrame = load(name, ["holdout"])
     if variant is not None:
@@ -71,7 +71,7 @@ def paired(name: str, variant: str | None = None) -> pd.DataFrame:
 
 
 def pair_windows(name: str, selection: pd.DataFrame, holdout: pd.DataFrame) -> pd.DataFrame:
-    """:func:`paired` over rows already loaded, each window's under its own name."""
+    """Run :func:`paired` over rows already loaded, each window's under its own name."""
     if selection.empty or holdout.empty:
         return pd.DataFrame()
 
@@ -107,7 +107,7 @@ def held_out(  # noqa: PLR0913 - each argument narrows the stored rows on a diff
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The held-out rows of the configurations the selection window ranks highest.
+    """Return the held-out rows of the configurations the selection window ranks highest.
 
     Shaped like :func:`campaign_report.load`'s rows, so a tool reading stored logs can use it
     wherever it would use :func:`campaign_shortlist.shortlist` -- and unlike that one, nothing
@@ -125,7 +125,7 @@ def ranked_pairs(
     resolution: int | None = None,
     variant: str | None = None,
 ) -> pd.DataFrame:
-    """The :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
+    """Return the :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
 
     ``top`` of ``None`` ranks every row.
     """
@@ -152,7 +152,7 @@ def ranked_pairs(
 
 
 def half(merged: pd.DataFrame, suffix: str) -> pd.DataFrame:
-    """One half of a paired frame, under the unsuffixed names the stored rows carry."""
+    """Return one half of a paired frame, under the unsuffixed names the stored rows carry."""
     renamed: dict[str, str] = {
         column: column.removesuffix(suffix) for column in merged.columns if column.endswith(suffix)
     }
@@ -161,7 +161,7 @@ def half(merged: pd.DataFrame, suffix: str) -> pd.DataFrame:
 
 
 def rank_correlation(block: pd.DataFrame) -> float:
-    """Spearman between the two windows' profit factors, as Pearson on the ranks.
+    """Compute Spearman between the two windows' profit factors, as Pearson on the ranks.
 
     Written out because ``Series.corr(method="spearman")`` needs scipy, which is not a
     dependency and must not become one for a report.
@@ -172,7 +172,7 @@ def rank_correlation(block: pd.DataFrame) -> float:
 
 
 def verdict(name: str, merged: pd.DataFrame, by: str = DEFAULT_BY) -> pd.DataFrame:
-    """The held-out test, per root and stratum: the shortlist against not shortlisting at all.
+    """Run the held-out test, per root and stratum: the shortlist against not shortlisting at all.
 
     ``by`` names the selection-window statistic the shortlist is drawn on. A row it is undefined
     on is not shortlistable and is dropped, so ``shortlisted`` can come back below :data:`TOP`

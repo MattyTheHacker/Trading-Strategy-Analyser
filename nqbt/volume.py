@@ -264,7 +264,7 @@ def thresholds_from_quantiles(
     thin_quantile: float,
     heavy_quantile: float,
 ) -> tuple[float, float]:
-    """Both thresholds as quantiles of the ratios in ``values``, unlabelled bars excluded.
+    """Return both thresholds as quantiles of the ratios in ``values``, unlabelled bars excluded.
 
     A raw pair is a different share of bars under each form and at each resolution, so cells cut
     by one cannot be read against each other -- ``docs/roadmap.md`` §M27.8. Fit on the selection
@@ -317,7 +317,7 @@ def session_ids(trading_day: DateArray, in_session: BoolArray) -> IntArray:
 
 @njit(cache=True)
 def _rolling_sum(values: FloatArray, window: int) -> FloatArray:
-    """Trailing ``window``-bar sum, ``nan`` until the window is full.
+    """Return the trailing ``window``-bar sum, ``nan`` until the window is full.
 
     Maintained by add and subtract rather than re-summed. Unlike an efficiency ratio's path
     length this cannot drift: contract counts are exact in float64, so the running total is the
@@ -339,7 +339,7 @@ def _rolling_sum(values: FloatArray, window: int) -> FloatArray:
 
 @njit(cache=True)
 def _session_cumulative(values: FloatArray, session_id: IntArray) -> FloatArray:
-    """Volume since this bar's session opened, ``nan`` for a bar in no session."""
+    """Return volume since this bar's session opened, ``nan`` for a bar in no session."""
     n = values.size
     out = np.full(n, np.nan, dtype=np.float64)
     total = 0.0
@@ -424,7 +424,7 @@ def _session_grid(
 
 @njit(cache=True)
 def _trailing_medians(grid: FloatArray, window: int, min_observations: int) -> FloatArray:
-    """Per cell, the median of its column over the ``window`` sessions *before* its row.
+    """Return, per cell, the median of its column over the ``window`` sessions *before* its row.
 
     Strictly prior: no session contributes to its own baseline. The window is a sorted buffer
     each session's value enters and leaves exactly once, which is exact because nothing
@@ -467,7 +467,7 @@ def _gather(medians: FloatArray, session_id: IntArray, bar_of_session: IntArray)
 
 @njit(cache=True)
 def _ratio(values: FloatArray, baseline: FloatArray) -> FloatArray:
-    """``values / baseline``, ``nan`` wherever there is no baseline to divide by.
+    """Return ``values / baseline``, ``nan`` wherever there is no baseline to divide by.
 
     A bar of session whose prior sessions traded nothing has no scale to be relative to, so a
     zero baseline is undefined rather than infinite.
@@ -509,7 +509,7 @@ def _label(relative: FloatArray, thin_below: float, heavy_above: float) -> Label
 
 @njit(cache=True)
 def _gate(relative: FloatArray, thin_below: float, heavy_above: float, mask: int) -> BoolArray:
-    """One pass from ratio to boolean, so a sweep combination never builds a label array."""
+    """Map ratio to boolean in one pass, so a sweep combination never builds a label array."""
     n = relative.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):
@@ -526,7 +526,7 @@ def absolute_form(
     rolling_bars: int,
     session_id: IntArray,
 ) -> FloatArray:
-    """One of the three absolute forms, over volume already zeroed outside the session.
+    """Return one of the three absolute forms, over volume already zeroed outside the session.
 
     ``PER_BAR`` is the count itself; ``ROLLING`` is the trailing sum, ``nan`` through its
     warm-up; ``SESSION_TO_DATE`` restarts at each open and is ``nan`` for a bar in no session.

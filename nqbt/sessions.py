@@ -171,7 +171,7 @@ def force_flat_mask(
     exit_on_close_seconds: int = EXIT_ON_CLOSE_SECONDS,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> BoolArray:
-    """Bars at or past the exit-on-session-close cutoff.
+    """Flag bars at or past the exit-on-session-close cutoff.
 
     Mirrors NT8's ``IsExitOnSessionCloseStrategy`` with ``ExitOnSessionCloseSeconds``: a bar
     triggers the flatten when its end timestamp reaches ``session_end - seconds``. A mask
@@ -187,7 +187,7 @@ def seconds_to_session_end(
     info: SessionInfo,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> FloatArray:
-    """Seconds from each bar's end timestamp to its session's end, which is its last bar.
+    """Return the seconds from each bar's end timestamp to its session's end, which is its last bar.
 
     Reaches exactly zero on that bar. The quantity both :func:`force_flat_mask` and a no-entry
     window before the close are cut from, so the two cannot drift apart --
@@ -197,12 +197,12 @@ def seconds_to_session_end(
 
 
 def _epoch_seconds(eastern: pd.DatetimeIndex) -> IntArray:
-    """Eastern wall-clock timestamps as whole seconds since the epoch, offset discarded."""
+    """Convert Eastern wall-clock timestamps to whole seconds since the epoch, offset discarded."""
     return eastern.tz_localize(None).to_numpy().astype("datetime64[s]").astype(np.int64)
 
 
 def _session_end_seconds(info: SessionInfo, template: SessionTemplate) -> IntArray:
-    """Each bar's session end as epoch seconds: the last in-session bar of its trading day.
+    """Return each bar's session end as epoch seconds: the last in-session bar of its trading day.
 
     Observed rather than scheduled, because NT8's trading-hours template carries the holiday
     calendar and the data is the only place that calendar can be read from here. Falls back to

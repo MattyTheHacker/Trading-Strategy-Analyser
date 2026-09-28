@@ -268,7 +268,7 @@ def by_outcome(
     *,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """One row per outcome, with the mean and median of one numeric condition over its trades.
+    """Return one row per outcome, with the mean and median of one numeric condition over its trades.
 
     The stratification read backwards: "winners averaged 3.2 of these five" rather than "trades
     with three of five returned X". **The forward direction is the stronger one** -- it can show
@@ -321,7 +321,7 @@ def stratify(
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """One condition's strata: a row per value it took, summarising the trades that carried it."""
+    """Return one condition's strata: a row per value it took, summarising the trades that carried it."""
     legs, reviewable, omitted = _prepare(log, annotation, unpopulated)
     _check_stratifiable(reviewable, condition)
 
@@ -335,7 +335,7 @@ def time_of_day(
     min_trades: int = MIN_TRADES,
     unpopulated: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Realised P&L by session phase, in session order, with both forms of volume beside it.
+    """Break realised P&L down by session phase, in session order, with both forms of volume beside it.
 
     Relative volume answers *was this unusual for the time of day* and absolute volume answers
     *was there anything here to trade at all*; the pair is what separates an hour that is always
@@ -451,7 +451,7 @@ def _absent_columns(legs: pd.DataFrame) -> tuple[str, ...]:
 
 
 def _reasons(absent: Sequence[str], legs: pd.DataFrame, unpopulated: Mapping[str, str]) -> dict[str, str]:
-    """Every statistic this log cannot support, and the reason for each in the producer's words."""
+    """Return every statistic this log cannot support, and the reason for each in the producer's words."""
     reasons: dict[str, str] = {}
     for column in absent:
         why: str = unpopulated.get(column, f"this log leaves {column} null on every row")
@@ -467,12 +467,12 @@ def _reasons(absent: Sequence[str], legs: pd.DataFrame, unpopulated: Mapping[str
 
 
 def _simulator_exit_reasons(legs: pd.DataFrame) -> bool:
-    """Whether the exit reasons are the vocabulary that names the session-close flatten."""
+    """Return whether the exit reasons are the vocabulary that names the session-close flatten."""
     return set(legs["exit_reason"].dropna().unique()) <= set(trades.EXIT_REASONS.values())
 
 
 def _summarisable(legs: pd.DataFrame, absent: Sequence[str]) -> pd.DataFrame:
-    """``legs`` with each absent column filled, so ``summarise`` runs over the columns that are not.
+    """Return ``legs`` with each absent column filled, so ``summarise`` runs over the columns that are not.
 
     Every statistic a filled column feeds is already omitted by name, so no value substituted
     here can reach a reported number -- :data:`_PLACEHOLDERS`.
@@ -492,7 +492,7 @@ def _summarisable(legs: pd.DataFrame, absent: Sequence[str]) -> pd.DataFrame:
 
 
 def _is_stratifiable(column: pd.Series) -> bool:  # type: ignore[explicit-any]  # a condition's dtype is its own
-    """Whether one condition takes few enough values, and is not a raw series."""
+    """Return whether one condition takes few enough values, and is not a raw series."""
     if pd.api.types.is_float_dtype(column.dtype):
         return False
 
@@ -550,7 +550,7 @@ def _strata(  # type: ignore[explicit-any]  # a condition's dtype is its own
 
 
 def _groups(values: pd.Series) -> list[tuple[object, pd.Index]]:  # type: ignore[explicit-any]  # a condition's dtype is its own
-    """Each distinct value of one condition and the trade ids carrying it, nulls excluded."""
+    """Return each distinct value of one condition and the trade ids carrying it, nulls excluded."""
     present = values.dropna()
 
     return list(present.groupby(present, sort=True, observed=True).groups.items())
@@ -608,7 +608,7 @@ def _time_of_day(
 
 
 def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.DataFrame:
-    """Median absolute and relative volume per phase: what is normal here, and what was not.
+    """Return median absolute and relative volume per phase: what is normal here, and what was not.
 
     The absolute figure alone cannot say whether a busy hour was unusually busy, and the relative
     figure alone cannot say whether there was anything there to trade.
@@ -624,7 +624,7 @@ def _volume_medians(reviewable: pd.DataFrame, phases: pd.Index[int]) -> pd.DataF
 
 
 def _volume_columns(reviewable: pd.DataFrame) -> list[str]:
-    """Both forms of volume at the entry bar, and never the state label cut from one of them."""
+    """Return both forms of volume at the entry bar, and never the state label cut from one of them."""
     return [
         name
         for name in reviewable.columns
@@ -637,7 +637,7 @@ def _forced_exit_share(
     reviewable: pd.DataFrame,
     phases: pd.Index[int],
 ) -> pd.Series[float]:
-    """Share of each phase's leg exits taken by the clock rather than by the strategy's own rules.
+    """Return the share of each phase's leg exits taken by the clock rather than by the strategy's own rules.
 
     What separates "this hour trades badly" from "this hour's trades were closed by the clock",
     which the final phase demands by construction -- :data:`FORCED_EXIT_NOTE`.

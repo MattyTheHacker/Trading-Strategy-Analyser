@@ -133,7 +133,7 @@ class WalkForwardSummary:
     splits_test_better: int
 
     def as_dict(self) -> dict[str, str | float | int]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return dataclasses.asdict(self)
 
 
@@ -151,7 +151,7 @@ class WalkForwardResult:
     costs: TradingCosts
 
     def pooled_pnl(self) -> FloatArray:
-        """Per-trade P&L across every out-of-sample window, in split order.
+        """Pool per-trade P&L across every out-of-sample window, in split order.
 
         Grouped per split before the leg collapse, because ``trade_id`` restarts at 1 in each
         window -- collapsing the concatenated log would merge trades that only share a number.
@@ -216,7 +216,7 @@ def _window_log(
 
 
 def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
-    """``name`` and the trade count behind it, from a leg-level log."""
+    """Return ``name`` and the trade count behind it, from a leg-level log."""
     if log.empty:
         return np.nan, 0
 

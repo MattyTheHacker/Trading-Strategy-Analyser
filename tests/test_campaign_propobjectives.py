@@ -45,12 +45,12 @@ START = dt.date(2024, 1, 2)
 
 
 def days_from(start: dt.date, n: int) -> np.ndarray:
-    """A calendar of ``n`` consecutive trading days, so a count of days is a count of dates."""
+    """Build a calendar of ``n`` consecutive trading days, so a count of days is a count of dates."""
     return np.datetime64(start, "D") + np.arange(n).astype("timedelta64[D]")
 
 
 def leg_log(daily: list[float]) -> pd.DataFrame:
-    """One single-leg MNQ trade per trading day, from each day's net P&L."""
+    """Build one single-leg MNQ trade per trading day, from each day's net P&L."""
     n = len(daily)
     exits = pd.Timestamp("2024-01-02 15:00", tz="UTC") + pd.to_timedelta(np.arange(n), unit="D")
 
@@ -78,7 +78,7 @@ def leg_log(daily: list[float]) -> pd.DataFrame:
 
 
 def evaluation(**overrides: object) -> propaccount.PropAccount:
-    """A plain evaluation on closed balances, so each test moves only the field it names."""
+    """Build a plain evaluation on closed balances, so each test moves only the field it names."""
     fields = {
         "starting_balance": 50_000.0,
         "profit_target": 3_000.0,
@@ -93,7 +93,7 @@ def evaluation(**overrides: object) -> propaccount.PropAccount:
 
 
 def funded(**overrides: object) -> propaccount.PropAccount:
-    """A funded account from its first day, the shape of a TakeProfitTrader PRO preset."""
+    """Build a funded account from its first day, the shape of a TakeProfitTrader PRO preset."""
     return propaccount.PropAccount(name="Funded", rules=evaluation(profit_target=0.0, **overrides).rules)
 
 
@@ -262,7 +262,7 @@ def test_a_cost_ranks_lowest_first_and_selection_profit_factor_breaks_a_tie() ->
 
 
 def selection_frame() -> pd.DataFrame:
-    """Four configurations measured through two presets on the selection window."""
+    """Measure four configurations through two presets on the selection window."""
     return pd.DataFrame(
         [
             {
@@ -317,7 +317,7 @@ def test_no_preset_with_a_measure_means_no_shortlist_rather_than_an_empty_row() 
 
 
 def held_frame() -> pd.DataFrame:
-    """The same four configurations through the same presets on the held-out window."""
+    """Build the same four configurations through the same presets on the held-out window."""
     held = selection_frame()
     held["pass_rate"] = [0.3, 0.3, 0.1, 0.0] * 2
     held[CONTROL] = [1.0, 0.9, 1.1, 1.2] * 2
@@ -355,7 +355,7 @@ def test_nothing_chosen_or_nothing_held_has_no_verdict() -> None:
 
 
 def paired_rows() -> pd.DataFrame:
-    """Four stored pairs, already in selection-window rank order."""
+    """Build four stored pairs, already in selection-window rank order."""
     return pd.DataFrame(
         {
             "root": ROOT,
@@ -498,7 +498,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def stored_selection(db, bars: pd.DataFrame) -> pd.DataFrame:
-    """Two InsideBar configurations swept on the selection window and read back as stored rows."""
+    """Sweep two InsideBar configurations on the selection window and read them back as stored rows."""
     frame = resample.resample(source(bars, "selection"), 5)
     grid = sweep.Grid.of(
         InsideBarParams(slow_sma_period=50, bars_required_to_trade=60), atr_multiplier=[5.0, 10.0]

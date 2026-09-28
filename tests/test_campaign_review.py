@@ -46,7 +46,7 @@ HEAVY = 1.5
 
 
 def bars() -> pd.DataFrame:
-    """``MINUTES`` one-minute bars from 09:00 ET on each of ``SESSIONS`` weekdays."""
+    """Build ``MINUTES`` one-minute bars from 09:00 ET on each of ``SESSIONS`` weekdays."""
     days = pd.bdate_range("2024-01-02", periods=SESSIONS)
     stamps = [pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=MINUTES, freq="min", tz="UTC") for day in days]
     index = stamps[0].append(stamps[1:])
@@ -72,12 +72,12 @@ def bars() -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def data() -> context.Dataset:
-    """The bars a stored log would have been simulated over, with the clock and all three forms."""
+    """Provide the bars a stored log would have been simulated over, with the clock and all three forms."""
     return context.prepare(bars(), review_spec(), bar_minutes=1)
 
 
 def entry_bars(data: context.Dataset, per_phase: int = 60) -> np.ndarray:  # type: ignore[type-arg]  # a bar index array
-    """``per_phase`` labelled bars from each session phase, so every phase clears the floor."""
+    """Pick ``per_phase`` labelled bars from each session phase, so every phase clears the floor."""
     phases = data.phase_values()
     labelled_volume = np.isfinite(data.relative_volume(volume_keys()[0]))
     chosen: list[int] = []
@@ -89,7 +89,7 @@ def entry_bars(data: context.Dataset, per_phase: int = 60) -> np.ndarray:  # typ
 
 
 def trade_log(data: context.Dataset, seed: int = 5) -> pd.DataFrame:
-    """A one-leg-per-trade log entered on those bars, in the shape ``save_trades`` stores.
+    """Build a one-leg-per-trade log entered on those bars, in the shape ``save_trades`` stores.
 
     Prices are the bars' own closes, which is what lets the annotation's price check pass with
     no tolerance -- a fill outside its bar is how a back-adjusted series announces itself.
@@ -128,7 +128,7 @@ def trade_log(data: context.Dataset, seed: int = 5) -> pd.DataFrame:
 
 
 def stored_row(**columns: object) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
-    """One ranked row, carrying the tags and the cut the configuration was measured at."""
+    """Build one ranked row, carrying the tags and the cut the configuration was measured at."""
     base: dict[str, object] = {
         "sweep_id": SWEEP_ID,
         "combo_id": COMBO_ID,
@@ -148,7 +148,7 @@ def stored_row(**columns: object) -> pd.Series:  # type: ignore[type-arg]  # duc
 
 @pytest.fixture
 def stocked(tmp_path, data):
-    """A database holding one stored log, at the ids the ranked row names."""
+    """Provide a database holding one stored log, at the ids the ranked row names."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(data), SWEEP_ID, COMBO_ID, db)
 
@@ -156,7 +156,7 @@ def stocked(tmp_path, data):
 
 
 def annotation_of(data: context.Dataset) -> annotate.Annotation:
-    """The annotation the tool builds, for the tests that do not need the whole report."""
+    """Return the annotation the tool builds, for the tests that do not need the whole report."""
     return annotate.annotate_trades(
         trade_log(data),
         data,

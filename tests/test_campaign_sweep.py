@@ -192,7 +192,7 @@ quietly narrowing the campaign."""
 
 
 def all_variants() -> list[Variant]:
-    """Every variant of every archetype, on both roots."""
+    """Build every variant of every archetype, on both roots."""
     return [variant for build in VARIANTS.values() for root in COMMISSION for variant in build(root)]
 
 
@@ -460,7 +460,7 @@ FITTED = (
 
 
 def calibration_bars(n: int = 4000, seed: int = 4) -> pd.DataFrame:
-    """A one-minute frame whose held-out half is a straight line, which scores 1.0 everywhere.
+    """Build a one-minute frame whose held-out half is a straight line, which scores 1.0 everywhere.
 
     A fit that reached past the selection window would put the upper threshold at 1.0 and say so.
     """
@@ -473,7 +473,7 @@ def calibration_bars(n: int = 4000, seed: int = 4) -> pd.DataFrame:
 
 
 def calibrated_args(**overrides: object) -> argparse.Namespace:
-    """The arguments ``fit_regime`` reads, at one resolution so ``resample`` is a pass-through."""
+    """Build the arguments ``fit_regime`` reads, at one resolution so ``resample`` is a pass-through."""
     return argparse.Namespace(
         **{
             "resolutions": [1],
@@ -654,7 +654,7 @@ def test_the_opening_range_sweeps_both_sides_as_separate_combinations() -> None:
 
 
 def volume_bars(sessions_wanted: int = 30, seed: int = 7) -> pd.DataFrame:
-    """Whole sessions carrying volume, so a bar-of-session baseline has sessions to be taken over."""
+    """Build whole sessions carrying volume, so a bar-of-session baseline has sessions to be taken over."""
     n = sessions_wanted * 1440
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
@@ -676,7 +676,7 @@ def volume_bars(sessions_wanted: int = 30, seed: int = 7) -> pd.DataFrame:
 
 
 def volume_args(**overrides: object) -> argparse.Namespace:
-    """The arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
+    """Build the arguments ``fit_volume`` reads, at one resolution so ``resample`` is a pass-through."""
     return argparse.Namespace(
         **{"resolutions": [1], "volume_quantiles": VOLUME_TAILS, **VOLUME_WINDOWS, **overrides}
     )
@@ -1181,7 +1181,7 @@ def test_the_parked_orb_grid_is_untouched_by_the_fades_re_run() -> None:
 
 
 def stored_orb_variants() -> list[Variant]:
-    """Every OpeningRange variant the three stored runs were produced by."""
+    """Return every OpeningRange variant the three stored runs were produced by."""
     return [
         variant
         for build in (VARIANTS, ORB_VARIANTS, ORB_FADE_VARIANTS, ORB_REJECTION_VARIANTS)
@@ -1569,7 +1569,7 @@ def test_the_bracket_run_carries_the_roots_real_costs() -> None:
 
 
 def volume_variants(root: str = "MNQ") -> list[Variant]:
-    """The control and the treatment of the volume run, in that order."""
+    """Return the control and the treatment of the volume run, in that order."""
     return ELASTIC_VOLUME_VARIANTS["ElasticBand"](root)
 
 
@@ -1667,7 +1667,7 @@ def test_variants_for_selects_the_volume_grid() -> None:
 
 
 def channel_variants(root: str = "MNQ") -> list[Variant]:
-    """Every arm of the channel run: both channels crossed with both shapes."""
+    """Return every arm of the channel run: both channels crossed with both shapes."""
     return ELASTIC_CHANNEL_VARIANTS["ElasticBand"](root)
 
 
@@ -1814,7 +1814,7 @@ def test_variants_for_selects_the_channel_grid() -> None:
 
 
 def recovery_variants(root: str = "MNQ") -> list[Variant]:
-    """Every arm of the recovery run, the two controls first."""
+    """Return every arm of the recovery run, the two controls first."""
     return ELASTIC_RECOVERY_VARIANTS["ElasticBand"](root)
 
 
@@ -1926,7 +1926,7 @@ def test_variants_for_selects_the_recovery_grid() -> None:
 
 
 def band_stop_variants(root: str = "MNQ") -> list[Variant]:
-    """Every arm of the band-stop run, the three existing stops first."""
+    """Return every arm of the band-stop run, the three existing stops first."""
     return ELASTIC_BAND_STOP_VARIANTS["ElasticBand"](root)
 
 
@@ -2048,7 +2048,7 @@ def test_variants_for_selects_the_band_stop_grid() -> None:
 
 
 def trail_variants(root: str = "MNQ") -> list[Variant]:
-    """Both arms of the trail run, the fixed stop first."""
+    """Return both arms of the trail run, the fixed stop first."""
     return EMAPULLBACK_TRAIL_VARIANTS["EmaPullback"](root)
 
 
@@ -2090,7 +2090,7 @@ def test_every_trail_variant_grid_can_be_built_at_every_cell() -> None:
 
 
 def conditions_free_of_the_third_grid(grid: sweep.Grid) -> bool:
-    """Neither arm builds the trail's own grid: one never trails and the other trails on ``slow``."""
+    """Check neither arm builds the trail's own grid: one never trails and the other trails on ``slow``."""
     periods = {period for _, period in grid.required_context().ma_keys}
 
     return periods == set(grid.axes["fast_period"]) | set(grid.axes["slow_period"])
@@ -2100,7 +2100,7 @@ def conditions_free_of_the_third_grid(grid: sweep.Grid) -> bool:
 
 
 def confirm_variants(root: str = "MNQ") -> list[Variant]:
-    """All three arms of the confirmation run, the market entry first."""
+    """Return all three arms of the confirmation run, the market entry first."""
     return EMAPULLBACK_CONFIRM_VARIANTS["EmaPullback"](root)
 
 
@@ -2152,7 +2152,7 @@ FINDINGS = SOURCE.parent.parent / "docs" / "findings"
 
 
 def prepared_price_bases() -> list[str]:
-    """Every ``price_basis`` the campaign's own ``context.prepare`` calls state."""
+    """List every ``price_basis`` the campaign's own ``context.prepare`` calls state."""
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 
     return [
@@ -2165,7 +2165,7 @@ def prepared_price_bases() -> list[str]:
 
 
 def loaded_series() -> list[str]:
-    """Every ``splice.load_continuous`` call the campaign makes, as written."""
+    """List every ``splice.load_continuous`` call the campaign makes, as written."""
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 
     return [
@@ -2205,7 +2205,7 @@ def test_no_findings_file_calls_the_campaigns_series_back_adjusted() -> None:
 
 
 def a_cut(root: str = "MNQ", minutes: int = 5, labels: tuple[str, ...] = ("size_on_vwap", "size_on_regime")):
-    """A cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it."""
+    """Build a cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it."""
     return SizingCut(
         root=root,
         minutes=minutes,

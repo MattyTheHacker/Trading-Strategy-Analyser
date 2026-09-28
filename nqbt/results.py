@@ -112,7 +112,7 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def _count(con: duckdb.DuckDBPyConnection, sql: str, parameters: Sequence[object] = ()) -> int:
-    """The single number an aggregate query returns."""
+    """Fetch the single number an aggregate query returns."""
     row = con.execute(sql, list(parameters)).fetchone()
     if row is None:  # pragma: no cover - an aggregate always returns exactly one row
         msg: str = f"no row from {sql!r}"
@@ -244,14 +244,14 @@ def _tag_axes(
 
 
 def _quoted(name: str) -> str:
-    """A column name as a SQL identifier, so a statistic named like a keyword still inserts."""
+    """Quote a column name as a SQL identifier, so a statistic named like a keyword still inserts."""
     escaped: str = name.replace('"', '""')
 
     return f'"{escaped}"'
 
 
 def _describe(con: duckdb.DuckDBPyConnection, relation: str) -> dict[str, str]:
-    """Column name to DuckDB type, for a stored table or for the registered frame."""
+    """Map column name to DuckDB type, for a stored table or for the registered frame."""
     return {str(row[0]): str(row[1]) for row in con.execute(f"DESCRIBE {relation}").fetchall()}
 
 
@@ -260,7 +260,7 @@ def _lossy_columns(
     stored: Mapping[str, str],
     incoming: Mapping[str, str],
 ) -> list[str]:
-    """Which shared columns hold a value the stored column's type would not give back.
+    """List which shared columns hold a value the stored column's type would not give back.
 
     A round trip through both types, so this reports *measured* loss rather than a rule about
     which casts are safe: ``5.0`` into a BIGINT column is fine and ``2.5`` is not.
@@ -495,7 +495,7 @@ def query(sql: str, db_path: Path = paths.SWEEPS_DB) -> pd.DataFrame:
 
 
 def list_sweeps(db_path: Path = paths.SWEEPS_DB) -> pd.DataFrame:
-    """Every stored sweep, newest first, with the axis columns next to ``root``."""
+    """List every stored sweep, newest first, with the axis columns next to ``root``."""
     return query(
         "SELECT sweep_id, batch_id, created_utc, root, strategy, resolution, contract, "
         "tier2, combos, bars, elapsed_s, axes, notes "
@@ -511,7 +511,7 @@ def best(
     min_trades: int = 30,
     db_path: Path = paths.SWEEPS_DB,
 ) -> pd.DataFrame:
-    """Top candidates, across every sweep unless one is named."""
+    """Return the top candidates, across every sweep unless one is named."""
     where: str = f"WHERE trades >= {int(min_trades)}"
     if sweep_id is not None:
         where += f" AND sweep_id = {int(sweep_id)}"

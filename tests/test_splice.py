@@ -243,12 +243,12 @@ def test_shifts_accumulate_across_multiple_rolls() -> None:
 
 
 def moving_frame(prices: dict[str, float], volumes: dict[str, int]) -> pd.DataFrame:
-    """A contract whose price changes day to day, so a seam carries a real move."""
+    """Build a contract whose price changes day to day, so a seam carries a real move."""
     return pd.concat([make_frame([day], price, {day: volumes[day]}) for day, price in prices.items()])
 
 
 def drifting_basis_frames() -> dict[ContractId, pd.DataFrame]:
-    """Two contracts whose basis widens 8 -> 10 -> 22 over the three days.
+    """Build two contracts whose basis widens 8 -> 10 -> 22 over the three days.
 
     An offset measured on any bar but the last one the front contract contributes would
     therefore leave a residual at the seam.

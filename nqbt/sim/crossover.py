@@ -266,7 +266,7 @@ def _protective_stop(
     rules: CrossoverRules,
     costs: bracket.Costs,
 ) -> float:
-    """Where the protective stop goes, in whichever of the three modes is selected.
+    """Return where the protective stop goes, in whichever of the three modes is selected.
 
     All three read the **signal** bar and the bars before it, never the bar the fill happens
     on. The level mode puts the stop on ``series.stop_level`` plus the usual offset and takes
@@ -304,7 +304,7 @@ def _trailed_stop(
     rules: CrossoverRules,
     costs: bracket.Costs,
 ) -> float:
-    """The stop after one completed bar of the moving-average trail.
+    """Return the stop after one completed bar of the moving-average trail.
 
     Round-number avoidance runs **before** the ratchet, so pushing a level away from a round
     number can only widen the candidate and never loosen the stop already in place.
@@ -322,7 +322,7 @@ def _off_the_round_number(
     rules: CrossoverRules,
     costs: bracket.Costs,
 ) -> float:
-    """The stop, moved off a round number it landed exactly on. Off at ``0`` spacing."""
+    """Move the stop off a round number it landed exactly on. Off at ``0`` spacing."""
     return bracket.avoid_round_number(
         stop,
         rules.round_number_points,
@@ -333,7 +333,7 @@ def _off_the_round_number(
 
 
 def regime_direction(fast: FloatArray, slow: FloatArray) -> FloatArray:
-    """Which side the prevailing regime is on: ``LONG`` where ``fast > slow``, else ``SHORT``.
+    """Return which side the prevailing regime is on: ``LONG`` where ``fast > slow``, else ``SHORT``.
 
     The boundary matches :func:`nqbt.conditions.cross_above`'s. Defined on **every** bar rather
     than only on cross bars, so the random-entry arm can drop a signal anywhere and still know
@@ -343,7 +343,7 @@ def regime_direction(fast: FloatArray, slow: FloatArray) -> FloatArray:
 
 
 def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[FloatArray, FloatArray]:
-    """The fast and slow EMA values this combination compares.
+    """Return the fast and slow EMA values this combination compares.
 
     Read out of the shared grid, which is built with ``needs_ma_values`` for this archetype.
     """
@@ -354,7 +354,7 @@ def crossover_averages(data: Dataset, params: EmaCrossoverParams) -> tuple[Float
 
 
 def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open.
+    """Flag bars whose close schedules an entry for the next bar's open.
 
     Each side's cross is ANDed with the prevailing regime, which matters once
     ``cross_lookback > 1``: the window stays true for ``n`` bars and the averages can cross

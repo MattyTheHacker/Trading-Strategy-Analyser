@@ -68,7 +68,7 @@ volatility measures -- ``docs/roadmap.md`` §M26.8."""
 
 
 def geometries() -> list[tuple[str, str, ElasticBandParams]]:
-    """``(scheme, label, params)`` for every exit geometry to measure."""
+    """Return ``(scheme, label, params)`` for every exit geometry to measure."""
     out: list[tuple[str, str, ElasticBandParams]] = []
     for hold in (5, 10, 20, 40):
         for level in (-0.5, 0.0, 0.5):
@@ -126,7 +126,7 @@ def geometries() -> list[tuple[str, str, ElasticBandParams]]:
 
 
 def measure(contract: str, iterations: int, n_jobs: int) -> pd.DataFrame:
-    """One row per geometry: observed, null median and the excess between them."""
+    """Return one row per geometry: observed, null median and the excess between them."""
     bars = ingest.load_contract(ContractId.parse(contract))
     archetype = archetypes.ELASTICBAND
     rows: list[dict[str, object]] = []
@@ -157,7 +157,7 @@ def measure(contract: str, iterations: int, n_jobs: int) -> pd.DataFrame:
 
 
 def report(table: pd.DataFrame, statistic: str = "profit_factor") -> str:
-    """The two rankings side by side, which is the whole point of the exercise."""
+    """Render the two rankings side by side, which is the whole point of the exercise."""
     lines: list[str] = []
     for scheme, group in table.groupby("scheme"):
         by_observed = group.nlargest(1, f"{statistic}_observed").iloc[0]

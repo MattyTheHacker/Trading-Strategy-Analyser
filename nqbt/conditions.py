@@ -59,7 +59,7 @@ __all__ = [
 
 @njit(cache=True)
 def _inverted_hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close: FloatArray) -> BoolArray:
-    """Upper wick at least twice the body, lower wick no larger than the body.
+    """Flag an upper wick at least twice the body, lower wick no larger than the body.
 
     ``DeadCatBounce.cs``. ``body > 0`` means a doji never qualifies.
     """
@@ -78,7 +78,7 @@ def _inverted_hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close
 
 @njit(cache=True)
 def _hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close: FloatArray) -> BoolArray:
-    """Lower wick at least twice the body, upper wick no larger than the body.
+    """Flag a lower wick at least twice the body, upper wick no larger than the body.
 
     ``PullBackAndGo.cs`` -- :func:`_inverted_hammer` with the wick roles swapped.
     """
@@ -97,7 +97,7 @@ def _hammer(open_: FloatArray, high: FloatArray, low: FloatArray, close: FloatAr
 
 @njit(cache=True)
 def _made_new_high(high: FloatArray) -> BoolArray:
-    """``High[0] > High[1]``. The first bar has no predecessor and cannot qualify."""
+    """Test ``High[0] > High[1]``. The first bar has no predecessor and cannot qualify."""
     n = high.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
@@ -108,7 +108,7 @@ def _made_new_high(high: FloatArray) -> BoolArray:
 
 @njit(cache=True)
 def _made_new_low(low: FloatArray) -> BoolArray:
-    """``Low[0] < Low[1]``, ``PullBackAndGo.cs``'s mirror of :func:`_made_new_high`."""
+    """Test ``Low[0] < Low[1]``, ``PullBackAndGo.cs``'s mirror of :func:`_made_new_high`."""
     n = low.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
@@ -119,7 +119,7 @@ def _made_new_low(low: FloatArray) -> BoolArray:
 
 @njit(cache=True)
 def _previous_bar_green(open_: FloatArray, close: FloatArray) -> BoolArray:
-    """``Close[1] >= Open[1]``, so a doji-closed previous bar counts as green and passes."""
+    """Test ``Close[1] >= Open[1]``, so a doji-closed previous bar counts as green and passes."""
     n = open_.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(1, n):
@@ -130,7 +130,7 @@ def _previous_bar_green(open_: FloatArray, close: FloatArray) -> BoolArray:
 
 @njit(cache=True)
 def _previous_bar_red(open_: FloatArray, close: FloatArray) -> BoolArray:
-    """``Close[1] < Open[1]``, so a doji-closed previous bar is **not** red and does not pass.
+    """Test ``Close[1] < Open[1]``, so a doji-closed previous bar is **not** red and does not pass.
 
     The one boundary where the two archetypes do not mirror each other --
     ``docs/nt8-fidelity.md``, "The entry filters' equality boundaries".
@@ -145,7 +145,7 @@ def _previous_bar_red(open_: FloatArray, close: FloatArray) -> BoolArray:
 
 @njit(cache=True)
 def _prior_bar_inside(high: FloatArray, low: FloatArray) -> BoolArray:
-    """``High[1] < High[2] and Low[1] > Low[2]``, stamped on the bar whose close judges it.
+    """Test ``High[1] < High[2] and Low[1] > Low[2]``, stamped on the bar whose close judges it.
 
     ``InsideBar.cs``. Both bounds are strict, so a bar equalling either extreme of its
     predecessor is not inside it. The first two bars have no pair behind them.
@@ -159,42 +159,42 @@ def _prior_bar_inside(high: FloatArray, low: FloatArray) -> BoolArray:
 
 
 def inverted_hammer(bars: pd.DataFrame) -> BoolArray:
-    """:func:`_inverted_hammer` over a bar frame's OHLC columns."""
+    """Run :func:`_inverted_hammer` over a bar frame's OHLC columns."""
     return _inverted_hammer(*ohlc(bars))
 
 
 def hammer(bars: pd.DataFrame) -> BoolArray:
-    """:func:`_hammer` over a bar frame's OHLC columns."""
+    """Run :func:`_hammer` over a bar frame's OHLC columns."""
     return _hammer(*ohlc(bars))
 
 
 def made_new_high(bars: pd.DataFrame) -> BoolArray:
-    """:func:`_made_new_high` over a bar frame's highs."""
+    """Run :func:`_made_new_high` over a bar frame's highs."""
     return _made_new_high(float_column(bars, "high"))
 
 
 def made_new_low(bars: pd.DataFrame) -> BoolArray:
-    """:func:`_made_new_low` over a bar frame's lows."""
+    """Run :func:`_made_new_low` over a bar frame's lows."""
     return _made_new_low(float_column(bars, "low"))
 
 
 def previous_bar_green(bars: pd.DataFrame) -> BoolArray:
-    """:func:`_previous_bar_green` over a bar frame's opens and closes."""
+    """Run :func:`_previous_bar_green` over a bar frame's opens and closes."""
     return _previous_bar_green(float_column(bars, "open"), float_column(bars, "close"))
 
 
 def previous_bar_red(bars: pd.DataFrame) -> BoolArray:
-    """:func:`_previous_bar_red` over a bar frame's opens and closes."""
+    """Run :func:`_previous_bar_red` over a bar frame's opens and closes."""
     return _previous_bar_red(float_column(bars, "open"), float_column(bars, "close"))
 
 
 def prior_bar_inside(bars: pd.DataFrame) -> BoolArray:
-    """:func:`_prior_bar_inside` over a bar frame's highs and lows."""
+    """Run :func:`_prior_bar_inside` over a bar frame's highs and lows."""
     return _prior_bar_inside(float_column(bars, "high"), float_column(bars, "low"))
 
 
 def below_series(close: FloatArray, series: FloatArray) -> BoolArray:
-    """The downtrend gate: the negation of ``DeadCatBounce.cs``'s rejection, so equality passes.
+    """Return the downtrend gate: the negation of ``DeadCatBounce.cs``'s rejection, so equality passes.
 
     Writing the positive ``close < series`` would silently drop those bars.
     """
@@ -202,7 +202,7 @@ def below_series(close: FloatArray, series: FloatArray) -> BoolArray:
 
 
 def above_series(close: FloatArray, series: FloatArray) -> BoolArray:
-    """The uptrend gate: the negation of ``PullBackAndGo.cs``'s rejection, so equality passes.
+    """Return the uptrend gate: the negation of ``PullBackAndGo.cs``'s rejection, so equality passes.
 
     **Not** ``~below_series`` -- the two overlap at ``close == series`` rather than
     partitioning it. See ``docs/nt8-fidelity.md``.
@@ -211,7 +211,7 @@ def above_series(close: FloatArray, series: FloatArray) -> BoolArray:
 
 
 def closed_towards(open_: FloatArray, close: FloatArray, direction: FloatArray | float) -> BoolArray:
-    """Bars whose body runs the way ``direction`` trades -- green for a long, red for a short.
+    """Flag bars whose body runs the way ``direction`` trades -- green for a long, red for a short.
 
     A doji runs neither way and passes on neither side, which is the symmetric boundary one
     sign multiplier asks for -- ``docs/nt8-fidelity.md`` §M26.5. Deliberately **not** the ported
@@ -222,7 +222,7 @@ def closed_towards(open_: FloatArray, close: FloatArray, direction: FloatArray |
 
 @njit(cache=True)
 def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> BoolArray:
-    """NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?"""
+    """Evaluate NT8's ``CrossAbove``/``CrossBelow``: did the cross happen within ``lookback`` bars?"""
     n = fast.size
     out = np.zeros(n, dtype=np.bool_)
     last = -1
@@ -242,7 +242,7 @@ def _crossed(fast: FloatArray, slow: FloatArray, lookback: int, above: bool) -> 
 
 
 def cross_above(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolArray:
-    """``CrossAbove(fast, slow, lookback)`` as NinjaScript evaluates it.
+    """Compute ``CrossAbove(fast, slow, lookback)`` as NinjaScript evaluates it.
 
     True on every bar within ``lookback`` bars *of* a cross, not only on the bar the cross
     happened; ``lookback=1`` is the bar itself. Equality is resolved on the *prior* bar. Reads
@@ -261,7 +261,7 @@ def cross_above(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolAr
 
 
 def cross_below(fast: FloatArray, slow: FloatArray, lookback: int = 1) -> BoolArray:
-    """``CrossBelow(fast, slow, lookback)`` -- :func:`cross_above` with both tests mirrored.
+    """Compute ``CrossBelow(fast, slow, lookback)`` -- :func:`cross_above` with both tests mirrored.
 
     Not its complement: where neither series moved past the other, both are false.
     """
@@ -294,7 +294,7 @@ class BarGeometry:
 
 
 def bar_geometry(bars: pd.DataFrame) -> BarGeometry:
-    """Every parameter-free condition, computed once over the whole frame."""
+    """Compute every parameter-free condition once, over the whole frame."""
     return BarGeometry(
         inverted_hammer=inverted_hammer(bars),
         hammer=hammer(bars),
@@ -394,7 +394,7 @@ class MovingAverageGrid:
     """
 
     def row(self, period: int) -> int:
-        """The row holding ``period``, or an error naming what the grid was built for."""
+        """Return the row holding ``period``, or raise an error naming what the grid was built for."""
         idx: int = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
             msg: str = f"{self.kind}({period}) is not in this grid; built for {self.periods.tolist()}"
@@ -403,15 +403,15 @@ class MovingAverageGrid:
         return idx
 
     def below_for(self, period: int) -> BoolArray:
-        """One period's ``Close < MA`` gate."""
+        """Return one period's ``Close < MA`` gate."""
         return np.asarray(self.below[self.row(period)])
 
     def above_for(self, period: int) -> BoolArray:
-        """One period's ``Close > MA`` gate."""
+        """Return one period's ``Close > MA`` gate."""
         return np.asarray(self.above[self.row(period)])
 
     def values_for(self, period: int) -> FloatArray:
-        """One period's raw moving-average values, when the grid kept them."""
+        """Return one period's raw moving-average values, when the grid kept them."""
         if self.values is None:
             msg: str = (
                 "this grid kept only the boolean gate; rebuild it with keep_values=True "
@@ -467,7 +467,7 @@ def moving_average_grid(
 
 @njit(cache=True)
 def consecutive_true(mask: BoolArray) -> IntArray:
-    """How many bars up to and including this one are ``True`` unbroken; ``0`` where it is not.
+    """Count how many bars up to and including this one are ``True`` unbroken; ``0`` where it is not.
 
     The other axis from :func:`count_true`, which counts conditions on one bar where this
     counts bars for one condition -- ``docs/roadmap.md`` §M26.
@@ -484,7 +484,7 @@ def consecutive_true(mask: BoolArray) -> IntArray:
 
 @njit(cache=True)
 def events_earlier_in_run(run: BoolArray, event: BoolArray) -> IntArray:
-    """How many ``event`` bars came earlier in the unbroken ``run`` this bar belongs to.
+    """Count how many ``event`` bars came earlier in the unbroken ``run`` this bar belongs to.
 
     Strictly earlier, so the first event of a run reads ``0`` on its own bar; ``0`` outside a
     run, where there is nothing for an event to be earlier in. An event outside a run counts
@@ -507,7 +507,7 @@ def events_earlier_in_run(run: BoolArray, event: BoolArray) -> IntArray:
 
 @njit(cache=True)
 def rolling_count(mask: BoolArray, lookback: int) -> IntArray:
-    """How many of the ``lookback`` bars ending at each bar are ``True``.
+    """Count how many of the ``lookback`` bars ending at each bar are ``True``.
 
     The window is truncated at the head rather than left undefined, so an early bar counts the
     bars that exist and a threshold it cannot reach simply fails -- the third axis alongside
@@ -531,7 +531,7 @@ def rolling_count(mask: BoolArray, lookback: int) -> IntArray:
 
 @njit(cache=True)
 def count_true(stack: BoolArray) -> IntArray:
-    """Per-bar count of satisfied conditions, given a ``[n_conditions, n_bars]`` stack.
+    """Count satisfied conditions per bar, given a ``[n_conditions, n_bars]`` stack.
 
     Backs the confluence pattern: "at least 3 of 5", with the minimum itself sweepable.
     """

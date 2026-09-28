@@ -128,7 +128,7 @@ def _write(path: Path, rows: dict[bytes, bytes]) -> None:
 
 
 def _contracts(source_dirs: Iterable[Path], root: str | None) -> dict[str, list[Path]]:
-    """Source files per contract, in the precedence order the folders were given."""
+    """Return the source files per contract, in the precedence order the folders were given."""
     found: dict[str, list[Path]] = {}
     for directory in source_dirs:
         if not directory.exists():

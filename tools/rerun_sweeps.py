@@ -72,7 +72,7 @@ TABLES = ("trades", "combos", "sweeps")
 
 
 def strata() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
-    """The eleven stratifications, each an extra axis over :data:`GRID_AXES`.
+    """Yield the eleven stratifications, each an extra axis over :data:`GRID_AXES`.
 
     The unfiltered run comes first so every stratum has its own baseline to be read against,
     and the two labels never appear in the same grid.
@@ -101,7 +101,7 @@ def drop_tables(db_path: paths.Path) -> None:
 
 
 def grids() -> list[tuple[str, sweep.Grid]]:
-    """One named grid per stratum, all over the same base parameters."""
+    """Build one named grid per stratum, all over the same base parameters."""
     base = DeadCatParams(commission_per_contract=COMMISSION, slippage_ticks=SLIPPAGE_TICKS)
 
     return [

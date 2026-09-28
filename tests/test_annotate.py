@@ -46,7 +46,7 @@ FULL_SPEC = ContextSpec(
 
 
 def bars(n: int = 120, start: str = START) -> pd.DataFrame:
-    """One-minute bars inside a session, priced so a bar's range is known from its index.
+    """Build one-minute bars inside a session, priced so a bar's range is known from its index.
 
     Bar ``i`` opens at ``BASE + (i - 1) * 0.25``, closes a tick higher, and runs a point either
     side of that, so a fill inside a chosen bar can be written down rather than searched for.
@@ -100,7 +100,7 @@ def leg(
     entry_price: float,
     exit_price: float,
 ) -> dict[str, object]:
-    """One leg of a manual log, priced explicitly. Legs are numbered in the order they arrive."""
+    """Build one leg of a manual log, priced explicitly. Legs are numbered in the order they arrive."""
     return {
         "trade_id": trade_id,
         "entry_time": entry_time,
@@ -839,7 +839,7 @@ legs, and every fill between 16:58 and 17:08 UTC once the display zone is applie
 
 
 def sample_bars() -> pd.DataFrame:
-    """Minute bars over the sample's window, wide enough to hold every one of its fills."""
+    """Build minute bars over the sample's window, wide enough to hold every one of its fills."""
     index = pd.date_range("2026-08-10 16:50", periods=30, freq="min", tz="UTC")
     close = np.full(len(index), 29775.0)
     frame = pd.DataFrame(
@@ -884,7 +884,7 @@ def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tm
 
 
 def counted(frame: pd.DataFrame, **columns: object) -> annotate.Annotation:
-    """An annotation carrying the boolean conditions a count can be taken over."""
+    """Build an annotation carrying the boolean conditions a count can be taken over."""
     index = pd.Index(np.arange(1, len(frame) + 1, dtype=np.int64), name="trade_id")
     base = pd.DataFrame({"matched": True}, index=index)
 

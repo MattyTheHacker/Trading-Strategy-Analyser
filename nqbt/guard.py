@@ -187,7 +187,7 @@ class SeparationTest:
     trades_ranked: int
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
@@ -214,7 +214,7 @@ class Holdout:
     """Whether both held-out strata met the floor. Rarely, on a few hundred trades."""
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
@@ -289,7 +289,7 @@ class _Grouping:
 
 
 def _positional(labels: Labels) -> Column:  # type: ignore[explicit-any]  # a condition's dtype is its own
-    """One label per trade, indexed by position, whatever the caller held them in."""
+    """Return one label per trade, indexed by position, whatever the caller held them in."""
     return pd.Series(labels).reset_index(drop=True)
 
 
@@ -351,7 +351,7 @@ def separate(  # type: ignore[explicit-any]  # a condition's dtype is its own
     statistic: str = "expectancy",
     min_trades: int = review.MIN_TRADES,
 ) -> Separation:
-    """How far ``statistic`` separates the strata one condition cuts ``pnl`` into.
+    """Measure how far ``statistic`` separates the strata one condition cuts ``pnl`` into.
 
     The quantity :func:`nqbt.review.rank_conditions` ranks on, computed from a per-trade P&L
     vector rather than from a :func:`nqbt.stats.summarise` per stratum, because a null needs
@@ -448,7 +448,7 @@ def _family_null(draws: Draws) -> Floats:
 
 
 def _p_value(null: Floats, observed: float) -> tuple[float, int]:
-    """Share of a null's measurable draws that reached ``observed``, and how many voted."""
+    """Return the share of a null's measurable draws that reached ``observed``, and how many voted."""
     finite: FloatArray = null[np.isfinite(null)]
     if not np.isfinite(observed) or finite.size == 0:
         return np.nan, int(finite.size)
@@ -535,7 +535,7 @@ def permutation_test(  # type: ignore[explicit-any]  # a condition's dtype is it
     iterations: int = DEFAULT_ITERATIONS,
     seed: int = 0,
 ) -> SeparationTest:
-    """One condition's separation against shuffled labels.
+    """Test one condition's separation against shuffled labels.
 
     **For a condition chosen for a reason.** Running it over several and reading the smallest
     ``p_value`` is what :func:`screen` exists to stop; both draw one :class:`_Null`, so the two
@@ -619,7 +619,7 @@ def holdout_test(  # type: ignore[explicit-any]  # a condition's dtype is its ow
 
 
 def _is(labels: Column, value: object) -> Flags:  # type: ignore[explicit-any]  # a condition's dtype is its own
-    """Mask of the trades carrying one label, with a null reading as "not this one"."""
+    """Mask the trades carrying one label, with a null reading as "not this one"."""
     return np.asarray((labels == value).fillna(value=False), dtype=np.bool_)
 
 
@@ -634,7 +634,7 @@ def _gap(best: Floats, worst: Floats, statistic: str) -> float:
 
 
 def _cut(trades: int, *, share: float, held_out: int | None) -> int:
-    """Where the recent trades begin, refusing a split that would leave one side empty."""
+    """Find where the recent trades begin, refusing a split that would leave one side empty."""
     if held_out is None:
         if not 0.0 < share < 1.0:
             msg: str = f"a holdout share must sit strictly between 0 and 1; got {share}"

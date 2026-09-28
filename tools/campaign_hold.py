@@ -52,7 +52,7 @@ BOUND = "avg_bars_held"
 
 
 def held(name: str, windows: list[str], stratum: str | None = None) -> pd.DataFrame:
-    """Every viable ``--variants hold`` row for one archetype, keyed by its base variant.
+    """Return every viable ``--variants hold`` row for one archetype, keyed by its base variant.
 
     ``stratum`` is what keeps :data:`~tools.campaign_paired.REPORT_KEYS` honest once the ladder
     has been run inside one: a pair only ever forms within a stratum, but the report pools over
@@ -69,7 +69,7 @@ def held(name: str, windows: list[str], stratum: str | None = None) -> pd.DataFr
 
 
 def bound_share(control: pd.DataFrame, treatment: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
-    """Per cell, whether the cap moved the average hold at all."""
+    """Measure, per cell, whether the cap moved the average hold at all."""
     joined: pd.DataFrame = cells(control, keys, BOUND).join(
         cells(treatment, keys, BOUND),
         how="inner",
@@ -82,7 +82,7 @@ def bound_share(control: pd.DataFrame, treatment: pd.DataFrame, keys: list[str])
 
 
 def rung(rows: pd.DataFrame, bars: int, by: str) -> pd.DataFrame:
-    """One rung of the ladder against the uncapped arm, per root x resolution."""
+    """Compare one rung of the ladder against the uncapped arm, per root x resolution."""
     keys: list[str] = [*CELL_KEYS, BASE_VARIANT]
     control: pd.DataFrame = rows[rows["max_hold_bars"] == CONTROL_BARS]
     treatment: pd.DataFrame = rows[rows["max_hold_bars"] == bars]
@@ -102,7 +102,7 @@ def rung(rows: pd.DataFrame, bars: int, by: str) -> pd.DataFrame:
 
 
 def ladder(name: str, windows: list[str], by: str, stratum: str | None = None) -> pd.DataFrame:
-    """Every rung above the control, stacked."""
+    """Stack every rung above the control."""
     rows: pd.DataFrame = held(name, windows, stratum)
     if rows.empty:
         msg: str = (

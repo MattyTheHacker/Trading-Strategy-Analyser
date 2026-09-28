@@ -79,14 +79,14 @@ def read_run(events_path: Path) -> Run:
 
 
 def entry_fills(run: Run) -> pd.DataFrame:
-    """Execution rows for the probe's own entry orders, which are the price-triggered ones."""
+    """Select the execution rows for the probe's own entry orders, which are the price-triggered ones."""
     events = run.events
 
     return events[(events["kind"] == EXECUTION) & events["signal_name"].isin(PROBE_SIGNALS)]
 
 
 def reaches(bar: pd.Series, trigger: float, action: str) -> bool:
-    """Whether a bar's range reaches a stop trigger, on the side the order sits."""
+    """Return whether a bar's range reaches a stop trigger, on the side the order sits."""
     if action == "Buy":
         return bool(bar["high"] >= trigger)
 
@@ -94,7 +94,7 @@ def reaches(bar: pd.Series, trigger: float, action: str) -> bool:
 
 
 def measure_entry_lag(run: Run) -> dict[str, int]:
-    """How many entry fills the reported bar explains, against the bar after it.
+    """Count how many entry fills the reported bar explains, against the bar after it.
 
     The discriminator is price: a stop fills only on a bar whose range reaches the trigger, so
     whichever candidate explains every fill is the bar the callback was really reporting on.
@@ -118,7 +118,7 @@ def measure_entry_lag(run: Run) -> dict[str, int]:
 
 
 def measure_session_close_exit_lag(run: Run) -> dict[str, int]:
-    """Whether the session-close exit fills at the reported bar's own close.
+    """Measure whether the session-close exit fills at the reported bar's own close.
 
     Separate from :func:`measure_entry_lag` because it is a different mechanism: NinjaTrader
     generates this exit from a bar close rather than resolving it against the next bar.
@@ -141,7 +141,7 @@ def measure_session_close_exit_lag(run: Run) -> dict[str, int]:
 
 
 def lifetimes(run: Run, signal: str, lag: int = 1) -> pd.DataFrame:
-    """One row per trial: the submit bar, and the corrected bar each terminal state landed on."""
+    """Return one row per trial: the submit bar, and the corrected bar each terminal state landed on."""
     rows = run.events[run.events["signal_name"] == signal]
     submits = rows[rows["kind"] == SUBMIT].groupby("trial")["bar"].min()
     out = pd.DataFrame({"submit_bar": submits})
@@ -166,7 +166,7 @@ MAX_DISTINCT_OFFSETS = 8
 
 
 def offsets_from_submit(frame: pd.DataFrame, column: str) -> dict[int, int]:
-    """Distribution of ``column`` measured in bars after the submit bar."""
+    """Return the distribution of ``column`` measured in bars after the submit bar."""
     delta = (frame[column] - frame["submit_bar"]).dropna()
     if delta.empty:
         return {}
@@ -175,7 +175,7 @@ def offsets_from_submit(frame: pd.DataFrame, column: str) -> dict[int, int]:
 
 
 def describe_offsets(frame: pd.DataFrame, column: str) -> str:
-    """The distribution where it is short enough to read, its shape where it is not.
+    """Describe the distribution where it is short enough to read, and its shape where it is not.
 
     A one-bar lifetime is the whole finding for a three-argument entry, so the exact
     distribution matters; an until-cancelled order spreads over hundreds of values and only its
@@ -197,7 +197,7 @@ def describe_offsets(frame: pd.DataFrame, column: str) -> str:
 
 
 def last_bar_fills(run: Run, lag: int = 1) -> dict[str, int]:
-    """Entry fills landing on a bar the probe recorded as the session's last.
+    """Count entry fills landing on a bar the probe recorded as the session's last.
 
     Uses NinjaTrader's own ``Bars.IsLastBarOfSession``, carried on every event row, rather than
     a session calendar -- the question is what NinjaTrader did on the bar *it* considers last.
@@ -224,7 +224,7 @@ def last_bar_fills(run: Run, lag: int = 1) -> dict[str, int]:
 
 
 def refused_submissions(run: Run) -> dict[str, int]:
-    """Submissions NinjaTrader never acknowledged, per signal name.
+    """Count submissions NinjaTrader never acknowledged, per signal name.
 
     An ``Enter()`` the internal order-handling rules drop leaves a SUBMIT row with no order
     update behind it, which is how "refused the submission" is told from "cancelled the order".
@@ -244,7 +244,7 @@ def refused_submissions(run: Run) -> dict[str, int]:
 
 
 def fills_after_cancel(run: Run, lag: int = 1) -> dict[str, int]:
-    """Whether any order filled on or after the bar whose close issued its cancel."""
+    """Check whether any order filled on or after the bar whose close issued its cancel."""
     frame = lifetimes(run, "probe1", lag)
     both = frame.dropna(subset=["filled", "cancel_requested"])
 

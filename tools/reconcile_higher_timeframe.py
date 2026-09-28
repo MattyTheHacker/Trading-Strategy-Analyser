@@ -71,14 +71,14 @@ def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def report(name: str, *, agreed: bool, detail: str) -> bool:
-    """One question's verdict, in the form the other reconciliation tools print."""
+    """Log one question's verdict, in the form the other reconciliation tools print."""
     logger.info("  %-12s %-9s %s", name, "AGREES" if agreed else "DIFFERS", detail)
 
     return agreed
 
 
 def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) -> bool:
-    """Does NinjaTrader bucket the coarse series where :mod:`nqbt.resample` buckets it?"""
+    """Check that NinjaTrader buckets the coarse series where :mod:`nqbt.resample` buckets it."""
     ours: pd.DataFrame = resample.resample(bars, minutes)
     shared: pd.DatetimeIndex = nt8_coarse.index.intersection(ours.index)
     only_nt8: int = len(nt8_coarse.index.difference(ours.index))
@@ -116,7 +116,7 @@ def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) 
 
 
 def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.DatetimeIndex) -> str:
-    """Where the two series stop disagreeing, which is usually NT8's merge boundary.
+    """Find where the two series stop disagreeing, which is usually NT8's merge boundary.
 
     Asked for more history than a contract has, NinjaTrader serves its *merged* series and a
     per-contract archive cannot reproduce it -- so a long disagreeing prefix followed by exact
@@ -134,7 +134,7 @@ def settled_from(nt8_coarse: pd.DataFrame, ours: pd.DataFrame, shared: pd.Dateti
 
 
 def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict[str, int]) -> bool:
-    """Does NT8's average over a secondary series match :func:`nqbt.indicators.nt8_ema`?
+    """Check that NT8's average over a secondary series matches :func:`nqbt.indicators.nt8_ema`.
 
     Taken over NT8's *own* coarse closes and read at the bars that close alongside one, so
     an anchoring difference cannot be mistaken for a seeding one.
@@ -168,7 +168,7 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
 
 
 def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.Series:
-    """Which coarse stamp nqbt's projection reads at each fine bar.
+    """Return which coarse stamp nqbt's projection reads at each fine bar.
 
     Runs the coarse *stamps* through :func:`nqbt.higher_timeframe.project` itself rather than
     re-deriving the rule here, so this compares NinjaTrader against the shipped code path and
@@ -186,14 +186,14 @@ def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.
 
 
 def epoch_seconds(stamps: pd.DatetimeIndex) -> np.ndarray:
-    """UTC seconds since the epoch, whatever resolution the index happens to carry."""
+    """Convert to UTC seconds since the epoch, whatever resolution the index happens to carry."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz else stamps
 
     return naive.to_numpy(dtype="datetime64[s]").astype("int64")
 
 
 def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
-    """Which coarse bar does each 1-minute bar read -- the question trades cannot answer."""
+    """Check which coarse bar each 1-minute bar reads -- the question trades cannot answer."""
     stamps = pd.DatetimeIndex(primary.index)
     ours: pd.Series = nqbt_reads(pd.DatetimeIndex(nt8_coarse.index), stamps)
     theirs: pd.Series = primary["coarse_utc"]
@@ -222,7 +222,7 @@ def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
 
 
 def check_warmup(primary: pd.DataFrame, key: higher_timeframe.HigherTimeframeKey) -> bool:
-    """How many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count.
+    """Check how many leading bars NT8 leaves unreadable, against nqbt's UNDEFINED count.
 
     Measured over **the probe's own bars**, never the archive's. The two series rarely start
     at the same minute, and a warm-up is counted from the series start: reading the archive
@@ -289,7 +289,7 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
 
 
 def infer_coarse_minutes(coarse_stamps: pd.DatetimeIndex) -> int:
-    """The coarse resolution, as the most common gap between consecutive coarse stamps."""
+    """Infer the coarse resolution, as the most common gap between consecutive coarse stamps."""
     if coarse_stamps.size < 2:
         msg: str = "the coarse export holds fewer than two bars; nothing to infer a resolution from"
         raise ValueError(msg)

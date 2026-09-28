@@ -25,7 +25,7 @@ SPEC = ContextSpec(ma_keys=conditions.ma_keys(ema=(3,)), needs_time_of_day=True)
 
 
 def bars(count: int = BARS) -> pd.DataFrame:
-    """One-minute bars whose price turns every ten bars, so a moving-average gate takes both values."""
+    """Build one-minute bars whose price turns every ten bars, so a moving-average gate takes both values."""
     index = pd.date_range(START, periods=count, freq="min", tz="UTC")
     close = BASE + 0.25 * np.cumsum(np.where((np.arange(count) // 10) % 2 == 0, 1.0, -1.0))
     open_ = np.concatenate(([close[0]], close[:-1]))

@@ -113,7 +113,7 @@ class Grid:
             )
 
     def _default_base(self) -> Params:
-        """What ``base`` means when the caller gave none: the first combination, or defaults."""
+        """Resolve what ``base`` means when the caller gave none: the first combination, or defaults."""
         if self.combos:
             return self.combos[0]
 
@@ -134,7 +134,7 @@ class Grid:
             raise SweepError(msg)
 
     def dead_axes(self) -> dict[str, str]:
-        """Swept axes their toggles leave unread on every combination, each with why.
+        """Find swept axes their toggles leave unread on every combination, each with why.
 
         Easy to do by accident: sweeping ``slow_sma_period`` while ``use_slow_sma`` is false
         everywhere yields identical rows and a proportional runtime bill. A toggle that is a
@@ -161,7 +161,7 @@ class Grid:
         return dead
 
     def _inert_everywhere(self, toggle: str) -> bool:
-        """Whether ``toggle`` holds the value that leaves its axes unread on every combination."""
+        """Return whether ``toggle`` holds the value that leaves its axes unread on every combination."""
         inert: object = archetypes.INERT_AT.get(toggle, False)
         values: list[object] = self.axes.get(toggle, [getattr(self.base, toggle)])
 
@@ -236,7 +236,7 @@ class Grid:
             yield replace(self.base, **dict(zip(names, values, strict=True)))
 
     def axis_values(self) -> dict[str, list[AxisValue]]:
-        """Every value each parameter will take across the sweep, swept or not.
+        """Return every value each parameter will take across the sweep, swept or not.
 
         The whole parameter set rather than just ``axes``, because a period that is never
         swept still has to have its grid built.
@@ -252,11 +252,11 @@ class Grid:
         }
 
     def own_values(self, params: Params) -> dict[str, list[AxisValue]]:
-        """One combination's parameters, in the shape ``context_for`` reads axis values."""
+        """Return one combination's parameters, in the shape ``context_for`` reads axis values."""
         return {name: [getattr(params, name)] for name in self.archetype.sweepable}
 
     def required_context(self) -> ContextSpec:
-        """Every precomputed series any combination in this grid will read.
+        """Return every precomputed series any combination in this grid will read.
 
         A combination list is unioned member by member rather than crossed, because
         :meth:`axis_values` collapses it to one list per parameter and a pair read from two of
@@ -316,7 +316,7 @@ CHUNKS_PER_WORKER = 4
 
 
 def chunk_bounds(total: int, n_workers: int, chunk_size: int | None = None) -> list[tuple[int, int]]:
-    """Half-open ``[start, stop)`` ranges covering ``total`` combinations exactly once."""
+    """Return half-open ``[start, stop)`` ranges covering ``total`` combinations exactly once."""
     if total <= 0:
         return []
 
@@ -581,7 +581,7 @@ def _tag(table: pd.DataFrame, point: AxisPoint, grid: Grid) -> pd.DataFrame:
 
 
 def row_tier2(table: pd.DataFrame, grid: Grid) -> list[str]:
-    """Each row's Tier-2 status, found by its ``combo_id`` in ``grid``.
+    """Return each row's Tier-2 status, found by its ``combo_id`` in ``grid``.
 
     The archetype's own, restated where a combination leaves its port --
     :meth:`nqbt.archetypes.Archetype.tier2_for`.

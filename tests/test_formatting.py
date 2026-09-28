@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 def apply(source: str, rules: Sequence[cst.CSTTransformer] | None = None) -> str:
-    """The source as the formatter would rewrite it."""
+    """Return the source as the formatter would rewrite it."""
     tree = cst.parse_module(textwrap.dedent(source))
     for rule in ACTIVE_RULES if rules is None else rules:
         tree = tree.visit(rule)
@@ -40,7 +40,7 @@ def apply(source: str, rules: Sequence[cst.CSTTransformer] | None = None) -> str
 
 
 def run(argv: list[str], monkeypatch: pytest.MonkeyPatch) -> int:
-    """``main`` with a command line, returning its exit status."""
+    """Run ``main`` with a command line, returning its exit status."""
     monkeypatch.setattr("sys.argv", ["formatting.cli", *argv])
 
     return main()

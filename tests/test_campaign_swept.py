@@ -36,7 +36,7 @@ from tools.campaign_swept import (
 
 
 def stored_frame(bars: pd.DataFrame, first: int, last: int) -> pd.DataFrame:
-    """A stored-rows frame keyed the way ``campaign_null.stored_rows`` keys one."""
+    """Build a stored-rows frame keyed the way ``campaign_null.stored_rows`` keys one."""
     frame = pd.DataFrame(
         [
             {
@@ -58,7 +58,7 @@ def stored_frame(bars: pd.DataFrame, first: int, last: int) -> pd.DataFrame:
 
 
 def stored_row() -> pd.DataFrame:
-    """The one shortlisted row those stored bars belong to."""
+    """Build the one shortlisted row those stored bars belong to."""
     return pd.DataFrame(
         [
             {
@@ -78,7 +78,7 @@ def stored_row() -> pd.DataFrame:
 
 
 def measured(**columns: object) -> pd.DataFrame:
-    """A frame of the shape :func:`reconciliation` reads, reproducing its stored rows exactly."""
+    """Build a frame of the shape :func:`reconciliation` reads, reproducing its stored rows exactly."""
     base = {
         "root": "MNQ",
         "resolution": 5,

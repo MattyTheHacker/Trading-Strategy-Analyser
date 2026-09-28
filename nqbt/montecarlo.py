@@ -66,7 +66,7 @@ class PermutationResult:
     """True below :data:`MIN_TRADES`, where the test is reported but not a measurement."""
 
     def as_dict(self) -> dict[str, str | float | int | bool]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return dataclasses.asdict(self)
 
 

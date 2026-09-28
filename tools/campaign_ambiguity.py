@@ -91,7 +91,7 @@ def measure_row(
     root: str,
     label: str,
 ) -> dict[str, object]:
-    """One configuration's two profit factors, their spread, and the shares beside them.
+    """Measure one configuration's two profit factors, their spread, and the shares beside them.
 
     The first arm is checked against the summary the sweep stored, so a spread is never
     reported for a row the re-run did not reproduce.
@@ -140,7 +140,7 @@ def measure_row(
 
 
 def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> pd.DataFrame:
-    """Every shortlisted configuration under both policies, one row each.
+    """Measure every shortlisted configuration under both policies, one row each.
 
     Grouped by window and resolution, because the resample and the prepared dataset are the
     expensive parts and every row sharing those two shares both -- exactly as
@@ -179,7 +179,7 @@ def settle_row(  # noqa: PLR0913 - each argument is a distinct input to one meas
     coarse: pd.DataFrame,
     label: str,
 ) -> tuple[dict[str, object], pd.DataFrame]:
-    """One configuration's ambiguous bars settled against the minute bars inside them.
+    """Settle one configuration's ambiguous bars against the minute bars inside them.
 
     Runs all three arms so that a settled bar's outcome is taken from the arm that resolved it
     that way, rather than recomputed. Returns the headline row and the per-bar verdicts.
@@ -294,7 +294,7 @@ def settle(
 
 
 def survival(table: pd.DataFrame) -> list[str]:
-    """How much of the shortlist is left once the assumption is taken away.
+    """Report how much of the shortlist is left once the assumption is taken away.
 
     Read rather than applied: the widest spread is the row whose result is least attributable,
     and a shortlist where that row is also the highest-ranked one is the §M28.2 shape.
@@ -317,7 +317,7 @@ def survival(table: pd.DataFrame) -> list[str]:
 
 
 def unsettled(verdicts: pd.DataFrame) -> pd.DataFrame:
-    """The bars worth looking at: the ones the assumption got wrong, and the ones still open.
+    """Return the bars worth looking at: the ones the assumption got wrong, and the ones still open.
 
     A bar the assumption called correctly is evidence and not a finding, and printing every one
     of them buries the handful that moved the result.

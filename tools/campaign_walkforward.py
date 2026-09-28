@@ -60,7 +60,7 @@ here; this one asks whether the selection makes money out of sample at all."""
 
 
 def warmup_for(spec: context.ContextSpec, minutes: int) -> int:
-    """The longest lookback the shortlist's own context declares, in bars of its resolution.
+    """Return the longest lookback the shortlist's own context declares, in bars of its resolution.
 
     Every fold is prepared independently, so without a prefix each one measures its own warm-up.
     **Relative volume is the gap**: its baseline is counted in sessions, not bars, so raise
@@ -83,7 +83,7 @@ def warmup_for(spec: context.ContextSpec, minutes: int) -> int:
 
 
 def candidate_grid(rows: pd.DataFrame, archetype: archetypes.Archetype) -> sweep.Grid:
-    """The shortlisted rows as a grid whose combinations are exactly those configurations."""
+    """Return the shortlisted rows as a grid whose combinations are exactly those configurations."""
     return sweep.Grid.of_combinations(
         [rebuild(row, archetype) for _, row in rows.iterrows()],
         archetype=archetype,
@@ -91,7 +91,7 @@ def candidate_grid(rows: pd.DataFrame, archetype: archetypes.Archetype) -> sweep
 
 
 def geometry(n_bars: int, train_share: float, test_share: float) -> tuple[int, int]:
-    """Train and test window lengths, as bar counts taken from shares of the series."""
+    """Return train and test window lengths, as bar counts taken from shares of the series."""
     train_bars: int = math.floor(n_bars * train_share)
     test_bars: int = math.floor(n_bars * test_share)
     if train_bars < 1 or test_bars < 1:

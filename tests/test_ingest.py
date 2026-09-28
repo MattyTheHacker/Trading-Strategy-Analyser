@@ -16,7 +16,7 @@ LINES = [
 
 
 def session_lines(count, start="2024-03-08 18:00"):
-    """``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
+    """Write ``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
     stamps = pd.date_range(start, periods=count, freq="min")
 
     return [f"{ts:%Y%m%d %H%M%S};18000.25;18002.00;17999.50;18001.00;120" for ts in stamps]
@@ -251,7 +251,7 @@ def test_out_of_session_prints_are_cached_but_not_handed_out(cache, tmp_path) ->
 
 
 def cached_frame(flags: list[bool]) -> pd.DataFrame:
-    """A frame shaped like the parquet cache, flagged as ``flags`` says rather than by clock."""
+    """Build a frame shaped like the parquet cache, flagged as ``flags`` says rather than by clock."""
     prices = np.arange(len(flags), dtype=np.float64)
 
     return pd.DataFrame(

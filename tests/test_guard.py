@@ -62,7 +62,7 @@ def per_trade_pnl(log: pd.DataFrame, annotation: annotate.Annotation) -> pd.Data
 
 
 def phase_case(winning: int = 60, losing: int = 60) -> tuple[pd.DataFrame, context.Dataset]:
-    """Cash-open trades that win and midday trades that lose: a separation with a real cause."""
+    """Build cash-open trades that win and midday trades that lose: a separation with a real cause."""
     data = dataset()
     entries = bars_in(data, timeofday.SessionPhase.CASH_OPEN, winning)
     entries += bars_in(data, timeofday.SessionPhase.MIDDAY, losing)

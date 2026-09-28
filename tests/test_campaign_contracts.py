@@ -24,7 +24,7 @@ MEDIAN_COLUMNS = ["median_expectancy", "median_null_expectancy", "median_excess"
 
 
 def contract_rows(**columns: object) -> pd.DataFrame:
-    """Three front-month contracts of one root, as ``run_root`` assembles them."""
+    """Build three front-month contracts of one root, as ``run_root`` assembles them."""
     base = {
         "root": ROOT,
         "contract": ["MNQ 03-24", "MNQ 06-24", "MNQ 09-24"],

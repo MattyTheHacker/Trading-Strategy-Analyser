@@ -73,7 +73,7 @@ so a residual read can be compared with the gate the whole book went through."""
 
 
 def summary_of(log: pd.DataFrame) -> dict[str, float]:
-    """:data:`REPORTED` plus net-to-drawdown for one set of legs, zeroed where there are none."""
+    """Return :data:`REPORTED` plus net-to-drawdown for one set of legs, zeroed where there are none."""
     summary: stats.Summary = stats.summarise(log)
     figures: dict[str, float] = {field: float(getattr(summary, field)) for field in REPORTED}
     figures[NET_TO_DRAWDOWN] = ratio_to_drawdown(summary.net_pnl, summary.max_drawdown)
@@ -82,7 +82,7 @@ def summary_of(log: pd.DataFrame) -> dict[str, float]:
 
 
 def split_on(log: pd.DataFrame, reason: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """One log's legs that left by ``reason``, and the ones that did not."""
+    """Split one log's legs into those that left by ``reason`` and those that did not."""
     taken = log["exit_reason"] == reason
 
     return log[taken], log[~taken]
@@ -105,7 +105,7 @@ def verify(row: pd.Series, whole: dict[str, float]) -> None:  # type: ignore[typ
 
 
 def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result row belongs to."""
+    """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
@@ -116,7 +116,7 @@ def measure_row(
     *,
     require_stored: bool = True,
 ) -> dict[str, object]:
-    """One configuration's whole book, the legs one reason took, and what is left without them.
+    """Measure one configuration's whole book, the legs one reason took, and what is left without them.
 
     ``require_stored`` is what a stored log is held to and a re-run one is not: the archive can
     have moved under the row since it was swept, and ``tools/campaign_swept.py`` reports that
@@ -159,7 +159,7 @@ def measure(
     *,
     require_stored: bool = True,
 ) -> pd.DataFrame:
-    """Every shortlisted configuration split on ``reason``, one row each."""
+    """Measure every shortlisted configuration split on ``reason``, one row each."""
     measured: list[dict[str, object]] = []
     for _, row in rows.iterrows():
         log: pd.DataFrame = logs.get(log_key(row), pd.DataFrame())
@@ -177,7 +177,7 @@ def measure(
 
 
 def survival(table: pd.DataFrame, reason: str) -> list[str]:
-    """What the exclusion leaves, as lines rather than a one-row table."""
+    """Return what the exclusion leaves, as lines rather than a one-row table."""
     if table.empty:
         return ["  (nothing was measured)"]
 

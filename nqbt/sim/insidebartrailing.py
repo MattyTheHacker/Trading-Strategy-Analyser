@@ -189,7 +189,7 @@ def flatten_lots(
 
 @njit(cache=True)
 def lot_trade(trade: bracket.OpenTrade, lots: Lots, lot: int) -> bracket.OpenTrade:
-    """``trade`` with this lot's own stop and risk in place of the shared ones."""
+    """Return ``trade`` with this lot's own stop and risk in place of the shared ones."""
     return bracket.OpenTrade(
         trade_id=trade.trade_id,
         entry_bar=trade.entry_bar,
@@ -210,7 +210,7 @@ def trailed_stop(
     fills: bracket.FillRules,
     direction: float,
 ) -> float:
-    """Where the trailing stop sits given the high-water mark so far, never retreating."""
+    """Return where the trailing stop sits given the high-water mark so far, never retreating."""
     _, favourable = bracket.sided(excursion.run_low, excursion.run_high, direction)
     candidate = favourable - direction * trail_distance
     if fills.round_targets:
@@ -225,7 +225,7 @@ def trailed_stop(
 
 @njit(cache=True)
 def open_lots(legs: bracket.Legs) -> int:
-    """How many lots are still live."""
+    """Count how many lots are still live."""
     total = 0
     for lot in range(legs.is_open.size):
         if legs.is_open[lot]:
@@ -506,7 +506,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
 
 
 def lot_sizing(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> LotSizing:
-    """Every split this combination can take, and the row each bar would take for its side."""
+    """Return every split this combination can take, and the row each bar would take for its side."""
     per_tier: int = len(params.sizing_labels) + 1
     rows: IntArray = earliness_tiers(data, params, direction_at) * per_tier + confluence_counts(
         data,
@@ -518,7 +518,7 @@ def lot_sizing(data: Dataset, params: InsideBarTrailingParams, direction_at: Flo
 
 
 def earliness_tiers(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
-    """Each bar's tier for the side it would be entered on; every bar is early while the rule is off."""
+    """Return each bar's tier for the side it would enter on; every bar is early while the rule is off."""
     if params.earliness_mode == EARLINESS_OFF:
         return np.zeros(len(data), dtype=np.int64)
 
@@ -526,7 +526,7 @@ def earliness_tiers(data: Dataset, params: InsideBarTrailingParams, direction_at
 
 
 def early_entries(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> BoolArray:
-    """Whether an entry at each bar, on the side it would take, is early under ``earliness_mode``.
+    """Return whether an entry at each bar, on the side it would take, is early under ``earliness_mode``.
 
     A bar outside a trend on its side reads early: no move has been established there. An
     extension that cannot be measured reads established -- ``docs/nt8-fidelity.md`` §M45.
@@ -561,7 +561,7 @@ def early_entries(data: Dataset, params: InsideBarTrailingParams, direction_at: 
 
 
 def confluence_counts(data: Dataset, params: InsideBarTrailingParams, direction_at: FloatArray) -> IntArray:
-    """How many of the ``size_on_*`` labels favour the side each bar would be entered on."""
+    """Count how many of the ``size_on_*`` labels favour the side each bar would be entered on."""
     favourable: list[BoolArray] = filters.favourable_labels(data, params, direction_at == trades.LONG)
     if not favourable:
         return np.zeros(len(data), dtype=np.int64)

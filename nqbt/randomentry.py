@@ -121,7 +121,7 @@ class NullResult:
     """True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`."""
 
     def as_dict(self) -> dict[str, object]:
-        """Flat mapping, for a report row or a CSV."""
+        """Return a flat mapping, for a report row or a CSV."""
         return asdict(self)
 
 
@@ -129,7 +129,7 @@ def minute_of_session(
     index: pd.DatetimeIndex,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> IntArray:
-    """How far each bar sits past its session open, in minutes."""
+    """Return how far each bar sits past its session open, in minutes."""
     return resample.minutes_since_open(index, template)
 
 
@@ -162,11 +162,11 @@ class SessionMinutePool:
         return cls(minutes=minutes, bars_by_minute=order, starts=starts)
 
     def pool_for(self, minute: int) -> IntArray:
-        """Every bar sharing one minute-of-session."""
+        """Return every bar sharing one minute-of-session."""
         return self.bars_by_minute[self.starts[minute] : self.starts[minute + 1]]
 
     def spare_bars(self, minutes: IntArray, counts: IntArray) -> int:
-        """Bars the draw could pick but ``counts`` does not need -- the room it has to differ.
+        """Count the bars the draw could pick but ``counts`` does not need -- the room it has to differ.
 
         Zero means every pool is consumed whole, so the draw can only return the signal it was
         matched to. Small but non-zero is the same failure in practice, which is what
@@ -178,7 +178,7 @@ class SessionMinutePool:
         )
 
     def draw_freedom(self, signal: BoolArray) -> float:
-        """Spare bars per signal: how much of itself the matched draw is free to relocate.
+        """Return spare bars per signal: how much of itself the matched draw is free to relocate.
 
         The scale-free form of :meth:`spare_bars`, because what pins a summary statistic is the
         **share** of signals that can move rather than the absolute count. Measured on this
@@ -203,7 +203,7 @@ def matched_random_signal(
     pool: SessionMinutePool | None = None,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> BoolArray:
-    """A random entry signal with ``signal``'s count and time-of-session distribution.
+    """Draw a random entry signal with ``signal``'s count and time-of-session distribution.
 
     For every minute-of-session at which the real rule fired, the same number of entries is
     drawn without replacement from all bars sharing that minute, across every trading day.
@@ -259,7 +259,7 @@ def _window_close(
     session_id: IndexArray,
     n_sessions: int,
 ) -> FloatArray:
-    """Each session's price at the moment its range window closed, ``nan`` where none did.
+    """Return each session's price at the moment its range window closed, ``nan`` where none did.
 
     The close of the first armed bar: the range is complete there, so it is the last price a
     rule reading that range could have seen when it first became tradeable.
@@ -281,7 +281,7 @@ def matched_random_ranges(
     key: sessionrange.RangeKey,
     rng: np.random.Generator,
 ) -> sessionrange.SessionRangeGrid:
-    """``key``'s ranges, each session's replaced by another session's shape at its own price.
+    """Return ``key``'s ranges, each session's replaced by another session's shape at its own price.
 
     **The null for an entry whose trigger is a level rather than an event.** It holds the bars,
     the costs, the geometry and the armed flags fixed -- so the entry *signal* is identical and
@@ -331,7 +331,7 @@ def _range_key_for(
     archetype: Archetype,
     draw: str,
 ) -> sessionrange.RangeKey | None:
-    """The range a level draw randomises, or ``None`` for the draw over bars.
+    """Return the range a level draw randomises, or ``None`` for the draw over bars.
 
     Refuses a level draw for an archetype whose trigger is not a level, rather than falling
     back to the draw over bars: a null silently taken over the wrong thing is the failure
@@ -365,7 +365,7 @@ def _null_summary(
     pool: SessionMinutePool,
     range_key: sessionrange.RangeKey | None,
 ) -> dict[str, float]:
-    """One null realisation: draw a matched arm, simulate it, summarise it.
+    """Run one null realisation: draw a matched arm, simulate it, summarise it.
 
     ``range_key`` picks which arm. Over levels the signal is left alone and the dataset's
     ranges are redrawn; over bars the ranges are left alone and the signal is redrawn.
@@ -400,7 +400,7 @@ def null_summaries(
     draw: str = OVER_BARS,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> pd.DataFrame:
-    """One row of :class:`nqbt.stats.Summary` per null realisation.
+    """Return one row of :class:`nqbt.stats.Summary` per null realisation.
 
     Every draw is seeded deterministically from ``seed``, so ``n_jobs`` changes the wall clock
     and nothing else. ``draw`` is one of :data:`DRAWS`.
@@ -565,5 +565,5 @@ def _place(
 
 
 def report(results: dict[str, NullResult]) -> pd.DataFrame:
-    """One row per statistic, for reading a :func:`compare` at a glance."""
+    """Return one row per statistic, for reading a :func:`compare` at a glance."""
     return pd.DataFrame([r.as_dict() for r in results.values()])

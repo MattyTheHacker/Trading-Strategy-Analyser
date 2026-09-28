@@ -125,12 +125,12 @@ CONFIGS: dict[str, Config] = {
 
 
 def parse_nt8(path: Path) -> pd.DataFrame:
-    """One row per leg exit, matching nqbt's trade-log shape."""
+    """Parse the export into one row per leg exit, matching nqbt's trade-log shape."""
     raw = pd.read_csv(path)
     raw.columns = [c.strip() for c in raw.columns]
 
     def money(column: pd.Series) -> pd.Series:
-        """NT8 writes a loss as ``-$4.50`` or, in accounting format, as ``($4.50)``.
+        """Parse NT8's money, which writes a loss as ``-$4.50`` or, in accounting format, as ``($4.50)``.
 
         Stripping the brackets without negating turns every loss into a gain, and the join
         still succeeds -- so it reads as a P&L disagreement rather than as a parse bug.

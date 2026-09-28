@@ -23,7 +23,7 @@ COMBO_ID = 417
 
 
 def stored_row(**columns: object) -> pd.Series:
-    """One ranked row, carrying the tags the report labels a result with."""
+    """Build one ranked row, carrying the tags the report labels a result with."""
     base = {
         "sweep_id": SWEEP_ID,
         "combo_id": COMBO_ID,
@@ -39,7 +39,7 @@ def stored_row(**columns: object) -> pd.Series:
 
 
 def resample_stored(row: pd.Series, db, iterations: int, seed: int):  # noqa: ANN001, ANN201 - a path and the function's own return
-    """:func:`resample_row` over whatever log ``db`` holds for that row.
+    """Run :func:`resample_row` over whatever log ``db`` holds for that row.
 
     Loading is the caller's job now, so that ``--rerun`` can hand it a freshly re-run log
     instead -- ``tools/campaign_swept.py``.
@@ -48,7 +48,7 @@ def resample_stored(row: pd.Series, db, iterations: int, seed: int):  # noqa: AN
 
 
 def trade_log(n: int = 120, seed: int = 3) -> pd.DataFrame:
-    """A leg-level log with wins and losses, in the shape ``save_trades`` stores."""
+    """Build a leg-level log with wins and losses, in the shape ``save_trades`` stores."""
     rng = np.random.default_rng(seed)
     pnl = rng.normal(5.0, 60.0, n)
     entry = pd.Timestamp("2025-01-02 14:30", tz="UTC") + pd.to_timedelta(np.arange(n), unit="h")
@@ -76,7 +76,7 @@ def trade_log(n: int = 120, seed: int = 3) -> pd.DataFrame:
 
 @pytest.fixture
 def stocked(tmp_path):
-    """A database holding one stored log, at the ids the ranked row names."""
+    """Provide a database holding one stored log, at the ids the ranked row names."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(), SWEEP_ID, COMBO_ID, db)
 

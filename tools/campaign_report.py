@@ -129,7 +129,7 @@ them as axes would report the root twice under a name that hides it."""
 
 
 def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
-    """One summary's net P&L over its own worst peak-to-trough, undefined at no drawdown.
+    """Return one summary's net P&L over its own worst peak-to-trough, undefined at no drawdown.
 
     Undefined rather than infinite, because an unbounded statistic wins a ranking it was never
     measured on -- the defect ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally" records
@@ -142,7 +142,7 @@ def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
 
 
 def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
-    """:func:`ratio_to_drawdown` over a whole results frame.
+    """Apply :func:`ratio_to_drawdown` over a whole results frame.
 
     The same guard by a faster route -- ``load`` runs it over every stored row, so it is
     vectorised rather than applied. Pinned equal to the scalar, never re-derived.
@@ -153,7 +153,7 @@ def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[type-arg]
 
 
 def rank(frame: pd.DataFrame, top: int, by: str) -> pd.DataFrame:
-    """The ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
+    """Return the ``top`` highest rows on ``by``, after dropping the rows it is undefined on.
 
     **``DataFrame.nlargest`` pads its result with undefined rows rather than returning fewer**,
     so ranking a shortlist straight through it hands the null test and the per-contract step
@@ -168,7 +168,7 @@ def narrowing(
     variants: Collection[str] | None = None,
     resolutions: Collection[int] | None = None,
 ) -> str:
-    """The clauses that narrow a stored-row query to these windows, variants and resolutions.
+    """Return the clauses that narrow a stored-row query to these windows, variants and resolutions.
 
     Appended to a query that already has its ``WHERE``, so a database many campaigns deep is read
     for the rows asked about rather than whole. A name holding a quote is refused rather than
@@ -200,7 +200,7 @@ def load(
     variants: Collection[str] | None = None,
     resolutions: Collection[int] | None = None,
 ) -> pd.DataFrame:
-    """Every viable combination stored for one archetype, tagged with its root.
+    """Load every viable combination stored for one archetype, tagged with its root.
 
     Read for ``windows`` alone, and for ``variants`` and ``resolutions`` where they are given.
     """
@@ -214,7 +214,7 @@ def load(
 
 
 def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
-    """The stored log of one combination, empty when no log has been stored for it.
+    """Load the stored log of one combination, empty when no log has been stored for it.
 
     ``tools/campaign_shortlist.py`` writes them and only for the rows it was pointed at. Empty
     rather than raising, so a caller reading a whole shortlist can name the rows that have no
@@ -237,12 +237,12 @@ def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
 
 
 def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The ``(sweep_id, combo_id)`` a configuration's log is filed under."""
+    """Return the ``(sweep_id, combo_id)`` a configuration's log is filed under."""
     return int(row["sweep_id"]), int(row["combo_id"])
 
 
 def stored_logs(rows: pd.DataFrame, path: Path) -> dict[tuple[int, int], pd.DataFrame]:
-    """Every shortlisted row's stored log, keyed by :func:`log_key`, absent where none was stored.
+    """Load every shortlisted row's stored log, keyed by :func:`log_key`, absent where none was stored.
 
     The mapping a tool reading a shortlist works from, so the same loop serves a stored log and
     one re-run by ``tools/campaign_swept.py`` -- and a row with no log is named by the caller
@@ -252,7 +252,7 @@ def stored_logs(rows: pd.DataFrame, path: Path) -> dict[tuple[int, int], pd.Data
 
 
 def parameter_columns(frame: pd.DataFrame) -> list[str]:
-    """Columns holding a parameter rather than a tag or a statistic.
+    """List the columns holding a parameter rather than a tag or a statistic.
 
     Shared with ``tools/campaign_holdout.py`` because both held their own copy of the predicate
     and a derived statistic would have been a parameter to one of them.
@@ -265,12 +265,12 @@ def parameter_columns(frame: pd.DataFrame) -> list[str]:
 
 
 def swept_axes(frame: pd.DataFrame) -> list[str]:
-    """Parameter columns that actually vary here, so a constant is never reported as an axis."""
+    """List the parameter columns that actually vary here, so a constant is never reported as an axis."""
     return [column for column in parameter_columns(frame) if frame[column].nunique(dropna=False) > 1]
 
 
 def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
-    """Combination count, profitable share and the profit-factor distribution, per group.
+    """Return the combination count, profitable share and the profit-factor distribution, per group.
 
     The two share columns are here rather than optional because a coarse resolution and the
     final session phase are both read wrong without them -- :data:`SHARES`.
@@ -292,7 +292,7 @@ def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
 
 
 def exit_decomposition(log: pd.DataFrame) -> dict[str, float]:
-    """One stored log's leg count, net P&L and median bars held, per exit reason.
+    """Return one stored log's leg count, net P&L and median bars held, per exit reason.
 
     ``stats.leg_summary`` supplies the first two, so this reads a summary over subsets and
     defines no statistic of its own -- ``docs/roadmap.md`` §M28.9, "The bracket is a net cost,
@@ -317,7 +317,7 @@ def exit_decomposition(log: pd.DataFrame) -> dict[str, float]:
 
 
 def decompose_exits(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
-    """The exit decomposition of every row of ``frame``, aligned to its index.
+    """Return the exit decomposition of every row of ``frame``, aligned to its index.
 
     Blank for a row ``tools/campaign_shortlist.py`` has stored no log for, since a shortlist
     ranked here is not necessarily one whose logs were kept.
@@ -333,7 +333,7 @@ def decompose_exits(frame: pd.DataFrame, path: Path) -> pd.DataFrame:
 
 
 def dimension_of(stratum: str) -> str:
-    """Which context dimension one stratum name cuts, ``unfiltered`` cutting none.
+    """Return which context dimension one stratum name cuts, ``unfiltered`` cutting none.
 
     Stratum names are ``<dimension>=<cell>``, and a cell may carry its own cut after an ``@`` --
     ``regime=DIRECTIONAL@n=20``, ``volume=HEAVY@per_bar_20 q=0.20/0.80``.
@@ -342,19 +342,19 @@ def dimension_of(stratum: str) -> str:
 
 
 def dimensions(frame: pd.DataFrame) -> list[str]:
-    """Every context dimension this frame holds strata for, unfiltered excluded."""
+    """List every context dimension this frame holds strata for, unfiltered excluded."""
     found: set[str] = {dimension_of(str(name)) for name in frame["stratum"].unique()}
 
     return sorted(found - {UNFILTERED})
 
 
 def in_dimension(frame: pd.DataFrame, dimension: str) -> pd.DataFrame:
-    """The rows cut by one dimension, whatever cell of it each carries."""
+    """Return the rows cut by one dimension, whatever cell of it each carries."""
     return frame[frame["stratum"].map(lambda name: dimension_of(str(name)) == dimension)]
 
 
 def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
-    """How much of the profit-factor variance each dimension's cells explain, per resolution.
+    """Measure how much of the profit-factor variance each dimension's cells explain, per resolution.
 
     Measured **within** a resolution, never pooled over them: bar size is the largest lever in
     the campaign (§M27), so a figure taken across resolutions reports that instead.
@@ -379,7 +379,7 @@ def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def eta_squared(frame: pd.DataFrame, axis: str, statistic: str = "profit_factor") -> float:
-    """Share of ``statistic``'s variance the grouping by ``axis`` explains."""
+    """Return the share of ``statistic``'s variance the grouping by ``axis`` explains."""
     values = frame[statistic]
     grand: float = float(values.mean())
     total: float = float(((values - grand) ** 2).sum())
@@ -393,7 +393,7 @@ def eta_squared(frame: pd.DataFrame, axis: str, statistic: str = "profit_factor"
 
 
 def axis_influence(frame: pd.DataFrame, axes: list[str]) -> pd.DataFrame:
-    """How much of the profit-factor variance each axis explains, largest first.
+    """Measure how much of the profit-factor variance each axis explains, largest first.
 
     A property of the ranges swept rather than of the strategy -- ``docs/roadmap.md`` §M26.
     """

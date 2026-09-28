@@ -85,7 +85,7 @@ class BandGrid:
         return int(self.basis.shape[1])
 
     def row(self, period: int) -> int:
-        """The row holding ``period``, or an error naming what the grid was built for."""
+        """Return the row holding ``period``, or raise an error naming what the grid was built for."""
         idx: int = int(np.searchsorted(self.periods, period))
         if idx >= self.periods.size or self.periods[idx] != period:
             msg: str = f"band period {period} is not in this grid; built for {self.periods.tolist()}"
@@ -94,15 +94,15 @@ class BandGrid:
         return idx
 
     def basis_for(self, period: int) -> FloatArray:
-        """One period's midline."""
+        """Return one period's midline."""
         return np.asarray(self.basis[self.row(period)])
 
     def stddev_for(self, period: int) -> FloatArray:
-        """One period's standard deviation."""
+        """Return one period's standard deviation."""
         return np.asarray(self.stddev[self.row(period)])
 
     def stretch_for(self, period: int) -> FloatArray:
-        """One period's signed extension in standard deviations."""
+        """Return one period's signed extension in standard deviations."""
         return np.asarray(self.stretch[self.row(period)])
 
     @property

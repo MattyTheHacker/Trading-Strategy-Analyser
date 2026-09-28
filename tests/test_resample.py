@@ -32,7 +32,7 @@ does not divide 1,020, so a midnight-anchored grid runs a bucket straight throug
 
 
 def minute_bars(sessions_wanted: int = 3, seed: int = 11) -> pd.DataFrame:
-    """Full ETH sessions of 1-minute bars, 18:00 -> 17:00 ET, weekdays only.
+    """Build full ETH sessions of 1-minute bars, 18:00 -> 17:00 ET, weekdays only.
 
     Built session by session from the open rather than by slicing a date range, so the
     first bucket of every session is complete and boundary assertions mean something.
@@ -199,7 +199,7 @@ def test_out_of_session_prints_are_dropped_rather_than_given_a_bucket() -> None:
 
 
 def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
-    """What a bare ``resample()`` would produce: buckets counted from midnight."""
+    """Return what a bare ``resample()`` would produce: buckets counted from midnight."""
     grouped = src.resample(f"{minutes}min", label="right", closed="right").agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"},
     )

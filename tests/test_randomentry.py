@@ -22,7 +22,7 @@ from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
 
 
 def session_bars(days: int = 30, seed: int = 11) -> pd.DataFrame:
-    """Minute bars laid out on real CME sessions rather than a bare date range.
+    """Build minute bars laid out on real CME sessions rather than a bare date range.
 
     Session-shaped on purpose: the whole point of the null is the time-of-session marginal,
     and a fixture that ignores sessions would let a broken anchoring pass.
@@ -389,7 +389,7 @@ def test_zero_iterations_is_refused(prepared) -> None:
 
 
 def stub_log(pnl_per_trade) -> pd.DataFrame:
-    """A minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
+    """Build a minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
 
     return pd.DataFrame(
@@ -411,7 +411,7 @@ def stub_log(pnl_per_trade) -> pd.DataFrame:
 
 
 def stub_legs(pnl_per_trade) -> trades.LegMatrix:
-    """The same stub as a raw leg matrix, which is what ``compare`` actually reads."""
+    """Build the same stub as a raw leg matrix, which is what ``compare`` actually reads."""
     matrix = np.zeros((len(pnl_per_trade), trades.N_COLUMNS))
     matrix[:, trades.C_TRADE_ID] = np.arange(1, len(pnl_per_trade) + 1)
     matrix[:, trades.C_LEG] = 1

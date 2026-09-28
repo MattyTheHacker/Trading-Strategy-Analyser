@@ -111,7 +111,7 @@ trade count. Net is left out, because a row stored at one size is not reproduced
 
 
 def uncapped(log: pd.DataFrame) -> int:
-    """An attempt cap that cannot bind on this log.
+    """Return an attempt cap that cannot bind on this log.
 
     Each attempt consumes at least one trading day and a day holds at least one trade, so the
     trade count bounds the attempts from above.
@@ -120,14 +120,14 @@ def uncapped(log: pd.DataFrame) -> int:
 
 
 def contracts_per_trade(log: pd.DataFrame) -> float:
-    """Contracts one trade of this log put on, as the legs' quantities summed per trade."""
+    """Count the contracts one trade of this log put on, as the legs' quantities summed per trade."""
     return float(log.groupby("trade_id")["quantity"].sum().mean())
 
 
 def rules_with(
     account: propaccount.PropAccount, order: propaccount.ExcursionOrder
 ) -> propaccount.PropAccount:
-    """One preset with its excursion order replaced, the rest of the rule set untouched."""
+    """Return one preset with its excursion order replaced, the rest of the rule set untouched."""
     if order is account.rules.excursion_order:
         return account
 
@@ -135,7 +135,7 @@ def rules_with(
 
 
 def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result row belongs to."""
+    """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
@@ -145,7 +145,7 @@ def replay_row(
     account: propaccount.PropAccount,
     max_accounts: int,
 ) -> dict[str, object] | None:
-    """One configuration through one rule set, or ``None`` where the rules refuse the log."""
+    """Replay one configuration through one rule set, or return ``None`` where the rules refuse the log."""
     try:
         result: propaccount.PropReplay = propaccount.replay(log, account, max_accounts=max_accounts)
     except propaccount.PropAccountError as refused:
@@ -172,7 +172,7 @@ def replay_shortlist(
     accounts: list[propaccount.PropAccount],
     max_accounts: int | None,
 ) -> pd.DataFrame:
-    """Every shortlisted configuration through every rule set, one row each."""
+    """Replay every shortlisted configuration through every rule set, one row each."""
     replayed: list[dict[str, object]] = []
     for _, row in rows.iterrows():
         log: pd.DataFrame = logs.get(log_key(row), pd.DataFrame())
@@ -199,7 +199,7 @@ def takes_quantity(
     archetype: archetypes.Archetype,
     quantity: int,
 ) -> bool:
-    """Whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
+    """Return whether a stored configuration's rules accept ``quantity`` contracts, naming it where not."""
     resized: pd.Series = row.copy()  # type: ignore[type-arg]  # duckdb's dtypes
     resized["order_quantity"] = quantity
     try:
@@ -215,7 +215,7 @@ def takes_quantity(
 
 
 def at_quantity(rows: pd.DataFrame, archetype: archetypes.Archetype, quantity: int) -> pd.DataFrame:
-    """The shortlist restated at ``quantity`` contracts, less any row whose rules refuse that size.
+    """Restate the shortlist at ``quantity`` contracts, less any row whose rules refuse that size.
 
     A refusal is named rather than dropped: InsideBarTrailing's 0.6 split leaves no second lot
     below three contracts, and a bracket with several targets needs a contract for each.
@@ -226,7 +226,7 @@ def at_quantity(rows: pd.DataFrame, archetype: archetypes.Archetype, quantity: i
 
 
 def with_own_profit_factor(rows: pd.DataFrame, logs: Mapping[tuple[int, int], pd.DataFrame]) -> pd.DataFrame:
-    """The rows with ``profit_factor`` read off their re-run logs rather than the stored size's."""
+    """Return the rows with ``profit_factor`` read off their re-run logs rather than the stored size's."""
     measured: list[float] = [
         stats.summarise(logs[log_key(row)]).profit_factor if log_key(row) in logs else float("nan")
         for _, row in rows.iterrows()
@@ -243,7 +243,7 @@ def replay_rungs(
     accounts: list[propaccount.PropAccount],
     max_accounts: int | None,
 ) -> pd.DataFrame:
-    """The shortlist re-run and replayed once per contract count, each row tagged with its rung."""
+    """Re-run and replay the shortlist once per contract count, each row tagged with its rung."""
     archetype: archetypes.Archetype = archetypes.get(strategy)
     tables: list[pd.DataFrame] = []
     for quantity in quantities:
@@ -268,7 +268,7 @@ def replay_rungs(
 
 
 def verdict(table: pd.DataFrame) -> pd.DataFrame:
-    """Each rule set's medians across the shortlist, and the two shares that are not medians.
+    """Return each rule set's medians across the shortlist, and the two shares that are not medians.
 
     A median attempt count and a median net describe the sequence a configuration produced;
     ``ever_passed`` and ``profitable`` are shares because both questions are yes or no per
@@ -316,7 +316,7 @@ def shortlist_logs(
     *,
     rerun: bool,
 ) -> Mapping[tuple[int, int], pd.DataFrame]:
-    """The shortlist's held-out logs at the size they were swept at: stored, or re-run."""
+    """Return the shortlist's held-out logs at the size they were swept at: stored, or re-run."""
     if not rerun:
         return stored_logs(rows, db_path(strategy))
 

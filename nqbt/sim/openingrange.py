@@ -102,7 +102,7 @@ class OpeningRangeRules(NamedTuple):
 
 @njit(cache=True)
 def entry_level(range_high: float, range_low: float, rules: OpeningRangeRules) -> float:
-    """The range extreme this combination's order rests at.
+    """Return the range extreme this combination's order rests at.
 
     A breakout and a retest both work off the extreme in the direction traded -- one waiting
     to go through it, the other to come back to it -- and a fade and a rejection work off the
@@ -119,7 +119,7 @@ def entry_level(range_high: float, range_low: float, rules: OpeningRangeRules) -
 def break_confirmed(
     bars: bracket.Bars, i: int, range_high: float, range_low: float, rules: OpeningRangeRules
 ) -> bool:
-    """Whether bar ``i`` breaks the level a fade or a retest is waiting on.
+    """Return whether bar ``i`` breaks the level a fade or a retest is waiting on.
 
     A fade needs its level broken *against* the direction traded and a retest needs it broken
     *with* it, so one comparison serves both once :func:`bracket.sided` has picked the extreme
@@ -136,7 +136,7 @@ def break_confirmed(
 
 @njit(cache=True)
 def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
-    """Whether NT8 would accept this order at this bar's close.
+    """Return whether NT8 would accept this order at this bar's close.
 
     A stop entry has to sit strictly beyond the market it is submitted into --
     ``docs/nt8-fidelity.md`` §M18 -- and a limit entry strictly inside it, which is the same
@@ -153,7 +153,7 @@ def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
 def _limit_entry_fill(
     bars: bracket.Bars, i: int, trigger: float, fills: bracket.FillRules, direction: float
 ) -> tuple[bool, float]:
-    """The limit test the retest and the rejection share, which is the stop's mirror in both halves.
+    """Apply the limit test the retest and the rejection share, which is the stop's mirror in both halves.
 
     A limit fills at its price or better, so a bar opening past it fills at the open and the
     trade is *better* than planned rather than worse; and it takes no slippage, which is the
@@ -180,7 +180,7 @@ def entry_fill(
     fills: bracket.FillRules,
     rules: OpeningRangeRules,
 ) -> tuple[bool, float]:
-    """Whether the resting order fills on bar ``i``, and at what price."""
+    """Return whether the resting order fills on bar ``i``, and at what price."""
     if rules.entry_mode in ORB_LIMIT_ENTRIES:
         return _limit_entry_fill(bars, i, trigger, fills, rules.direction)
 
@@ -196,7 +196,7 @@ def range_bracket(
     signal_bar: int,
     rules: OpeningRangeRules,
 ) -> tuple[float, float, float]:
-    """One session range's order arithmetic: trigger, initial stop, planned risk.
+    """Compute one session range's order arithmetic: trigger, initial stop, planned risk.
 
     The trigger sits ``entry_offset`` past the level in the direction traded -- outside the
     range for a breakout, inside it for a fade or a rejection, whose level is the opposite
@@ -236,7 +236,7 @@ def range_bracket(
 
 @njit(cache=True)
 def _leg_target(level: float, trigger: float, risk: float, width: float, rules: OpeningRangeRules) -> float:
-    """One leg's target price, in whichever unit its mode expresses it.
+    """Return one leg's target price, in whichever unit its mode expresses it.
 
     A width multiple is already a distance, so :attr:`OpeningRangeRules.tp_multiplier` is not
     applied to it -- scaling it as well would be the same axis twice.
@@ -465,7 +465,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
 
 def openingrange_signal(data: Dataset, params: OpeningRangeParams) -> BoolArray:
-    """Bars that may submit an entry order: those whose session range is complete.
+    """Flag bars that may submit an entry order: those whose session range is complete.
 
     Dense by construction rather than by oversight -- the trigger is a level that persists, so
     a bar not resubmitting the order would be a bar the order was *not* resting on. What that
@@ -477,7 +477,7 @@ def openingrange_signal(data: Dataset, params: OpeningRangeParams) -> BoolArray:
 
 
 def entry_bound(data: Dataset, params: OpeningRangeParams, signal: BoolArray) -> int:
-    """How many entries this combination can possibly fill -- what the output is sized from.
+    """Return how many entries this combination can possibly fill -- what the output is sized from.
 
     ``allocate_output``'s usual "one row per leg per signal" bound is far too loose here,
     because the signal is dense: capped, the real bound is one entry per session per allowed
@@ -493,7 +493,7 @@ def entry_bound(data: Dataset, params: OpeningRangeParams, signal: BoolArray) ->
 
 
 def follow_through_scale(data: Dataset, params: OpeningRangeParams) -> FloatArray:
-    """Per session: what this combination multiplies the range width by, before the bracket.
+    """Return, per session, what this combination multiplies the range width by, before the bracket.
 
     Ones at :data:`ORB_SCALE_NONE`, so the loop is one multiplication rather than a branch and
     the unscaled arithmetic is bit-for-bit what it was -- ``docs/roadmap.md`` §M28.9.

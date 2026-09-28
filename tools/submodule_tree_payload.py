@@ -14,7 +14,7 @@ SUBMODULE_MODE = "160000"
 
 
 def parse_moved(text: str) -> list[tuple[str, str]]:
-    """The `<path> <sha>` lines of a moved-submodule list, blank lines dropped."""
+    """Parse the `<path> <sha>` lines of a moved-submodule list, blank lines dropped."""
     moved: list[tuple[str, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
@@ -31,7 +31,7 @@ def parse_moved(text: str) -> list[tuple[str, str]]:
 
 
 def tree_payload(base_tree: str, moved: list[tuple[str, str]]) -> dict[str, object]:
-    """The request body laying `moved` over `base_tree`."""
+    """Build the request body laying `moved` over `base_tree`."""
     if not moved:
         msg: str = "no submodule moved, so there is no tree to write"
         raise ValueError(msg)
@@ -43,7 +43,7 @@ def tree_payload(base_tree: str, moved: list[tuple[str, str]]) -> dict[str, obje
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """The command line: the tree to build on, and the list of pointers that moved."""
+    """Build the command line: the tree to build on, and the list of pointers that moved."""
     parser = argparse.ArgumentParser(description="Build a git tree payload moving submodules.")
     parser.add_argument("base_tree", help="sha of the tree the new one is layered onto")
     parser.add_argument("moved_file", help="a file of '<path> <sha>' lines, one per submodule")

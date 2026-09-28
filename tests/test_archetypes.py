@@ -282,7 +282,7 @@ def test_combinations_yield_the_archetypes_own_parameter_class() -> None:
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
-    """Random-walk minute bars with wicks wide enough to throw hammers both ways."""
+    """Build random-walk minute bars with wicks wide enough to throw hammers both ways."""
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))

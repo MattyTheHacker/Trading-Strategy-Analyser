@@ -20,7 +20,7 @@ PACKAGE = Path(__file__).resolve().parents[1] / "nqbt"
 
 
 def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
-    """A minimal schema-conforming log, in the shape an importer would produce."""
+    """Build a minimal schema-conforming log, in the shape an importer would produce."""
     frame = pd.DataFrame(
         {
             "source": pd.array(["manual"] * n, dtype="string"),
@@ -182,7 +182,7 @@ def test_an_exit_reason_outside_the_simulator_enum_is_allowed() -> None:
 
 
 def leg_matrix(n: int = 3, **overrides) -> trades.LegMatrix:
-    """A minimal schema-conforming leg matrix, as the jitted loop would leave it."""
+    """Build a minimal schema-conforming leg matrix, as the jitted loop would leave it."""
     matrix = np.zeros((n + 2, trades.N_COLUMNS))  # a tail of unwritten rows, like the real one
     matrix[:n, trades.C_TRADE_ID] = np.arange(1, n + 1)
     matrix[:n, trades.C_LEG] = 1
@@ -283,7 +283,7 @@ def test_trades_to_frame_requires_an_instrument() -> None:
 
 
 def imports_of(module: str) -> set[str]:
-    """Every module a file could be reaching, fully qualified.
+    """Return every module a file could be reaching, fully qualified.
 
     ``from nqbt import trades`` has to resolve to ``nqbt.trades`` and not merely to
     ``nqbt``, or a rule written as a prefix match passes while the import it forbids sits
@@ -303,7 +303,7 @@ def imports_of(module: str) -> set[str]:
 
 
 def names_used_in(module: str) -> set[str]:
-    """Every attribute name the file reads off something, so ``trades.EXIT_SIGNAL`` is seen.
+    """Return every attribute name the file reads off something, so ``trades.EXIT_SIGNAL`` is seen.
 
     ``imports_of`` cannot see it: the constant arrives through ``from nqbt import trades`` and
     is spent as an attribute, so a rule about who *produces* an exit reason has to read the
@@ -341,7 +341,7 @@ def test_the_trade_schema_knows_nothing_about_bars_or_strategies() -> None:
 
 
 def references(module: str, name: str) -> bool:
-    """Whether ``module`` spends ``name``, imported either way.
+    """Return whether ``module`` spends ``name``, imported either way.
 
     ``names_used_in`` sees ``trades.EXIT_SIGNAL`` and ``imports_of`` sees
     ``from nqbt.trades import EXIT_SIGNAL``; the loops are split across both forms.

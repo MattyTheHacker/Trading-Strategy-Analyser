@@ -18,7 +18,7 @@ from tools.campaign_crossroot import COMMISSION, PAIRS, selected, summarise
 
 
 def stored(n: int = 40) -> pd.DataFrame:
-    """Stored rows spanning both roots, two variants and a wide range of trade counts."""
+    """Build stored rows spanning both roots, two variants and a wide range of trade counts."""
     rng = np.random.default_rng(3)
 
     return pd.DataFrame(

@@ -27,7 +27,7 @@ def idx(*stamps: str) -> pd.DatetimeIndex:
 
 
 def session_index(open_utc: str, minutes: int = 1380) -> pd.DatetimeIndex:
-    """One full session's 1-minute bars, stamped end-of-bar from its first."""
+    """Build one full session's 1-minute bars, stamped end-of-bar from its first."""
     return pd.date_range(open_utc, periods=minutes, freq="min", tz="UTC")
 
 

@@ -90,7 +90,7 @@ MEASURES = (
 
 
 def reads(account: propaccount.PropAccount, objective: Objective) -> bool:
-    """Whether a preset's replay answers an objective.
+    """Return whether a preset's replay answers an objective.
 
     ``docs/roadmap.md`` § "A firm that changes its rules at the pass ships as two presets".
     """
@@ -101,14 +101,14 @@ def reads(account: propaccount.PropAccount, objective: Objective) -> bool:
 
 
 def calendar(bars: pd.DataFrame) -> DateArray:
-    """Every trading day a window's bars hold a session bar on, in order."""
+    """List every trading day a window's bars hold a session bar on, in order."""
     info: sessions.SessionInfo = sessions.classify(pd.DatetimeIndex(bars.index))
 
     return np.unique(info.trading_day[info.in_session])
 
 
 def sessions_between(days: DateArray, first: dt.date, last: dt.date) -> int:
-    """Trading days from ``first`` to ``last``, both included."""
+    """Count trading days from ``first`` to ``last``, both included."""
     start: int = int(np.searchsorted(days, np.datetime64(first, "D"), side="left"))
     end: int = int(np.searchsorted(days, np.datetime64(last, "D"), side="right"))
 
@@ -120,7 +120,7 @@ def funded_lives(
     account: propaccount.PropAccount,
     days: DateArray,
 ) -> list[tuple[int, bool]]:
-    """Each funded account's life in trading days, and whether the window ended it.
+    """Return each funded account's life in trading days, and whether the window ended it.
 
     A preset with no profit target is funded from its first day; any other is funded from the
     day after its pass, and an attempt that never passed was never funded.
@@ -143,7 +143,7 @@ def funded_lives(
 
 
 def days_to_payout(result: propaccount.PropReplay, days: DateArray) -> float:
-    """Trading days from opening the first account to the first withdrawal. ``inf`` for none."""
+    """Count trading days from opening the first account to the first withdrawal. ``inf`` for none."""
     for run in result.runs:
         if run.first_withdrawal_on is None:
             continue
@@ -158,7 +158,7 @@ def measure(
     account: propaccount.PropAccount,
     days: DateArray,
 ) -> dict[str, float | int | bool]:
-    """Every :data:`MEASURES` figure for one replay.
+    """Measure every :data:`MEASURES` figure for one replay.
 
     An objective whose event never happened takes the value that ranks it last: fees per pass
     and days to payout are ``inf`` and funded life is ``0``. One the preset does not answer is
@@ -193,7 +193,7 @@ def replay_configuration(
     accounts: list[propaccount.PropAccount],
     days: DateArray,
 ) -> list[dict[str, object]]:
-    """One configuration's re-run through every rule set it was asked for, one row each.
+    """Re-run one configuration through every rule set it was asked for, one row each.
 
     ``trades`` and ``profit_factor`` are the re-run's, not the stored row's --
     ``docs/findings/m40-prop-objectives.md`` § "The pool, and the archive it was re-run on".
@@ -227,7 +227,7 @@ def rerun_logs(
     root: str,
     bars: pd.DataFrame,
 ) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """Every row of one window re-run with its summary and log, one resample per resolution."""
+    """Yield every row of one window re-run with its summary and log, one resample per resolution."""
     archetype: archetypes.Archetype = archetypes.get(name)
     for minutes, block in rows.groupby("resolution", sort=False):
         frame: pd.DataFrame = resample.resample(bars, int(minutes))
@@ -255,7 +255,7 @@ def measure_window(
 
 
 def key_of(row: pd.Series) -> tuple[str, int, str, str, int]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The :data:`~tools.campaign_holdout.JOIN_KEYS` that name one configuration in both windows."""
+    """Return the :data:`~tools.campaign_holdout.JOIN_KEYS` that name one configuration in both windows."""
     return (
         str(row["root"]),
         int(row["resolution"]),
@@ -266,7 +266,7 @@ def key_of(row: pd.Series) -> tuple[str, int, str, str, int]:  # type: ignore[ty
 
 
 def ranking(measured: pd.DataFrame, by: str, *, higher_is_better: bool, top: int) -> pd.DataFrame:
-    """The ``top`` rows ``by`` ranks highest, selection-window profit factor breaking ties."""
+    """Return the ``top`` rows ``by`` ranks highest, selection-window profit factor breaking ties."""
     return measured.sort_values(
         [by, CONTROL],
         ascending=[not higher_is_better, False],
@@ -279,7 +279,7 @@ def shortlists(
     accounts: list[propaccount.PropAccount],
     top: int,
 ) -> pd.DataFrame:
-    """Each rule set's shortlist under every objective it answers and under the control.
+    """Return each rule set's shortlist under every objective it answers and under the control.
 
     One row per configuration per shortlist, tagged ``ranked_by``.
     """
@@ -313,7 +313,7 @@ def shortlists(
 
 
 def verdict(chosen: pd.DataFrame, held: pd.DataFrame) -> pd.DataFrame:
-    """Each shortlist's medians on the window that chose it and on the held-out one."""
+    """Return each shortlist's medians on the window that chose it and on the held-out one."""
     if chosen.empty or held.empty:
         return pd.DataFrame()
 
@@ -344,7 +344,7 @@ def verdict(chosen: pd.DataFrame, held: pd.DataFrame) -> pd.DataFrame:
 
 
 def _share(part: pd.Series, whole: pd.Series) -> float:  # type: ignore[type-arg]  # duckdb's dtypes
-    """``part`` over ``whole`` summed, or ``nan`` when the whole is empty."""
+    """Return ``part`` over ``whole`` summed, or ``nan`` when the whole is empty."""
     total: float = float(whole.sum())
 
     return float(part.sum()) / total if total else float("nan")
@@ -364,7 +364,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def pool(name: str, root: str, args: argparse.Namespace) -> pd.DataFrame:
-    """The ``args.pool`` distinct configurations stored selection-window profit factor ranks highest.
+    """Return the ``args.pool`` distinct configurations stored selection-window profit factor ranks highest.
 
     The maximum-hold arms are left out, a configuration stored under two variant names at one bar
     size enters once at its higher rank, and a row the fill assumption could have decided is left
@@ -413,7 +413,7 @@ def run_cell(
     accounts: list[propaccount.PropAccount],
     bars: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """One root's pool ranked on the selection window, and its shortlists read held out."""
+    """Rank one root's pool on the selection window, and read its shortlists held out."""
     pairs: pd.DataFrame = pool(name, root, args)
     selection_rows: pd.DataFrame = half(pairs, SELECTION_SUFFIX)
     held_rows: pd.DataFrame = half(pairs, HELD_OUT_SUFFIX)

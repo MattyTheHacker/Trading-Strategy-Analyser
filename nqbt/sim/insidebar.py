@@ -227,7 +227,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
 
 def insidebar_trends(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
-    """The two three-average gates: close **strictly** above all three, or below all three.
+    """Return the two three-average gates: close **strictly** above all three, or below all three.
 
     Strict on each comparison, so equality fails both -- ``InsideBar.cs`` writes the positive
     form rather than a rejection, unlike the two ports, and the raw values are read for that
@@ -243,7 +243,7 @@ def insidebar_trends(data: Dataset, params: InsideBarParams) -> tuple[BoolArray,
 
 
 def insidebar_breakouts(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
-    """Whether this bar's close clears the mother bar by ``error_margin`` of its range.
+    """Return whether this bar's close clears the mother bar by ``error_margin`` of its range.
 
     Stamped on the bar whose close judges it, so the mother bar is two back.
     """
@@ -260,7 +260,7 @@ def insidebar_breakouts(data: Dataset, params: InsideBarParams) -> tuple[BoolArr
 
 
 def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
-    """Which side each bar would be entered on: ``LONG`` where the averages say uptrend.
+    """Return which side each bar would be entered on: ``LONG`` where the averages say uptrend.
 
     Defined on **every** bar rather than only on signal bars, so the random-entry arm can drop
     a signal anywhere. The two gates are not complements, so a bar agreeing with neither reads
@@ -272,7 +272,7 @@ def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
 
 
 def insidebar_patterns(data: Dataset, params: InsideBarParams) -> tuple[BoolArray, BoolArray]:
-    """The long and short setups on their own, before any clock or context filter narrows them.
+    """Return the long and short setups on their own, before any clock or context filter narrows them.
 
     An inside bar behind this one, a close clearing the mother bar's extreme by the error
     margin, and all three averages agreeing with the direction of the break.
@@ -285,7 +285,7 @@ def insidebar_patterns(data: Dataset, params: InsideBarParams) -> tuple[BoolArra
 
 
 def insidebar_signal(data: Dataset, params: InsideBarParams) -> BoolArray:
-    """Bars whose close schedules an entry for the next bar's open: a pattern the filters admit."""
+    """Flag bars whose close schedules an entry for the next bar's open: a pattern the filters admit."""
     long_pattern, short_pattern = insidebar_patterns(data, params)
     signal: BoolArray = long_pattern | short_pattern
     if params.no_entry_minutes_before_close > 0:

@@ -110,7 +110,7 @@ def measure_group(
     minutes: int,
     seconds: int,
 ) -> list[dict[str, object]]:
-    """Every row of one resampled frame re-run at one cutoff.
+    """Re-run every row of one resampled frame at one cutoff.
 
     The bars are :data:`~nqbt.context.PriceBasis.RAW`, which is what ``load_continuous`` returns
     and what the sweep measured them as, so a rule reading an absolute level runs rather than
@@ -142,7 +142,7 @@ def measure(
     root: str,
     cutoffs: tuple[int, ...],
 ) -> pd.DataFrame:
-    """Every shortlisted configuration at every cutoff, one row each.
+    """Measure every shortlisted configuration at every cutoff, one row each.
 
     Grouped by resolution because the resample is the expensive part every rung shares, and the
     bars each cell runs on are the ones its rows were swept on wherever that survives. Every
@@ -173,7 +173,7 @@ def measure(
 
 
 def report_group(root: str, minutes: int, seconds: int, measured: list[dict[str, object]]) -> None:
-    """One line per (root, resolution, cutoff), so a run that binds nothing is visible while it runs."""
+    """Log one line per (root, resolution, cutoff), so a run that binds nothing is visible while it runs."""
     frame: pd.DataFrame = pd.DataFrame(measured)
     logger.info(
         "  %-4s %2dm  flat %3ds  %2d configurations  median PF %.3f  close share %.3f",
@@ -187,7 +187,7 @@ def report_group(root: str, minutes: int, seconds: int, measured: list[dict[str,
 
 
 def reconcile(table: pd.DataFrame) -> pd.DataFrame:
-    """Per root x resolution, how much of the control rung reproduced its stored row.
+    """Measure, per root x resolution, how much of the control rung reproduced its stored row.
 
     Read it before the ladder: a cell reproducing nothing is a cell whose *levels* belong to
     this run, while the differences between its rungs still belong to the cutoff.
@@ -196,7 +196,7 @@ def reconcile(table: pd.DataFrame) -> pd.DataFrame:
 
 
 def rung(table: pd.DataFrame, seconds: int, by: str) -> pd.DataFrame:
-    """One cutoff against the control, per root x resolution.
+    """Compare one cutoff against the control, per root x resolution.
 
     **Never pooled across resolutions**, because the cutoff is a duration and a bar is not: the
     same 180 seconds is three whole bars at one resolution and none at another.
@@ -236,7 +236,7 @@ def rung(table: pd.DataFrame, seconds: int, by: str) -> pd.DataFrame:
 
 
 def ladder(table: pd.DataFrame, by: str) -> pd.DataFrame:
-    """Every rung above the control, stacked."""
+    """Stack every rung above the control."""
     stacked: list[pd.DataFrame] = [
         rung(table, int(seconds), by) for seconds in sorted(table[CUTOFF].unique()) if seconds != CONTROL
     ]
@@ -272,7 +272,7 @@ def resolutions_for(
     stratum: str | None,
     variant: str | None,
 ) -> list[int]:
-    """Every bar size the stored cell holds, which is what a shortlist has to be taken inside.
+    """List every bar size the stored cell holds, which is what a shortlist has to be taken inside.
 
     A shortlist pooled across resolutions would rank bar size as well as parameters, and bar
     size is the largest lever in the campaign -- ``docs/roadmap.md`` §M28.14.
@@ -289,7 +289,7 @@ def resolutions_for(
 
 
 def shortlisted(args: argparse.Namespace, name: str, root: str) -> pd.DataFrame:
-    """One held-out shortlist per bar size, stacked."""
+    """Stack one held-out shortlist per bar size."""
     wanted: list[int] = args.resolution or resolutions_for(name, root, args.stratum, args.variant)
     if not wanted:
         msg: str = (
@@ -313,7 +313,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def cell(args: argparse.Namespace, archetype: archetypes.Archetype, root: str) -> pd.DataFrame:
-    """One root's held-out shortlists, measured at every cutoff."""
+    """Measure one root's held-out shortlists at every cutoff."""
     rows: pd.DataFrame = shortlisted(args, archetype.name, root)
     logger.info("")
     logger.info(

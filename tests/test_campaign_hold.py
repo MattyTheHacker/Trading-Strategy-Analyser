@@ -24,7 +24,7 @@ from tools.campaign_sweep import HOLD_BARS
 
 
 def arm(variant: str, bars: int, **columns: object) -> pd.DataFrame:
-    """A results frame with the tag columns every stored row carries."""
+    """Build a results frame with the tag columns every stored row carries."""
     base = {
         "sweep_id": 1,
         "combo_id": range(4),

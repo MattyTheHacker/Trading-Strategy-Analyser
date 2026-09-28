@@ -126,7 +126,7 @@ def write_run(
 
 
 def one_fill(reported_bar: int) -> list[dict[str, object]]:
-    """A trial submitted at bar 0 whose fill callback reports ``reported_bar``."""
+    """Build a trial submitted at bar 0 whose fill callback reports ``reported_bar``."""
     return [
         event("SUBMIT", 1, 0, "probe1"),
         event("ORDER_UPDATE", 1, 0, "probe1", order_state="Working"),

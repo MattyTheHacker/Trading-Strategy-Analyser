@@ -61,7 +61,7 @@ PAD = (104.0, 104.5, 103.5, 104.0)
 
 
 def frame_of(rows: Sequence[Row]) -> pd.DataFrame:
-    """Hand-written OHLC rows as consecutive minute bars in the middle of one session."""
+    """Build consecutive minute bars from hand-written OHLC rows, in the middle of one session."""
     arr = np.asarray(rows, dtype=np.float64)
     index = pd.date_range("2024-01-02 15:00", periods=len(arr), freq="min", tz="UTC")
     frame = pd.DataFrame(
@@ -74,7 +74,7 @@ def frame_of(rows: Sequence[Row]) -> pd.DataFrame:
 
 
 def dataset_for(params: SqueezeBreakoutParams, frame: pd.DataFrame) -> context.Dataset:
-    """A dataset carrying exactly what one combination reads."""
+    """Build a dataset carrying exactly what one combination reads."""
     return context.prepare(frame, sweep.Grid.of(params).required_context(), bar_minutes=1)
 
 
@@ -212,7 +212,7 @@ def test_the_output_bound_counts_the_bars_that_could_fill() -> None:
 
 
 def with_ranks(params: SqueezeBreakoutParams, ranks: Sequence[float]) -> context.Dataset:
-    """A dataset whose squeeze series is exactly ``ranks``, one per bar."""
+    """Build a dataset whose squeeze series is exactly ``ranks``, one per bar."""
     stated = np.asarray(ranks, dtype=np.float64)
     data = dataset_for(params, frame_of([QUIET[0]] * stated.size))
     data.compressions = compression.CompressionGrid(
@@ -264,7 +264,7 @@ def test_the_shared_compression_filter_narrows_the_squeeze_rather_than_replacing
 
 
 def session_bars(days: int = 6, seed: int = 11) -> pd.DataFrame:
-    """Random-walk minute bars over whole sessions, long enough for a 250-bar baseline."""
+    """Build random-walk minute bars over whole sessions, long enough for a 250-bar baseline."""
     rng = np.random.default_rng(seed)
     n = days * 1440
     index = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")

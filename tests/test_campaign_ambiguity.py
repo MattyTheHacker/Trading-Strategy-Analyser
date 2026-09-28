@@ -35,7 +35,7 @@ STRATEGY = "InsideBar"
 
 
 def measured(**columns: object) -> pd.DataFrame:
-    """A table shaped like :func:`~tools.campaign_ambiguity.measure`'s output."""
+    """Build a table shaped like :func:`~tools.campaign_ambiguity.measure`'s output."""
     base = {
         "label": ["a", "b", "c"],
         "stratum": "unfiltered",
@@ -117,7 +117,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def grid() -> sweep.Grid:
-    """Two InsideBar combinations, one of which resolves bars by assumption and one of which
+    """Build two InsideBar combinations, one of which resolves bars by assumption and one of which
     does not.
 
     A quarter-ATR stop against a quarter-ATR target puts both bracket levels inside one

@@ -33,7 +33,7 @@ from tools.campaign_shortlist import source
 
 
 def arm(seconds: int, **columns: object) -> pd.DataFrame:
-    """A measured frame with the tag columns every rung carries."""
+    """Build a measured frame with the tag columns every rung carries."""
     base = {
         "root": "MNQ",
         "resolution": 5,
@@ -215,7 +215,7 @@ def test_a_cell_nothing_was_stored_for_says_so_rather_than_measuring_nothing(mon
 
 
 def argparse_namespace(**overrides: object):  # noqa: ANN201 - argparse's own namespace type
-    """The subset of ``main``'s parsed arguments the selection helpers read."""
+    """Build the subset of ``main``'s parsed arguments the selection helpers read."""
     import argparse
 
     base = {

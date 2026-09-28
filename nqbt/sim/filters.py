@@ -103,7 +103,7 @@ class LabelSized(ContextFiltered, Protocol):
 
 
 def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
-    """The masks the six filters contribute, skipping every gate at its everything value.
+    """Return the masks the six filters contribute, skipping every gate at its everything value.
 
     One list rather than a conjunction, so a caller can AND them or count them. **A gate at
     its everything value contributes nothing at all** -- it is absent from this list rather
@@ -179,7 +179,7 @@ def apply_confluence_filters(signal: BoolArray, data: Dataset, params: Confluenc
 
 
 def favourable_labels(data: Dataset, params: LabelSized, long_side: BoolArray) -> list[BoolArray]:
-    """One row per ``size_on_*`` label switched on: whether it favours each bar's side.
+    """Return one row per ``size_on_*`` label switched on: whether it favours each bar's side.
 
     The side-dependent labels favour a long where they point up and a short where they point
     down; regime and volume favour both sides alike. A bar a label cannot classify passes no

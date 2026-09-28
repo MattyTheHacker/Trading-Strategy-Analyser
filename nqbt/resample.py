@@ -46,7 +46,7 @@ def minutes_since_open(
     index: pd.DatetimeIndex,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> IntArray:
-    """How far each end-of-bar timestamp sits past its session's open, in minutes.
+    """Return how far each end-of-bar timestamp sits past its session's open, in minutes.
 
     Runs 1 to 1,380 over a full 18:00 -> 17:00 ET session. No DST bookkeeping is needed: US
     transitions fall at 02:00 ET on a Sunday, when the market is shut.
@@ -64,7 +64,7 @@ def bucket_index(
     minutes: int,
     template: SessionTemplate = CME_US_INDEX_FUTURES_ETH,
 ) -> tuple[IntArray, IntArray]:
-    """Per bar: which bucket it falls in, and how many minutes to its bucket's close.
+    """Return, per bar, which bucket it falls in and how many minutes to its bucket's close.
 
     A bar stamped at minute ``m`` occupies index ``m - 1``, because the stamp is its close.
     """

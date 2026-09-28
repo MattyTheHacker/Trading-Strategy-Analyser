@@ -291,7 +291,7 @@ class AccountRules:
 
 
 def _is_negative(value: object) -> bool:
-    """Whether a field holds a negative number, with bool excluded as it is not a quantity."""
+    """Return whether a field holds a negative number, with bool excluded as it is not a quantity."""
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0
 
 
@@ -590,7 +590,7 @@ class AccountRun:
     summary: stats.Summary
 
     def as_dict(self) -> dict[str, str | float | int | bool | None]:
-        """Flat mapping of the account's own figures, for a report row.
+        """Return a flat mapping of the account's own figures, for a report row.
 
         The performance half is :attr:`summary`, which carries its own ``as_dict``.
         """
@@ -636,7 +636,7 @@ class PropReplay:
     """:func:`nqbt.stats.summarise` over every trade any attempt took."""
 
     def as_dict(self) -> dict[str, str | float | int]:
-        """Flat mapping of the lifetime figures, for a ranking row."""
+        """Return a flat mapping of the lifetime figures, for a ranking row."""
         return {
             f.name: getattr(self, f.name)
             for f in dataclasses.fields(self)
@@ -754,7 +754,7 @@ def _lifetime(
 
 
 def _legs_taken(log: pd.DataFrame, table: _TradeTable, positions: list[int]) -> pd.DataFrame:
-    """The legs of the trades at ``positions``, so every performance figure is ``summarise``'s."""
+    """Return the legs of the trades at ``positions``, so every performance figure is ``summarise``'s."""
     if not positions:
         return log.iloc[:0]
 
@@ -819,7 +819,7 @@ def _require_columns(log: pd.DataFrame, rules: AccountRules) -> None:
 
 
 def _excursion_dollars(log: pd.DataFrame, rules: AccountRules) -> pd.DataFrame:
-    """Each trade's worst and best open equity in dollars, summed over its legs.
+    """Return each trade's worst and best open equity in dollars, summed over its legs.
 
     Zero on both when no enabled limit reads them, so a log with no excursions still replays.
     """
@@ -843,7 +843,7 @@ def _excursion_dollars(log: pd.DataFrame, rules: AccountRules) -> pd.DataFrame:
 
 
 def _point_values(log: pd.DataFrame) -> FloatArray:
-    """Dollars per point for each leg's own instrument, since a log may span both roots."""
+    """Return dollars per point for each leg's own instrument, since a log may span both roots."""
     per_symbol: dict[str, float] = {
         str(symbol): instruments.get_instrument(str(symbol)).point_value
         for symbol in log["instrument"].unique()
@@ -853,14 +853,14 @@ def _point_values(log: pd.DataFrame) -> FloatArray:
 
 
 def _day_starts(trading_day: DateArray) -> IntArray:
-    """Half-open bounds of each run of equal trading days, plus a closing sentinel."""
+    """Return half-open bounds of each run of equal trading days, plus a closing sentinel."""
     changed: IntArray = np.flatnonzero(trading_day[1:] != trading_day[:-1]) + 1
 
     return np.concatenate(([0], changed, [trading_day.size])).astype(np.int64)
 
 
 def _trailing_floor(high_water: float, rules: AccountRules) -> float:
-    """Where the account dies, given the highest equity it has reached."""
+    """Return where the account dies, given the highest equity it has reached."""
     if rules.trailing_threshold <= 0.0:
         return float("-inf")
 
@@ -872,7 +872,7 @@ def _trailing_floor(high_water: float, rules: AccountRules) -> float:
 
 
 def _probe_low(balance: float, table: _TradeTable, pos: int, basis: EquityBasis) -> float:
-    """Lowest equity one trade reaches, on the basis a rule measures itself against."""
+    """Return the lowest equity one trade reaches, on the basis a rule measures itself against."""
     if basis is EquityBasis.UNREALISED:
         return balance - float(table.adverse[pos]) - float(table.commission[pos])
 
@@ -880,7 +880,7 @@ def _probe_low(balance: float, table: _TradeTable, pos: int, basis: EquityBasis)
 
 
 def _probe_high(balance: float, table: _TradeTable, pos: int) -> float:
-    """Highest equity one trade reaches, which only an intraday high-water mark reads."""
+    """Return the highest equity one trade reaches, which only an intraday high-water mark reads."""
     return balance + float(table.favourable[pos]) - float(table.commission[pos])
 
 
@@ -1000,12 +1000,12 @@ def _check_pass(table: _TradeTable, day: int, rules: AccountRules, state: _Accou
 
 
 def _as_date(day: np.datetime64[dt.date | int | None]) -> dt.date:
-    """One trading day as the calendar date a report prints."""
+    """Return one trading day as the calendar date a report prints."""
     return pd.Timestamp(day).date()
 
 
 def _consistent(daily: list[float], profit: float, ratio: float) -> bool:
-    """Whether no single day contributed more than ``ratio`` of the account's total profit."""
+    """Return whether no single day contributed more than ``ratio`` of the account's total profit."""
     if ratio <= 0.0:
         return True
 
@@ -1102,7 +1102,7 @@ def _fees_paid(
     *,
     passed_on: dt.date | None,
 ) -> float:
-    """One attempt's cost: the entry fee, a month for every month it was billed, and activation."""
+    """Return one attempt's cost: the entry fee, a month for every month it was billed, and activation."""
     billed_to: dt.date = closed
     if fees.monthly_fee_ends_at_pass and passed_on is not None:
         billed_to = passed_on

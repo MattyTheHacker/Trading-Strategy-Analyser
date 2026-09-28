@@ -28,7 +28,7 @@ from nqbt.trades import SHORT
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
-    """Random-walk minute bars with wicks wide enough to throw inverted hammers.
+    """Build random-walk minute bars with wicks wide enough to throw inverted hammers.
 
     A share of bars open away from the previous close rather than exactly on it. Without
     that the entry bar can never gap through the trigger, because the trigger is capped at
@@ -59,7 +59,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def audited():
-    """A trade log and the audit trail over the whole of it, not a prefix."""
+    """Provide a trade log and the audit trail over the whole of it, not a prefix."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(),
@@ -219,7 +219,7 @@ def test_ratchet_history_raises_keyerror_on_unknown_trade() -> None:
 
 @pytest.fixture
 def ratchet():
-    """One trade's bar-by-bar stop history, with the dataset it was built from."""
+    """Return one trade's bar-by-bar stop history, with the dataset it was built from."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
         synthetic_bars(n=1500),

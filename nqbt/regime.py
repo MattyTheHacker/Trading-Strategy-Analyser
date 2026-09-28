@@ -196,7 +196,7 @@ def validate_multiples(consolidating_multiple: float, directional_multiple: floa
 
 
 def random_walk_ratio(lookback: int) -> float:
-    """The efficiency ratio a driftless random walk averages over ``lookback`` bars: ``1/sqrt(n)``.
+    """Return the efficiency ratio a driftless random walk averages over ``lookback`` bars: ``1/sqrt(n)``.
 
     The anchor a raw threshold is otherwise read against by eye -- ``docs/roadmap.md`` §M27.5.
     """
@@ -210,7 +210,7 @@ def thresholds_from_multiples(
     consolidating_multiple: float,
     directional_multiple: float,
 ) -> tuple[float, float]:
-    """Both thresholds as multiples of :func:`random_walk_ratio`, one cut across the lookback axis.
+    """Return both thresholds as multiples of :func:`random_walk_ratio`, one cut across the lookback axis.
 
     ``ER x sqrt(n)`` is scale-free under the null, so the same pair of multiples means the same
     amount of directionality at every lookback where a raw pair does not.
@@ -233,7 +233,7 @@ def thresholds_from_quantiles(
     consolidating_quantile: float,
     directional_quantile: float,
 ) -> tuple[float, float]:
-    """Both thresholds as quantiles of the ratios in ``values``, warm-up bars excluded.
+    """Return both thresholds as quantiles of the ratios in ``values``, warm-up bars excluded.
 
     Fit on the selection window alone: fitting on the whole series leaks the holdout.
     """
@@ -251,7 +251,7 @@ def thresholds_from_quantiles(
 
 @njit(cache=True)
 def _efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
-    """Net move over path length, ``nan`` until ``lookback`` bars of history exist.
+    """Return net move over path length, ``nan`` until ``lookback`` bars of history exist.
 
     The window sum is recomputed rather than maintained incrementally, and a window that
     never moved scores 0.0 rather than dividing by zero -- ``docs/roadmap.md`` §M10.1.
@@ -302,7 +302,7 @@ def _gate(
     directional_above: float,
     mask: int,
 ) -> BoolArray:
-    """One pass from ratio to boolean, so a sweep combination never builds a label array."""
+    """Map ratio to boolean in one pass, so a sweep combination never builds a label array."""
     n = values.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):
@@ -314,7 +314,7 @@ def _gate(
 
 
 def efficiency_ratio(close: FloatArray, lookback: int) -> FloatArray:
-    """Kaufman's efficiency ratio over ``lookback`` bars, aligned to ``close``.
+    """Compute Kaufman's efficiency ratio over ``lookback`` bars, aligned to ``close``.
 
     ``nan`` for the first ``lookback`` bars, which have no window to measure.
     """

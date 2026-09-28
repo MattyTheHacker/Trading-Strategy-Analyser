@@ -39,7 +39,7 @@ FLATTEN = stats.SESSION_CLOSE
 
 
 def leg_log(legs: list[tuple[float, str]]) -> pd.DataFrame:
-    """A one-leg-per-trade log from ``(net_pnl, exit_reason)`` pairs, one trade an hour."""
+    """Build a one-leg-per-trade log from ``(net_pnl, exit_reason)`` pairs, one trade an hour."""
     pnl = np.array([net for net, _ in legs], dtype=float)
     exits = pd.Timestamp("2024-09-03 18:00", tz="UTC") + pd.to_timedelta(np.arange(len(legs)), unit="h")
 
@@ -71,7 +71,7 @@ CARRIED = [(900.0, FLATTEN), (800.0, FLATTEN), (-300.0, "stop"), (-400.0, "stop"
 
 
 def stored_row(log: pd.DataFrame, **columns: object) -> pd.Series:
-    """The held-out row a log is filed against, carrying the net P&L it must reproduce."""
+    """Build the held-out row a log is filed against, carrying the net P&L it must reproduce."""
     base = {
         "sweep_id": SWEEP_ID,
         "combo_id": COMBO_ID,
@@ -88,7 +88,7 @@ def stored_row(log: pd.DataFrame, **columns: object) -> pd.Series:
 
 @pytest.fixture
 def stocked(tmp_path):
-    """A database holding one stored log, at the ids the held-out row names."""
+    """Provide a database holding one stored log, at the ids the held-out row names."""
     db = tmp_path / "OpeningRange.duckdb"
     results.save_trades(leg_log(CARRIED), SWEEP_ID, COMBO_ID, db)
 

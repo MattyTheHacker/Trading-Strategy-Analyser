@@ -34,7 +34,7 @@ STRATEGY = "InsideBar"
 
 
 def stored_rows(**columns: object) -> pd.DataFrame:
-    """A ranked frame with the tag columns a selection reads."""
+    """Build a ranked frame with the tag columns a selection reads."""
     base = {
         "root": ROOT,
         "stratum": "unfiltered",
@@ -220,7 +220,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def grid() -> sweep.Grid:
-    """Two InsideBar combinations, both of which trade on the synthetic bars."""
+    """Build two InsideBar combinations, both of which trade on the synthetic bars."""
     return sweep.Grid.of(
         InsideBarParams(slow_sma_period=50, bars_required_to_trade=60),
         atr_multiplier=[5.0, 10.0],

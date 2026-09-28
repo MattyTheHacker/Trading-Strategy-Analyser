@@ -84,7 +84,7 @@ def test_named_raises_on_a_label_the_state_map_does_not_carry() -> None:
 
 
 def frames(raw: list[str], fitted: list[str]) -> tuple[pd.Series, pd.Series]:
-    """One bar per element, labelled twice."""
+    """Build one bar per element, labelled twice."""
     return pd.Series(raw, name="raw"), pd.Series(fitted, name="fitted")
 
 

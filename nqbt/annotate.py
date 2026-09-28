@@ -251,7 +251,7 @@ def confluence(
     *,
     name: str = CONFLUENCE_COLUMN,
 ) -> Annotation:
-    """How many of ``columns`` were true at each trade's entry bar, as a new condition.
+    """Count how many of ``columns`` were true at each trade's entry bar, as a new condition.
 
     This is the *descriptive* half of the confluence pattern and needs no strategy to gate on
     anything: the trades already happened, and the count says what was true when each one was
@@ -407,7 +407,7 @@ def bars_for_fills(
     *,
     bar_minutes: int | None = None,
 ) -> IntArray:
-    """Index of the bar each fill happened in, :data:`UNMATCHED` where no bar covers it.
+    """Return the index of the bar each fill happened in, :data:`UNMATCHED` where no bar covers it.
 
     Timestamps are end-of-bar and a fill matches the first bar stamped **strictly after** it, so
     the bar stamped ``s`` covers ``[s - bar_minutes, s)`` and a fill printed at a bar's own stamp
@@ -509,7 +509,7 @@ def annotate_trades(
 
 
 def _utc_naive(stamps: pd.DatetimeIndex) -> DateArray:
-    """Timestamps as naive UTC ``datetime64``, the one form two indices compare in."""
+    """Convert timestamps to naive UTC ``datetime64``, the one form two indices compare in."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz is not None else stamps
 
     return naive.to_numpy().astype("datetime64[ns]")
@@ -695,7 +695,7 @@ def _per_trade_bars(
 
 
 def _bar_columns(data: Dataset, bars: IntArray, at: IntArray, side: str) -> dict[str, Column]:
-    """Which bar was matched and what it did: the bookkeeping half of a row."""
+    """Return which bar was matched and what it did: the bookkeeping half of a row."""
     return {
         f"{side}_bar": bars,
         f"{side}_bar_time": data.index[at],
@@ -707,7 +707,7 @@ def _bar_columns(data: Dataset, bars: IntArray, at: IntArray, side: str) -> dict
 
 
 def _conditions_at(data: Dataset, at: IntArray, thresholds: LabelThresholds) -> dict[str, Column]:
-    """Every condition the dataset holds, read at the given bars.
+    """Return every condition the dataset holds, read at the given bars.
 
     Driven by what was built rather than by what the spec declared, so a dataset prepared with
     ``keep_ma_values=True`` carries its values here without anything having asked twice. Labels

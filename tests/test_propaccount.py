@@ -34,7 +34,7 @@ COMMISSION = 6.0
 
 
 def leg_log(rows, *, instrument: str = "MNQ", start: str = "2024-01-02 15:00") -> pd.DataFrame:
-    """A one-leg-per-trade log from ``(day_offset, net_pnl, mae_points)`` triples.
+    """Build a one-leg-per-trade log from ``(day_offset, net_pnl, mae_points)`` triples.
 
     Times are UTC and mid-afternoon, so every trade lands on the trading day its offset names
     unless a test deliberately moves one across the session boundary.
@@ -68,7 +68,7 @@ def leg_log(rows, *, instrument: str = "MNQ", start: str = "2024-01-02 15:00") -
 
 
 def account(**overrides) -> PropAccount:
-    """A deliberately plain rule set, so each test switches on exactly the field it names."""
+    """Build a deliberately plain rule set, so each test switches on exactly the field it names."""
     fields = {
         "starting_balance": 50_000.0,
         "profit_target": 3_000.0,
@@ -117,7 +117,7 @@ def test_the_module_defines_no_statistic_summarise_already_owns() -> None:
 
 
 def _dips_but_wins(mae_points: float):
-    """One profitable trade that first goes ``mae_points`` against, then a quiet second day."""
+    """Build one profitable trade that first goes ``mae_points`` against, then a quiet second day."""
     return leg_log([(0, 100.0, mae_points), (1, 100.0, 1.0)])
 
 
@@ -180,7 +180,7 @@ def test_an_intraday_high_water_mark_raises_the_floor_a_daily_one_does_not() -> 
 
 
 def _spikes_then_dips():
-    """One trade that runs $3,000 in favour and $1,000 against, under Apex's geometry.
+    """Build one trade that runs $3,000 in favour and $1,000 against, under Apex's geometry.
 
     The peak takes the high-water mark to $52,994, which under a $2,500 threshold locks the
     floor at its $50,100 ceiling; the trough at $48,994 is then below it. Applied the other way
@@ -198,7 +198,7 @@ def _spikes_then_dips():
 
 
 def _intraday(**overrides) -> PropAccount:
-    """Apex's trailing geometry: an intraday mark and a floor that locks just above the start."""
+    """Build Apex's trailing geometry: an intraday mark and a floor that locks just above the start."""
     return account(
         trailing_threshold=2_500.0,
         trail_basis=TrailBasis.INTRADAY,
@@ -369,7 +369,7 @@ def test_a_monthly_fee_that_ends_at_the_pass_bills_an_attempt_that_never_passed(
 
 
 def paying(**overrides) -> PropAccount:
-    """A rule set that passes and then withdraws without walking onto its own floor."""
+    """Build a rule set that passes and then withdraws without walking onto its own floor."""
     return account(
         withdrawal_threshold=1_000.0,
         trail_lock=TrailLock.AT_STARTING_BALANCE,

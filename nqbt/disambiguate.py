@@ -76,12 +76,12 @@ class DisambiguationError(ValueError):
 
 
 def worth_resolving(ambiguous_share: float) -> bool:
-    """Whether a result resolves enough bars by assumption for the pass to be worth running."""
+    """Return whether a result resolves enough bars by assumption for the pass to be worth running."""
     return ambiguous_share >= MIN_AMBIGUOUS_SHARE
 
 
 def owning_bar(fine_index: pd.DatetimeIndex, coarse_index: pd.DatetimeIndex) -> IntArray:
-    """Which coarse bar each minute bar was aggregated into.
+    """Return which coarse bar each minute bar was aggregated into.
 
     Bars are stamped end-of-bar, so a minute bar belongs to the first coarse bar stamped at or
     after it. Non-decreasing by construction, which is what lets :func:`sub_bars` slice it.
@@ -90,14 +90,14 @@ def owning_bar(fine_index: pd.DatetimeIndex, coarse_index: pd.DatetimeIndex) -> 
 
 
 def sub_bars(fine: pd.DataFrame, owner: IntArray, position: int) -> pd.DataFrame:
-    """The minute bars one coarse bar was built from, in order."""
+    """Return the minute bars one coarse bar was built from, in order."""
     start, stop = np.searchsorted(owner, [position, position + 1])
 
     return fine.iloc[int(start) : int(stop)]
 
 
 def rebuilds(window: pd.DataFrame, coarse_bar: pd.Series[float]) -> bool:
-    """Whether these minute bars aggregate back to exactly the coarse bar they came from.
+    """Return whether these minute bars aggregate back to exactly the coarse bar they came from.
 
     §M13's associativity used as a **guard on the alignment** rather than as an argument for it:
     if the window is off by a bar the four prices stop matching, and the leg is refused instead
@@ -115,7 +115,7 @@ def rebuilds(window: pd.DataFrame, coarse_bar: pd.Series[float]) -> bool:
 
 
 def entry_minute(window: pd.DataFrame, coarse_bar: pd.Series[float], entry_price: float) -> int:
-    """Which minute bar the position opened inside, or ``-1`` if it was open from the start.
+    """Return which minute bar the position opened inside, or ``-1`` if it was open from the start.
 
     ``-1`` covers both a trade that opened on an earlier bar and one that filled at this bar's
     open, since either way the whole window is held. Otherwise the fill is somewhere inside one
@@ -143,7 +143,7 @@ def first_level_reached(
     fill_limit_on_touch: bool,
     opened_in: int = -1,
 ) -> str:
-    """Which level the minute bars reach first, or why they cannot say.
+    """Return which level the minute bars reach first, or why they cannot say.
 
     Reads the simulator's own two predicates rather than restating them, so the question asked
     of a minute bar is the question ``resolve_brackets`` asks of the bar above it.
@@ -177,7 +177,7 @@ def first_level_reached(
 def first_target(
     legs: pd.DataFrame, coarse_bar: pd.Series[float], direction: float, *, fill_limit_on_touch: bool
 ) -> float:
-    """The reachable target price would reach first, which is the one nearest the **fill**.
+    """Return the reachable target price would reach first, which is the one nearest the **fill**.
 
     Not the one nearest the bar's open. That is what ``resolve_brackets`` compares distances
     against, but the question here is which level price touches first once the position exists,
@@ -205,7 +205,7 @@ def first_target(
 
 
 def stop_is_the_one_it_opened_with(legs: pd.DataFrame, worst_legs: pd.DataFrame, slippage: float) -> bool:
-    """Whether ``initial_stop`` was still the live stop when the bar resolved.
+    """Return whether ``initial_stop`` was still the live stop when the bar resolved.
 
     The worst-case arm exits **every** open leg at the stop on an ambiguous bar, so its fill is
     the live stop's fill and disagreeing with ``initial_stop`` means the stop moved. Derived
@@ -231,7 +231,7 @@ def _verdict(
     *,
     fill_limit_on_touch: bool,
 ) -> tuple[str, float, float]:
-    """One ambiguous bar's verdict and the two levels it was read against."""
+    """Return one ambiguous bar's verdict and the two levels it was read against."""
     direction: float = float(legs["direction"].iloc[0])
     stop: float = float(legs["initial_stop"].iloc[0])
     target: float = first_target(legs, coarse_bar, direction, fill_limit_on_touch=fill_limit_on_touch)
@@ -258,7 +258,7 @@ def _verdict(
 
 
 def guessed(legs: pd.DataFrame) -> str:
-    """What the simulation assumed on this bar, read back from how its legs left."""
+    """Return what the simulation assumed on this bar, read back from how its legs left."""
     if (legs["exit_reason"] == "target").any():
         return TARGET_FIRST
 
@@ -274,7 +274,7 @@ def resolve(
     slippage: float,
     fill_limit_on_touch: bool,
 ) -> pd.DataFrame:
-    """One row per ambiguous bar, saying what the minute bars inside it show.
+    """Return one row per ambiguous bar, saying what the minute bars inside it show.
 
     ``ranked`` is the log NT8's rule produced and ``worst`` the same configuration under
     ``AMBIGUITY_WORST_CASE``; the second is read only to check that the stop had not moved.
@@ -319,7 +319,7 @@ def resolve(
 
 
 def accuracy(table: pd.DataFrame) -> dict[str, object]:
-    """How often the assumption was right, over the bars the minute bars could settle."""
+    """Measure how often the assumption was right, over the bars the minute bars could settle."""
     decided: pd.DataFrame = table[table["resolved"].isin(DECIDED)] if not table.empty else table
     agreed: int = int(decided["agrees"].sum()) if not decided.empty else 0
 
@@ -343,7 +343,7 @@ on a price."""
 
 
 def aligned(ranked: pd.DataFrame, worst: pd.DataFrame, best: pd.DataFrame) -> bool:
-    """Whether the three arms are the same trades, leg for leg, in the same order.
+    """Return whether the three arms are the same trades, leg for leg, in the same order.
 
     They are, because the whole position closes on an ambiguous bar under either policy, so the
     next bar starts flat in every arm. Checked rather than assumed, since a resolved log built
@@ -364,7 +364,7 @@ def resolved_log(
     best: pd.DataFrame,
     table: pd.DataFrame,
 ) -> pd.DataFrame:
-    """``ranked`` with every settled ambiguous trade replaced by the arm the minute bars name.
+    """Return ``ranked`` with every settled ambiguous trade replaced by the arm the minute bars name.
 
     A bar the minute bars could not settle keeps NT8's guess, so the result is "the assumption,
     corrected where the data can correct it" rather than a different assumption.

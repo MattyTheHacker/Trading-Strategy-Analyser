@@ -76,7 +76,7 @@ two reports of one shortlist can be read side by side."""
 
 
 def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
-    """The tag columns that say which stored configuration a result row belongs to."""
+    """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
@@ -86,7 +86,7 @@ def resample_row(
     iterations: int,
     seed: int,
 ) -> tuple[dict[str, object], pd.DataFrame] | None:
-    """One configuration's permutation row and bootstrap table, or ``None`` with no log."""
+    """Return one configuration's permutation row and bootstrap table, or ``None`` with no log."""
     if log.empty:
         logger.warning(
             "  sweep %-4d combo %-6d has no stored log; run tools/campaign_shortlist.py first",

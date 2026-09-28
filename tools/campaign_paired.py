@@ -57,7 +57,7 @@ the report by it would print a column with a single value in every row."""
 
 
 def under_test(left: set[object], right: set[object]) -> bool:
-    """Whether one column's two value sets say it is the rule being tested rather than a key.
+    """Return whether one column's two value sets say it is the rule being tested rather than a key.
 
     Two shapes mean "under test", and only these two: **one arm holds it constant while the
     other varies it** -- the trail's period against a control that never trails -- or **the two
@@ -75,7 +75,7 @@ def under_test(left: set[object], right: set[object]) -> bool:
 
 
 def shared_columns(control: pd.DataFrame, treatment: pd.DataFrame) -> list[str]:
-    """The parameter columns the two arms agree about, which are what a cell is keyed on.
+    """Return the parameter columns the two arms agree about, which are what a cell is keyed on.
 
     Derived rather than declared, by :func:`under_test`: nothing has to name the axis the
     variant pair exists to compare.
@@ -89,7 +89,7 @@ def shared_columns(control: pd.DataFrame, treatment: pd.DataFrame) -> list[str]:
 
 
 def cells(frame: pd.DataFrame, keys: list[str], by: str) -> pd.DataFrame:
-    """One row per cell: the median of ``by`` over whatever the arm varies inside it, and the best.
+    """Return one row per cell: the median of ``by`` over whatever the arm varies inside it, and the best.
 
     The median is what the comparison uses. ``best`` rides along so a reader can see how much of
     the arm's headline number is selection -- ``docs/roadmap.md`` § "The build spec's three loose
@@ -106,7 +106,7 @@ def paired(
     by: str,
     cell_keys: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Every cell both arms are viable in, with the control and treatment values side by side.
+    """Return every cell both arms are viable in, with the control and treatment values side by side.
 
     ``cell_keys`` widens :data:`CELL_KEYS` for a caller whose two arms span several base
     variants -- ``tools/campaign_hold.py`` pairs within each of them at once, and ``variant``
@@ -129,7 +129,7 @@ def paired(
 
 
 def sign_test(improved: int, total: int) -> float:
-    """Two-sided exact binomial p for ``improved`` of ``total`` cells, against a fair coin.
+    """Compute a two-sided exact binomial p for ``improved`` of ``total`` cells, against a fair coin.
 
     Exact rather than normal-approximated, and written out rather than imported: the campaign
     runs on nine pinned dependencies and this is four lines. A cell whose difference is exactly
@@ -148,7 +148,7 @@ def sign_test(improved: int, total: int) -> float:
 
 
 def verdict(frame: pd.DataFrame) -> pd.DataFrame:
-    """One row per root x resolution: how many cells the treatment improved, and by how much."""
+    """Return one row per root x resolution: how many cells the treatment improved, and by how much."""
     rows: list[dict[str, object]] = []
     for keys, group in frame.groupby(REPORT_KEYS, dropna=False, observed=True):
         improved: int = int((group["delta"] > 0.0).sum())
@@ -179,7 +179,7 @@ def report(
     by: str,
     stratum: str | None = None,
 ) -> pd.DataFrame:
-    """The paired verdict for one control/treatment pair of variants, in one stratum if named.
+    """Return the paired verdict for one control/treatment pair of variants, in one stratum if named.
 
     A report row pools every stratum of a root and resolution, so a verdict pre-registered on one
     cell has to name it -- ``docs/findings/m45-ibt-sizing-preregistration.md``.

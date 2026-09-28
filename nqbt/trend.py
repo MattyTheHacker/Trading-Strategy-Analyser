@@ -212,7 +212,7 @@ def key(fast_period: int, slow_period: int, slope_lookback: int) -> TrendKey:
 
 @njit(cache=True)
 def _vote(value: float, reference: float) -> int:
-    """``+1`` above, ``-1`` below, ``0`` on exact equality -- one definition for all three."""
+    """Vote ``+1`` above, ``-1`` below, ``0`` on exact equality -- one definition for all three."""
     if value > reference:
         return 1
 
@@ -278,7 +278,7 @@ def _label(agreement: FloatArray, min_agreement: int) -> LabelArray:
 
 @njit(cache=True)
 def _gate(agreement: FloatArray, min_agreement: int, mask: int) -> BoolArray:
-    """One pass from score to boolean, so a sweep combination never builds a label array."""
+    """Map score to boolean in one pass, so a sweep combination never builds a label array."""
     n = agreement.size
     out = np.zeros(n, dtype=np.bool_)
     for i in range(n):

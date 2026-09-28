@@ -48,7 +48,7 @@ SHORT = -1.0
 
 
 def minutes(*ranges: tuple[float, float]) -> pd.DataFrame:
-    """Minute bars given only their low and high, which is all the walk reads."""
+    """Build minute bars given only their low and high, which is all the walk reads."""
     lows = [low for low, _ in ranges]
     highs = [high for _, high in ranges]
 
@@ -106,7 +106,7 @@ def test_a_window_that_does_not_rebuild_its_coarse_bar_is_refused() -> None:
 
 
 def walk(window: pd.DataFrame, direction: float = LONG, **kwargs: object) -> str:
-    """``first_level_reached`` with a long stop at 90 and target at 110."""
+    """Run ``first_level_reached`` with a long stop at 90 and target at 110."""
     stop, target = (90.0, 110.0) if direction > 0 else (110.0, 90.0)
 
     return first_level_reached(window, stop, target, direction, fill_limit_on_touch=False, **kwargs)  # type: ignore[arg-type]  # kwargs are the caller's
@@ -187,7 +187,7 @@ def test_a_fill_price_no_minute_bar_holds_runs_off_the_end() -> None:
 
 
 def ladder(direction: float, *targets: float) -> pd.DataFrame:
-    """One trade's legs, each carrying its own rung of the target ladder."""
+    """Build one trade's legs, each carrying its own rung of the target ladder."""
     return pd.DataFrame(
         {
             "target_price": list(targets),
@@ -358,7 +358,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def three_arms() -> tuple[dict[int, pd.DataFrame], pd.DataFrame, pd.DataFrame]:
-    """One ambiguity-producing configuration run under all three policies."""
+    """Run one ambiguity-producing configuration under all three policies."""
     fine = synthetic_bars()
     coarse = resample.resample(fine, 5)
     base = InsideBarParams(

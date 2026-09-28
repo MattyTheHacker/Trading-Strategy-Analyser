@@ -37,7 +37,7 @@ from tools.campaign_report import NET_TO_DRAWDOWN
 
 
 def measured(**columns: object) -> pd.DataFrame:
-    """A table shaped like :func:`~tools.campaign_null.measure`'s output."""
+    """Build a table shaped like :func:`~tools.campaign_null.measure`'s output."""
     base = {
         "label": ["a", "b", "c"],
         "stratum": "unfiltered",
@@ -56,7 +56,7 @@ def measured(**columns: object) -> pd.DataFrame:
 
 
 def refused_row(monkeypatch: pytest.MonkeyPatch, draw: str) -> dict[str, object]:
-    """One ``measure_row`` result, with the simulation and the null both stubbed out.
+    """Return one ``measure_row`` result, with the simulation and the null both stubbed out.
 
     The identity half is what is under test, so neither a dataset nor a draw is needed --
     stubbing ``compare`` to refuse reaches it by the shortest path.
@@ -205,7 +205,7 @@ def test_net_to_drawdown_needs_the_two_statistics_it_is_built_from() -> None:
 
 
 def family_rows(**columns: object) -> pd.DataFrame:
-    """A table shaped like :func:`~tools.campaign_null.measure`'s output over two cells."""
+    """Build a table shaped like :func:`~tools.campaign_null.measure`'s output over two cells."""
     base = {
         "root": ["MNQ", "MNQ", "NQ", "NQ"],
         "stratum": "phase=MIDDAY",
@@ -284,7 +284,7 @@ LAST_BAR = pd.Timestamp("2024-09-17 14:56:00")
 
 
 def stored_frame(**columns: object) -> pd.DataFrame:
-    """A frame shaped like :func:`~tools.campaign_null.stored_rows`' output, unindexed."""
+    """Build a frame shaped like :func:`~tools.campaign_null.stored_rows`' output, unindexed."""
     base = {
         "sweep_id": 1,
         "combo_id": [10, 11],
@@ -302,7 +302,7 @@ def stored_frame(**columns: object) -> pd.DataFrame:
 
 
 def stubbed(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame | None = None) -> pd.DataFrame:
-    """:func:`~tools.campaign_null.stored_rows` over a stubbed query."""
+    """Run :func:`~tools.campaign_null.stored_rows` over a stubbed query."""
     stored = stored_frame() if frame is None else frame
     monkeypatch.setattr(campaign_null, "db_path", Path)
     monkeypatch.setattr(campaign_null.results, "query", lambda *_a, **_k: stored)
@@ -311,12 +311,12 @@ def stubbed(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame | None = None) 
 
 
 def assembled() -> pd.DataFrame:
-    """The same frame without monkeypatching, for the tests that only read one row from it."""
+    """Build the same frame without monkeypatching, for the tests that only read one row from it."""
     return stored_frame().set_index(JOIN_KEYS, drop=False)
 
 
 def shortlisted(**columns: object) -> pd.Series:
-    """One shortlist row, carrying the keys that identify it in another window."""
+    """Build one shortlist row, carrying the keys that identify it in another window."""
     base = {
         "sweep_id": 7,
         "combo_id": 10,
@@ -330,7 +330,7 @@ def shortlisted(**columns: object) -> pd.Series:
 
 
 def bars(first: object, last: object) -> pd.DataFrame:
-    """A bar frame with only its two ends, stamped the way the archive is."""
+    """Build a bar frame with only its two ends, stamped the way the archive is."""
     index = pd.DatetimeIndex([pd.Timestamp(first, tz="UTC"), pd.Timestamp(last, tz="UTC")])
 
     return pd.DataFrame({"close": [1.0, 2.0]}, index=index)
@@ -386,7 +386,7 @@ def test_a_stored_row_carries_the_bar_range_of_its_own_sweep(
 
 
 def swept(db: Path, window: str, trades: list[int], bars_frame: pd.DataFrame) -> None:
-    """One ``sweeps`` row and its combinations, stored the way ``campaign_sweep.run_point`` does."""
+    """Store one ``sweeps`` row and its combinations the way ``campaign_sweep.run_point`` does."""
     table = pd.DataFrame(
         {
             "variant": "bracket",
@@ -488,7 +488,7 @@ def test_an_unstored_configuration_is_warned_about_rather_than_refused(
 
 
 def null_result(statistic: str, observed: float, trades: int) -> randomentry.NullResult:
-    """One :class:`~nqbt.randomentry.NullResult` with everything but the observation stubbed."""
+    """Build one :class:`~nqbt.randomentry.NullResult` with everything but the observation stubbed."""
     return randomentry.NullResult(
         statistic=statistic,
         observed=observed,
@@ -506,7 +506,7 @@ def null_result(statistic: str, observed: float, trades: int) -> randomentry.Nul
 
 
 def measured_row(monkeypatch: pytest.MonkeyPatch, trades: int, net_pnl: float) -> dict[str, object]:
-    """One real :func:`~tools.campaign_null.measure_row` result, with only ``compare`` stubbed.
+    """Return one real :func:`~tools.campaign_null.measure_row` result, with only ``compare`` stubbed.
 
     Going through the producer rather than writing the dict out is the point: what ``verify``
     reads has to be what the table actually carries.
@@ -558,7 +558,7 @@ def test_an_unstored_configuration_leaves_the_observation_unchecked() -> None:
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
-    """A random walk at index prices, so a round number is a round number."""
+    """Build a random walk at index prices, so a round number is a round number."""
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
     close = 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
