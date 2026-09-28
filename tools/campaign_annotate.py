@@ -3,21 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --root MNQ
     ./.venv/Scripts/python.exe tools/campaign_annotate.py  --strategy OpeningRange --root MNQ
 
-``tools/campaign_review.py`` annotates the same logs and throws the annotation away, because it
-asks one question of it and prints the answer. This stores it instead, keyed by the
-``(sweep_id, combo_id, trade_id)`` the trade log already carries, and builds
-:data:`nqbt.results.TRADE_VIEW` over the three tables -- after which "which trades were
-profitable, taken in an uptrend, by a configuration on a 20-period EMA" is one ``SELECT``
-rather than a Python session.
-
-**The parameters come along as a filter and never as a ranking.** Two combinations differing in
-one axis share most of their entries, so grouping the view's rows by a parameter counts the same
-trade many times and would make :mod:`nqbt.guard`'s null far too tight;
-``tools/campaign_report.py``'s ``axis_influence`` is where that comparison belongs.
-
-Reads what ``tools/campaign_shortlist.py`` stored, so run that first. A row with no log, or one
-that cannot honestly be joined to its bars, is named and skipped rather than silently dropped --
-and the second is not hypothetical, see :data:`nqbt.annotate.annotate_trades`' price check.
+``tools/README.md`` § "campaign_annotate.py".
 """
 
 from __future__ import annotations
@@ -30,8 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_report import load_trades
@@ -45,17 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[type-arg]  # duckdb's dtypes
-    """Return every cut this configuration ran at, read off its stored row by name.
-
-    :class:`nqbt.annotate.LabelThresholds`' fields and ``ContextFilterParams``' threshold
-    parameters are the same words, so a pair added to one flows through here without a change.
-
-    **A stored threshold is the configuration's cut, not a chosen one.** Where its filter was
-    inert the pair is the params-class default that nobody picked, and a raw pair is a different
-    share of bars at every form and resolution -- ``docs/roadmap.md`` §M27.8. That is why
-    :func:`nqbt.results.save_annotation` stamps the pair onto every row it writes rather than
-    leaving it to be remembered.
-    """
+    """Return every cut this configuration ran at, read off its stored row by name."""
     given: dict[str, float | int] = {}
     for field in fields(annotate.LabelThresholds):
         if field.name not in row.index or pd.isna(row[field.name]):

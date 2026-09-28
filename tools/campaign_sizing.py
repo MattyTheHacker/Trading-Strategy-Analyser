@@ -6,15 +6,7 @@
     ./.venv/Scripts/python.exe tools/campaign_sizing.py null --root MNQ --resolution 5 \
         --stratum phase=MIDDAY
 
-**Everything ``fit`` measures comes from the selection window**, so the held-out window reads
-cuts it had no part in -- the rule ``tools/campaign_sweep.py``'s regime fit states. Each cut is
-taken at the stored campaign's base configuration over its unfiltered signal, and written before
-any sizing arm runs: the file is the pre-registration of every threshold the arms read --
-``docs/findings/m45-ibt-sizing-preregistration.md``.
-
-**The shuffled-size null is the control a confluence size needs**, and a matched random entry is
-not it: the entries are the rule's own and only which size each signal took is permuted, so what
-it measures is whether the count put the larger sizes on the better trades.
+``fit`` reads the selection window alone -- ``tools/README.md`` § "campaign_sizing.py".
 """
 
 from __future__ import annotations
@@ -31,8 +23,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out
@@ -74,21 +65,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 LABEL_QUANTILES = (0.20, 0.80)
-"""Where the regime and volume labels are cut: directional and heavy are each the top fifth.
-
-The campaign's own regime pair and one of its volume tails, so a sizing label and a stratum
-mean the same thing -- ``docs/roadmap.md`` §M27.5 and §M27.8."""
+"""Where the regime and volume labels are cut: directional and heavy are each the top fifth."""
 
 EARLY_QUANTILE = 0.5
 """Where the extension and trend-age cuts sit among the fitted signals: half early, half not."""
 
 MIN_FAVOURABLE_SHARE = 0.10
 MAX_FAVOURABLE_SHARE = 0.90
-"""A label favouring fewer or more of the fitted signals than this is dropped from the count.
-
-Near-constant at the signal, it adds the same contract to almost every trade and sorts nothing --
-the entry already implies it, as ``above_ema_21`` did for EmaCrossover --
-``docs/findings/confluence-count-per-trade.md``."""
+"""A label favouring fewer or more of the fitted signals than this is dropped from the count."""
 
 DRAWS = 200
 """Shuffles per configuration: enough for a p-value of 0.005 to be reachable."""
@@ -188,9 +172,7 @@ def traded_early_shares(
 ) -> dict[str, float]:
     """Return, per earliness rule, the share of the base configuration's trades whose signal bar was early.
 
-    Counted over the trades taken rather than the signals, because a setup that arrives while a
-    position is open is never traded: a rule near either end leaves its tier running as one of
-    the fixed splits.
+    Counted over the trades taken rather than the signals.
     """
     direction_at: FloatArray = insidebar.insidebar_direction(data, base)
     shares: dict[str, float] = {}

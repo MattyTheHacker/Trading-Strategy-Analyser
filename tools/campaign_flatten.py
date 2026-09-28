@@ -3,31 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_flatten.py --strategy InsideBarTrailing \
         --root MNQ NQ --stratum phase=MIDDAY --variant trailing --resolution 1 2 5 10 15
 
-In a backtest the property is inert: NinjaTrader flattens on the session's last bar whatever the
-script sets, which is why :data:`~nqbt.sessions.EXIT_ON_CLOSE_SECONDS` is one default rather
-than a per-archetype field -- ``docs/nt8-fidelity.md`` §M22. **Live it is not inert**, so for a
-strategy whose P&L is carried by session-close legs the value the C# ships decides trades the
-Strategy Analyzer can never show moving. This is the instrument that can: the simulator takes
-the cutoff, so the same configurations run at the backtested value and at the live one over the
-same bars.
-
-**The pairing is exact.** Each rung re-runs the *same* stored configurations on the *same* bars,
-so a pair is one configuration and the only thing differing between its two rows is the cutoff.
-``moved`` is what says a rung fired at all -- a cutoff shorter than the last bar selects the
-same bars as the control and reproduces it exactly, which above 2-minute bars is most of the
-ladder.
-
-**Every row is the held-out pair** ``tools/campaign_holdout.py``'s ``held_out`` builds, so
-nothing is read from the window that chose it -- ``docs/roadmap.md`` §M28.13.
-
-**The control rung is reconciled against the stored row and the agreement is reported rather
-than required.** The ladder is a within-run comparison -- same configurations, same bars, same
-code, one cutoff apart -- so it does not rest on reproducing a figure measured months ago. What
-it does rest on is being told when that figure has moved, because the levels are then this run's
-rather than the registry's. ``reconcile`` is that number and it is part of the reading.
-
-What it returned, and what it settles about the per-archetype value:
-``docs/findings/m41-flatten-timing.md``.
+``tools/README.md`` § "campaign_flatten.py".
 """
 
 from __future__ import annotations
@@ -39,8 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out
@@ -66,13 +41,7 @@ logger = logging.getLogger(__name__)
 CUTOFFS = (30, 180, 300, 900)
 """The seconds before the session end to flatten at, the control first.
 
-``30`` is what every stored row was swept at and what both stop-market ports set. ``180`` is
-what ``InsideBar.cs`` and ``InsideBarTrailing.cs`` set, so it is what a live account does.
-``300`` is a whole 5-minute bar, and it is here because 180 cannot be expressed on a 5-minute
-series at all: the live flatten falls *inside* the last bar, so the truth sits between those
-two rungs rather than on either. ``900`` binds at every resolution the campaign runs, which is
-what separates "the live cutoff is too small to see" from "this book does not care when it is
-flattened" -- ``docs/findings/m41-flatten-timing.md``.
+Why these four: ``tools/README.md`` § "campaign_flatten.py".
 """
 
 CONTROL = sessions.EXIT_ON_CLOSE_SECONDS
@@ -110,12 +79,7 @@ def measure_group(
     minutes: int,
     seconds: int,
 ) -> list[dict[str, object]]:
-    """Re-run every row of one resampled frame at one cutoff.
-
-    The bars are :data:`~nqbt.context.PriceBasis.RAW`, which is what ``load_continuous`` returns
-    and what the sweep measured them as, so a rule reading an absolute level runs rather than
-    being refused -- ``docs/roadmap.md`` § "The build spec's three loose ends".
-    """
+    """Re-run every row of one resampled frame at one cutoff."""
     measured: list[dict[str, object]] = []
     for row, summary, _ in rerun_group(
         block,
@@ -144,9 +108,7 @@ def measure(
 ) -> pd.DataFrame:
     """Measure every shortlisted configuration at every cutoff, one row each.
 
-    Grouped by resolution because the resample is the expensive part every rung shares, and the
-    bars each cell runs on are the ones its rows were swept on wherever that survives. Every
-    measured row carries what the sweep stored for it, which :func:`reconcile` reads back.
+    Every measured row carries what the sweep stored for it, which :func:`reconcile` reads back.
     """
     stored: pd.DataFrame = stored_rows(archetype.name, root, HELD_OUT)
     archive: pd.DataFrame = splice.load_continuous(root)

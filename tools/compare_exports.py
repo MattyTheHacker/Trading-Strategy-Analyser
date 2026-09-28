@@ -1,13 +1,9 @@
 """Diff two folders of NT8 minute exports, contract by contract.
 
-Built to answer one question: does pulling bars through ``BarsRequest`` (the AddOn) return
-anything the manual Tools -> Historical Data export does not? Manual exports have been
-observed to gain and lose whole sessions between runs, so "different" is expected -- what
-matters is *which* direction and *where*.
-
     ./.venv/Scripts/python.exe tools/compare_exports.py [baseline_dir] [candidate_dir]
 
 Defaults to data/minute (baseline) against data/addon (candidate). Read-only.
+``tools/README.md`` § "compare_exports.py".
 """
 
 from __future__ import annotations
@@ -37,12 +33,7 @@ def load(path: Path) -> pd.DataFrame:
 
 
 def timezone_offset_hours(baseline: pd.DataFrame, candidate: pd.DataFrame) -> int:
-    """Find the whole-hour shift that best aligns the two, or 0.
-
-    A timezone mistake in the exporter shifts every bar by a whole number of hours and
-    errors nowhere -- prices stay plausible, the file parses, and the damage only shows up
-    as strategy results that quietly disagree. Worth testing for explicitly.
-    """
+    """Find the whole-hour shift that best aligns the two, or 0."""
     best_offset, best_overlap = 0, len(baseline.index.intersection(candidate.index))
     for hours in range(-12, 13):
         if hours == 0:

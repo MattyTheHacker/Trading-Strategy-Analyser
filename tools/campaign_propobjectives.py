@@ -2,18 +2,7 @@
 
     ./.venv/Scripts/python.exe tools/campaign_propobjectives.py --strategy OpeningRange --root MNQ NQ
 
-``tools/campaign_propaccount.py`` replays a shortlist chosen by profit factor. This one chooses
-the shortlist by the account objective itself -- pass rate, fees per pass, time to the first
-payout and funded life -- and replays it on the held-out window beside the profit-factor
-shortlist it is measured against.
-
-**Every objective ranks on the selection window and is read on the holdout.** The pool it
-ranks is the top ``--pool`` distinct configurations by stored selection-window profit factor,
-maximum-hold arms and rows the fill assumption could have decided excluded, because every
-configuration has to be re-run to be replayed. What each objective means and which presets
-answer which: ``docs/findings/m40-prop-objectives.md`` § "What each objective measures".
-
-Re-runs every log it replays on the archive as it stands, and stores none of them.
+``tools/README.md`` § "campaign_propobjectives.py".
 """
 
 from __future__ import annotations
@@ -28,8 +17,7 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, disambiguate, logsetup, propaccount, resample, sessions, splice
@@ -366,10 +354,9 @@ def show(title: str, frame: pd.DataFrame) -> None:
 def pool(name: str, root: str, args: argparse.Namespace) -> pd.DataFrame:
     """Return the ``args.pool`` distinct configurations stored selection-window profit factor ranks highest.
 
-    The maximum-hold arms are left out, a configuration stored under two variant names at one bar
-    size enters once at its higher rank, and a row the fill assumption could have decided is left
-    out entirely -- ``docs/findings/m40-prop-objectives.md`` § "The pool, and the archive it was
-    re-run on".
+    Maximum-hold arms and rows the fill assumption could have decided are left out, and a
+    configuration stored under two variant names at one bar size enters once, at its higher
+    rank.
     """
     ranked: pd.DataFrame = ranked_pairs(
         name, root, CONTROL, None, args.stratum, args.resolution, args.variant

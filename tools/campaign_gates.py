@@ -5,36 +5,9 @@ r"""Every per-cell read of a swept variant set, over every cell, from one load p
     ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
         --out <dir> --reads gate4 --cells <csv of strategy, root, resolution, variant and stratum>
 
-It loads the variant set's rows once per archetype, re-runs each shortlisted configuration once
-on the bars it was swept on, and hands that one log to every read: what
-``tools/campaign_holdout.py``, ``tools/campaign_sizing.py null``, ``tools/campaign_montecarlo.py``,
-``tools/campaign_exits.py``, ``tools/campaign_walkforward.py`` and
-``tools/campaign_propaccount.py`` each do for one cell.
-
-**The reads are those tools' own functions**, given what their command lines give them for one
-arm, root, resolution and stratum -- ``--variant``, ``--root``, ``--resolution`` and ``--stratum``
--- so a cell read here and the same cell read there agree wherever both run on the same bars:
-
-- ``gates``: gate 1, :func:`campaign_report.profile` on the selection window, and gate 2,
-  :func:`campaign_holdout.verdict`;
-- ``paired``: :func:`campaign_paired.paired` held out, stratum by stratum, over the pairs
-  :func:`controls` reads off the arms' names;
-- ``null``: :func:`campaign_sizing.shuffled_null` on the held-out shortlist of every arm whose
-  base sizes on a confluence count;
-- ``gate4``: :func:`campaign_montecarlo.resample_row`, :func:`campaign_exits.measure_row` and
-  :func:`campaign_walkforward.run_resolution`, on the cells ``--gate4-strata`` and ``--cells`` name;
-- ``prop``: :func:`campaign_propaccount.replay_shortlist` over the four presets, on the cells
-  ``--prop-strata`` names.
-
-Every re-run also writes what it reproduced of its stored row, and on which bars, which is read
-before anything the logs were re-run for -- :func:`campaign_swept.reconciliation`.
-
-The tables land under ``--out``, one file per archetype, root, resolution and arm, and each task
-records the strata every read has written. A run reads only what is missing, so an interrupted
-run resumes where it stopped and a later one adds reads or ``--cells`` without repeating any; one
-``--out`` holds one set of :data:`SETTINGS` and refuses a run asking for others. **Only this
-process opens a database**, and only once the sweep has stopped writing it:
-``nqbt.results.connect`` opens a file read-write.
+The reads are the per-cell tools' own functions, and a run reads only what ``--out`` is missing.
+Only this process opens a database, and only once the sweep has stopped writing it --
+``tools/README.md`` § "campaign_gates.py".
 """
 
 from __future__ import annotations
@@ -52,8 +25,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, logsetup, montecarlo, propaccount, splice, stats
@@ -349,9 +321,7 @@ def archive(root: str) -> pd.DataFrame:
 def reruns(task: Task) -> Iterator[Rerun]:
     """Re-run every configuration ``task.held`` holds once, on one prepared dataset for the task.
 
-    The archive is cut back at the newest bar those rows were swept on, where the per-cell tools
-    cut at the newest their root stored anywhere: the same bars unless one database holds
-    campaigns swept on archives of different lengths, and then the rows' own where theirs are not.
+    The archive is cut back at the newest bar those rows were swept on.
     """
     archetype: archetypes.Archetype = archetypes.get(task.name)
     frame, swept = bars_for(

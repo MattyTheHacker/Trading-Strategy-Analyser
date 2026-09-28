@@ -1,15 +1,10 @@
 """Check commit messages against the house rules in CONTRIBUTING.md, "Commits".
 
-Two callers, and they deliberately check different text:
-
-    # what GitHub squashes onto main -- the PR title, plus the suffix it appends
     python tools/lint_commit_messages.py --subject-suffix " (#165)" --message-file pr.txt
-
-    # every commit on the branch, NUL-separated on stdin
     git log --format=%B -z origin/main..HEAD | python tools/lint_commit_messages.py --stdin
 
-Exits 1 when any error-level rule fails; warnings never fail the run. ``--github`` emits
-workflow annotations alongside the text.
+Exits 1 when any error-level rule fails; warnings never fail the run.
+``tools/README.md`` § "lint_commit_messages.py".
 """
 
 from __future__ import annotations

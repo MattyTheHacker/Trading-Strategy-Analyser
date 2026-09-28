@@ -2,43 +2,11 @@
 
     ./.venv/Scripts/python.exe tools/campaign_null.py --strategy ElasticBand --root MNQ
     ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
-    ./.venv/Scripts/python.exe tools/campaign_null.py --strategy OpeningRange --root MNQ NQ         --stratum volume=THIN regime=DIRECTIONAL --draw levels
+    ./.venv/Scripts/python.exe tools/campaign_null.py --strategy OpeningRange --root MNQ NQ \
+        --stratum volume=THIN regime=DIRECTIONAL --draw levels
 
-A sweep can say which configuration has the highest profit factor. It cannot say whether the
-**entry** earned it, because a bracket that suits the bars flatters a random entry just as much.
-The matched null holds the signal count and the time-of-session distribution fixed and
-randomises the day -- ``docs/roadmap.md`` §M7a and § "The method that does answer the question".
-
-Rebuilds the parameter set from a stored ``combos`` row, so what is tested is exactly what the
-sweep ranked. ``--top`` measures that many of them and reports **three rankings side by side**:
-the observed statistic, the excess over each configuration's own null, and net-to-drawdown. They
-can order a grid differently, and where they part the excess is the one to believe --
-``docs/roadmap.md`` §M27.3.
-
-**Not every archetype has a matched null, and one that does not exits 2 rather than 0.** An
-entry whose trigger is a *level* fires on every bar the level exists, which leaves the matched
-draw nothing to randomise -- ``docs/roadmap.md`` §M28.1. That is a gate that could not be run,
-not a gate that passed, so it is reported as its own status the way ``formatting.cli``'s is.
-Over a shortlist the status is reached only when **every** row was refused; a row refused
-alongside rows that ran is reported as a refusal and carries no verdict.
-
-**``--draw levels`` is the second arm, and it is the one such an entry can use.** It permutes
-which session's range is traded instead of which day each signal lands on, so the signal itself
-is held fixed -- ``docs/roadmap.md`` §M28.2. The two arms ask different questions and are not
-interchangeable, which is why every measured row carries the ``draw`` it was produced under: a
-table mixing them silently would be two nulls wearing one set of names.
-
-**Several roots and several strata run as one stated family**, printed before the first cell
-rather than counted afterwards. A p-value is only readable against how many tests it was one
-of, and a cell chosen after a consistency score has already been looked at is the multiple-
-comparisons load § "Standing traps" names -- ``docs/roadmap.md`` §M28.16.
-
-**A stored row belongs to the archive it was swept on, and a re-run that is not on those bars
-is refused.** Every configuration is placed against what the **test window** stored for it:
-the bars its sweep ran on before the simulations, then its trade count and net P&L after.
-Extending the archive moves the 60/40 split under every campaign stored before it, so a gate-3
-read of an older one silently measured a different holdout -- ``docs/roadmap.md`` § "Standing
-traps".
+Exits 2 when no row could be placed against a null, so a gate that did not run is not read as
+one that passed -- ``tools/README.md`` § "campaign_null.py".
 """
 
 from __future__ import annotations
@@ -51,8 +19,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import JOIN_KEYS
@@ -69,20 +36,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 NO_NULL_AVAILABLE = 2
-"""Exit status for an archetype the matched null cannot be drawn for at all.
-
-Distinct from 0 so that "the gate did not run" cannot be read as "the gate passed" -- the same
-reason ``formatting.cli`` separates its statuses.
-"""
+"""Exit status for an archetype the matched null cannot be drawn for at all."""
 
 STATISTICS = ("profit_factor", "expectancy", "win_rate", "mean_r", "net_pnl", "max_drawdown")
-"""What the observation is placed against. ``profit_factor`` and ``expectancy`` are the
-verdict; ``win_rate`` is reported because a mean-reversion entry can beat the null on payoff
-while losing on frequency -- ``docs/roadmap.md`` §M26.
-
-The last two are here for :data:`~tools.campaign_report.NET_TO_DRAWDOWN` and cost almost
-nothing: ``compare`` summarises the observation once and draws the null once, then reads a
-column per statistic."""
+"""What the observation is placed against; ``profit_factor`` and ``expectancy`` are the verdict."""
 
 RANKINGS = ("profit_factor", "expectancy_excess", NET_TO_DRAWDOWN)
 """The orders :func:`rankings` compares. Profit factor is here to be disagreed with rather than
@@ -104,17 +61,11 @@ STORED_SQL = """
     FROM combos c JOIN sweeps s USING (sweep_id)
     WHERE c."window" = '{window}'
 """
-"""What a re-run is checked against: what one configuration measured, and the bars the sweep
-that stored it ran on.
+"""What a re-run is checked against: one configuration's stored figures, and the bars its sweep ran on.
 
-**Not :func:`~tools.campaign_report.load`**, and for two separate reasons. That loader drops
-every row below :data:`~tools.campaign_sweep.MIN_TRADES`, and a shortlist ranked on the
-selection window routinely lands under the floor in the holdout --
-``docs/findings/m36-ema-pullback-volume-recut.md`` § "Gate 3 -- 1 of 120, and it is in the
-wrong direction" -- so the check would be the one that never runs. The bar range is read here
-rather than added to that frame because it is neither a parameter nor a statistic, and
-``tools/campaign_holdout.py``'s ``paired`` compares parameter columns window by window and
-would call these two a disagreement."""
+Not :func:`~tools.campaign_report.load`, which drops rows below
+:data:`~tools.campaign_sweep.MIN_TRADES`.
+"""
 
 
 def stored_rows(
@@ -127,10 +78,8 @@ def stored_rows(
 ) -> pd.DataFrame:
     """Load every row one archetype stored for a root and window, with the bars its sweep ran on.
 
-    Keyed by :data:`~tools.campaign_holdout.JOIN_KEYS`, which is what identifies the same
-    configuration in two windows. ``tools/campaign_holdout.py`` pairs the windows one-to-one on
-    those keys, so a duplicate is refused here rather than picked between. ``variants`` and
-    ``resolutions`` narrow what is read, where they are given.
+    Keyed by :data:`~tools.campaign_holdout.JOIN_KEYS`; a duplicate key is refused rather than
+    picked between. ``variants`` and ``resolutions`` narrow what is read, where they are given.
     """
     frame: pd.DataFrame = results.query(
         STORED_SQL.format(window=window) + narrowing(variants=variants, resolutions=resolutions),
@@ -150,9 +99,8 @@ def stored_rows(
 def stored_for(stored: pd.DataFrame, row: pd.Series) -> pd.Series | None:  # type: ignore[type-arg]  # duckdb's dtypes
     """Return the stored row of one configuration in the window the null runs on, or ``None``.
 
-    ``None`` where that window never swept it, which a shortlist spanning two variant sets can
-    reach -- a check that could not run is not a check that passed, so it is said out loud in
-    :func:`verify_bars` rather than being taken for agreement.
+    ``None`` where that window never swept it, which :func:`verify_bars` reports rather than
+    taking for agreement.
     """
     key: tuple[object, ...] = tuple(row[column] for column in JOIN_KEYS)
     if key not in stored.index:
@@ -189,12 +137,7 @@ def verify_bars(
     label: str,
     window: str,
 ) -> None:
-    """Refuse a re-run whose bars are not the ones the stored row was swept on.
-
-    Before the simulations rather than after, because an archive extended under a stored
-    campaign moves the split under every row of the run at once -- ``docs/roadmap.md``
-    § "Standing traps".
-    """
+    """Refuse a re-run whose bars are not the ones the stored row was swept on."""
     if reference is None:
         logger.warning("  %-44s no stored %s row, so the re-run is unchecked", label, window)
 
@@ -218,8 +161,7 @@ def verify_observation(
     """Refuse an observation that did not reproduce the row the sweep stored for these bars.
 
     ``tools/campaign_shortlist.py``'s ``verify`` is the predicate, so the two tools agree on
-    what reproducing means. :func:`verify_bars` has already passed by here, so a mismatch is the
-    bars themselves having been revised or the simulation having moved, not the window.
+    what reproducing means.
     """
     if reference is None or measured["refused"] is not None:
         return
@@ -247,9 +189,7 @@ def measure_row(  # noqa: PLR0913 - each argument is a distinct axis of one meas
 ) -> dict[str, object]:
     """Measure one configuration against its own matched null, or return a row saying it was refused.
 
-    Every measured column is the **test window's**, including net-to-drawdown; the stored row
-    supplies the parameters and its own ranking-window figures stay out, so that one row is not
-    two windows wearing one set of names.
+    Every measured column is the test window's, including net-to-drawdown.
     """
     params: archetypes.Params = rebuild(row, archetype)
     identity: dict[str, object] = {
@@ -315,17 +255,8 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
 ) -> pd.DataFrame:
     """Measure every shortlisted configuration against its own null, one row each.
 
-    Grouped by resolution because the resample and the prepared dataset are the expensive parts,
-    exactly as ``tools/campaign_shortlist.store_group`` groups them.
-
-    Each configuration is checked against what the **test window** stored for it, so a stored
-    campaign cannot be re-read on an archive that has moved under it -- :func:`verify_bars` and
-    :func:`verify_observation`.
-
-    The bars are :data:`~nqbt.context.PriceBasis.RAW`, which is what ``load_continuous`` returns
-    here and what the sweep measured them as, so a rule reading an absolute level is placed
-    against its null rather than refused -- ``docs/roadmap.md`` § "The build spec's three loose
-    ends".
+    Each configuration is checked against what the test window stored for it --
+    :func:`verify_bars` and :func:`verify_observation`.
     """
     axes: list[str] = swept_axes(rows)
     tested: pd.DataFrame = source(splice.load_continuous(root), test_window)
@@ -396,9 +327,7 @@ def rankings(table: pd.DataFrame) -> list[str]:
 def family(table: pd.DataFrame) -> pd.DataFrame:
     """Return one row per cell of a family run: what it beat, how often, and at what p.
 
-    The row is a range rather than a mean because ten configurations of one cell are ten
-    overlapping runs over the same bars, so their spread is the honest summary and their
-    average is not -- ``docs/roadmap.md`` §M28.16.
+    The row is a range rather than a mean -- ``docs/roadmap.md`` §M28.16.
     """
     rows: list[dict[str, object]] = []
     for keys, block in table.groupby(CELL_KEYS, sort=False):

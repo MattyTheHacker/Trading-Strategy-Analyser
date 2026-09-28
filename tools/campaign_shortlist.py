@@ -1,21 +1,10 @@
 """Re-run a campaign shortlist with its trade logs kept, and store them beside the summary.
 
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --root MNQ
+    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
 
-The campaign sweep stores summary rows and nothing per trade, and turning ``keep_trades`` on
-there is not the fix: every combination's log is not a thing to store, and ``keep_trades``
-changes what ``sweep.run_combination`` returns and never what it measures. A bootstrap, a
-permutation test and a time-of-day review each need a per-trade vector, so the logs are made
-here instead -- rebuild a stored ``combos`` row, run that one configuration again with its log
-kept, and save it under the ``(sweep_id, combo_id)`` the summary row already carries.
-
-**``--held-out`` logs the pair a gate should read**: the held-out rows of the configurations
-the *selection* window ranked highest, so nothing whose log is stored here was ranked on the
-window it is then read from -- ``docs/roadmap.md`` §M28.13.
-
-Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every campaign
-tool that starts from a stored row needs. What :func:`store_logs` wrote is read back by
-``tools/campaign_report.py``'s ``load_trades``, beside the loader that reads the summary rows.
+Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every tool
+starting from a stored row uses -- ``tools/README.md`` § "campaign_shortlist.py".
 """
 
 from __future__ import annotations
@@ -33,8 +22,7 @@ import pandas as pd
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, logsetup, resample, results, sessions, splice, sweep
@@ -152,10 +140,8 @@ def source(bars: pd.DataFrame, window: str) -> pd.DataFrame:
 def swept_series(bars: pd.DataFrame, last_bar: pd.Timestamp) -> pd.DataFrame:
     """Return the archive cut back to where it stood when a campaign was stored.
 
-    An extended archive moves the 60/40 split under every row swept before it, so a re-run over
-    the whole series reads a holdout the stored row never measured -- ``docs/roadmap.md``
-    § "Standing traps". Cutting first makes :func:`source` name the same window again, and the
-    control arm reproducing the stored figures is what says the earlier bars are also unchanged.
+    Cutting first makes :func:`source` name the window the row was swept on --
+    ``docs/roadmap.md`` § "Standing traps".
     """
     if last_bar >= bars.index[-1]:
         return bars
@@ -192,13 +178,8 @@ def prepared(
 ) -> tuple[list[archetypes.Params], context.Dataset]:
     """Rebuild every row of ``block``, in order, and prepare the one dataset all of them run on.
 
-    The dataset is built from the rows as a combination grid, so that the union over them is
-    :meth:`~nqbt.sweep.Grid.required_context`'s rather than a second copy of it. ``price_basis``
-    says what the bars are; a rule reading an absolute level refuses the default --
-    ``docs/roadmap.md`` § "The build spec's three loose ends".
-
-    ``exit_on_close_seconds`` moves the forced flat off the value every stored row was swept at,
-    which is what ``tools/campaign_flatten.py`` needs and what nothing else should pass.
+    ``price_basis`` says what the bars are. ``exit_on_close_seconds`` moves the forced flat off
+    the value every stored row was swept at; only ``tools/campaign_flatten.py`` should pass it.
     """
     rebuilt: list[archetypes.Params] = [rebuild(row, archetype) for _, row in block.iterrows()]
     grid: sweep.Grid = sweep.Grid.of_combinations(rebuilt, archetype=archetype)
@@ -278,13 +259,8 @@ def store_group(
 def store_logs(name: str, rows: pd.DataFrame, root: str) -> int:
     """Re-run every shortlisted row with its log kept, and return how many were stored.
 
-    Grouped by window and resolution, because the resample and the prepared dataset are the
-    expensive parts and every row sharing those two shares both. A stored log replaces whatever
-    sits under the same ``(sweep_id, combo_id)``, so a second run refreshes rather than doubles.
-
-    The bars are :data:`~nqbt.context.PriceBasis.RAW`, which is what ``load_continuous`` returns
-    here and what the sweep measured them as, so a rule reading an absolute level re-runs rather
-    than being refused -- ``docs/roadmap.md`` § "The build spec's three loose ends".
+    A stored log replaces whatever sits under the same ``(sweep_id, combo_id)``, so a second run
+    refreshes rather than doubles.
     """
     archetype: archetypes.Archetype = archetypes.get(name)
     path: Path = db_path(name)

@@ -1,177 +1,12 @@
-r"""Sweep every registered archetype across resolution, market regime and session phase.
-
-One screen over the whole registry, so "which strategy is worth improving" is a query rather
-than six incomparable runs:
+"""Sweep every registered archetype across resolution, market regime and session phase.
 
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --n-jobs 8
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strata context --n-jobs 8
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --n-jobs 8
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --strata phase --n-jobs 8
-
-``--n-jobs`` is applied to each sweep call, one per (variant x stratum), and a call smaller than
-:data:`SERIAL_BELOW_COMBINATION_BARS` stays in-process whatever it asks for --
-``docs/roadmap.md`` § "A sweep call's worker count".
-
-Both roots, the spliced continuous series, resolutions 1/2/5/10/15, at the real commission for
-the root and one tick of slippage. ``--split`` re-runs the same grids on a selection window and
-a held-out window instead of the whole series, which is what makes a shortlist testable rather
-than a ranking of noise -- ``docs/findings/m26-elastic-band.md`` § "Held out, and then the test it fails".
-
-**One database per archetype**, under ``results/campaign/``. A convention rather than a
-constraint since ``_append_or_create`` learned to widen a table instead of dropping what it
-does not recognise; the campaign's results are already there -- ``docs/roadmap.md`` §M27.
-
-**Strata are one dimension at a time, never crossed.** ``--strata core`` is unfiltered, then
-once per regime and once per session phase; ``--strata context`` adds the volume, trend and
-higher-timeframe cuts and appends to the same databases. Each dimension is also nameable on its
-own -- ``unfiltered``, ``regime``, ``phase``, ``volume``, ``trend``, ``htf`` -- which is how a
-held-out pass adds one at a time.
-
-``--strata volume-forms`` re-cuts the volume dimension rather than adding one: a cell per
-(form, tail size, state), so that "an unusually busy bar" and "an unusually busy session so
-far" are separable statements rather than one of three the campaign happened to ask.
-``--volume-quantiles`` fits each form's thresholds to its own distribution on the selection
-window, for the reason ``--regime-quantiles`` fits the regime's -- a raw pair is a different
-share of bars under each form. Neither it nor ``directional`` is in ``--strata all``, which
-would otherwise run their dimension twice:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strata volume-forms --split \
-        --volume-quantiles --n-jobs 8
-
-``--volume-rolling-bars`` and ``--volume-baseline-sessions`` move the two windows every
-stored row holds at 30 and 20. **A rung is a cell and not an axis**, for the reason a regime
-lookback is: the window changes the ratio's distribution, so the threshold pair moves with
-it. The cell name already says which -- ``volume.describe_key`` has always carried both
-windows -- so a ladder needs no new naming and lands beside the stored rows rather than on
-top of them. ``--volume-forms`` narrows which forms a pass runs, which is what keeps a
-rolling ladder from re-running the two forms that do not read the window:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strata volume-forms --split \
-        --volume-quantiles --volume-forms ROLLING --volume-rolling-bars 10 90 --n-jobs 8
-
-``--regime-quantiles`` replaces the regime stratum's raw thresholds with a pair fitted to the
-efficiency ratio's own distribution at each ``(resolution, lookback)``, and splits the stratum
-into one cell per lookback -- ``regime=DIRECTIONAL@n=20 q=0.20/0.80``. The fit is taken on the
-selection window at every window, so a held-out run reads a cut it did not see. Why a raw pair
-cannot be swept against the lookback, and what the quantiles are chosen for: ``docs/roadmap.md``
-§M27.5.
-
-**The cell size is in the name, so two of them can live in one database** -- the rows §M30 wrote
-carry the earlier bare ``@n=20`` and are the stated pair, which is what ``docs/roadmap.md`` §M31
-re-ran under the name that says so:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies OpeningRange \
-        --strata directional --split --regime-quantiles 0.10 0.90 --n-jobs 8
-
-``--variants narrow`` sweeps the §M27.3 re-sweep instead of the campaign grid -- InsideBar's
-entry held at what §M27 chose, its bracket pair crossed, and ``--strata narrow`` for the two
-cells it is asked about:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants narrow --strata narrow \
-        --split --regime-quantiles --n-jobs 8
-
-``--resolutions`` is not needed there: each narrow variant declares the one bar size its entry
-was chosen at, and a resolution no variant expresses is skipped.
-
-Its rows land in ``results/campaign/InsideBar.duckdb`` beside the campaign's under the variant
-name ``narrow``; every reading tool takes ``--variant`` to separate them. **Run it once per
-database** -- a second pass appends a second copy of every row and
-``tools/campaign_holdout.py`` pairs the windows one-to-one.
-
-``--variants orb-fade`` re-runs §M28.2's parked fade over the bracket it was parked for, with
-``--strata orb-fade`` for the two cells stated in advance -- ``docs/roadmap.md`` §M28.5:
-
+    ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --strata context --n-jobs 8
     ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
 
-``--variants orb-rejection`` runs the fourth entry over that same bracket, so the two reversion
-entries differ by their entry rule and nothing else -- ``docs/roadmap.md`` §M28.7:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-rejection --split \
-        --strata orb-rejection
-
-``--variants orb-geometry`` crosses the range's anchor with its length on all four entries,
-each held at the bracket its own campaign swept -- ``docs/roadmap.md`` §M28.8:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-geometry --split \
-        --strata orb-geometry
-
-``--variants orb-bracket`` carries the stop fraction past ``1.0`` -- the value it stopped on
-and won at -- and crosses it with the width target ladder, which no ORB campaign has varied
--- ``docs/roadmap.md`` §M28.11:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-bracket --split \
-        --strata orb-bracket
-
-``--variants orb-followthrough`` denominates the bracket in the **trailing** follow-through
-rather than in the session's own range width, against a control run on the same bars in the
-same pass -- ``docs/roadmap.md`` §M28.10:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-followthrough --split \
-        --strata orb-followthrough
-
-``--variants elastic-shape`` asks what the signal bar itself has to look like, over the VWAP
-source §M26.4 left standing, with the no-requirement control in the same pass --
-``docs/roadmap.md`` §M26.5:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-shape --split \
-        --strata elastic-shape
-
-``--variants elastic-volume`` crosses the shape §M26.5 carried forward with the volume
-states, each cell cut on its own distribution rather than on a raw pair --
-``docs/roadmap.md`` §M26.9:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-volume --split \
-        --strata elastic-volume --volume-quantiles
-
-``--variants elastic-channel`` crosses that shape pair with the channel, over the same held
-bracket, so that a volume cell's sign can be attributed to one of them --
-``docs/roadmap.md`` §M33:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-channel --split \
-        --strata elastic-channel --volume-quantiles
-
-``--variants elastic-recovery`` waits for the run outside the band to end and takes the
-bar that closes back inside, against the shapes read on a bar still outside --
-``docs/roadmap.md`` §M26.6:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-recovery --split \
-        --strata elastic-recovery
-
-``--variants elastic-band-stop`` puts a stop on the channel the entry was measured
-against, beside the three that are a distance or a bar extreme -- ``docs/roadmap.md``
-§M26.8:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-band-stop \
-        --split --strata elastic-band-stop
-
-``--variants hold`` re-runs **every** archetype's stored campaign grid once per maximum hold
-time, the uncapped arm included, so the cap is the only thing that differs between two rows --
-``docs/findings/m29-maximum-hold-time.md``:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants hold --split --strata hold
-
-``--variants emapullback-trail`` re-runs EmaPullback's stored campaign grid with its stop fixed
-and with it trailed on the slow average that placed it, in one pass over §M35's strata --
-``docs/findings/m37-ema-pullback-trail-on-slow.md``:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-trail --split \
-        --strata emapullback-trail --resolutions 2 5 10 15 --n-jobs 12
-
-``--variants emapullback-confirm`` runs EmaPullback's market entry against its confirmation entry
-at two order lifetimes, in one pass over §M35's strata with both kind axes held at ``ema`` --
-``docs/findings/m39-ema-pullback-confirmation-entry.md``:
-
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-confirm --split \
-        --strata emapullback-confirm --resolutions 2 5 10 15 --n-jobs 12
-
-``--variants ibt-sizing`` runs InsideBarTrailing's stored grid with its split held, crossed with a
-quantity axis, once per sizing arm -- two fixed splits, three earliness tiers each beside its
-inverse, and a confluence size -- over the cuts ``tools/campaign_sizing.py fit`` wrote first, on
-the selection window alone -- ``docs/findings/m45-ibt-sizing-preregistration.md``:
-
-    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing \
-        --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
+``--variants`` picks the grid and ``--strata`` the cells; run each variant set once per database.
+Every option and variant set, and why each grid looks the way it does:
+``tools/README.md`` § "campaign_sweep.py".
 """
 
 from __future__ import annotations
@@ -269,11 +104,10 @@ COMMISSION: dict[str, float] = {
     "MGC": 1.50,
     "GC": 4.50,
 }
-"""Round-turn dollars per contract, per root. Never one figure for both -- the point value
-differs tenfold and the commission does not, so MNQ's number applied to NQ flatters it.
+"""Round-turn dollars per contract, per root; never one figure for both sizes.
 
-The micros take MNQ's figure and the full-size roots take NQ's -- ``docs/roadmap.md``
-§ "Commission on the roots beyond NQ"."""
+``docs/roadmap.md`` § "Commission on the roots beyond NQ".
+"""
 
 SLIPPAGE_TICKS = 1.0
 
@@ -296,10 +130,7 @@ VOLUME_BASELINE_SESSIONS = 20
 ``sim/types.py`` defaults, which is what makes the ``PER_BAR`` cells here the campaign's own."""
 
 VOLUME_TAILS = ((0.10, 0.90), (0.20, 0.80), (0.33, 0.67))
-"""Tail sizes ``--volume-quantiles`` fits, each stated as a share of the measured bars.
-
-Three rather than one because the cut is what decides who is in ``HEAVY``, and a stratification
-read off a single unexamined cut is the cut's result -- ``docs/roadmap.md`` §M27.8."""
+"""Tail sizes ``--volume-quantiles`` fits, each stated as a share of the measured bars."""
 
 COMPRESSION_PERIOD = 20
 COMPRESSION_BASELINE_BARS = 250
@@ -310,10 +141,7 @@ MIN_TRADES = 30
 """The floor ``sweep.rank`` applies, repeated here for the per-sweep progress line."""
 
 SERIAL_BELOW_COMBINATION_BARS = 20_000_000
-"""Combinations x bars below which a sweep call stays in-process whatever ``--n-jobs`` asks for.
-
-``--n-jobs`` is applied per sweep call rather than per run, and below this a pool costs more
-than its workers return -- ``docs/roadmap.md`` § "A sweep call's worker count"."""
+"""Combinations x bars below which a sweep call stays in-process whatever ``--n-jobs`` asks for."""
 
 CAMPAIGN_DIR = paths.RESULTS_DIR / "campaign"
 
@@ -437,9 +265,7 @@ def _consolidating() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
 def _trend_up() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """Yield the one trend cell §M28.1's gate 3 passed in on both roots, without its siblings.
 
-    Its own group so that the opening range's re-sweep can **name its strata before it runs**
-    rather than pick them from the results afterwards, which is the caveat §M28.1 left for
-    [#237] -- ``docs/roadmap.md`` §M28.2.
+    Its own group so the re-sweep names its strata before it runs -- ``docs/roadmap.md`` §M28.2.
     """
     yield f"trend={trend.Trend.UP.name}", {"trend_filter": [trend.Trend.UP.bit]}
 
@@ -473,10 +299,8 @@ def volume_series(
 ) -> tuple[volume.VolumeKey, ...]:
     """Return one relative-volume series per (form, rolling window, baseline), deduplicated.
 
-    Built through :func:`nqbt.volume.key`, which drops the rolling window from every form but
-    ``ROLLING`` -- the blind spot ``dead_axes`` cannot see, avoided rather than rediscovered.
-    Deduplicating *after* that drop is what keeps a rolling ladder from building one identical
-    per-bar series per rung -- ``docs/findings/m32-volume-windows.md``.
+    Built through :func:`nqbt.volume.key`, and deduplicated after its drop of the rolling window
+    -- ``docs/findings/m32-volume-windows.md``.
     """
     return tuple(
         dict.fromkeys(
@@ -592,23 +416,13 @@ REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL, CONSOLIDATING})
 name, so that a group yielding a single regime cell is calibrated like the full one."""
 
 RECUTS = frozenset({DIRECTIONAL, CONSOLIDATING, TREND_UP, MIDDAY, VOLUME_FORMS, COMPRESSION_FORMS})
-"""Groups that re-cut a dimension another group already owns, so ``all`` leaves them out.
-
-``directional`` and ``consolidating`` are each one regime cell without its four siblings,
-``trend-up`` one trend cell without its two and ``midday`` one phase without its six;
-``volume-forms`` is the volume dimension under all three forms and a fitted cut; ``compression-forms`` is the compression
-dimension under both of its forms. Any of them inside ``all`` would run its dimension twice
-under two sets of names."""
+"""Groups that re-cut a dimension another group already owns, so ``all`` leaves them out."""
 
 EVERY_DIMENSION = tuple(group for group in STRATUM_GROUPS if group not in RECUTS)
 """Each context dimension once, at the cut the campaign ran -- what ``all`` names."""
 
 ORB_REVERSION_STRATA = (UNFILTERED, CONSOLIDATING)
-"""The two cells both reversion entries are asked about, stated before either run.
-
-A range that holds is a range worth trading back from, so `regime=CONSOLIDATING` is the fade's
-and the rejection's own thesis where `regime=DIRECTIONAL` is the breakout's -- one tuple
-because it is one hypothesis, read twice."""
+"""The two cells both reversion entries are asked about, stated before either run."""
 
 STRATUM_SETS: dict[str, tuple[str, ...]] = {
     **{group: (group,) for group in STRATUM_GROUPS},
@@ -645,9 +459,8 @@ def _per_lookback(
 ) -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """Split one regime cell into a cell per lookback, each carrying its own fitted thresholds.
 
-    A cell rather than an axis because the thresholds move *with* the lookback, and a sweep
-    crosses its axes -- pairing them any other way runs cells that are not comparable. The cell
-    size is in the name for the reason a volume form's is -- ``docs/roadmap.md`` §M31.
+    A cell rather than an axis, because the thresholds move with the lookback --
+    ``docs/roadmap.md`` §M31.
     """
     for cut in calibration:
         yield (
@@ -701,10 +514,7 @@ def calibrate_volume(
 ) -> VolumeCalibration:
     """Fit a threshold pair per (series, tail size) to ``frame``'s own relative volumes.
 
-    Each series is fitted against its own distribution, which is the whole point: the same raw
-    pair sits at a different percentile under each form -- ``docs/roadmap.md`` §M27.8 -- and at
-    each window too, which is why a window ladder is a cut per rung rather than an axis
-    inside one -- ``docs/findings/m32-volume-windows.md``.
+    Each series is fitted against its own distribution -- ``docs/roadmap.md`` §M27.8.
     """
     spec = context.ContextSpec(volume_keys=tuple(series), needs_time_of_day=True)
     data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
@@ -729,12 +539,7 @@ class Variant:
     base: Params
     axes: dict[str, list[AxisValue]] = field(default_factory=dict)
     resolutions: tuple[int, ...] = RESOLUTIONS
-    """Bar sizes this variant can be run at.
-
-    Every variant but the opening range's is expressible at all of them. A session-anchored
-    range is not: its anchor and its window must both be whole numbers of bars, so a 5-minute
-    range does not exist on 10-minute bars -- ``docs/roadmap.md`` §M28.
-    """
+    """Bar sizes this variant can be run at; a session-anchored range cannot run at all of them."""
 
     def sized(self) -> int:
         """Count how many combinations this variant's own axes make."""
@@ -821,19 +626,7 @@ def crossover_variants(root: str) -> list[Variant]:
 
 
 def emapullback_variants(root: str) -> list[Variant]:
-    """Build one variant: both averages crossed over kind and period, and the entry's own three axes.
-
-    **Both kinds are swept and both periods with them**, which no earlier campaign here did --
-    EmaCrossover swept the fast kind alone. §M27 measured the moving averages as nearly inert
-    on every archetype it covered, and this is the archetype where that reading is least safe:
-    the two averages are the level price returns to and the level the stop sits on, so the kind
-    moves the entry and the bracket at once.
-
-    ``touch_mode`` and ``require_turn`` are axes rather than variant dimensions: every value
-    reads every other axis, so none of them is inert under another and ``dead_axes`` has
-    nothing to miss -- ``docs/findings/m34-ema-pullback-spec.md``. The trail is held off, so
-    this campaign varies the entry geometry and the stop's own two averages and nothing else.
-    """
+    """Build one variant: both averages crossed over kind and period, and the entry's own three axes."""
     return [
         Variant(
             name="stop=slow",
@@ -876,13 +669,7 @@ NARROW_ENTRY: dict[int, dict[str, AxisValue]] = {
     5: {"ema_kind": "hma", "ema_period": 22, "error_margin": 0.1, "atr_length": 14},
     10: {"ema_kind": "hma", "ema_period": 11, "error_margin": 0.1, "atr_length": 3},
 }
-"""InsideBar's entry, held per resolution at the modal value of §M27's own DIRECTIONAL top
-twenty, so that the re-sweep varies the bracket and nothing else.
-
-Where that twenty is tied -- ``fast_sma_period`` at both resolutions, ``slow_sma_period`` at ten
-minutes -- the NinjaScript default stands rather than a coin flip, which is the campaign's own
-finding that the moving-average axes barely matter. Chosen on profit factor because §M27 ranked
-that way; **held**, never re-tuned -- ``docs/roadmap.md`` §M27.3."""
+"""InsideBar's entry, held per resolution at the modal value of §M27's own DIRECTIONAL top twenty."""
 
 NARROW_TP = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
 """Target distances in ATRs from the fill. Opens at the ``1.0`` the campaign was stuck with and
@@ -943,9 +730,8 @@ trade. A variant each because a tuple is not a sweepable axis -- ``docs/roadmap.
 def elastic_ladder(variant: str) -> tuple[float, ...]:
     """Return the target ladder a stored ElasticBand variant name carries.
 
-    The ladder is a tuple and tuples are not sweepable, so it is not a stored column and has to
-    be read back off the variant name -- which carries other words in the §M26.5 set, hence the
-    token rather than the whole name.
+    Read off the name's ``target=`` token, because a tuple is not sweepable and so is not a
+    stored column.
     """
     for token in variant.split():
         if token in ELASTIC_LADDERS:
@@ -980,10 +766,7 @@ def elasticband_variants(root: str) -> list[Variant]:
 
 
 ELASTIC_SHAPE_TARGETS = ("target=0.0s", "target=+1.0s")
-"""Two of :data:`ELASTIC_LADDERS`' four: the midline, and the one patience found.
-
-Named out of that dict rather than restated, so :func:`elastic_ladder` resolves a variant from
-either set and the two campaigns cannot drift apart on what a ladder name means."""
+"""Two of :data:`ELASTIC_LADDERS`' four: the midline, and the one patience found."""
 
 ELASTIC_SHAPES: dict[str, tuple[int, float]] = {
     "shape=any": (SHAPE_ANY, 0.5),
@@ -992,13 +775,7 @@ ELASTIC_SHAPES: dict[str, tuple[int, float]] = {
     "shape=rejection@0.4": (SHAPE_REJECTION, 0.4),
     "shape=rejection@0.6": (SHAPE_REJECTION, 0.6),
 }
-"""What the signal bar itself has to look like, and the rejection depth where one is read.
-
-A variant rather than an axis for the reason every mode in this file is one: the fraction is
-inert under three of the four modes, so crossing them would run identical combinations that
-`dead_axes` cannot see -- ``docs/roadmap.md`` §M26.5. ``shape=any`` is the control: the same
-axes, over the entry §M26.4 left the archetype at, with no requirement on the bar at all.
-"""
+"""What the signal bar itself has to look like, and the rejection depth where one is read."""
 
 
 def elasticband_shape_variants(root: str) -> list[Variant]:
@@ -1058,19 +835,13 @@ ELASTIC_VOLUME_BRACKET: dict[str, list[AxisValue]] = {
 }
 """The bracket the volume question is asked over, held by §M26.9 and by §M33.
 
-Named rather than written twice because holding *the same* bracket is what lets the two sets be
-read against each other -- ``docs/findings/m33-channel-volume.md``. Copy it into a variant
-rather than sharing the dict, so nothing downstream can mutate both sets at once."""
+Copy it into a variant rather than sharing the dict, so nothing downstream can mutate both sets
+at once.
+"""
 
 
 def elasticband_volume_variants(root: str) -> list[Variant]:
-    """Build §M26.9's run: the shape crossed with the volume states, over a bracket held still.
-
-    Three of §M26.5's five axes are held rather than swept, so that the cells this adds are the
-    volume strata and not a wider grid: ``min_one_sided_bars`` because §M26.5 measured its low
-    end as a dead value and its high end as a cost, ``min_bars_outside`` because the reversal
-    shape makes it a duplicate on 82.7% of cells, and the target ladder above.
-    """
+    """Build §M26.9's run: the shape crossed with the volume states, over a bracket held still."""
     axes: dict[str, list[AxisValue]] = dict(ELASTIC_VOLUME_BRACKET)
 
     return [
@@ -1096,28 +867,14 @@ ELASTIC_CHANNEL_SOURCES: dict[str, int] = {
     "channel=vwap": BAND_VWAP,
     "channel=bollinger": BAND_BOLLINGER,
 }
-"""The two channels the volume question has been asked over, and returned opposite answers from.
-
-A variant dimension rather than an axis for the reason every mode in this file is one:
-``band_period`` is read under ``BAND_BOLLINGER`` alone and ``vwap_min_session_bars`` under
-``BAND_VWAP`` alone, so an axis crossing the source would run identical combinations that
-``dead_axes`` cannot see -- ``.claude/rules/sweep-and-context.md``."""
+"""The two channels the volume question has been asked over."""
 
 ELASTIC_CHANNEL_PERIOD = 20
-"""The Bollinger period this set pins, where §M30 swept three.
-
-The parameter's own default and the middle rung of that ladder. Pinned so that two rows differ
-by one thing, which costs the Bollinger arm the best-of-three every §M30 cell had --
-``docs/findings/m33-channel-volume.md``."""
+"""The Bollinger period this set pins, where §M30 swept three."""
 
 
 def elasticband_channel_variants(root: str) -> list[Variant]:
-    """Build §M33's run: the channel crossed with the shape, over §M26.9's bracket.
-
-    §M26.9 and §M30 put the same nine fitted volume cuts through grids differing in three ways
-    at once and returned opposite answers. Here the channel and the shape are the only things
-    that move, so a volume cell's sign can be attributed to one of them.
-    """
+    """Build §M33's run: the channel crossed with the shape, over §M26.9's bracket."""
     axes: dict[str, list[AxisValue]] = dict(ELASTIC_VOLUME_BRACKET)
 
     return [
@@ -1152,27 +909,11 @@ ELASTIC_RECOVERY_ARMS: dict[str, tuple[int, int, float]] = {
     "entry=recovery@0.9": (TRIGGER_RECOVERY, SHAPE_ANY, 0.9),
     "entry=recovery@0.75": (TRIGGER_RECOVERY, SHAPE_ANY, 0.75),
 }
-"""Which bar of an extension signals, and how far back inside the recovery bar has to close.
-
-The trigger and its depth are one variant dimension for the reason every mode in this file is
-one: the depth is inert under :data:`TRIGGER_EXTENDED`, so crossing them would run identical
-combinations that ``dead_axes`` cannot see. Two controls rather than one, because §M26.5's
-question was whether requiring a reaction beats requiring nothing and this one is whether
-waiting for it beats reading it off a bar that is still outside -- ``docs/roadmap.md`` §M26.6.
-
-**A fourth depth was measured and left out.** At 0.5 the gate leaves 140 signals in 1.66M MNQ
-bars, which is the engulfing mode's failure and not a range worth sweeping -- §M26.6 has the
-counts per resolution.
-"""
+"""Which bar of an extension signals, and how far back inside the recovery bar has to close."""
 
 
 def elasticband_recovery_variants(root: str) -> list[Variant]:
-    """Build §M26.6's run: the recovery trigger against the shapes, over §M26.5's channel.
-
-    §M26.5's grid minus ``min_one_sided_bars``, which it measured as a dead value at its low
-    end and a cost at its high one. ``min_bars_outside`` stays, because the recovery trigger is
-    the one entry here under which it is not a duplicate of the requirement beside it.
-    """
+    """Build §M26.6's run: the recovery trigger against the shapes, over §M26.5's channel."""
     axes: dict[str, list[AxisValue]] = {
         "entry_std": [2.0, 2.5, 3.0],
         "min_bars_outside": [1, 2],
@@ -1209,11 +950,7 @@ ELASTIC_BAND_STOP_SHAPES: dict[str, int] = {
     "shape=any": SHAPE_ANY,
     "shape=reversal": SHAPE_REVERSAL,
 }
-"""The entry the stop is measured over, held at two values rather than swept.
-
-The control and the one shape §M26.5 carried forward, which is §M26.9's pair. Both, because the
-question is whether a stop scheme is being ranked or the bars under it are: an entry with a
-measured excess and one without answer that from opposite ends -- ``docs/roadmap.md`` §M26.8."""
+"""The entry the stop is measured over, held at two values rather than swept."""
 
 ELASTIC_BAND_STOP_ARMS: dict[str, tuple[int, float]] = {
     "stop=atr": (STOP_ATR, 1.0),
@@ -1224,24 +961,11 @@ ELASTIC_BAND_STOP_ARMS: dict[str, tuple[int, float]] = {
     "stop=band@1.5": (STOP_BAND, 1.5),
     "stop=band@2.0": (STOP_BAND, 2.0),
 }
-"""Where the protective stop goes, and how far past ``entry_std`` the band arm puts it.
-
-The scheme and its depth are one variant dimension for the reason every mode in this file is
-one: ``band_stop_std`` is inert under the other three schemes, so crossing them would run
-identical combinations that ``dead_axes`` cannot see. The three stops §M26.5 and §M26.9 swept
-are arms here rather than stored rows, because a stored row came out of a different grid --
-``docs/roadmap.md`` §M26.8.
-"""
+"""Where the protective stop goes, and how far past ``entry_std`` the band arm puts it."""
 
 
 def elasticband_band_stop_variants(root: str) -> list[Variant]:
-    """Build §M26.8's run: a stop on the channel itself, against the three that are not.
-
-    ``stop_mode`` leaves the axes and becomes the arm, so every cell differs from its control by
-    where the stop went and nothing else. ``min_one_sided_bars`` is dropped for §M26.5's reason
-    -- a dead value at its low end and a cost at its high one -- and ``min_bars_outside`` stays
-    because half these arms carry the shape that made it a duplicate and half do not.
-    """
+    """Build §M26.8's run: a stop on the channel itself, against the three that are not."""
     axes: dict[str, list[AxisValue]] = {
         "entry_std": [2.0, 2.5, 3.0],
         "min_bars_outside": [1, 2],
@@ -1277,9 +1001,7 @@ ORB_WINDOWS = (5, 15, 30)
 def orb_resolutions(anchor: int, window: int) -> tuple[int, ...]:
     """Return which campaign resolutions can express a range of ``window`` minutes from ``anchor``.
 
-    Both the anchor and the window have to be whole numbers of bars, which is why this is
-    computed rather than written down: off the 930-minute cash anchor, 5-minute ranges survive
-    at two resolutions of the five and 30-minute ranges at all of them.
+    Both the anchor and the window have to be whole numbers of bars.
     """
     return tuple(minutes for minutes in RESOLUTIONS if anchor % minutes == 0 and window % minutes == 0)
 
@@ -1322,12 +1044,7 @@ def openingrange_variants(root: str) -> list[Variant]:
 
 
 def squeeze_variants(root: str) -> list[Variant]:
-    """Build one variant per (stop, target), for OpeningRange's reason: each pair reads axes others do not.
-
-    The squeeze's own axes are shared by all four. Both forms read the period, the baseline and
-    the threshold, so the form is an axis rather than a variant dimension --
-    ``docs/findings/m19-2-squeeze-breakout-spec.md``.
-    """
+    """Build one variant per (stop, target), for OpeningRange's reason: each pair reads axes others do not."""
     shared: dict[str, list[AxisValue]] = {
         "direction": [trades.LONG, trades.SHORT],
         "squeeze_form": [
@@ -1370,25 +1087,14 @@ ORB_RANGES: dict[str, sessionrange.RangeKey] = {
     "overnight": (sessionrange.ETH_OPEN_MINUTES, sessionrange.CASH_OPEN_MINUTES),
     "london=60m": (LONDON_OPEN_MINUTES, 60),
 }
-"""The ranges the §M28.2 re-sweep trades: §M28's anchor axis, which §M28.1 never left.
-
-``overnight`` is the session open through to the cash open, which is what "the overnight range"
-and FX's "London breakout" both name; ``london=60m`` is the first hour of the European cash
-session. Both were free once the range primitive was session-anchored -- ``docs/roadmap.md``
-§M28.2.
-"""
+"""The ranges the §M28.2 re-sweep trades: §M28's anchor axis, which §M28.1 never left."""
 
 ORB_ENTRIES: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
     "entry=breakout": (ORB_ENTRY_BREAKOUT, {"entry_offset_ticks": [1, 4]}),
     "entry=fade": (ORB_ENTRY_FADE, {"entry_offset_ticks": [1, 4], "break_confirm_ticks": [0, 8]}),
     "entry=retest": (ORB_ENTRY_RETEST, {"retest_offset_ticks": [0, 4], "break_confirm_ticks": [0, 8]}),
 }
-"""The three entry mechanisms, each with the axes only it reads.
-
-A variant dimension rather than an axis because of exactly that: ``entry_offset_ticks`` is
-inert for a retest and ``retest_offset_ticks`` for the other two, and a grid crosses its axes
-uniformly. ``docs/roadmap.md`` §M28.2.
-"""
+"""The three entry mechanisms, each with the axes only it reads."""
 
 type OrbTarget = tuple[str, int, tuple[float, ...], dict[str, list[AxisValue]]]
 """One target scheme: its name, the mode, the per-leg ladder and the axes only it reads."""
@@ -1397,11 +1103,7 @@ ORB_TARGETS: dict[str, tuple[int, dict[str, list[AxisValue]]]] = {
     "target=R": (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]}),
     "target=width": (ORB_TARGET_WIDTH, {}),
 }
-"""The two target schemes §M28.2 crossed every entry with, at the default width ladder.
-
-``tp_multiplier`` scales an R target and is not read under :data:`ORB_TARGET_WIDTH`, so it is
-swept where it lives rather than shared -- ``docs/roadmap.md`` §M28.2.
-"""
+"""The two target schemes §M28.2 crossed every entry with, at the default width ladder."""
 
 
 def _orb_further_targets() -> list[OrbTarget]:
@@ -1416,13 +1118,7 @@ def _orb_further_targets() -> list[OrbTarget]:
 
 
 ORB_FRACTIONS = [0.25, 0.5, 0.75, 1.0]
-"""How far back across the range the stop sits, in range widths.
-
-**One axis where §M28.1 had two modes**: ``1.0`` reproduces the opposite-extreme stop exactly,
-offset included, and ``0.5`` is the midpoint stop the literature also uses -- so the axis
-contains the only stop that passed gate 1 rather than running beside it. The ATR stop is gone,
-which is §M28.1's own deferral: 0 of 10 cells and half the runtime.
-"""
+"""How far back across the range the stop sits, in range widths."""
 
 
 def openingrange_further_variants(root: str) -> list[Variant]:
@@ -1461,25 +1157,13 @@ def openingrange_further_variants(root: str) -> list[Variant]:
 
 
 ORB_TIGHT_FRACTIONS = [0.02, 0.05, 0.10, 0.25]
-"""How far outside the extreme a fade's stop sits, in range widths -- §M28.5's axis.
-
-**A fade's stop runs outward where a breakout's runs inward**, because the extreme it enters at
-is the one it has to stop behind, so §M28.2's ``[0.25, 0.5, 0.75, 1.0]`` placed it between a
-quarter of the range width outside and a full width outside and never anywhere tight. This
-extends the same axis downward and keeps ``0.25`` as its endpoint, so the new rows and the
-parked ones share a cell exactly -- ``docs/roadmap.md`` §M28.5.
-"""
+"""How far outside the extreme a fade's stop sits, in range widths -- §M28.5's axis."""
 
 ORB_FADE_LADDERS: dict[str, tuple[float, ...]] = {
     "target=width": (1.0, NAN),
     "target=width+mid": (0.5, 1.0, NAN),
 }
-"""Per-leg targets as multiples of the range width, past the trigger.
-
-``target=width`` is §M28.2's ladder, kept so the two runs share it. ``target=width+mid`` adds
-the **midpoint** — which is what a rejection trade is aiming at and the first target in the
-band-reversion convention §M26 records — and which the swept space has never carried.
-"""
+"""Per-leg targets as multiples of the range width, past the trigger."""
 
 
 def openingrange_fade_variants(root: str) -> list[Variant]:
@@ -1535,22 +1219,11 @@ def _orb_fade_targets() -> list[OrbTarget]:
 
 
 ORB_REJECTION_OFFSETS = [0, 1, 4, 8]
-"""How far inside the extreme the rejection's limit rests, in ticks -- §M28.7's entry axis.
-
-`0` is the one value that is not the setup: a limit resting on the extreme itself needs price
-to trade **through** it under `IsFillLimitOnTouch = false`, which is the break the mode exists
-to do without. From one tick in, the fill measures "came this close and turned" and nothing
-has to break -- ``docs/roadmap.md`` §M28.7.
-"""
+"""How far inside the extreme the rejection's limit rests, in ticks -- §M28.7's entry axis."""
 
 
 def openingrange_rejection_variants(root: str) -> list[Variant]:
-    """Build §M28.7's run: the rejection alone, over the bracket §M28.5 measured the fade on.
-
-    The bracket axes are held at exactly what §M28.5 swept, so the entry is the only thing that
-    moved -- which is the comparison § "Parked is not abandoned" asks a re-run to be able to
-    make, read here between two entries rather than between two brackets.
-    """
+    """Build §M28.7's run: the rejection alone, over the bracket §M28.5 measured the fade on."""
     shared: dict[str, list[AxisValue]] = {
         "direction": [trades.LONG, trades.SHORT],
         "max_entries_per_session": [1, 0],
@@ -1628,31 +1301,17 @@ ORB_GEOMETRY_ENTRIES: dict[str, OrbEntry] = {
         _orb_fade_targets(),
     ),
 }
-"""All four entries, each carrying what its own campaign gave it rather than one shared grid.
-
-**That is what makes the range the only thing that moves.** §M28.2 measured the breakout and the
-retest on a stop inside the range; §M28.5 and §M28.7 measured the fade and the rejection on one
-just outside the extreme they enter at, which is the other side of the same formula. A single
-bracket across all four would move two things at once on two of them -- ``docs/roadmap.md``
-§M28.8.
-"""
+"""All four entries, each carrying what its own campaign gave it rather than one shared grid."""
 
 ORB_GEOMETRY_WINDOWS = (5, 15, 30, 45, 60, 90, 120, sessionrange.CASH_OPEN_MINUTES)
-"""Range lengths in minutes: §M28's three, the hour most sources mean by "the ORB", and the
-lengths that bracket it.
-
-The last is the overnight span rather than a length anyone would name. It is in the axis
-because it is the one window that reproduces §M28.2's ``overnight`` range, which anchors the
-gradient to a stored measurement instead of running beside it -- ``docs/roadmap.md`` §M28.8.
-"""
+"""Range lengths in minutes: §M28's three, the hour most sources call "the ORB", and those either side."""
 
 
 def orb_geometry_ranges() -> dict[str, sessionrange.RangeKey]:
     """Return every (anchor, window) the session leaves room to trade, one entry per cell of the cross.
 
-    The anchors are the session's own phase starts, and a range must complete before the phase
-    the forced flat falls in -- so which cells exist is derived from the session template
-    rather than chosen.
+    Derived from the session template: a range must complete before the phase the forced flat
+    falls in.
     """
     latest: int = sessionrange.anchor_for(timeofday.FORCED_EXIT_PHASE)
     anchors: dict[str, int] = {
@@ -1707,41 +1366,21 @@ ORB_FOLLOW_THROUGH_RANGES: dict[str, sessionrange.RangeKey] = {
     "cash-ft+15m": (sessionrange.CASH_OPEN_MINUTES, 15),
     "cash-ft+30m": (sessionrange.CASH_OPEN_MINUTES, 30),
 }
-"""The two ranges whose breakout separates from a permuted range, and no others.
-
-§M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and finds none at 45
-or 60, so this run asks its question where there is an edge to lose rather than across a
-plateau. The names carry ``cash-ft+`` where §M28.8 wrote ``cash-open+``, because the variant
-name is the only thing separating two runs in one database.
-"""
+"""The two ranges whose breakout separates from a permuted range, and no others."""
 
 ORB_FOLLOW_THROUGH_LOOKBACKS = (20, 60, 250)
-"""How many prior sessions the trailing median is taken over: a month, a quarter, a year.
-
-Three rather than one because the lookback is what decides whether the scale tracks the regime
-or averages over it, and a single unexamined window would be reporting its own choice.
-"""
+"""How many prior sessions the trailing median is taken over: a month, a quarter, a year."""
 
 ORB_FOLLOW_THROUGH_MODES: dict[str, int] = {
     "scale=target": ORB_SCALE_TARGET,
     "scale=stop": ORB_SCALE_STOP,
     "scale=both": ORB_SCALE_BOTH,
 }
-"""Which halves of the bracket the trailing follow-through is applied to.
-
-Separable on purpose: [#261] names both halves as denominated in the quantity that moved, and
-one arm each is what says whether either is the one that matters.
-"""
+"""Which halves of the bracket the trailing follow-through is applied to."""
 
 
 def openingrange_follow_through_variants(root: str) -> list[Variant]:
-    """Build §M28.10's run: the bracket denominated in trailing reach, against an unscaled control.
-
-    **A variant dimension rather than an axis**, for :data:`SPEC_TRAILS`' reason:
-    ``follow_through_sessions`` is inert at :data:`ORB_SCALE_NONE`, so crossing the two as axes
-    would run the control once per lookback and nothing would say so. The control is in the
-    same pass on the same bars, which is what makes it a comparison rather than two runs.
-    """
+    """Build §M28.10's run: the bracket denominated in trailing reach, against an unscaled control."""
     shared: dict[str, list[AxisValue]] = {
         "direction": [trades.LONG, trades.SHORT],
         "entry_offset_ticks": [1, 4],
@@ -1782,23 +1421,10 @@ ORB_BRACKET_RANGES: dict[str, sessionrange.RangeKey] = {
     "cash-br+15m": (sessionrange.CASH_OPEN_MINUTES, 15),
     "cash-br+30m": (sessionrange.CASH_OPEN_MINUTES, 30),
 }
-"""The two ranges §M28.8's gate 3 separated from a permuted range, and no others.
-
-Same cut as :data:`ORB_FOLLOW_THROUGH_RANGES` and for its reason: a bracket axis is worth
-extending where there is an edge to lose rather than across the plateau above 30 minutes. The
-names carry ``cash-br+`` because the variant name is the only thing separating two runs in one
-database -- ``docs/roadmap.md`` §M28.11.
-"""
+"""The two ranges §M28.8's gate 3 separated from a permuted range, and no others."""
 
 ORB_LADDER_FRACTIONS = [*ORB_FRACTIONS, 1.5, 2.0, 3.0, 5.0]
-"""§M28.2's stop axis carried past the boundary its best value sat on.
-
-``1.0`` was the winner on both roots and both windows, so the axis was truncated rather than
-swept -- [#262]. Built from :data:`ORB_FRACTIONS` rather than rewritten, so every stored cell
-is re-run at exactly the fraction that produced it and the new rows extend the old ones instead
-of running beside them. Past ``1.0`` the stop sits outside the range, which the params class
-already allows -- ``docs/roadmap.md`` §M28.11.
-"""
+"""§M28.2's stop axis carried past the boundary its best value sat on."""
 
 ORB_WIDTH_LADDERS: dict[str, tuple[float, ...]] = {
     "target=w0.5": (0.5, NAN),
@@ -1808,24 +1434,11 @@ ORB_WIDTH_LADDERS: dict[str, tuple[float, ...]] = {
     "target=w1.0+2.0": (1.0, 2.0, NAN),
     "target=runner": (NAN, NAN),
 }
-"""Per-leg targets as multiples of the range width past the trigger, one variant each.
-
-``target=w1.0`` is the parameter default rather than a copy of it, for
-:func:`_orb_further_targets`' reason: it is the ladder every ORB campaign to date ran under
-:data:`ORB_TARGET_WIDTH` without varying it, so a cell here and a stored one carry the same
-tuple. ``target=runner`` takes the target off entirely and leaves both legs to the forced flat,
-and ``target=w1.0+2.0`` is the only cell that scales out at two distances -- ``docs/roadmap.md``
-§M28.11.
-"""
+"""Per-leg targets as multiples of the range width past the trigger, one variant each."""
 
 
 def openingrange_bracket_variants(root: str) -> list[Variant]:
-    """Build §M28.11's run: the stop ladder past its boundary, crossed with the width ladder.
-
-    One variant per (range, ladder), because a ladder is a tuple and tuples are not sweepable --
-    see :class:`Variant`. The entry is the breakout alone, held at exactly the axes §M28.2 and
-    §M28.10 swept it on, so the bracket is the only thing that moved.
-    """
+    """Build §M28.11's run: the stop ladder past its boundary, crossed with the width ladder."""
     shared: dict[str, list[AxisValue]] = {
         "direction": [trades.LONG, trades.SHORT],
         "entry_offset_ticks": [1, 4],
@@ -1862,24 +1475,13 @@ SPEC_SHARED: dict[str, list[AxisValue]] = {
     "tp_multiplier": [1.0, 2.0],
     "exit_on_opposite_cross": [True, False],
 }
-"""What every spec variant holds in common: a coarse cut of the axes §M27 already measured.
-
-Deliberately smaller than :func:`crossover_variants`' grid, and with the moving-average kind
-dropped entirely. §M27's gate 1 puts every kind axis below 0.04 eta-squared, so crossing them
-here would multiply the run without separating anything -- and the question this set exists to
-ask is about the three new axes, which a large shared grid would bury.
-"""
+"""What every spec variant holds in common: a coarse cut of the axes §M27 already measured."""
 
 SPEC_STOPS: dict[str, tuple[bool, dict[str, list[AxisValue]]]] = {
     "stop=atr": (True, {"atr_stop_multiple": [1.5, 3.0]}),
     "stop=swing": (False, {"swing_lookback": [1, 3]}),
 }
-"""The two initial stops, carried through every spec variant.
-
-A variant dimension for :func:`crossover_variants`' reason: ``atr_stop_multiple`` is inert
-under the swing stop and ``swing_lookback`` under the ATR one, and a grid crosses its axes
-uniformly.
-"""
+"""The two initial stops, carried through every spec variant."""
 
 SPEC_TRAILS: dict[str, tuple[bool, dict[str, list[AxisValue]]]] = {
     "trail=off": (False, {}),
@@ -1892,38 +1494,20 @@ SPEC_TRAILS: dict[str, tuple[bool, dict[str, list[AxisValue]]]] = {
         },
     ),
 }
-"""Whether the stop trails a moving average, and the three axes only the trailing half reads.
-
-**A variant rather than an axis**: with the toggle off, its three axes are inert and every
-combination along them is identical -- the silent duplicate ``dead_axes`` cannot see. The
-``trail=off`` half is the control, run in the same pass on the same bars so the comparison is
-inside one measurement rather than across two.
-"""
+"""Whether the stop trails a moving average, and the three axes only the trailing half reads."""
 
 SPEC_ROUNDS: dict[str, dict[str, list[AxisValue]]] = {
     "round=off": {},
     "round=on": {"round_number_points": [5.0, 25.0], "round_number_offset_ticks": [2, 8]},
 }
-"""The round-number spacings tried, against a control that avoids nothing.
-
-5 and 25 points rather than a wider ladder: on NQ they are the two spacings a discretionary
-trader would name, and the rule can only ever move a stop that lands exactly on one, so a
-denser ladder buys resolution the rule does not have. **Every one of these cells needs raw
-prices** -- see :func:`run_point`, which is where the campaign says so.
-"""
+"""The round-number spacings tried, against a control that avoids nothing; every cell needs raw prices."""
 
 SPEC_CONFLUENCE_FILTERS: dict[str, int] = {
     "regime_filter": regime.Regime.DIRECTIONAL.bit,
     "volume_filter": volume.VolumeState.HEAVY.bit,
     "compression_filter": compression.Compression.EXPANDED.bit,
 }
-"""The three filters a confluence count is measured over, all of them side-neutral.
-
-Trend and higher-timeframe are left out on purpose: both name a *direction*, and EmaCrossover
-takes each side on its own signal, so switching one on measures the long half rather than the
-count. **Three is also the smallest number that makes the axis interesting** -- at two, the
-only legal count is 1, which is the union.
-"""
+"""The three filters a confluence count is measured over, all of them side-neutral."""
 
 
 def spec_variants(root: str) -> list[Variant]:
@@ -1988,9 +1572,9 @@ VARIANTS = {
 }
 """Archetype name -> the variants swept for it, built per root so costs are the root's.
 
-**This is what §M27 measured**, so a re-sweep that changes an axis belongs in its own entry of
-:data:`VARIANT_SETS` rather than in here, where it would leave the stored rows and the code
-that produced them disagreeing."""
+This is what §M27 measured, so a re-sweep that changes an axis belongs in its own entry of
+:data:`VARIANT_SETS`.
+"""
 
 NARROW_VARIANTS = {"InsideBar": insidebar_narrow_variants}
 """The §M27.3 re-sweep: one archetype, the bracket pair §M27 could not cross."""
@@ -2013,11 +1597,7 @@ ORB_FOLLOW_THROUGH_VARIANTS = {"OpeningRange": openingrange_follow_through_varia
 session's own range width, over the two ranges §M28.8's null separated -- [#261]."""
 
 ORB_GEOMETRY_VARIANTS = {"OpeningRange": openingrange_geometry_variants}
-"""The §M28.8 run: the anchor axis §M28.2 opened, crossed with the length axis nothing has swept.
-
-Its own set rather than an edit to :data:`ORB_VARIANTS` for that dict's own reason, and the
-range names carry a ``+`` where the stored ones carry a ``=`` so the two cannot collide in one
-database -- ``docs/roadmap.md`` §M28.8."""
+"""The §M28.8 run: the anchor axis §M28.2 opened, crossed with the length axis nothing had swept."""
 
 ORB_REJECTION_VARIANTS = {"OpeningRange": openingrange_rejection_variants}
 """The §M28.7 run: the rejection alone, over §M28.5's bracket, so that the two reversion
@@ -2049,26 +1629,14 @@ entry pair. The names carry a ``stop=`` token where every stored ElasticBand row
 so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.8."""
 
 HOLD_BARS = (0, 5, 10, 20, 40, 80)
-"""Maximum hold times in bars, ``0`` being the uncapped arm every stored campaign ran.
-
-**A bar count and not a duration**, because that is what the parameter is -- 20 bars is 20
-minutes at one resolution and five hours at fifteen. So the ladder is never read pooled across
-resolutions: ``tools/campaign_paired.py`` reports one row per root x resolution, which is the
-same remedy a raw regime threshold gets -- ``.claude/rules/sweep-and-context.md``. The top of
-the ladder is past where the session flatten binds at the coarse resolutions, deliberately: an
-arm that cannot bind has to read as its control, and one that does not is a defect.
-"""
+"""Maximum hold times in bars, ``0`` being the uncapped arm every stored campaign ran."""
 
 
 def _held(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
     """Re-emit one archetype's stored campaign variants once per rung of the hold ladder.
 
-    The axes are §M27's otherwise untouched, so every arm holds the same number of combinations
-    and the comparison is paired rather than a best-of-more -- ``tools/campaign_paired.py``.
-
-    **``max_hold_bars`` is dropped from the axes**, because ElasticBand's campaign grid sweeps
-    it at ``[0, 30]`` and an axis beats the base it is crossed with: leaving it there would run
-    six identical arms and report the hold ladder as inert.
+    ``max_hold_bars`` is dropped from the axes, or an archetype that sweeps it would beat the
+    ladder -- ``tools/README.md`` § "campaign_sweep.py".
     """
 
     def variants(root: str) -> list[Variant]:
@@ -2087,22 +1655,13 @@ def _held(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant
 
 
 HOLD_VARIANTS = {name: _held(build) for name, build in VARIANTS.items()}
-"""The [#292] run: every archetype's stored campaign grid, once per maximum hold time.
-
-Its own set rather than an edit to :data:`VARIANTS` for that dict's own reason, and every name
-carries a ``hold=`` token no stored row has, so the two cannot collide in one database. The
-``hold=0`` arm is the stored configuration re-run, which is what makes the comparison paired and
-is also the check that generalising the cap moved nothing."""
+"""The [#292] run: every archetype's stored campaign grid, once per maximum hold time."""
 
 EMAPULLBACK_TRAILS: dict[str, dict[str, bool]] = {
     "trail=off": {"trail_ma_stop": False},
     "trail=slow": {"trail_ma_stop": True, "trail_on_slow": True},
 }
-"""The fixed stop, and the stop trailed on the slow average at the offset that placed it.
-
-The ``trail=off`` arm is §M35's grid under a name no stored row carries, so it is the control
-run on the same bars in the same pass *and* the check that adding the mode moved no stored row.
-"""
+"""The fixed stop, and the stop trailed on the slow average at the offset that placed it."""
 
 
 def emapullback_trail_variants(root: str) -> list[Variant]:
@@ -2130,10 +1689,7 @@ EMAPULLBACK_ENTRIES: dict[str, dict[str, bool | int]] = {
 The ``entry=market`` arm is the control, run on the same bars in the same pass."""
 
 EMAPULLBACK_HELD_KINDS = ("fast_kind", "slow_kind")
-"""The two axes the confirmation run holds at the archetype's own ``ema``.
-
-§M35 measured both as inert and inverting across the split, and holding them is what keeps three
-arms inside §M35's run time -- ``docs/findings/m39-ema-pullback-confirmation-entry.md``."""
+"""The two axes the confirmation run holds at the archetype's own ``ema``."""
 
 
 def emapullback_confirm_variants(root: str) -> list[Variant]:
@@ -2212,10 +1768,7 @@ def sizing_cuts(path: paths.Path | None = None) -> list[SizingCut]:
 
 
 SIZING_QUANTITIES = [3, 4, 6, 8]
-"""Contract counts every sizing arm crosses: the plain axis [#295] asks for.
-
-Three is the floor, because a quarter and a half both round up to one lot of two contracts and
-every tier would run as its own control there -- ``docs/nt8-fidelity.md`` §M45."""
+"""Contract counts every sizing arm crosses: the plain axis [#295] asks for, floored at three."""
 
 SIZING_EARLY_SHARE = 0.25
 SIZING_ESTABLISHED_SHARE = 0.5

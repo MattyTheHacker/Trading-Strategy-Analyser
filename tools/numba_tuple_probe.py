@@ -1,16 +1,6 @@
-"""Can a NamedTuple carry the loop's parameters without cost or losing the disk cache?
+"""Check whether a NamedTuple can carry a jitted loop's parameters at no cost to speed or the cache.
 
-The question #59 turned on. The answer is a property of the installed Numba rather than a
-language guarantee, so re-run this before relying on it -- and **run it twice**: only the
-second run can report a cache *hit*, and the disk cache is what makes parallel workers cheap.
-
-Three claims, one per section of the output:
-
-1. a NamedTuple argument gives a bit-identical result at the same speed as loose scalars;
-2. a blob carrying **arrays** compiles and caches too, which is what ``bracket.Bars`` is;
-3. ``cache=True`` only *reuses* its cache when the blob type is importable. A NamedTuple
-   defined in ``__main__`` writes a cache and then misses it on every run, silently -- which
-   is why the blobs live in ``nqbt.sim.bracket`` and not beside the loop that reads them.
+Run it twice: only the second run can report a cache hit -- ``tools/README.md`` § "numba_tuple_probe.py".
 """
 
 import logging

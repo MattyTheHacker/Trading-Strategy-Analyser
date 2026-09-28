@@ -3,34 +3,7 @@
     ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar
     ./.venv/Scripts/python.exe tools/campaign_montecarlo.py --strategy InsideBar
 
-:func:`nqbt.montecarlo.permutation_test` reorders the same trades, which moves only the path
-statistics and answers *was this drawdown the ordering's doing*.
-:func:`nqbt.montecarlo.bootstrap` resamples them with replacement, which moves the values too
-and answers *how wide is the uncertainty around this figure*. §M27 asked neither, and an 87% win
-rate against a 5:1 loss size is exactly the shape a bootstrap exists to size --
-``docs/roadmap.md`` §M27.6.
-
-**This is not the matched null and does not replace it.** Both tests take the entries as given,
-so neither can tell "worse than random" from "no better than random"; that is
-``tools/campaign_null.py``'s question, and a figure quoted from here without it is half an
-argument. `nqbt/randomentry.py` drawing 200 samples per comparison makes it look like the same
-machinery and it is not -- it replaces the entry and holds the ordering.
-
-**A database holding more than one variant needs ``--variant``**, for the reason
-``tools/campaign_holdout.py``'s :data:`~tools.campaign_holdout.GROUP_KEYS` gives: a shortlist
-drawn over a mixture of geometries ranks the fattest tail in it rather than the one being asked
-about -- ``docs/roadmap.md`` §M28.9.
-
-**``--held-out`` sizes the figure a gate actually reads**: the held-out rows of the
-configurations the *selection* window ranked highest, rather than the ones the holdout window
-ranks itself -- a spread put around a figure chosen on the same window sizes a selected maximum
-and calls it a strategy's uncertainty, ``docs/roadmap.md`` §M28.13.
-
-Reads the logs ``tools/campaign_shortlist.py`` stored, so run that first; a row with no log is
-named and skipped rather than silently dropped.
-
-**``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
-what a campaign the archive has moved under needs -- ``tools/campaign_swept.py``.
+Not the matched null and no replacement for it -- ``tools/README.md`` § "campaign_montecarlo.py".
 """
 
 from __future__ import annotations
@@ -43,8 +16,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out

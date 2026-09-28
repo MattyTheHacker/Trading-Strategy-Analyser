@@ -3,13 +3,7 @@
     ./.venv/Scripts/python.exe tools/findings_index.py
     ./.venv/Scripts/python.exe tools/findings_index.py --check
 
-``docs/findings/`` holds one file per campaign. This reads the YAML front matter off each and
-writes ``register.md``, ``by-archetype.md`` and ``by-gate.md`` beside them. ``README.md`` is
-hand-written and is not touched. ``--check`` exits 1
-when a generated file is out of date, which is what ``tests/test_findings_index.py`` runs.
-
-Generated rather than hand-maintained -- ``docs/roadmap.md`` § "Documentation must not carry a
-figure that goes stale".
+``--check`` exits 1 when a generated file is out of date -- ``tools/README.md`` § "findings_index.py".
 """
 
 from __future__ import annotations

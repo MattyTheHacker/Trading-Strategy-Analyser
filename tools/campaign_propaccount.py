@@ -5,40 +5,7 @@
     ./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing \
         --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
 
-:mod:`nqbt.propaccount` answers the question no gate in §M27 or §M28 can be expressed in --
-**not "is the edge real" but "would the account have survived it, and would it have made more
-than it cost"** -- and §M28.13 read the whole registry through it from a script that was never
-committed. This is that read as a tool, so a cell can be put through an account the way it is
-put through a null -- ``docs/roadmap.md`` §M28.13.
-
-**The shortlist is chosen on the selection window and replayed over the held-out one**, which
-is :func:`~tools.campaign_holdout.held_out` and not :func:`~tools.campaign_shortlist.shortlist`:
-a sequence of accounts read from the window that chose it is the trap §M28.12 records. There is
-no ``--window`` here for that reason.
-
-**The attempt cap must not bind, and by default it cannot.** §M28.13's population run capped
-attempts at five, which bound on 98% of configurations and truncated their net figures badly
-enough to be wrong in sign -- a blown account costs its fees and not its trading losses, so
-stopping early hides the wins that come after. :func:`uncapped` is the default and
-``capped`` says on every row whether the cap was reached.
-
-**Nothing here is a ranking.** ``net`` rewards variance and can put a configuration that loses
-money as a strategy above one that makes it, because each blown account caps the loss at the
-fee -- ``docs/roadmap.md`` §M28.13, "The reset economics subsidise a losing strategy". Read it
-beside the profit factor and the pass rate.
-
-Reads the logs ``tools/campaign_shortlist.py --held-out`` stored, so run that first; a row with
-no log, and one whose rule set refuses it, are each named and skipped rather than silently
-dropped.
-
-**``--rerun`` builds the logs here instead**, on the bars the stored rows were swept on, which is
-the only way to replay a campaign the archive has moved under -- ``tools/campaign_swept.py``.
-
-**``--quantities`` re-runs the shortlist once per contract count** and replays each, because
-position size is what decides an account and a stored log holds only the size it was swept at --
-``docs/findings/m28-13-account-read.md`` § "The binding constraint is position size, not the
-strategy". Every rung is a re-run, since on InsideBarTrailing the size moves the trades
-themselves -- ``docs/nt8-fidelity.md`` §M45.
+Nothing here is a ranking -- ``tools/README.md`` § "campaign_propaccount.py".
 """
 
 from __future__ import annotations
@@ -52,8 +19,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# Run directly, ``sys.path[0]`` is ``tools/`` rather than the repository root, so the
-# sibling imports below would fail; a test importing ``tools.campaign_*`` needs the same root.
+# Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.campaign_holdout import held_out
@@ -82,24 +48,13 @@ REPORTED = (
     "trades_taken",
     "trades_total",
 )
-"""Which of :class:`~nqbt.propaccount.PropReplay`'s lifetime figures reach a row.
-
-``pass_rate`` is left off because ``passes`` and ``attempts`` are both here and a ratio of two
-printed columns is a third way to read the same pair."""
+"""Which of :class:`~nqbt.propaccount.PropReplay`'s lifetime figures reach a row."""
 
 DEFAULT_PRESETS = ("Apex 50K", "Apex 150K", "TopStep 50K", "TopStep 150K")
-"""Which rule sets a run reports unless ``--preset`` says otherwise.
-
-The four §M28.13 read the registry through. TakeProfitTrader ships as six presets covering two
-phases each, which is a table three times the size for a question about one cell."""
+"""Which rule sets a run reports unless ``--preset`` says otherwise: the four §M28.13 read."""
 
 CONTRACTS = "contracts"
-"""Position size the account actually faced, per trade.
-
-Not a parameter of the replay and reported because it decides the answer: four contracts is a
-different instrument-sized bet on each root, and the trailing threshold divided by the dollar
-value of a point is the whole account's room to move -- ``docs/roadmap.md`` §M28.13, "The
-binding constraint is position size, not the strategy"."""
+"""Position size the account actually faced, per trade -- ``docs/roadmap.md`` §M28.13."""
 
 
 QUANTITY = "quantity"
@@ -270,10 +225,7 @@ def replay_rungs(
 def verdict(table: pd.DataFrame) -> pd.DataFrame:
     """Return each rule set's medians across the shortlist, and the two shares that are not medians.
 
-    A median attempt count and a median net describe the sequence a configuration produced;
-    ``ever_passed`` and ``profitable`` are shares because both questions are yes or no per
-    configuration and a median of a boolean says nothing. A table of rungs gets one row per rule
-    set and contract count.
+    A table of rungs gets one row per rule set and contract count.
     """
     if table.empty:
         return pd.DataFrame()

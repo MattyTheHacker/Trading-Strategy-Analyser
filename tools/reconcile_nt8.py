@@ -2,15 +2,8 @@
 
     ./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
 
-``config`` is a key of :data:`CONFIGS`, which is usually an archetype's name and is not always:
-one archetype can have several reconciled configurations, at different parameters and different
-bar sizes.
-
-``from`` is an optional ISO date that trims the export. Needed whenever NT8 was asked for more
-history than the contract itself has: it serves its *merged* series there, which a per-contract
-archive cannot reproduce -- docs/nt8-fidelity.md, "Reconciliation result -- InsideBar".
-
-Reasoning, results and the traps are in docs/nt8-fidelity.md; this is the mechanism.
+``config`` is a key of :data:`CONFIGS`; ``from`` is an optional ISO date trimming the export.
+``tools/README.md`` § "reconcile_nt8.py".
 """
 
 from __future__ import annotations
@@ -63,8 +56,7 @@ FIRST_DISAGREEMENTS = 5
 EXPORT_TZ = "Europe/London"
 """The export is stamped in NinjaTrader's display zone -- the machine's -- not UTC.
 
-Explicit rather than inferred: a wrong zone shifts every trade by a whole hour and still
-parses. See docs/nt8-fidelity.md, "Trade-list exports are in machine local time".
+See ``docs/nt8-fidelity.md`` § "Sessions".
 """
 
 if TYPE_CHECKING:
