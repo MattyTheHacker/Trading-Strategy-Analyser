@@ -332,7 +332,7 @@ Every strategy has been swept across every setting it has, on both instruments, 
 | [CONTRIBUTING.md](CONTRIBUTING.md)           | how to change the code: style, tests, commits, pull requests and the regression gate |
 | [CLAUDE.md](CLAUDE.md)                       | the same ground rules, written for an AI assistant working in this repository        |
 
-Explanations live in `docs/`, not in the code. Docstrings say what something is and stay short, and every reference to a document names a specific section.
+Explanations live in `docs/`, not in the code. Docstrings say what something is or does and stay short, a function's docstring starts with a verb such as "Return" or "Build", and every reference to a document names a specific section.
 
 ## License
 
