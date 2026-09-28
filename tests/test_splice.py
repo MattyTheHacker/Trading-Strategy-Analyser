@@ -1,10 +1,15 @@
 """Splicing tests against synthetic contracts with known roll behaviour."""
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
 import pytest
 
 from nqbt import ingest, sessions, splice
 from nqbt.instruments import ContractId
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 FRONT = ContractId.parse("MNQ 03-24")
 BACK = ContractId.parse("MNQ 06-24")
@@ -367,7 +372,7 @@ def test_out_of_session_bars_never_reach_the_continuous_series() -> None:
     assert "in_session" not in series.columns
 
 
-def test_load_continuous_raises_file_not_found_when_missing(tmp_path) -> None:
+def test_load_continuous_raises_file_not_found_when_missing(tmp_path: Path) -> None:
     """Ensures load_continuous aborts clearly if the parquet file does not exist."""
     with pytest.raises(FileNotFoundError, match="no continuous series for MNQ"):
         # tmp_path is an empty temporary directory provided by pytest,
@@ -443,7 +448,9 @@ def test_back_adjustment_warns_if_prices_drop_below_zero() -> None:
     assert any("drove prices to or below zero" in w for w in report.warnings)
 
 
-def test_a_contract_squeezed_to_no_bars_is_reported_not_silently_dropped(monkeypatch) -> None:
+def test_a_contract_squeezed_to_no_bars_is_reported_not_silently_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A contract consumed by its neighbouring rolls must warn, not vanish.
 
     ``detect_roll`` cannot produce this state today, so the rolls are supplied directly; the
@@ -490,7 +497,7 @@ def test_a_contract_squeezed_to_no_bars_is_reported_not_silently_dropped(monkeyp
     assert "MNQ 06-24" not in series["contract"].to_numpy()
 
 
-def test_splice_root_reports_an_export_it_could_not_place(tmp_path) -> None:
+def test_splice_root_reports_an_export_it_could_not_place(tmp_path: Path) -> None:
     """A misnamed file in the archive must reach the report, not vanish from the splice."""
     data_dir, cache_dir = tmp_path / "archive", tmp_path / "cache"
     data_dir.mkdir()

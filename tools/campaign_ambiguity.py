@@ -19,14 +19,13 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, context, disambiguate, logsetup, resample, splice, stats, sweep
+from nqbt.instruments import get_instrument
+from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
 from tools.campaign_montecarlo import labelled
 from tools.campaign_null import label_of
 from tools.campaign_report import SHARES, swept_axes
 from tools.campaign_shortlist import TOP, rebuild, shortlist, source, verify
-
-from nqbt import archetypes, context, disambiguate, logsetup, resample, splice, stats, sweep
-from nqbt.instruments import get_instrument
-from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +57,8 @@ STATEMENT = "the claimed edge must survive the assumption"
 ``docs/roadmap.md`` §M28.3. Reported here; it gates no selection."""
 
 
-def measure_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     archetype: archetypes.Archetype,
     root: str,
@@ -121,9 +120,7 @@ def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> p
     measured: list[dict[str, object]] = []
     for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
         frame: pd.DataFrame = resample.resample(source(bars, str(window)), int(minutes))
-        rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
-            (row, rebuild(row, archetype)) for _, row in block.iterrows()
-        ]
+        rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
@@ -139,8 +136,8 @@ def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> p
     return pd.DataFrame(measured)
 
 
-def settle_row(  # noqa: PLR0913 - each argument is a distinct input to one measurement
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def settle_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     archetype: archetypes.Archetype,
     root: str,
@@ -228,9 +225,7 @@ def settle(
     for (window, minutes), block in qualifying.groupby(["window", "resolution"], sort=False):
         fine: pd.DataFrame = source(bars, str(window))
         coarse: pd.DataFrame = resample.resample(fine, int(minutes))
-        rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
-            (row, rebuild(row, archetype)) for _, row in block.iterrows()
-        ]
+        rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
             spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()

@@ -9,6 +9,8 @@ grouping is the part worth pinning and reading a file is not.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,6 +30,9 @@ from tools.campaign_shortlist import (
     swept_series,
     verify,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 ROOT = "MNQ"
 STRATEGY = "InsideBar"
@@ -49,14 +54,16 @@ def stored_rows(**columns: object) -> pd.DataFrame:
 # -- picking the rows ----------------------------------------------------------------------
 
 
-def test_the_shortlist_takes_the_top_rows_by_the_named_statistic(monkeypatch) -> None:
+def test_the_shortlist_takes_the_top_rows_by_the_named_statistic(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: stored_rows())
     ranked = shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 2)
     assert list(ranked["profit_factor"]) == [1.4, 1.2]
     assert list(shortlist(STRATEGY, ROOT, ["full"], "trades", 2)["trades"]) == [400, 300]
 
 
-def test_the_shortlist_is_restricted_to_one_root_stratum_and_resolution(monkeypatch) -> None:
+def test_the_shortlist_is_restricted_to_one_root_stratum_and_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The same five flags the other campaign tools select with, so two tools reading one
     shortlist read the same rows."""
     frame = stored_rows(
@@ -69,7 +76,9 @@ def test_the_shortlist_is_restricted_to_one_root_stratum_and_resolution(monkeypa
     assert list(picked["trades"]) == [100]
 
 
-def test_a_variant_restricted_shortlist_holds_only_rows_of_that_variant(monkeypatch) -> None:
+def test_a_variant_restricted_shortlist_holds_only_rows_of_that_variant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The selection side of the dilution: a pool drawn over a mixture of geometries ranks the
     fattest tail in it rather than the one being asked about -- ``docs/roadmap.md`` §M28.9."""
     frame = stored_rows(variant=["breakout", "fade", "breakout", "fade"])
@@ -80,13 +89,15 @@ def test_a_variant_restricted_shortlist_holds_only_rows_of_that_variant(monkeypa
     assert len(shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10)) == 4
 
 
-def test_a_selection_matching_no_stored_row_raises_rather_than_ranking_nothing(monkeypatch) -> None:
+def test_a_selection_matching_no_stored_row_raises_rather_than_ranking_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: stored_rows())
     with pytest.raises(RuntimeError, match="no stored rows"):
         shortlist(STRATEGY, "NQ", ["full"], "profit_factor", 10)
 
 
-def test_the_best_row_is_the_first_row_of_the_shortlist(monkeypatch) -> None:
+def test_the_best_row_is_the_first_row_of_the_shortlist(monkeypatch: pytest.MonkeyPatch) -> None:
     """``campaign_null`` and ``campaign_contracts`` take the best of what this ranks, so the
     two must not be able to disagree about which row that is."""
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: stored_rows())
@@ -98,16 +109,25 @@ def test_the_best_row_is_the_first_row_of_the_shortlist(monkeypatch) -> None:
 # -- which rows --held-out asks for --------------------------------------------------------
 
 
-def test_held_out_takes_the_pair_and_the_default_takes_the_ranked_window(monkeypatch) -> None:
+def test_held_out_takes_the_pair_and_the_default_takes_the_ranked_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The two routes pick different rows, and a flag that parses without reaching either
     reads exactly like one that works -- ``docs/roadmap.md`` §M28.13."""
     asked: list[str] = []
-    monkeypatch.setattr(
-        campaign_shortlist,
-        "held_out",
-        lambda *_: asked.append("pair") or stored_rows().head(1),
-    )
-    monkeypatch.setattr(campaign_shortlist, "shortlist", lambda *_: asked.append("window") or stored_rows())
+
+    def fake_held_out(*_: object) -> pd.DataFrame:
+        asked.append("pair")
+
+        return stored_rows().head(1)
+
+    def fake_shortlist(*_: object) -> pd.DataFrame:
+        asked.append("window")
+
+        return stored_rows()
+
+    monkeypatch.setattr(campaign_shortlist, "held_out", fake_held_out)
+    monkeypatch.setattr(campaign_shortlist, "shortlist", fake_shortlist)
     monkeypatch.setattr(campaign_shortlist, "store_logs", lambda *_: 0)
 
     argv = ["campaign_shortlist.py", "--strategy", STRATEGY]
@@ -147,7 +167,7 @@ def test_a_series_that_has_not_moved_is_returned_untouched() -> None:
     assert swept_series(bars, bars.index[-1]) is bars
 
 
-def test_the_rerun_takes_the_flatten_cutoff_it_is_given(monkeypatch) -> None:
+def test_the_rerun_takes_the_flatten_cutoff_it_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
     """``tools/campaign_flatten.py`` is the one caller that moves it off the one default, and a
     cutoff that never reached ``prepare`` would read as a ladder that binds nothing."""
     asked: list[int] = []
@@ -256,7 +276,7 @@ def logs(db) -> pd.DataFrame:
     return results.query("SELECT * FROM trades", db)
 
 
-def test_a_stored_log_is_filed_under_the_row_that_produced_it(tmp_path) -> None:
+def test_a_stored_log_is_filed_under_the_row_that_produced_it(tmp_path: Path) -> None:
     """The whole point: the per-trade P&L a bootstrap reads has to belong to the summary the
     sweep ranked, and ``(sweep_id, combo_id)`` is what says so."""
     db = tmp_path / "InsideBar.duckdb"
@@ -276,7 +296,7 @@ def test_a_stored_log_is_filed_under_the_row_that_produced_it(tmp_path) -> None:
         assert mine["net_pnl"].sum() == pytest.approx(row["net_pnl"])
 
 
-def test_a_round_number_configuration_can_be_stored_rather_than_refused(tmp_path) -> None:
+def test_a_round_number_configuration_can_be_stored_rather_than_refused(tmp_path: Path) -> None:
     """``store_logs`` declares its raw bars ``RAW``, so a rule reading an absolute level re-runs ([#330])."""
     db = tmp_path / "EmaCrossover.duckdb"
     bars = synthetic_bars()
@@ -306,7 +326,7 @@ def test_a_round_number_configuration_can_be_stored_rather_than_refused(tmp_path
     assert store_group(block, frame, archetypes.EMACROSSOVER, ROOT, 5, db) == len(block)
 
 
-def test_storing_a_shortlist_twice_replaces_each_log_rather_than_doubling_it(tmp_path) -> None:
+def test_storing_a_shortlist_twice_replaces_each_log_rather_than_doubling_it(tmp_path: Path) -> None:
     """A doubled log halves nothing visibly -- it changes every statistic taken from it and
     still validates, so re-running has to be idempotent."""
     db = tmp_path / "InsideBar.duckdb"
@@ -320,7 +340,7 @@ def test_storing_a_shortlist_twice_replaces_each_log_rather_than_doubling_it(tmp
     assert len(logs(db)) == once
 
 
-def test_a_row_the_rerun_does_not_reproduce_stores_no_log(tmp_path) -> None:
+def test_a_row_the_rerun_does_not_reproduce_stores_no_log(tmp_path: Path) -> None:
     """A drifted database is the case this exists for, and it must fail loudly rather than
     file a log against a configuration that did not produce it."""
     db = tmp_path / "InsideBar.duckdb"
@@ -337,8 +357,8 @@ def test_a_row_the_rerun_does_not_reproduce_stores_no_log(tmp_path) -> None:
 
 
 def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_from(
-    tmp_path,
-    monkeypatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One shortlist spans several sweep points, and each row's own window and resolution say
     which bars reproduce it -- get either wrong and ``verify`` refuses the whole block."""
@@ -361,7 +381,7 @@ def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_
 # -- reading the logs back, which ``tools/campaign_report.py`` does ------------------------
 
 
-def test_a_stored_log_reads_back_as_the_log_that_was_stored(tmp_path) -> None:
+def test_a_stored_log_reads_back_as_the_log_that_was_stored(tmp_path: Path) -> None:
     """The read half of the same key. A bootstrap takes its per-trade vector from here, so
     reading a neighbouring combination's rows would resample the wrong configuration."""
     db = tmp_path / "InsideBar.duckdb"
@@ -377,7 +397,7 @@ def test_a_stored_log_reads_back_as_the_log_that_was_stored(tmp_path) -> None:
         assert mine["net_pnl"].sum() == pytest.approx(row["net_pnl"])
 
 
-def test_a_combination_with_no_stored_log_reads_back_empty(tmp_path) -> None:
+def test_a_combination_with_no_stored_log_reads_back_empty(tmp_path: Path) -> None:
     db = tmp_path / "InsideBar.duckdb"
     bars = synthetic_bars()
     store_point(db, bars, 5, "full")
@@ -385,7 +405,7 @@ def test_a_combination_with_no_stored_log_reads_back_empty(tmp_path) -> None:
     assert load_trades(1, 999, db).empty
 
 
-def test_a_database_with_no_trades_table_reads_back_empty_rather_than_raising(tmp_path) -> None:
+def test_a_database_with_no_trades_table_reads_back_empty_rather_than_raising(tmp_path: Path) -> None:
     """``trades`` is created lazily by the first ``save_trades``, so every campaign database
     is in this state until this tool has been run against it."""
     db = tmp_path / "InsideBar.duckdb"
@@ -393,7 +413,7 @@ def test_a_database_with_no_trades_table_reads_back_empty_rather_than_raising(tm
     assert load_trades(1, 0, db).empty
 
 
-def test_a_database_that_does_not_exist_reads_back_empty_rather_than_creating_one(tmp_path) -> None:
+def test_a_database_that_does_not_exist_reads_back_empty_rather_than_creating_one(tmp_path: Path) -> None:
     """``results.connect`` creates what it opens, so a typo in the path would otherwise leave a
     new empty database behind and report no logs."""
     missing = tmp_path / "NoSuchArchetype.duckdb"

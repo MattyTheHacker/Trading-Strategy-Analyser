@@ -32,7 +32,7 @@ def gate():
 
 
 @pytest.fixture
-def capture(tmp_path):
+def capture(tmp_path: Path):
     """Provide a pair of directories holding one identical trade-log-shaped CSV."""
     frame = pd.DataFrame(
         {
@@ -96,7 +96,7 @@ def test_the_lax_parser_really_would_have_missed_it(capture) -> None:
     If pandas ever fixes its default parser this fails, and the guard above becomes
     belt-and-braces rather than load-bearing -- which is worth being told about.
     """
-    before, after = capture
+    _, after = capture
     perturbed = math.nextafter(0.5789473684210527, math.inf)
     edit_field(after / "live_mnq.csv", "r_multiple", 0, f"{perturbed:.17g}")
 

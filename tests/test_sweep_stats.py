@@ -1,6 +1,7 @@
 """Tests for the sweep harness, statistics and DuckDB results layer."""
 
 import json
+from typing import TYPE_CHECKING
 
 import duckdb
 import numpy as np
@@ -23,6 +24,9 @@ from nqbt import (
 from nqbt.instruments import NQ
 from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams, OpeningRangeParams, PullBackAndGoParams
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
@@ -50,7 +54,7 @@ def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
 def test_summary_counts_trades_not_legs() -> None:
     # Two trades of four legs each. NT8 would call this eight trades; a person calls it two.
     log = trade_log(
-        [(1, l, 10.0, 3, False) for l in range(1, 5)] + [(2, l, -5.0, 2, False) for l in range(1, 5)],
+        [(1, leg, 10.0, 3, False) for leg in range(1, 5)] + [(2, leg, -5.0, 2, False) for leg in range(1, 5)],
     )
     s = stats.summarise(log)
     assert s.trades == 2
@@ -185,7 +189,7 @@ def test_sharpe_is_denominated_in_days_not_trades() -> None:
 
 
 def test_leg_summary_matches_nt8s_way_of_counting() -> None:
-    log = trade_log([(1, l, 10.0, 3, False) for l in range(1, 5)])
+    log = trade_log([(1, leg, 10.0, 3, False) for leg in range(1, 5)])
     assert stats.leg_summary(log)["legs"] == 4
     assert stats.summarise(log).trades == 1
 
@@ -611,7 +615,7 @@ def test_the_one_minute_path_is_the_untouched_frame(axis_bars) -> None:
 # -- the contract axis ---------------------------------------------------------
 
 
-def contract_frames(bars) -> dict:
+def contract_frames(bars: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Split the bars into two disjoint halves standing in for two front-month windows."""
     midpoint = len(bars) // 2
 
@@ -696,7 +700,9 @@ def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
     assert by_strategy == {"DeadCatBounce": "reconciled", "UnreconciledProbe": "tier-1-only"}
 
 
-def test_every_grid_at_one_axis_point_shares_a_single_dataset(axis_bars, monkeypatch) -> None:
+def test_every_grid_at_one_axis_point_shares_a_single_dataset(
+    axis_bars, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """One dataset, built from the union of the grids' specs, serves every grid at an axis point."""
     calls = []
     real = context.prepare
@@ -789,7 +795,7 @@ def test_sweep_axes_refuses_an_empty_axis(axis_bars, axis_grid) -> None:
 
 
 @pytest.fixture
-def db(tmp_path):
+def db(tmp_path: Path):
     return tmp_path / "sweeps.duckdb"
 
 

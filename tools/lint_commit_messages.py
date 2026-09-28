@@ -24,7 +24,9 @@ SUBJECT_WARN_LENGTH = 55
 GENERATED_SUBJECT_PREFIXES = ("Merge ", "Revert ")
 """Subjects GitHub writes itself. Exempt from length, because their shape is not ours to pick."""
 
-CONVENTIONAL_TYPES = frozenset("build chore ci docs feat fix perf refactor revert style test".split())
+CONVENTIONAL_TYPES = frozenset(
+    ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"]
+)
 """Accepted but not recommended, so a bare imperative subject stays the house style."""
 
 CONVENTIONAL_PREFIX_PATTERN = re.compile(r"^(?P<type>\w+)(\([^)]*\))?!?: ")

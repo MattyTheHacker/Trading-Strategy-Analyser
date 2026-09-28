@@ -1,3 +1,5 @@
+"""The request body that moves submodule pointers to new commits."""
+
 from pathlib import Path
 
 import pytest

@@ -9,6 +9,7 @@ its session -- ``docs/roadmap.md`` § "Charting a trade".
 
 import re
 from itertools import pairwise
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree
 
 import numpy as np
@@ -32,6 +33,9 @@ from nqbt import (
 )
 from nqbt.chart import ChartError
 from nqbt.context import ContextSpec, PriceBasis
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 BASE = 18000.0
 BARS = 200
@@ -209,7 +213,7 @@ def number(element: ElementTree.Element, attribute: str) -> float:
 # -- what the chart says about the trade --------------------------------------
 
 
-def test_the_exit_disc_sits_at_the_exit_price_on_the_exit_bar():
+def test_the_exit_disc_sits_at_the_exit_price_on_the_exit_bar() -> None:
     drawn, _, trades_log = case()
     disc = only(drawn, "circle", "exit")
 
@@ -217,7 +221,7 @@ def test_the_exit_disc_sits_at_the_exit_price_on_the_exit_bar():
     assert number(disc, "cy") == at(drawn.plot.y(float(trades_log["exit_price"].iloc[0])))
 
 
-def test_the_entry_triangle_straddles_the_entry_price_on_the_entry_bar():
+def test_the_entry_triangle_straddles_the_entry_price_on_the_entry_bar() -> None:
     """The mark points at the fill, whatever size the marker happens to be drawn at."""
     drawn, _, trades_log = case()
     points = _points(drawn)
@@ -227,7 +231,7 @@ def test_the_entry_triangle_straddles_the_entry_price_on_the_entry_bar():
     assert min(point[1] for point in points) <= fill <= max(point[1] for point in points)
 
 
-def test_the_entry_triangle_points_the_way_the_trade_was_taken():
+def test_the_entry_triangle_points_the_way_the_trade_was_taken() -> None:
     data = dataset()
     long_apex, long_base = _triangle(chart.chart(log([100], [110], data), data, 1))
     short = log([100], [110], data, direction=trades.SHORT)
@@ -253,7 +257,7 @@ def _triangle(drawn: chart.TradeChart) -> tuple[float, float]:
     return points[0][1], points[1][1]
 
 
-def test_the_exit_disc_names_why_the_leg_left():
+def test_the_exit_disc_names_why_the_leg_left() -> None:
     data = dataset()
     for reason, css in chart.EXIT_CLASSES.items():
         drawn = chart.chart(log([100], [110], data, exit_reasons=[reason]), data, 1)
@@ -261,7 +265,7 @@ def test_the_exit_disc_names_why_the_leg_left():
         assert elements(drawn, "circle", css), f"{reason} was not drawn as .{css}"
 
 
-def test_the_exit_reason_label_clears_the_level_label_it_lands_on():
+def test_the_exit_reason_label_clears_the_level_label_it_lands_on() -> None:
     """A leg leaving at its target sits on the target line, so the two labels must not share a spot."""
     drawn, _, _ = case()
     tags = {
@@ -274,7 +278,7 @@ def test_the_exit_reason_label_clears_the_level_label_it_lands_on():
     assert abs(reason[1] - level[1]) > 8.0, "the exit reason must not be drawn over the level's own label"
 
 
-def test_an_exit_reason_the_simulator_never_writes_is_drawn_rather_than_dropped():
+def test_an_exit_reason_the_simulator_never_writes_is_drawn_rather_than_dropped() -> None:
     data = dataset()
     drawn = chart.chart(log([100], [110], data, exit_reasons=["Stop1"]), data, 1)
 
@@ -282,12 +286,12 @@ def test_an_exit_reason_the_simulator_never_writes_is_drawn_rather_than_dropped(
     assert "Stop1" in drawn.svg
 
 
-def test_every_simulator_exit_reason_has_a_class_of_its_own():
+def test_every_simulator_exit_reason_has_a_class_of_its_own() -> None:
     assert set(chart.EXIT_CLASSES) == set(trades.EXIT_REASONS.values())
     assert chart.OTHER_EXIT not in set(chart.EXIT_CLASSES.values()) - {chart.OTHER_EXIT}
 
 
-def test_the_stop_and_target_span_only_the_bars_the_leg_carried_them():
+def test_the_stop_and_target_span_only_the_bars_the_leg_carried_them() -> None:
     drawn, _, trades_log = case()
     for css, column in zip(("stop", "target"), chart.LEVELS, strict=True):
         line = only(drawn, "line", css)
@@ -297,7 +301,7 @@ def test_the_stop_and_target_span_only_the_bars_the_leg_carried_them():
         assert number(line, "x2") == at(drawn.plot.x(110) + drawn.plot.bar_width / 2)
 
 
-def test_the_excursions_are_drawn_at_the_prices_the_log_recorded_them_at():
+def test_the_excursions_are_drawn_at_the_prices_the_log_recorded_them_at() -> None:
     drawn, _, trades_log = case()
     entry = float(trades_log["entry_price"].iloc[0])
 
@@ -305,7 +309,7 @@ def test_the_excursions_are_drawn_at_the_prices_the_log_recorded_them_at():
     assert number(only(drawn, "line", "favourable"), "y1") == at(drawn.plot.y(entry + 12.0))
 
 
-def test_the_figures_are_the_ones_stats_per_trade_computes():
+def test_the_figures_are_the_ones_stats_per_trade_computes() -> None:
     drawn, _, trades_log = case()
     expected = stats.per_trade(trades_log).loc[1]
 
@@ -315,7 +319,7 @@ def test_the_figures_are_the_ones_stats_per_trade_computes():
     assert drawn.figures.mfe_points == pytest.approx(float(expected["mfe_points"]))
 
 
-def test_a_scale_out_draws_one_entry_and_one_exit_per_leg():
+def test_a_scale_out_draws_one_entry_and_one_exit_per_leg() -> None:
     data = dataset()
     scaled = log([100, 100], [108, 116], data, trade_ids=[1, 1], exit_reasons=["target", "session_close"])
     drawn = chart.chart(scaled, data, 1)
@@ -328,7 +332,7 @@ def test_a_scale_out_draws_one_entry_and_one_exit_per_leg():
 # -- the indicators drawn over the bars ---------------------------------------
 
 
-def test_overlays_for_draws_every_price_series_the_dataset_holds():
+def test_overlays_for_draws_every_price_series_the_dataset_holds() -> None:
     """What a dataset holds is what the archetype it was prepared for declared it reads."""
     data, drawn = with_indicators()
     labels = [one.label for one in drawn]
@@ -341,9 +345,9 @@ def test_overlays_for_draws_every_price_series_the_dataset_holds():
     assert data.band is not None and data.session_ranges is not None
 
 
-def test_a_vwap_band_is_drawn_instead_of_the_vwap_and_never_beside_it():
+def test_a_vwap_band_is_drawn_instead_of_the_vwap_and_never_beside_it() -> None:
     """The band's basis is that VWAP, so drawing both would draw one series twice."""
-    data, drawn = with_indicators()
+    _, drawn = with_indicators()
     banded = [one.label for one in drawn]
     bare = context.prepare(bars(), ContextSpec(needs_vwap=True), price_basis=PriceBasis.RAW)
 
@@ -352,11 +356,11 @@ def test_a_vwap_band_is_drawn_instead_of_the_vwap_and_never_beside_it():
     assert [one.label for one in chart.overlays_for(bare)] == ["vwap"]
 
 
-def test_a_dataset_that_declared_nothing_has_nothing_to_overlay():
+def test_a_dataset_that_declared_nothing_has_nothing_to_overlay() -> None:
     assert chart.overlays_for(dataset()) == []
 
 
-def test_a_grid_that_kept_only_its_gate_is_skipped_rather_than_refused():
+def test_a_grid_that_kept_only_its_gate_is_skipped_rather_than_refused() -> None:
     """``needs_ma_values`` is off by default, and a boolean gate has no line in it to draw."""
     spec = ContextSpec(ma_keys=conditions.ma_keys(ema=(9,)))
     data = context.prepare(bars(), spec, price_basis=PriceBasis.RAW)
@@ -366,13 +370,13 @@ def test_a_grid_that_kept_only_its_gate_is_skipped_rather_than_refused():
         chart.moving_average(data, "ema", 9)
 
 
-def test_asking_for_a_series_the_dataset_does_not_hold_names_the_field_to_set():
+def test_asking_for_a_series_the_dataset_does_not_hold_names_the_field_to_set() -> None:
     data = dataset()
     with pytest.raises(context.ContextError, match="needs_vwap"):
         chart.session_vwap(data)
 
 
-def test_an_overlay_that_is_not_one_value_per_bar_is_refused():
+def test_an_overlay_that_is_not_one_value_per_bar_is_refused() -> None:
     data = dataset()
     trades_log = log([100], [110], data)
     short = chart.Overlay(label="short", values=np.zeros(len(data) - 1))
@@ -385,7 +389,7 @@ def test_an_overlay_that_is_not_one_value_per_bar_is_refused():
         chart.chart(trades_log, data, 1, overlays=[cube])
 
 
-def test_an_overlay_is_a_per_bar_series_rather_than_a_path_between_two_points():
+def test_an_overlay_is_a_per_bar_series_rather_than_a_path_between_two_points() -> None:
     """The no-sloped-line pin, once a moving average is allowed to slope.
 
     Every vertex sits on a bar centre of the window and steps one bar at a time, so a two-point
@@ -404,7 +408,7 @@ def test_an_overlay_is_a_per_bar_series_rather_than_a_path_between_two_points():
         assert steps <= {0.0, round(drawn.plot.bar_width, 2)}, "a series steps one bar at a time"
 
 
-def test_an_overlay_far_from_the_window_does_not_move_the_price_axis():
+def test_an_overlay_far_from_the_window_does_not_move_the_price_axis() -> None:
     """A long average sitting off the window would squash the trade it is context for."""
     data = dataset()
     trades_log = log([100], [110], data)
@@ -416,7 +420,7 @@ def test_an_overlay_far_from_the_window_does_not_move_the_price_axis():
     assert elements(drawn, "polyline"), "and it is drawn rather than dropped"
 
 
-def test_every_overlay_is_drawn_inside_the_panel_it_may_not_rescale():
+def test_every_overlay_is_drawn_inside_the_panel_it_may_not_rescale() -> None:
     data, drawn_overlays = with_indicators()
     drawn = chart.chart(log([100], [110], data), data, 1, overlays=drawn_overlays)
     root = ElementTree.fromstring(drawn.svg)
@@ -436,7 +440,7 @@ def test_every_overlay_is_drawn_inside_the_panel_it_may_not_rescale():
     assert inside == [f"{SVG}polyline"] * len(elements(drawn, "polyline"))
 
 
-def test_two_charts_in_one_document_are_clipped_to_their_own_panels():
+def test_two_charts_in_one_document_are_clipped_to_their_own_panels() -> None:
     """An SVG id is document-scoped, and a page of charts is one document.
 
     A fixed clip-path name makes every chart after the first resolve to the first one's panel,
@@ -466,7 +470,7 @@ def _clip(drawn: chart.TradeChart) -> str:
     return found.get("id") or ""
 
 
-def test_a_gap_in_a_series_breaks_the_line_rather_than_being_drawn_through_it():
+def test_a_gap_in_a_series_breaks_the_line_rather_than_being_drawn_through_it() -> None:
     data = dataset()
     gapped = np.full(len(data), BASE)
     gapped[105] = np.nan
@@ -484,7 +488,7 @@ def test_a_gap_in_a_series_breaks_the_line_rather_than_being_drawn_through_it():
     )
 
 
-def test_a_run_of_one_bar_is_drawn_rather_than_dropped():
+def test_a_run_of_one_bar_is_drawn_rather_than_dropped() -> None:
     """A range completing on a session's last bar is one bar wide, and still happened."""
     data = dataset()
     lone = np.full(len(data), np.nan)
@@ -495,7 +499,7 @@ def test_a_run_of_one_bar_is_drawn_rather_than_dropped():
     assert points == [(at(drawn.plot.x(105)), at(drawn.plot.y(BASE)))] * 2
 
 
-def test_a_session_range_is_never_drawn_across_the_session_beside_it():
+def test_a_session_range_is_never_drawn_across_the_session_beside_it() -> None:
     """A range is one fact per session; a run joining two of them states a level that never was."""
     data, _ = with_indicators()
     overlay = chart.opening_range(data, RANGE_KEY)
@@ -507,7 +511,7 @@ def test_a_session_range_is_never_drawn_across_the_session_beside_it():
         assert len({round(y, 2) for _, y in vertices(line)}) == 1, "a range does not slope"
 
 
-def test_a_band_is_one_legend_entry_and_one_colour_whatever_its_row_count():
+def test_a_band_is_one_legend_entry_and_one_colour_whatever_its_row_count() -> None:
     data, _ = with_indicators()
     drawn = chart.chart(log([100], [110], data), data, 1, overlays=[chart.bollinger(data, 20)])
     lines = elements(drawn, "polyline")
@@ -517,7 +521,7 @@ def test_a_band_is_one_legend_entry_and_one_colour_whatever_its_row_count():
     assert len(elements(drawn, "text", "legend")) == 1
 
 
-def test_every_overlay_is_named_in_the_legend():
+def test_every_overlay_is_named_in_the_legend() -> None:
     data, drawn_overlays = with_indicators()
     drawn = chart.chart(log([100], [110], data), data, 1, overlays=drawn_overlays)
     named = ["".join(entry.itertext()) for entry in elements(drawn, "text", "legend")]
@@ -525,7 +529,7 @@ def test_every_overlay_is_named_in_the_legend():
     assert named == [one.label for one in drawn_overlays]
 
 
-def test_the_legend_makes_its_own_room_above_the_panel():
+def test_the_legend_makes_its_own_room_above_the_panel() -> None:
     data, drawn_overlays = with_indicators()
     trades_log = log([100], [110], data)
     plain = chart.chart(trades_log, data, 1)
@@ -541,7 +545,7 @@ def _canvas_height(drawn: chart.TradeChart) -> float:
     return float(ElementTree.fromstring(drawn.svg).get("height") or 0)
 
 
-def test_a_legend_too_wide_for_the_panel_wraps_rather_than_running_off_it():
+def test_a_legend_too_wide_for_the_panel_wraps_rather_than_running_off_it() -> None:
     data, drawn_overlays = with_indicators()
     drawn = chart.chart(log([100], [110], data), data, 1, bars_either_side=0, overlays=drawn_overlays)
     rows = {number(entry, "y") for entry in elements(drawn, "text", "legend")}
@@ -550,7 +554,7 @@ def test_a_legend_too_wide_for_the_panel_wraps_rather_than_running_off_it():
     assert max(rows) < drawn.plot.top
 
 
-def test_the_trade_geometry_is_dashed_where_the_market_context_is_solid():
+def test_the_trade_geometry_is_dashed_where_the_market_context_is_solid() -> None:
     """A reader has to be able to tell what the trade carried from what the market was doing."""
     data, _ = with_indicators()
     drawn = chart.chart(log([100], [110], data), data, 1, overlays=[chart.session_vwap(data)])
@@ -562,7 +566,7 @@ def test_the_trade_geometry_is_dashed_where_the_market_context_is_solid():
     assert not re.search(r"\.series \{[^}]*stroke-dasharray", style.text or "")
 
 
-def test_a_chart_asked_for_no_overlays_draws_neither_a_line_nor_a_legend():
+def test_a_chart_asked_for_no_overlays_draws_neither_a_line_nor_a_legend() -> None:
     drawn, _, _ = case()
 
     assert not elements(drawn, "polyline")
@@ -570,7 +574,7 @@ def test_a_chart_asked_for_no_overlays_draws_neither_a_line_nor_a_legend():
     assert "clipPath" not in drawn.svg
 
 
-def test_charts_draws_the_same_overlays_on_every_trade():
+def test_charts_draws_the_same_overlays_on_every_trade() -> None:
     data, drawn_overlays = with_indicators()
     many = log([50, 100], [60, 110], data)
     drawn = chart.charts(many, data, [1, 2], overlays=drawn_overlays)
@@ -581,7 +585,7 @@ def test_charts_draws_the_same_overlays_on_every_trade():
 # -- the two things a chart must not draw -------------------------------------
 
 
-def test_no_line_joins_the_entry_to_the_exit():
+def test_no_line_joins_the_entry_to_the_exit() -> None:
     drawn, _, _ = case()
     sloped = [
         line
@@ -595,7 +599,7 @@ def test_no_line_joins_the_entry_to_the_exit():
     )
 
 
-def test_a_chart_states_the_caution_it_must_not_be_read_without():
+def test_a_chart_states_the_caution_it_must_not_be_read_without() -> None:
     drawn, _, _ = case()
     printed = " ".join("".join(element.itertext()) for element in elements(drawn, "text", "caution"))
 
@@ -605,7 +609,7 @@ def test_a_chart_states_the_caution_it_must_not_be_read_without():
 # -- the window ---------------------------------------------------------------
 
 
-def test_the_caution_stays_inside_the_canvas_however_narrow_the_chart():
+def test_the_caution_stays_inside_the_canvas_however_narrow_the_chart() -> None:
     """The narrowest chart wraps the caution over many lines; the canvas has to grow with it."""
     drawn, _, _ = case(bars_either_side=0)
     root = ElementTree.fromstring(drawn.svg)
@@ -615,27 +619,27 @@ def test_the_caution_stays_inside_the_canvas_however_narrow_the_chart():
     assert lowest <= float(root.get("height") or 0)
 
 
-def test_the_window_is_the_trade_plus_the_bars_either_side_asked_for():
+def test_the_window_is_the_trade_plus_the_bars_either_side_asked_for() -> None:
     drawn, _, _ = case(bars_either_side=12)
 
     assert (drawn.first_bar, drawn.last_bar) == (88, 122)
     assert len(elements(drawn, "line", "wick")) == 35
 
 
-def test_zero_bars_either_side_draws_the_trade_and_nothing_around_it():
+def test_zero_bars_either_side_draws_the_trade_and_nothing_around_it() -> None:
     drawn, _, _ = case(bars_either_side=0)
 
     assert (drawn.first_bar, drawn.last_bar) == (100, 110)
 
 
-def test_the_window_is_clipped_to_the_dataset_at_both_ends():
+def test_the_window_is_clipped_to_the_dataset_at_both_ends() -> None:
     data = dataset()
     drawn = chart.chart(log([1], [BARS - 2], data), data, 1, bars_either_side=50)
 
     assert (drawn.first_bar, drawn.last_bar) == (0, BARS - 1)
 
 
-def test_a_window_with_no_price_range_still_has_a_span_to_draw_on():
+def test_a_window_with_no_price_range_still_has_a_span_to_draw_on() -> None:
     data = dataset(flat=True)
     drawn = chart.chart(log([100], [110], data), data, 1)
 
@@ -645,7 +649,7 @@ def test_a_window_with_no_price_range_still_has_a_span_to_draw_on():
 # -- what a log may leave out -------------------------------------------------
 
 
-def test_a_log_with_no_bar_indices_is_drawn_from_its_fill_times():
+def test_a_log_with_no_bar_indices_is_drawn_from_its_fill_times() -> None:
     data = dataset()
     imported = log([100], [110], data)
     for name in ("entry_bar", "exit_bar"):
@@ -660,7 +664,7 @@ def test_a_log_with_no_bar_indices_is_drawn_from_its_fill_times():
     assert drawn.entry_bars == (int(expected[0]),)
 
 
-def test_a_log_leaving_the_excursions_null_draws_no_excursion_line():
+def test_a_log_leaving_the_excursions_null_draws_no_excursion_line() -> None:
     data = dataset()
     blanked = log([100], [110], data)
     for name in ("mae_points", "mfe_points", "r_multiple"):
@@ -675,7 +679,7 @@ def test_a_log_leaving_the_excursions_null_draws_no_excursion_line():
     assert drawn.figures.bars_held == 0
 
 
-def test_a_log_carrying_no_bracket_draws_no_level_line():
+def test_a_log_carrying_no_bracket_draws_no_level_line() -> None:
     data = dataset()
     bracketless = log([100], [110], data).drop(columns=list(chart.LEVELS))
     drawn = chart.chart(bracketless, data, 1)
@@ -684,7 +688,7 @@ def test_a_log_carrying_no_bracket_draws_no_level_line():
     assert elements(drawn, "circle", "exit")
 
 
-def test_a_leg_carrying_no_target_still_draws_the_stop_it_did_carry():
+def test_a_leg_carrying_no_target_still_draws_the_stop_it_did_carry() -> None:
     """A signal exit has a stop and no target, and both levels are nullable per row."""
     data = dataset()
     targetless = log([100], [110], data, exit_reasons=["signal"])
@@ -695,7 +699,7 @@ def test_a_leg_carrying_no_target_still_draws_the_stop_it_did_carry():
     assert not elements(drawn, "line", "target")
 
 
-def test_a_fill_outside_its_bar_is_drawn_rather_than_refused():
+def test_a_fill_outside_its_bar_is_drawn_rather_than_refused() -> None:
     data = dataset()
     shifted = log([100], [110], data)
     shifted["exit_price"] = float(shifted["exit_price"].iloc[0]) + 500.0
@@ -708,25 +712,25 @@ def test_a_fill_outside_its_bar_is_drawn_rather_than_refused():
 # -- what a chart refuses -----------------------------------------------------
 
 
-def test_a_trade_the_log_does_not_hold_is_refused():
+def test_a_trade_the_log_does_not_hold_is_refused() -> None:
     data = dataset()
     with pytest.raises(ChartError, match="no trade 99"):
         chart.chart(log([100], [110], data), data, 99)
 
 
-def test_a_frame_that_is_not_a_trade_log_is_refused():
+def test_a_frame_that_is_not_a_trade_log_is_refused() -> None:
     data = dataset()
     with pytest.raises(ChartError, match="mae_points"):
         chart.chart(log([100], [110], data).drop(columns=["mae_points"]), data, 1)
 
 
-def test_a_negative_context_window_is_refused():
+def test_a_negative_context_window_is_refused() -> None:
     data = dataset()
     with pytest.raises(ChartError, match="bars_either_side"):
         chart.chart(log([100], [110], data), data, 1, bars_either_side=-1)
 
 
-def test_bars_of_a_different_series_of_the_same_shape_are_refused():
+def test_bars_of_a_different_series_of_the_same_shape_are_refused() -> None:
     data = dataset()
     trades_log = log([100], [110], data)
     other = context.prepare(
@@ -738,7 +742,7 @@ def test_bars_of_a_different_series_of_the_same_shape_are_refused():
         chart.chart(trades_log, other, 1)
 
 
-def test_a_fill_no_bar_of_the_dataset_covers_is_refused():
+def test_a_fill_no_bar_of_the_dataset_covers_is_refused() -> None:
     data = dataset()
     adrift = log([100], [110], data)
     for name in ("entry_bar", "exit_bar"):
@@ -752,7 +756,7 @@ def test_a_fill_no_bar_of_the_dataset_covers_is_refused():
 # -- the document ------------------------------------------------------------
 
 
-def test_the_canvas_grows_by_one_bar_width_for_each_extra_bar_of_window():
+def test_the_canvas_grows_by_one_bar_width_for_each_extra_bar_of_window() -> None:
     """Sized to its window, without pinning the margins the layout is free to change."""
     narrow, _, _ = case(bars_either_side=5)
     wide, _, _ = case(bars_either_side=25)
@@ -768,7 +772,7 @@ def _canvas(drawn: chart.TradeChart) -> float:
     return float(ElementTree.fromstring(drawn.svg).get("width") or 0)
 
 
-def test_charts_draws_each_trade_asked_for_in_order():
+def test_charts_draws_each_trade_asked_for_in_order() -> None:
     data = dataset()
     many = log([50, 100, 150], [60, 110, 160], data)
     drawn = chart.charts(many, data, [3, 1])
@@ -776,7 +780,7 @@ def test_charts_draws_each_trade_asked_for_in_order():
     assert [one.trade_id for one in drawn] == [3, 1]
 
 
-def test_the_readme_worked_example_names_things_that_still_exist():
+def test_the_readme_worked_example_names_things_that_still_exist() -> None:
     """A rotted worked example is worse than none, and nothing else here would catch a rename.
 
     The example itself needs ``cache/`` and cannot run in CI, so what is pinned is the surface
@@ -807,14 +811,14 @@ def test_the_readme_worked_example_names_things_that_still_exist():
     assert hasattr(chart.TradeChart, "save")
 
 
-def test_save_writes_the_svg_where_it_was_asked_to(tmp_path):
+def test_save_writes_the_svg_where_it_was_asked_to(tmp_path: Path) -> None:
     drawn, _, _ = case()
     written = drawn.save(tmp_path / "charts" / "trade-1.svg")
 
     assert written.read_text(encoding="utf-8") == drawn.svg == str(drawn)
 
 
-def test_a_title_replaces_the_headline_and_nothing_else():
+def test_a_title_replaces_the_headline_and_nothing_else() -> None:
     drawn, _, _ = case(title="Trade 1 <the one that got away>")
 
     assert "Trade 1 &lt;the one that got away&gt;" in drawn.svg

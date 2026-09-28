@@ -153,7 +153,7 @@ def built() -> dict[str, Variant]:
     }
 
 
-def point_at(monkeypatch, frame: pd.DataFrame) -> pd.DataFrame:
+def point_at(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame) -> pd.DataFrame:
     """Point every loader ``tasks_for`` reads through at ``frame``."""
     monkeypatch.setattr(campaign_gates, "load", by_window(frame))
     monkeypatch.setattr(campaign_holdout, "load", by_window(frame))
@@ -177,7 +177,7 @@ def point_at(monkeypatch, frame: pd.DataFrame) -> pd.DataFrame:
 
 
 @pytest.fixture
-def campaign(monkeypatch):
+def campaign(monkeypatch: pytest.MonkeyPatch):
     """Provide the synthetic campaign behind every loader ``tasks_for`` reads through."""
     return point_at(monkeypatch, stored_frame())
 
@@ -324,7 +324,7 @@ def test_the_paired_read_is_campaign_paireds_report_stratum_by_stratum(campaign)
         )
 
 
-def test_a_task_per_arm_re_runs_only_the_strata_some_read_is_asked_for(campaign, tmp_path) -> None:
+def test_a_task_per_arm_re_runs_only_the_strata_some_read_is_asked_for(campaign, tmp_path: Path) -> None:
     tasks = list(tasks_for(NAME, arguments(), extra_cells(None), tmp_path))
     assert [task.arm for task in tasks] == sorted(ARMS)
     assert {task.arm: set(task.held["stratum"]) for task in tasks} == {
@@ -342,7 +342,9 @@ def test_a_task_per_arm_re_runs_only_the_strata_some_read_is_asked_for(campaign,
     assert all(len(task.stored) == len(task.held) for task in tasks)
 
 
-def test_the_stored_row_reads_keep_a_file_per_root_and_resolution(monkeypatch, tmp_path) -> None:
+def test_the_stored_row_reads_keep_a_file_per_root_and_resolution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     point_at(monkeypatch, stored_frame((("MNQ", 10), ("NQ", 10), ("MNQ", 15))))
     only = arguments(reads=["gates", "paired"])
     list(tasks_for(NAME, only, extra_cells(None), tmp_path))
@@ -355,17 +357,17 @@ def test_the_stored_row_reads_keep_a_file_per_root_and_resolution(monkeypatch, t
         assert set(first["resolution"]) == {10}, "the second run replaced the first's cells"
 
 
-def test_the_stored_row_reads_alone_re_run_nothing(campaign, tmp_path) -> None:
+def test_the_stored_row_reads_alone_re_run_nothing(campaign, tmp_path: Path) -> None:
     assert list(tasks_for(NAME, arguments(reads=["gates", "paired"]), extra_cells(None), tmp_path)) == []
 
 
-def test_a_task_whose_every_read_is_recorded_is_skipped(campaign, tmp_path) -> None:
+def test_a_task_whose_every_read_is_recorded_is_skipped(campaign, tmp_path: Path) -> None:
     save(tmp_path, NAME, task_key("MNQ", 10, TOGETHER), {}, every_read_recorded())
     arms = [task.arm for task in tasks_for(NAME, arguments(), extra_cells(None), tmp_path)]
     assert arms == sorted([FIXED, SYMMETRIC])
 
 
-def test_a_later_run_reads_only_the_cells_it_adds(campaign, tmp_path) -> None:
+def test_a_later_run_reads_only_the_cells_it_adds(campaign, tmp_path: Path) -> None:
     save(tmp_path, NAME, task_key("MNQ", 10, TOGETHER), {}, every_read_recorded())
     extra = pd.DataFrame(
         [{"strategy": NAME, "root": "MNQ", "resolution": 10, "variant": TOGETHER, "stratum": MIDDAY}],
@@ -383,7 +385,7 @@ def test_a_later_run_reads_only_the_cells_it_adds(campaign, tmp_path) -> None:
     assert set(task.chosen["stratum"]) == {MIDDAY}
 
 
-def test_what_a_task_records_is_added_to_rather_than_replaced(tmp_path) -> None:
+def test_what_a_task_records_is_added_to_rather_than_replaced(tmp_path: Path) -> None:
     save(tmp_path, NAME, "key", {}, {"null": frozenset({MIDDAY}), RERUN: frozenset({MIDDAY})})
     save(tmp_path, NAME, "key", {}, {"gate4": frozenset({UNFILTERED}), RERUN: frozenset({UNFILTERED})})
     assert recorded(tmp_path, NAME, "key") == {
@@ -415,7 +417,7 @@ def test_each_read_is_asked_of_the_strata_an_arm_has_rows_in() -> None:
     assert asked_of(frozenset({"null"}), present, frozenset(), frozenset(), counted=True)["null"] == present
 
 
-def test_a_table_replaces_the_strata_it_read_and_keeps_the_rest(tmp_path) -> None:
+def test_a_table_replaces_the_strata_it_read_and_keeps_the_rest(tmp_path: Path) -> None:
     path = tmp_path / "table.parquet"
     first = pd.DataFrame({"stratum": [MIDDAY, UNFILTERED], "value": [1, 2]})
     replace_strata(path, first, frozenset(STRATA))
@@ -442,7 +444,7 @@ def half_written(path) -> None:
     ids=["table", "marker"],
 )
 def test_a_save_killed_mid_write_leaves_every_file_readable_for_the_next(
-    monkeypatch, tmp_path, owner, method, dies
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, owner, method, dies
 ) -> None:
     key = task_key("MNQ", 10, TOGETHER)
     table = written(tmp_path, RERUN, NAME, key)
@@ -461,14 +463,14 @@ def test_a_save_killed_mid_write_leaves_every_file_readable_for_the_next(
     assert list(tmp_path.rglob("*.tmp")) == [], "a whole write left its temporary file behind"
 
 
-def test_an_out_directory_refuses_a_run_at_other_settings(tmp_path) -> None:
+def test_an_out_directory_refuses_a_run_at_other_settings(tmp_path: Path) -> None:
     settle(tmp_path, arguments())
     settle(tmp_path, arguments(roots=["NQ"], resolutions=[5]))
     with pytest.raises(SystemExit, match="another --out"):
         settle(tmp_path, arguments(seed=1))
 
 
-def test_a_named_cell_adds_gate_4_where_it_would_not_otherwise_be_read(tmp_path) -> None:
+def test_a_named_cell_adds_gate_4_where_it_would_not_otherwise_be_read(tmp_path: Path) -> None:
     path = tmp_path / "cells.csv"
     cell = {"strategy": NAME, "root": "MNQ", "resolution": 10, "variant": TOGETHER, "stratum": MIDDAY}
     pd.DataFrame([cell]).to_csv(path, index=False)
@@ -518,7 +520,7 @@ def shortlisted_rows() -> pd.DataFrame:
 
 
 @pytest.fixture
-def on_the_walk(monkeypatch, walk):
+def on_the_walk(monkeypatch: pytest.MonkeyPatch, walk):
     """Point every loader a re-run reads through at the synthetic walk."""
     monkeypatch.setattr(campaign_gates, "archive", lambda root: walk)
     monkeypatch.setattr(campaign_gates, "candidate_bars", lambda stored, bars: (bars,))
@@ -593,7 +595,9 @@ def test_the_bootstrap_exclusion_and_prop_replay_read_the_same_logs_their_tools_
     assert "null" not in tables
 
 
-def test_a_configuration_with_no_trades_has_no_exclusion_row_as_its_tool_gives_none(monkeypatch) -> None:
+def test_a_configuration_with_no_trades_has_no_exclusion_row_as_its_tool_gives_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     rows = shortlisted_rows().iloc[:1]
     empty = Rerun(0, sized(), {"trades": 0, "net_pnl": 0.0}, pd.DataFrame(), None, True)
     monkeypatch.setattr(campaign_gates, "reruns", lambda task: iter([empty]))
@@ -659,7 +663,7 @@ def test_the_walk_forward_is_the_tools_own_on_the_selection_shortlist(on_the_wal
 # -- the run -------------------------------------------------------------------------------------
 
 
-def argv_for(tmp_path) -> list[str]:
+def argv_for(tmp_path: Path) -> list[str]:
     return [
         "campaign_gates.py",
         "--variants",
@@ -698,13 +702,13 @@ def reproduced(task: Task) -> dict[str, pd.DataFrame]:
 
 
 @pytest.fixture
-def in_threads(monkeypatch):
+def in_threads(monkeypatch: pytest.MonkeyPatch):
     """Run the pool in threads, so a stubbed ``run_task`` reaches it."""
     monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
 
 
 def test_a_run_writes_every_task_and_a_second_run_re_runs_none(
-    campaign, in_threads, monkeypatch, tmp_path
+    campaign, in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     ran = []
 
@@ -722,7 +726,7 @@ def test_a_run_writes_every_task_and_a_second_run_re_runs_none(
 
 
 def test_a_failed_task_leaves_the_others_saved_and_the_run_failing(
-    campaign, in_threads, monkeypatch, tmp_path
+    campaign, in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     def failing(task):
         if task.arm == TOGETHER:
@@ -736,14 +740,20 @@ def test_a_failed_task_leaves_the_others_saved_and_the_run_failing(
     written = sorted(path.stem for path in (tmp_path / RERUN / NAME).glob("*.parquet"))
     assert written == sorted(task_key("MNQ", 10, arm) for arm in (FIXED, SYMMETRIC))
     assert recorded(tmp_path, NAME, task_key("MNQ", 10, TOGETHER)) == {}
-    ran = []
-    monkeypatch.setattr(campaign_gates, "run_task", lambda task: ran.append(task.arm) or reproduced(task))
+    ran: list[str] = []
+
+    def fake_run_task(task: Task) -> dict[str, pd.DataFrame]:
+        ran.append(task.arm)
+
+        return reproduced(task)
+
+    monkeypatch.setattr(campaign_gates, "run_task", fake_run_task)
     assert campaign_gates.main(argv_for(tmp_path)) == 0
     assert ran == [TOGETHER], "the resumed run did more than the task that failed"
 
 
 def test_a_task_that_fails_to_save_leaves_the_others_saved_and_the_run_failing(
-    campaign, in_threads, monkeypatch, tmp_path
+    campaign, in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     real_save = campaign_gates.save
 
@@ -763,7 +773,7 @@ def test_a_task_that_fails_to_save_leaves_the_others_saved_and_the_run_failing(
 
 
 def test_a_root_whose_tasks_cannot_be_built_still_saves_the_tasks_already_started(
-    in_threads, monkeypatch, tmp_path
+    in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     point_at(monkeypatch, stored_frame((("MNQ", 10), ("NQ", 10))))
     real_rows = campaign_gates.stored_rows
@@ -781,9 +791,15 @@ def test_a_root_whose_tasks_cannot_be_built_still_saves_the_tasks_already_starte
     assert campaign_gates.main(argv) == 1
     written = sorted(path.stem for path in (tmp_path / RERUN / NAME).glob("*.parquet"))
     assert written == sorted(task_key("MNQ", 10, arm) for arm in ARMS)
-    ran = []
+    ran: list[str] = []
+
+    def fake_run_task(task: Task) -> dict[str, pd.DataFrame]:
+        ran.append(task.root)
+
+        return reproduced(task)
+
     monkeypatch.setattr(campaign_gates, "stored_rows", real_rows)
-    monkeypatch.setattr(campaign_gates, "run_task", lambda task: ran.append(task.root) or reproduced(task))
+    monkeypatch.setattr(campaign_gates, "run_task", fake_run_task)
     assert campaign_gates.main(argv) == 0
     assert ran == ["NQ"] * len(ARMS), "the resumed run did more than the root that failed"
 
@@ -807,7 +823,7 @@ class DeadPool(concurrent.futures.Executor):
 
 
 def test_a_worker_that_dies_fails_its_own_archetype_and_the_run_still_reports(
-    campaign, capsys, monkeypatch, tmp_path
+    campaign, capsys, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     other = "InsideBar"
     pools = iter([DeadPool(), concurrent.futures.ThreadPoolExecutor()])
@@ -826,7 +842,7 @@ def test_a_worker_that_dies_fails_its_own_archetype_and_the_run_still_reports(
     assert "a run over the same --out retries them" in logged.err
 
 
-def test_a_variant_set_that_does_not_exist_is_refused(tmp_path) -> None:
+def test_a_variant_set_that_does_not_exist_is_refused(tmp_path: Path) -> None:
     argv = argv_for(tmp_path)
     argv[argv.index("ibt-sizing")] = "ibt-sizng"
     with pytest.raises(SystemExit, match=USAGE_ERROR):
@@ -835,7 +851,7 @@ def test_a_variant_set_that_does_not_exist_is_refused(tmp_path) -> None:
     assert not (tmp_path / "settings.json").exists()
 
 
-def test_an_archetype_the_variant_set_does_not_cover_is_refused(capsys, tmp_path) -> None:
+def test_an_archetype_the_variant_set_does_not_cover_is_refused(capsys, tmp_path: Path) -> None:
     argv = argv_for(tmp_path)
     argv[argv.index(NAME)] = "InsideBarTrailng"
     with pytest.raises(SystemExit, match=USAGE_ERROR):
@@ -845,7 +861,7 @@ def test_an_archetype_the_variant_set_does_not_cover_is_refused(capsys, tmp_path
     assert not (tmp_path / "settings.json").exists()
 
 
-def test_the_re_run_report_names_each_arm_that_fell_short(caplog, tmp_path) -> None:
+def test_the_re_run_report_names_each_arm_that_fell_short(caplog, tmp_path: Path) -> None:
     for name, trades in ((NAME, 1), ("InsideBar", 2)):
         task = a_task(pd.DataFrame(), name=name)
         table = reproduced(task)[RERUN].assign(trades=trades)

@@ -410,7 +410,7 @@ def test_a_session_too_short_for_the_last_phase_raises() -> None:
         timeofday.phase_start_minutes(stub)
 
 
-def test_boundaries_that_stop_ascending_raise_rather_than_mislabel(monkeypatch) -> None:
+def test_boundaries_that_stop_ascending_raise_rather_than_mislabel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         timeofday,
         "PHASE_STARTS",

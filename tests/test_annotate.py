@@ -8,6 +8,8 @@ annotates successfully and is wrong at every comparison**, so that test asserts 
 still succeeds and only the price check refuses it.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -30,6 +32,9 @@ from nqbt import (
 from nqbt.annotate import UNMATCHED, AnnotationError, LabelThresholds
 from nqbt.context import ContextSpec
 from nqbt.instruments import ContractId
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 BASE = 18000.0
 START = "2024-01-02 15:00"
@@ -767,7 +772,7 @@ def test_an_empty_log_annotates_to_an_empty_frame_carrying_the_same_columns() ->
 # -- the bars a log must be annotated against ---------------------------------
 
 
-def test_contract_bars_reads_the_per_contract_cache(tmp_path) -> None:
+def test_contract_bars_reads_the_per_contract_cache(tmp_path: Path) -> None:
     frame = bars(10)
     path = ingest.contract_cache_path(ContractId.parse("MNQ 09-26"), tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -857,7 +862,7 @@ def sample_bars() -> pd.DataFrame:
     return frame
 
 
-def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tmp_path) -> None:
+def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tmp_path: Path) -> None:
     path = tmp_path / "grid.csv"
     header = "Instrument,Action,Quantity,Price,Time,Position,Name,"
     path.write_text("\r\n".join([header, *SAMPLE, ""]), encoding="utf-8")

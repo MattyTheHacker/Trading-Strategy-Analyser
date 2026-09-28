@@ -18,12 +18,11 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import annotate, context, guard, logsetup, resample, review, splice, timeofday, volume
+from nqbt.instruments import get_instrument
 from tools.campaign_report import load_trades
 from tools.campaign_shortlist import shortlist, source
 from tools.campaign_sweep import VOLUME_BASELINE_SESSIONS, VOLUME_ROLLING_BARS, db_path
-
-from nqbt import annotate, context, guard, logsetup, resample, review, splice, timeofday, volume
-from nqbt.instruments import get_instrument
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,8 @@ two reports of one shortlist can be read side by side."""
 
 BY = "expectancy"
 """What a separation is measured in. Bounded by the largest win and defined where gross loss is
-zero, which profit factor is not -- ``docs/findings/m27-registry-campaign.md`` § "Reading the per-contract tally"."""
+zero, which profit factor is not -- ``docs/findings/m27-registry-campaign.md``
+§ "Reading the per-contract tally"."""
 
 SLIPPAGE_TOLERANCE = -1.0
 """``--price-tolerance`` unset: take the run's own slippage -- ``tools/README.md`` § "campaign_review.py"."""
@@ -58,7 +58,7 @@ def review_spec() -> context.ContextSpec:
     return context.ContextSpec(needs_time_of_day=True, volume_keys=volume_keys())
 
 
-def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[type-arg]  # duckdb's dtypes
+def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the cut this configuration ran at, so the review states the configuration's own cut.
 
     A review has to be able to say where it cut a raw series, and the honest answer here is
@@ -83,7 +83,7 @@ def conditions_of(annotation: annotate.Annotation) -> tuple[str, ...]:
     return (review.PHASE_COLUMN, *volumes)
 
 
-def tolerance_for(row: pd.Series, root: str, given: float) -> float:  # type: ignore[type-arg]  # duckdb's dtypes
+def tolerance_for(row: pd.Series, root: str, given: float) -> float:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return how far a fill of this run may land outside its bar: the run's slippage, or the override."""
     if given >= 0.0:
         return given
@@ -91,8 +91,8 @@ def tolerance_for(row: pd.Series, root: str, given: float) -> float:  # type: ig
     return float(row["slippage_ticks"]) * get_instrument(root).tick_size
 
 
-def annotate_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def annotate_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     log: pd.DataFrame,
     data: context.Dataset,
     root: str,
@@ -107,13 +107,13 @@ def annotate_row(
     )
 
 
-def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
+def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the tag columns that say which stored configuration a result belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def review_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def review_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     path: Path,
     root: str,

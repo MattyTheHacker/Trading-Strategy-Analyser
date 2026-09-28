@@ -23,6 +23,7 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import context, logsetup, regime, resample, splice, volume
 from tools.campaign_sweep import (
     REGIME_QUANTILES,
     SELECTION_SHARE,
@@ -32,8 +33,6 @@ from tools.campaign_sweep import (
     named_forms,
     volume_series,
 )
-
-from nqbt import context, logsetup, regime, resample, splice, volume
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray

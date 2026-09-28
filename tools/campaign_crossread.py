@@ -19,6 +19,7 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, logsetup, volume
 from tools.campaign_report import UNFILTERED, dimension_of, load, parameter_columns
 from tools.campaign_sweep import (
     STRATUM_GROUPS,
@@ -30,8 +31,6 @@ from tools.campaign_sweep import (
     VolumeCut,
     strata,
 )
-
-from nqbt import archetypes, logsetup, volume
 
 logger = logging.getLogger(__name__)
 

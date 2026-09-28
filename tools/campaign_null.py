@@ -22,13 +22,12 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import archetypes, context, logsetup, randomentry, resample, results, splice, sweep
+from nqbt.instruments import get_instrument
 from tools.campaign_holdout import JOIN_KEYS
 from tools.campaign_report import NET_TO_DRAWDOWN, narrowing, rank, ratio_to_drawdown, swept_axes
 from tools.campaign_shortlist import rebuild, shortlist, source, verify
 from tools.campaign_sweep import db_path
-
-from nqbt import archetypes, context, logsetup, randomentry, resample, results, splice, sweep
-from nqbt.instruments import get_instrument
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -96,7 +95,7 @@ def stored_rows(
     return keyed
 
 
-def stored_for(stored: pd.DataFrame, row: pd.Series) -> pd.Series | None:  # type: ignore[type-arg]  # duckdb's dtypes
+def stored_for(stored: pd.DataFrame, row: pd.Series) -> pd.Series | None:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the stored row of one configuration in the window the null runs on, or ``None``.
 
     ``None`` where that window never swept it, which :func:`verify_bars` reports rather than
@@ -117,7 +116,7 @@ def _naive(when: pd.Timestamp) -> pd.Timestamp:
     return when.tz_localize(None)
 
 
-def series_moved(reference: pd.Series, frame: pd.DataFrame) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
+def series_moved(reference: pd.Series, frame: pd.DataFrame) -> str:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Report which ends of the series a stored sweep ran on have moved, empty where neither has."""
     ends: list[str] = [
         f"{end} bar was {stored}, now {current}"
@@ -131,8 +130,8 @@ def series_moved(reference: pd.Series, frame: pd.DataFrame) -> str:  # type: ign
     return "; ".join(ends)
 
 
-def verify_bars(
-    reference: pd.Series | None,  # type: ignore[type-arg]  # duckdb's dtypes
+def verify_bars(  # type: ignore[explicit-any]  # duckdb's dtypes
+    reference: pd.Series | None,
     frame: pd.DataFrame,
     label: str,
     window: str,
@@ -154,8 +153,8 @@ def verify_bars(
     raise RuntimeError(msg)
 
 
-def verify_observation(
-    reference: pd.Series | None,  # type: ignore[type-arg]  # duckdb's dtypes
+def verify_observation(  # type: ignore[explicit-any]  # duckdb's dtypes
+    reference: pd.Series | None,
     measured: dict[str, object],
 ) -> None:
     """Refuse an observation that did not reproduce the row the sweep stored for these bars.
@@ -169,7 +168,7 @@ def verify_observation(
     verify(reference, measured)
 
 
-def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[type-arg]  # duckdb's dtypes
+def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Name one configuration by whatever actually varies across the shortlist."""
     if not axes:
         return f"sweep {int(row['sweep_id'])} combo {int(row['combo_id'])}"
@@ -177,8 +176,8 @@ def label_of(row: pd.Series, axes: list[str]) -> str:  # type: ignore[type-arg] 
     return " ".join(f"{axis}={row[axis]}" for axis in axes)
 
 
-def measure_row(  # noqa: PLR0913 - each argument is a distinct axis of one measurement
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     archetype: archetypes.Archetype,
     root: str,
@@ -244,7 +243,7 @@ def measure_row(  # noqa: PLR0913 - each argument is a distinct axis of one meas
     return measured
 
 
-def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurement
+def measure(
     rows: pd.DataFrame,
     archetype: archetypes.Archetype,
     root: str,
@@ -265,9 +264,7 @@ def measure(  # noqa: PLR0913 - each argument is a distinct axis of one measurem
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
         frame: pd.DataFrame = resample.resample(tested, int(minutes))
-        rebuilt: list[tuple[pd.Series, archetypes.Params]] = [  # type: ignore[type-arg]  # duckdb's dtypes
-            (row, rebuild(row, archetype)) for _, row in block.iterrows()
-        ]
+        rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         for row, _ in rebuilt:
             verify_bars(stored_for(stored, row), frame, label_of(row, axes), test_window)
 

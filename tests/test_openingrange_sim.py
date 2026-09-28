@@ -32,7 +32,6 @@ from nqbt.instruments import MNQ, NQ
 from nqbt.sim import openingrange
 from nqbt.sim.openingrange import entry_bound, openingrange_signal, run_openingrange
 from nqbt.sim.types import (
-    DeadCatParams,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
@@ -46,6 +45,7 @@ from nqbt.sim.types import (
     ORB_STOP_OPPOSITE,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
+    DeadCatParams,
     OpeningRangeParams,
 )
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate

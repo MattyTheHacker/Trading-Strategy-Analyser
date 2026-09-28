@@ -19,13 +19,12 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import logsetup, montecarlo
 from tools.campaign_holdout import held_out
 from tools.campaign_report import log_key, stored_logs
 from tools.campaign_shortlist import TOP, shortlist
 from tools.campaign_sweep import db_path
 from tools.campaign_swept import logs_for
-
-from nqbt import logsetup, montecarlo
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -47,13 +46,13 @@ LABEL_COLUMNS = ["root", "resolution", "variant", "stratum", "window", "sweep_id
 two reports of one shortlist can be read side by side."""
 
 
-def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[type-arg]  # duckdb's dtypes
+def labelled(row: pd.Series) -> dict[str, object]:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the tag columns that say which stored configuration a result row belongs to."""
     return {column: row[column] for column in LABEL_COLUMNS if column in row.index}
 
 
-def resample_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def resample_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     log: pd.DataFrame,
     iterations: int,
     seed: int,

@@ -189,7 +189,7 @@ def test_the_warmup_check_catches_a_different_number_of_unreadable_bars(export) 
 # -- the export parses, warm-up rows included ---------------------------------
 
 
-def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path, export) -> None:
+def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path: Path, export) -> None:
     _, primary, coarse = export
     stem = tmp_path / "MNQ-03-24_60min_20240107_20240111"
     write_probe_csv(primary, stem.with_name(stem.name + "_primary.csv"), coarse_columns=True)
@@ -204,7 +204,7 @@ def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path,
     assert read_primary["coarse_utc"].notna().any()
 
 
-def test_a_missing_coarse_half_is_refused_rather_than_half_checked(tmp_path, export) -> None:
+def test_a_missing_coarse_half_is_refused_rather_than_half_checked(tmp_path: Path, export) -> None:
     _, primary, _ = export
     path = tmp_path / "MNQ-03-24_60min_20240107_20240111_primary.csv"
     write_probe_csv(primary, path, coarse_columns=True)

@@ -183,7 +183,7 @@ def two_strata() -> pd.DataFrame:
     )
 
 
-def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch) -> None:
+def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
     pooled = report("EmaCrossover", "off", "on", ["full"], "profit_factor").iloc[0]
     midday = report("EmaCrossover", "off", "on", ["full"], "profit_factor", "phase=MIDDAY").iloc[0]
@@ -191,7 +191,7 @@ def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch) -> None:
     assert (midday["pairs"], midday["improved"]) == (4, 0)
 
 
-def test_a_stratum_holding_neither_arm_is_refused_by_name(monkeypatch) -> None:
+def test_a_stratum_holding_neither_arm_is_refused_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
     with pytest.raises(SystemExit, match="stratum 'regime=DIRECTIONAL'"):
         report("EmaCrossover", "off", "on", ["full"], "profit_factor", "regime=DIRECTIONAL")

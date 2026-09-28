@@ -42,7 +42,7 @@ def run(
 ):
     """Simulate hand-written OHLC rows. ``signal_at`` lists signal bar indices."""
     arr = np.asarray(rows, dtype=np.float64)
-    o, h, l, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+    o, h, low, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
     n = len(arr)
 
     signal = np.zeros(n, dtype=np.bool_)
@@ -54,7 +54,7 @@ def run(
 
     out = bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
     count = deadcat.simulate_deadcat(
-        bracket.Bars(o, h, l, c, force_flat),
+        bracket.Bars(o, h, low, c, force_flat),
         signal,
         np.asarray(quantities, dtype=np.int64),
         np.asarray(targets, dtype=np.float64),

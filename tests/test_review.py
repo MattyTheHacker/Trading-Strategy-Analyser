@@ -8,6 +8,8 @@ asserted identical to the populated log's. **Time of day is reported first and i
 order**, which alphabetical ordering would silently pass every other assertion.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -27,6 +29,9 @@ from nqbt import (
 from nqbt.annotate import LabelThresholds
 from nqbt.context import ContextSpec
 from nqbt.review import ReviewError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 BASE = 18000.0
 FIRST_DAY = "2024-01-02"
@@ -589,7 +594,7 @@ def sample_bars() -> pd.DataFrame:
     return frame
 
 
-def test_a_real_imported_history_reviews_through_the_same_call_a_simulated_one_does(tmp_path) -> None:
+def test_a_real_imported_history_reviews_through_the_same_call_a_simulated_one_does(tmp_path: Path) -> None:
     path = tmp_path / "grid.csv"
     header = "Instrument,Action,Quantity,Price,Time,Position,Name,"
     path.write_text("\r\n".join([header, *SAMPLE, ""]), encoding="utf-8")

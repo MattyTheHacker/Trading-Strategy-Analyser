@@ -822,7 +822,7 @@ def test_fewer_than_one_account_is_refused(count) -> None:
 
 
 def test_a_consistency_ratio_above_one_is_refused() -> None:
-    with pytest.raises(PropAccountError, match="cannot exceed 1.0"):
+    with pytest.raises(PropAccountError, match=r"cannot exceed 1\.0"):
         account(consistency_ratio=1.5)
 
 

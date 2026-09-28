@@ -92,9 +92,9 @@ def test_true_range_is_the_bare_range_on_the_first_bar(pinned) -> None:
 
 
 def test_true_range_reads_the_previous_close(pinned) -> None:
-    h, l, c = pinned["high"], pinned["low"], pinned["close"]
-    tr = indicators.nt8_true_range(h, l, c)
-    expected = np.maximum(h[1:] - l[1:], np.maximum(abs(h[1:] - c[:-1]), abs(l[1:] - c[:-1])))
+    h, low, c = pinned["high"], pinned["low"], pinned["close"]
+    tr = indicators.nt8_true_range(h, low, c)
+    expected = np.maximum(h[1:] - low[1:], np.maximum(abs(h[1:] - c[:-1]), abs(low[1:] - c[:-1])))
     assert np.array_equal(tr[1:], expected)
 
 
@@ -108,9 +108,9 @@ def test_atr_seeds_with_an_expanding_simple_average_not_wilder(pinned) -> None:
 
     A seeding mistake is a different indicator that converges slowly enough to look right later.
     """
-    h, l, c = pinned["high"], pinned["low"], pinned["close"]
-    tr = indicators.nt8_true_range(h, l, c)
-    got = indicators.nt8_atr(h, l, c, 14)
+    h, low, c = pinned["high"], pinned["low"], pinned["close"]
+    tr = indicators.nt8_true_range(h, low, c)
+    got = indicators.nt8_atr(h, low, c, 14)
 
     assert got[1] == pytest.approx((tr[0] + tr[1]) / 2)
     wilder_from_bar_zero = (tr[0] * 13 + tr[1]) / 14
@@ -118,9 +118,9 @@ def test_atr_seeds_with_an_expanding_simple_average_not_wilder(pinned) -> None:
 
 
 def test_atr_switches_to_wilder_once_the_window_fills(pinned) -> None:
-    h, l, c = pinned["high"], pinned["low"], pinned["close"]
-    tr = indicators.nt8_true_range(h, l, c)
-    got = indicators.nt8_atr(h, l, c, 14)
+    h, low, c = pinned["high"], pinned["low"], pinned["close"]
+    tr = indicators.nt8_true_range(h, low, c)
+    got = indicators.nt8_atr(h, low, c, 14)
     assert got[14] == pytest.approx((got[13] * 13 + tr[14]) / 14)
 
 

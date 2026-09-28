@@ -19,17 +19,16 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from nqbt import annotate, archetypes, context, logsetup, resample, results, splice, sweep
 from tools.campaign_report import load_trades
 from tools.campaign_review import SLIPPAGE_TOLERANCE, review_spec, tolerance_for
 from tools.campaign_shortlist import rebuild, shortlist, source
 from tools.campaign_sweep import db_path
 
-from nqbt import annotate, archetypes, context, logsetup, resample, results, splice, sweep
-
 logger = logging.getLogger(__name__)
 
 
-def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[type-arg]  # duckdb's dtypes
+def thresholds_for(row: pd.Series) -> annotate.LabelThresholds:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return every cut this configuration ran at, read off its stored row by name."""
     given: dict[str, float | int] = {}
     for field in fields(annotate.LabelThresholds):
@@ -54,8 +53,8 @@ def annotation_spec(block: pd.DataFrame, archetype: archetypes.Archetype) -> con
     return spec
 
 
-def store_row(
-    row: pd.Series,  # type: ignore[type-arg]  # duckdb's dtypes
+def store_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
     data: context.Dataset,
     path: Path,
     root: str,

@@ -19,9 +19,8 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.campaign_sweep import MIN_TRADES, VARIANTS, db_path
-
 from nqbt import logsetup, results, stats, trades
+from tools.campaign_sweep import MIN_TRADES, VARIANTS, db_path
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -101,13 +100,13 @@ def ratio_to_drawdown(net_pnl: float, max_drawdown: float) -> float:
     return net_pnl / max_drawdown
 
 
-def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
+def net_to_drawdown(frame: pd.DataFrame) -> pd.Series:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Apply :func:`ratio_to_drawdown` over a whole results frame.
 
     The same guard by a faster route -- ``load`` runs it over every stored row, so it is
     vectorised rather than applied. Pinned equal to the scalar, never re-derived.
     """
-    drawdown: pd.Series = frame["max_drawdown"].where(frame["max_drawdown"] > 0.0)  # type: ignore[type-arg]  # duckdb's dtypes
+    drawdown = frame["max_drawdown"].where(frame["max_drawdown"] > 0.0)
 
     return frame["net_pnl"] / drawdown
 
@@ -192,7 +191,7 @@ def load_trades(sweep_id: int, combo_id: int, path: Path) -> pd.DataFrame:
     )
 
 
-def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[type-arg]  # duckdb's dtypes
+def log_key(row: pd.Series) -> tuple[int, int]:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Return the ``(sweep_id, combo_id)`` a configuration's log is filed under."""
     return int(row["sweep_id"]), int(row["combo_id"])
 
@@ -318,7 +317,7 @@ def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
             rows.append(
                 {
                     "dimension": dimension,
-                    "resolution": int(resolution),  # type: ignore[call-overload]  # duckdb's dtypes
+                    "resolution": int(resolution),
                     "cells": int(block["stratum"].nunique()),
                     "eta2": eta_squared(block, "stratum"),
                     "pf_median": block["profit_factor"].median(),

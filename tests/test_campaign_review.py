@@ -11,6 +11,8 @@ question that was asked.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -31,6 +33,11 @@ from tools.campaign_review import (
     volume_keys,
 )
 from tools.campaign_sweep import VOLUME_BASELINE_SESSIONS, VOLUME_ROLLING_BARS
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from nqbt.arrays import IntArray
 
 BASE = 18000.0
 SESSIONS = 26
@@ -76,7 +83,7 @@ def data() -> context.Dataset:
     return context.prepare(bars(), review_spec(), bar_minutes=1)
 
 
-def entry_bars(data: context.Dataset, per_phase: int = 60) -> np.ndarray:  # type: ignore[type-arg]  # a bar index array
+def entry_bars(data: context.Dataset, per_phase: int = 60) -> IntArray:
     """Pick ``per_phase`` labelled bars from each session phase, so every phase clears the floor."""
     phases = data.phase_values()
     labelled_volume = np.isfinite(data.relative_volume(volume_keys()[0]))
@@ -127,7 +134,7 @@ def trade_log(data: context.Dataset, seed: int = 5) -> pd.DataFrame:
     )
 
 
-def stored_row(**columns: object) -> pd.Series:  # type: ignore[type-arg]  # duckdb's dtypes
+def stored_row(**columns: object) -> pd.Series:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Build one ranked row, carrying the tags and the cut the configuration was measured at."""
     base: dict[str, object] = {
         "sweep_id": SWEEP_ID,
@@ -147,7 +154,7 @@ def stored_row(**columns: object) -> pd.Series:  # type: ignore[type-arg]  # duc
 
 
 @pytest.fixture
-def stocked(tmp_path, data):
+def stocked(tmp_path: Path, data):
     """Provide a database holding one stored log, at the ids the ranked row names."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(data), SWEEP_ID, COMBO_ID, db)
@@ -246,7 +253,7 @@ def test_the_tolerance_is_the_runs_own_slippage_unless_it_is_overridden() -> Non
     assert tolerance_for(stored_row(slippage_ticks=1.0), "MNQ", 20.0) == pytest.approx(20.0)
 
 
-def test_a_log_whose_fill_lands_outside_its_bar_is_named_and_skipped(tmp_path, data) -> None:
+def test_a_log_whose_fill_lands_outside_its_bar_is_named_and_skipped(tmp_path: Path, data) -> None:
     """A simulated target that its bar gapped through fills at the target price, which is
     further out than any slippage -- ``docs/roadmap.md`` §M27.7. Refusing the whole shortlist
     over one such configuration would report nothing at all."""
@@ -258,7 +265,7 @@ def test_a_log_whose_fill_lands_outside_its_bar_is_named_and_skipped(tmp_path, d
     assert review_row(stored_row(), data, db, "MNQ", 50).empty
 
 
-def test_a_widened_tolerance_admits_the_fill_the_default_refuses(tmp_path, data) -> None:
+def test_a_widened_tolerance_admits_the_fill_the_default_refuses(tmp_path: Path, data) -> None:
     """And the widening is a choice the caller makes and the report prints, never a default."""
     log = trade_log(data)
     log.loc[0, "exit_price"] = float(log.loc[0, "exit_price"]) + 40.0
@@ -285,7 +292,7 @@ def test_a_row_with_no_stored_log_is_named_and_skipped(stocked, data) -> None:
     assert review_row(stored_row(combo_id=999), data, stocked, "MNQ", 50).empty
 
 
-def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path, data) -> None:
+def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path: Path, data) -> None:
     """``trades`` is created lazily, so before ``campaign_shortlist.py`` runs there is no table."""
     empty = tmp_path / "InsideBar.duckdb"
     results.query("SELECT 1", empty)
@@ -295,7 +302,7 @@ def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path, da
 # -- the report over a whole shortlist ------------------------------------------------------
 
 
-def run_main(monkeypatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
     monkeypatch.setattr(campaign_review, "shortlist", lambda *_: rows)
     monkeypatch.setattr(campaign_review, "db_path", lambda _: db)
     monkeypatch.setattr(campaign_review, "source", lambda bars, _window: bars)
@@ -305,20 +312,20 @@ def run_main(monkeypatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
     return main(["campaign_review.py", "--strategy", "InsideBar", "--iterations", "50"])
 
 
-def test_a_shortlist_with_a_stored_log_reports_and_succeeds(monkeypatch, stocked) -> None:
+def test_a_shortlist_with_a_stored_log_reports_and_succeeds(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), stocked, bars()) == 0
 
 
 def test_a_shortlist_with_no_stored_logs_fails_rather_than_printing_an_empty_table(
-    monkeypatch,
-    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """An empty report is indistinguishable from a configuration with nothing to say."""
     db = tmp_path / "InsideBar.duckdb"
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), db, bars()) == 1
 
 
-def test_the_rows_that_do_have_logs_are_still_reviewed(monkeypatch, stocked) -> None:
+def test_the_rows_that_do_have_logs_are_still_reviewed(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
     """One missing log must not cost the others their tables."""
     rows = pd.DataFrame([stored_row(), stored_row(combo_id=999)])
     assert run_main(monkeypatch, rows, stocked, bars()) == 0
