@@ -236,8 +236,8 @@ below and is what you quote; this file is the index, not the record.
   carries only the fill bar, so `annotate` read there is lookahead. EmaPullback's confirmation
   entry reads the bar that submitted its resting order, which is not always the bar before the
   fill. With the confluence size off, and InsideBarTrailing's earliness off, the table is the one
-  fixed split. **The trade-log gate only sees DeadCatBounce's loop**, so a change here is checked
-  by running every stored reconciliation before and after. Outside InsideBarTrailing a size
+  fixed split. **The trade-log gate runs every loop at its defaults, where both are off**, so it
+  checks the fixed split and never a per-signal one. Outside InsideBarTrailing a size
   moves only the dollars; its `-200` gate reads each trade's own quantity, so there it moves
   trades too. `docs/nt8-fidelity.md` §M45 and §M47.
 - **A label adds a step on every leg, and a symmetric count stops at one contract per leg.**

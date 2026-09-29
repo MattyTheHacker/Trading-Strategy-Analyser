@@ -5,13 +5,21 @@ than its implementation -- ``docs/roadmap.md`` § "The trade-log gate, and the t
 wrong".
 """
 
+from __future__ import annotations
+
 import importlib.util
+import logging
 import math
+import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "compare_trade_logs.py"
 
@@ -140,3 +148,18 @@ def test_a_missing_file_fails(gate, capture) -> None:
     before, after = capture
     (after / "live_mnq.csv").unlink()
     assert gate.compare(before, after, set()) == 1
+
+
+def test_a_file_only_in_after_is_named_rather_than_skipped(
+    gate: ModuleType,
+    capture: tuple[Path, Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A newly registered archetype's log has nothing to compare against, and the output says so."""
+    before, after = capture
+    shutil.copy(after / "live_mnq.csv", after / "defaults_New.csv")
+
+    with caplog.at_level(logging.INFO):
+        assert gate.compare(before, after, set()) == 0
+
+    assert "new defaults_New.csv: absent from" in caplog.text
