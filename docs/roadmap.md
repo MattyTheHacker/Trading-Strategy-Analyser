@@ -982,7 +982,7 @@ The original reasoning follows, and still holds.
 
 **`Summary.empty()`** replaces a splat that put 26 arguments into a 28-field dataclass and raised on every call, which went unnoticed because the only caller had grown a second, divergent empty-log policy of its own. `sweep.run_combination` no longer keeps one.
 
-Two things M20a deliberately did **not** change, because M20 may not move a number: `stats.py`'s silent branch computing Sharpe and Sortino per trade rather than per day for a log with no times ([#81]) — unreachable today, same shape as the empty-log defect, and since closed by § "Sharpe and Sortino are refused rather than approximated" — and the 2024 Q1 `--explain` capture in `verification/`, annotated rather than regenerated, because it is the record of what the audit trail said while it was being trusted.
+Two things M20a deliberately did **not** change, because M20 may not move a number: `stats.py`'s silent branch computing Sharpe and Sortino per trade rather than per day for a log with no times ([#81]) — unreachable today, same shape as the empty-log defect, and since closed by § "Sharpe and Sortino are refused rather than approximated" — and `verification/explain_2024Q1.csv`, annotated rather than regenerated, because it is the record of what the audit trail said while it was being trusted.
 
 ### M8 — bar-major restructuring: measured, and not scheduled
 
@@ -1055,7 +1055,11 @@ Worth doing when adjacent rather than as a project. **~~Parameter blobs~~ ([#59]
 
 The Numba question was **measured, not assumed**, and `tools/numba_tuple_probe.py` is what measures it: bit-identical result, 1.01× the scalar version over 5M iterations, arrays inside a blob compile, and the disk cache is reused. That last claim had to be tightened. **A blob defined in `__main__` writes a cache and then misses it on every run, silently** — the probe originally checked only that `cache=True` raised nothing at definition, which is a weaker claim than the one parallel workers depend on. It is why the blobs live in an importable module rather than beside the loops that read them, and the probe now demonstrates both halves.
 
-The rest, in descending order of value: `sweep.SWEEPABLE` reads `__slots__` rather than `dataclasses.fields()` ([#60]) and will break quietly at M17 by dropping an axis rather than raising; ~~`results.best()` interpolates `by` into SQL~~ ([#61] — done: `by` is checked against `Summary.columns()` first, so a typo names the valid statistics rather than surfacing as a DuckDB parse error); and `explain.py` and `cli.py` are untested ([#64] — `explain.py` gained `tests/test_explain.py` during M20a, so this is now `cli.py` alone).
+The rest: `explain.py` and `cli.py` are untested ([#64] — `explain.py` gained `tests/test_explain.py` during M20a, so this is now `cli.py` alone).
+
+**~~`sweep.SWEEPABLE` reading `__slots__`~~ ([#60]) — done.** It was folded into M17 rather than deferred, because M17 is the change that would have broken it: `Archetype.sweepable` reads `dataclasses.fields()`, and `tests/test_archetypes.py` pins a field inherited from a base params class.
+
+**~~`results.best()` interpolating `by` into SQL~~ ([#61]) — done.** `by` is checked against `Summary.columns()` first, so a typo names the valid statistics rather than surfacing as a DuckDB parse error.
 
 **~~The repeated `bars[...].to_numpy(np.float64)`~~ ([#62]) — done.** `nqbt/arrays.py` carries `float_column` and `ohlc` beside the aliases, and every bar-column read in `conditions.py`, `context.py`, `higher_timeframe.py` and `splice.py` goes through them, so the dtype is chosen in one place rather than restated at each call site. **It is `ohlc` and not the `ohlcv` the ticket named, because volume is ingested as `int64`** — widening it is a full column copy, and folding it into the tuple would have charged that to every caller, where `conditions.py` never reads volume at all and `prepare` reads it only for a volume grid or the session VWAP. The four price columns are already `float64`, so converting all four and discarding three costs nothing, which is what makes the single-column `float_column` worth having beside it rather than instead of it. Behaviour held: the trade-log gate is byte-for-byte identical across all fourteen files.
 
@@ -1093,7 +1097,7 @@ ______________________________________________________________________
 
 ## Replaying a prop account over the trade log
 
-`nqbt/propaccount.py` ([#75]). Profit factor cannot say whether an account survived, and survival is what decides whether a strategy can be funded at all. The instrument replays one firm's rules over a trade log and reports what a live-trading decision actually reads: whether the account passed, where the floor sat when it died, and what the sequence of attempts was worth after fees. The measurements that pulled this forward from a reranking convenience to the go/no-go instrument are in [#75]'s own comment thread; they are dated and re-derivable from the campaign databases, so quote them from there rather than from here.
+`nqbt/propaccount.py` ([#75]). Profit factor cannot say whether an account survived, and survival is what decides whether a strategy can be funded at all. The instrument replays one firm's rules over a trade log and reports what a live-trading decision actually reads: whether the account passed, where the floor sat when it died, and what the sequence of attempts was worth after fees. The measurements that pulled this forward from a reranking convenience to the go/no-go instrument are in [#75]'s own comment thread; they are dated and re-derivable from `results/campaign/*.duckdb`, so quote them from there rather than from here.
 
 **It replays account rules; it does not add any.** Nothing in this module reaches into `nqbt/sim/`, and nothing may. The simulation models exactly one prop-firm rule — flat before the session close — because that one is also NT8's behaviour, and both prop and non-prop accounts have to work. A trailing threshold is not a trading rule, it is an accounting rule applied afterwards to a log that already exists; wiring one into the simulation would make every result conditional on a funding arrangement.
 
@@ -1282,15 +1286,12 @@ ______________________________________________________________________
 
 **A reconciled archetype's rows carry their own Tier-2 status once a rule the port lacks is switched on** ([#353]). InsideBarTrailing is `RECONCILED`, and §M45 adds two rules its NinjaScript does not have. Stamping the archetype's status on every row would put a measured configuration and an assumed one side by side under the same word, which is the comparison the `tier2` column exists to prevent. So `Archetype.departs_from_port` names the combinations that leave the port, `Archetype.tier2_for` restates those rows as `TIER1_ONLY`, and both `sweep.sweep_axes` and `tools/campaign_sweep.py` write the column row by row through `sweep.row_tier2`. It only ever downgrades: an unreconciled archetype stays what it was.
 
-______________________________________________________________________
-
-**`verification/` commits its README and nothing else** ([#91]). The README is hand-written reasoning that cannot be regenerated, and `.claude/rules/data-pipeline.md` cites it as the authority on what the stored captures mean, so it is tracked. The captures stay ignored: they are regenerable, and the NT8 exports beside them are NinjaTrader's output rather than this project's. `.gitignore` ignores everything in `verification/` and re-includes `verification/README.md`, so a new file in the folder is ignored until someone decides otherwise.
-
 ## Still open
 
 - **Sample size.** How many real trades exist determines whether [#48]'s guard leaves anything standing. A few dozen will not support stratification by more than one or two conditions at a time, and knowing that early sets expectations for what the review can honestly deliver.
 - **Which series to annotate against.** The sample trades a single contract, `MNQ 09-26`. Annotating against the per-contract cache sidesteps back-adjustment and roll-date questions entirely and is almost certainly right; the continuous series only earns its place if a review needs indicators with lookbacks that cross a roll.
 - **Documentation must not carry figures that go stale.** State the rule; point at where the live number is produced — `docs/nt8-fidelity.md` for agreement rates, a `pytest` run for the test count, `nqbt splice --diagnostics` for bar and roll counts. `CLAUDE.md` loads into every session, so a stale figure there is a wrong fact asserted with authority, and these numbers move on almost every fill-rule change.
+- **`verification/` is gitignored in its entirety** ([#91]), including its `README.md` — which `.claude/rules/data-pipeline.md` cites as the authority on what the stored captures mean. The CSVs are regenerable; the prose is not, and it exists on one machine.
 
 [#10]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/10
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105

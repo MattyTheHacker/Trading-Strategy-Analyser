@@ -6,8 +6,6 @@ Every campaign this project has run, what it measured and what it returned. One 
 
 **Every figure in these files is one dated run over the archive as it stood, re-derivable from** **that archetype's campaign database and the `tools/campaign_*.py` the file names -- not a** **standing property.** Quote the file rather than any summary of it. The databases are not committed and two sets exist, one per side of the re-sweep -- `docs/findings/README.md` § "Reproducing any figure here".
 
-**A path a findings file names under `results/` or `verification/` is the author's local** **layout on the day it was written.** The outputs in them are gitignored, so it records provenance rather than a file another reader can open, and it is left as written.
-
 Start at [the summary](README.md) for what any of this means for trading. Two other views of the same set: [by archetype](by-archetype.md), [by gate](by-gate.md).
 
 ## What the columns mean
