@@ -32,6 +32,10 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
         logger.info("FAIL %s: absent from %s", name, after)
         failures += 1
 
+    new_files = sorted(p.name for p in after.iterdir() if p.is_file() and p.name not in names)
+    for name in new_files:
+        logger.info(" new %s: absent from %s, so not compared", name, before)
+
     for name in (n for n in names if n not in missing):
         old = pd.read_csv(before / name, float_precision="round_trip")
         new = pd.read_csv(after / name, float_precision="round_trip")

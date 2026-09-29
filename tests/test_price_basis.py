@@ -30,8 +30,8 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("nqbt/sweep.py", "prepare_for"): "the wrapper itself; it forwards PrepareOptions verbatim",
     ("nqbt/sweep.py", "sweep"): "takes a prepared data= instead, which is the documented route",
     ("tools/capture_trade_logs.py", "capture"): (
-        "the regression gate's own capture; it runs DeadCatBounce alone, which reads no "
-        "absolute level, and .claude/rules/regression-gate.md is why it is not edited casually"
+        "the regression gate's DeadCatBounce captures, which read no absolute level, and "
+        ".claude/rules/regression-gate.md is why they are not edited casually"
     ),
     ("tools/campaign_sweep.py", "calibrate_volume"): "fits thresholds and runs no legs",
     ("tools/campaign_annotate.py", "store_annotations"): "annotates a stored log and runs no legs",

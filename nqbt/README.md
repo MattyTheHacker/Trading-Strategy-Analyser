@@ -23,7 +23,7 @@ Design notes for the package that have no other home. Most modules' reasoning al
 
 ## Simulation
 
-Every archetype's loop is an entry half over the shared bracket engine. **The trade-log gate cannot see most of them**: its captures are DeadCatBounce's alone, so a change to the InsideBar or InsideBarTrailing loop is checked by running both reconciliations before and after -- `CONTRIBUTING.md` § "The trade-log regression gate".
+Every archetype's loop is an entry half over the shared bracket engine. **The trade-log gate runs each loop at its defaults**, so it sees only the rules on at them -- `CONTRIBUTING.md` § "The trade-log regression gate".
 
 ### sim/types.py
 
