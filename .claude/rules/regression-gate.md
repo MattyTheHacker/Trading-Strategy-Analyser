@@ -13,10 +13,12 @@ paths:
 on that are easy to undo:
 
 - **The capture runs every registered archetype by reading the registry**, so registering one
-  is what gates its loop. Until #376 it ran DeadCatBounce alone, and a change to any other loop
-  passed without running. **Do not replace that loop with a list of names**, and do not let an
-  archetype's log go empty: it would compare identical whatever the change, which is why
-  `capture_archetypes` raises instead.
+  is what gates its loop; DeadCatBounce is left out because its four fixed paths already run it.
+  Until #376 it ran DeadCatBounce alone, and a change to any other loop passed without running.
+  **Do not replace that loop with a list of names**, and do not let an archetype's log go empty:
+  it would compare identical whatever the change, which is why `capture_archetypes` raises
+  instead. Nor stop a capture clearing its directory first, or an unregistered archetype's old
+  log still compares present.
 - **numba's `cache=True` does not track cross-module dependencies**, so a change to
   `nqbt/sim/bracket.py` leaves every archetype's compiled loop holding the *old* inlined fill
   rules and the gate compares new source against old machine code. It reports no change because

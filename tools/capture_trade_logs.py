@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -20,6 +21,9 @@ from nqbt import archetypes, conditions, context, costs, ingest, logsetup, paths
 from nqbt.instruments import MNQ, NQ, ContractId
 from nqbt.sim.runner import run_deadcat
 from nqbt.sim.types import DeadCatParams
+
+if TYPE_CHECKING:
+    from nqbt.instruments import Instrument
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,19 @@ def purge_jit_cache(package: Path = paths.REPO_ROOT / "nqbt") -> int:
     return len(stale)
 
 
+CAPTURE_GLOBS = ("recon.csv", "live_*.csv", "sweep_*.csv", "defaults_*.csv")
+"""Every file a capture writes, which the next capture into the same directory deletes first."""
+
+
+def clear_previous_capture(outdir: Path) -> int:
+    """Delete every file an earlier capture wrote into ``outdir`` and return how many went."""
+    stale: list[Path] = [path for pattern in CAPTURE_GLOBS for path in outdir.glob(pattern)]
+    for path in stale:
+        path.unlink()
+
+    return len(stale)
+
+
 EXACT = "%.17g"
 """Round-trips float64 without loss. See the module docstring -- the default does not."""
 
@@ -61,29 +78,58 @@ def write(frame: pd.DataFrame, path: Path) -> None:
     frame.to_csv(path, index=False, float_format=EXACT)
 
 
-def capture_archetypes(bars: pd.DataFrame, outdir: Path) -> None:
-    """Write one trade log per registered archetype, at its defaults and live costs.
+def gated_archetypes() -> list[archetypes.Archetype]:
+    """Return every registered archetype but DeadCatBounce, whose loop the four fixed paths run."""
+    return [
+        archetype
+        for archetype in archetypes.all_archetypes()
+        if archetype.name != archetypes.DEADCATBOUNCE.name
+    ]
 
-    ``bars`` must be one contract's raw prices.
-    """
-    for archetype in archetypes.all_archetypes():
-        params: archetypes.Params = costs.LIVE.apply(archetype.params_cls())
-        grid: sweep.Grid = sweep.Grid.of(params, archetype=archetype)
-        data: context.Dataset = sweep.prepare_for(bars, grid, price_basis=context.PriceBasis.RAW)
-        log: pd.DataFrame = archetype.run(data, params, MNQ)
+
+def capture_archetypes(
+    bars: pd.DataFrame,
+    instrument: Instrument,
+    *,
+    price_basis: context.PriceBasis,
+) -> dict[str, pd.DataFrame]:
+    """Return a trade log per gated archetype, at its defaults and live costs, keyed by file name."""
+    defaults: list[tuple[archetypes.Archetype, archetypes.Params]] = [
+        (archetype, costs.LIVE.apply(archetype.params_cls())) for archetype in gated_archetypes()
+    ]
+    spec: context.ContextSpec = context.ContextSpec()
+    for archetype, params in defaults:
+        spec = spec | sweep.Grid.of(params, archetype=archetype).required_context()
+    data: context.Dataset = context.prepare(bars, spec, price_basis=price_basis)
+
+    logs: dict[str, pd.DataFrame] = {}
+    for archetype, params in defaults:
+        log: pd.DataFrame = archetype.run(data, params, instrument)
         if log.empty:
             msg: str = f"{archetype.name} traded nothing at its defaults, so its log would gate nothing"
             raise EmptyCaptureError(msg)
 
-        write(log, outdir / f"defaults_{archetype.name}.csv")
+        logs[f"defaults_{archetype.name}.csv"] = log
         logger.info("  %s at its defaults: %s legs", archetype.name, f"{len(log):,}")
+
+    return logs
 
 
 def capture(outdir: Path) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
+    logger.info("cleared %d files an earlier capture left in %s", clear_previous_capture(outdir), outdir)
 
-    bars = ingest.load_contract(ContractId.parse(CONTRACT))
+    contract: ContractId = ContractId.parse(CONTRACT)
+    bars = ingest.load_contract(contract)
     logger.info("%s: %s bars  %s -> %s", CONTRACT, f"{len(bars):,}", bars.index[0], bars.index[-1])
+
+    # 5 runs first, and is written last, because it is the path that refuses: a refusal leaves
+    # nothing behind to compare.
+    per_archetype: dict[str, pd.DataFrame] = capture_archetypes(
+        bars,
+        contract.instrument,
+        price_basis=context.PriceBasis.RAW,
+    )
 
     # 1. The pinned reconciliation window. These two settings are what reproduce the
     #    stored pre-fix run; do not "modernise" them.
@@ -149,8 +195,9 @@ def capture(outdir: Path) -> None:
         f"{legs:,}",
     )
 
-    # 5. Every registered archetype's loop, which the four paths above run only for DeadCatBounce.
-    capture_archetypes(bars, outdir)
+    # 5. Every other registered archetype's loop, which the four paths above do not run.
+    for name, log in per_archetype.items():
+        write(log, outdir / name)
     logger.info("")
     logger.info("wrote %d files to %s", len(list(outdir.iterdir())), outdir)
 

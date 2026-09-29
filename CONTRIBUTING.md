@@ -232,7 +232,7 @@ A "ruff auto-fix" pull request once reached into an `@njit` loop and rewrote `si
 ./.venv/Scripts/python.exe tools/compare_trade_logs.py before after
 ```
 
-DeadCatBounce's four producer paths, and one log per registered archetype at its defaults and live costs, so every archetype's loop runs. A refactor meant to preserve behaviour must reproduce every file; a change that adds a column must leave every other column identical (`--added <name>`). **An archetype's log sees only the rules on at its defaults**, so a change to a rule that is off by default — a filter, a sizing mode — comes back identical without having run.
+DeadCatBounce's four producer paths, and one log per other registered archetype at its defaults and live costs, so every archetype's loop runs. A refactor meant to preserve behaviour must reproduce every file; a change that adds a column must leave every other column identical (`--added <name>`). **An archetype's log sees only the rules on at its defaults**, so a change to a rule that is off by default — a filter, a sizing mode — comes back identical without having run.
 
 Points that have each cost time:
 
@@ -316,7 +316,7 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 
 - **The prime directive still binds during development.** A Python archetype that drifts past NT8's fidelity cannot be reconciled when it is finally ported, so the exploration is wasted rather than merely unvalidated. Check each rule against what NT8 can express *while writing it*, using the expressibility checklist in [`docs/roadmap.md`](docs/roadmap.md).
 - **Register with `nqbt/archetypes.py`; do not fork the sweep.** An `Archetype` needs `run`, `legs` and `signal` — all three are required, and an archetype registered without `legs` would silently be the slow path in a sweep.
-- **Registering it puts it under the trade-log gate.** Its defaults must trade on MNQ 03-24, or the capture stops. The pull request that registers it is not compared on it, because the base has no log to compare.
+- **Registering it puts it under the trade-log gate.** Its defaults must trade on MNQ 03-24, or the capture stops. The pull request that registers it is not compared on it, because the base has no log to compare; the comparison lists the log as new.
 - **Write the entry half only.** Stop, targets, ambiguity policy, limit-fill rule and leg writer all live in `nqbt/sim/bracket.py`, which carries the reconciliation evidence. **Do not fork it.**
 - **Set `Tier2Status` honestly.** `TIER1_ONLY` until a real NT8 trade list has been diffed against it. The status reaches the results table so that a ranking cannot silently compare a measurement against an assumption.
 - **Record every rule in `docs/nt8-fidelity.md`**, naming the NinjaScript each would be written as, even when there is no C# yet — that is what the eventual port gets checked against.

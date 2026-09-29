@@ -567,9 +567,9 @@ It was written for M9, which moved validated code and had to prove it had not mo
 2. the same contract at current fidelity settings, with costs applied;
 3. the same bars through the NQ spec, which proves instrument scaling is untouched;
 4. a real sweep over spliced continuous bars, serial *and* parallel, since the parallel path memmaps the dataset and could diverge on its own;
-5. every registered archetype on the same contract, at its defaults and `costs.LIVE`, one log each, since the first four run DeadCatBounce's loop alone (#376).
+5. every other registered archetype on the same contract, at its defaults and `costs.LIVE`, one log each, since the first four run DeadCatBounce's loop alone (#376).
 
-The fifth reads the registry rather than a list of names, so registering an archetype is what gates it. It stops with `EmptyCaptureError` when an archetype trades nothing at its defaults, because an empty log compares identical whatever the change.
+The fifth reads the registry rather than a list of names, so registering an archetype is what gates it. It stops with `EmptyCaptureError` when an archetype trades nothing at its defaults, because an empty log compares identical whatever the change. It runs before anything is written, and a capture first deletes the files an earlier one left in its directory, so a refusal leaves nothing to compare and an unregistered archetype's old log cannot pass as present.
 
 **It deletes numba's `.nbi`/`.nbc` cache files before each capture.** `cache=True` does not track cross-module dependencies, so a change to `bracket.py` leaves every archetype's compiled loop holding the old inlined fill rules, and a capture over them compares new source against old machine code and passes because the change never ran. Measured on the ambiguity policy: identical source, caches deleted, different trade log.
 
@@ -583,7 +583,7 @@ Compares two captures from `capture_trade_logs.py`, and exits non-zero on any di
 ./.venv/Scripts/python.exe tools/compare_trade_logs.py before after [--added col ...]
 ```
 
-With no `--added` it demands identity, the gate for a refactor meant to preserve behaviour exactly. `--added` names columns the change is expected to introduce; every other column must still match exactly, dtypes included (M9 used `--added source instrument direction`). It reads with `float_precision="round_trip"`, the other half of the `%.17g` the capture writes: pandas' default CSV parser is not correctly rounded and folds adjacent float64 values together, so a bare `read_csv` cannot see a one-ULP difference however many digits were written.
+With no `--added` it demands identity, the gate for a refactor meant to preserve behaviour exactly. A file missing from `after` fails; a file only in `after`, such as a newly registered archetype's log, is listed as new and not compared. `--added` names columns the change is expected to introduce; every other column must still match exactly, dtypes included (M9 used `--added source instrument direction`). It reads with `float_precision="round_trip"`, the other half of the `%.17g` the capture writes: pandas' default CSV parser is not correctly rounded and folds adjacent float64 values together, so a bare `read_csv` cannot see a one-ULP difference however many digits were written.
 
 ### trade_log_gate_ci.py
 
