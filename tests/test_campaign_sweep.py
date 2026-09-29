@@ -2691,7 +2691,15 @@ def test_a_skipped_cell_is_warned_of_and_the_notes_count_only_the_cells_swept(
     run_point(frame, [tiny], "MNQ", 1, "holdout", 1, UNFILTERED, NO_CUTS, n_jobs=1)
     with caplog.at_level(logging.WARNING, logger=campaign_sweep.__name__):
         run_point(
-            frame, [tiny, replace(tiny, name="tiny again")], "MNQ", 1, "holdout", 2, UNFILTERED, NO_CUTS, n_jobs=1
+            frame,
+            [tiny, replace(tiny, name="tiny again")],
+            "MNQ",
+            1,
+            "holdout",
+            2,
+            UNFILTERED,
+            NO_CUTS,
+            n_jobs=1,
         )
     assert "1 of 2 cells already stored, skipped without checking" in caplog.text
     notes = results.query("SELECT notes FROM sweeps ORDER BY sweep_id", db_path("DeadCatBounce"))["notes"]

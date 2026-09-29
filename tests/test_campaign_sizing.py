@@ -430,7 +430,9 @@ def test_a_cut_already_in_the_file_is_kept_and_only_the_rest_are_fitted(
     assert stored[1].regime_directional_above != kept.regime_directional_above
 
 
-def test_a_resolution_or_root_named_twice_is_fitted_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_resolution_or_root_named_twice_is_fitted_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A second copy of a cut would emit every arm twice, and each would be swept and stored."""
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
