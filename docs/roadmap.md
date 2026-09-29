@@ -292,7 +292,7 @@ Three things about them that are deliberate and read as mistakes otherwise:
 
 The fixture's bars straddle the 2024-03-10 US DST transition and the 17:00 ET break, and the session labels stored at ingest are re-derived from the index and compared. That is the tzdata check: `tzdata` is pinned like everything else, and it is the one dependency whose bump moves session boundaries rather than arithmetic — so it earns a different check from the other three, and this is it.
 
-**What none of this replaces.** These are canaries, not the gate. The real gate is fourteen files over real bars, and the MNQ 03-24 agreement rate in `docs/nt8-fidelity.md` is still the only thing that says Tier 1 and Tier 2 agree. When a pin here fails, the answer is to run the real gate and find out what moved — not to re-pin.
+**What none of this replaces.** These are canaries, not the gate. The real gate is the trade-log capture over real bars, and the MNQ 03-24 agreement rate in `docs/nt8-fidelity.md` is still the only thing that says Tier 1 and Tier 2 agree. When a pin here fails, the answer is to run the real gate and find out what moved — not to re-pin.
 
 **The gate itself has since moved into CI.** The two cache files it reads are published as a release, and `.github/workflows/trade-log-gate.yaml` runs it on every pull request that changes more than documentation, so a dependency bump now runs the real gate beside these canaries. They still earn their place: they need no download, they name the layer that moved, and the NT8 reconciliation still needs `verification/`, which stays local. `CONTRIBUTING.md` § "The trade-log regression gate" has the procedure.
 

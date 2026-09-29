@@ -30,7 +30,7 @@ Nothing in the registry had one before except ElasticBand, whose scheme C shippe
 
 ### The control arm reproduces §M27 exactly, which is the strongest check this change has
 
-The `hold=0` arm is the stored configuration re-run, so it is also a regression test far wider than the trade-log gate — which covers DeadCatBounce alone. Joined on every parameter, root, resolution and window:
+The `hold=0` arm is the stored configuration re-run, so it is also a regression test far wider than the trade-log gate — which then covered DeadCatBounce alone. Joined on every parameter, root, resolution and window:
 
 | archetype         | paired rows | rows differing on trades, net P&L, profit factor, average hold or session-close share |
 | ----------------- | ----------: | ------------------------------------------------------------------------------------: |

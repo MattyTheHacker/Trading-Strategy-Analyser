@@ -16,12 +16,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from nqbt import conditions, context, ingest, logsetup, paths, splice, stats, sweep
+from nqbt import archetypes, conditions, context, costs, ingest, logsetup, paths, splice, stats, sweep
 from nqbt.instruments import MNQ, NQ, ContractId
 from nqbt.sim.runner import run_deadcat
 from nqbt.sim.types import DeadCatParams
 
 logger = logging.getLogger(__name__)
+
+
+class EmptyCaptureError(RuntimeError):
+    """Raised when an archetype trades nothing at its defaults, so its log could gate nothing."""
+
 
 CONTRACT = "MNQ 03-24"
 SWEEP_FROM = "2024-01-01"
@@ -54,6 +59,24 @@ EXACT = "%.17g"
 
 def write(frame: pd.DataFrame, path: Path) -> None:
     frame.to_csv(path, index=False, float_format=EXACT)
+
+
+def capture_archetypes(bars: pd.DataFrame, outdir: Path) -> None:
+    """Write one trade log per registered archetype, at its defaults and live costs.
+
+    ``bars`` must be one contract's raw prices.
+    """
+    for archetype in archetypes.all_archetypes():
+        params: archetypes.Params = costs.LIVE.apply(archetype.params_cls())
+        grid: sweep.Grid = sweep.Grid.of(params, archetype=archetype)
+        data: context.Dataset = sweep.prepare_for(bars, grid, price_basis=context.PriceBasis.RAW)
+        log: pd.DataFrame = archetype.run(data, params, MNQ)
+        if log.empty:
+            msg: str = f"{archetype.name} traded nothing at its defaults, so its log would gate nothing"
+            raise EmptyCaptureError(msg)
+
+        write(log, outdir / f"defaults_{archetype.name}.csv")
+        logger.info("  %s at its defaults: %s legs", archetype.name, f"{len(log):,}")
 
 
 def capture(outdir: Path) -> None:
@@ -125,6 +148,9 @@ def capture(outdir: Path) -> None:
         len(serial),
         f"{legs:,}",
     )
+
+    # 5. Every registered archetype's loop, which the four paths above run only for DeadCatBounce.
+    capture_archetypes(bars, outdir)
     logger.info("")
     logger.info("wrote %d files to %s", len(list(outdir.iterdir())), outdir)
 

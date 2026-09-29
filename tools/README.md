@@ -561,12 +561,15 @@ Captures every trade-log producer path to CSV, for comparison across a refactor.
 ./.venv/Scripts/python.exe tools/compare_trade_logs.py before after
 ```
 
-It was written for M9, which moved validated code and had to prove it had not moved a number, and kept as a tool because M15 needed the same gate and a stronger one -- `docs/roadmap.md` under M9 and M15. The four paths cover what a single run does not:
+It was written for M9, which moved validated code and had to prove it had not moved a number, and kept as a tool because M15 needed the same gate and a stronger one -- `docs/roadmap.md` under M9 and M15. The five paths cover what a single run does not:
 
 1. the pinned MNQ 03-24 reconciliation window, under the two settings that reproduce `verification/nt8_reconciliation_MNQ_03-24.csv` (see `verification/README.md`) -- do not "modernise" them;
 2. the same contract at current fidelity settings, with costs applied;
 3. the same bars through the NQ spec, which proves instrument scaling is untouched;
-4. a real sweep over spliced continuous bars, serial *and* parallel, since the parallel path memmaps the dataset and could diverge on its own.
+4. a real sweep over spliced continuous bars, serial *and* parallel, since the parallel path memmaps the dataset and could diverge on its own;
+5. every registered archetype on the same contract, at its defaults and `costs.LIVE`, one log each, since the first four run DeadCatBounce's loop alone (#376).
+
+The fifth reads the registry rather than a list of names, so registering an archetype is what gates it. It stops with `EmptyCaptureError` when an archetype trades nothing at its defaults, because an empty log compares identical whatever the change.
 
 **It deletes numba's `.nbi`/`.nbc` cache files before each capture.** `cache=True` does not track cross-module dependencies, so a change to `bracket.py` leaves every archetype's compiled loop holding the old inlined fill rules, and a capture over them compares new source against old machine code and passes because the change never ran. Measured on the ambiguity policy: identical source, caches deleted, different trade log.
 
