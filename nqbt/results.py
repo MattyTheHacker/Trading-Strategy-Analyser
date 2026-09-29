@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
 
-from nqbt import notes, paths
+from nqbt import notes, paths, stats
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResultsError(ValueError):
-    """Raised when a frame cannot be stored without losing something it carries."""
+    """Raised when a frame cannot be stored without loss, or a read asks for something unsupported."""
 
 
 AXIS_COLUMNS: dict[str, str] = {
@@ -497,12 +497,21 @@ def best(
     min_trades: int = 30,
     db_path: Path = paths.SWEEPS_DB,
 ) -> pd.DataFrame:
-    """Return the top candidates, across every sweep unless one is named."""
+    """Return the top candidates, across every sweep unless one is named.
+
+    ``by`` must be a field of :class:`~nqbt.stats.Summary`; anything else raises
+    :class:`ResultsError` before the database is opened.
+    """
+    statistics: list[str] = stats.Summary.columns()
+    if by not in statistics:
+        msg: str = f"cannot rank by {by!r}: not a statistic of a Summary. Choose from {statistics}"
+        raise ResultsError(msg)
+
     where: str = f"WHERE trades >= {int(min_trades)}"
     if sweep_id is not None:
         where += f" AND sweep_id = {int(sweep_id)}"
 
     return query(
-        f"SELECT * FROM combos {where} ORDER BY {by} DESC LIMIT {int(top)}",  # noqa: S608 - the ORDER BY; #61
+        f"SELECT * FROM combos {where} ORDER BY {by} DESC LIMIT {int(top)}",  # noqa: S608 - `by` is one of Summary.columns()
         db_path,
     )
