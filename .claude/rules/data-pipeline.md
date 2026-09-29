@@ -123,6 +123,6 @@ paths:
   succeeds and every comparison is silently wrong. `docs/roadmap.md` §M11.
 - **Do not check a reconciliation by leg count.** Leading history legitimately adds signals and
   `trade_id` shifts after any earlier removal, so join on `(entry_time, leg)`.
-- The stored MNQ 03-24 reconciliation capture in `verification/` is a **pre-fix** run despite
-  its name; read `verification/README.md` first. The captures are **gitignored and exist only
-  on this machine**; the README is committed (#91).
+- `verification/nt8_reconciliation_MNQ_03-24.csv` is a **pre-fix** run despite its name; read
+  `verification/README.md` first. The whole folder is **gitignored and exists only on this
+  machine** (#91).

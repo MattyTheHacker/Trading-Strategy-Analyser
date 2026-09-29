@@ -6,8 +6,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .venv
-verification/*
-!verification/README.md
+verification
 .vscode
 .mypy_cache/
 .ruff_cache/
