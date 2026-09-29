@@ -915,8 +915,8 @@ def test_the_side_dependent_labels_flip_with_the_side_and_the_others_do_not() ->
     data = prepared(walk_bars(), params)
     n = len(data)
     long_side = np.ones(n, dtype=np.bool_)
-    as_long = filters.favourable_labels(data, params, long_side)
-    as_short = filters.favourable_labels(data, params, ~long_side)
+    as_long = [label.favours for label in filters.label_sides(data, params, long_side)]
+    as_short = [label.favours for label in filters.label_sides(data, params, ~long_side)]
     vwap_long, regime_long = as_long
     vwap_short, regime_short = as_short
     assert np.array_equal(vwap_long, data.vwap_gate(above=True))
@@ -937,7 +937,7 @@ def test_every_label_kind_can_be_counted_and_the_count_is_their_sum() -> None:
     )
     data = prepared(walk_bars(), params)
     direction_at = insidebar_direction(data, params)
-    rows = filters.favourable_labels(data, params, direction_at == LONG)
+    rows = [label.favours for label in filters.label_sides(data, params, direction_at == LONG)]
     counts = filters.confluence_counts(data, params, direction_at == LONG)
     assert len(rows) == 5
     assert np.array_equal(counts, np.sum(rows, axis=0))

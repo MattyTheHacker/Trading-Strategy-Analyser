@@ -317,7 +317,9 @@ paths:
 - **The sweep skips any cell already stored, and refuses one stored on other bars.** A cell is a
   variant, stratum, root, resolution and window; no reading tool de-duplicates, so a second copy
   would be counted twice. So a run interrupted part-way is resumed by running it again, and a
-  cell whose `sweeps` row names other bars has to be moved aside or renamed first.
+  cell whose `sweeps` row names other bars has to be moved aside or renamed first. **It compares
+  the bars alone**, never the grid or the code, so it warns on every skip: a cell re-run after
+  either changed is skipped just the same and has to be moved aside or renamed too.
 - **The `annotations` table widens by name exactly as `combos` does**, so a dataset prepared
   with one more series needs no migration and the earlier rows read null. It is keyed
   `(sweep_id, combo_id, trade_id)` and joined to the other two by `results.create_trade_view`;

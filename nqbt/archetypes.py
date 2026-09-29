@@ -33,6 +33,7 @@ from nqbt.sim.types import (
     ORB_SCALE_NONE,
     ORB_STOP_ATR,
     STOP_ATR,
+    ConfluenceSized,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
@@ -113,7 +114,7 @@ def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
 
 
 def _sizes_on_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
-    """Whether some combination sizes on the close's side of the session VWAP."""
+    """Return whether some combination sizes on the close's side of the session VWAP."""
     return any(values.get("size_on_vwap", ()))
 
 
@@ -407,7 +408,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
     ``needs_ma_values`` because its three gates are strict -- ``docs/nt8-fidelity.md`` §M22. The
     session clock is built only where some combination sets a no-entry window, and the VWAP only
-    where InsideBarTrailing sizes on it.
+    where some combination sizes on it.
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
@@ -501,7 +502,7 @@ side.
 
 
 def _read_by_filter_or_sizing(gates: Mapping[str, str], sizing_toggle: str) -> dict[str, Gate]:
-    """One filter's axes, re-gated so that sizing on the same label also reads them."""
+    """Return one filter's axes, re-gated so that sizing on the same label also reads them."""
     return {axis: AnyOf((toggle, sizing_toggle)) for axis, toggle in gates.items()}
 
 
@@ -587,10 +588,7 @@ def _sizes_per_signal(params: Params) -> bool:
     if isinstance(params, InsideBarTrailingParams) and params.earliness_mode != EARLINESS_OFF:
         return True
 
-    if not isinstance(params, DeadCatParams | PullBackAndGoParams | InsideBarParams):
-        return False
-
-    return params.quantity_per_confluence > 0
+    return isinstance(params, ConfluenceSized) and params.quantity_per_confluence > 0
 
 
 ELASTICBAND_GATES: Mapping[str, Gate] = {
@@ -639,6 +637,9 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     signal: Callable[..., BoolArray]  # type: ignore[explicit-any]  # the signature differs per archetype
     """Compute this archetype's per-bar entry signal from a :class:`Dataset`."""
 
+    long_side: Callable[..., BoolArray]  # type: ignore[explicit-any]  # the signature differs per archetype
+    """Return the bars one combination would enter long, which a sided sizing label is read against."""
+
     gated_by: Mapping[str, Gate] = field(default_factory=lambda: MA_GATES)
     """Axis -> the toggle, or toggles, that have to be on for it to change anything. Feeds
     ``dead_axes``."""
@@ -677,6 +678,7 @@ DEADCATBOUNCE = Archetype(
     run=runner.run_deadcat,
     legs=runner.deadcat_legs,
     signal=runner.deadcat_signal,
+    long_side=runner.deadcat_long_side,
     tier2=Tier2Status.RECONCILED,
     departs_from_port=_sizes_per_signal,
 )
@@ -689,6 +691,7 @@ PULLBACKANDGO = Archetype(
     run=pullback.run_pullbackandgo,
     legs=pullback.pullbackandgo_legs,
     signal=pullback.pullback_signal,
+    long_side=pullback.pullback_long_side,
     tier2=Tier2Status.RECONCILED,
     departs_from_port=_sizes_per_signal,
 )
@@ -701,6 +704,7 @@ EMACROSSOVER = Archetype(
     run=crossover.run_crossover,
     legs=crossover.crossover_legs,
     signal=crossover.crossover_signal,
+    long_side=crossover.crossover_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=CROSSOVER_GATES,
     context_for=crossover_context,
@@ -713,6 +717,7 @@ EMAPULLBACK = Archetype(
     run=emapullback.run_emapullback,
     legs=emapullback.emapullback_legs,
     signal=emapullback.emapullback_signal,
+    long_side=emapullback.emapullback_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=EMAPULLBACK_GATES,
     context_for=emapullback_context,
@@ -727,6 +732,7 @@ INSIDEBAR = Archetype(
     run=insidebar.run_insidebar,
     legs=insidebar.insidebar_legs,
     signal=insidebar.insidebar_signal,
+    long_side=insidebar.insidebar_long_side,
     tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBAR_GATES,
     context_for=insidebar_context,
@@ -741,6 +747,7 @@ INSIDEBARTRAILING = Archetype(
     run=insidebartrailing.run_insidebartrailing,
     legs=insidebartrailing.insidebartrailing_legs,
     signal=insidebar.insidebar_signal,
+    long_side=insidebar.insidebar_long_side,
     tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBARTRAILING_GATES,
     context_for=insidebar_context,
@@ -756,6 +763,7 @@ ELASTICBAND = Archetype(
     run=elasticband.run_elasticband,
     legs=elasticband.elasticband_legs,
     signal=elasticband.elasticband_signal,
+    long_side=elasticband.elasticband_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=ELASTICBAND_GATES,
     context_for=elasticband_context,
@@ -770,6 +778,7 @@ OPENINGRANGE = Archetype(
     run=openingrange.run_openingrange,
     legs=openingrange.openingrange_legs,
     signal=openingrange.openingrange_signal,
+    long_side=openingrange.openingrange_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=OPENINGRANGE_GATES,
     context_for=openingrange_context,
@@ -784,6 +793,7 @@ SQUEEZEBREAKOUT = Archetype(
     run=squeeze.run_squeeze,
     legs=squeeze.squeeze_legs,
     signal=squeeze.squeeze_signal,
+    long_side=squeeze.squeeze_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=SQUEEZE_GATES,
     context_for=squeeze_context,

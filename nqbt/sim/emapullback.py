@@ -426,7 +426,7 @@ def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crosso
 
 
 def emapullback_long_side(data: Dataset, params: EmaPullbackParams) -> BoolArray:
-    """Which bars would be entered long: those where the fast average is above the slow one."""
+    """Return the bars one combination would enter long: those with the fast average above the slow one."""
     fast, slow = pullback_averages(data, params)
     long_side: BoolArray = crossover.regime_direction(fast, slow) == trades.LONG
 

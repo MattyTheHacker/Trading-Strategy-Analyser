@@ -1716,9 +1716,12 @@ EMAPULLBACK_CONFIRM_VARIANTS = {"EmaPullback": emapullback_confirm_variants}
 ``docs/findings/m39-ema-pullback-confirmation-entry.md``."""
 
 
+SIZING_CUTS_SUFFIX = "-sizing-cuts.json"
+
+
 def sizing_cuts_path(name: str) -> paths.Path:
-    """Where ``tools/campaign_sizing.py fit`` writes one archetype's cuts, fitted on the selection window."""
-    return CAMPAIGN_DIR / f"{name}-sizing-cuts.json"
+    """Return where ``tools/campaign_sizing.py fit`` writes one archetype's selection-window cuts."""
+    return CAMPAIGN_DIR / f"{name}{SIZING_CUTS_SUFFIX}"
 
 
 SIZING_CUTS = sizing_cuts_path("InsideBarTrailing")
@@ -1776,7 +1779,7 @@ class SizingCut:
         return self.thresholds() | {name: value for name, value in earliness.items() if value is not None}
 
     def fits(self, variant: str) -> bool:
-        """Whether this cut was fitted for ``variant``: every variant, where it names none."""
+        """Return whether this cut was fitted for ``variant``: every variant, where it names none."""
         return self.variant is None or self.variant == variant
 
 
@@ -1788,7 +1791,8 @@ def sizing_cuts(path: paths.Path | None = None) -> list[SizingCut]:
     """
     source: paths.Path = SIZING_CUTS if path is None else path
     if not source.exists():
-        msg: str = f"no sizing cuts at {source}; run tools/campaign_sizing.py fit first"
+        strategy: str = source.name.removesuffix(SIZING_CUTS_SUFFIX)
+        msg: str = f"no sizing cuts at {source}; run tools/campaign_sizing.py fit --strategy {strategy} first"
         raise SystemExit(msg)
 
     cuts: list[SizingCut] = []
@@ -1873,7 +1877,7 @@ def counted(labels: tuple[str, ...], **held: AxisValue | bool) -> dict[str, Axis
 
 
 def sizing_axes(campaign: Variant) -> dict[str, list[AxisValue]]:
-    """InsideBarTrailing's stored grid with the split held and the quantity ladder crossed in."""
+    """Return InsideBarTrailing's stored grid with the split held and the quantity ladder crossed in."""
     held: dict[str, list[AxisValue]] = {
         axis: values for axis, values in campaign.axes.items() if axis != "partial_take_profit_percentage"
     }
@@ -1882,7 +1886,17 @@ def sizing_axes(campaign: Variant) -> dict[str, list[AxisValue]]:
 
 
 def sizing_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
-    """§M45's arms on one root and resolution: the stored grid with the split held."""
+    """Build §M45's arms on one root and resolution: the stored grid with the split held.
+
+    Refuses a cut without the earliness cuts its tier arms run at.
+    """
+    if cut.early_max_extension_atr is None or cut.early_max_trend_bars is None:
+        msg: str = (
+            f"the {cut.root} {cut.minutes}m InsideBarTrailing sizing cut holds no earliness cuts; move "
+            "its file aside and run tools/campaign_sizing.py fit --strategy InsideBarTrailing"
+        )
+        raise SystemExit(msg)
+
     arm: Callable[..., Variant] = arm_factory(campaign, cut, sizing_axes(campaign))
     arms: list[Variant] = [
         arm(name, partial_take_profit_percentage=share) for name, share in SIZING_SPLITS.items()
@@ -1947,7 +1961,7 @@ LABEL_TOKENS: dict[str, str] = {
 
 
 def sheds_a_step(together: Variant) -> bool:
-    """Whether every base size ``together`` runs at is above the smallest position its bracket takes.
+    """Return whether every base size ``together`` runs at is above its bracket's smallest position.
 
     Where one is not, the symmetric size is refused rather than run as add-only --
     ``docs/nt8-fidelity.md`` §M47.
@@ -1965,10 +1979,7 @@ def sheds_a_step(together: Variant) -> bool:
 def label_arms(
     arm: Callable[..., Variant], labels: tuple[str, ...], **held: AxisValue | bool
 ) -> list[Variant]:
-    """Each kept label alone, add-only, which is how an arm says which label carries the size.
-
-    None where one label is kept, because that arm is the all-labels one.
-    """
+    """Return an add-only arm per kept label alone, or none where one is kept: that is the all-labels arm."""
     if len(labels) < 2:  # noqa: PLR2004 - one label alone is the all-labels arm
         return []
 
@@ -1976,7 +1987,7 @@ def label_arms(
 
 
 def symmetric_arms(arm: Callable[..., Variant], cut: SizingCut, **held: AxisValue | bool) -> list[Variant]:
-    """Every symmetric label counted, shedding a step per opposing one, where every base can shed one.
+    """Return the arm counting every symmetric label, a step off per opposing one, where each base can shed.
 
     Refused on a cut stored before the fit read its symmetric labels, rather than counting the
     add-only ones in their place.
@@ -2002,7 +2013,7 @@ def symmetric_arms(arm: Callable[..., Variant], cut: SizingCut, **held: AxisValu
 
 
 def confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
-    """§M47's arms over one stored variant at one root and resolution, all on its own axes.
+    """Build §M47's arms over one stored variant at one root and resolution, all on its own axes.
 
     The control, every kept label together, each alone, and every symmetric label counted
     symmetrically where the base can shed a step --
@@ -2023,7 +2034,7 @@ def confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
 
 
 def insidebartrailing_confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
-    """§M45's nine arms, then §M47's label-alone and symmetric ones, all on §M45's grid."""
+    """Build §M45's nine arms, then §M47's label-alone and symmetric ones, all on §M45's grid."""
     arms: list[Variant] = sizing_arms(campaign, cut)
     arm: Callable[..., Variant] = arm_factory(campaign, cut, sizing_axes(campaign))
     held: dict[str, AxisValue | bool] = {"partial_take_profit_percentage": SIZING_ESTABLISHED_SHARE}
@@ -2035,7 +2046,7 @@ def confluence_variants(
     name: str,
     arms_for: Callable[[Variant, SizingCut], list[Variant]],
 ) -> Callable[[str], list[Variant]]:
-    """One archetype's stored variants re-emitted as sizing arms, at every resolution fitted for them."""
+    """Return what re-emits one archetype's stored variants as sizing arms, at every resolution fitted."""
 
     def variants(root: str) -> list[Variant]:
         cuts: list[SizingCut] = [cut for cut in sizing_cuts(sizing_cuts_path(name)) if cut.root == root]
@@ -2083,10 +2094,9 @@ def sizing_strata_cuts(
 
 
 def confluence_cuts(name: str, root: str) -> dict[int, Cuts]:
-    """Per resolution, the cut the regime and volume strata of a sizing run are defined by.
+    """Return, per resolution, the cut its labels read, which a sizing run's regime and volume strata take.
 
-    The one its labels read, so a stratum and a label mean the same thing. The fit takes it from
-    the bars rather than the variant, so every variant at a resolution has to carry the same one.
+    Refuses a resolution whose variants carry more than one.
     """
     fitted: dict[int, set[tuple[float, float, float, float]]] = {}
     for cut in sizing_cuts(sizing_cuts_path(name)):
@@ -2221,7 +2231,7 @@ def swept_on(frame: pd.DataFrame) -> SweptBars:
 
 
 def stored_cells(name: str, root: str, minutes: int, window: str) -> dict[tuple[str, str], set[SweptBars]]:
-    """Every (variant, stratum) cell one archetype's database holds at one point, and its bars."""
+    """Return every (variant, stratum) cell one archetype's database holds at one point, and its bars."""
     path: paths.Path = db_path(name)
     if results.query("SELECT 1 FROM information_schema.tables WHERE table_name = 'combos'", path).empty:
         return {}
@@ -2248,8 +2258,7 @@ def unstored(
 ) -> list[tuple[str, str, sweep.Grid]]:
     """Return the cells a run still has to sweep, refusing one already stored on other bars.
 
-    No reading tool de-duplicates, so a cell swept twice is counted twice; and one stored on
-    other bars can be neither skipped nor joined without two sets of bars under one name.
+    ``tools/README.md`` § "campaign_sweep.py".
     """
     fresh: list[tuple[str, str, sweep.Grid]] = []
     for variant, stratum, grid in named:
@@ -2307,8 +2316,8 @@ def run_point(
         frame,
     )
     if len(named) < len(requested):
-        logger.info(
-            "  %-4s %-9s %2dm  %d of %d cells already stored, skipped",
+        logger.warning(
+            "  %-4s %-9s %2dm  %d of %d cells already stored, skipped without checking their grid or code",
             root,
             window,
             minutes,
@@ -2363,8 +2372,9 @@ def run_point(
         axes=_merged_axes([grid for _, _, grid in named]),
         elapsed_s=elapsed,
         notes=(
-            f"campaign; window={window}; strata={which}; variants={len(variants)}; "
-            f"cells={len(named) // len(variants)}; "
+            f"campaign; window={window}; strata={which}; "
+            f"variants={len({variant for variant, _, _ in named})}; "
+            f"cells={len(named)} of {len(requested)}; "
             f"regime={'quantile-fitted' if cuts.regime else 'raw'}; "
             f"volume={'quantile-fitted' if cuts.volume else 'raw'}; "
             f"${COMMISSION[root]:.2f} RT + {SLIPPAGE_TICKS:g} tick"
@@ -2433,8 +2443,7 @@ def planned_combinations(argv: argparse.Namespace) -> int:
 def check_confluence_request(argv: argparse.Namespace) -> None:
     """Refuse a sizing run cut anywhere but at its own fit, or under a stratum named for another cut.
 
-    Its regime and volume strata read the thresholds its labels do, so a raw ``volume`` cell
-    would carry the fitted cut under the campaign's raw name.
+    ``tools/README.md`` § "Why the grids look the way they do".
     """
     if argv.variants != CONFLUENCE_SIZING:
         return

@@ -589,7 +589,7 @@ def write_leg(
 
 
 def fixed_sizing(leg_quantities: tuple[int, ...], n_bars: int) -> Sizing:
-    """One split for every entry: what each NinjaScript does, and every loop with sizing off."""
+    """Return one split for every entry: what each NinjaScript does, and every loop with sizing off."""
     return Sizing(np.asarray([leg_quantities], dtype=np.int64), np.zeros(n_bars, dtype=np.int64))
 
 

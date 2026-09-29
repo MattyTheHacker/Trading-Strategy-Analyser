@@ -104,7 +104,7 @@ SIZE_COLUMNS = (C_QUANTITY, C_GROSS_PNL, C_COMMISSION, C_NET_PNL)
 
 
 def every_label(params: archetypes.Params, **fields: object) -> archetypes.Params:
-    """``params`` sizing on all five labels at one contract per leg per label."""
+    """Return ``params`` sizing on all five labels at one contract per leg per label."""
     return dataclasses.replace(
         params, quantity_per_confluence=1, **dict.fromkeys(SIZING_LABELS, True), **fields
     )
@@ -364,7 +364,7 @@ def test_no_labels_counts_nothing_and_sizing_off_is_the_fixed_split_on_every_bar
 
 
 def trades_of(legs) -> np.ndarray:
-    """Every column of every leg but the four a size writes."""
+    """Return every column of every leg but the four a size writes."""
     kept = [column for column in range(N_COLUMNS) if column not in SIZE_COLUMNS]
 
     return legs.matrix[: legs.count, kept]
@@ -493,36 +493,40 @@ def test_an_original_archetype_stays_tier_1_only_sized_or_not() -> None:
 def test_a_grid_refuses_a_symmetric_size_where_some_base_cannot_shed_a_step_before_anything_runs() -> None:
     sized = InsideBarParams(quantity_per_confluence=1, size_on_trend=True, size_symmetric=True)
     assert len(sweep.Grid.of(sized, order_quantity=[2, 3])) == 2
-    with pytest.raises(sweep.SweepError, match="size_symmetric cannot apply to every combination"):
+    with pytest.raises(sweep.SweepError, match=r"cannot be built, so none runs: .*size_symmetric"):
         sweep.Grid.of(sized, order_quantity=[1, 3])
 
 
 def test_long_and_short_sides_are_read_per_archetype(bars) -> None:
     """The side a sided label is read against: fixed for the one-sided archetypes, per bar otherwise."""
-    from nqbt.sim import openingrange, pullback, runner  # noqa: PLC0415 - only this test reads them
-
     data = prepared(bars, TRADING["OpeningRange"], archetypes.OPENINGRANGE)
-    assert not runner.deadcat_long_side(data).any()
-    assert pullback.pullback_long_side(data).all()
-    assert openingrange.openingrange_long_side(data, OpeningRangeParams(direction=LONG)).all()
-    assert not openingrange.openingrange_long_side(data, OpeningRangeParams(direction=SHORT)).any()
+    assert not archetypes.DEADCATBOUNCE.long_side(data, DeadCatParams()).any()
+    assert archetypes.PULLBACKANDGO.long_side(data, PullBackAndGoParams()).all()
+    assert archetypes.OPENINGRANGE.long_side(data, OpeningRangeParams(direction=LONG)).all()
+    assert not archetypes.OPENINGRANGE.long_side(data, OpeningRangeParams(direction=SHORT)).any()
 
 
-def test_an_original_archetypes_rows_never_leave_a_port_they_do_not_have() -> None:
-    assert not archetypes._sizes_per_signal(every_label(EmaCrossoverParams()))  # noqa: SLF001 - the rule under test
+@pytest.mark.parametrize("name", sorted(TRADING))
+def test_a_sized_row_would_leave_any_archetype_once_it_is_reconciled(name) -> None:
+    """Reconciling an original later needs no change to the rule, whatever its parameter class."""
+    reconciled = dataclasses.replace(
+        archetypes.get(name),
+        tier2=Tier2Status.RECONCILED,
+        departs_from_port=archetypes._sizes_per_signal,  # noqa: SLF001 - the rule under test
+    )
+    assert reconciled.tier2_for(TRADING[name]) is Tier2Status.RECONCILED
+    assert reconciled.tier2_for(every_label(TRADING[name])) is Tier2Status.TIER1_ONLY
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
 def test_each_trade_is_entered_on_the_side_its_labels_were_read_against(bars, name) -> None:
     """The long-side series a sized label reads has to be the side the loop actually enters on."""
-    from tools.campaign_sizing import SIDES  # noqa: PLC0415 - the one map of every archetype's side
-
     archetype = archetypes.get(name)
     params = TRADING[name]
     data = prepared(bars, params, archetype)
     legs = archetype.legs(data, params, MNQ)
     matrix = legs.matrix[: legs.count]
     signal_bar = matrix[:, C_ENTRY_BAR].astype(int) - 1
-    long_side = SIDES[name](data, params)
+    long_side = archetype.long_side(data, params)
     assert legs.count > 10
     assert np.array_equal(matrix[:, C_DIRECTION] == LONG, long_side[signal_bar])

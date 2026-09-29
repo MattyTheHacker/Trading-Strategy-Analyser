@@ -447,9 +447,9 @@ def test_a_swept_pair_reaches_the_context_spec_once_per_distinct_label() -> None
 
 
 def test_a_swept_pair_that_inverts_is_refused_rather_than_silently_ordered() -> None:
-    grid = sweep.Grid.of(trend_filter=[Trend.DOWN.bit], trend_fast_period=[20, 60])
-    with pytest.raises(TrendError, match="not shorter"):
-        grid.required_context()
+    with pytest.raises(sweep.SweepError, match="not shorter") as refused:
+        sweep.Grid.of(trend_filter=[Trend.DOWN.bit], trend_fast_period=[20, 60])
+    assert isinstance(refused.value.__cause__, TrendError)
 
 
 @pytest.mark.parametrize("axis", sorted(TREND_AXES - {"trend_filter"}))

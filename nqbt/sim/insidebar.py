@@ -261,7 +261,7 @@ def insidebar_direction(data: Dataset, params: InsideBarParams) -> FloatArray:
 
 
 def insidebar_long_side(data: Dataset, params: InsideBarParams) -> BoolArray:
-    """Which bars would be entered long: those strictly above all three averages."""
+    """Return the bars one combination would enter long: those strictly above all three averages."""
     long_side: BoolArray = insidebar_direction(data, params) == trades.LONG
 
     return long_side

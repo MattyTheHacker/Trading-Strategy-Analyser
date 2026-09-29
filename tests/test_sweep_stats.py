@@ -23,7 +23,7 @@ from nqbt import (
 )
 from nqbt.instruments import NQ
 from nqbt.sim import runner
-from nqbt.sim.types import DeadCatParams, OpeningRangeParams, PullBackAndGoParams
+from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, OpeningRangeParams, PullBackAndGoParams
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -277,6 +277,12 @@ def test_grid_rejects_an_axis_whose_filter_is_switched_off() -> None:
     base = DeadCatParams(use_slow_sma=False)
     with pytest.raises(sweep.SweepError, match="cannot affect any result"):
         sweep.Grid.of(base, slow_sma_period=[120, 175])
+
+
+def test_grid_refuses_a_combination_its_parameter_class_rejects_and_names_the_rule() -> None:
+    with pytest.raises(sweep.SweepError, match=r"cannot be built, so none runs: .*identical") as refused:
+        sweep.Grid.of(EmaCrossoverParams(), fast_period=[9, 21], slow_period=[21, 50])
+    assert "size_symmetric" not in str(refused.value)
 
 
 def test_gated_axis_is_allowed_when_its_toggle_is_also_swept() -> None:
@@ -666,8 +672,6 @@ def test_the_original_archetype_sweeps_beside_a_ported_one(axis_bars) -> None:
     DeadCatBounce, reads a different set of series, enters by a different mechanism and
     exits on a rule -- and ``sweep_axes`` needs no knowledge of any of that.
     """
-    from nqbt.sim.types import EmaCrossoverParams
-
     deadcat = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
     cross = sweep.Grid.of(
         EmaCrossoverParams(bars_required_to_trade=200),
@@ -689,6 +693,7 @@ def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
         run=registry.DEADCATBOUNCE.run,
         legs=registry.DEADCATBOUNCE.legs,
         signal=registry.DEADCATBOUNCE.signal,
+        long_side=registry.DEADCATBOUNCE.long_side,
         tier2=registry.Tier2Status.TIER1_ONLY,
     )
     grids = [

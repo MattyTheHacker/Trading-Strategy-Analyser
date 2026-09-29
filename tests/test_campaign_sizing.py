@@ -71,7 +71,7 @@ def bars():
 
 
 def ibt_variant(params: InsideBarTrailingParams | None = None) -> campaign_sweep.Variant:
-    """InsideBarTrailing's one stored variant, over :func:`base` unless told otherwise."""
+    """Return InsideBarTrailing's one stored variant, over :func:`base` unless told otherwise."""
     return campaign_sweep.Variant(
         "trailing", archetypes.INSIDEBARTRAILING, base() if params is None else params
     )
@@ -360,7 +360,7 @@ def test_the_null_reports_its_shortlist(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def insidebar_base(**fields) -> InsideBarParams:
-    """InsideBar at periods short enough that the synthetic walk holds many setups."""
+    """Return InsideBar at periods short enough that the synthetic walk holds many setups."""
     return InsideBarParams(
         ema_period=5,
         fast_sma_period=8,
@@ -428,6 +428,18 @@ def test_a_cut_already_in_the_file_is_kept_and_only_the_rest_are_fitted(
     assert stored[0] == kept
     assert [cut.variant for cut in stored] == ["a", "b"]
     assert stored[1].regime_directional_above != kept.regime_directional_above
+
+
+def test_a_resolution_or_root_named_twice_is_fitted_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A second copy of a cut would emit every arm twice, and each would be swept and stored."""
+    long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
+    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    written = fit("InsideBar", ["MNQ", "MNQ"], [1, 1], tmp_path / "cuts.json")
+    assert [(cut["root"], cut["minutes"], cut["variant"]) for cut in written] == [
+        ("MNQ", 1, "a"),
+        ("MNQ", 1, "b"),
+    ]
 
 
 SYMMETRIC_FIELDS = ("symmetric_labels", "opposing_share", "neutral_share")

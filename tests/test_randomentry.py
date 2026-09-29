@@ -435,6 +435,7 @@ def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared
         run=all_wins_when_real,
         legs=all_wins_legs,
         signal=lambda d, p: signal,
+        long_side=archetypes.DEADCATBOUNCE.long_side,
         tier2=archetypes.Tier2Status.TIER1_ONLY,
     )
     assert np.isinf(stats.summarise(all_wins_when_real(data, params)).profit_factor)
@@ -462,6 +463,7 @@ def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(prepared
         run=wins_only_in_the_null,
         legs=wins_only_in_the_null_legs,
         signal=lambda d, p: signal,
+        long_side=archetypes.DEADCATBOUNCE.long_side,
         tier2=archetypes.Tier2Status.TIER1_ONLY,
     )
     with pytest.raises(randomentry.RandomEntryError, match="no distribution"):

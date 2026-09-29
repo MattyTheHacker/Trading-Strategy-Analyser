@@ -49,8 +49,8 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> BoolArray:
     return filters.apply_context_filters(signal, data, params)
 
 
-def pullback_long_side(data: Dataset) -> BoolArray:
-    """Which bars would be entered long: every one, since ``PullBackAndGo.cs`` only buys."""
+def pullback_long_side(data: Dataset, _params: PullBackAndGoParams) -> BoolArray:
+    """Return the bars one combination would enter long: every one, since ``PullBackAndGo.cs`` only buys."""
     return np.ones(len(data), dtype=np.bool_)
 
 
@@ -68,7 +68,7 @@ def pullbackandgo_legs(
     ``simulate_deadcat`` itself.
     """
     signal = pullback_signal(data, params) if signal is None else signal
-    sizing: bracket.Sizing = filters.confluence_sizing(data, params, pullback_long_side(data))
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, pullback_long_side(data, params))
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
     out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 

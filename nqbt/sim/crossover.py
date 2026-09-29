@@ -382,7 +382,7 @@ def _check_price_basis(data: Dataset, params: EmaCrossoverParams) -> None:
 
 
 def crossover_long_side(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
-    """Which bars would be entered long: those where the fast average is above the slow one."""
+    """Return the bars one combination would enter long: those with the fast average above the slow one."""
     fast, slow = crossover_averages(data, params)
     long_side: BoolArray = regime_direction(fast, slow) == trades.LONG
 

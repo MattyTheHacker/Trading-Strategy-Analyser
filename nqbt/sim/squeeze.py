@@ -92,7 +92,7 @@ def entry_bound(data: Dataset, levels: openingrange.RangeSeries, signal: BoolArr
 
 
 def squeeze_long_side(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
-    """Which bars would be entered long: every one or none, since the side is a parameter."""
+    """Return the bars one combination would enter long: every one or none, since the side is a parameter."""
     return np.full(len(data), params.direction == trades.LONG, dtype=np.bool_)
 
 

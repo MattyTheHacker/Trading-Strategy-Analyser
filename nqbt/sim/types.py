@@ -190,7 +190,7 @@ class ConfluenceSized(Protocol):
 
     @property
     def minimum_quantity(self) -> int:
-        """The smallest position the bracket takes: one contract per leg."""
+        """The smallest position the bracket takes, which each parameter class states."""
         ...
 
 
@@ -207,7 +207,7 @@ def confluence_range(params: ConfluenceSized) -> range:
 
 
 def split_evenly(quantity: int, legs: int) -> tuple[int, ...]:
-    """Contracts per leg, with the remainder on the last: 10 over four legs is 2/2/2/4, not 3/3/2/2."""
+    """Split ``quantity`` over ``legs``, the remainder on the last: 10 over four is 2/2/2/4, not 3/3/2/2."""
     base: int = quantity // legs
     remainder: int = quantity % legs
 
@@ -215,7 +215,7 @@ def split_evenly(quantity: int, legs: int) -> tuple[int, ...]:
 
 
 def leg_size_table(params: ConfluenceSized, legs: int) -> tuple[tuple[int, ...], ...]:
-    """Every per-leg split a signal can take, one row per count in :func:`confluence_range`.
+    """Return every per-leg split a signal can take, one row per count in :func:`confluence_range`.
 
     A count moves every leg by ``quantity_per_confluence``, so the position scales without
     changing shape, and no row falls below one contract per leg -- ``docs/nt8-fidelity.md`` §M47.

@@ -31,7 +31,6 @@ __all__ = [
     "confluence_counts",
     "confluence_sizing",
     "context_gates",
-    "favourable_labels",
     "label_sides",
 ]
 
@@ -245,12 +244,12 @@ def _volume_sides(data: Dataset, params: LabelSized) -> LabelSides:
 
 
 def label_sides(data: Dataset, params: LabelSized, long_side: BoolArray) -> list[LabelSides]:
-    """One entry per ``size_on_*`` label switched on, in :data:`SIZING_LABELS` order.
+    """Return where each ``size_on_*`` label switched on favours and opposes each bar's side.
 
-    The trend, the higher-timeframe side and the VWAP side favour the trade on the side they
-    point to and oppose the other; regime and volume favour both sides alike, in the state
-    ``sizing_thesis`` names. A bar a label cannot classify passes no mask, so it neither favours
-    nor opposes -- ``docs/nt8-fidelity.md`` §M47.
+    One entry per label, in :data:`SIZING_LABELS` order. The trend, the higher-timeframe side and
+    the VWAP side favour the trade on the side they point to and oppose the other; regime and
+    volume favour both sides alike, in the state ``sizing_thesis`` names. A bar a label cannot
+    classify passes no mask, so it neither favours nor opposes -- ``docs/nt8-fidelity.md`` §M47.
     """
     sides: list[LabelSides] = []
     if params.size_on_trend:
@@ -271,13 +270,8 @@ def label_sides(data: Dataset, params: LabelSized, long_side: BoolArray) -> list
     return sides
 
 
-def favourable_labels(data: Dataset, params: LabelSized, long_side: BoolArray) -> list[BoolArray]:
-    """One row per ``size_on_*`` label switched on: whether it favours each bar's side."""
-    return [label.favours for label in label_sides(data, params, long_side)]
-
-
 def confluence_counts(data: Dataset, params: LabelSized, long_side: BoolArray) -> IntArray:
-    """Each bar's count for its side: the labels favouring it, less the opposing ones if symmetric."""
+    """Count each bar's labels for its side: those favouring it, less the opposing ones if symmetric."""
     sides: list[LabelSides] = label_sides(data, params, long_side)
     if not sides:
         return np.zeros(len(data), dtype=np.int64)
@@ -290,7 +284,7 @@ def confluence_counts(data: Dataset, params: LabelSized, long_side: BoolArray) -
 
 
 def confluence_sizing(data: Dataset, params: LabelSized, long_side: BoolArray) -> bracket.Sizing:
-    """Every per-leg split this combination can take, and the row each bar takes for its side.
+    """Return every per-leg split this combination can take, and the row each bar takes for its side.
 
     With the confluence size off it is the one fixed split on every bar, which is each
     NinjaScript as ported.

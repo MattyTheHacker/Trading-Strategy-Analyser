@@ -625,7 +625,7 @@ def test_a_re_run_an_earlier_run_wrote_is_not_written_again(on_the_walk) -> None
 
 
 def insidebar_rows() -> pd.DataFrame:
-    """Two InsideBar configurations sized on a count, whose contexts differ."""
+    """Return two InsideBar configurations sized on a count, whose contexts differ."""
     rows = []
     for combo_id, fields in ((3, {"atr_length": 14}), (4, {"atr_length": 10, "order_quantity": 6})):
         rows.append(

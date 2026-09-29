@@ -413,7 +413,7 @@ def fade_direction(stretch: FloatArray) -> FloatArray:
 
 
 def elasticband_long_side(data: Dataset, params: ElasticBandParams) -> BoolArray:
-    """Which bars would be faded long: those below the basis."""
+    """Return the bars one combination would fade long: those below the basis."""
     _, _, stretch = band_series(data, params)
     long_side: BoolArray = fade_direction(stretch) == trades.LONG
 

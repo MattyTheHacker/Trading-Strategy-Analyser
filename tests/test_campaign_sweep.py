@@ -11,6 +11,7 @@ import argparse
 import ast
 import dataclasses
 import json
+import logging
 import math
 from dataclasses import replace
 from itertools import chain
@@ -2306,6 +2307,25 @@ def test_the_sizing_run_refuses_to_start_without_its_cuts(tmp_path: Path) -> Non
         sizing_cuts(tmp_path / "absent.json")
 
 
+def test_the_refusal_names_the_strategy_whose_cuts_are_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``fit`` defaults to InsideBarTrailing, so a bare command would fill the wrong file."""
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    with pytest.raises(SystemExit, match=r"fit --strategy ElasticBand first"):
+        sizing_cuts(sizing_cuts_path("ElasticBand"))
+
+
+def test_insidebartrailings_arms_refuse_a_cut_without_its_earliness_cuts() -> None:
+    """The tier arms would otherwise run at the parameter class's placeholders as if fitted."""
+    (campaign,) = insidebartrailing_variants("MNQ")
+    for missing in ("early_max_extension_atr", "early_max_trend_bars"):
+        with pytest.raises(SystemExit, match="holds no earliness cuts"):
+            sizing_arms(campaign, replace(a_cut(), **{missing: None}))
+        with pytest.raises(SystemExit, match="holds no earliness cuts"):
+            insidebartrailing_confluence_arms(campaign, replace(a_cut(), **{missing: None}))
+
+
 def test_the_sizing_variants_read_their_own_roots_cuts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2629,15 +2649,20 @@ def test_a_cell_stored_on_these_bars_is_skipped_and_one_on_other_bars_refused() 
         unstored(named, {("a", UNFILTERED): {here._replace(bars=here.bars + 1)}}, frame)
 
 
-def test_a_point_run_twice_stores_each_cell_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
-    frame = walk_bars(3000, seed=5)
-    tiny = Variant(
+def tiny_variant() -> Variant:
+    """Return a two-combination DeadCatBounce variant that trades on :func:`walk_bars`."""
+    return Variant(
         "tiny",
         archetypes.DEADCATBOUNCE,
         DeadCatParams(use_ema=False, use_fast_sma=False, require_new_high=False, bars_required_to_trade=20),
         axes={"tp_multiplier": [1.0, 2.0]},
     )
+
+
+def test_a_point_run_twice_stores_each_cell_once(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    frame = walk_bars(3000, seed=5)
+    tiny = tiny_variant()
 
     def stored() -> int:
         return int(results.query("SELECT count(*) AS n FROM combos", db_path("DeadCatBounce"))["n"].iloc[0])
@@ -2654,6 +2679,24 @@ def test_a_point_run_twice_stores_each_cell_once(monkeypatch: pytest.MonkeyPatch
     assert stored() == 6, "another window is another cell"
     with pytest.raises(SystemExit, match="already stored"):
         run_point(frame.iloc[:-10], [tiny], "MNQ", 1, "holdout", 5, UNFILTERED, NO_CUTS, n_jobs=1)
+
+
+def test_a_skipped_cell_is_warned_of_and_the_notes_count_only_the_cells_swept(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The skip compares the bars alone, so a cell whose grid has changed is skipped just the same."""
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    frame = walk_bars(3000, seed=5)
+    tiny = tiny_variant()
+    run_point(frame, [tiny], "MNQ", 1, "holdout", 1, UNFILTERED, NO_CUTS, n_jobs=1)
+    with caplog.at_level(logging.WARNING, logger=campaign_sweep.__name__):
+        run_point(
+            frame, [tiny, replace(tiny, name="tiny again")], "MNQ", 1, "holdout", 2, UNFILTERED, NO_CUTS, n_jobs=1
+        )
+    assert "1 of 2 cells already stored, skipped without checking" in caplog.text
+    notes = results.query("SELECT notes FROM sweeps ORDER BY sweep_id", db_path("DeadCatBounce"))["notes"]
+    assert "; variants=1; cells=1 of 1;" in notes.iloc[0]
+    assert "; variants=1; cells=1 of 2;" in notes.iloc[1]
 
 
 def test_insidebartrailing_with_no_kept_label_keeps_only_the_arms_that_need_none() -> None:

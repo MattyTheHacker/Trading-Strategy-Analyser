@@ -44,19 +44,7 @@ from nqbt import (
     volume,
 )
 from nqbt.instruments import get_instrument
-from nqbt.sim import (
-    bracket,
-    crossover,
-    elasticband,
-    emapullback,
-    filters,
-    insidebar,
-    insidebartrailing,
-    openingrange,
-    pullback,
-    runner,
-    squeeze,
-)
+from nqbt.sim import bracket, filters, insidebar, insidebartrailing
 from nqbt.sim.types import (
     EARLINESS_MODES,
     EARLINESS_OFF,
@@ -95,8 +83,6 @@ from tools.campaign_sweep import (
 from tools.campaign_swept import HELD_OUT, bars_for, candidate_bars
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from nqbt.archetypes import Params
     from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.instruments import Instrument
@@ -112,28 +98,13 @@ MAX_FAVOURABLE_SHARE = 0.90
 
 MAX_STEP_SHARE = MAX_FAVOURABLE_SHARE
 """A label is dropped from the symmetric count where one step it moves that count by -- up, down or
-none -- covers more of the fitted signals than this. On an add-only count the steps are up and
-none, which is the band above; a symmetric one also takes a step off where the label opposes, so
-it can keep a label the band drops -- ``docs/findings/m47-confluence-sizing-preregistration.md``."""
+none -- covers more of the fitted signals than this -- ``tools/README.md`` § "campaign_sizing.py"."""
 
 DRAWS = 200
 """Shuffles per configuration: enough for a p-value of 0.005 to be reachable."""
 
 CONFLUENCE_VARIANT = f"trailing {SIZING_CONFLUENCE}"
 """The stored variant name of §M45's confluence arm, which InsideBarTrailing's null reads."""
-
-SIDES: dict[str, Callable[..., BoolArray]] = {
-    archetypes.DEADCATBOUNCE.name: lambda data, _params: runner.deadcat_long_side(data),
-    archetypes.PULLBACKANDGO.name: lambda data, _params: pullback.pullback_long_side(data),
-    archetypes.EMACROSSOVER.name: crossover.crossover_long_side,
-    archetypes.EMAPULLBACK.name: emapullback.emapullback_long_side,
-    archetypes.INSIDEBAR.name: insidebar.insidebar_long_side,
-    archetypes.INSIDEBARTRAILING.name: insidebar.insidebar_long_side,
-    archetypes.ELASTICBAND.name: elasticband.elasticband_long_side,
-    archetypes.OPENINGRANGE.name: openingrange.openingrange_long_side,
-    archetypes.SQUEEZEBREAKOUT.name: squeeze.squeeze_long_side,
-}
-"""Which bars each archetype would enter long, which is what a sided label is read against."""
 
 SIZED_COLUMNS = (C_QUANTITY, C_GROSS_PNL, C_COMMISSION, C_NET_PNL)
 """The four leg columns a size writes. Every other one is the trade itself."""
@@ -167,12 +138,10 @@ def extension_at(data: context.Dataset, params: InsideBarTrailingParams) -> Floa
 
 
 def label_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> dict[str, dict[str, float]]:
-    """Per label, the share of the unfiltered signals it favours, opposes alone, and leaves at none.
+    """Return, per label, the share of the unfiltered signals it favours, opposes alone, and leaves at none.
 
-    Pooled over the sides swept: a variant sweeping ``direction`` trades both sides of the same
-    signal and a sided label favours one of them, so a share read on one side alone would be the
-    other side's complement. A symmetric count takes a step off where a label opposes and does not
-    favour, and moves by none where it does neither, or both at a VWAP tie.
+    Pooled over the sides the variant sweeps. A label that both favours and opposes, as the VWAP
+    does at a tie, counts as none -- ``tools/README.md`` § "campaign_sizing.py".
     """
     archetype: archetypes.Archetype = campaign.archetype
     sides: list[object] = list(campaign.axes.get("direction", []))
@@ -184,7 +153,7 @@ def label_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> 
     for params in configurations:
         signal: BoolArray = archetype.signal(data, params)
         for position, label in enumerate(
-            filters.label_sides(data, params, SIDES[archetype.name](data, params))
+            filters.label_sides(data, params, archetype.long_side(data, params))
         ):
             favours[position].append(label.favours[signal])
             opposes[position].append(label.opposes[signal])
@@ -206,7 +175,7 @@ def label_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> 
 
 
 def probed(frame: pd.DataFrame, minutes: int, campaign: Variant) -> context.Dataset:
-    """``frame`` prepared with everything :func:`probe_params` reads on ``campaign``'s base."""
+    """Prepare ``frame`` with everything :func:`probe_params` reads on ``campaign``'s base."""
     return context.prepare(
         frame,
         sweep.Grid.of(probe_params(campaign.base), archetype=campaign.archetype).required_context(),
@@ -270,7 +239,7 @@ def earliness_cut(
     report: dict[str, dict[str, float]],
     instrument: Instrument,
 ) -> tuple[SizingCut, dict[str, dict[str, float]]]:
-    """InsideBarTrailing's cut with its earliness cuts fitted in, at the median of its signals."""
+    """Return InsideBarTrailing's cut with its earliness cuts fitted in, at the median of its signals."""
     if not isinstance(base, InsideBarTrailingParams):  # pragma: no cover - by construction
         msg: str = f"the stored InsideBarTrailing variant carries {type(base).__name__}"
         raise TypeError(msg)
@@ -372,10 +341,9 @@ def selection_window(bars: pd.DataFrame) -> pd.DataFrame:
 def fit(name: str, roots: list[str], resolutions: list[int], path: Path) -> list[dict[str, object]]:
     """Fit every root, resolution and stored variant ``path`` does not hold yet, and write them all.
 
-    A cut already there is kept rather than refitted, so the arms stored against it keep the cut
-    they ran at; move the file aside to refit from scratch. One stored without symmetric labels
-    gains them, :func:`symmetric_fill`. The variant is recorded only where the archetype has more
-    than one.
+    A cut already there is kept, and one stored without symmetric labels gains them,
+    :func:`symmetric_fill`; move the file aside to refit from scratch. The variant is recorded only
+    where the archetype has more than one.
     """
     written: list[dict[str, object]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
     stored: dict[tuple[str, int, str | None], tuple[SizingCut, dict[str, object]]] = {
@@ -395,6 +363,7 @@ def fit(name: str, roots: list[str], resolutions: list[int], path: Path) -> list
                 if (root, minutes, variant) not in stored:
                     cut, report = fit_cut(frame, root, minutes, campaign, variant=variant)
                     written.append({**dataclasses.asdict(cut), **report})
+                    stored[(root, minutes, variant)] = (cut, written[-1])
                     log_cut(cut, report)
                     continue
 
@@ -474,10 +443,7 @@ def resimulated_null(
     draws: int,
     seed: int,
 ) -> dict[str, float]:
-    """Compare InsideBarTrailing's ``by`` against the same sizes shuffled across its signals.
-
-    A size moves this archetype's trades through the ``-200`` gate, so each shuffle is run.
-    """
+    """Compare InsideBarTrailing's ``by`` against its sizes shuffled across its signals, each re-run."""
     direction_at: FloatArray = insidebar.insidebar_direction(data, params)
     signal: BoolArray = insidebar.insidebar_signal(data, params)
     sizing: bracket.Sizing = insidebartrailing.lot_sizing(data, params, direction_at)
@@ -495,7 +461,7 @@ def resimulated_null(
 
 
 def unsized(params: Params) -> Params:
-    """``params`` at its fixed size, with the confluence size switched off."""
+    """Return ``params`` at its fixed size, with the confluence size switched off."""
     return dataclasses.replace(
         params,
         quantity_per_confluence=0,
@@ -505,7 +471,7 @@ def unsized(params: Params) -> Params:
 
 
 def same_trades(sized: trades.LegMatrix, fixed: trades.LegMatrix) -> bool:
-    """Whether two runs took the same trades leg for leg, whatever size each took them at."""
+    """Return whether two runs took the same trades leg for leg, whatever size each took them at."""
     if sized.count != fixed.count:
         return False
 
@@ -517,7 +483,7 @@ def same_trades(sized: trades.LegMatrix, fixed: trades.LegMatrix) -> bool:
 
 
 def trade_rows(legs: trades.LegMatrix, table: IntArray) -> tuple[IntArray, IntArray, IntArray]:
-    """Each leg's trade, each leg's place in its trade, and the table row each trade was sized at."""
+    """Return each leg's trade, each leg's place in its trade, and the table row each trade was sized at."""
     matrix: FloatArray = legs.matrix[: legs.count]
     _, trade_of_leg = np.unique(matrix[:, C_TRADE_ID], return_inverse=True)
     leg: IntArray = matrix[:, C_LEG].astype(np.int64) - 1
@@ -534,7 +500,7 @@ def trade_rows(legs: trades.LegMatrix, table: IntArray) -> tuple[IntArray, IntAr
 def resized(
     legs: trades.LegMatrix, quantities: IntArray, point_value: float, commission: float
 ) -> trades.LegMatrix:
-    """``legs`` at other sizes, their money recomputed exactly as ``bracket.write_leg`` writes it."""
+    """Return ``legs`` at other sizes, their money recomputed exactly as ``bracket.write_leg`` writes it."""
     matrix: FloatArray = legs.matrix[: legs.count].copy()
     per_unit: FloatArray = (matrix[:, C_EXIT_PRICE] - matrix[:, C_ENTRY_PRICE]) * matrix[:, C_DIRECTION]
     gross: FloatArray = per_unit * quantities * point_value
@@ -559,9 +525,9 @@ def recomputed_null(
 ) -> dict[str, float]:
     """Compare the configuration's own ``by`` against its sizes shuffled across the trades it took.
 
-    Exact rather than re-simulated, because outside InsideBarTrailing a size moves no trade. Both
-    halves are checked on the configuration itself first: the fixed size takes the same trades,
-    and recomputing the sizes it did take reproduces the simulation to the bit.
+    Each shuffle's money is recomputed rather than re-simulated. Refuses a configuration whose fixed
+    size takes other trades, or whose sizes, recomputed, do not reproduce the simulation to the bit
+    -- ``tools/README.md`` § "campaign_sizing.py".
     """
     legs: trades.LegMatrix = archetype.legs(data, params, instrument)
     if not same_trades(legs, archetype.legs(data, unsized(params), instrument)):

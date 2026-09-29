@@ -51,8 +51,8 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
     return filters.apply_context_filters(signal, data, params)
 
 
-def deadcat_long_side(data: Dataset) -> BoolArray:
-    """Which bars would be entered long: none, since ``DeadCatBounce.cs`` only sells."""
+def deadcat_long_side(data: Dataset, _params: DeadCatParams) -> BoolArray:
+    """Return the bars one combination would enter long: none, since ``DeadCatBounce.cs`` only sells."""
     return np.zeros(len(data), dtype=np.bool_)
 
 
@@ -72,7 +72,7 @@ def deadcat_legs(
     substitutes so that it runs **this** function rather than its own copy of the simulation.
     """
     signal = deadcat_signal(data, params) if signal is None else signal
-    sizing: bracket.Sizing = filters.confluence_sizing(data, params, deadcat_long_side(data))
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, deadcat_long_side(data, params))
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
     out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 
