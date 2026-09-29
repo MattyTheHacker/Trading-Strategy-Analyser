@@ -710,9 +710,9 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Size moves nothing but the dollars on every archetype but InsideBarTrailing, now shown on real data at every rung; a bracket cannot be traded below one contract per target, which shuts every four-target archetype out of an NQ 50K account; on a 50K account only InsideBar, InsideBarTrailing and OpeningRange's opposite-extreme stop pay at any size; and every step up in size buys more resets.** Moved to [`docs/findings/m46-registry-size-ladder.md`](findings/m46-registry-size-ladder.md).
 
-### M47 — the confluence size on every archetype ([#295])
+### M47 — the confluence size on every archetype ([#295], [#391])
 
-**Built and pre-registered, not yet run: one contract per leg more per favourable context label on every archetype, and one fewer per opposing label where the base can shed one, with each archetype's regime and volume read by its own thesis.** The pre-registration is [`docs/findings/m47-confluence-sizing-preregistration.md`](findings/m47-confluence-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M47.
+**First pass run, at 10 and 15 minutes: one contract per leg more per favourable label beats its own sizes shuffled on OpeningRange and EmaCrossover and on no other archetype unfiltered, no cell that clears passes gate 4's bootstrap or exclusion, and through the prop accounts the extra contracts cost passes. The 2- and 5-minute pass, which holds §M45's own cell, is [#391].** Moved to [`docs/findings/m47-confluence-sizing-10-15.md`](findings/m47-confluence-sizing-10-15.md), pre-registered in [`docs/findings/m47-confluence-sizing-preregistration.md`](findings/m47-confluence-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M47.
 
 ### Do the shortlists travel? ([#330])
 
@@ -1378,6 +1378,7 @@ ______________________________________________________________________
 [#37]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/37
 [#38]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/38
 [#39]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/39
+[#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42

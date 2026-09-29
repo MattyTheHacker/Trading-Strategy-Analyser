@@ -98,6 +98,8 @@ Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts
 
 **Sizing it per signal splits cleanly in two (§M45).** Tiering the first partial by how early the entry was — `Trading-Docs` §11's quarter and half — fails held out under all three rules tried, having won on the selection window; held out, the half split beats the quarter almost everywhere. One contract more per favourable label — trend, higher timeframe, regime and volume — beats the same sizes shuffled across the same signals on 20 of 20 MNQ and 17 of 20 NQ held-out configurations, the first sizing rule to clear a pre-registered null. It is `TIER1_ONLY`, none of its four labels exists in NT8, and its account behaviour has not been read, so it is a candidate for a later port rather than part of this one.
 
+**[§M47](m47-confluence-sizing-10-15.md) has since carried that size to every archetype, and at 10 and 15 minutes it changes nothing above.** Unfiltered it beats its own sizes shuffled on OpeningRange and EmaCrossover and nowhere else, no cell that clears passes gate 4's bootstrap or exclusion, and through the prop accounts the extra contracts cost passes in every one of them. In this cell at 10 minutes it clears 20 of 20 on both roots, repeating §M45 at a second bar size, and its bootstrap fails there too. The five-minute cell's account read is the second pass, [#391].
+
 ### The one it displaces: OpeningRange, midday, on MNQ
 
 The opening range's break, confined to the midday lull. It clears gates 2 and 3 on both roots (§M28.14), and **gate 4 is mixed** (§M28.15): the walk-forward and the permutation test pass, but not one of its 40 configurations has a bootstrap 5th percentile above a profit factor of 1.0 or above zero net — and none of the 40 is profitable without its session-close legs.
@@ -331,3 +333,4 @@ Every number above comes out of the stored campaign databases and the campaign t
 
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#360]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/360
+[#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
