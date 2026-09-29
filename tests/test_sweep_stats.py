@@ -1144,6 +1144,31 @@ def test_best_can_be_narrowed_to_one_sweep(db) -> None:
     assert set(just_one["sweep_id"]) == {1}
 
 
+def test_best_ranks_by_the_statistic_it_is_given(db: Path) -> None:
+    """A statistic other than the default reorders the shortlist rather than being ignored."""
+    save(db, results_frame=fake_results().assign(net_pnl=[900.0, 500.0, 40.0]))
+    top = results.best(by="net_pnl", top=5, min_trades=30, db_path=db)
+    assert list(top["combo_id"]) == [0, 1]
+
+
+def test_best_refuses_a_column_that_is_not_a_statistic_and_names_the_valid_ones(db: Path) -> None:
+    """A typo reads as an unknown statistic with the choices listed, not a DuckDB parse error."""
+    save(db)
+    with pytest.raises(results.ResultsError, match="profit_facter") as refused:
+        results.best(by="profit_facter", db_path=db)
+
+    for name in stats.Summary.columns():
+        assert name in str(refused.value)
+
+
+def test_best_refuses_sql_in_its_ordering_before_opening_the_database(db: Path) -> None:
+    """An ORDER BY fragment that would have run is refused, and no database file is created."""
+    with pytest.raises(results.ResultsError):
+        results.best(by="trades DESC, profit_factor", db_path=db)
+
+    assert not db.exists()
+
+
 def test_the_axis_columns_arrive_at_connect_and_every_other_column_at_its_first_insert(db) -> None:
     """The distinction ``AXIS_COLUMNS`` still makes now that nothing is dropped.
 
