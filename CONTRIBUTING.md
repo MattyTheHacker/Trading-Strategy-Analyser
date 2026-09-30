@@ -296,7 +296,7 @@ Two things to know:
 - **One piece of work is one pull request, kept as small as that allows.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`. Do not widen it to fix an unrelated problem, including one the documentation review below turns up — raise an issue for it instead.
 - **Use labels to accurately describe what areas the PR covers.**
 - **PRs should have a linked issue in most cases**, so that additional reasonings and explanations can be placed there instead of in the PR body. This can be excepted though, for example simple version bumps or simple documentation updates.
-- **A PR merges itself once approved.** Auto-merge (squash) switches on once it is open and out of draft, and the `sync` label it gets on opening keeps its branch up to date with `main`. Adding the `ready to merge` label approves a PR opened by the repository owner, and it then merges when the checks pass.
+- **A PR merges itself once approved.** Auto-merge (squash) switches on once it is open and out of draft, and the `sync` label it gets on opening keeps its branch up to date with `main`.
 
 ### Keep the docs and issues current
 
