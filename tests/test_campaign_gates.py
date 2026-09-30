@@ -22,7 +22,7 @@ import pytest
 
 from nqbt import archetypes, propaccount, stats
 from nqbt.sim.types import InsideBarParams, InsideBarTrailingParams
-from tests.test_campaign_sizing import sized
+from tests.test_campaign_sizing import sized, sized_insidebar
 from tests.test_insidebartrailing_sim import walk_bars
 from tools import campaign_gates, campaign_holdout, campaign_paired, campaign_sizing, campaign_swept
 from tools.campaign_exits import measure
@@ -624,12 +624,37 @@ def test_a_re_run_an_earlier_run_wrote_is_not_written_again(on_the_walk) -> None
     assert "exclusion" in tables
 
 
-def test_a_null_asked_of_an_archetype_it_cannot_read_is_refused(on_the_walk) -> None:
-    rows = shortlisted_rows()
-    unsized = Task(**{**a_task(rows).__dict__, "name": "InsideBar"})
-    run = Rerun(0, InsideBarParams(), {}, pd.DataFrame(), None, True)
-    with pytest.raises(TypeError, match="InsideBarTrailing's sizes alone"):
-        campaign_gates.nulled(unsized, run)
+def insidebar_rows() -> pd.DataFrame:
+    """Return two InsideBar configurations sized on a count, whose contexts differ."""
+    rows = []
+    for combo_id, fields in ((3, {"atr_length": 14}), (4, {"atr_length": 10, "order_quantity": 6})):
+        rows.append(
+            {
+                "sweep_id": 9,
+                "combo_id": combo_id,
+                "root": "MNQ",
+                "resolution": 1,
+                "stratum": UNFILTERED,
+                "variant": "bracket size=confluence",
+                "window": "holdout",
+                "profit_factor": 1.1,
+                "trades": 0,
+                "net_pnl": 0.0,
+                **dataclasses.asdict(sized_insidebar(**fields)),
+            },
+        )
+
+    return pd.DataFrame(rows)
+
+
+def test_the_null_reads_an_archetype_beyond_insidebartrailing_as_campaign_sizing_does(on_the_walk) -> None:
+    rows = insidebar_rows()
+    task = a_task(rows, name="InsideBar", arm="bracket size=confluence", strata=reading("null"))
+    table = run_task(task)["null"]
+    theirs = campaign_sizing.null_for_shortlist(
+        rows, "MNQ", by="profit_factor", draws=3, seed=0, archetype=archetypes.INSIDEBAR
+    )
+    pd.testing.assert_frame_equal(table.drop(columns=["root", "variant"]), theirs)
 
 
 def test_a_stratum_gate_4_and_prop_do_not_read_is_re_run_for_the_null_alone(on_the_walk) -> None:

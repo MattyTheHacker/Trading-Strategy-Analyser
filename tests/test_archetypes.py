@@ -65,6 +65,7 @@ def test_registering_a_duplicate_name_is_refused() -> None:
         run=archetypes.DEADCATBOUNCE.run,
         legs=archetypes.DEADCATBOUNCE.legs,
         signal=archetypes.DEADCATBOUNCE.signal,
+        long_side=archetypes.DEADCATBOUNCE.long_side,
         tier2=Tier2Status.TIER1_ONLY,
     )
     with pytest.raises(ArchetypeError, match="already registered"):
@@ -143,6 +144,7 @@ def test_sweepable_sees_inherited_fields_that_slots_would_hide() -> None:
         run=archetypes.DEADCATBOUNCE.run,
         legs=archetypes.DEADCATBOUNCE.legs,
         signal=archetypes.DEADCATBOUNCE.signal,
+        long_side=archetypes.DEADCATBOUNCE.long_side,
         tier2=Tier2Status.NOT_CHECKED,
         not_sweepable=frozenset(),
     )

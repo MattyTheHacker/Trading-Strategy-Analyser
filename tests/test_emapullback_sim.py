@@ -552,7 +552,7 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
     force_flat = np.zeros(n, dtype=np.bool_)
     force_flat[list(force_flat_at)] = True
     levels = np.broadcast_to(np.asarray(stop_level, dtype=np.float64), (n,)).copy()
-    quantities = np.ones(len(targets), dtype=np.int64)
+    sizing = emapullback.bracket.fixed_sizing((1,) * len(targets), n)
     out = emapullback.bracket.allocate_output(max(int(signal.sum()), 1), len(targets))
 
     count = emapullback.simulate_confirmation(
@@ -563,7 +563,7 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
             levels,
             crossover.NO_TRAIL if trail_ma is None else np.asarray(trail_ma, dtype=np.float64),
         ),
-        quantities,
+        sizing,
         np.asarray(targets, dtype=np.float64),
         emapullback.bracket.Costs(TICK, MNQ.point_value, 0.0, slippage),
         emapullback.bracket.FillRules(fill_limit_on_touch=True, ambiguity_policy=1, round_targets=True),

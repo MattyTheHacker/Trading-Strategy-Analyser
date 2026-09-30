@@ -155,19 +155,19 @@ Other `campaign_*.py` scripts take up narrower questions. Among them, `campaign_
 
 An **archetype** is one strategy's shape, not one set of its settings. Changing a number gives you another run of the same archetype; changing the logic gives you a new one. Add new ones to [nqbt/archetypes.py](nqbt/archetypes.py) rather than copying the sweep code.
 
-| archetype           | what it does                                                          | checked against NinjaTrader?                    |
-| ------------------- | --------------------------------------------------------------------- | ----------------------------------------------- |
-| `DeadCatBounce`     | sells a failed bounce during a downtrend                              | yes                                             |
-| `PullBackAndGo`     | the same idea upside down: buys a dip during an uptrend               | yes                                             |
-| `InsideBar`         | trades a breakout from a quiet bar, whichever way it breaks           | yes                                             |
-| `InsideBarTrailing` | the same entry, but half the position runs with a trailing stop       | yes, at a fixed split; sizing per signal is not |
-| `EmaCrossover`      | the textbook moving-average cross, kept as a known-bad control        | no                                              |
-| `ElasticBand`       | fades a move that has stretched too far, expecting a snap back        | no                                              |
-| `OpeningRange`      | trades a break out of the range set in the first minutes of the day   | no                                              |
-| `EmaPullback`       | trades an `EmaCrossover`, waiting for a pullback to the fast MA first | no                                              |
-| `SqueezeBreakout`   | trades a break out of a stretch where the range was unusually narrow  | no                                              |
+| archetype           | what it does                                                          | checked against NinjaTrader? |
+| ------------------- | --------------------------------------------------------------------- | ---------------------------- |
+| `DeadCatBounce`     | sells a failed bounce during a downtrend                              | yes                          |
+| `PullBackAndGo`     | the same idea upside down: buys a dip during an uptrend               | yes                          |
+| `InsideBar`         | trades a breakout from a quiet bar, whichever way it breaks           | yes                          |
+| `InsideBarTrailing` | the same entry, but half the position runs with a trailing stop       | yes                          |
+| `EmaCrossover`      | the textbook moving-average cross, kept as a known-bad control        | no                           |
+| `ElasticBand`       | fades a move that has stretched too far, expecting a snap back        | no                           |
+| `OpeningRange`      | trades a break out of the range set in the first minutes of the day   | no                           |
+| `EmaPullback`       | trades an `EmaCrossover`, waiting for a pullback to the fast MA first | no                           |
+| `SqueezeBreakout`   | trades a break out of a stretch where the range was unusually narrow  | no                           |
 
-**That last column is load-bearing.** A *yes* means the Python was compared exit by exit against a real Strategy Analyzer export and matched it. A *no* means the rules are written down and believed but never verified, because no NinjaScript version exists yet. The status appears in the results table on purpose, so a verified strategy is never silently compared against an unverified one.
+**That last column is load-bearing.** A *yes* means the Python was compared exit by exit against a real Strategy Analyzer export and matched it, at a fixed size: sizing each trade by the context it was taken in is Python only, on every archetype, and a result that uses it is stored as unverified. A *no* means the rules are written down and believed but never verified, because no NinjaScript version exists yet. The status appears in the results table on purpose, so a verified strategy is never silently compared against an unverified one.
 
 Every archetype writes only the entry half. All the exits go through one shared piece of code, [nqbt/sim/bracket.py](nqbt/sim/bracket.py), which handles the stop loss, up to four profit targets, the awkward case of one bar containing both, and the forced close at the end of the session. They all apply the same six market filters too, in [nqbt/sim/filters.py](nqbt/sim/filters.py), after their own conditions.
 

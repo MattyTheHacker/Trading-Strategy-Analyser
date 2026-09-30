@@ -179,7 +179,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
     signal: BoolArray,
     direction_at: FloatArray,
     band: BandSeries,
-    leg_quantities: IntArray,
+    sizing: bracket.Sizing,
     target_levels: FloatArray,
     costs: bracket.Costs,
     fills: bracket.FillRules,
@@ -190,12 +190,13 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
 
     ``signal`` marks bars whose close schedules an entry for the next bar's open and
     ``direction_at`` gives the side to fade on every bar -- ``LONG`` below the basis. The two
-    are separate so the random-entry arm can substitute only the first.
+    are separate so the random-entry arm can substitute only the first. ``sizing`` names the
+    size each signal bar's entry takes.
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
     n = bars.close.size
-    n_legs = leg_quantities.size
+    n_legs = sizing.quantities.shape[1]
     slippage = bracket.slippage_points(costs)
     min_risk = STOP_MIN_TICKS * costs.tick_size
 
@@ -216,7 +217,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
-        leg_quantities,
+        np.zeros(n_legs, dtype=np.int64),
     )
 
     for i in range(n):
@@ -281,6 +282,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                 stop = candidate_stop
                 entry_extreme = band.excursion_extreme[pending_bar]
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                bracket.size_legs(legs, sizing, pending_bar)
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     if np.isnan(target_levels[leg]):
@@ -408,6 +410,14 @@ def fade_direction(stretch: FloatArray) -> FloatArray:
     Defined on every bar, so the random-entry arm can drop a signal anywhere.
     """
     return np.where(stretch < 0.0, trades.LONG, trades.SHORT).astype(np.float64)
+
+
+def elasticband_long_side(data: Dataset, params: ElasticBandParams) -> BoolArray:
+    """Return the bars one combination would fade long: those below the basis."""
+    _, _, stretch = band_series(data, params)
+    long_side: BoolArray = fade_direction(stretch) == trades.LONG
+
+    return long_side
 
 
 def beyond_band(stretch: FloatArray, params: ElasticBandParams) -> BoolArray:
@@ -578,17 +588,17 @@ def elasticband_legs(
         extremes = lagged(extremes, 1)
 
     signal = elasticband_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, direction_at == trades.LONG)
     levels: FloatArray = np.asarray(params.target_levels, dtype=np.float64)
     atr: FloatArray = data.atr_values(params.atr_period) if params.stop_mode == STOP_ATR else NO_ATR
-    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 
     count: int = simulate_elasticband(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         direction_at,
         BandSeries(basis=basis, stddev=stddev, excursion_extreme=extremes, atr=atr),
-        quantities,
+        sizing,
         levels,
         bracket.Costs(
             tick_size=instrument.tick_size,

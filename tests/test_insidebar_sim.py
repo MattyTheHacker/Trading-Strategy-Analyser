@@ -74,7 +74,7 @@ def simulate(
         signal,
         direction_at,
         np.full(n, atr, dtype=np.float64) if np.isscalar(atr) else np.asarray(atr, dtype=np.float64),
-        np.asarray(quantities, dtype=np.int64),
+        bracket.fixed_sizing(tuple(quantities), len(signal)),
         bracket.Costs(TICK, instrument.point_value, commission, slippage),
         bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         insidebar.InsideBarRules(

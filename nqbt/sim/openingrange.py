@@ -34,7 +34,7 @@ from nqbt.sim.types import (
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray, IndexArray
     from nqbt.context import Dataset
     from nqbt.sim.types import OpeningRangeParams
     from nqbt.trades import LegMatrix
@@ -238,7 +238,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     bars: bracket.Bars,
     signal: BoolArray,
     ranges: RangeSeries,
-    leg_quantities: IntArray,
+    sizing: bracket.Sizing,
     target_levels: FloatArray,
     costs: bracket.Costs,
     fills: bracket.FillRules,
@@ -249,12 +249,13 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
     ``signal`` marks bars that may submit an order -- every bar whose session range is
     complete, narrowed by the context filters. The same trigger is resubmitted on each of
-    them, which is a resting order -- ``docs/roadmap.md`` § "Route 3".
+    them, which is a resting order -- ``docs/roadmap.md`` § "Route 3". Each resubmission takes
+    the ``sizing`` row of the bar that made it.
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
     n = bars.close.size
-    n_legs = leg_quantities.size
+    n_legs = sizing.quantities.shape[1]
     direction = rules.direction
     slippage = bracket.slippage_points(costs)
     min_risk = STOP_MIN_TICKS * costs.tick_size
@@ -278,7 +279,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
-        leg_quantities,
+        np.zeros(n_legs, dtype=np.int64),
     )
 
     for i in range(n):
@@ -344,6 +345,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
                 )
                 stop = pending_stop
                 excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                bracket.size_legs(legs, sizing, pending_bar)
                 for leg in range(n_legs):
                     legs.is_open[leg] = True
                     if np.isnan(target_levels[leg]):
@@ -487,6 +489,11 @@ def follow_through_scale(data: Dataset, params: OpeningRangeParams) -> FloatArra
     return data.range_follow_through_scale(params.range_key, params.follow_through_sessions)
 
 
+def openingrange_long_side(data: Dataset, params: OpeningRangeParams) -> BoolArray:
+    """Return the bars one combination would enter long: every one or none, since the side is a parameter."""
+    return np.full(len(data), params.direction == trades.LONG, dtype=np.bool_)
+
+
 def openingrange_legs(
     data: Dataset,
     params: OpeningRangeParams,
@@ -501,11 +508,11 @@ def openingrange_legs(
     """
     key = params.range_key
     signal = openingrange_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, openingrange_long_side(data, params))
     levels: FloatArray = np.asarray(params.target_levels, dtype=np.float64)
     atr: FloatArray = data.atr_values(params.atr_period) if params.stop_mode == ORB_STOP_ATR else NO_ATR
     scale: FloatArray = follow_through_scale(data, params)
-    out: FloatArray = bracket.allocate_output(entry_bound(data, params, signal), quantities.size)
+    out: FloatArray = bracket.allocate_output(entry_bound(data, params, signal), sizing.quantities.shape[1])
 
     count: int = simulate_openingrange(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
@@ -518,7 +525,7 @@ def openingrange_legs(
             scale=scale,
             atr=atr,
         ),
-        quantities,
+        sizing,
         levels,
         bracket.Costs(
             tick_size=instrument.tick_size,

@@ -19,7 +19,7 @@ from nqbt.sim import bracket, deadcat, filters
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray
     from nqbt.context import Dataset
     from nqbt.sim.types import PullBackAndGoParams
     from nqbt.trades import LegMatrix
@@ -49,6 +49,11 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> BoolArray:
     return filters.apply_context_filters(signal, data, params)
 
 
+def pullback_long_side(data: Dataset, _params: PullBackAndGoParams) -> BoolArray:
+    """Return the bars one combination would enter long: every one, since ``PullBackAndGo.cs`` only buys."""
+    return np.ones(len(data), dtype=np.bool_)
+
+
 def pullbackandgo_legs(
     data: Dataset,
     params: PullBackAndGoParams,
@@ -63,14 +68,14 @@ def pullbackandgo_legs(
     ``simulate_deadcat`` itself.
     """
     signal = pullback_signal(data, params) if signal is None else signal
-    quantities: IntArray = np.asarray(params.leg_quantities, dtype=np.int64)
+    sizing: bracket.Sizing = filters.confluence_sizing(data, params, pullback_long_side(data, params))
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
-    out: FloatArray = bracket.allocate_output(int(signal.sum()), quantities.size)
+    out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
 
     count: int = deadcat.simulate_deadcat(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
-        quantities,
+        sizing,
         targets,
         bracket.Costs(
             tick_size=instrument.tick_size,

@@ -589,7 +589,7 @@ Net P&L over the joined legs agrees exactly on all three: −8,913.00, −10,510
 
 **Two rules that choose an entry's split at its signal bar, and neither is in the reconciled NinjaScript.** `InsideBarTrailing.cs` computes `firstLotQuantity` and `secondLotQuantity` once, in `State.DataLoaded`, so every entry takes the same split; both rules below compute them per signal instead. Everything in §M23 still describes the archetype — the entry, both lots' exit engines, the `-200` gate and the trend violation — and with both rules off the split is the one the C# computes. **The trade-log gate could not confirm that when the rules landed** — it captured DeadCatBounce alone until #376, and now captures InsideBarTrailing at its defaults, where both rules are off — so the InsideBar and InsideBarTrailing reconciliations were the real-data check. **Run on the base commit and on the change, all four came back identical** — InsideBar 969 of 969, InsideBarTrailing 1,522 joined, the midday configuration 68 of 68 — `docs/findings/m45-ibt-sizing-result.md` § "The change moved nothing it was not meant to". **A row using either rule is `TIER1_ONLY`** whatever the archetype's status says, through `Archetype.departs_from_port`, until a trade list has been diffed against a C# that implements it.
 
-**The sizes are decided at the signal bar's close, in `OnBarUpdate`.** That is the only place the managed approach lets a quantity be chosen — `EnterLong(0, quantity, "entry1")` takes it as an argument — so the port reads the split at the signal bar and never at the fill bar, whose close is still in the future when the order goes in. The Python holds every split a combination can take as a table, `InsideBarTrailingParams.lot_table`, and each bar's row in `insidebartrailing.LotSizing`; the loop copies the signal bar's row into the lots at the fill.
+**The sizes are decided at the signal bar's close, in `OnBarUpdate`.** That is the only place the managed approach lets a quantity be chosen — `EnterLong(0, quantity, "entry1")` takes it as an argument — so the port reads the split at the signal bar and never at the fill bar, whose close is still in the future when the order goes in. The Python holds every split a combination can take as a table, `InsideBarTrailingParams.lot_table`, and each bar's row in `bracket.Sizing`; the loop copies the signal bar's row into the lots at the fill.
 
 **The `-200` gate reads the trade's own size.** It is currency on the whole open position, so a larger split reaches it after a smaller move — the NQ-against-MNQ arithmetic of §M23, now varying trade by trade. `GetUnrealizedProfitLoss` does the same, so nothing new is inferred.
 
@@ -630,6 +630,57 @@ bool early = Math.Abs(Close[0] - smaSlow[0]) / ATR(ATRLength)[0] <= EarlyMaxExte
 **A bar a label cannot classify counts as not favourable**, as `annotate.confluence` counts it. **None of the five exists in NT8**: the trend, regime, volume and higher-timeframe labels are this project's — "So are the regime labels (#40)" and its neighbours below — and the session VWAP has not been checked against `OrderFlowVWAP`, which is why PullBackAndGo's `use_vwap` stays off. A port of this rule is a port of every label it counts, and each needs its own pin before the size can be reconciled.
 
 **A step and a label, both or neither.** `quantity_per_confluence` above zero with no label, or a label with no step, sizes every trade the same, and the parameter class refuses it rather than run a duplicate of fixed size.
+
+§M47 carries this size to every archetype. The table above is InsideBarTrailing's, whose regime and volume labels read the expansion thesis there.
+
+### M47 — the confluence size on every archetype, written before any sweep (#295)
+
+**§M45's confluence size, generalised from InsideBarTrailing to the whole registry.** Every parameter class carries `quantity_per_confluence`, §M45's five `size_on_*` labels and `size_symmetric`. Every entry loop reads a per-signal size table in place of the fixed split. `bracket.Sizing` holds every per-leg split a combination can take and the row each bar takes, and `bracket.size_legs` copies the **signal** bar's row into the legs at the fill. The bracket engine is unchanged, because `write_leg` has always read each leg's own quantity. **With the size off the table is the one fixed split**, which is each NinjaScript as ported. **Run on the base commit and on the change**, the trade-log gate returned `ALL PRE-EXISTING COLUMNS IDENTICAL` under `--added` for the seven new parameter columns, and the seven stored reconciliations produced identical output: DeadCatBounce, PullBackAndGo, InsideBar, and InsideBarTrailing's default, trading-window, ported and regression exports. The gate then saw DeadCatBounce's loop alone (#376), so every archetype's campaign variants were also run on the last two years of MNQ at three combinations each. All 81 leg matrices, 281,641 legs, were identical to the base commit's. **Once #376 put every archetype's loop in the gate at its defaults**, it returned the same verdict over all 22 of its files.
+
+**Each reconciled NinjaScript can express it, because each already passes a quantity per signal.** `DeadCatBounce.cs` and `PullBackAndGo.cs` split `orderQuantity` in `OnBarUpdate`, at the signal bar: `baseQuantity = orderQuantity / 4`, the remainder on the fourth entry. Each entry's size then goes to its own `EnterShortStopMarket` or `EnterLongStopMarket`. `InsideBar.cs` passes `OrderQuantity` to one `EnterLong` or `EnterShort`. A port replaces the fixed quantity there with the signal's own and keeps the existing split:
+
+```csharp
+int quantity = Math.Max(4, orderQuantity + 4 * QuantityPerConfluence * count);  // four entries, one per target
+int baseQuantity = quantity / 4;
+int remainder = quantity % 4;
+```
+
+**A row using the size is `TIER1_ONLY`** on all three and on InsideBarTrailing, through `Archetype.departs_from_port`. The originals are `TIER1_ONLY` already.
+
+**A label adds or removes one step on every leg, so the position scales without changing shape.** On every archetype but InsideBarTrailing, `quantity_per_confluence` is contracts per leg per label. So a four-target bracket at four contracts gains four per favourable label, one at each target, rather than one on the runner; `Trading-Docs` §10 takes a position off in equal pieces, one at each target. `leg_size_table` moves the total by `legs × step × count` and applies the fixed split to it, so the remainder stays on the last leg. **InsideBarTrailing keeps §M45's rule**: the step is added to the whole position before its split, which already scales both lots.
+
+**Add-only or symmetric.** With `size_symmetric` off, a step is added for each label favouring the trade. With it on, a step is also removed for each label opposing it, so the count runs from minus every label to plus every label. **No row falls below the smallest position the bracket takes**: one contract per leg, or on InsideBarTrailing the smallest total whose split leaves both lots non-empty. That floor is a clip, and the size table shows it. **A symmetric size whose base is already at that floor is refused**, because it can remove nothing and would be the add-only size under another name. The parameter class refuses it, and so does `Grid` before any combination runs. Every four-target bracket at four contracts is therefore add-only.
+
+**When a label favours or opposes the trade:**
+
+| label             | favours                                       | opposes           | neither                                        |
+| ----------------- | --------------------------------------------- | ----------------- | ---------------------------------------------- |
+| trend             | `UP` for a long, `DOWN` for a short           | the other         | `MIXED`, or a bar the label cannot classify    |
+| higher timeframe  | close `ABOVE` for a long, `BELOW` for a short | the other         | `AT`, or a bar no coarse bar has closed before |
+| VWAP              | close above for a long, below for a short     | the other         | none                                           |
+| regime and volume | the state the archetype's thesis names        | the other extreme | the middle state, or an unclassifiable bar     |
+
+A close exactly on the VWAP both favours and opposes the trade, because each C# boundary counts equality as a pass. So it adds a step when add-only and nets to nothing when symmetric.
+
+**The thesis is a property of the archetype, `sizing_thesis`, and not a parameter.** Each entry is one of three kinds, decided from `Trading-Docs` before any sweep:
+
+| archetype                         | thesis    | regime favoured | volume favoured | why                                                                                                   |
+| --------------------------------- | --------- | --------------- | --------------- | ----------------------------------------------------------------------------------------------------- |
+| DeadCatBounce                     | pullback  | `DIRECTIONAL`   | `THIN`          | a short into a bounce inside a downtrend; a healthy trend's counter-moves come on light volume, §6 Q2 |
+| PullBackAndGo                     | pullback  | `DIRECTIONAL`   | `THIN`          | its long-side mirror                                                                                  |
+| EmaPullback                       | pullback  | `DIRECTIONAL`   | `THIN`          | a pullback to the fast average inside a trend                                                         |
+| EmaCrossover                      | expansion | `DIRECTIONAL`   | `HEAVY`         | a trend change taken at the cross, which wants participation behind it                                |
+| InsideBar, InsideBarTrailing      | expansion | `DIRECTIONAL`   | `HEAVY`         | a break of the mother bar with the three averages; §M45's rule, unchanged                             |
+| SqueezeBreakout                   | expansion | `DIRECTIONAL`   | `HEAVY`         | a break out of a compressed window                                                                    |
+| OpeningRange, breakout and retest | expansion | `DIRECTIONAL`   | `HEAVY`         | expansion is price leaving the range and trading there, §6 Q4                                         |
+| OpeningRange, fade and rejection  | rotation  | `CONSOLIDATING` | `THIN`          | trading back from the far extreme, which is §M28.5's own thesis                                       |
+| ElasticBand                       | rotation  | `CONSOLIDATING` | `THIN`          | a fade to the mean wants two-way trade (§6 Q4) and an extreme nobody is pressing (§6 Q2)              |
+
+**Two of those volume choices meet measurements already on record, and they point different ways.** On EmaPullback, `HEAVY` was a cost at every fitted cut (§M36), which agrees with the pullback thesis. On ElasticBand the sign belongs to the channel (§M33): `HEAVY` is a cost on the VWAP band and a benefit on the Bollinger band. The campaign grid uses the Bollinger band, so there the rotation thesis's volume choice runs against the evidence. The theses come from `Trading-Docs` and not from those results. For those two archetypes the volume label's held-out test is not independent of what was seen, and `docs/findings/m47-confluence-sizing-preregistration.md` says so beside the bar.
+
+**The size is read at the bar whose close submitted the order that fills.** On every loop but two that is the bar before the fill. EmaPullback's confirmation entry remembers the bar that submitted its resting order, and a later signal on the same side resubmits it at that bar's size. OpeningRange and SqueezeBreakout resubmit their order at every close, so the order that fills carries the size of the close before it.
+
+**None of the labels exists in NT8** (§M45), so porting any of this means porting every label it counts.
 
 ### M26 — the elastic band rules, written before the Python (#167, #168)
 

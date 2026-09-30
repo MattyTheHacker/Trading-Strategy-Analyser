@@ -59,7 +59,7 @@ Both roots, the spliced continuous series, resolutions 1/2/5/10/15, at the root'
 
 **`--n-jobs` is applied to each sweep call**, one per (variant x stratum), and a call smaller than `SERIAL_BELOW_COMBINATION_BARS` (combinations x bars) stays in-process whatever it asks for, because below that a pool costs more than its workers return -- `docs/roadmap.md` § "A sweep call's worker count".
 
-**One database per archetype**, under `results/campaign/`. A convention rather than a constraint since `_append_or_create` learned to widen a table instead of dropping what it does not recognise -- `docs/roadmap.md` §M27. Rows carry their variant's own name, so a re-sweep lands in the same database as the campaign it follows and stays separable: pass `--variant <name>` to the reading tools. **Run each variant set once per database** -- a second pass appends a second copy of every row, and `tools/campaign_holdout.py` pairs the windows one-to-one.
+**One database per archetype**, under `results/campaign/`. A convention rather than a constraint since `_append_or_create` learned to widen a table instead of dropping what it does not recognise -- `docs/roadmap.md` §M27. Rows carry their variant's own name, so a re-sweep lands in the same database as the campaign it follows and stays separable: pass `--variant <name>` to the reading tools. **A cell already stored is skipped**, keyed by variant, stratum, root, resolution and window, and one stored on other bars is refused: no reading tool de-duplicates, and `tools/campaign_holdout.py` pairs the windows one-to-one, so a second copy of a cell would be counted twice. A pass interrupted part-way is resumed by running it again. **The skip compares the bars alone**, not the grid, the costs or the code that produced the rows, so every skip is logged as a warning; a cell re-run after any of those changed has to be moved aside or run under another name.
 
 **Commission is per root and never one figure for both sizes**: the point value differs tenfold and the commission does not, so MNQ's number applied to NQ flatters it. The micros take MNQ's figure and the full-size roots take NQ's -- `docs/roadmap.md` § "Commission on the roots beyond NQ".
 
@@ -103,6 +103,7 @@ Some groups **re-cut** a dimension another group already owns, so `--strata all`
 | `emapullback-trail`   | EmaPullback's stored grid with its stop fixed, and trailed on the slow average that placed it                                                                    | `docs/findings/m37-ema-pullback-trail-on-slow.md`                 |
 | `emapullback-confirm` | EmaPullback's market entry against its confirmation entry at two order lifetimes, both kind axes held at `ema`                                                   | `docs/findings/m39-ema-pullback-confirmation-entry.md`            |
 | `ibt-sizing`          | InsideBarTrailing's stored grid with its split held, crossed with a quantity axis, once per sizing arm, over the cuts `tools/campaign_sizing.py fit` wrote first | `docs/findings/m45-ibt-sizing-preregistration.md`                 |
+| `confluence-sizing`   | the confluence size on every archetype: each stored grid once per arm, the regime and volume strata cut at the fit's own thresholds                              | `docs/findings/m47-confluence-sizing-preregistration.md`          |
 
 ```bash
 ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants narrow --strata narrow --split --regime-quantiles --n-jobs 8
@@ -112,6 +113,8 @@ Some groups **re-cut** a dimension another group already owns, so `--strata all`
 ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-confirm --split --strata emapullback-confirm --resolutions 2 5 10 15 --n-jobs 12
 ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
 ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
+./.venv/Scripts/python.exe tools/campaign_sizing.py fit --strategy ElasticBand --resolutions 2 5 10 15
+./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies ElasticBand --variants confluence-sizing --split --strata confluence-sizing --resolutions 2 5 10 15
 ```
 
 #### Why the grids look the way they do
@@ -132,6 +135,7 @@ Some groups **re-cut** a dimension another group already owns, so `--strata all`
 - **`hold`.** The ladder `(0, 5, 10, 20, 40, 80)` is a **bar count, not a duration** -- 20 bars is 20 minutes at one resolution and five hours at fifteen -- so it is never read pooled across resolutions. Its top is deliberately past where the session flatten binds at coarse resolutions: an arm that cannot bind has to read as its control. The axes are otherwise §M27's, so every arm holds the same number of combinations and the comparison is paired, and the `hold=0` arm is also the check that generalising the cap moved nothing. `max_hold_bars` is dropped from the axes, because ElasticBand sweeps it at `[0, 30]` and an axis beats the base it is crossed with -- leaving it would run six identical arms and report the ladder as inert. Every name carries a `hold=` token no stored row has.
 - **`emapullback-trail` and `emapullback-confirm`.** The `trail=off` arm is §M35's grid under a name no stored row carries, so it is both the control and the check that adding the mode moved no stored row. The confirmation run holds both kind axes at `ema`, since §M35 measured them as inert and inverting across the split, which keeps three arms inside §M35's run time.
 - **`ibt-sizing`.** Every sizing arm crosses contract counts `[3, 4, 6, 8]`. Three is the floor because a quarter and a half both round up to one lot of two contracts, and every tier would run as its own control there -- `docs/nt8-fidelity.md` §M45.
+- **`confluence-sizing`.** Each stored variant runs once per arm over its own axes -- the control, every kept label together, each alone, and the together arm symmetric where the base can shed a step -- so an arm and its control pair cell by cell. InsideBarTrailing's arms are §M45's nine and the new ones, on §M45's grid. The regime and volume cells take the fit's thresholds under names carrying the cut, and the sweep refuses the raw `volume` group, which would carry the fitted cut under the raw name -- `docs/findings/m47-confluence-sizing-preregistration.md`.
 
 ### rerun_sweeps.py
 
@@ -418,17 +422,17 @@ The cutoffs are 30, 180, 300 and 900 seconds, control first. `30` is what every 
 
 ### campaign_sizing.py
 
-Fits the cuts InsideBarTrailing's sizing arms run at, and reads the confluence size against a null.
+Fits the cuts a confluence size runs at, on every archetype, and reads it against its own sizes shuffled.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
-./.venv/Scripts/python.exe tools/campaign_sizing.py null --root MNQ --resolution 5 --stratum phase=MIDDAY
+./.venv/Scripts/python.exe tools/campaign_sizing.py fit --strategy ElasticBand --resolutions 2 5 10 15
+./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies ElasticBand --variants confluence-sizing --split --strata confluence-sizing --resolutions 2 5 10 15
+./.venv/Scripts/python.exe tools/campaign_sizing.py null --strategy ElasticBand --root MNQ --resolution 5 --variant "target=0.0s size=confluence"
 ```
 
-**Everything `fit` measures comes from the selection window**, so the held-out window reads cuts it had no part in. Each cut is taken at the stored campaign's base configuration over its unfiltered signal and written before any sizing arm runs: the file is the pre-registration of every threshold the arms read -- `docs/findings/m45-ibt-sizing-preregistration.md`. The regime and volume labels are cut at the 20% and 80% quantiles, the campaign's own regime pair and one of its volume tails, so a sizing label and a stratum mean the same thing -- `docs/roadmap.md` §M27.5 and §M27.8. A label favouring more than 90% (or fewer than 10%) of the fitted signals is dropped from the count: near-constant at the signal, it adds the same contract to almost every trade and sorts nothing, as `above_ema_21` did for EmaCrossover -- `docs/findings/confluence-count-per-trade.md`. The share of trades whose signal bar was early is counted over trades taken rather than signals, because a setup arriving while a position is open is never traded.
+**Everything `fit` measures comes from the selection window**, so the held-out window reads cuts it had no part in. Each cut is taken per root, resolution and stored variant, at the variant's base configuration over its unfiltered signal, pooled over the sides the variant sweeps (a variant sweeping `direction` trades both sides of one signal, and a share read on one side alone would be the other's complement), and written before any sizing arm runs: the file is the pre-registration of every threshold the arms read -- `docs/findings/m47-confluence-sizing-preregistration.md`. **A cut already in the file is kept**, so the arms stored against it keep the cut they ran at; one stored before the fit read its symmetric labels gains them at its own thresholds, and nothing else in it moves. InsideBarTrailing is the default strategy, and there the null reads §M45's confluence arm unless `--variant` names another -- `docs/findings/m45-ibt-sizing-preregistration.md`. The regime and volume labels are cut at the 20% and 80% quantiles, the campaign's own regime pair and one of its volume tails, so a sizing label and a stratum mean the same thing -- `docs/roadmap.md` §M27.5 and §M27.8. A label favouring more than 90% (or fewer than 10%) of the fitted signals is dropped from the add-only count: near-constant at the signal, it adds the same contract to almost every trade and sorts nothing, as `above_ema_21` did for EmaCrossover -- `docs/findings/confluence-count-per-trade.md`. The symmetric arm keeps a label unless one step it moves the count by covers more than 90% of the same signals: up where it favours, down where it opposes, none where it does neither. The share of trades whose signal bar was early is counted over trades taken rather than signals, because a setup arriving while a position is open is never traded.
 
-**The shuffled-size null is the control a confluence size needs**, and a matched random entry is not: the entries are the rule's own and only which size each signal took is permuted, so it measures whether the count put the larger sizes on the better trades.
+**The shuffled-size null is the control a confluence size needs**, and a matched random entry is not: the entries are the rule's own and only which size each signal took is permuted, so it measures whether the count put the larger sizes on the better trades. On InsideBarTrailing a size moves the trades, so each shuffle is re-simulated across the signals. Everywhere else it moves only the dollars -- `docs/findings/m46-registry-size-ladder.md` -- so each shuffle permutes the sizes across the trades actually taken and recomputes their money exactly, and both halves of that premise are checked on every configuration before a shuffle is drawn.
 
 ### geometry_contribution.py
 

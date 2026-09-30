@@ -31,7 +31,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nqbt import archetypes, context, logsetup, montecarlo, propaccount, splice, stats
 from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import get_instrument
-from nqbt.sim.types import InsideBarTrailingParams
 from tools import campaign_paired
 from tools.campaign_exits import measure_row
 from tools.campaign_holdout import (
@@ -385,10 +384,6 @@ def run_task(task: Task) -> dict[str, pd.DataFrame]:
 def nulled(task: Task, run: Rerun) -> dict[str, object]:
     """Test one sizing configuration against its sizes shuffled, as ``campaign_sizing.py null`` reads it."""
     row = task.held.iloc[run.position]
-    if not isinstance(run.params, InsideBarTrailingParams):
-        msg: str = f"{task.name}: the shuffled-size null reads InsideBarTrailing's sizes alone"
-        raise TypeError(msg)
-
     result: dict[str, float] = shuffled_null(
         run.data,
         run.params,
@@ -396,6 +391,7 @@ def nulled(task: Task, run: Rerun) -> dict[str, object]:
         by=BY,
         draws=task.draws,
         seed=task.seed + log_key(row)[1],
+        archetype=archetypes.get(task.name),
     )
 
     return {

@@ -110,6 +110,17 @@ class Legs(NamedTuple):
     quantity: IntArray
 
 
+class Sizing(NamedTuple):
+    """Each entry's per-leg sizes: every split a combination can take, and the row each bar takes.
+
+    ``quantities`` is ``[rows, legs]``. ``row_at`` is read at the **signal** bar, whose close
+    submits the order, and never at the fill bar -- ``docs/nt8-fidelity.md`` §M47.
+    """
+
+    quantities: IntArray
+    row_at: IntArray
+
+
 class Excursion(NamedTuple):
     """The high- and low-water marks the position has reached, which MAE and MFE come from."""
 
@@ -303,6 +314,14 @@ def flatten_position(
         legs.is_open[leg] = False
 
     return written
+
+
+@njit(cache=True)
+def size_legs(legs: Legs, sizing: Sizing, signal_bar: int) -> None:
+    """Give every leg the size the signal bar's row names, as the entry fills."""
+    row = sizing.row_at[signal_bar]
+    for leg in range(legs.quantity.size):
+        legs.quantity[leg] = sizing.quantities[row, leg]
 
 
 @njit(cache=True)
@@ -567,6 +586,11 @@ def write_leg(
     out[written, C_AMBIGUOUS] = 1.0 if leg_exit.ambiguous else 0.0
 
     return written + 1
+
+
+def fixed_sizing(leg_quantities: tuple[int, ...], n_bars: int) -> Sizing:
+    """Return one split for every entry: what each NinjaScript does, and every loop with sizing off."""
+    return Sizing(np.asarray([leg_quantities], dtype=np.int64), np.zeros(n_bars, dtype=np.int64))
 
 
 def allocate_output(n_signals: int, n_legs: int = 4) -> FloatArray:

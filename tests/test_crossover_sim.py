@@ -90,7 +90,7 @@ def simulate(
             crossover.NO_TRAIL if trail_ma is None else np.asarray(trail_ma, dtype=np.float64),
             crossover.NO_LEVEL if stop_level is None else np.asarray(stop_level, dtype=np.float64),
         ),
-        np.asarray(quantities, dtype=np.int64),
+        crossover.bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(targets, dtype=np.float64),
         crossover.bracket.Costs(TICK, instrument.point_value, commission, slippage),
         crossover.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),

@@ -108,6 +108,17 @@ class Grid:
                 msg,
             )
 
+        self._refuse_unbuildable_combinations()
+
+    def _refuse_unbuildable_combinations(self) -> None:
+        """Refuse a grid holding a combination its parameter class rejects, before any of them runs."""
+        try:
+            for _ in self.combinations():
+                pass
+        except ValueError as refused:
+            msg: str = f"a combination of this grid cannot be built, so none runs: {refused}"
+            raise SweepError(msg) from refused
+
     def _default_base(self) -> Params:
         """Resolve what ``base`` means when the caller gave none: the first combination, or defaults."""
         if self.combos:

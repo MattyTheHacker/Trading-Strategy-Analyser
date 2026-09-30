@@ -124,8 +124,9 @@ paths:
 - **`dead_axes` knows one inert value per toggle, and `volume_rolling_bars` needs two.** An axis
   may name several toggles and is dead where any one of them is inert everywhere -- EmaPullback's
   third-grid trail axes name `trail_ma_stop` and `trail_on_slow` -- or, named through
-  `archetypes.AnyOf`, dead only where every one of them is: InsideBarTrailing reads a label's axes
-  under its filter *or* its `size_on_*` label. Each toggle is still compared against one value.
+  `archetypes.AnyOf`, dead only where every one of them is: every archetype reads a label's axes
+  under its filter *or* its `size_on_*` label, `archetypes.CONTEXT_GATES`. Each toggle is still
+  compared against one value.
   `volume_rolling_bars` is inert while `volume_filter` admits everything *and*
   at every `volume_form` but `ROLLING`; only the first is caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes
   through `volume.key`** wherever a sweep crosses the form with the window — it drops the window
@@ -299,11 +300,26 @@ paths:
   read comes from `tools/campaign_sizing.py fit` on the selection window alone. Pairs are read
   with `tools/campaign_paired.py --stratum`, because a report row otherwise pools strata.
   `docs/findings/m45-ibt-sizing-preregistration.md`.
+- **`confluence-sizing` is that on every archetype, and its regime and volume strata are the
+  fit's.** Each stored variant runs once per arm over its own axes, and the cut is fitted per
+  root, resolution and variant into one sizing-cuts file per archetype; **a cut already in the file
+  is kept**, so arms stored against it keep the cut they ran at. The symmetric arm counts labels
+  of its own, fitted beside the add-only ones: a cut stored without them gains them at its own
+  thresholds, and the arm refuses a cut that has none. The regime and volume cells take
+  the fit's thresholds under names carrying the cut, and the sweep refuses the raw `volume`
+  group, which would carry the fitted cut under the raw name.
+  `docs/findings/m47-confluence-sizing-preregistration.md`.
 - **`tools/campaign_gates.py` reads a variant set's every cell from one load per archetype.**
   It calls the per-cell tools' own functions, ranks inside one arm, root, resolution and stratum
   as they do when given all four, and re-runs each shortlisted configuration once for every read.
   It opens a database only once the sweep has stopped writing it, because `results.connect`
   opens a file read-write.
+- **The sweep skips any cell already stored, and refuses one stored on other bars.** A cell is a
+  variant, stratum, root, resolution and window; no reading tool de-duplicates, so a second copy
+  would be counted twice. So a run interrupted part-way is resumed by running it again, and a
+  cell whose `sweeps` row names other bars has to be moved aside or renamed first. **It compares
+  the bars alone**, never the grid or the code, so it warns on every skip: a cell re-run after
+  either changed is skipped just the same and has to be moved aside or renamed too.
 - **The `annotations` table widens by name exactly as `combos` does**, so a dataset prepared
   with one more series needs no migration and the earlier rows read null. It is keyed
   `(sweep_id, combo_id, trade_id)` and joined to the other two by `results.create_trade_view`;

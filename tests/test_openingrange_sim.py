@@ -133,7 +133,7 @@ def simulate(
             scale=per_session(scale) if scales is None else np.asarray(scales, dtype=np.float64),
             atr=np.full(n, atr, dtype=np.float64),
         ),
-        np.asarray(quantities, dtype=np.int64),
+        openingrange.bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(levels, dtype=np.float64),
         openingrange.bracket.Costs(TICK, instrument.point_value, commission, slippage),
         openingrange.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),

@@ -33,6 +33,7 @@ from nqbt.sim.types import (
     ORB_SCALE_NONE,
     ORB_STOP_ATR,
     STOP_ATR,
+    ConfluenceSized,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
@@ -110,6 +111,11 @@ MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
     """Return whether any combination actually restricts its entries to some session phases."""
     return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
+
+
+def _sizes_on_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
+    """Return whether some combination sizes on the close's side of the session VWAP."""
+    return any(values.get("size_on_vwap", ()))
 
 
 def _reads_label(
@@ -235,7 +241,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
-        needs_vwap=any(values.get("use_vwap", ())),
+        needs_vwap=any(values.get("use_vwap", ())) or _sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -261,6 +267,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
         atr_periods=tuple(sorted(atr)),
+        needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -285,6 +292,7 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
         needs_time_of_day=_needs_time_of_day(values),
+        needs_vwap=_sizes_on_vwap(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
         compression_keys=_compression_keys(values),
@@ -312,6 +320,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     return ContextSpec(
         band_periods=tuple(sorted(periods)),
         needs_vwap_band=BAND_VWAP in sources,
+        needs_vwap=_sizes_on_vwap(values),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -351,6 +360,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
             ),
         ),
         follow_through_sessions=tuple(sorted(scaled)),
+        needs_vwap=_sizes_on_vwap(values),
         atr_periods=tuple(sorted(atr)),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -387,6 +397,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         volume_keys=_volume_keys(values),
         compression_keys=tuple(sorted({*squeezes, *_compression_keys(values)})),
         window_range_periods=tuple(sorted({int(v) for v in values.get("squeeze_period", ())})),
+        needs_vwap=_sizes_on_vwap(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
     )
@@ -397,12 +408,12 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
     ``needs_ma_values`` because its three gates are strict -- ``docs/nt8-fidelity.md`` §M22. The
     session clock is built only where some combination sets a no-entry window, and the VWAP only
-    where InsideBarTrailing sizes on it.
+    where some combination sizes on it.
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
         atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())})),
-        needs_vwap=any(values.get("size_on_vwap", ())),
+        needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -423,6 +434,7 @@ INERT_AT: Mapping[str, object] = {
     "trend_filter": trend.ALL_TRENDS,
     "higher_timeframe_filter": higher_timeframe.ALL_SIDES,
     "earliness_mode": EARLINESS_OFF,
+    "quantity_per_confluence": 0,
 }
 """The value at which a toggle leaves its axes unread, where that is not simply ``False``.
 
@@ -488,22 +500,36 @@ HIGHER_TIMEFRAME_GATES: Mapping[str, str] = {
 side.
 """
 
+
+def _read_by_filter_or_sizing(gates: Mapping[str, str], sizing_toggle: str) -> dict[str, Gate]:
+    """Return one filter's axes, re-gated so that sizing on the same label also reads them."""
+    return {axis: AnyOf((toggle, sizing_toggle)) for axis, toggle in gates.items()}
+
+
+CONTEXT_GATES: Mapping[str, Gate] = {
+    **_read_by_filter_or_sizing(REGIME_GATES, "size_on_regime"),
+    **_read_by_filter_or_sizing(VOLUME_GATES, "size_on_volume"),
+    **COMPRESSION_GATES,
+    **_read_by_filter_or_sizing(TREND_GATES, "size_on_trend"),
+    **_read_by_filter_or_sizing(HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe"),
+    "size_symmetric": "quantity_per_confluence",
+}
+"""Every archetype's context axes. A label's axes are read under its filter *or* its ``size_on_*``
+label, and ``size_symmetric`` only beside a confluence size -- ``docs/nt8-fidelity.md`` §M47.
+"""
+
 # A period and its kind only matter when the filter reading them is switched on.
-MA_GATES: Mapping[str, str] = {
+MA_GATES: Mapping[str, Gate] = {
     "ema_period": "use_ema",
     "ema_kind": "use_ema",
     "fast_sma_period": "use_fast_sma",
     "fast_sma_kind": "use_fast_sma",
     "slow_sma_period": "use_slow_sma",
     "slow_sma_kind": "use_slow_sma",
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
+    **CONTEXT_GATES,
 }
 
-CROSSOVER_GATES: Mapping[str, str] = {
+CROSSOVER_GATES: Mapping[str, Gate] = {
     "atr_period": "use_atr_stop",
     "atr_stop_multiple": "use_atr_stop",
     "min_bracket_dollars": "use_atr_stop",
@@ -511,11 +537,7 @@ CROSSOVER_GATES: Mapping[str, str] = {
     "trail_ma_period": "trail_ma_stop",
     "trail_offset_ticks": "trail_ma_stop",
     "round_number_offset_ticks": "round_number_points",
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
+    **CONTEXT_GATES,
 }
 """EmaCrossover reads both averages always, so only its exclusive stop modes gate an axis.
 
@@ -531,11 +553,7 @@ EMAPULLBACK_GATES: Mapping[str, Gate] = {
     "trail_ma_period": ("trail_ma_stop", "trail_on_slow"),
     "trail_offset_ticks": ("trail_ma_stop", "trail_on_slow"),
     "trail_on_slow": "trail_ma_stop",
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
+    **CONTEXT_GATES,
 }
 """EmaPullback's gates: the confirmation entry, the trail and the shared context filters.
 
@@ -545,76 +563,52 @@ they name both toggles. Every entry axis is read on every combination --
 """
 
 
-INSIDEBAR_GATES: Mapping[str, str] = {
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
+INSIDEBAR_GATES: Mapping[str, Gate] = {
+    **CONTEXT_GATES,
 }
 """InsideBar reads all three averages and the ATR on every combination, so only the shared
 context filters gate an axis.
 """
 
 
-def _read_by_filter_or_sizing(gates: Mapping[str, str], sizing_toggle: str) -> dict[str, Gate]:
-    """Return one filter's axes, re-gated so that sizing on the same label also reads them."""
-    return {axis: AnyOf((toggle, sizing_toggle)) for axis, toggle in gates.items()}
-
-
 INSIDEBARTRAILING_GATES: Mapping[str, Gate] = {
-    **_read_by_filter_or_sizing(REGIME_GATES, "size_on_regime"),
-    **_read_by_filter_or_sizing(VOLUME_GATES, "size_on_volume"),
-    **COMPRESSION_GATES,
-    **_read_by_filter_or_sizing(TREND_GATES, "size_on_trend"),
-    **_read_by_filter_or_sizing(HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe"),
+    **INSIDEBAR_GATES,
     "early_partial_percentage": "earliness_mode",
     "early_max_extension_atr": "earliness_mode",
     "early_max_trend_bars": "earliness_mode",
 }
-"""InsideBar's map, with a label's axes also read when the confluence size counts that label,
-and the earliness axes read only with a rule on. What this cannot catch: the extension and the
-trend-age cut are each read under one mode alone -- ``docs/nt8-fidelity.md`` §M45.
+"""InsideBar's map, with the earliness axes read only with a rule on. What this cannot catch: the
+extension and the trend-age cut are each read under one mode alone -- ``docs/nt8-fidelity.md``
+§M45.
 """
 
 
 def _sizes_per_signal(params: Params) -> bool:
-    """Return whether a combination sizes its lots per signal, which the reconciled NinjaScript does not."""
-    return isinstance(params, InsideBarTrailingParams) and (
-        params.earliness_mode != EARLINESS_OFF or params.quantity_per_confluence > 0
-    )
+    """Return whether a combination sizes its entries per signal, which no reconciled NinjaScript does."""
+    if isinstance(params, InsideBarTrailingParams) and params.earliness_mode != EARLINESS_OFF:
+        return True
+
+    return isinstance(params, ConfluenceSized) and params.quantity_per_confluence > 0
 
 
-ELASTICBAND_GATES: Mapping[str, str] = {
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
+ELASTICBAND_GATES: Mapping[str, Gate] = {
+    **CONTEXT_GATES,
 }
 """Only the shared context filters gate an axis here; the stop and target axes cannot be gated
 -- ``nqbt/README.md`` § "archetypes.py".
 """
 
 
-OPENINGRANGE_GATES: Mapping[str, str] = {
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
+OPENINGRANGE_GATES: Mapping[str, Gate] = {
+    **CONTEXT_GATES,
 }
 """Only the shared context filters gate an axis here; the stop axes and
 ``follow_through_sessions`` cannot be gated -- ``nqbt/README.md`` § "archetypes.py".
 """
 
 
-SQUEEZE_GATES: Mapping[str, str] = {
-    **REGIME_GATES,
-    **VOLUME_GATES,
-    **COMPRESSION_GATES,
-    **TREND_GATES,
-    **HIGHER_TIMEFRAME_GATES,
+SQUEEZE_GATES: Mapping[str, Gate] = {
+    **CONTEXT_GATES,
 }
 """Only the shared context filters gate an axis here. The squeeze's own axes are read on every
 combination, and the stop axes cannot be gated -- see :data:`OPENINGRANGE_GATES`.
@@ -642,6 +636,9 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
 
     signal: Callable[..., BoolArray]  # type: ignore[explicit-any]  # the signature differs per archetype
     """Compute this archetype's per-bar entry signal from a :class:`Dataset`."""
+
+    long_side: Callable[..., BoolArray]  # type: ignore[explicit-any]  # the signature differs per archetype
+    """Return the bars one combination would enter long, which a sided sizing label is read against."""
 
     gated_by: Mapping[str, Gate] = field(default_factory=lambda: MA_GATES)
     """Axis -> the toggle, or toggles, that have to be on for it to change anything. Feeds
@@ -681,8 +678,12 @@ DEADCATBOUNCE = Archetype(
     run=runner.run_deadcat,
     legs=runner.deadcat_legs,
     signal=runner.deadcat_signal,
+    long_side=runner.deadcat_long_side,
     tier2=Tier2Status.RECONCILED,
+    departs_from_port=_sizes_per_signal,
 )
+"""The first C#-backed port. Sizing per signal is not in its NinjaScript, so a row using it is
+``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M47."""
 
 PULLBACKANDGO = Archetype(
     name="PullBackAndGo",
@@ -690,8 +691,12 @@ PULLBACKANDGO = Archetype(
     run=pullback.run_pullbackandgo,
     legs=pullback.pullbackandgo_legs,
     signal=pullback.pullback_signal,
+    long_side=pullback.pullback_long_side,
     tier2=Tier2Status.RECONCILED,
+    departs_from_port=_sizes_per_signal,
 )
+"""DeadCatBounce's long-side mirror, and the second C#-backed port. A sizing row is ``TIER1_ONLY``
+-- ``docs/nt8-fidelity.md`` §M47."""
 
 EMACROSSOVER = Archetype(
     name="EmaCrossover",
@@ -699,6 +704,7 @@ EMACROSSOVER = Archetype(
     run=crossover.run_crossover,
     legs=crossover.crossover_legs,
     signal=crossover.crossover_signal,
+    long_side=crossover.crossover_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=CROSSOVER_GATES,
     context_for=crossover_context,
@@ -711,6 +717,7 @@ EMAPULLBACK = Archetype(
     run=emapullback.run_emapullback,
     legs=emapullback.emapullback_legs,
     signal=emapullback.emapullback_signal,
+    long_side=emapullback.emapullback_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=EMAPULLBACK_GATES,
     context_for=emapullback_context,
@@ -725,11 +732,14 @@ INSIDEBAR = Archetype(
     run=insidebar.run_insidebar,
     legs=insidebar.insidebar_legs,
     signal=insidebar.insidebar_signal,
+    long_side=insidebar.insidebar_long_side,
     tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBAR_GATES,
     context_for=insidebar_context,
+    departs_from_port=_sizes_per_signal,
 )
-"""The third C#-backed port, diffed leg-for-leg against an MNQ 03-24 trade list."""
+"""The third C#-backed port, diffed leg-for-leg against an MNQ 03-24 trade list. A sizing row is
+``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M47."""
 
 INSIDEBARTRAILING = Archetype(
     name="InsideBarTrailing",
@@ -737,6 +747,7 @@ INSIDEBARTRAILING = Archetype(
     run=insidebartrailing.run_insidebartrailing,
     legs=insidebartrailing.insidebartrailing_legs,
     signal=insidebar.insidebar_signal,
+    long_side=insidebar.insidebar_long_side,
     tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBARTRAILING_GATES,
     context_for=insidebar_context,
@@ -752,6 +763,7 @@ ELASTICBAND = Archetype(
     run=elasticband.run_elasticband,
     legs=elasticband.elasticband_legs,
     signal=elasticband.elasticband_signal,
+    long_side=elasticband.elasticband_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=ELASTICBAND_GATES,
     context_for=elasticband_context,
@@ -766,6 +778,7 @@ OPENINGRANGE = Archetype(
     run=openingrange.run_openingrange,
     legs=openingrange.openingrange_legs,
     signal=openingrange.openingrange_signal,
+    long_side=openingrange.openingrange_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=OPENINGRANGE_GATES,
     context_for=openingrange_context,
@@ -780,6 +793,7 @@ SQUEEZEBREAKOUT = Archetype(
     run=squeeze.run_squeeze,
     legs=squeeze.squeeze_legs,
     signal=squeeze.squeeze_signal,
+    long_side=squeeze.squeeze_long_side,
     tier2=Tier2Status.TIER1_ONLY,
     gated_by=SQUEEZE_GATES,
     context_for=squeeze_context,

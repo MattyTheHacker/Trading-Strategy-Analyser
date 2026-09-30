@@ -119,7 +119,7 @@ def simulate(
             excursion_extreme=series(low.min() if extremes is None else extremes),
             atr=series(atr),
         ),
-        np.asarray(quantities, dtype=np.int64),
+        elasticband.bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(levels, dtype=np.float64),
         elasticband.bracket.Costs(TICK, instrument.point_value, commission, slippage),
         elasticband.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),

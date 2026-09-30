@@ -229,18 +229,29 @@ below and is what you quote; this file is the index, not the record.
   lots resolve through `resolve_brackets` one at a time with the other legs masked out, so the
   engine takes one stop for the whole position exactly as it always has. Deliberate: the
   abstraction gets extracted when a second archetype needs it. `docs/roadmap.md` §M23.
-- **InsideBarTrailing's split is chosen per signal, and read at the signal bar.**
-  `insidebartrailing.LotSizing` is every split a combination can take plus the row each bar
-  takes; the loop copies the signal bar's row into the lots at the fill. **Never read a sizing
+- **Every loop sizes its entry per signal, and reads the size at the signal bar.**
+  `bracket.Sizing` is every per-leg split a combination can take plus the row each bar takes;
+  `bracket.size_legs` copies the signal bar's row into the legs at the fill. **Never read a sizing
   input at the fill bar** -- its close is in the future when the order goes in, and the trade log
-  carries only the fill bar, so `annotate` read there is lookahead. With earliness and the
-  confluence size off the table is the one fixed split. **The trade-log gate runs this loop at
-  its defaults, where both are off**, so it checks the fixed split and never a per-signal one.
-  The `-200` gate reads each trade's own quantity. `docs/nt8-fidelity.md` §M45.
+  carries only the fill bar, so `annotate` read there is lookahead. EmaPullback's confirmation
+  entry reads the bar that submitted its resting order, which is not always the bar before the
+  fill. With the confluence size off, and InsideBarTrailing's earliness off, the table is the one
+  fixed split. **The trade-log gate runs every loop at its defaults, where both are off**, so it
+  checks the fixed split and never a per-signal one. Outside InsideBarTrailing a size
+  moves only the dollars; its `-200` gate reads each trade's own quantity, so there it moves
+  trades too. `docs/nt8-fidelity.md` §M45 and §M47.
+- **A label adds a step on every leg, and a symmetric count stops at one contract per leg.**
+  `leg_size_table` moves the total by `legs x step x count` and applies the fixed split, so the
+  position keeps its shape; InsideBarTrailing adds to the whole position before its split. The
+  floor is a clip, and a symmetric size whose base is already there is **refused** rather than
+  run as add-only -- by the parameter class, and by `Grid` before anything runs.
+  `docs/nt8-fidelity.md` §M47.
 - **The sizing count is not the gating count.** `size_on_*` labels add contracts and narrow no
   entry; `confluence_required` narrows the entry and sizes nothing. The sizing labels read each
-  side's own favourable state -- `filters.favourable_labels` -- where the context filters are
-  side-blind masks, so an `UP` trend filter admits shorts in an uptrend.
+  side's own favourable state -- `filters.label_sides` -- where the context filters are
+  side-blind masks, so an `UP` trend filter admits shorts in an uptrend. **Regime and volume read
+  the archetype's `sizing_thesis`**, so a fade favours a consolidating regime where a breakout
+  favours a directional one.
 - **A trailing stop is not the ratchet.** It follows the high-water mark by a fixed distance;
   the ratchet moves to a lagged bar's extreme. **It advances within its entry bar and at the
   close of every bar after**, which is two cadences and not one — a uniform within-bar rule
