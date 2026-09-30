@@ -145,8 +145,9 @@ def validate_max_hold_bars(max_hold_bars: int) -> None:
 
 @runtime_checkable
 class EarlyExitParams(Protocol):
-    """The conditional early exit's six fields, as one shape."""
+    """The conditional early exit's six fields and the hold cap it competes with, as one shape."""
 
+    max_hold_bars: int
     early_exit_bars: int
     early_exit_below_r: float
     early_exit_minutes_before_close: int
@@ -168,7 +169,40 @@ def active_early_exits(params: EarlyExitParams) -> list[str]:
 
 
 def validate_early_exit(params: EarlyExitParams) -> None:
-    """Refuse an early exit out of range, or a combination switching on more than one rule."""
+    """Refuse an early exit out of range, one that can never fire, or more than one rule at once."""
+    validate_early_exit_ranges(params)
+    active: list[str] = active_early_exits(params)
+    if len(active) > 1:
+        msg: str = (
+            f"at most one early exit may be on, so its exit code can say which fired; this "
+            f"combination switches on {', '.join(active)}"
+        )
+        raise ValueError(msg)
+
+    if params.early_exit_below_r != 0.0 and params.early_exit_bars == 0:
+        msg = (
+            f"early_exit_below_r is {params.early_exit_below_r} but early_exit_bars is 0, so the "
+            f"not-working exit that reads it is off"
+        )
+        raise ValueError(msg)
+
+    reads_losing: bool = params.early_exit_on_regime_change or params.early_exit_on_trend != TREND_EXIT_OFF
+    if params.early_exit_only_if_losing and not reads_losing:
+        msg = (
+            "early_exit_only_if_losing is set but neither the regime exit nor the trend exit is on to read it"
+        )
+        raise ValueError(msg)
+
+    if 0 < params.max_hold_bars <= params.early_exit_bars:
+        msg = (
+            f"early_exit_bars of {params.early_exit_bars} can never fire under max_hold_bars of "
+            f"{params.max_hold_bars}: the hold cap closes the position on that bar or before it"
+        )
+        raise ValueError(msg)
+
+
+def validate_early_exit_ranges(params: EarlyExitParams) -> None:
+    """Refuse an early-exit field outside the values it can take."""
     if params.early_exit_bars < 0:
         msg: str = f"early_exit_bars must be >= 0, got {params.early_exit_bars}"
         raise ValueError(msg)
@@ -184,14 +218,6 @@ def validate_early_exit(params: EarlyExitParams) -> None:
     if params.early_exit_on_trend not in TREND_EXIT_FORMS:
         msg = (
             f"early_exit_on_trend must be one of {sorted(TREND_EXIT_FORMS)}, got {params.early_exit_on_trend}"
-        )
-        raise ValueError(msg)
-
-    active: list[str] = active_early_exits(params)
-    if len(active) > 1:
-        msg = (
-            f"at most one early exit may be on, so its exit code can say which fired; this "
-            f"combination switches on {', '.join(active)}"
         )
         raise ValueError(msg)
 

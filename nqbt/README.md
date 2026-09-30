@@ -48,7 +48,7 @@ One copy of every exit rule the reconciliations validated -- `docs/roadmap.md` Â
 
 - **`force_flat` rides in `Bars`** because it is a fact about the bar rather than about a strategy; holding it with the OHLC stops the engine being handed a different bar's flag from the one it is resolving.
 - **Force-flat resolves last** in `resolve_brackets`, so a position that reached a target and then ran out of session records both exits.
-- **`flatten_position` is not a fill rule.** It takes a level from nowhere: the maximum-hold-time exit, the conditional early exit, an archetype's signal exit and the end-of-series liquidation each decide the bar, the price and the reason before calling it.
+- **`flatten_position` is not a fill rule.** It takes a level from nowhere: the maximum-hold-time exit, the conditional early exit, an archetype's signal exit and the end-of-series liquidation each decide the bar, the price and the reason before calling it. The hold cap's and the early exit's reason comes from `market_exit_reason`, the one order between the two, which every loop calls; `resolve_brackets` never produces either.
 - **`swing_stop` is never floored**, because a structural level widened to clear a cost floor stops being the level it is.
 
 ### sim/filters.py

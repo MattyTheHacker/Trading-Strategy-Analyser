@@ -38,6 +38,7 @@ from nqbt.trades import (
     C_RISK_POINTS,
     C_TRADE_ID,
     EXIT_EARLY,
+    EXIT_REASONS,
     EXIT_SIGNAL,
     EXIT_TIME_LIMIT,
     LONG,
@@ -140,7 +141,7 @@ def test_the_short_side_is_the_long_side_through_the_sign() -> None:
     short = open_trade(direction=SHORT)
     assert bracket.early_exit_due(rule(at_bar=3), short, 8, 100.25)
     assert not bracket.early_exit_due(rule(at_bar=3), short, 8, 99.75)
-    window = rule(losers_near_close=True, near_close=np.ones(10, dtype=np.bool_))
+    window = rule(near_close=np.ones(10, dtype=np.bool_))
     assert bracket.early_exit_due(window, short, 6, 100.25)
     assert not bracket.early_exit_due(window, short, 6, 99.75)
 
@@ -148,7 +149,7 @@ def test_the_short_side_is_the_long_side_through_the_sign() -> None:
 def test_only_a_losing_position_leaves_inside_the_window_before_the_close() -> None:
     near = np.zeros(10, dtype=np.bool_)
     near[7:] = True
-    window = rule(losers_near_close=True, near_close=near)
+    window = rule(near_close=near)
     trade = open_trade(entry_bar=2)
     assert not bracket.early_exit_due(window, trade, 6, 90.0), "outside the window"
     assert bracket.early_exit_due(window, trade, 7, 99.75)
@@ -159,7 +160,7 @@ def test_only_a_losing_position_leaves_inside_the_window_before_the_close() -> N
 def test_a_winner_that_turns_into_a_loser_inside_the_window_still_leaves() -> None:
     near = np.zeros(10, dtype=np.bool_)
     near[7:] = True
-    window = rule(losers_near_close=True, near_close=near)
+    window = rule(near_close=near)
     trade = open_trade(entry_bar=2)
     closes = {7: 101.0, 8: 100.5, 9: 99.5}
     assert [i for i, close in closes.items() if bracket.early_exit_due(window, trade, i, close)] == [9]
@@ -168,16 +169,14 @@ def test_a_winner_that_turns_into_a_loser_inside_the_window_still_leaves() -> No
 def test_the_regime_exit_compares_against_the_bar_before_the_entry_bar() -> None:
     #                 0             1             2 = entry-1     3 = entry     4
     series = labels(CONSOLIDATING, CONSOLIDATING, DIRECTIONAL, CONSOLIDATING, DIRECTIONAL)
-    change = rule(on_regime_change=True, regime_labels=series)
+    change = rule(regime_labels=series)
     trade = open_trade(entry_bar=3)
     assert bracket.early_exit_due(change, trade, 3, 101.0), "the entry bar's own close already differs"
     assert not bracket.early_exit_due(change, trade, 4, 101.0)
 
 
 def test_an_undefined_regime_label_on_either_side_never_counts_as_a_change() -> None:
-    change = rule(
-        on_regime_change=True, regime_labels=labels(regime.UNDEFINED, DIRECTIONAL, regime.UNDEFINED)
-    )
+    change = rule(regime_labels=labels(regime.UNDEFINED, DIRECTIONAL, regime.UNDEFINED))
     assert not bracket.early_exit_due(change, open_trade(entry_bar=1), 1, 99.0)
     assert not bracket.early_exit_due(change, open_trade(entry_bar=2), 2, 99.0)
 
@@ -185,8 +184,8 @@ def test_an_undefined_regime_label_on_either_side_never_counts_as_a_change() -> 
 def test_only_if_losing_holds_a_winner_through_a_regime_change() -> None:
     series = labels(DIRECTIONAL, CONSOLIDATING)
     trade = open_trade(entry_bar=1)
-    assert bracket.early_exit_due(rule(on_regime_change=True, regime_labels=series), trade, 1, 101.0)
-    losing_only = rule(on_regime_change=True, only_if_losing=True, regime_labels=series)
+    assert bracket.early_exit_due(rule(regime_labels=series), trade, 1, 101.0)
+    losing_only = rule(only_if_losing=True, regime_labels=series)
     assert not bracket.early_exit_due(losing_only, trade, 1, 101.0)
     assert bracket.early_exit_due(losing_only, trade, 1, 99.0)
 
@@ -228,16 +227,29 @@ def test_a_trend_label_is_against_a_position_in_each_form(label, direction, form
 def test_the_trend_exit_fires_on_a_turn_against_and_leaves_a_trade_entered_against_alone(
     at_entry, now, form, fires
 ) -> None:
-    turn = rule(on_trend=form, trend_labels=labels(at_entry, now))
+    turn = rule(trend_form=form, trend_labels=labels(at_entry, now))
     assert bracket.early_exit_due(turn, open_trade(entry_bar=1), 1, 99.0) is fires
 
 
 def test_a_label_exit_on_a_position_entered_on_the_first_bar_has_nothing_to_compare_with() -> None:
     series = labels(DIRECTIONAL, CONSOLIDATING)
     first_bar = open_trade(entry_bar=0)
-    assert not bracket.early_exit_due(rule(on_regime_change=True, regime_labels=series), first_bar, 1, 99.0)
-    turn = rule(on_trend=bracket.TREND_EXIT_OPPOSED, trend_labels=labels(UP, DOWN))
+    assert not bracket.early_exit_due(rule(regime_labels=series), first_bar, 1, 99.0)
+    turn = rule(trend_form=bracket.TREND_EXIT_OPPOSED, trend_labels=labels(UP, DOWN))
     assert not bracket.early_exit_due(turn, first_bar, 1, 99.0)
+
+
+def test_the_hold_cap_takes_a_bar_it_and_the_early_exit_would_both_leave_on() -> None:
+    losing = open_trade(entry_bar=5)
+    three_bars = rule(at_bar=3)
+    assert bracket.market_exit_reason(losing, 8, 99.0, 3, three_bars) == EXIT_TIME_LIMIT
+    assert bracket.market_exit_reason(losing, 8, 99.0, 0, three_bars) == EXIT_EARLY
+    assert bracket.market_exit_reason(losing, 7, 99.0, 0, three_bars) == bracket.NO_MARKET_EXIT
+    assert bracket.market_exit_reason(losing, 7, 99.0, 0, bracket.EARLY_EXIT_OFF) == bracket.NO_MARKET_EXIT
+
+
+def test_no_exit_code_is_the_no_exit_sentinel() -> None:
+    assert bracket.NO_MARKET_EXIT not in EXIT_REASONS
 
 
 # -- the parameters ----------------------------------------------------------------------------
@@ -265,9 +277,19 @@ def test_every_rule_is_off_by_default_on_every_class(cls) -> None:
             {"early_exit_on_regime_change": True, "early_exit_on_trend": bracket.TREND_EXIT_OPPOSED},
             "early_exit_on_regime_change, early_exit_on_trend",
         ),
+        ({"early_exit_below_r": 0.5}, "early_exit_bars is 0, so the not-working exit that reads it is off"),
+        ({"early_exit_only_if_losing": True}, "neither the regime exit nor the trend exit is on"),
+        (
+            {"early_exit_minutes_before_close": 30, "early_exit_only_if_losing": True},
+            "neither the regime exit nor the trend exit is on",
+        ),
+        ({"max_hold_bars": 3, "early_exit_bars": 3}, "can never fire under max_hold_bars of 3"),
+        ({"max_hold_bars": 3, "early_exit_bars": 5}, "can never fire under max_hold_bars of 3"),
     ],
 )
-def test_an_exit_out_of_range_or_a_second_rule_is_refused_on_every_class(cls, fields, message) -> None:
+def test_an_exit_that_is_out_of_range_unread_unreachable_or_a_second_rule_is_refused(
+    cls, fields, message
+) -> None:
     with pytest.raises(ValueError, match=message):
         cls(**fields)
 
@@ -278,24 +300,32 @@ def test_one_rule_with_its_own_settings_is_accepted_on_every_class(cls) -> None:
         assert len(active_early_exits(cls(**fields))) == 1
 
 
+@pytest.mark.parametrize("cls", EVERY_CLASS)
+def test_a_not_working_bar_before_the_hold_cap_is_accepted(cls) -> None:
+    assert cls(max_hold_bars=4, early_exit_bars=3).early_exit_bars == 3
+    assert cls(max_hold_bars=0, early_exit_bars=30).early_exit_bars == 30
+
+
 # -- the context it reads ----------------------------------------------------------------------
 
 
 def test_with_every_rule_off_the_exit_carries_no_series(bars) -> None:
     params = TRADING["DeadCatBounce"]
     built = filters.early_exit(prepared(bars, params, archetypes.DEADCATBOUNCE), params)
+    off = bracket.EARLY_EXIT_OFF
     assert built.near_close.size == built.regime_labels.size == built.trend_labels.size == 0
-    assert built.at_bar == 0
-    assert not built.losers_near_close
-    assert not built.on_regime_change
-    assert built.on_trend == bracket.TREND_EXIT_OFF
+    assert (built.at_bar, built.below_r, built.trend_form, built.only_if_losing) == (
+        off.at_bar,
+        off.below_r,
+        off.trend_form,
+        off.only_if_losing,
+    )
 
 
 def test_the_window_before_the_close_is_the_no_entry_windows_at_the_same_minutes(bars) -> None:
     params = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_minutes_before_close=45)
     data = prepared(bars, params, archetypes.DEADCATBOUNCE)
     built = filters.early_exit(data, params)
-    assert built.losers_near_close
     assert np.array_equal(built.near_close, ~data.session_end_gate(45))
     assert built.near_close.any()
     assert not built.near_close.all()
@@ -412,17 +442,17 @@ def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars, loop) -> Non
 
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
 def test_the_hold_cap_takes_a_bar_both_would_exit_on(bars, loop) -> None:
+    """Every close is inside the window, so a trade first losing at the hold limit is a tie."""
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
-    always = {"early_exit_bars": 3, "early_exit_below_r": 1e9}
-    both = dataclasses.replace(base, max_hold_bars=3, **always)
+    both = dataclasses.replace(base, max_hold_bars=3, early_exit_minutes_before_close=10**6)
     data = prepared(bars, both, archetype)
-    tied = archetype.legs(data, both, MNQ).matrix
-    assert (tied[:, C_EXIT_REASON] != EXIT_EARLY).all()
-    first = archetype.legs(data, dataclasses.replace(base, max_hold_bars=4, **always), MNQ)
-    reasons = first.matrix[: first.count, C_EXIT_REASON]
-    assert (reasons == EXIT_EARLY).any()
-    assert (reasons != EXIT_TIME_LIMIT).all(), "the exit a bar earlier closes every position first"
+    legs = archetype.legs(data, both, MNQ)
+    matrix = legs.matrix[: legs.count]
+    at_the_limit = matrix[matrix[:, C_BARS_HELD] == 4, C_EXIT_REASON]
+    assert (at_the_limit == EXIT_TIME_LIMIT).any(), "the hold cap never fired, so nothing was tied"
+    assert (at_the_limit != EXIT_EARLY).all()
+    assert (matrix[:, C_EXIT_REASON] == EXIT_EARLY).any()
 
 
 def test_the_archetypes_own_signal_exit_takes_a_bar_both_would_exit_on(bars) -> None:
@@ -483,6 +513,14 @@ def test_a_labels_axes_are_live_when_an_exit_reads_them(name) -> None:
     sweep.Grid.of(on_regime, archetype=archetype, regime_lookback=[10, 20])
     on_trend = dataclasses.replace(TRADING[name], early_exit_on_trend=bracket.TREND_EXIT_NOT_WITH)
     sweep.Grid.of(on_trend, archetype=archetype, trend_min_agreement=[2, 3])
+
+
+def test_a_window_shorter_than_a_minute_still_builds_the_clock_it_reads(bars) -> None:
+    params = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_minutes_before_close=0.5)
+    spec = sweep.Grid.of(params, archetype=archetypes.DEADCATBOUNCE).required_context()
+    assert spec.needs_session_clock
+    data = prepared(bars, params, archetypes.DEADCATBOUNCE)
+    assert archetypes.DEADCATBOUNCE.legs(data, params, MNQ).count > 0
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))

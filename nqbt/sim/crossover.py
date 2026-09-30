@@ -216,17 +216,11 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             pending_exit_reason = trades.EXIT_SIGNAL
 
         # After the opposite cross, which would have closed the position on this bar anyway.
-        if in_position and not pending_exit and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars):
-            pending_exit = True
-            pending_exit_reason = trades.EXIT_TIME_LIMIT
-
-        if (
-            in_position
-            and not pending_exit
-            and bracket.early_exit_due(rules.early_exit, trade, i, bars.close[i])
-        ):
-            pending_exit = True
-            pending_exit_reason = trades.EXIT_EARLY
+        if in_position and not pending_exit:
+            pending_exit_reason = bracket.market_exit_reason(
+                trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit
+            )
+            pending_exit = pending_exit_reason != bracket.NO_MARKET_EXIT
 
         if (
             i >= rules.bars_required

@@ -35,9 +35,11 @@ from nqbt.trades import (
     C_RISK_POINTS,
     C_TARGET_PRICE,
     C_TRADE_ID,
+    EXIT_EARLY,
     EXIT_SESSION_CLOSE,
     EXIT_STOP,
     EXIT_TARGET,
+    EXIT_TIME_LIMIT,
     N_COLUMNS,
 )
 
@@ -139,18 +141,18 @@ class LegExit(NamedTuple):
 
 
 class EarlyExit(NamedTuple):
-    """The conditional early exit: which rule is on, its thresholds, and the per-bar context it reads.
+    """The conditional early exit: its thresholds and the per-bar context its one rule reads.
 
-    Every rule is off at its default and at most one is on. A series the rule does not read is
-    empty, and each label is the one known at that bar's close -- ``docs/nt8-fidelity.md``, "The
-    conditional early exit".
+    Every rule is off at its default and at most one is on. A rule that reads a series is on
+    exactly where that series is non-empty, and each label is the one known at that bar's close
+    -- ``docs/nt8-fidelity.md``, "The conditional early exit".
     """
 
     at_bar: int
     below_r: float
-    losers_near_close: bool
-    on_regime_change: bool
-    on_trend: int
+    trend_form: int
+    """Read only where :attr:`trend_labels` is non-empty."""
+
     only_if_losing: bool
     near_close: BoolArray
     regime_labels: LabelArray
@@ -177,15 +179,17 @@ NO_LABELS = np.zeros(0, dtype=np.int8)
 EARLY_EXIT_OFF = EarlyExit(
     at_bar=0,
     below_r=0.0,
-    losers_near_close=False,
-    on_regime_change=False,
-    on_trend=TREND_EXIT_OFF,
+    trend_form=TREND_EXIT_OFF,
     only_if_losing=False,
     near_close=NO_CLOCK,
     regime_labels=NO_LABELS,
     trend_labels=NO_LABELS,
 )
 """Every rule off, which is every loop's default."""
+
+NO_MARKET_EXIT = -1.0
+"""What :func:`market_exit_reason` returns on a bar whose close submits no market exit; no exit
+code is negative."""
 
 
 @njit(cache=True)
@@ -399,20 +403,42 @@ def early_exit_due(rule: EarlyExit, trade: OpenTrade, i: int, close: float) -> b
     if rule.at_bar > 0:
         return i - trade.entry_bar == rule.at_bar and open_profit < rule.below_r * trade.risk
 
-    if rule.losers_near_close:
+    if rule.near_close.size > 0:
         return losing and rule.near_close[i]
 
     at_entry = trade.entry_bar - 1
     if at_entry < 0 or (rule.only_if_losing and not losing):
         return False
 
-    if rule.on_regime_change:
+    if rule.regime_labels.size > 0:
         return regime_changed(rule.regime_labels, at_entry, i)
 
-    if rule.on_trend != TREND_EXIT_OFF:
-        return trend_turned(rule.trend_labels, at_entry, i, trade.direction, rule.on_trend)
+    if rule.trend_labels.size > 0:
+        return trend_turned(rule.trend_labels, at_entry, i, trade.direction, rule.trend_form)
 
     return False
+
+
+@njit(cache=True)
+def market_exit_reason(
+    trade: OpenTrade,
+    i: int,
+    close: float,
+    max_hold_bars: int,
+    early_exit: EarlyExit,
+) -> float:
+    """Return the exit code of the market exit bar ``i``'s close submits, or :data:`NO_MARKET_EXIT`.
+
+    The hold cap takes a bar both it and the early exit would leave on. An archetype's own
+    signal exit is decided before either -- ``docs/nt8-fidelity.md``, "The conditional early exit".
+    """
+    if hold_expired(trade.entry_bar, i, max_hold_bars):
+        return EXIT_TIME_LIMIT
+
+    if early_exit_due(early_exit, trade, i, close):
+        return EXIT_EARLY
+
+    return NO_MARKET_EXIT
 
 
 @njit(cache=True)

@@ -268,8 +268,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     waits_for_a_break = rules.entry_mode in ORB_BREAK_ENTRIES
 
     in_position = False
-    pending_exit = False
-    pending_exit_reason = trades.EXIT_TIME_LIMIT
+    pending_exit_reason = bracket.NO_MARKET_EXIT
     pending_bar = -1
     pending_trigger = 0.0
     pending_stop = 0.0
@@ -291,7 +290,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             broken_this_session = False
 
         # ---- exits, using the stop and targets set when the order was submitted ------
-        if in_position and pending_exit:
+        if in_position and pending_exit_reason != bracket.NO_MARKET_EXIT:
             # Submitted at the close of bar i-1 and filled at this bar's first price, so the
             # excursion stays where it was.
             written = bracket.flatten_position(
@@ -382,16 +381,11 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
             pending_bar = -1
 
-        pending_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
-        pending_exit_reason = trades.EXIT_TIME_LIMIT
-        # The hold cap takes a bar both would exit on; the fill is the same.
-        if (
-            in_position
-            and not pending_exit
-            and bracket.early_exit_due(rules.early_exit, trade, i, bars.close[i])
-        ):
-            pending_exit = True
-            pending_exit_reason = trades.EXIT_EARLY
+        pending_exit_reason = (
+            bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
+            if in_position
+            else bracket.NO_MARKET_EXIT
+        )
 
         # ---- the break a fade or a retest waits for, remembered for the session ------
         # Updated whatever the submission guards below do, because a break that happens while

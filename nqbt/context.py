@@ -128,7 +128,7 @@ class ContextSpec:
 
     needs_session_clock: bool = False
     """Build the per-bar seconds-to-session-close clock (:mod:`nqbt.sessions`), for a no-entry
-    window before the close."""
+    window or an early exit before the close."""
 
     def __or__(self, other: ContextSpec) -> ContextSpec:
         return ContextSpec(
@@ -652,9 +652,9 @@ class Dataset:
     def session_end_gate(self, minutes: float) -> BoolArray:
         """Return a per-bar boolean: is this bar more than ``minutes`` from its session's close?
 
-        The no-entry window before the close, which is *not* the force-flat mask -- see
-        ``docs/nt8-fidelity.md``, "A no-entry window before the session close". Callers skip
-        it entirely at a window of zero.
+        The no-entry window before the close, whose complement is the early exit's window, and
+        *not* the force-flat mask -- see ``docs/nt8-fidelity.md``, "A no-entry window before the
+        session close". Callers skip it entirely at a window of zero.
         """
         if self.seconds_to_session_end is None:
             msg: str = (

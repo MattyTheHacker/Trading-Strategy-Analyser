@@ -92,11 +92,7 @@ class ConfluenceFiltered(ContextFiltered, Protocol):
 
 
 class EarlyExiting(ContextFiltered, EarlyExitParams, Protocol):
-    """A :class:`ContextFiltered` that also carries the conditional early exit.
-
-    Its regime and trend exits read the labels at this combination's own settings, so an exit
-    and an entry filter on the same label mean the same thing.
-    """
+    """A :class:`ContextFiltered` that also carries the conditional early exit's fields."""
 
 
 class LabelSized(ContextFiltered, ConfluenceSized, Protocol):
@@ -317,9 +313,9 @@ def confluence_sizing(data: Dataset, params: LabelSized, long_side: BoolArray) -
 def early_exit(data: Dataset, params: EarlyExiting) -> bracket.EarlyExit:
     """Return the conditional early exit one combination runs, carrying only the series its rule reads.
 
-    With every rule off it is :data:`nqbt.sim.bracket.EARLY_EXIT_OFF`. The window before the close
-    is the no-entry window's, at the same minutes -- ``docs/nt8-fidelity.md``, "The conditional
-    early exit".
+    With every rule off it equals :data:`nqbt.sim.bracket.EARLY_EXIT_OFF` field for field. The
+    window before the close is the no-entry window's, at the same minutes --
+    ``docs/nt8-fidelity.md``, "The conditional early exit".
     """
     near_close: BoolArray = bracket.NO_CLOCK
     if params.early_exit_minutes_before_close > 0:
@@ -340,9 +336,7 @@ def early_exit(data: Dataset, params: EarlyExiting) -> bracket.EarlyExit:
     return bracket.EarlyExit(
         at_bar=int(params.early_exit_bars),
         below_r=float(params.early_exit_below_r),
-        losers_near_close=params.early_exit_minutes_before_close > 0,
-        on_regime_change=bool(params.early_exit_on_regime_change),
-        on_trend=int(params.early_exit_on_trend),
+        trend_form=int(params.early_exit_on_trend),
         only_if_losing=bool(params.early_exit_only_if_losing),
         near_close=near_close,
         regime_labels=regime_labels,

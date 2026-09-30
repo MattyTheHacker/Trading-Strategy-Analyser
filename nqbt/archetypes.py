@@ -125,7 +125,7 @@ def _needs_session_clock(values: Mapping[str, Sequence[AxisValue]]) -> bool:
     """Return whether some combination sets a window before the close: a no-entry window or an early exit."""
     windows: tuple[str, ...] = ("no_entry_minutes_before_close", "early_exit_minutes_before_close")
 
-    return any(int(v) > 0 for window in windows for v in values.get(window, ()))
+    return any(float(v) > 0 for window in windows for v in values.get(window, ()))
 
 
 def _reads_label(
