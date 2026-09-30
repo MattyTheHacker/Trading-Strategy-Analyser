@@ -76,7 +76,8 @@ def test_every_exit_code_is_distinct_and_named() -> None:
     # DeadCatBounce has no rule-driven exit -- every exit today is a bracket level or the
     # session close. EXIT_SIGNAL is the archetypes' own rules (M18, InsideBarTrailing.cs,
     # ElasticBand's invalidation); EXIT_TIME_LIMIT is the maximum hold time every archetype
-    # carries, which is why it is not EXIT_SIGNAL.
+    # carries, which is why it is not EXIT_SIGNAL, and EXIT_EARLY is the conditional early exit
+    # for the same reason.
     codes = [
         trades.EXIT_STOP,
         trades.EXIT_TARGET,
@@ -84,11 +85,13 @@ def test_every_exit_code_is_distinct_and_named() -> None:
         trades.EXIT_END_OF_DATA,
         trades.EXIT_SIGNAL,
         trades.EXIT_TIME_LIMIT,
+        trades.EXIT_EARLY,
     ]
     assert len(set(codes)) == len(codes)
     assert set(codes) == set(trades.EXIT_REASONS)
     assert trades.EXIT_REASONS[trades.EXIT_SIGNAL] == "signal"
     assert trades.EXIT_REASONS[trades.EXIT_TIME_LIMIT] == "time_limit"
+    assert trades.EXIT_REASONS[trades.EXIT_EARLY] == "early_exit"
     assert len(set(trades.EXIT_REASONS.values())) == len(codes)
 
 

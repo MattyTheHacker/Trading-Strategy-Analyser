@@ -39,6 +39,11 @@ Its own code rather than :data:`EXIT_SIGNAL` so a log carrying both can say whic
 ``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its own exit code".
 """
 
+EXIT_EARLY = 6.0
+"""The conditional early exit, which every archetype owns and which runs one rule at a time --
+``docs/nt8-fidelity.md``, "The conditional early exit".
+"""
+
 EXIT_REASONS = {
     EXIT_STOP: "stop",
     EXIT_TARGET: "target",
@@ -46,6 +51,7 @@ EXIT_REASONS = {
     EXIT_END_OF_DATA: "end_of_data",
     EXIT_SIGNAL: "signal",
     EXIT_TIME_LIMIT: "time_limit",
+    EXIT_EARLY: "early_exit",
 }
 """Reasons the *simulator* can give. An imported trade is not restricted to these --
 ``docs/roadmap.md`` §M9.

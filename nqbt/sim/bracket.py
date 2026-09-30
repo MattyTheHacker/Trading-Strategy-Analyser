@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numba import njit
 
+from nqbt import regime, trend
 from nqbt.trades import (
     C_AMBIGUOUS,
     C_BARS_HELD,
@@ -41,7 +42,7 @@ from nqbt.trades import (
 )
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
 
 
 class Bars(NamedTuple):
@@ -135,6 +136,56 @@ class LegExit(NamedTuple):
     price: float
     reason: float
     ambiguous: bool
+
+
+class EarlyExit(NamedTuple):
+    """The conditional early exit: which rule is on, its thresholds, and the per-bar context it reads.
+
+    Every rule is off at its default and at most one is on. A series the rule does not read is
+    empty, and each label is the one known at that bar's close -- ``docs/nt8-fidelity.md``, "The
+    conditional early exit".
+    """
+
+    at_bar: int
+    below_r: float
+    losers_near_close: bool
+    on_regime_change: bool
+    on_trend: int
+    only_if_losing: bool
+    near_close: BoolArray
+    regime_labels: LabelArray
+    trend_labels: LabelArray
+
+
+TREND_EXIT_OFF = 0
+TREND_EXIT_OPPOSED = 1
+TREND_EXIT_NOT_WITH = 2
+TREND_EXIT_FORMS = {
+    TREND_EXIT_OFF: "off",
+    TREND_EXIT_OPPOSED: "opposed",
+    TREND_EXIT_NOT_WITH: "not_with",
+}
+"""Which trend labels count as against a position: the opposite trend, or that and ``MIXED``."""
+
+TREND_MIXED = int(trend.Trend.MIXED)
+"""The middle trend label, which a position's side is measured either side of."""
+
+NO_CLOCK = np.zeros(0, dtype=np.bool_)
+NO_LABELS = np.zeros(0, dtype=np.int8)
+"""Stand-ins for a series the active rule never reads, which numba still needs typed."""
+
+EARLY_EXIT_OFF = EarlyExit(
+    at_bar=0,
+    below_r=0.0,
+    losers_near_close=False,
+    on_regime_change=False,
+    on_trend=TREND_EXIT_OFF,
+    only_if_losing=False,
+    near_close=NO_CLOCK,
+    regime_labels=NO_LABELS,
+    trend_labels=NO_LABELS,
+)
+"""Every rule off, which is every loop's default."""
 
 
 @njit(cache=True)
@@ -333,6 +384,75 @@ def hold_expired(entry_bar: int, i: int, max_hold_bars: int) -> bool:
     own exit code".
     """
     return max_hold_bars > 0 and i - entry_bar >= max_hold_bars
+
+
+@njit(cache=True)
+def early_exit_due(rule: EarlyExit, trade: OpenTrade, i: int, close: float) -> bool:
+    """Return whether bar ``i``'s close is where the conditional early exit is submitted.
+
+    Off at :data:`EARLY_EXIT_OFF`. A position is losing when ``close`` is strictly worse than
+    its entry price, and the order fills at the next bar's open -- ``docs/nt8-fidelity.md``,
+    "The conditional early exit".
+    """
+    open_profit = trade.direction * (close - trade.entry_price)
+    losing = open_profit < 0.0
+    if rule.at_bar > 0:
+        return i - trade.entry_bar == rule.at_bar and open_profit < rule.below_r * trade.risk
+
+    if rule.losers_near_close:
+        return losing and rule.near_close[i]
+
+    at_entry = trade.entry_bar - 1
+    if at_entry < 0 or (rule.only_if_losing and not losing):
+        return False
+
+    if rule.on_regime_change:
+        return regime_changed(rule.regime_labels, at_entry, i)
+
+    if rule.on_trend != TREND_EXIT_OFF:
+        return trend_turned(rule.trend_labels, at_entry, i, trade.direction, rule.on_trend)
+
+    return False
+
+
+@njit(cache=True)
+def regime_changed(labels: LabelArray, at_entry: int, i: int) -> bool:
+    """Return whether bar ``i``'s regime label differs from the one at entry; an undefined one never does."""
+    entry = int(labels[at_entry])
+    now = int(labels[i])
+    if regime.UNDEFINED in (entry, now):
+        return False
+
+    return now != entry
+
+
+@njit(cache=True)
+def trend_against(label: int, direction: float, form: int) -> bool:
+    """Return whether a trend label is against a position on ``direction``, in the form ``form`` names.
+
+    ``form`` is one of :data:`TREND_EXIT_FORMS`, and an undefined label is against nothing.
+    """
+    if label == trend.UNDEFINED:
+        return False
+
+    lean = direction * (label - TREND_MIXED)
+    if form == TREND_EXIT_OPPOSED:
+        return lean < 0.0
+
+    return lean <= 0.0
+
+
+@njit(cache=True)
+def trend_turned(labels: LabelArray, at_entry: int, i: int, direction: float, form: int) -> bool:
+    """Return whether bar ``i``'s trend label is against the position when the one at entry was not.
+
+    An undefined label at entry never turns.
+    """
+    entry = int(labels[at_entry])
+    if entry == trend.UNDEFINED:
+        return False
+
+    return trend_against(int(labels[i]), direction, form) and not trend_against(entry, direction, form)
 
 
 @njit(cache=True)

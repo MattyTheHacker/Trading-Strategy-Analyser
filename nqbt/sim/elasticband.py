@@ -59,7 +59,7 @@ class BandSeries(NamedTuple):
 
 
 class ElasticBandRules(NamedTuple):
-    """The scalar rule set :func:`simulate_elasticband` reads, one field per parameter."""
+    """The rule set :func:`simulate_elasticband` reads, one field per parameter."""
 
     stop_mode: int
     atr_stop_multiple: float
@@ -75,6 +75,7 @@ class ElasticBandRules(NamedTuple):
     exit_on_invalidation: bool
     max_hold_bars: int
     block_entry_at_session_close: bool
+    early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
 
 
 @njit(cache=True)
@@ -328,6 +329,14 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
         if in_position and not pending_exit and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars):
             pending_exit = True
             pending_exit_reason = trades.EXIT_TIME_LIMIT
+
+        if (
+            in_position
+            and not pending_exit
+            and bracket.early_exit_due(rules.early_exit, trade, i, bars.close[i])
+        ):
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_EARLY
 
         if (
             i >= rules.bars_required
@@ -626,6 +635,7 @@ def elasticband_legs(
             exit_on_invalidation=params.exit_on_invalidation,
             max_hold_bars=params.max_hold_bars,
             block_entry_at_session_close=params.block_entry_at_session_close,
+            early_exit=filters.early_exit(data, params),
         ),
         out,
     )

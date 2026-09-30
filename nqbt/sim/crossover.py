@@ -52,7 +52,7 @@ class CrossoverSeries(NamedTuple):
 
 
 class CrossoverRules(NamedTuple):
-    """The scalar rule set :func:`simulate_crossover` reads, one field per parameter."""
+    """The rule set :func:`simulate_crossover` reads, one field per parameter."""
 
     use_level_stop: bool
     use_atr_stop: bool
@@ -69,6 +69,7 @@ class CrossoverRules(NamedTuple):
     exit_on_opposite_cross: bool
     block_entry_at_session_close: bool
     max_hold_bars: int
+    early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
 
 
 @njit(cache=True)
@@ -218,6 +219,14 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
         if in_position and not pending_exit and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars):
             pending_exit = True
             pending_exit_reason = trades.EXIT_TIME_LIMIT
+
+        if (
+            in_position
+            and not pending_exit
+            and bracket.early_exit_due(rules.early_exit, trade, i, bars.close[i])
+        ):
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_EARLY
 
         if (
             i >= rules.bars_required
@@ -447,6 +456,7 @@ def crossover_legs(
             exit_on_opposite_cross=params.exit_on_opposite_cross,
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
+            early_exit=filters.early_exit(data, params),
         ),
         out,
     )

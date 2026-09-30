@@ -1060,6 +1060,47 @@ A parameterised window, not a boolean, and **distinct from `block_entry_at_sessi
 
 **It does not replace the session flatten and cannot.** Flat before the session close is an account rule rather than a parameter, and a cap longer than the session simply never binds.
 
+### The conditional early exit
+
+**Every archetype can close a position before its stop, target or flatten when a condition reading price, time or market context says the trade has failed** (#369). §M29 ruled out the unconditional form; this is the conditional one, and each rule below puts price or a context label back into the decision. **No NinjaScript has any of it, so nothing here is backed by a trade list**: each rule names the NinjaScript it would be written as, and a row using any of them is `TIER1_ONLY`, on the reconciled ports as much as on the originals. Every rule is off by default everywhere, and nothing measured before this rests on it.
+
+Four rules are built, the ones #369 pre-registers first, with their fields on every parameter class:
+
+| rule                    | fields                                                     | fires at a bar close where                                                          |
+| ----------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| not working by bar N    | `early_exit_bars`, `early_exit_below_r`                    | the bar is `entry_bar + N` and open profit is below `early_exit_below_r` R          |
+| losing before the close | `early_exit_minutes_before_close`                          | the bar is inside the window before the session close and the position is losing    |
+| regime change           | `early_exit_on_regime_change`, `early_exit_only_if_losing` | the regime label differs from the one on the bar before the entry bar               |
+| trend turns against     | `early_exit_on_trend`, `early_exit_only_if_losing`         | the trend label is against the position and was not on the bar before the entry bar |
+
+**What every rule shares.** Each is decided in `OnBarUpdate` at a bar close and submitted as `ExitLong(); ExitShort();`, so it **fills at the next bar's open** and takes precedence over the stop and the targets on that bar — the maximum hold time's arithmetic, § "The maximum hold time, and why it is its own exit code". `bracket.early_exit_due` is the one decision and `bracket.flatten_position` the one writer, and every loop calls both. **Where a bar is two exits at once, the archetype's own signal exit takes it, then the hold cap, then this one**; all three fill at the same open, so only the label differs. On EmaCrossover a signal on the bar the exit is decided reopens at the same open, as it does at the hold limit.
+
+**A position is losing when `Close[0]` is strictly worse than its entry price**, which is `Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) < 0` against the average fill, slippage included. A close exactly at the entry is not losing. **Open profit in R is measured against the planned risk the trade log's `r_multiple` uses** — from the trigger on a stop entry, from the fill on a market entry — so a threshold means the same thing in both. **InsideBarTrailing's two lots carry different stops, and its R is the bracketed lot's**, the one its `OpenTrade` holds. Every threshold is in R, never in currency, so nothing here goes through `instruments.py`.
+
+**One exit code, `EXIT_EARLY`, with one rule on at a time.** The parameter class refuses a combination switching on two, so the code and the combination's fields together always say which rule fired, and a campaign arm is one rule. One code per rule would let rules share a log; nothing measured yet asks for that, and it would add four codes to `trades.py` instead of one.
+
+**No stop moves.** All four are market exits, so `tightened_stop` is untouched. The stop-moving members of the family — breakeven (#351), a trail to structure (#352), and a stop tightening with age or before the close — are not built.
+
+#### Not working by bar N
+
+`if (BarsSinceEntryExecution() == ExitCheckBars && Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) < ExitBelowR * riskPoints) { ExitLong(); ExitShort(); }`, with `riskPoints` stored when the entry fills. **It is tested at one bar close, not at every close from there on**: a position still working at bar N is left alone for the rest of its life. A leg it closes has `bars_held` of `N + 1`, as the hold cap's does. At `early_exit_below_r = 0` it is the "losing at bar N" form; a negative threshold closes only positions already that far down, and a positive one requires a profit. **It is a bar count, so it means a different amount of time at each resolution**, exactly as the hold cap does.
+
+#### Losing before the close
+
+`if (secondsToClose <= ExitMinutesBeforeClose * 60 && Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) < 0) { ExitLong(); ExitShort(); }`, **tested at every bar close inside the window**, so a position winning as the window opens and losing a bar later still leaves, and a winner rides to the flatten. **The window is the no-entry window's at the same minutes**, cut from `sessions.seconds_to_session_end`, so it closes against the session's observed last bar and carries the same trap: the C# has to read `Time[0]`, not `Now` — § "A no-entry window before the session close". **A window no longer than one bar is inert**, because the only bar in it is the force-flat bar, where the position is flattened at its close before any exit could fill.
+
+#### Regime change
+
+**The label at the bar close is compared with the label on the bar before the entry bar.** That is the last close before the position existed, and it is the bar `OnExecutionUpdate` has current when the entry fills (§M22), so a NinjaScript records the label there and compares against it in `OnBarUpdate`. For every entry but EmaPullback's confirmation entry above a one-bar lifetime it is the signal bar. **Any change fires**, into or out of the unclassifiable middle band included, and an undefined label on either side — the lookback's warm-up — never counts as one. The label is read at this combination's own lookback and thresholds, so an exit and an entry filter on the regime mean the same thing. The efficiency ratio has no NT8 indicator, so the script computes it itself — § "So are the regime labels".
+
+#### Trend turns against
+
+**It fires where the trend label at the bar close is against the position and the label on the bar before the entry bar was not**, so a trade entered already against the trend is left alone. `TREND_EXIT_OPPOSED` counts only the opposite trend as against — `DOWN` for a long — and `TREND_EXIT_NOT_WITH` counts `MIXED` too. A long entered in `MIXED` was already against under the second, so it never fires on that trade, where the first still fires on a turn to `DOWN`: **the loose form is not a superset of the strict one**. An undefined label on either side never fires. It generalises InsideBarTrailing's trend violation without replacing it: that exit stays as reconciled, submitted from `OnPositionUpdate` behind a currency gate (§M23), where this one reads the compact trend label at a bar close. The label is ours — § "And so is the trend label".
+
+#### Only if losing
+
+`early_exit_only_if_losing` lets the regime or the trend exit fire only at a bar close where the position is losing, which is the condition the findings name. Those two rules alone read it; the other two already carry a condition on open profit of their own.
+
 ## Order lifetime and the session edge (#67)
 
 Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; outputs live in `verification/nt8_order_lifetime/`, which is machine-local (#91), and every figure below is reproduced by:

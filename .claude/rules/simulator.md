@@ -89,6 +89,14 @@ below and is what you quote; this file is the index, not the record.
   reaches `max_hold_bars + 1`, not `max_hold_bars`. Where a bar is both this and an
   archetype's own signal exit, the archetype's rule takes it. `docs/nt8-fidelity.md`, "The
   maximum hold time, and why it is its own exit code".
+- **The conditional early exit is every archetype's too, and it is `EXIT_EARLY`.** Four rules --
+  not working by bar N, losing before the close, a regime change and a trend turning against --
+  all off by default, and the parameter class refuses two at once, so one code says which fired.
+  `bracket.early_exit_due` is the one decision and `bracket.flatten_position` the one writer, so
+  **do not fork either**. Each is decided at a bar close and fills at the next bar's open; on a
+  bar that is two exits, the archetype's own rule takes it, then the hold cap, then this. The
+  label rules compare against the bar **before** the entry bar, and every threshold is in R.
+  `docs/nt8-fidelity.md`, "The conditional early exit".
 
 ## Structure
 
@@ -105,7 +113,7 @@ below and is what you quote; this file is the index, not the record.
 - **A new archetype writes the entry half only.** `CONTRIBUTING.md` § "Adding an archetype".
 - **The loops' parameters travel as `NamedTuple` blobs declared in `bracket.py`** — `Bars`,
   `Costs`, `FillRules`, `OpenTrade`, `Legs`, `Excursion`, `LegExit`, plus one `*Rules` per
-  archetype. **Do not add a loose scalar back to a signature**: ruff's `max-args = 10` is what
+  archetype, each carrying an `EarlyExit`. **Do not add a loose scalar back to a signature**: ruff's `max-args = 10` is what
   every loop now sits under, and #59 is why. They must also stay in an **importable module** —
   a blob declared beside its loop writes a `cache=True` disk cache and then misses it on every
   run, silently, which costs the parallel workers their compile. `docs/roadmap.md` §M20c.

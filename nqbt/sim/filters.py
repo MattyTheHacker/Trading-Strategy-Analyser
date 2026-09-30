@@ -13,17 +13,24 @@ import numpy as np
 
 from nqbt import compression, conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.sim import bracket
-from nqbt.sim.types import REQUIRE_ALL, ConfluenceSized, SizingThesis, confluence_range
+from nqbt.sim.types import (
+    REQUIRE_ALL,
+    ConfluenceSized,
+    EarlyExitParams,
+    SizingThesis,
+    confluence_range,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from nqbt.arrays import BoolArray, IntArray
+    from nqbt.arrays import BoolArray, IntArray, LabelArray
     from nqbt.context import Dataset
 
 __all__ = [
     "ConfluenceFiltered",
     "ContextFiltered",
+    "EarlyExiting",
     "LabelSides",
     "LabelSized",
     "apply_confluence_filters",
@@ -31,6 +38,7 @@ __all__ = [
     "confluence_counts",
     "confluence_sizing",
     "context_gates",
+    "early_exit",
     "label_sides",
 ]
 
@@ -81,6 +89,14 @@ class ConfluenceFiltered(ContextFiltered, Protocol):
     """
 
     confluence_required: int
+
+
+class EarlyExiting(ContextFiltered, EarlyExitParams, Protocol):
+    """A :class:`ContextFiltered` that also carries the conditional early exit.
+
+    Its regime and trend exits read the labels at this combination's own settings, so an exit
+    and an entry filter on the same label mean the same thing.
+    """
 
 
 class LabelSized(ContextFiltered, ConfluenceSized, Protocol):
@@ -296,3 +312,39 @@ def confluence_sizing(data: Dataset, params: LabelSized, long_side: BoolArray) -
     rows: IntArray = confluence_counts(data, params, long_side) - confluence_range(params).start
 
     return bracket.Sizing(table, rows)
+
+
+def early_exit(data: Dataset, params: EarlyExiting) -> bracket.EarlyExit:
+    """Return the conditional early exit one combination runs, carrying only the series its rule reads.
+
+    With every rule off it is :data:`nqbt.sim.bracket.EARLY_EXIT_OFF`. The window before the close
+    is the no-entry window's, at the same minutes -- ``docs/nt8-fidelity.md``, "The conditional
+    early exit".
+    """
+    near_close: BoolArray = bracket.NO_CLOCK
+    if params.early_exit_minutes_before_close > 0:
+        near_close = ~data.session_end_gate(params.early_exit_minutes_before_close)
+
+    regime_labels: LabelArray = bracket.NO_LABELS
+    if params.early_exit_on_regime_change:
+        regime_labels = data.regime_labels(
+            params.regime_lookback,
+            params.regime_consolidating_below,
+            params.regime_directional_above,
+        )
+
+    trend_labels: LabelArray = bracket.NO_LABELS
+    if params.early_exit_on_trend != bracket.TREND_EXIT_OFF:
+        trend_labels = data.trend_labels(params.trend_key, params.trend_min_agreement)
+
+    return bracket.EarlyExit(
+        at_bar=int(params.early_exit_bars),
+        below_r=float(params.early_exit_below_r),
+        losers_near_close=params.early_exit_minutes_before_close > 0,
+        on_regime_change=bool(params.early_exit_on_regime_change),
+        on_trend=int(params.early_exit_on_trend),
+        only_if_losing=bool(params.early_exit_only_if_losing),
+        near_close=near_close,
+        regime_labels=regime_labels,
+        trend_labels=trend_labels,
+    )

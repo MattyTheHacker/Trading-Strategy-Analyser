@@ -66,7 +66,7 @@ class TrendAverages(NamedTuple):
 
 
 class InsideBarTrailingRules(NamedTuple):
-    """The scalar rule set the loop reads, one field per NT8 property.
+    """The rule set the loop reads, one field per NT8 property.
 
     ``position_update_loss_gate`` is a **currency** amount on the whole open position, so it
     goes through ``instruments.py`` -- ``docs/nt8-fidelity.md`` §M23.
@@ -79,6 +79,7 @@ class InsideBarTrailingRules(NamedTuple):
     bars_required: int
     block_entry_at_session_close: bool
     max_hold_bars: int
+    early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
 
 
 @njit(cache=True)
@@ -250,7 +251,8 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     trade_id = 0
 
     in_position = False
-    pending_time_exit = False
+    pending_exit = False
+    pending_exit_reason = trades.EXIT_TIME_LIMIT
     pending_bar = -1
     pending_direction = 0.0
 
@@ -276,14 +278,14 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
         position_changed = False
 
         # ---- the live brackets, resolved against this bar -------------------------------
-        if in_position and pending_time_exit:
+        if in_position and pending_exit:
             # One market order for both lots, submitted at the close of bar i-1 and filled at
             # this bar's first price, so the excursion stays where it was.
             written = flatten_lots(
                 out,
                 written,
                 trade,
-                bracket.LegExit(i, bars.open_[i] - d * slippage, trades.EXIT_TIME_LIMIT, False),
+                bracket.LegExit(i, bars.open_[i] - d * slippage, pending_exit_reason, False),
                 lots,
                 legs,
                 excursion,
@@ -441,7 +443,16 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
 
                 in_position = False
 
-        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
+        pending_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
+        pending_exit_reason = trades.EXIT_TIME_LIMIT
+        # The hold cap takes a bar both would exit on; the fill is the same.
+        if (
+            in_position
+            and not pending_exit
+            and bracket.early_exit_due(rules.early_exit, trade, i, bars.close[i])
+        ):
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_EARLY
 
         if in_position or i <= rules.bars_required or not signal[i]:
             continue
@@ -576,6 +587,7 @@ def insidebartrailing_legs(
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
+            early_exit=filters.early_exit(data, params),
         ),
         out,
     )

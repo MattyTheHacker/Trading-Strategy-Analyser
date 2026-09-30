@@ -21,6 +21,7 @@ from nqbt import (
     trend,
     volume,
 )
+from nqbt.sim.bracket import TREND_EXIT_FORMS, TREND_EXIT_OFF
 
 
 class ContextFilterParams(Protocol):
@@ -139,6 +140,59 @@ def validate_max_hold_bars(max_hold_bars: int) -> None:
     """Refuse a negative maximum hold time. ``0`` is how a rule set switches it off."""
     if max_hold_bars < 0:
         msg: str = f"max_hold_bars must be >= 0, got {max_hold_bars}"
+        raise ValueError(msg)
+
+
+@runtime_checkable
+class EarlyExitParams(Protocol):
+    """The conditional early exit's six fields, as one shape."""
+
+    early_exit_bars: int
+    early_exit_below_r: float
+    early_exit_minutes_before_close: int
+    early_exit_on_regime_change: bool
+    early_exit_on_trend: int
+    early_exit_only_if_losing: bool
+
+
+def active_early_exits(params: EarlyExitParams) -> list[str]:
+    """Name every early-exit rule this combination switches on, in field order."""
+    switched_on: dict[str, bool] = {
+        "early_exit_bars": params.early_exit_bars > 0,
+        "early_exit_minutes_before_close": params.early_exit_minutes_before_close > 0,
+        "early_exit_on_regime_change": params.early_exit_on_regime_change,
+        "early_exit_on_trend": params.early_exit_on_trend != TREND_EXIT_OFF,
+    }
+
+    return [name for name, on in switched_on.items() if on]
+
+
+def validate_early_exit(params: EarlyExitParams) -> None:
+    """Refuse an early exit out of range, or a combination switching on more than one rule."""
+    if params.early_exit_bars < 0:
+        msg: str = f"early_exit_bars must be >= 0, got {params.early_exit_bars}"
+        raise ValueError(msg)
+
+    if not math.isfinite(params.early_exit_below_r):
+        msg = f"early_exit_below_r must be finite, got {params.early_exit_below_r}"
+        raise ValueError(msg)
+
+    if params.early_exit_minutes_before_close < 0:
+        msg = f"early_exit_minutes_before_close must be >= 0, got {params.early_exit_minutes_before_close!r}"
+        raise ValueError(msg)
+
+    if params.early_exit_on_trend not in TREND_EXIT_FORMS:
+        msg = (
+            f"early_exit_on_trend must be one of {sorted(TREND_EXIT_FORMS)}, got {params.early_exit_on_trend}"
+        )
+        raise ValueError(msg)
+
+    active: list[str] = active_early_exits(params)
+    if len(active) > 1:
+        msg = (
+            f"at most one early exit may be on, so its exit code can say which fired; this "
+            f"combination switches on {', '.join(active)}"
+        )
         raise ValueError(msg)
 
 
@@ -429,6 +483,30 @@ class DeadCatParams:
     so a leg's ``bars_held`` reaches ``max_hold_bars + 1`` -- ``docs/nt8-fidelity.md``, "The
     maximum hold time, and why it is its own exit code"."""
 
+    early_exit_bars: int = 0
+    """Bars after the entry bar at whose close the not-working exit tests the position, off at ``0``.
+
+    Every ``early_exit_*`` field is absent from the NinjaScript, and at most one rule may be on.
+    Each is decided at a bar close and filled at the next bar's open -- ``docs/nt8-fidelity.md``,
+    "The conditional early exit"."""
+
+    early_exit_below_r: float = 0.0
+    """Open profit, in R, below which :attr:`early_exit_bars` exits; ``0`` exits a losing position."""
+
+    early_exit_minutes_before_close: int = 0
+    """Minutes before the session close inside which a losing position exits, off at ``0``."""
+
+    early_exit_on_regime_change: bool = False
+    """Exit once the regime label, at this combination's lookback and thresholds, differs from the
+    one on the bar before the entry bar."""
+
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    """Exit once the trend label turns against the position, in one of
+    :data:`~nqbt.sim.bracket.TREND_EXIT_FORMS`; off at ``0``."""
+
+    early_exit_only_if_losing: bool = False
+    """Let the regime or the trend exit fire only while the position is losing."""
+
     ratchet_lag: int = 0
     """Which bar's high the trailing stop references at each bar close.
 
@@ -467,6 +545,7 @@ class DeadCatParams:
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -643,6 +722,14 @@ class PullBackAndGoParams:
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
+    early_exit_bars: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_only_if_losing: bool = False
+    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """On, although ``PullBackAndGo.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
     anyway. See ``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
@@ -674,6 +761,7 @@ class PullBackAndGoParams:
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -898,6 +986,14 @@ class EmaCrossoverParams:
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
+    early_exit_bars: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_only_if_losing: bool = False
+    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -937,6 +1033,7 @@ class EmaCrossoverParams:
             raise ValueError(msg)
 
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
         validate_context_filters(self)
         validate_confluence(self, self.confluence_required)
         validate_sizing(self)
@@ -1125,6 +1222,14 @@ class InsideBarParams:
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
+    early_exit_bars: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_only_if_losing: bool = False
+    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap the stop as well as the target onto the tick grid, which NT8 does at submission
     although ``InsideBar.cs`` never calls ``RoundToTickSize`` -- ``docs/nt8-fidelity.md``,
@@ -1160,6 +1265,7 @@ class InsideBarParams:
             raise ValueError(msg)
 
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -1688,6 +1794,14 @@ class ElasticBandParams:
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
+    early_exit_bars: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_only_if_losing: bool = False
+    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+
     order_quantity: int = 4
 
     bars_required_to_trade: int = 200
@@ -1817,6 +1931,7 @@ class ElasticBandParams:
             raise ValueError(msg)
 
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
 
     @property
     def target_levels(self) -> tuple[float, ...]:
@@ -2124,6 +2239,14 @@ class OpeningRangeParams:
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
+    early_exit_bars: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_only_if_losing: bool = False
+    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -2137,6 +2260,7 @@ class OpeningRangeParams:
         self._validate_exit_scheme()
         self._validate_follow_through()
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -2497,6 +2621,14 @@ class EmaPullbackParams:
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
+    early_exit_bars: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_only_if_losing: bool = False
+    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -2529,6 +2661,7 @@ class EmaPullbackParams:
 
         self._validate_confirmation()
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
         validate_context_filters(self)
         validate_sizing(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
@@ -2747,6 +2880,14 @@ class SqueezeBreakoutParams:
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
+    early_exit_bars: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_only_if_losing: bool = False
+    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -2758,6 +2899,7 @@ class SqueezeBreakoutParams:
         self._validate_squeeze()
         self._validate_exit_scheme()
         validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
         validate_context_filters(self)
         validate_sizing(self)
 
