@@ -61,6 +61,7 @@ from nqbt.sim.types import (
     TRIGGER_RECOVERY,
     DeadCatParams,
     OpeningRangeParams,
+    active_early_exits,
     sizing_labels,
 )
 from tests.test_insidebartrailing_sim import walk_bars
@@ -75,6 +76,11 @@ from tools.campaign_sweep import (
     CONTEXT,
     CORE,
     DIRECTIONAL,
+    EARLY_EXIT,
+    EARLY_EXIT_BARS,
+    EARLY_EXIT_BELOW_R,
+    EARLY_EXIT_MINUTES,
+    EARLY_EXIT_VARIANTS,
     ELASTIC_BAND_STOP,
     ELASTIC_BAND_STOP_ARMS,
     ELASTIC_BAND_STOP_SHAPES,
@@ -166,6 +172,7 @@ from tools.campaign_sweep import (
     confluence_arms,
     confluence_cuts,
     db_path,
+    early_exit_arms,
     elastic_ladder,
     fit_regime,
     fit_volume,
@@ -2720,3 +2727,92 @@ def test_the_strata_read_each_roots_own_cut(monkeypatch: pytest.MonkeyPatch, tmp
     write_cuts(sizing_cuts_path("DeadCatBounce"), [m47_cut("MNQ"), nq])
     assert confluence_cuts("DeadCatBounce", "MNQ")[5].regime[0].directional_above == 0.4
     assert confluence_cuts("DeadCatBounce", "NQ")[5].regime[0].directional_above == 0.7
+
+
+def early_exit_fields(params: object) -> dict[str, object]:
+    """Return one parameter set's ``early_exit_*`` fields by name."""
+    return {
+        field.name: getattr(params, field.name)
+        for field in dataclasses.fields(params)
+        if field.name.startswith("early_exit_")
+    }
+
+
+def test_the_early_exit_arms_are_the_control_and_every_rule_at_every_rung() -> None:
+    arms = early_exit_arms()
+    not_working = len(EARLY_EXIT_BARS) * len(EARLY_EXIT_BELOW_R)
+    assert len(arms) == 1 + not_working + len(EARLY_EXIT_MINUTES) + 2 + 4
+    assert arms["off"] == {}
+    assert len({tuple(sorted(fields.items())) for fields in arms.values()}) == len(arms)
+
+
+def test_every_early_exit_arm_carries_its_stored_grid_unchanged() -> None:
+    """The arm is a variant dimension and not an axis, so an arm and its control pair row for row --
+    ``tools/README.md`` § "campaign_sweep.py"."""
+    arms = list(early_exit_arms())
+    for name, build in VARIANTS.items():
+        stored = build("MNQ")
+        exited = EARLY_EXIT_VARIANTS[name]("MNQ")
+        assert len(exited) == len(stored) * len(arms)
+        for index, variant in enumerate(exited):
+            source = stored[index // len(arms)]
+            assert variant.name == f"{source.name} exit={arms[index % len(arms)]}"
+            assert variant.axes == source.axes
+            assert variant.archetype is source.archetype
+            assert variant.sized() == source.sized()
+
+
+def test_an_early_exit_arm_changes_nothing_but_the_early_exit_fields() -> None:
+    per_variant = len(early_exit_arms())
+    for name, build in VARIANTS.items():
+        stored = build("NQ")
+        for index, variant in enumerate(EARLY_EXIT_VARIANTS[name]("NQ")):
+            source = stored[index // per_variant]
+            assert replace(variant.base, **early_exit_fields(source.base)) == source.base
+
+
+def test_each_early_exit_arm_switches_on_one_rule_and_the_control_none() -> None:
+    """One exit code serves every rule, so an arm is one rule or the log cannot say which fired --
+    ``docs/nt8-fidelity.md``, "The conditional early exit"."""
+    for name in VARIANTS:
+        for variant in EARLY_EXIT_VARIANTS[name]("MNQ"):
+            expected = 0 if variant.name.endswith(" exit=off") else 1
+            assert len(active_early_exits(variant.base)) == expected
+
+
+def test_no_stored_grid_or_stratum_sweeps_a_field_an_early_exit_arm_sets() -> None:
+    """An axis over the same field would override the arm on every row, which is §M29's first-pass trap."""
+    set_by_arms = {field for fields in early_exit_arms().values() for field in fields}
+    stratum_axes = {axis for which in (EARLY_EXIT, MIDDAY) for _, extra in strata(which) for axis in extra}
+    assert not set_by_arms & stratum_axes
+    for build in VARIANTS.values():
+        for variant in build("MNQ"):
+            assert not set_by_arms & set(variant.axes)
+
+
+def test_every_not_working_bar_is_tested_before_any_stored_hold_cap() -> None:
+    """A bar at or past ``max_hold_bars`` can never fire, so the ladder has to stop short of every cap."""
+    for build in VARIANTS.values():
+        for variant in build("MNQ"):
+            caps = [*variant.axes.get("max_hold_bars", []), variant.base.max_hold_bars]
+            assert all(cap == 0 or cap > max(EARLY_EXIT_BARS) for cap in caps)
+
+
+def test_an_early_exit_arm_at_a_hold_cap_is_refused_rather_than_run_inert() -> None:
+    (campaign,) = VARIANTS["InsideBar"]("MNQ")
+    with pytest.raises(ValueError, match="can never fire under max_hold_bars"):
+        replace(campaign.base, max_hold_bars=max(EARLY_EXIT_BARS), early_exit_bars=max(EARLY_EXIT_BARS))
+
+
+def test_no_early_exit_variant_can_collide_with_a_stored_one_in_the_same_database() -> None:
+    """Rows are separated by variant name alone, and ``campaign_holdout`` pairs the two windows one-to-one."""
+    for name, build in VARIANTS.items():
+        exited = EARLY_EXIT_VARIANTS[name]("MNQ")
+        names = {variant.name for variant in exited}
+        assert len(names) == len(exited)
+        assert not names & {variant.name for variant in build("MNQ")}
+
+
+def test_the_early_exit_run_states_its_stratum_before_it_runs() -> None:
+    assert [name for name, _ in strata(EARLY_EXIT)] == [UNFILTERED]
+    assert variants_for(EARLY_EXIT) is EARLY_EXIT_VARIANTS

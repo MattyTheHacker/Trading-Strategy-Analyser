@@ -714,6 +714,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **First pass run, at 10 and 15 minutes: one contract per leg more per favourable label beats its own sizes shuffled on OpeningRange and EmaCrossover and on no other archetype unfiltered, no cell that clears passes gate 4's bootstrap or exclusion, and through the prop accounts the extra contracts cost passes. The 2- and 5-minute pass, which holds §M45's own cell, is [#391].** Moved to [`docs/findings/m47-confluence-sizing-10-15.md`](findings/m47-confluence-sizing-10-15.md), pre-registered in [`docs/findings/m47-confluence-sizing-preregistration.md`](findings/m47-confluence-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M47.
 
+### M48 — the conditional early exit on every archetype ([#369])
+
+**Pre-registered, running: 26 early-exit arms against a control with every rule off, over every archetype's stored grid at 2, 5, 10 and 15 minutes, unfiltered and in the two midday candidates, with the selection window's pick read held out as the verdict.** Pre-registered in [`docs/findings/m48-early-exit-preregistration.md`](findings/m48-early-exit-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1375,6 +1379,7 @@ ______________________________________________________________________
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
 [#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
 [#36]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/36
+[#369]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/369
 [#37]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/37
 [#38]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/38
 [#39]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/39
