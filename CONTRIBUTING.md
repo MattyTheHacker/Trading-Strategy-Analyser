@@ -48,12 +48,6 @@ A bare "see the docs" is not a pointer, and [`tests/test_doc_pointers.py`](tests
 
 [`docs/findings/README.md`](docs/findings/README.md) is the opposite — it is the authored summary of what the evidence supports for a prop account and for a regular one, the tool never touches it, and **a campaign that changes which strategy is best is a campaign that has to update it**. Leave a stub under `## Milestone notes` in the roadmap carrying the `§Mxx` heading and a one-line verdict, so a `§Mxx` pointer still lands somewhere.
 
-Whenever changes are made to a strategy, archetype, or new sweeps are undertaken, the findings documentation should be reviewed to make sure it is still accurate. This should include running the prop simulator to see if it would, while possibly not win out on a normal account, win on a prop account.
-
-All PRs should undertake a review of all documentation (not just those listed above) to ensure that the changes in that PR don't make any documentation go stale, out of date, inaccurate or misleading. Any respective documentation updates should be part of the same PR as the changes. This check should also include a check of open issues to confirm whether the PR may affect them. **Name every affected issue in the PR body**, which links the PR from the issue's timeline. **Comment on the issue only when the PR changes it substantially** — the problem it describes or the plan it lays out no longer holds as written — so that someone reading the issue alone can see that at a glance. Progress, a status change, or a detail that changes while the plan still holds is not a reason to comment; the link already records it.
-
-When this review turns up unrelated changes that need to be made, this should be left as is and raised as an Issue to be resolved separately. PR scope should not be expanded to fix unrelated problems.
-
 ## Naming
 
 **Variables must be named so their purpose is obvious at a glance.** A name that needs a comment to explain it is the wrong name. `handover_ratio` and `bars_required_to_trade` are right; `hr` and `n2` are not.
@@ -61,13 +55,13 @@ When this review turns up unrelated changes that need to be made, this should be
 Two exceptions, both deliberate:
 
 - **Inside an `@njit` loop**, short conventional indices (`i`, `j`, `leg`) are clearer than long ones and match the surrounding code.
-- **Where a name mirrors a NinjaScript property**, keep NT8's word so the two can be diffed by eye — `tp_multiplier` for `TPMultiplier`, `ambiguity_policy` for a concept NT8 has no name for.
+- **Where a name mirrors a NinjaScript property**, keep NT8's word so the two can be diffed by eye — `tp_multiplier` for `TPMultiplier`.
 
 Match the surrounding code's idiom. A module written one way should not acquire a second style because a new function arrived.
 
 ## Control flow
 
-**Guard clauses are preferred to nesting.** Invert the condition and leave early, so the work a function exists to do sits at one indent level instead of inside an `if`. This improves efficiency and readability.
+**Guard clauses are preferred to nesting.** Invert the condition and leave early, so the work a function exists to do sits at one indent level instead of inside an `if`.
 
 ```python
 # not this                             # this
@@ -89,6 +83,10 @@ Two exceptions, both deliberate:
 - **Where inverting costs clarity, do not.** A single `if a and b:` reads better than two negated guards when neither half means anything on its own, and `if not disabled:` is worse than the nesting it removed.
 - **Inside `@njit` code, reshaping control flow is a gated refactor.** numba also requires every return path to agree on type, so an added early `return` is not free. See ["The trade-log regression gate"](#the-trade-log-regression-gate).
 
+## Numba
+
+**Every `@njit` function takes `cache=True`**, so parallel sweep workers load the compiled code from disk rather than each compiling it again.
+
 ## Tests
 
 **Everything (nqbt, tools, formatting etc...) is tested unless there is a very good reason not to**, and the reason must be clearly documented somewhere.
@@ -99,7 +97,7 @@ Aim to cover three kinds of case for anything non-trivial:
 2. **Unusual operation** — an empty series, a single bar, a session with a hole, a period longer than the data, a boundary where two conditions are exactly equal.
 3. **Exception operation** — the inputs that must raise, asserted on the *specific* exception type and, where the message is the point, on its content.
 
-Meeting all 3 of these should generally cover all possible failure modes, though where another failure mode is discovered that isn't covered, additional tests should also be written to account for these.
+These three cover most failure modes. When one turns up that they miss, add a test for it.
 
 Further expectations:
 
@@ -110,13 +108,13 @@ Further expectations:
 
 ### Coverage
 
-**At least 85%** on new work. Check with the JIT disabled before concluding anything is untested:
+**At least 90% on new lines and 85% over `nqbt` as a whole.** Codecov gates both on the run with the JIT disabled ([`codecov.yaml`](codecov.yaml)). Check with the JIT disabled before concluding anything is untested:
 
 ```bash
 NUMBA_DISABLE_JIT=1 ./.venv/Scripts/python.exe -m pytest --cov=nqbt --cov-branch
 ```
 
-`coverage.py` cannot see inside `@njit`-compiled functions — numba runs machine code, so the Python bytecode never executes and every line reads as missed. The raw figure runs roughly 14 points low for that reason alone. CI runs both jobs: one with the JIT active, which is the real functional test, and one with it disabled, which is the accurate coverage measurement.
+`coverage.py` cannot see inside `@njit`-compiled functions — numba runs machine code, so the Python bytecode never executes and every line reads as missed. The raw figure reads much lower for that reason alone. CI runs both jobs: one with the JIT active, which is the real functional test, and one with it disabled, which is the accurate coverage measurement.
 
 **Do not set `NUMBA_DISABLE_JIT=1` on the main test job** to make the number look better. That would stop CI ever exercising the compiled path, trading verification of fidelity-critical code for a metric.
 
@@ -126,7 +124,7 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 
 ```bash
 ./.venv/Scripts/python.exe -m pytest
-./.venv/Scripts/ruff check .
+./.venv/Scripts/ruff check nqbt formatting
 ./.venv/Scripts/ruff format --check .
 ./.venv/Scripts/mypy nqbt formatting
 ./.venv/Scripts/python.exe -m formatting.cli --check .
@@ -138,7 +136,7 @@ CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usu
 
 **`ruff` and `mypy` must report no errors.** CI gates `ruff check nqbt formatting`, `ruff format --check .` and `mypy nqbt formatting`, so either one failing fails the build. `tests/` and `tools/` are **not** at zero for either tool and are not gated, though where writing new code you should generally aim not to introduce any new errors or warnings to make future remediation works easier.
 
-Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` should carry a one-line reason, along with every `# noqa` and every `# type: ignore`. These types of ignores should only be left without a dedicated explanatory comment where the purpose is obvious or well documented elsewhere. Put the reason **after the pragma on the same line, however long that makes the line**, so that grepping for a bare `# noqa: X$` finds anything undocumented. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
+**Fix a `ruff` or `mypy` error rather than hiding it.** Ignore one only when it is a genuine misfire or there is a very good reason not to fix it. Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` should carry a one-line reason, along with every `# noqa` and every `# type: ignore`, unless the purpose is obvious or well documented elsewhere. Put the reason **after the pragma on the same line, however long that makes the line**, so that grepping for a bare `# noqa: X$` finds anything undocumented. `warn_unused_ignores` is on, so an ignore that stops being needed fails the build rather than lingering.
 
 ### The custom formatting rules
 
@@ -152,11 +150,11 @@ Every entry in `[tool.ruff.lint] ignore` and `per-file-ignores` should carry a o
 ./.venv/Scripts/python.exe -m formatting.cli .              # rewrite in place
 ```
 
-**It is independent of `ruff format`, and the order you run them in does not matter.** That is a property of the rules rather than a coincidence: they only ever *insert* a blank line, never at the top of a block, and only where there were none. Anywhere `ruff format` demands two blank lines, a source with none was already unformatted — so going from none to one cannot break it. Measured over `nqbt/` in both orders: the formatter rewrites files `ruff format` had already accepted, and `ruff format --check` still passes on every one. `tests/test_formatting.py` pins the two properties this rests on, and is the place to look if the two ever start fighting.
+**It is independent of `ruff format`, and the order you run them in does not matter.** That is a property of the rules rather than a coincidence: they only ever *insert* a blank line, never at the top of a block, and only where there were none. Anywhere `ruff format` demands two blank lines, a source with none was already unformatted — so going from none to one cannot break it. `tests/test_formatting.py` pins the two properties this rests on, and is the place to look if the two ever start fighting.
 
 #### Where the blank line goes
 
-**A comment belongs to the statement below it, so the blank line goes above the comment, not between the comment and its statement.** Both rules share one predicate for this in `formatting/_leading.py`, because they held separate copies of it and disagreed — one skipped a return that carried a comment, the other counted a blank line sitting *below* a comment as satisfying it, which left the comment butted against the block above.
+**A comment belongs to the statement below it, so the blank line goes above the comment, not between the comment and its statement.** Both rules share one predicate for this in `formatting/_leading.py`.
 
 ```python
 x = compute()
@@ -169,7 +167,7 @@ The one exception is a docstring: a return directly beneath one stays against it
 
 #### Scope, and the exit statuses
 
-**CI checks `nqbt` only.** `formatting/` holds to the rules as well and is worth checking by hand; `tests/` and `tools/` are nowhere near zero, which is why the gate is not simply pointed at the tree. Widen it in a change that also does the reformatting, not by itself.
+**CI checks the whole tree** — `nqbt`, `formatting/`, `tests/` and `tools/` alike.
 
 A directory argument skips dot-directories beneath it, so `formatting.cli .` at the repository root does not walk into `.venv`. Naming one explicitly still works.
 
@@ -179,7 +177,7 @@ A directory argument skips dot-directories beneath it, so `formatting.cli .` at 
 | 1      | `--check` found a file that would be reformatted                    |
 | 2      | a path was missing or unparseable, so it was never actually checked |
 
-**Status 2 is the one that matters for a gate.** A file the formatter cannot parse, and a path that is not there at all, both used to report success — a typo in the checked path passed as a clean run.
+**Status 2 is the one that matters for a gate**: without it, a typo in the checked path would pass as a clean run.
 
 ### Local variables carry their type too
 
@@ -189,17 +187,15 @@ Leave a local bare where the type cannot be stated honestly: a `pd.Series` whose
 
 `nqbt/arrays.py`'s `AnyArray` is **not** a wildcard. It is a concrete `dtype[generic[object]]`, so a local annotated with it type-checks at the assignment and then fails at every later use. Name the real dtype — the expression almost always states it — or leave the local bare.
 
-In almost all cases errors reported by either `ruff` or `mypy` should be fixed rather than hidden with ignore comments. Errors should only be ignored if they are a genuine misfire or there's an extremely good reason the issue shouldn't be fixed.
-
 ### Dependencies are pinned exactly
 
-Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes — which is exactly how numpy 2.5 broke the mypy gate on the run after it landed, and `extend-select = ["ALL"]` gives ruff the same reach. Dependabot raises the bumps daily, grouped into one pull request. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
+Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes; with `extend-select = ["ALL"]`, that includes every new ruff rule. Dependabot raises the bumps daily, grouped into one pull request. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
 
 **Treat a bump to numpy, numba, pandas or pyarrow as a change to `nqbt/sim/`**, because it is one: it reaches the simulation without touching a file in it, so nothing else will prompt you to check. CI carries the three pins that need no data — `tests/test_rng_stream_pins.py`, `tests/test_numeric_pins.py` and `tests/test_parquet_round_trip.py` — and a failure in any of them is a finding to explain, never a value to re-pin. They are canaries and not the gate: the trade-log gate runs on every dependency pull request in CI (["The trade-log regression gate"](#the-trade-log-regression-gate)), and the NT8 reconciliation still needs `verification/` and still runs locally. See [`docs/roadmap.md`](docs/roadmap.md) § "What CI can gate on a dependency bump".
 
 ### Lint changes are not exempt from review
 
-A "ruff auto-fix" pull request once reached into an `@njit` loop and rewrote `simulate_deadcat`'s MAE/MFE tracking, and inverted the branch in `archive.py` implementing "the newest bar may insert but never overwrite". Both were equivalent on inspection — and inspection is not the gate.
+An auto-fix can change logic as well as style, inside an `@njit` loop as easily as anywhere else, and reading the diff is not the gate.
 
 **Read what an auto-fixer touched under `nqbt/sim/` before merging, not after**, and run the trade-log gate over it. A lint pull request is the last place anyone looks for a simulator change.
 
@@ -217,13 +213,13 @@ A "ruff auto-fix" pull request once reached into an `@njit` loop and rewrote `si
 
 `MD029` is set to `ordered` to catch that second case from the other side. Its default, `one_or_ordered`, accepts both numbering styles, so `pymarkdown` alone would pass a file whose ordered lists had all been flattened to `1.`.
 
-**`mdformat-frontmatter` is what makes front matter safe, and it is a pin rather than a convenience.** Without it `mdformat` rewrites a `---` block into a thematic break and a heading, which silently destroys the metadata `docs/findings/` is indexed from. It was added for that; `.claude/rules/*.md` were the earlier casualty of the same defect.
+**`mdformat-frontmatter` is what makes front matter safe, and it is a pin rather than a convenience.** Without it `mdformat` rewrites a `---` block into a thematic break and a heading, which silently destroys the metadata `docs/findings/` is indexed from.
 
 **`.claude/rules/*.md` stay excluded even so.** The plugin now preserves their `paths:` front matter, but those files are hard-wrapped where everything else is not, so formatting them would reflow every one. Unexclude them only as a deliberate change with that reflow in the diff.
 
 ## The trade-log regression gate
 
-**Anything touching `nqbt/sim/`, `nqbt/context.py`, `nqbt/trades.py` or `nqbt/stats.py` must prove it did not move a number.**
+**Anything touching `nqbt/` must prove it did not move a number** — not only `nqbt/sim/`, because an indicator, a session rule or an archetype's signal reaches the trades just as surely.
 
 ```bash
 ./.venv/Scripts/python.exe tools/capture_trade_logs.py before
@@ -253,7 +249,7 @@ Points that have each cost time:
 - **Aim for 55, which the linter warns past.** The repository's file table clips the subject long before 72, and it clips on pixel width in a proportional font rather than on a character count — so a capital-heavy subject goes first, and no monitor is wide enough to help, because the page is capped at a fixed content width. Measured there: `Update the PR body rules for what lands on main (#174)` fits at 53 characters and `Add a commit-message linter and gate what lands on main (#165)` is clipped at 61. **The rule is a warning and never fails a run**, because the last few characters sometimes cost more in clarity than the clip costs in a table.
 - **A body is for when the subject genuinely cannot carry it.** Leave a blank line after the subject and explain *why* rather than restating the diff.
 
-**Body line length is deliberately not a rule.** **PR and issue bodies are never hard-wrapped here** — one line per paragraph, blank line between. The body that reaches `main` is the pull request description, and the squash merge wraps it on the way in, so a commit on `main` reading at about 70 columns is that automatic wrap and not a body someone hand-wrapped. Hard-wrapping the source of it would be wrapping twice. That is a rendering question, not a linting one. The 80-column convention was dropped rather than compromised, because holding both at once is impossible.
+**Body line length is deliberately not a rule.** **PR and issue bodies are never hard-wrapped here** — one line per paragraph, blank line between. The body that reaches `main` is the pull request description, and the squash merge wraps it on the way in, so a commit on `main` reading at about 70 columns is that automatic wrap and not a body someone hand-wrapped. Hard-wrapping the source of it would be wrapping twice. That is a rendering question, not a linting one.
 
 ### The ten verbs
 
@@ -282,9 +278,9 @@ Check a title before you use it:
 echo "Add the phase filter to the sweep axes" | ./.venv/Scripts/python.exe tools/lint_commit_messages.py --stdin
 ```
 
-Two things the rules above do not say, each of which has already cost a commit:
+Two things to know:
 
-- **GitHub appends a space and `(#N)`, and it counts.** Two subjects on `main` were written to exactly 80 and pushed past it by the number. The check measures the subject as it lands.
+- **GitHub appends a space and `(#N)`, and it counts.** The check measures the subject as it lands.
 - **Dependabot's titles are exempt from the length rule and the prefix warning.** It writes its own, they run past 72, and it could not act on either. They are no more ours to control than a `Merge` or `Revert` subject is.
 
 **A Conventional Commits prefix is accepted but not recommended.** `fix(sim): derive the session end` passes and raises a warning; one of the ten verbs is the house style. Only the eleven types the spec names are recognised — `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`. **The type stands in for the verb**, so the word after the colon is unconstrained; `fix(sim): derive the session end` is fine even though `derive` is not one of the ten. Anything else before a colon is not a prefix at all, it is a subject that fails to start with one of the ten.
@@ -297,10 +293,16 @@ Two things the rules above do not say, each of which has already cost a commit:
 - **Do not quote figures that go stale.** Consider if the number is even needed in documentation or if it's better being generated or retrieved at the time it's needed. If it's definitely needed, point at the document that holds the live number.
 - **Branch off `main` and never commit to it directly.** This is enforced by branch protection rules at the GitHub level.
 - **All PRs should target `main` as the base.** Where one PR depends on another, this should be stated in a comment or the PR body.
-- **One piece of work is one pull request.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`.
+- **One piece of work is one pull request, kept as small as that allows.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`. Do not widen it to fix an unrelated problem, including one the documentation review below turns up — raise an issue for it instead.
 - **Use labels to accurately describe what areas the PR covers.**
-- **PRs should ideally be as minimal as possible to make the review easier.**
 - **PRs should have a linked issue in most cases**, so that additional reasonings and explanations can be placed there instead of in the PR body. This can be excepted though, for example simple version bumps or simple documentation updates.
+- **A PR merges itself once approved.** Auto-merge (squash) switches on once it is open and out of draft, and the `sync` label it gets on opening keeps its branch up to date with `main`. Adding the `ready to merge` label approves a PR opened by the repository owner, and it then merges when the checks pass.
+
+### Keep the docs and issues current
+
+Whenever a strategy or archetype changes, or a new sweep runs, review the findings documentation to make sure it is still accurate. This includes running the prop-account tools ([`tools/README.md`](tools/README.md) § "Prop-firm accounts") to see whether a strategy that loses on a normal account would still win on a prop account.
+
+All PRs should undertake a review of all documentation, not just `docs/`, to ensure that the changes in that PR don't make any documentation go stale, out of date, inaccurate or misleading. Any respective documentation updates should be part of the same PR as the changes. This check should also include a check of open issues to confirm whether the PR may affect them. **Name every affected issue in the PR body**, which links the PR from the issue's timeline. **Comment on the issue only when the PR changes it substantially** — the problem it describes or the plan it lays out no longer holds as written — so that someone reading the issue alone can see that at a glance. Progress, a status change, or a detail that changes while the plan still holds is not a reason to comment; the link already records it.
 
 ## Data and generated files
 
@@ -314,7 +316,7 @@ Every folder under `data/` uses the `.Last.txt` suffix, including `data/tick/`, 
 
 New archetypes are developed **in Python only** — no NinjaScript gets written until a candidate looks worth trading, because NinjaTrader time is the scarce resource. Consequences:
 
-- **The prime directive still binds during development.** A Python archetype that drifts past NT8's fidelity cannot be reconciled when it is finally ported, so the exploration is wasted rather than merely unvalidated. Check each rule against what NT8 can express *while writing it*, using the expressibility checklist in [`docs/roadmap.md`](docs/roadmap.md).
+- **The prime directive still binds during development.** A Python archetype that drifts past NT8's fidelity cannot be reconciled when it is finally ported, so the exploration is wasted rather than merely unvalidated. Check each rule against what NT8 can express *while writing it*, using the expressibility checklist in [`docs/roadmap.md`](docs/roadmap.md) § "An original archetype has no C# to lose to".
 - **Register with `nqbt/archetypes.py`; do not fork the sweep.** An `Archetype` needs `run`, `legs`, `signal` and `long_side` — all four are required, and an archetype registered without `legs` would silently be the slow path in a sweep. `long_side` is the side each bar would be entered on, which the confluence size's labels and its fit both read.
 - **Registering it puts it under the trade-log gate.** Its defaults must trade on MNQ 03-24, or the capture stops. The pull request that registers it is not compared on it, because the base has no log to compare; the comparison lists the log as new.
 - **Write the entry half only.** Stop, targets, ambiguity policy, limit-fill rule and leg writer all live in `nqbt/sim/bracket.py`, which carries the reconciliation evidence. **Do not fork it.**
