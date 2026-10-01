@@ -6,7 +6,7 @@ issues: [369]
 gates: [1, 2]
 outcome: mixed
 verdict: >-
-  Pre-registered and run: 13 of 44 cells clear the bar, the selection window's pick paying held out on both roots at p < 0.05, but seven of them by less than 0.005 of profit factor on a root, which a sign test over configurations sharing their trades calls significant; exits that can close a winner cost in both windows, the loss-only and before-close forms move almost nothing, and the one gain above 0.01 on both roots with one arm, outside the two archetypes not to trade, is the trend exit in InsideBarTrailing's midday cell at 10 minutes, +0.071 and +0.084 held out, where at 5 minutes, the bar size the cell is traded at, the same exit costs.
+  Pre-registered and run: 13 of 44 cells clear the bar, the selection window's pick paying held out on both roots at p < 0.05, but seven of them by less than 0.005 of profit factor on a root, which a sign test over configurations sharing their trades calls significant; exits that can close a winner cost in both windows, the loss-only and before-close forms move almost nothing, and the one gain above 0.01 on both roots with one arm, outside the two archetypes not to trade, is the trend exit in InsideBarTrailing's midday cell at 10 minutes, +0.071 and +0.084 held out, where at 5 minutes, the bar size the cell is traded at, the same exit costs; and through the prop accounts the picks change little, while that trend exit makes the cell worse at both 5 and 10 minutes.
 ---
 
 # M48 — the conditional early exit: exits that can close a winner cost, and the one sizeable held-out gain is at a bar size the candidate is not traded at ([#369])
@@ -125,19 +125,43 @@ The cell §M42 and §M45 read is the 5-minute one. The trend exit there, and at 
 
 **Gate 2 moves in a few root × stratum cells, both ways.** InsideBarTrailing's midday cell fails it on MNQ under the control and passes under eight arms that close winners, while the trend arms fail it on NQ where the control passes. Gate 2 is `tools/campaign_holdout.py`'s shortlist pooled over resolutions and base variants, which the paired read keeps apart, so the two can disagree and neither is the verdict.
 
+## Through the prop accounts
+
+Not pre-registered, and run after the verdict was read. For each of the 13 clearing cells, and for InsideBarTrailing's midday cell at 5 minutes with the trend exit, the selection window's top 20 under the picked arm and under the control were replayed over the held-out window through Apex and TopStep at 50K and 150K, once per base variant: 104 replays, every one re-run on the bars it was swept on and reproducing its stored row, 2,048 of 2,048 on trades and on net. A row below is one cell, root and preset, comparing the pick's median across its shortlist with the control's.
+
+| across 28 cell × root pairs and 4 presets  | better | same | worse |
+| ------------------------------------------ | -----: | ---: | ----: |
+| share of the shortlist that ends in profit |     18 |   80 |    14 |
+| median net, payout less fees               |     46 |   27 |    39 |
+
+**The picks barely move an account**: most rows keep the same profitable share, and where the control was already profitable on half its shortlist or more, the arm raises that share in 2 rows and lowers it in 8.
+
+**The trend exit makes InsideBarTrailing's midday cell worse at both bar sizes it was read at:**
+
+| minutes | root | preset       | profitable, control | profitable, trend exit | median net, control | median net, trend exit |
+| ------: | ---- | ------------ | ------------------: | ---------------------: | ------------------: | ---------------------: |
+|       5 | MNQ  | Apex 50K     |                 85% |                    40% |             +31,933 |                 −4,070 |
+|       5 | MNQ  | Apex 150K    |                 60% |                     5% |             +18,164 |                 −9,504 |
+|       5 | MNQ  | TopStep 50K  |                100% |                   100% |             +19,154 |                +16,728 |
+|       5 | MNQ  | TopStep 150K |                100% |                   100% |             +17,632 |                +10,757 |
+|      10 | MNQ  | TopStep 50K  |                 60% |                    20% |                 +54 |                 −2,760 |
+|      10 | MNQ  | TopStep 150K |                 60% |                    35% |              +1,306 |                 −5,960 |
+
+On NQ the cell's median net is negative on every preset with the exit or without it. **The 10-minute profit-factor gain does not survive the account** on MNQ's two TopStep presets, the only ones where the control was profitable at all at that bar size; why was not measured. **InsideBar's 5-minute NQ pick, the same exit, splits by firm**: Apex's median net rises from 72,730 to 114,974 at 50K and from 183,401 to 383,340 at 150K, while TopStep 50K's profitable share falls from 75% to 45%.
+
 ## What this settles, and what it does not
 
-- **The conditional form of §M29's lever, as a market exit, rescues no archetype.** Closing winners early costs, as §M28.12 said it would; closing only losers, at a threshold or before the close, changes almost nothing; and the pre-registered verdict clears mostly by amounts no account would register.
-- **InsideBarTrailing's trend exit at 10 minutes is a candidate for [#354]'s re-read, not a change to the candidate.** It is one bar size of four, it costs at the one [#344] trades, and it has had no exclusion test, gate 4 or prop replay. It would also need porting: the trend label has no NinjaScript yet, so every row with it on is `TIER1_ONLY`.
-- **Not tested here**: a stop that moves — breakeven ([#351]), a trail to structure ([#352]) or a stop tightening with age or before the close; #369's second and third tiers; any stratum but the two; and the prop replay, which the pre-registration did not name.
+- **The conditional form of §M29's lever, as a market exit, rescues no archetype.** Closing winners early costs, as §M28.12 said it would; closing only losers, at a threshold or before the close, changes almost nothing; and the pre-registered verdict clears mostly by amounts no account would register, which the prop replay bears out.
+- **InsideBarTrailing's trend exit at 10 minutes is not a candidate.** It is one bar size of four, it costs profit factor at the one [#344] trades, and through the prop accounts it costs at both. It would also need porting: the trend label has no NinjaScript yet, so every row with it on is `TIER1_ONLY`.
+- **Not tested here**: a stop that moves — breakeven ([#351]), a trail to structure ([#352]) or a stop tightening with age or before the close; #369's second and third tiers; any stratum but the two; and the prop replay of every arm in every cell rather than the picks, which is [#398].
 
 ## How it was read
 
-From the stored rows alone: every arm is a variant named `<base variant> exit=<arm>`, in `results/campaign/<Archetype>.duckdb`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant as `tools/campaign_hold.py` keys the hold ladder; "bound" is that tool's `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. **`tools/campaign_early_exit.py` reproduces the paired tables, the verdict (`--picks`) and the control's reproduction (`--reproduce`)**; the contrasts between arms, gate 1 and the counts behind the predictions were computed from the same functions by a local script.
+From the stored rows alone: every arm is a variant named `<base variant> exit=<arm>`, in `results/campaign/<Archetype>.duckdb`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant as `tools/campaign_hold.py` keys the hold ladder; "bound" is that tool's `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. **`tools/campaign_early_exit.py` reproduces the paired tables, the verdict (`--picks`) and the control's reproduction (`--reproduce`)**; the contrasts between arms, gate 1 and the counts behind the predictions were computed from the same functions by a local script. The prop replay is `tools/campaign_propaccount.py`'s `--rerun` path, one variant per call, driven by a local script; a row's figure is the median over the shortlist, then over base variants where an arm spans several.
 
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#351]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/351
 [#352]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/352
-[#354]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/354
 [#369]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/369
 [#395]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/395
+[#398]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/398

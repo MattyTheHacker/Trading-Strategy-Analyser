@@ -343,7 +343,7 @@ The first of two pre-registered passes: at 10 and 15 minutes the all-labels size
 
 **[M48 — the conditional early exit: exits that can close a winner cost, and the one sizeable held-out gain is at a bar size the candidate is not traded at](m48-early-exit-result.md)**
 
-Pre-registered and run: 13 of 44 cells clear the bar, the selection window's pick paying held out on both roots at p < 0.05, but seven of them by less than 0.005 of profit factor on a root, which a sign test over configurations sharing their trades calls significant; exits that can close a winner cost in both windows, the loss-only and before-close forms move almost nothing, and the one gain above 0.01 on both roots with one arm, outside the two archetypes not to trade, is the trend exit in InsideBarTrailing's midday cell at 10 minutes, +0.071 and +0.084 held out, where at 5 minutes, the bar size the cell is traded at, the same exit costs.
+Pre-registered and run: 13 of 44 cells clear the bar, the selection window's pick paying held out on both roots at p < 0.05, but seven of them by less than 0.005 of profit factor on a root, which a sign test over configurations sharing their trades calls significant; exits that can close a winner cost in both windows, the loss-only and before-close forms move almost nothing, and the one gain above 0.01 on both roots with one arm, outside the two archetypes not to trade, is the trend exit in InsideBarTrailing's midday cell at 10 minutes, +0.071 and +0.084 held out, where at 5 minutes, the bar size the cell is traded at, the same exit costs; and through the prop accounts the picks change little, while that trend exit makes the cell worse at both 5 and 10 minutes.
 
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 

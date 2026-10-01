@@ -716,7 +716,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M48 — the conditional early exit on every archetype ([#369])
 
-**Pre-registered and run: 13 of 44 cells clear, most by amounts a sign test over configurations sharing their trades inflates; an exit that can close a winner costs in both windows, one that closes only losers barely moves, and the one sizeable held-out gain is InsideBarTrailing's midday trend exit at 10 minutes, which costs at 5.** Moved to [`docs/findings/m48-early-exit-result.md`](findings/m48-early-exit-result.md), pre-registered in [`docs/findings/m48-early-exit-preregistration.md`](findings/m48-early-exit-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
+**Pre-registered and run: 13 of 44 cells clear, most by amounts a sign test over configurations sharing their trades inflates; an exit that can close a winner costs in both windows, one that closes only losers barely moves, and the one sizeable held-out gain is InsideBarTrailing's midday trend exit at 10 minutes, which costs at 5, and through the prop accounts at both.** Moved to [`docs/findings/m48-early-exit-result.md`](findings/m48-early-exit-result.md), pre-registered in [`docs/findings/m48-early-exit-preregistration.md`](findings/m48-early-exit-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
 
 ### Do the shortlists travel? ([#330])
 
