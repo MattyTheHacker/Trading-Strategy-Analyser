@@ -1290,6 +1290,16 @@ ______________________________________________________________________
 
 **A reconciled archetype's rows carry their own Tier-2 status once a rule the port lacks is switched on** ([#353]). InsideBarTrailing is `RECONCILED`, and §M45 adds two rules its NinjaScript does not have; §M47 adds the confluence size to DeadCatBounce, PullBackAndGo and InsideBar as well. Stamping the archetype's status on every row would put a measured configuration and an assumed one side by side under the same word, which is the comparison the `tier2` column exists to prevent. So `Archetype.departs_from_port` names the combinations that leave the port, `Archetype.tier2_for` restates those rows as `TIER1_ONLY`, and both `sweep.sweep_axes` and `tools/campaign_sweep.py` write the column row by row through `sweep.row_tier2`. It only ever downgrades: an unreconciled archetype stays what it was.
 
+**What a row may change and stay reconciled, settled** ([#394]). The rule above was enforced on per-signal sizing alone, so a hold cap, a context filter, a moving-average kind or an ambiguity policy NT8 does not use left the row `reconciled` against a NinjaScript that has none of them. **A row stays on its port only by moving the fields that mirror a `[NinjaScriptProperty]` of that NinjaScript, and the costs.** Any other field read away from its default leaves it. `Archetype.port_properties` names the properties per archetype, read off the four `.cs` files, and `Archetype.fields_off_port` returns what a combination sets beyond them. `InsideBarTrailing.cs` has no `TPMultiplier`, so `tp_multiplier` leaves that port and not InsideBar's. A field its `gated_by` toggle leaves unread changes no trade and does not count, so a regime threshold under a filter that is off stays reconciled. The list is of what may move rather than what may not, so a field added later leaves the port until it is named a property.
+
+Three readings were decided rather than derived:
+
+- **Every context filter leaves the port, InsideBarTrailing's phase filter included.** A filter changes which signals are taken and not how one fills, but NT8 cannot produce the filtered trade set without code the port lacks. `InsideBarTrailing.cs` does carry an entry window that expresses a phase, and the midday configuration was diffed against it (`docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing with the trading window (#349)"); a phase-filtered row is still `TIER1_ONLY`, so one rule covers every filter on every port.
+- **`ambiguity_policy` 0 and 2 leave it**, although neither is ever ranked: neither reproduces NT8, by definition.
+- **So do the Strategy Analyzer settings a NinjaScript fixes in `SetDefaults`** — `fill_limit_on_touch` and `bars_required_to_trade` — although NT8 could run another value without a code change, because no trade list has been diffed at that value for that archetype. The costs are the one exception, since no NinjaScript sets them.
+
+**What it reaches in stored rows is wider than the hold ladder and the strata.** The registry campaign's grids (§M27, re-run at §M44) sweep `ema_kind` on DeadCatBounce, PullBackAndGo and InsideBar, so every row at a kind other than `ema` leaves the port: three quarters of the first two grids and half of InsideBar's. InsideBar's narrow re-sweep (§M27.3) holds its entry at `hma` on every row. The hold ladder (§M29, re-run at §M44) leaves on every rung but the uncapped one, every context-filtered stratum on the four leaves, and so does every stratum `tools/rerun_sweeps.py` stores, which until this change stamped its rows by the archetype rather than by the row. The column is stamped when a sweep is saved, so **`tools/restamp_tier2.py` re-stamps what is already stored**: it rebuilds each `reconciled` row's parameters and applies the rule as it stands, reporting by default and writing only with `--write` — `tools/README.md` § "restamp_tier2.py". Like the rule, it only ever downgrades.
+
 ## Still open
 
 - **Sample size.** How many real trades exist determines whether [#48]'s guard leaves anything standing. A few dozen will not support stratification by more than one or two conditions at a time, and knowing that early sets expectations for what the review can honestly deliver.
@@ -1379,6 +1389,7 @@ ______________________________________________________________________
 [#38]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/38
 [#39]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/39
 [#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
+[#394]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/394
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42

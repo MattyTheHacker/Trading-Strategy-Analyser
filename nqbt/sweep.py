@@ -587,7 +587,7 @@ def row_tier2(table: pd.DataFrame, grid: Grid) -> list[str]:
     The archetype's own, restated where a combination leaves its port --
     :meth:`nqbt.archetypes.Archetype.tier2_for`.
     """
-    if grid.archetype.departs_from_port is None:
+    if grid.archetype.tier2 is not archetypes.Tier2Status.RECONCILED:
         return [str(grid.archetype.tier2)] * len(table)
 
     by_combo: dict[int, str] = {

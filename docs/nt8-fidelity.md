@@ -565,7 +565,7 @@ Net P&L over the joined legs agrees exactly on all three: −8,913.00, −10,510
 
 **The gate is exercised rather than trivially satisfied.** The 1-minute run's earliest entry is 10:32 ET, the first bar the window can admit, and its latest 13:56; the 5-minute run reaches 14:00 ET. Both cover all four exit reasons, and the ported run carries 19 session-close legs of 68 — the exit this archetype's P&L rests on is inside the diff rather than beside it.
 
-`Archetype.tier2` stays `RECONCILED`, now on a trade list that exercises the new rule instead of on one that predates it.
+`Archetype.tier2` stays `RECONCILED`, now on a trade list that exercises the new rule instead of on one that predates it. **A row filtering on phase is nonetheless stamped `TIER1_ONLY`**, by decision — `docs/roadmap.md` § "Decisions taken".
 
 #### How the exports were produced
 

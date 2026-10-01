@@ -513,6 +513,7 @@ def test_a_sized_row_would_leave_any_archetype_once_it_is_reconciled(name) -> No
         archetypes.get(name),
         tier2=Tier2Status.RECONCILED,
         departs_from_port=archetypes._sizes_per_signal,  # noqa: SLF001 - the rule under test
+        port_properties=None,
     )
     assert reconciled.tier2_for(TRADING[name]) is Tier2Status.RECONCILED
     assert reconciled.tier2_for(every_label(TRADING[name])) is Tier2Status.TIER1_ONLY

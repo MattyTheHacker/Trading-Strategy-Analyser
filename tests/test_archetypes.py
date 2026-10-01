@@ -12,7 +12,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, conditions, sessions, sweep
+from nqbt import (
+    archetypes,
+    compression,
+    conditions,
+    higher_timeframe,
+    regime,
+    sessions,
+    sweep,
+    timeofday,
+    trend,
+    volume,
+)
 from nqbt.archetypes import Archetype, ArchetypeError, ContextSpec, Tier2Status
 from nqbt.instruments import NQ
 from nqbt.sim.types import (
@@ -366,3 +377,226 @@ def test_every_archetype_can_be_swept_on_the_maximum_hold_time() -> None:
     for a in archetypes.all_archetypes():
         assert "max_hold_bars" in a.sweepable, a.name
         assert a.params_cls().max_hold_bars == 0, a.name
+
+
+# -- leaving the reconciled port -----------------------------------------------
+
+RECONCILED = (
+    archetypes.DEADCATBOUNCE,
+    archetypes.PULLBACKANDGO,
+    archetypes.INSIDEBAR,
+    archetypes.INSIDEBARTRAILING,
+)
+
+PROPERTY_VALUES: dict[str, object] = {
+    "ema_period": 30,
+    "slow_sma_period": 150,
+    "fast_sma_period": 40,
+    "order_quantity": 8,
+    "tp_multiplier": 2.0,
+    "max_risk_ticks": 100,
+    "error_margin": 0.05,
+    "atr_length": 5,
+    "atr_multiplier": 5.0,
+    "partial_take_profit_percentage": 0.5,
+    "trailing_stop_multiplier": 3.0,
+}
+"""A legal value away from every default for each numeric NinjaScript property; a flag is flipped."""
+
+UNMOVABLE_PROPERTIES = frozenset({"maximum_loss_per_trade"})
+"""A property the parameter class refuses at anything but its default, so no row can move it."""
+
+ONE_STATE_FILTERS: dict[str, int] = {
+    "phase_filter": timeofday.SessionPhase.MIDDAY.bit,
+    "regime_filter": regime.Regime.DIRECTIONAL.bit,
+    "volume_filter": volume.VolumeState.HEAVY.bit,
+    "compression_filter": compression.Compression.COMPRESSED.bit,
+    "trend_filter": trend.Trend.UP.bit,
+    "higher_timeframe_filter": higher_timeframe.Side.ABOVE.bit,
+}
+"""Each context filter narrowed to one state."""
+
+NAN = float("nan")
+
+LEAVING: list[tuple[Archetype, object, str]] = [
+    (archetypes.DEADCATBOUNCE, DeadCatParams(max_hold_bars=5), "max_hold_bars"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(min_reward_risk=1.5), "min_reward_risk"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(ema_kind="sma"), "ema_kind"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(ambiguity_policy=0), "ambiguity_policy"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(ambiguity_policy=2), "ambiguity_policy"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(ratchet_lag=1), "ratchet_lag"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(fill_limit_on_touch=True), "fill_limit_on_touch"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(bars_required_to_trade=20), "bars_required_to_trade"),
+    (
+        archetypes.DEADCATBOUNCE,
+        DeadCatParams(block_entry_at_session_close=False),
+        "block_entry_at_session_close",
+    ),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(stop_offset_ticks=3), "stop_offset_ticks"),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(entry_offset_ticks=3), "entry_offset_ticks"),
+    (
+        archetypes.DEADCATBOUNCE,
+        DeadCatParams(target_r_multiples=(1.0, 2.0, 3.0, NAN)),
+        "target_r_multiples",
+    ),
+    (
+        archetypes.DEADCATBOUNCE,
+        DeadCatParams(quantity_per_confluence=1, size_on_trend=True),
+        "quantity_per_confluence",
+    ),
+    (archetypes.PULLBACKANDGO, PullBackAndGoParams(ratchet_lag=0), "ratchet_lag"),
+    (archetypes.PULLBACKANDGO, PullBackAndGoParams(ratchet_offset_ticks=3), "ratchet_offset_ticks"),
+    (archetypes.PULLBACKANDGO, PullBackAndGoParams(round_targets=False), "round_targets"),
+    (archetypes.PULLBACKANDGO, PullBackAndGoParams(slow_sma_kind="ema"), "slow_sma_kind"),
+    (archetypes.PULLBACKANDGO, PullBackAndGoParams(max_hold_bars=5), "max_hold_bars"),
+    (archetypes.INSIDEBAR, InsideBarParams(max_hold_bars=5), "max_hold_bars"),
+    (archetypes.INSIDEBAR, InsideBarParams(fast_sma_kind="ema"), "fast_sma_kind"),
+    (
+        archetypes.INSIDEBAR,
+        InsideBarParams(no_entry_minutes_before_close=0),
+        "no_entry_minutes_before_close",
+    ),
+    (
+        archetypes.INSIDEBAR,
+        InsideBarParams(no_entry_minutes_before_close=30),
+        "no_entry_minutes_before_close",
+    ),
+    (archetypes.INSIDEBAR, InsideBarParams(fill_limit_on_touch=False), "fill_limit_on_touch"),
+    (archetypes.INSIDEBAR, InsideBarParams(round_targets=False), "round_targets"),
+    (archetypes.INSIDEBARTRAILING, InsideBarTrailingParams(tp_multiplier=2.0), "tp_multiplier"),
+    (
+        archetypes.INSIDEBARTRAILING,
+        InsideBarTrailingParams(position_update_loss_gate=100.0),
+        "position_update_loss_gate",
+    ),
+    (
+        archetypes.INSIDEBARTRAILING,
+        InsideBarTrailingParams(no_entry_minutes_before_close=60),
+        "no_entry_minutes_before_close",
+    ),
+]
+"""One setting each NinjaScript has no property for, and the field it is caught on."""
+
+
+@pytest.mark.parametrize("archetype", RECONCILED, ids=lambda a: a.name)
+def test_a_reconciled_archetype_at_its_defaults_stays_on_its_port(archetype: Archetype) -> None:
+    params = archetype.params_cls()
+    assert archetype.fields_off_port(params) == ()
+    assert archetype.tier2_for(params) is Tier2Status.RECONCILED
+
+
+@pytest.mark.parametrize(
+    ("archetype", "params", "caught_on"),
+    LEAVING,
+    ids=lambda case: case.name if isinstance(case, Archetype) else None,
+)
+def test_a_setting_the_ninjascript_has_no_property_for_leaves_the_port(
+    archetype: Archetype,
+    params: archetypes.Params,
+    caught_on: str,
+) -> None:
+    assert caught_on in archetype.fields_off_port(params)
+    assert archetype.tier2_for(params) is Tier2Status.TIER1_ONLY
+
+
+@pytest.mark.parametrize("archetype", RECONCILED, ids=lambda a: a.name)
+@pytest.mark.parametrize("mask", sorted(ONE_STATE_FILTERS))
+def test_every_context_filter_leaves_every_reconciled_port(archetype: Archetype, mask: str) -> None:
+    """Including InsideBarTrailing's phase filter, although its NinjaScript has an entry window."""
+    params = archetype.params_cls(**{mask: ONE_STATE_FILTERS[mask]})
+    assert archetype.fields_off_port(params) == (mask,)
+    assert archetype.tier2_for(params) is Tier2Status.TIER1_ONLY
+
+
+@pytest.mark.parametrize("archetype", RECONCILED, ids=lambda a: a.name)
+def test_every_ninjascript_property_and_cost_may_move_without_leaving_the_port(archetype: Archetype) -> None:
+    assert archetype.port_properties is not None
+    movable = archetype.port_properties - UNMOVABLE_PROPERTIES
+    for name in sorted(movable):
+        default = getattr(archetype.params_cls(), name)
+        moved = not default if isinstance(default, bool) else PROPERTY_VALUES[name]
+        params = archetype.params_cls(**{name: moved})
+        assert getattr(params, name) != default, name
+        assert archetype.tier2_for(params) is Tier2Status.RECONCILED, name
+
+    costed = archetype.params_cls(commission_per_contract=1.5, slippage_ticks=1.0)
+    assert archetype.tier2_for(costed) is Tier2Status.RECONCILED
+
+
+@pytest.mark.parametrize("archetype", RECONCILED, ids=lambda a: a.name)
+def test_every_ninjascript_property_names_a_field_of_its_parameter_class(archetype: Archetype) -> None:
+    """A misspelt property would leave its field checked against its default, and silently so."""
+    assert archetype.port_properties is not None
+    assert archetype.port_properties <= {f.name for f in fields(archetype.params_cls)}
+    assert not archetype.port_properties & archetypes.COST_FIELDS
+
+
+def test_a_setting_its_toggle_leaves_unread_does_not_leave_the_port() -> None:
+    """Each changes no trade, so it cannot take the row anywhere NT8 has not been."""
+    assert archetypes.DEADCATBOUNCE.fields_off_port(DeadCatParams(regime_lookback=30)) == ()
+    assert archetypes.DEADCATBOUNCE.fields_off_port(DeadCatParams(slow_sma_kind="ema")) == ()
+    trailing = InsideBarTrailingParams(early_partial_percentage=0.5)
+    assert archetypes.INSIDEBARTRAILING.fields_off_port(trailing) == ()
+
+
+def test_the_same_setting_leaves_the_port_once_its_toggle_reads_it() -> None:
+    read = DeadCatParams(slow_sma_kind="ema", use_slow_sma=True)
+    assert archetypes.DEADCATBOUNCE.fields_off_port(read) == ("slow_sma_kind",)
+    filtered = DeadCatParams(regime_lookback=30, regime_filter=regime.Regime.DIRECTIONAL.bit)
+    assert archetypes.DEADCATBOUNCE.fields_off_port(filtered) == ("regime_filter", "regime_lookback")
+
+
+def test_a_runner_written_with_a_fresh_nan_is_still_the_default_bracket() -> None:
+    """NaN is unequal to itself, so a plain comparison would call every rebuilt bracket a departure."""
+    params = DeadCatParams(target_r_multiples=(1.0, 1.5, 2.0, float("nan")))
+    assert archetypes.DEADCATBOUNCE.fields_off_port(params) == ()
+
+
+@pytest.mark.parametrize(
+    "archetype",
+    [a for a in archetypes.all_archetypes() if a.tier2 is not Tier2Status.RECONCILED],
+    ids=lambda a: a.name,
+)
+def test_an_archetype_with_no_ninjascript_has_no_port_to_leave(archetype: Archetype) -> None:
+    params = archetype.params_cls(max_hold_bars=5)
+    assert archetype.port_properties is None
+    assert archetype.fields_off_port(params) == ()
+    assert archetype.tier2_for(params) is archetype.tier2
+
+
+@pytest.mark.parametrize(
+    ("gate", "use_ema", "use_vwap", "expected"),
+    [
+        ("use_ema", True, False, True),
+        ("use_ema", False, True, False),
+        (("use_ema", "use_vwap"), True, False, False),
+        (("use_ema", "use_vwap"), True, True, True),
+        (archetypes.AnyOf(("use_ema", "use_vwap")), False, True, True),
+        (archetypes.AnyOf(("use_ema", "use_vwap")), False, False, False),
+    ],
+)
+def test_a_gate_reads_its_axis_as_dead_axes_does(
+    gate: archetypes.Gate,
+    use_ema: bool,  # noqa: FBT001 - a parametrised case
+    use_vwap: bool,  # noqa: FBT001 - a parametrised case
+    expected: bool,  # noqa: FBT001 - a parametrised case
+) -> None:
+    """A tuple needs every toggle on and :class:`AnyOf` any one, and a mask is on away from everything."""
+    params = DeadCatParams(use_ema=use_ema, use_vwap=use_vwap)
+    assert archetypes.reads(params, gate) is expected
+    assert archetypes.reads(DeadCatParams(regime_filter=regime.Regime.DIRECTIONAL.bit), "regime_filter")
+    assert not archetypes.reads(DeadCatParams(), "regime_filter")
+
+
+def test_a_sweep_stamps_each_row_by_whether_it_leaves_the_port() -> None:
+    grid = sweep.Grid.of(DeadCatParams(), max_hold_bars=[0, 5], ema_period=[11, 30])
+    stamped = sweep.row_tier2(pd.DataFrame({"combo_id": range(len(grid))}), grid)
+    by_hold = {params.max_hold_bars: stamped[i] for i, params in enumerate(grid.combinations())}
+    assert by_hold == {0: "reconciled", 5: "tier-1-only"}
+    assert stamped.count("reconciled") == stamped.count("tier-1-only") == 2
+
+
+def test_a_sweep_of_an_archetype_with_no_ninjascript_stamps_its_own_status_everywhere() -> None:
+    grid = sweep.Grid.of(EmaCrossoverParams(), max_hold_bars=[0, 5])
+    stamped = sweep.row_tier2(pd.DataFrame({"combo_id": [1, 0]}), grid)
+    assert stamped == ["tier-1-only", "tier-1-only"]
