@@ -289,10 +289,14 @@ paths:
   pool's overhead does not, so the same count is worth pooling at one minute and not at
   fifteen. Anything else that loops over sweep calls pays the same cost.
   `docs/roadmap.md` § "A sweep call's worker count".
-- **`tier2` is written per row, not per sweep.** A combination using a rule its reconciled
-  port lacks -- `Archetype.departs_from_port` -- is `TIER1_ONLY`, so `sweep.row_tier2` stamps the
+- **`tier2` is written per row, not per sweep.** A combination moving any field but a cost or
+  one mirroring a `[NinjaScriptProperty]` of its reconciled port -- `Archetype.fields_off_port`,
+  beside `Archetype.departs_from_port` -- is `TIER1_ONLY`, so `sweep.row_tier2` stamps the
   column before `results.save_sweep`, which keeps a frame's own values. **Anything else that
-  saves a sweep has to do the same** or a sizing arm is stored as `reconciled`.
+  saves a sweep has to do the same** or a filtered stratum is stored as `reconciled`, as
+  `tools/rerun_sweeps.py` did until #394. **A field added to a reconciled parameter class leaves
+  the port by default**; name it in that archetype's `*_PROPERTIES` only once the NinjaScript has
+  the property. Stored rows are re-stamped by `tools/restamp_tier2.py`.
   `docs/roadmap.md` § "Decisions taken".
 - **InsideBarTrailing's sizing arms share one grid and read cuts fitted before they run.**
   `ibt-sizing` holds the split and crosses `order_quantity` at 3/4/6/8 -- two contracts round a

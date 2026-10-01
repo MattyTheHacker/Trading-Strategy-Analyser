@@ -121,6 +121,7 @@ def run_root(root: str, batch_id: int, *, n_jobs: int, db_path: paths.Path) -> N
     for name, grid in named:
         started = time.perf_counter()
         table, _ = sweep.sweep(bars, grid, get_instrument(root), data=data, n_jobs=n_jobs)
+        table["tier2"] = sweep.row_tier2(table, grid)
         elapsed: float = time.perf_counter() - started
         sweep_id: int = results.save_sweep(
             table,
