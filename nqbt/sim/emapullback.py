@@ -153,7 +153,7 @@ class ConfirmationSeries(NamedTuple):
 
 
 class ConfirmationRules(NamedTuple):
-    """The scalar rule set :func:`simulate_confirmation` reads, one field per parameter."""
+    """The rule set :func:`simulate_confirmation` reads, one field per parameter."""
 
     entry_offset_ticks: float
     stop_offset_ticks: float
@@ -165,6 +165,7 @@ class ConfirmationRules(NamedTuple):
     exit_on_trend_flip: bool
     block_entry_at_session_close: bool
     max_hold_bars: int
+    early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
 
 
 @njit(cache=True)
@@ -336,9 +337,12 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             pending_exit = True
             pending_exit_reason = trades.EXIT_SIGNAL
 
-        if in_position and not pending_exit and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars):
-            pending_exit = True
-            pending_exit_reason = trades.EXIT_TIME_LIMIT
+        # After the trend flip, which would have closed the position on this bar anyway.
+        if in_position and not pending_exit:
+            pending_exit_reason = bracket.market_exit_reason(
+                trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit
+            )
+            pending_exit = pending_exit_reason != bracket.NO_MARKET_EXIT
 
         # Flat at this close, not flat by the next open: a stop entry submitted beside a pending
         # exit is an entry against an open position -- ``docs/nt8-fidelity.md`` §M39.
@@ -386,7 +390,11 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     return written
 
 
-def confirmation_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> ConfirmationRules:
+def confirmation_rules(
+    params: EmaPullbackParams,
+    trail_offset_ticks: float,
+    early_exit: bracket.EarlyExit,
+) -> ConfirmationRules:
     """Build the confirmation loop's rule set for one combination."""
     return ConfirmationRules(
         entry_offset_ticks=float(params.entry_offset_ticks),
@@ -399,10 +407,15 @@ def confirmation_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> 
         exit_on_trend_flip=params.exit_on_trend_flip,
         block_entry_at_session_close=params.block_entry_at_session_close,
         max_hold_bars=params.max_hold_bars,
+        early_exit=early_exit,
     )
 
 
-def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crossover.CrossoverRules:
+def market_rules(
+    params: EmaPullbackParams,
+    trail_offset_ticks: float,
+    early_exit: bracket.EarlyExit,
+) -> crossover.CrossoverRules:
     """Build the shared crossover loop's rule set for one combination, in its level-stop mode."""
     return crossover.CrossoverRules(
         use_level_stop=True,
@@ -422,6 +435,7 @@ def market_rules(params: EmaPullbackParams, trail_offset_ticks: float) -> crosso
         exit_on_opposite_cross=params.exit_on_trend_flip,
         block_entry_at_session_close=params.block_entry_at_session_close,
         max_hold_bars=params.max_hold_bars,
+        early_exit=early_exit,
     )
 
 
@@ -453,6 +467,7 @@ def emapullback_legs(
     sizing: bracket.Sizing = filters.confluence_sizing(data, params, direction_at == trades.LONG)
     targets: FloatArray = np.asarray(params.target_r_multiples, dtype=np.float64)
     trail, trail_offset_ticks = trailed_level(data, slow, params)
+    early_exit: bracket.EarlyExit = filters.early_exit(data, params)
     out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
     bars = bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat)
     costs = bracket.Costs(
@@ -477,7 +492,7 @@ def emapullback_legs(
             targets,
             costs,
             fills,
-            confirmation_rules(params, trail_offset_ticks),
+            confirmation_rules(params, trail_offset_ticks, early_exit),
             out,
         )
     else:
@@ -490,7 +505,7 @@ def emapullback_legs(
             targets,
             costs,
             fills,
-            market_rules(params, trail_offset_ticks),
+            market_rules(params, trail_offset_ticks, early_exit),
             out,
         )
 

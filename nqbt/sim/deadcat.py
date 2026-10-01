@@ -17,14 +17,14 @@ import numpy as np
 from numba import njit
 
 from nqbt.sim import bracket
-from nqbt.trades import EXIT_END_OF_DATA, EXIT_TIME_LIMIT
+from nqbt.trades import EXIT_END_OF_DATA
 
 if TYPE_CHECKING:
     from nqbt.arrays import BoolArray, FloatArray
 
 
 class DeadCatRules(NamedTuple):
-    """The scalar rule set :func:`simulate_deadcat` reads, one field per NT8 property.
+    """The rule set :func:`simulate_deadcat` reads, one field per NT8 property.
 
     Shared with PullBackAndGo, which sets the fields the two strategies differ on.
     ``direction`` is ``+1.0`` long / ``-1.0`` short.
@@ -40,10 +40,12 @@ class DeadCatRules(NamedTuple):
     ratchet_offset_ticks: float
     block_entry_at_session_close: bool
     max_hold_bars: int
-    """The one field with no NinjaScript property behind it -- see
-    :attr:`nqbt.sim.types.DeadCatParams.max_hold_bars`."""
+    """No NinjaScript property behind it -- see :attr:`nqbt.sim.types.DeadCatParams.max_hold_bars`."""
 
     direction: float
+    early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
+    """No NinjaScript property behind it either, and off by default -- see
+    :attr:`nqbt.sim.types.DeadCatParams.early_exit_bars`."""
 
 
 @njit(cache=True)
@@ -79,7 +81,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
     trade_id = 0
 
     in_position = False
-    pending_time_exit = False
+    pending_exit_reason = bracket.NO_MARKET_EXIT
     pending_bar = -1  # bar whose signal placed the order now resting
     pending_trigger = 0.0
     pending_stop = 0.0
@@ -95,7 +97,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
 
     for i in range(n):
         # ---- exits, using the stop and targets set at the close of bar i-1 ----------
-        if in_position and pending_time_exit:
+        if in_position and pending_exit_reason != bracket.NO_MARKET_EXIT:
             # Submitted at the close of bar i-1 and filled at this bar's first price, so the
             # excursion stays where it was.
             written = bracket.flatten_position(
@@ -103,7 +105,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                 written,
                 trade,
                 legs,
-                bracket.LegExit(i, bars.open_[i] - direction * slippage, EXIT_TIME_LIMIT, False),
+                bracket.LegExit(i, bars.open_[i] - direction * slippage, pending_exit_reason, False),
                 excursion,
                 costs,
             )
@@ -190,7 +192,11 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
 
             pending_bar = -1  # filled or missed, and either way it does not rest a second bar
 
-        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
+        pending_exit_reason = (
+            bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
+            if in_position
+            else bracket.NO_MARKET_EXIT
+        )
 
         # ---- close of bar i: ratchet, or look for a new signal ----------------------
         if in_position:

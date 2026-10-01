@@ -153,6 +153,7 @@ def squeeze_legs(
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
+            early_exit=filters.early_exit(data, params),
         ),
         out,
     )

@@ -70,7 +70,7 @@ class RangeSeries(NamedTuple):
 
 
 class OpeningRangeRules(NamedTuple):
-    """The scalar rule set :func:`simulate_openingrange` reads, one field per parameter."""
+    """The rule set :func:`simulate_openingrange` reads, one field per parameter."""
 
     direction: float
     entry_mode: int
@@ -90,6 +90,7 @@ class OpeningRangeRules(NamedTuple):
     bars_required: int
     block_entry_at_session_close: bool
     max_hold_bars: int
+    early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
 
 
 @njit(cache=True)
@@ -267,7 +268,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     waits_for_a_break = rules.entry_mode in ORB_BREAK_ENTRIES
 
     in_position = False
-    pending_time_exit = False
+    pending_exit_reason = bracket.NO_MARKET_EXIT
     pending_bar = -1
     pending_trigger = 0.0
     pending_stop = 0.0
@@ -289,7 +290,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             broken_this_session = False
 
         # ---- exits, using the stop and targets set when the order was submitted ------
-        if in_position and pending_time_exit:
+        if in_position and pending_exit_reason != bracket.NO_MARKET_EXIT:
             # Submitted at the close of bar i-1 and filled at this bar's first price, so the
             # excursion stays where it was.
             written = bracket.flatten_position(
@@ -297,7 +298,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
                 written,
                 trade,
                 legs,
-                bracket.LegExit(i, bars.open_[i] - direction * slippage, trades.EXIT_TIME_LIMIT, False),
+                bracket.LegExit(i, bars.open_[i] - direction * slippage, pending_exit_reason, False),
                 excursion,
                 costs,
             )
@@ -380,7 +381,11 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
             pending_bar = -1
 
-        pending_time_exit = in_position and bracket.hold_expired(trade.entry_bar, i, rules.max_hold_bars)
+        pending_exit_reason = (
+            bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
+            if in_position
+            else bracket.NO_MARKET_EXIT
+        )
 
         # ---- the break a fade or a retest waits for, remembered for the session ------
         # Updated whatever the submission guards below do, because a break that happens while
@@ -557,6 +562,7 @@ def openingrange_legs(
             bars_required=params.bars_required_to_trade,
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
+            early_exit=filters.early_exit(data, params),
         ),
         out,
     )

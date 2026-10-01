@@ -43,6 +43,7 @@ from tools.campaign_report import (
     exit_decomposition,
     in_dimension,
     log_key,
+    narrowing,
     net_to_drawdown,
     parameter_columns,
     profile,
@@ -668,3 +669,9 @@ def test_a_variant_can_be_held_out_on_its_own() -> None:
     frame = combos(variant=["bracket", "bracket", "narrow", "narrow"], window="selection")
     assert list(frame[frame["variant"] == "narrow"]["combo_id"]) == [2, 3]
     assert "variant" not in parameter_columns(frame), "variant is a tag, not an axis"
+
+
+def test_narrowing_to_a_stratum_quotes_it_and_refuses_one_holding_a_quote() -> None:
+    assert narrowing(strata=["phase=MIDDAY"]) == " AND c.stratum IN ('phase=MIDDAY')"
+    with pytest.raises(ValueError, match="cannot be read"):
+        narrowing(strata=["regime='x"])
