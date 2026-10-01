@@ -50,7 +50,8 @@ from tests.test_insidebartrailing_sim import short_periods, walk_bars
 if TYPE_CHECKING:
     import pandas as pd
 
-    from nqbt.context import ContextSpec
+    from nqbt.arrays import LabelArray
+    from nqbt.context import ContextSpec, Dataset
 
 UP = int(trend.Trend.UP)
 MIXED = int(trend.Trend.MIXED)
@@ -356,8 +357,24 @@ def losing_by(close: float, trade: np.ndarray) -> float:
     return trade[C_DIRECTION] * (close - trade[C_ENTRY_PRICE])
 
 
-def condition_held(params, data, trade: np.ndarray, risk: float, bar: int) -> bool:
-    """Recompute from the bars whether ``params``' rule held at ``bar``'s close for ``trade``."""
+def rule_labels(params: filters.EarlyExiting, data: Dataset) -> LabelArray | None:
+    """Return the label series ``params``' exit reads, or ``None`` for a rule that reads none."""
+    if params.early_exit_on_regime_change:
+        return data.regime_labels(
+            params.regime_lookback, params.regime_consolidating_below, params.regime_directional_above
+        )
+
+    if params.early_exit_on_trend != bracket.TREND_EXIT_OFF:
+        return data.trend_labels(params.trend_key, params.trend_min_agreement)
+
+    return None
+
+
+def condition_held(params, data, series: LabelArray | None, trade: np.ndarray, risk: float, bar: int) -> bool:
+    """Recompute from the bars whether ``params``' rule held at ``bar``'s close for ``trade``.
+
+    ``series`` is :func:`rule_labels` for the same ``params``.
+    """
     profit = losing_by(data.close[bar], trade)
     entry_bar = int(trade[C_ENTRY_BAR])
     if params.early_exit_bars > 0:
@@ -369,14 +386,11 @@ def condition_held(params, data, trade: np.ndarray, risk: float, bar: int) -> bo
     if params.early_exit_only_if_losing and profit >= 0:
         return False
 
+    assert series is not None, "a label rule reads rule_labels' series"
     before = entry_bar - 1
     if params.early_exit_on_regime_change:
-        series = data.regime_labels(
-            params.regime_lookback, params.regime_consolidating_below, params.regime_directional_above
-        )
         return regime.UNDEFINED not in (series[before], series[bar]) and series[bar] != series[before]
 
-    series = data.trend_labels(params.trend_key, params.trend_min_agreement)
     if trend.UNDEFINED in (series[before], series[bar]):
         return False
 
@@ -395,6 +409,7 @@ def test_every_loop_exits_where_the_rule_held_and_nowhere_else(bars, loop, rule_
     archetype = archetypes.get(name)
     params = dataclasses.replace(base, **RULES[rule_name])
     data = prepared(bars, params, archetype)
+    series: LabelArray | None = rule_labels(params, data)
     legs = archetype.legs(data, params, MNQ)
     matrix = legs.matrix[: legs.count]
     fired = 0
@@ -411,7 +426,7 @@ def test_every_loop_exits_where_the_rule_held_and_nowhere_else(bars, loop, rule_
             EXIT_SIGNAL in reasons and name != "InsideBarTrailing"
         )
         for bar in range(int(first[C_ENTRY_BAR]), last_exit - 1 if at_open else last_exit):
-            assert not condition_held(params, data, first, risk, bar), (
+            assert not condition_held(params, data, series, first, risk, bar), (
                 f"trade {trade_id:.0f} missed bar {bar}"
             )
 
@@ -421,7 +436,7 @@ def test_every_loop_exits_where_the_rule_held_and_nowhere_else(bars, loop, rule_
 
         fired += 1
         exit_bar = int(early[0, C_EXIT_BAR])
-        assert condition_held(params, data, first, risk, exit_bar - 1)
+        assert condition_held(params, data, series, first, risk, exit_bar - 1)
         assert (early[:, C_EXIT_BAR] == last_exit).all(), "every leg left together"
         assert np.allclose(early[:, C_EXIT_PRICE], data.open[exit_bar])
 
