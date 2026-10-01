@@ -26,6 +26,7 @@ from nqbt import (
 )
 from nqbt.archetypes import Archetype, ArchetypeError, ContextSpec, Tier2Status
 from nqbt.instruments import NQ
+from nqbt.sim import bracket
 from nqbt.sim.types import (
     DeadCatParams,
     EmaCrossoverParams,
@@ -473,6 +474,18 @@ LEAVING: list[tuple[Archetype, object, str]] = [
         archetypes.INSIDEBARTRAILING,
         InsideBarTrailingParams(no_entry_minutes_before_close=60),
         "no_entry_minutes_before_close",
+    ),
+    (archetypes.DEADCATBOUNCE, DeadCatParams(early_exit_bars=3), "early_exit_bars"),
+    (
+        archetypes.PULLBACKANDGO,
+        PullBackAndGoParams(early_exit_minutes_before_close=30),
+        "early_exit_minutes_before_close",
+    ),
+    (archetypes.INSIDEBAR, InsideBarParams(early_exit_on_regime_change=True), "early_exit_on_regime_change"),
+    (
+        archetypes.INSIDEBARTRAILING,
+        InsideBarTrailingParams(early_exit_on_trend=bracket.TREND_EXIT_OPPOSED),
+        "early_exit_on_trend",
     ),
 ]
 """One setting each NinjaScript has no property for, and the field it is caught on."""

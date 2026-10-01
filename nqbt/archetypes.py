@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 from nqbt import compression, conditions, higher_timeframe, regime, timeofday, trend, volume
 from nqbt.context import ContextSpec
 from nqbt.sim import (
+    bracket,
     crossover,
     elasticband,
     emapullback,
@@ -37,6 +38,7 @@ from nqbt.sim.types import (
     STOP_ATR,
     ConfluenceSized,
     DeadCatParams,
+    EarlyExitParams,
     ElasticBandParams,
     EmaCrossoverParams,
     EmaPullbackParams,
@@ -45,6 +47,7 @@ from nqbt.sim.types import (
     OpeningRangeParams,
     PullBackAndGoParams,
     SqueezeBreakoutParams,
+    active_early_exits,
 )
 
 if TYPE_CHECKING:
@@ -120,21 +123,34 @@ def _sizes_on_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
     return any(values.get("size_on_vwap", ()))
 
 
+def _needs_session_clock(values: Mapping[str, Sequence[AxisValue]]) -> bool:
+    """Return whether some combination sets a window before the close: a no-entry window or an early exit."""
+    windows: tuple[str, ...] = ("no_entry_minutes_before_close", "early_exit_minutes_before_close")
+
+    return any(float(v) > 0 for window in windows for v in values.get(window, ()))
+
+
 def _reads_label(
     values: Mapping[str, Sequence[AxisValue]],
     filter_name: str,
     everything: int,
-    sizing_name: str,
+    *readers: str,
 ) -> bool:
-    """Return whether some combination filters on a label or sizes on it -- either one reads its series."""
+    """Return whether some combination filters on a label, or switches on a size or an exit reading it."""
     filters: bool = any(int(v) != everything for v in values.get(filter_name, ()))
 
-    return filters or any(values.get(sizing_name, ()))
+    return filters or any(any(values.get(reader, ())) for reader in readers)
 
 
 def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
     """Return the efficiency-ratio lookbacks to build: none unless some combination reads the label."""
-    if not _reads_label(values, "regime_filter", regime.ALL_REGIMES, "size_on_regime"):
+    if not _reads_label(
+        values,
+        "regime_filter",
+        regime.ALL_REGIMES,
+        "size_on_regime",
+        "early_exit_on_regime_change",
+    ):
         return ()
 
     return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
@@ -177,8 +193,8 @@ def _compression_keys(
 
 
 def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendKey, ...]:
-    """List the trend labels to build: none unless some combination filters or sizes on them."""
-    if not _reads_label(values, "trend_filter", trend.ALL_TRENDS, "size_on_trend"):
+    """List the trend labels to build: none unless some combination filters, sizes or exits on them."""
+    if not _reads_label(values, "trend_filter", trend.ALL_TRENDS, "size_on_trend", "early_exit_on_trend"):
         return ()
 
     return tuple(
@@ -250,6 +266,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
         compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_session_clock=_needs_session_clock(values),
     )
 
 
@@ -276,6 +293,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_session_clock=_needs_session_clock(values),
         needs_ma_values=True,
     )
 
@@ -300,6 +318,7 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_session_clock=_needs_session_clock(values),
         needs_ma_values=True,
     )
 
@@ -330,6 +349,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_session_clock=_needs_session_clock(values),
     )
 
 
@@ -370,6 +390,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
         compression_keys=_compression_keys(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_session_clock=_needs_session_clock(values),
     )
 
 
@@ -402,6 +423,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         needs_vwap=_sizes_on_vwap(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_session_clock=_needs_session_clock(values),
     )
 
 
@@ -409,8 +431,8 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """Return what InsideBar reads: three moving-average grids, their raw values, an ATR and a clock.
 
     ``needs_ma_values`` because its three gates are strict -- ``docs/nt8-fidelity.md`` §M22. The
-    session clock is built only where some combination sets a no-entry window, and the VWAP only
-    where some combination sizes on it.
+    session clock is built only where some combination sets a no-entry window or an early exit
+    before the close, and the VWAP only where some combination sizes on it.
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
@@ -423,7 +445,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_ma_values=True,
-        needs_session_clock=any(int(v) > 0 for v in values.get("no_entry_minutes_before_close", ())),
+        needs_session_clock=_needs_session_clock(values),
     )
 
 
@@ -437,6 +459,8 @@ INERT_AT: Mapping[str, object] = {
     "higher_timeframe_filter": higher_timeframe.ALL_SIDES,
     "earliness_mode": EARLINESS_OFF,
     "quantity_per_confluence": 0,
+    "early_exit_bars": 0,
+    "early_exit_on_trend": bracket.TREND_EXIT_OFF,
 }
 """The value at which a toggle leaves its axes unread, where that is not simply ``False``.
 
@@ -512,21 +536,30 @@ side.
 """
 
 
-def _read_by_filter_or_sizing(gates: Mapping[str, str], sizing_toggle: str) -> dict[str, Gate]:
-    """Return one filter's axes, re-gated so that sizing on the same label also reads them."""
-    return {axis: AnyOf((toggle, sizing_toggle)) for axis, toggle in gates.items()}
+def _read_by_filter_or(gates: Mapping[str, str], *readers: str) -> dict[str, Gate]:
+    """Return one filter's axes, re-gated so that each other reader of the same label also reads them."""
+    return {axis: AnyOf((toggle, *readers)) for axis, toggle in gates.items()}
 
+
+EARLY_EXIT_GATES: Mapping[str, Gate] = {
+    "early_exit_below_r": "early_exit_bars",
+    "early_exit_only_if_losing": AnyOf(("early_exit_on_regime_change", "early_exit_on_trend")),
+}
+"""The threshold is read only by the not-working exit, and the losing condition only by the two
+label exits -- ``docs/nt8-fidelity.md``, "The conditional early exit"."""
 
 CONTEXT_GATES: Mapping[str, Gate] = {
-    **_read_by_filter_or_sizing(REGIME_GATES, "size_on_regime"),
-    **_read_by_filter_or_sizing(VOLUME_GATES, "size_on_volume"),
+    **_read_by_filter_or(REGIME_GATES, "size_on_regime", "early_exit_on_regime_change"),
+    **_read_by_filter_or(VOLUME_GATES, "size_on_volume"),
     **COMPRESSION_GATES,
-    **_read_by_filter_or_sizing(TREND_GATES, "size_on_trend"),
-    **_read_by_filter_or_sizing(HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe"),
+    **_read_by_filter_or(TREND_GATES, "size_on_trend", "early_exit_on_trend"),
+    **_read_by_filter_or(HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe"),
     "size_symmetric": "quantity_per_confluence",
+    **EARLY_EXIT_GATES,
 }
-"""Every archetype's context axes. A label's axes are read under its filter *or* its ``size_on_*``
-label, and ``size_symmetric`` only beside a confluence size -- ``docs/nt8-fidelity.md`` §M47.
+"""Every archetype's context axes. A label's axes are read under its filter, its ``size_on_*``
+label *or* an early exit on it, and ``size_symmetric`` only beside a confluence size --
+``docs/nt8-fidelity.md`` §M47.
 """
 
 # A period and its kind only matter when the filter reading them is switched on.
@@ -600,6 +633,16 @@ def _sizes_per_signal(params: Params) -> bool:
         return True
 
     return isinstance(params, ConfluenceSized) and params.quantity_per_confluence > 0
+
+
+def _exits_early(params: Params) -> bool:
+    """Return whether a combination switches on a conditional early exit, which no NinjaScript has."""
+    return isinstance(params, EarlyExitParams) and bool(active_early_exits(params))
+
+
+def _leaves_the_port(params: Params) -> bool:
+    """Return whether a combination sizes per signal or exits early -- either one leaves its NinjaScript."""
+    return _sizes_per_signal(params) or _exits_early(params)
 
 
 COST_FIELDS: frozenset[str] = frozenset({"commission_per_contract", "slippage_ticks"})
@@ -793,7 +836,7 @@ DEADCATBOUNCE = Archetype(
     signal=runner.deadcat_signal,
     long_side=runner.deadcat_long_side,
     tier2=Tier2Status.RECONCILED,
-    departs_from_port=_sizes_per_signal,
+    departs_from_port=_leaves_the_port,
     port_properties=DEADCATBOUNCE_PROPERTIES,
 )
 """The first C#-backed port. A row sizing per signal, or setting anything else its NinjaScript has
@@ -807,7 +850,7 @@ PULLBACKANDGO = Archetype(
     signal=pullback.pullback_signal,
     long_side=pullback.pullback_long_side,
     tier2=Tier2Status.RECONCILED,
-    departs_from_port=_sizes_per_signal,
+    departs_from_port=_leaves_the_port,
     port_properties=PULLBACKANDGO_PROPERTIES,
 )
 """DeadCatBounce's long-side mirror, and the second C#-backed port. A row leaving its NinjaScript
@@ -851,7 +894,7 @@ INSIDEBAR = Archetype(
     tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBAR_GATES,
     context_for=insidebar_context,
-    departs_from_port=_sizes_per_signal,
+    departs_from_port=_leaves_the_port,
     port_properties=INSIDEBAR_PROPERTIES,
 )
 """The third C#-backed port, diffed leg-for-leg against an MNQ 03-24 trade list. A row leaving
@@ -867,7 +910,7 @@ INSIDEBARTRAILING = Archetype(
     tier2=Tier2Status.RECONCILED,
     gated_by=INSIDEBARTRAILING_GATES,
     context_for=insidebar_context,
-    departs_from_port=_sizes_per_signal,
+    departs_from_port=_leaves_the_port,
     port_properties=INSIDEBARTRAILING_PROPERTIES,
 )
 """The fourth C#-backed port: InsideBar's entry with split-lot exits, diffed leg-for-leg against

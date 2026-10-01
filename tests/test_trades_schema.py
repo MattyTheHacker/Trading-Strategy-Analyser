@@ -76,7 +76,8 @@ def test_every_exit_code_is_distinct_and_named() -> None:
     # DeadCatBounce has no rule-driven exit -- every exit today is a bracket level or the
     # session close. EXIT_SIGNAL is the archetypes' own rules (M18, InsideBarTrailing.cs,
     # ElasticBand's invalidation); EXIT_TIME_LIMIT is the maximum hold time every archetype
-    # carries, which is why it is not EXIT_SIGNAL.
+    # carries, which is why it is not EXIT_SIGNAL, and EXIT_EARLY is the conditional early exit
+    # for the same reason.
     codes = [
         trades.EXIT_STOP,
         trades.EXIT_TARGET,
@@ -84,11 +85,13 @@ def test_every_exit_code_is_distinct_and_named() -> None:
         trades.EXIT_END_OF_DATA,
         trades.EXIT_SIGNAL,
         trades.EXIT_TIME_LIMIT,
+        trades.EXIT_EARLY,
     ]
     assert len(set(codes)) == len(codes)
     assert set(codes) == set(trades.EXIT_REASONS)
     assert trades.EXIT_REASONS[trades.EXIT_SIGNAL] == "signal"
     assert trades.EXIT_REASONS[trades.EXIT_TIME_LIMIT] == "time_limit"
+    assert trades.EXIT_REASONS[trades.EXIT_EARLY] == "early_exit"
     assert len(set(trades.EXIT_REASONS.values())) == len(codes)
 
 
@@ -351,16 +354,41 @@ def test_the_import_analysis_sees_a_constant_spent_either_way() -> None:
     assert references("sim/crossover.py", "EXIT_END_OF_DATA"), "the attribute form"
 
 
-def test_the_maximum_hold_time_is_written_by_every_archetypes_loop() -> None:
-    """The shared exit, so the guard is the mirror image of EXIT_SIGNAL's below.
+def names_in_function(module: str, function: str) -> set[str]:
+    """Return every bare name and attribute name one function of ``module`` reads."""
+    tree = ast.parse((PACKAGE / module).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == function:
+            bare = {inner.id for inner in ast.walk(node) if isinstance(inner, ast.Name)}
 
-    ``bracket.py`` stays out of it: the loops decide the bar, the price and the reason, and
-    the engine only writes what it is handed.
+            return bare | {inner.attr for inner in ast.walk(node) if isinstance(inner, ast.Attribute)}
+
+    msg = f"{module} has no function {function}"
+    raise AssertionError(msg)
+
+
+def test_every_loop_takes_its_market_exit_from_the_one_shared_order() -> None:
+    """The hold cap and the early exit, the two shared exits, whose order is ``bracket.market_exit_reason``.
+
+    Every loop calls it and hands the reason to ``flatten_position``, and the bracket resolution
+    never produces either reason on its own, so the engine still writes only what it is handed.
     """
-    for module in ("deadcat", "crossover", "insidebar", "insidebartrailing", "elasticband", "openingrange"):
-        assert references(f"sim/{module}.py", "EXIT_TIME_LIMIT"), module
+    loops = (
+        "deadcat",
+        "crossover",
+        "emapullback",
+        "insidebar",
+        "insidebartrailing",
+        "elasticband",
+        "openingrange",
+    )
+    for module in loops:
+        assert "market_exit_reason" in names_used_in(f"sim/{module}.py"), module
 
-    assert not references("sim/bracket.py", "EXIT_TIME_LIMIT")
+    resolved = names_in_function("sim/bracket.py", "resolve_brackets")
+    assert "EXIT_STOP" in resolved, "the guard has to see the codes resolve_brackets does write"
+    assert not {"EXIT_TIME_LIMIT", "EXIT_EARLY"} & resolved
+    assert {"EXIT_TIME_LIMIT", "EXIT_EARLY"} <= names_in_function("sim/bracket.py", "market_exit_reason")
 
 
 def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> None:

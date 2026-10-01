@@ -105,6 +105,7 @@ def deadcat_legs(
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
             direction=trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo does.
+            early_exit=filters.early_exit(data, params),
         ),
         out,
     )

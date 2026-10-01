@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numba import njit
 
+from nqbt import regime, trend
 from nqbt.trades import (
     C_AMBIGUOUS,
     C_BARS_HELD,
@@ -34,14 +35,16 @@ from nqbt.trades import (
     C_RISK_POINTS,
     C_TARGET_PRICE,
     C_TRADE_ID,
+    EXIT_EARLY,
     EXIT_SESSION_CLOSE,
     EXIT_STOP,
     EXIT_TARGET,
+    EXIT_TIME_LIMIT,
     N_COLUMNS,
 )
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, FloatArray, IntArray
+    from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
 
 
 class Bars(NamedTuple):
@@ -135,6 +138,58 @@ class LegExit(NamedTuple):
     price: float
     reason: float
     ambiguous: bool
+
+
+class EarlyExit(NamedTuple):
+    """The conditional early exit: its thresholds and the per-bar context its one rule reads.
+
+    Every rule is off at its default and at most one is on. A rule that reads a series is on
+    exactly where that series is non-empty, and each label is the one known at that bar's close
+    -- ``docs/nt8-fidelity.md``, "The conditional early exit".
+    """
+
+    at_bar: int
+    below_r: float
+    trend_form: int
+    """Read only where :attr:`trend_labels` is non-empty."""
+
+    only_if_losing: bool
+    near_close: BoolArray
+    regime_labels: LabelArray
+    trend_labels: LabelArray
+
+
+TREND_EXIT_OFF = 0
+TREND_EXIT_OPPOSED = 1
+TREND_EXIT_NOT_WITH = 2
+TREND_EXIT_FORMS = {
+    TREND_EXIT_OFF: "off",
+    TREND_EXIT_OPPOSED: "opposed",
+    TREND_EXIT_NOT_WITH: "not_with",
+}
+"""Which trend labels count as against a position: the opposite trend, or that and ``MIXED``."""
+
+TREND_MIXED = int(trend.Trend.MIXED)
+"""The middle trend label, which a position's side is measured either side of."""
+
+NO_CLOCK = np.zeros(0, dtype=np.bool_)
+NO_LABELS = np.zeros(0, dtype=np.int8)
+"""Stand-ins for a series the active rule never reads, which numba still needs typed."""
+
+EARLY_EXIT_OFF = EarlyExit(
+    at_bar=0,
+    below_r=0.0,
+    trend_form=TREND_EXIT_OFF,
+    only_if_losing=False,
+    near_close=NO_CLOCK,
+    regime_labels=NO_LABELS,
+    trend_labels=NO_LABELS,
+)
+"""Every rule off, which is every loop's default."""
+
+NO_MARKET_EXIT = -1.0
+"""What :func:`market_exit_reason` returns on a bar whose close submits no market exit; no exit
+code is negative."""
 
 
 @njit(cache=True)
@@ -333,6 +388,97 @@ def hold_expired(entry_bar: int, i: int, max_hold_bars: int) -> bool:
     own exit code".
     """
     return max_hold_bars > 0 and i - entry_bar >= max_hold_bars
+
+
+@njit(cache=True)
+def early_exit_due(rule: EarlyExit, trade: OpenTrade, i: int, close: float) -> bool:
+    """Return whether bar ``i``'s close is where the conditional early exit is submitted.
+
+    Off at :data:`EARLY_EXIT_OFF`. A position is losing when ``close`` is strictly worse than
+    its entry price, and the order fills at the next bar's open -- ``docs/nt8-fidelity.md``,
+    "The conditional early exit".
+    """
+    open_profit = trade.direction * (close - trade.entry_price)
+    losing = open_profit < 0.0
+    if rule.at_bar > 0:
+        return i - trade.entry_bar == rule.at_bar and open_profit < rule.below_r * trade.risk
+
+    if rule.near_close.size > 0:
+        return losing and rule.near_close[i]
+
+    at_entry = trade.entry_bar - 1
+    if at_entry < 0 or (rule.only_if_losing and not losing):
+        return False
+
+    if rule.regime_labels.size > 0:
+        return regime_changed(rule.regime_labels, at_entry, i)
+
+    if rule.trend_labels.size > 0:
+        return trend_turned(rule.trend_labels, at_entry, i, trade.direction, rule.trend_form)
+
+    return False
+
+
+@njit(cache=True)
+def market_exit_reason(
+    trade: OpenTrade,
+    i: int,
+    close: float,
+    max_hold_bars: int,
+    early_exit: EarlyExit,
+) -> float:
+    """Return the exit code of the market exit bar ``i``'s close submits, or :data:`NO_MARKET_EXIT`.
+
+    The hold cap takes a bar both it and the early exit would leave on. An archetype's own
+    signal exit is decided before either -- ``docs/nt8-fidelity.md``, "The conditional early exit".
+    """
+    if hold_expired(trade.entry_bar, i, max_hold_bars):
+        return EXIT_TIME_LIMIT
+
+    if early_exit_due(early_exit, trade, i, close):
+        return EXIT_EARLY
+
+    return NO_MARKET_EXIT
+
+
+@njit(cache=True)
+def regime_changed(labels: LabelArray, at_entry: int, i: int) -> bool:
+    """Return whether bar ``i``'s regime label differs from the one at entry; an undefined one never does."""
+    entry = int(labels[at_entry])
+    now = int(labels[i])
+    if regime.UNDEFINED in (entry, now):
+        return False
+
+    return now != entry
+
+
+@njit(cache=True)
+def trend_against(label: int, direction: float, form: int) -> bool:
+    """Return whether a trend label is against a position on ``direction``, in the form ``form`` names.
+
+    ``form`` is one of :data:`TREND_EXIT_FORMS`, and an undefined label is against nothing.
+    """
+    if label == trend.UNDEFINED:
+        return False
+
+    lean = direction * (label - TREND_MIXED)
+    if form == TREND_EXIT_OPPOSED:
+        return lean < 0.0
+
+    return lean <= 0.0
+
+
+@njit(cache=True)
+def trend_turned(labels: LabelArray, at_entry: int, i: int, direction: float, form: int) -> bool:
+    """Return whether bar ``i``'s trend label is against the position when the one at entry was not.
+
+    An undefined label at entry never turns.
+    """
+    entry = int(labels[at_entry])
+    if entry == trend.UNDEFINED:
+        return False
+
+    return trend_against(int(labels[i]), direction, form) and not trend_against(entry, direction, form)
 
 
 @njit(cache=True)

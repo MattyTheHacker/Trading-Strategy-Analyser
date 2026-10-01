@@ -42,6 +42,7 @@ from nqbt import (
 )
 from nqbt.arrays import float_column
 from nqbt.instruments import get_instrument
+from nqbt.sim.bracket import TREND_EXIT_FORMS, TREND_EXIT_OFF
 from nqbt.sim.types import (
     BAND_BOLLINGER,
     BAND_VWAP,
@@ -176,6 +177,7 @@ IBT_SIZING = "ibt-sizing"
 CONFLUENCE_SIZING = "confluence-sizing"
 MIDDAY = "midday"
 HOLD = "hold"
+EARLY_EXIT = "early-exit"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -447,6 +449,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     IBT_SIZING: (UNFILTERED, MIDDAY),
     CONFLUENCE_SIZING: (UNFILTERED, REGIME, "phase", VOLUME_FORMS, "compression", "trend", "htf"),
     HOLD: (UNFILTERED,),
+    EARLY_EXIT: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: EVERY_DIMENSION,
 }
@@ -1660,6 +1663,60 @@ def _held(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant
 HOLD_VARIANTS = {name: _held(build) for name, build in VARIANTS.items()}
 """The [#292] run: every archetype's stored campaign grid, once per maximum hold time."""
 
+EARLY_EXIT_BARS = (3, 5, 10, 20)
+"""The bar at which the not-working exit is tested, every one below ElasticBand's hold cap of 30."""
+
+EARLY_EXIT_BELOW_R = (-0.5, 0.0, 0.25, 0.5)
+"""The open profit, in R, the not-working exit requires at that bar; ``0`` is "losing at bar N"."""
+
+EARLY_EXIT_MINUTES = (15, 30, 60, 120)
+"""The window before the session close in which a losing position is closed."""
+
+
+def early_exit_arms() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return every early-exit arm by name, each the fields it sets and ``off`` setting none."""
+    arms: dict[str, dict[str, AxisValue | bool]] = {"off": {}}
+    for bars in EARLY_EXIT_BARS:
+        for below_r in EARLY_EXIT_BELOW_R:
+            arms[f"bars{bars}@{below_r:g}R"] = {"early_exit_bars": bars, "early_exit_below_r": below_r}
+
+    for minutes in EARLY_EXIT_MINUTES:
+        arms[f"close{minutes}m"] = {"early_exit_minutes_before_close": minutes}
+
+    for only_if_losing in (False, True):
+        suffix: str = "-losing" if only_if_losing else ""
+        arms[f"regime{suffix}"] = {
+            "early_exit_on_regime_change": True,
+            "early_exit_only_if_losing": only_if_losing,
+        }
+        for form, form_name in TREND_EXIT_FORMS.items():
+            if form == TREND_EXIT_OFF:
+                continue
+
+            arms[f"trend-{form_name.replace('_', '-')}{suffix}"] = {
+                "early_exit_on_trend": form,
+                "early_exit_only_if_losing": only_if_losing,
+            }
+
+    return arms
+
+
+def _early_exited(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
+    """Re-emit one archetype's stored campaign variants once per early-exit arm, axes unchanged."""
+
+    def variants(root: str) -> list[Variant]:
+        return [
+            replace(variant, name=f"{variant.name} exit={arm}", base=replace(variant.base, **fields))
+            for variant in build(root)
+            for arm, fields in early_exit_arms().items()
+        ]
+
+    return variants
+
+
+EARLY_EXIT_VARIANTS = {name: _early_exited(build) for name, build in VARIANTS.items()}
+"""The [#369] run: every archetype's stored campaign grid, once per early-exit arm."""
+
 EMAPULLBACK_TRAILS: dict[str, dict[str, bool]] = {
     "trail=off": {"trail_ma_stop": False},
     "trail=slow": {"trail_ma_stop": True, "trail_on_slow": True},
@@ -2129,6 +2186,7 @@ CAMPAIGN = "campaign"
 VARIANT_SETS = {
     CAMPAIGN,
     CONFLUENCE_SIZING,
+    EARLY_EXIT,
     ELASTIC_BAND_STOP,
     EMAPULLBACK_CONFIRM,
     EMAPULLBACK_TRAIL,
@@ -2156,6 +2214,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
     """Return the variant builders one ``--variants`` name selects."""
     sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
         CONFLUENCE_SIZING: CONFLUENCE_SIZING_VARIANTS,
+        EARLY_EXIT: EARLY_EXIT_VARIANTS,
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
         EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
         EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,
