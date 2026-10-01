@@ -10,8 +10,10 @@ for: ``docs/roadmap.md`` §M17; the gate maps' blind spots: ``nqbt/README.md`` �
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
+from functools import cache
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from nqbt import compression, conditions, higher_timeframe, regime, timeofday, trend, volume
@@ -475,6 +477,15 @@ def gate_toggles(gate: Gate) -> tuple[str, ...]:
     return (gate,) if isinstance(gate, str) else gate
 
 
+def reads(params: Params, gate: Gate) -> bool:
+    """Return whether one combination reads an axis gated by ``gate``, so its value can change a trade."""
+    switched_on: list[bool] = [
+        getattr(params, toggle) != INERT_AT.get(toggle, False) for toggle in gate_toggles(gate)
+    ]
+
+    return any(switched_on) if isinstance(gate, AnyOf) else all(switched_on)
+
+
 REGIME_GATES: Mapping[str, str] = {
     "regime_lookback": "regime_filter",
     "regime_consolidating_below": "regime_filter",
@@ -634,6 +645,82 @@ def _leaves_the_port(params: Params) -> bool:
     return _sizes_per_signal(params) or _exits_early(params)
 
 
+COST_FIELDS: frozenset[str] = frozenset({"commission_per_contract", "slippage_ticks"})
+"""The costs, which a reconciled row may vary -- ``docs/roadmap.md`` § "Decisions taken"."""
+
+DEADCATBOUNCE_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "ema_period",
+        "slow_sma_period",
+        "fast_sma_period",
+        "order_quantity",
+        "use_ema",
+        "use_slow_sma",
+        "use_fast_sma",
+        "use_vwap",
+        "require_previous_green",
+        "require_new_high",
+        "tp_multiplier",
+        "max_risk_ticks",
+    },
+)
+"""Every ``[NinjaScriptProperty]`` in ``DeadCatBounce.cs``, by the field that mirrors it."""
+
+PULLBACKANDGO_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "ema_period",
+        "slow_sma_period",
+        "fast_sma_period",
+        "order_quantity",
+        "use_ema",
+        "use_slow_sma",
+        "use_fast_sma",
+        "use_vwap",
+        "require_previous_red",
+        "require_new_low",
+    },
+)
+"""Every ``[NinjaScriptProperty]`` in ``PullBackAndGo.cs``, by the field that mirrors it."""
+
+INSIDEBAR_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "order_quantity",
+        "ema_period",
+        "fast_sma_period",
+        "slow_sma_period",
+        "error_margin",
+        "atr_length",
+        "atr_multiplier",
+        "tp_multiplier",
+    },
+)
+"""Every ``[NinjaScriptProperty]`` in ``InsideBar.cs``, by the field that mirrors it."""
+
+INSIDEBARTRAILING_PROPERTIES: frozenset[str] = (INSIDEBAR_PROPERTIES - {"tp_multiplier"}) | {
+    "partial_take_profit_percentage",
+    "trailing_stop_multiplier",
+    "maximum_loss_per_trade",
+}
+"""Every ``[NinjaScriptProperty]`` in ``InsideBarTrailing.cs`` that a field mirrors."""
+
+
+@cache
+def _defaults(params_cls: type[Params]) -> dict[str, object]:
+    """Return every field's default for one parameter class, keyed by name."""
+    return {f.name: f.default for f in fields(params_cls)}
+
+
+def _same(value: object, default: object) -> bool:
+    """Return whether a field holds its default, counting a NaN target slot equal to the default's NaN."""
+    if isinstance(value, tuple) and isinstance(default, tuple):
+        return len(value) == len(default) and all(_same(v, d) for v, d in zip(value, default, strict=True))
+
+    if isinstance(value, float) and isinstance(default, float) and math.isnan(default):
+        return math.isnan(value)
+
+    return value == default
+
+
 ELASTICBAND_GATES: Mapping[str, Gate] = {
     **CONTEXT_GATES,
 }
@@ -694,12 +781,38 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     """Fields that are not legal axes. Listed rather than inferred -- see #60."""
 
     departs_from_port: Callable[[Params], bool] | None = None
-    """Whether a combination uses a rule its reconciled NinjaScript does not have. Such a row is
-    ``TIER1_ONLY`` whatever :attr:`tier2` says -- :meth:`tier2_for`."""
+    """Whether a combination uses a rule no reconciled NinjaScript has, whatever its parameter
+    class. Such a row is ``TIER1_ONLY`` whatever :attr:`tier2` says -- :meth:`tier2_for`."""
+
+    port_properties: frozenset[str] | None = None
+    """The fields mirroring a ``[NinjaScriptProperty]`` of the reconciled NinjaScript, ``None``
+    without one. Any other field read away from its default leaves the port --
+    :meth:`fields_off_port`."""
+
+    def fields_off_port(self, params: Params) -> tuple[str, ...]:
+        """Return the fields one combination reads away from their defaults that its NinjaScript lacks.
+
+        Empty without :attr:`port_properties`. The costs are never in it, and a field its
+        :attr:`gated_by` toggle leaves unread changes nothing.
+        """
+        if self.port_properties is None:
+            return ()
+
+        free: frozenset[str] = self.port_properties | COST_FIELDS
+
+        return tuple(
+            name
+            for name, default in _defaults(type(params)).items()
+            if name not in free
+            and not _same(getattr(params, name), default)
+            and (name not in self.gated_by or reads(params, self.gated_by[name]))
+        )
 
     def tier2_for(self, params: Params) -> Tier2Status:
         """Return the status one combination's results carry: :attr:`tier2`, unless it leaves the port."""
-        departs: bool = self.departs_from_port is not None and self.departs_from_port(params)
+        departs: bool = bool(self.fields_off_port(params)) or (
+            self.departs_from_port is not None and self.departs_from_port(params)
+        )
         if departs and self.tier2 is Tier2Status.RECONCILED:
             return Tier2Status.TIER1_ONLY
 
@@ -724,10 +837,10 @@ DEADCATBOUNCE = Archetype(
     long_side=runner.deadcat_long_side,
     tier2=Tier2Status.RECONCILED,
     departs_from_port=_leaves_the_port,
+    port_properties=DEADCATBOUNCE_PROPERTIES,
 )
-"""The first C#-backed port. Sizing per signal and the early exit are not in its NinjaScript, so a
-row using either is ``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M47 and "The conditional early
-exit"."""
+"""The first C#-backed port. A row sizing per signal, or setting anything else its NinjaScript has
+no property for, is ``TIER1_ONLY`` -- ``docs/roadmap.md`` § "Decisions taken"."""
 
 PULLBACKANDGO = Archetype(
     name="PullBackAndGo",
@@ -738,9 +851,10 @@ PULLBACKANDGO = Archetype(
     long_side=pullback.pullback_long_side,
     tier2=Tier2Status.RECONCILED,
     departs_from_port=_leaves_the_port,
+    port_properties=PULLBACKANDGO_PROPERTIES,
 )
-"""DeadCatBounce's long-side mirror, and the second C#-backed port. A sizing or early-exit row is
-``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M47 and "The conditional early exit"."""
+"""DeadCatBounce's long-side mirror, and the second C#-backed port. A row leaving its NinjaScript
+is ``TIER1_ONLY`` -- ``docs/roadmap.md`` § "Decisions taken"."""
 
 EMACROSSOVER = Archetype(
     name="EmaCrossover",
@@ -781,10 +895,10 @@ INSIDEBAR = Archetype(
     gated_by=INSIDEBAR_GATES,
     context_for=insidebar_context,
     departs_from_port=_leaves_the_port,
+    port_properties=INSIDEBAR_PROPERTIES,
 )
-"""The third C#-backed port, diffed leg-for-leg against an MNQ 03-24 trade list. A sizing or
-early-exit row is ``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M47 and "The conditional early
-exit"."""
+"""The third C#-backed port, diffed leg-for-leg against an MNQ 03-24 trade list. A row leaving
+its NinjaScript is ``TIER1_ONLY`` -- ``docs/roadmap.md`` § "Decisions taken"."""
 
 INSIDEBARTRAILING = Archetype(
     name="InsideBarTrailing",
@@ -797,10 +911,11 @@ INSIDEBARTRAILING = Archetype(
     gated_by=INSIDEBARTRAILING_GATES,
     context_for=insidebar_context,
     departs_from_port=_leaves_the_port,
+    port_properties=INSIDEBARTRAILING_PROPERTIES,
 )
 """The fourth C#-backed port: InsideBar's entry with split-lot exits, diffed leg-for-leg against
-an MNQ 03-24 trade list -- ``docs/nt8-fidelity.md`` §M23. A row sizing per signal or exiting
-early is ``TIER1_ONLY`` -- ``docs/nt8-fidelity.md`` §M45 and "The conditional early exit"."""
+an MNQ 03-24 trade list -- ``docs/nt8-fidelity.md`` §M23. A row leaving its NinjaScript is
+``TIER1_ONLY`` -- ``docs/roadmap.md`` § "Decisions taken"."""
 
 ELASTICBAND = Archetype(
     name="ElasticBand",

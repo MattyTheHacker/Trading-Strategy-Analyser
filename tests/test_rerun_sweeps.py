@@ -11,9 +11,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import duckdb
+import pandas as pd
 import pytest
 
-from nqbt import archetypes, regime, timeofday
+from nqbt import archetypes, regime, sweep, timeofday
+from tools import rerun_sweeps
 from tools.rerun_sweeps import TABLES, drop_tables, grids, strata
 
 if TYPE_CHECKING:
@@ -102,3 +104,30 @@ def test_drop_tables_removes_the_stale_schema(tmp_path: Path) -> None:
 def test_drop_tables_is_quiet_when_there_is_no_database(tmp_path: Path) -> None:
     drop_tables(tmp_path / "absent.duckdb")
     assert not (tmp_path / "absent.duckdb").exists()
+
+
+def test_every_stored_row_carries_its_own_tier2(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A filtered stratum leaves DeadCatBounce's NinjaScript, so it cannot be stored as reconciled."""
+    bars = pd.DataFrame({"close": [1.0]}, index=pd.date_range("2024-01-02", periods=1, tz="UTC"))
+    stored: dict[str, list[str]] = {}
+
+    def swept(
+        _bars: pd.DataFrame, grid: sweep.Grid, *_: object, **__: object
+    ) -> tuple[pd.DataFrame, dict[int, pd.DataFrame]]:
+        return pd.DataFrame({"combo_id": range(len(grid)), "profit_factor": 1.0, "trades": 40}), {}
+
+    def saved(table: pd.DataFrame, **kwargs: object) -> int:
+        stored[str(kwargs["notes"]).split(";")[0]] = list(table["tier2"])
+
+        return len(stored)
+
+    monkeypatch.setattr(rerun_sweeps.splice, "load_continuous", lambda _root: bars)
+    monkeypatch.setattr(rerun_sweeps.context, "prepare", lambda *_, **__: None)
+    monkeypatch.setattr(rerun_sweeps.sweep, "sweep", swept)
+    monkeypatch.setattr(rerun_sweeps.results, "save_sweep", saved)
+    rerun_sweeps.run_root("MNQ", 1, n_jobs=1, db_path=tmp_path / "sweeps.duckdb")
+
+    assert set(stored["unfiltered"]) == {"reconciled"}
+    for name, stamped in stored.items():
+        if name != "unfiltered":
+            assert set(stamped) == {"tier-1-only"}, name

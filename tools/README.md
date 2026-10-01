@@ -31,7 +31,7 @@ These hold across the reading tools below, so they are stated once here rather t
 
 | group                             | tools                                                                                                                                                                                                                                                              |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Sweeping                          | `campaign_sweep.py`, `rerun_sweeps.py`                                                                                                                                                                                                                             |
+| Sweeping                          | `campaign_sweep.py`, `rerun_sweeps.py`, `restamp_tier2.py`                                                                                                                                                                                                         |
 | Storing and re-running trade logs | `campaign_shortlist.py`, `campaign_swept.py`, `campaign_annotate.py`                                                                                                                                                                                               |
 | Reading a campaign                | `campaign_report.py`, `campaign_holdout.py`, `campaign_paired.py`, `campaign_crossread.py`, `campaign_crossroot.py`, `campaign_labels.py`, `campaign_hold.py`, `campaign_early_exit.py`                                                                            |
 | Testing a shortlist               | `campaign_null.py`, `campaign_contracts.py`, `campaign_montecarlo.py`, `campaign_walkforward.py`, `campaign_exits.py`, `campaign_ambiguity.py`, `campaign_review.py`, `campaign_flatten.py`, `campaign_sizing.py`, `geometry_contribution.py`, `campaign_gates.py` |
@@ -153,6 +153,26 @@ Clears the sweep database and re-runs the grids that still matter, stratified.
 **This deletes `sweeps`, `combos` and `trades`**, and the drop is not optional. Every row stored before it was computed against a continuous series with different roll dates, at a commission that is not the real one, and before the market-context labels existed, so those rows answer a different question and go rather than being appended to -- `docs/roadmap.md` § "Stored sweeps -- dropped and re-run, stratified".
 
 **One dimension at a time, never crossed**: eleven strata per root -- unfiltered, once per regime, once per session phase -- rather than the 32 cells the product would give. The point is to tell "no edge anywhere" from "edge in one stratum, drowned by the others"; crossing them is what #48's guard refuses. Every stratum runs the same 96-combination grid, which is the dropped grid minus `ambiguity_policy`: that axis is fixed at `1`, what NT8 does, because `0` is a blanket worst case more pessimistic than NT8 and the two were measured 0.009 profit factor apart.
+
+**Each row carries its own `tier2`**, so every filtered stratum is stored `tier-1-only` -- `docs/roadmap.md` § "Decisions taken".
+
+### restamp_tier2.py
+
+Re-stamps stored `reconciled` rows that leave their NinjaScript as `tier-1-only`, by the rule `sweep.row_tier2` applies to a new sweep.
+
+```bash
+./.venv/Scripts/python.exe tools/restamp_tier2.py                    # report, write nothing
+./.venv/Scripts/python.exe tools/restamp_tier2.py --write
+./.venv/Scripts/python.exe tools/restamp_tier2.py results/sweeps.duckdb --write
+```
+
+**The `tier2` column is stamped when a sweep is saved, so a change to the rule reaches no stored row on its own.** Named no database, the tool reads `results/sweeps.duckdb` and every `results/campaign/*.duckdb` that exists. It rebuilds each `reconciled` row of a reconciled archetype from the row's own columns and stamps it `tier-1-only` where `Archetype.tier2_for` now says so, and the report names the fields each such row leaves its port on. The rule and what it reaches: `docs/roadmap.md` § "Decisions taken".
+
+- **Without `--write` it opens every database read-only and changes nothing.** Run `--write` once no sweep is writing the database.
+- **A field the row holds no value for ran at its default**, because the field did not exist when the row was stored — the reading `campaign_crossread.ran_at` already takes. Each row is rebuilt by `campaign_shortlist.rebuild`, as the re-running readers rebuild theirs.
+- **It cannot see a field no sweep stores.** `sweep.run_combination` drops an archetype's `not_sweepable` fields, `target_r_multiples` on DeadCatBounce and PullBackAndGo among them, so a variant whose base moved one reads here as its default.
+- **It only downgrades, and reads only rows stamped `reconciled`.** A `tier-1-only` row is never promoted, a row stored with no stamp is not read, and the `sweeps` table's own `tier2` stays the archetype's.
+- **A row it cannot rebuild keeps its stamp and the tool exits 2**, naming the first error, so a database it could not fully check is not read as one that passed.
 
 ## Storing and re-running trade logs
 
