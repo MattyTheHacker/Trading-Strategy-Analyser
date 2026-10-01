@@ -22,7 +22,7 @@ from tools.findings_index import FINDINGS, NOT_A_FINDING
 
 ROOT = Path(__file__).resolve().parent.parent
 
-SEARCHED = ("nqbt", "tools", "tests", "docs", ".claude")
+SEARCHED = ("nqbt", "tools", "tests", "docs", ".claude", "verification")
 LOOSE = ("CLAUDE.md", "CONTRIBUTING.md", "README.md")
 
 POINTER = re.compile(r'`{1,2}([A-Za-z0-9_/.\-]+\.md)`{1,2},?\s*§?\s*"([^"]+)"')

@@ -1,6 +1,8 @@
 # Verification artefacts
 
-Outputs kept from the NT8 reconciliation work. All of them are **nqbt's own output**, not NinjaTrader's — the NT8 trade list they were compared against was a one-off Strategy Analyzer export and is not stored here.
+Outputs kept from the NT8 reconciliation work. Only this README is committed; everything else here is gitignored and exists only on the machine that produced it (#91). The docs name these files in words, and this README is where their exact paths live (#368).
+
+The four files at the top level are **nqbt's own output**, not NinjaTrader's — the DeadCatBounce trade list they were compared against was a one-off Strategy Analyzer export and is not stored here.
 
 | file                               | what it is                                                                       |
 | ---------------------------------- | -------------------------------------------------------------------------------- |
@@ -8,6 +10,15 @@ Outputs kept from the NT8 reconciliation work. All of them are **nqbt's own outp
 | `trades_2024Q1.csv`                | Leg-level trade log, `nqbt run` with costs applied                               |
 | `explain_2024Q1.csv`               | Per-trade audit trail. **Also a pre-fix run — its trigger arithmetic is wrong.** |
 | `ratchet_2024Q1.csv`               | Bar-by-bar stop ratchet for one trade                                            |
+
+The two folders hold **NinjaTrader's output**:
+
+| file                                                               | what it is                                                                                                                                     |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebar.csv`                    | The Trades export InsideBar is reconciled against — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBar (#126, #157)"                  |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing.csv`            | The Trades export InsideBarTrailing is reconciled against — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing (#127)"        |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_ported.csv`     | The ported midday configuration's export — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing with the trading window (#349)" |
+| `nt8_order_lifetime/<stem>_events.csv`, `_bars.csv`, `_config.csv` | One `NqbtOrderLifetimeProbe` run per stem — `docs/nt8-fidelity.md` § "Order lifetime and the session edge (#67)"                               |
 
 ## The reconciliation file is mislabelled, deliberately kept
 
@@ -20,6 +31,13 @@ DeadCatParams(..., fill_limit_on_touch=True, ambiguity_policy=0)
 Those two settings account for all 19 differences against a current run: 15 legs where a target filled on a touch rather than trading through (`IsFillLimitOnTouch = false`), and 4 where an ambiguous bar resolved to the stop rather than to whichever level sat nearer the open. Both counts match the evidence tables in the fidelity record exactly, which is what identifies the file as the *before* state used to diagnose those fixes.
 
 It is worth keeping precisely because it pins that behaviour: if a future change to the fill logic stops reproducing this file under those two settings, something moved that should not have.
+
+### Two later fixes that the recipe leaves on
+
+Reconciling PullBackAndGo in #87 found two more fill rules after this file was written. Neither has a setting, so the recipe above runs with both of them on:
+
+- **A stop fills at the open when the bar gaps through it.** It moves legs on this contract, but #87 measured none of them inside this file's window: all 1,168 legs still matched on every field — `docs/nt8-fidelity.md` § "A stop fills at the open when the bar gaps through it".
+- **A stop entry must sit beyond the market to be submitted.** DeadCatBounce cannot reach it, because its trigger is capped two ticks under the close — `docs/nt8-fidelity.md` § "A stop entry must sit beyond the market to be submitted".
 
 ## The audit trail file is also pre-fix, for a different reason
 
