@@ -21,6 +21,7 @@ from tools.campaign_early_exit import (
     exit_variants,
     exited,
     ladder,
+    parse,
     picks,
     reproduction,
     stored_twins,
@@ -49,6 +50,9 @@ def rows(base: str, arm: str, **columns: object) -> pd.DataFrame:
             "profit_factor": [0.8, 0.9, 1.1, 1.2],
             "avg_bars_held": [30.0, 30.0, 30.0, 30.0],
             "trades": [100, 200, 300, 400],
+            "commission_paid": [150.0, 300.0, 450.0, 600.0],
+            "win_rate": [0.40, 0.45, 0.50, 0.55],
+            "session_close_share": [0.30, 0.30, 0.30, 0.30],
             "net_pnl": [-10.0, -5.0, 5.0, 10.0],
         },
     )
@@ -126,7 +130,7 @@ def test_an_arm_that_moves_the_hold_is_bound_and_carries_its_trade_ratio() -> No
     treatment = rows("bracket", "bars3@0R", avg_bars_held=[4.0, 4.0, 4.0, 4.0], trades=[150, 300, 450, 600])
     table = arm_table(both(rows("bracket", CONTROL_ARM), treatment), "bars3@0R", "profit_factor")
     assert table["bound"].iloc[0] == 1.0
-    assert table["trade_ratio"].iloc[0] == pytest.approx(1.5)
+    assert table["trades_ratio"].iloc[0] == pytest.approx(1.5)
     assert table[ARM].iloc[0] == "bars3@0R"
 
 
@@ -172,9 +176,30 @@ def test_a_cell_clears_only_where_the_pick_pays_on_every_root() -> None:
     assert not bool(clearing(one_root)["clears"].iloc[0])
 
 
-def test_no_bound_arm_leaves_no_pick_rather_than_picking_an_unbound_one() -> None:
-    selection = pd.DataFrame([table_row("close15m", "MNQ", 0.3, 0.01, 0.1)])
-    assert picks(selection, selection).empty
+def test_a_resolution_with_no_bound_arm_stays_in_the_verdict_and_does_not_clear() -> None:
+    """Dropping it would hide an untested cell from the count of the family."""
+    selection = pd.DataFrame(
+        [table_row("close15m", "MNQ", 0.3, 0.01, 0.1), table_row("close15m", "NQ", 0.3, 0.01, 0.1)]
+    )
+    read = picks(selection, selection)
+    assert len(read) == 2
+    assert read[ARM].isna().all()
+    assert not read["pays"].any()
+    cleared = clearing(read)
+    assert list(cleared["roots"]) == [2]
+    assert not bool(cleared["clears"].iloc[0])
+
+
+def test_a_resolution_with_no_bound_arm_does_not_hide_one_beside_it_that_has_one() -> None:
+    selection = pd.DataFrame(
+        [
+            table_row("close15m", "MNQ", 0.3, 0.01, 0.1),
+            {**table_row("regime", "MNQ", 0.1, 0.01, 1.0), "resolution": 10},
+        ]
+    )
+    read = picks(selection, selection)
+    assert list(read["resolution"]) == [5, 10]
+    assert list(read["pays"]) == [False, True]
 
 
 # -- the reproduction check ----------------------------------------------------------------
@@ -203,6 +228,49 @@ def test_a_parameter_the_stored_rows_never_carried_is_left_out_of_the_join() -> 
     assert found["control_unmatched"] == 0
 
 
+def test_rows_differing_counts_rows_rather_than_the_worst_statistic() -> None:
+    stored = rows("bracket", "", profit_factor=[0.7, 0.9, 1.1, 1.2], net_pnl=[-10.0, -5.0, 5.0, 11.0])
+    found = reproduction(pd.concat([rows("bracket", CONTROL_ARM), stored], ignore_index=True))
+    assert found["rows_differing"] == 2
+    assert found["statistics_differing"] == {"net_pnl": 1, "profit_factor": 1}
+
+
+def test_a_stored_twin_kept_twice_is_refused_rather_than_joined_twice() -> None:
+    stored = rows("bracket", "")
+    duplicated = pd.concat(
+        [rows("bracket", CONTROL_ARM), stored, stored.assign(sweep_id=2)], ignore_index=True
+    )
+    with pytest.raises(RuntimeError, match="no single twin"):
+        reproduction(duplicated)
+
+
+def test_a_twin_swept_at_other_costs_is_not_a_twin() -> None:
+    control = rows("bracket", CONTROL_ARM, commission_per_contract=1.5)
+    stored = rows("bracket", "", commission_per_contract=0.0)
+    found = reproduction(pd.concat([control, stored], ignore_index=True))
+    assert found["joined"] == 0
+    assert found["control_unmatched"] == found["stored_unmatched"] == 4
+
+
+# -- the mechanism beside each arm ---------------------------------------------------------
+
+
+def test_the_trade_ratio_is_paired_configuration_by_configuration() -> None:
+    """Half the configurations lose half their trades: paired that is 0.75, as medians it is 0.8."""
+    treatment = rows("bracket", "bars3@0R", trades=[50, 100, 300, 400])
+    table = arm_table(both(rows("bracket", CONTROL_ARM), treatment), "bars3@0R", "profit_factor")
+    assert table["trades_ratio"].iloc[0] == pytest.approx(0.75)
+
+
+def test_every_column_the_pre_registration_reads_beside_an_arm_is_reported() -> None:
+    treatment = rows("bracket", "bars3@0R", avg_bars_held=[4.0, 4.0, 4.0, 4.0], session_close_share=[0.1] * 4)
+    table = arm_table(both(rows("bracket", CONTROL_ARM), treatment), "bars3@0R", "profit_factor")
+    assert table["avg_bars_held_change"].iloc[0] == pytest.approx(-26.0)
+    assert table["session_close_share_change"].iloc[0] == pytest.approx(-0.2)
+    assert table["commission_paid_ratio"].iloc[0] == pytest.approx(1.0)
+    assert table["win_rate_change"].iloc[0] == pytest.approx(0.0)
+
+
 # -- the guards ----------------------------------------------------------------------------
 
 
@@ -223,3 +291,21 @@ def test_rows_with_no_arm_to_pair_say_so_rather_than_failing_to_stack(
 def test_a_stratum_name_holding_a_quote_is_refused_before_it_reaches_the_query() -> None:
     with pytest.raises(ValueError, match="cannot be read"):
         stored_twins("InsideBar", "regime='x")
+
+
+def test_picks_and_reproduce_cannot_be_asked_for_together() -> None:
+    with pytest.raises(SystemExit) as refused:
+        parse(["prog", "--strategy", "InsideBar", "--picks", "--reproduce"])
+    assert refused.value.code == 2
+
+
+def test_a_window_the_chosen_read_does_not_use_is_refused() -> None:
+    with pytest.raises(SystemExit) as refused:
+        parse(["prog", "--strategy", "InsideBar", "--picks", "--window", "holdout"])
+    assert refused.value.code == 2
+
+
+def test_an_unknown_strategy_is_refused_by_name_rather_than_as_a_key_error() -> None:
+    with pytest.raises(SystemExit) as refused:
+        parse(["prog", "--strategy", "insidebar"])
+    assert refused.value.code == 2

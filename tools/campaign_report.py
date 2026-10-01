@@ -27,11 +27,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_SQL = """
+ROWS_SQL = """
     SELECT c.*, s.root AS root
     FROM combos c JOIN sweeps s USING (sweep_id)
-    WHERE c.trades >= {min_trades} AND isfinite(c.profit_factor)
+    WHERE TRUE
 """
+"""Every stored row, tagged with its root, before any narrowing."""
+
+SUMMARY_SQL = ROWS_SQL + " AND c.trades >= {min_trades} AND isfinite(c.profit_factor)"
 
 STATISTICS = frozenset(stats.Summary.columns())
 """What a results row carries beside its parameters. Read from the class, never copied."""
@@ -124,14 +127,15 @@ def narrowing(
     windows: Collection[str] | None = None,
     variants: Collection[str] | None = None,
     resolutions: Collection[int] | None = None,
+    strata: Collection[str] | None = None,
 ) -> str:
-    """Return the clauses that narrow a stored-row query to these windows, variants and resolutions.
+    """Return the clauses that narrow a stored-row query to these windows, variants, resolutions and strata.
 
     Appended to a query that already has its ``WHERE``. A name holding a quote is refused rather
     than escaped.
     """
     clauses: list[str] = []
-    for column, names in (('c."window"', windows), ("c.variant", variants)):
+    for column, names in (('c."window"', windows), ("c.variant", variants), ("c.stratum", strata)):
         if names is None:
             continue
 

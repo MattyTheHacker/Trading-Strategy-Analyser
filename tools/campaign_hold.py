@@ -18,7 +18,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import logsetup
-from tools.campaign_paired import CELL_KEYS, cells, paired, shared_columns, verdict
+from tools.campaign_paired import CELL_KEYS, REPORT_KEYS, cells, paired, shared_columns, verdict
 from tools.campaign_report import load
 from tools.campaign_sweep import HOLD_BARS
 
@@ -66,6 +66,15 @@ def bound_share(control: pd.DataFrame, treatment: pd.DataFrame, keys: list[str])
     return joined.reset_index()
 
 
+def bound_by_row(control: pd.DataFrame, treatment: pd.DataFrame, keys: list[str]) -> dict[object, float]:
+    """Return the share of paired cells whose average hold moved, per root x resolution."""
+    # The same de-duplication ``paired`` does, and for the same reason.
+    cell: list[str] = list(dict.fromkeys(keys + shared_columns(control, treatment)))
+    fired: pd.DataFrame = bound_share(control, treatment, cell)
+
+    return fired.groupby(REPORT_KEYS, observed=True)["bound"].mean().to_dict()
+
+
 def rung(rows: pd.DataFrame, bars: int, by: str) -> pd.DataFrame:
     """Compare one rung of the ladder against the uncapped arm, per root x resolution."""
     keys: list[str] = [*CELL_KEYS, BASE_VARIANT]
@@ -75,11 +84,7 @@ def rung(rows: pd.DataFrame, bars: int, by: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     table: pd.DataFrame = verdict(paired(control, treatment, by, cell_keys=keys))
-    # The same de-duplication ``paired`` does, and for the same reason.
-    cell: list[str] = list(dict.fromkeys(keys + shared_columns(control, treatment)))
-    fired: pd.DataFrame = bound_share(control, treatment, cell)
-    share: pd.Series[float] = fired.groupby(["root", "resolution"], observed=True)["bound"].mean()
-    table["bound"] = table.set_index(["root", "resolution"]).index.map(share)
+    table["bound"] = pd.MultiIndex.from_frame(table[REPORT_KEYS]).map(bound_by_row(control, treatment, keys))
     table.insert(0, "hold_bars", bars)
     table.insert(1, "hold_minutes", bars * table["resolution"])
 
