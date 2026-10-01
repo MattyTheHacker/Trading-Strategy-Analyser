@@ -383,11 +383,11 @@ def condition_held(params, data, series: LabelArray | None, trade: np.ndarray, r
     if params.early_exit_minutes_before_close > 0:
         return profit < 0 and data.seconds_to_session_end[bar] <= params.early_exit_minutes_before_close * 60
 
-    if params.early_exit_only_if_losing and profit >= 0:
-        return False
-
     assert series is not None, "a label rule reads rule_labels' series"
     before = entry_bar - 1
+    if before < 0 or (params.early_exit_only_if_losing and profit >= 0):
+        return False
+
     if params.early_exit_on_regime_change:
         return regime.UNDEFINED not in (series[before], series[bar]) and series[bar] != series[before]
 
