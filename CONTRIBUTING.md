@@ -306,7 +306,9 @@ All PRs should undertake a review of all documentation, not just `docs/`, to ens
 
 ## Data and generated files
 
-Nothing under `data/`, `cache/`, `results/` or `verification/` is committed — they are raw exports and derived caches, and `verification/` exists only on the machine that produced it ([#91]).
+Nothing under `data/`, `cache/` or `results/` is committed — they are raw exports and derived caches. `verification/` commits only its `README.md`, because that is hand-written and cannot be regenerated; the captures it explains exist only on the machine that produced them ([#91]).
+
+**Name a file inside `results/` or `verification/` in words, not by its path** ([#368]) — "that archetype's campaign database", "the MNQ 03-24 reconciliation capture". Nobody else can follow the path, and it goes stale without anyone noticing when the file is replaced. Keep exact paths in a README inside the folder itself. The folders, the defaults the code writes to such as `results/campaign/` and `results/sweeps.duckdb`, and the committed `verification/README.md` can still be named. Findings files are exempt because they are dated records, and the register says so. [`tests/test_doc_pointers.py`](tests/test_doc_pointers.py) enforces it.
 
 **The one published copy is what the trade-log gate's CI run downloads**: two files from `cache/`, attached to a release rather than committed so that refreshing them does not grow the history. [`.github/workflows/trade-log-gate.yaml`](.github/workflows/trade-log-gate.yaml) names the release.
 
@@ -332,4 +334,5 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 - **The share is not the exposure.** `ambiguous_share` says how often the fill assumption was invoked, not how much the result depends on it. Where an archetype's ambiguity varies across its own swept space, run `tools/campaign_ambiguity.py` over the shortlist: it reports the spread between the two policies, and above `disambiguate.MIN_AMBIGUOUS_SHARE` it settles what the minute bars can settle and re-summarises with the assumption corrected — [`docs/roadmap.md`](docs/roadmap.md) §M28.3 and §M28.4. **A resolved profit factor is a diagnostic and never a ranking**, and it never enters `nqbt/sim/`.
 
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
+[#368]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/368
 [#91]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/91

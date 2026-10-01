@@ -393,11 +393,10 @@ Source: **MNQ 03-24, 1-minute, an NT8 Strategy Analyzer export of 16,744 trades*
 | net P&L                  | 100.00%                  |
 | **identical everywhere** | **969 of 969 — 100.00%** |
 
-Reproduce it with the export in place:
+Reproduce it with InsideBar's MNQ 03-24 Trades export as `<export.csv>`:
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py \
-  verification/nt8_trades/nt8_trades_MNQ_03-24_insidebar.csv InsideBar "MNQ 03-24" 2023-12-14
+./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> InsideBar "MNQ 03-24" 2023-12-14
 ```
 
 **What this settled.** The `IsFillLimitOnTouch = true` branch, which nothing in the project had evidence for. The `OnExecutionUpdate` indexing, established against both terms independently and against an inference that had them one bar later. And that `ExitOnSessionCloseSeconds` does not move a backtest's flatten. `Archetype.tier2` is `RECONCILED`.
@@ -477,12 +476,10 @@ Source: **MNQ 03-24, 1-minute, an NT8 Strategy Analyzer export of 26,086 legs** 
 | net P&L                  | 100.00%                      |
 | **identical everywhere** | **1,522 of 1,522 — 100.00%** |
 
-Net P&L over the joined legs: NT8 −8,913.00 against nqbt −8,913.00. Reproduce it with the export in place:
+Net P&L over the joined legs: NT8 −8,913.00 against nqbt −8,913.00. Reproduce it with InsideBarTrailing's MNQ 03-24 Trades export as `<export.csv>`:
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py \
-  verification/nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing.csv \
-  InsideBarTrailing "MNQ 03-24" 2023-12-14
+./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> InsideBarTrailing "MNQ 03-24" 2023-12-14
 ```
 
 **What this settled**, in the order the corrections landed: that the `-200` gate governs the trend violation and not just the dead branch under it (80.18% → 97.23%); that `OnPositionUpdate` runs at the same one-bar offset `OnExecutionUpdate` does (→ 97.63%, and exit reason to 100.00%); that the exit it submits is part of the triggering fill rather than a next-bar market order (→ 98.42%); and that a trail advances within its entry bar but not within any later one (→ 99.80%). `Archetype.tier2` is `RECONCILED`.
@@ -577,10 +574,10 @@ Net P&L over the joined legs agrees exactly on all three: −8,913.00, −10,510
 | gated      | 1 minute    | `103000`           | `140000`         | `SetDefaults`    |
 | ported     | 5 minutes   | `103000`           | `140000`         | combo 2035       |
 
+Reproduce the ported run with its Trades export as `<export.csv>`:
+
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py \
-  verification/nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_ported.csv \
-  InsideBarTrailing-midday-2035 "MNQ 03-24" 2023-12-14
+./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> InsideBarTrailing-midday-2035 "MNQ 03-24" 2023-12-14
 ```
 
 `CONFIGS` carries all three, keyed `InsideBarTrailing`, `InsideBarTrailing-midday` and `InsideBarTrailing-midday-2035` — one archetype with three reconciled configurations, which is why a config name is no longer always an archetype name. The last is `docs/findings/m43-midday-candidates-ranked.md` § "The cell to port" with its commission and slippage set to zero, because NT8 ran with no fee template and a cost difference would read as a fill disagreement on every leg.
@@ -892,7 +889,7 @@ Same rule as §M26's: **only a distance is floored, never a level.** `min_bracke
 
 **One side per instance, and this is a limitation rather than a choice.** "The managed approach refuses the opposite-direction submission outright" below kills the classic form of both stops live with the first fill winning. §M28's finding 1 left route 3's plain stops untested, and a sixth probe scenario has since measured them refused the same way (#51), so the archetype is one-sided per combination, `direction` is a swept axis, and no combination ever holds two orders. The simulator has the same limit from the other side — one `pending_*` slot per loop.
 
-**Flat before the session close binds hard, and the live share is the thing to read.** A cash-anchored entry around 09:45 ET against a 17:00 close leaves the hold bounded by the geometry rather than the clock, but a runner leg with no target reaches the flatten every time: `session_close_share` runs near **half of all legs**, which changes what the results mean. It is produced by `tools/campaign_sweep.py --strategies OpeningRange --split` and read out of `results/campaign/OpeningRange.duckdb`; [roadmap.md](roadmap.md) §M28.1 has what it implies.
+**Flat before the session close binds hard, and the live share is the thing to read.** A cash-anchored entry around 09:45 ET against a 17:00 close leaves the hold bounded by the geometry rather than the clock, but a runner leg with no target reaches the flatten every time: `session_close_share` runs near **half of all legs**, which changes what the results mean. It is produced by `tools/campaign_sweep.py --strategies OpeningRange --split` and read out of OpeningRange's campaign database; [roadmap.md](roadmap.md) §M28.1 has what it implies.
 
 ### M28.2 — the fade, the retest and the stop fraction, written before the Python (#237)
 
@@ -1103,10 +1100,10 @@ Four rules are built, the ones #369 pre-registers first, with their fields on ev
 
 ## Order lifetime and the session edge (#67)
 
-Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; outputs live in `verification/nt8_order_lifetime/`, which is machine-local (#91), and every figure below is reproduced by:
+Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; the outputs are kept in `verification/` and are machine-local (#91), and every figure below is reproduced by passing each run's events log to:
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_order_lifetime.py verification/nt8_order_lifetime/<stem>_events.csv
+./.venv/Scripts/python.exe tools/reconcile_order_lifetime.py <stem>_events.csv
 ```
 
 ### Read the bar column before anything else: order callbacks lag by one

@@ -583,7 +583,7 @@ Captures every trade-log producer path to CSV, for comparison across a refactor.
 
 It was written for M9, which moved validated code and had to prove it had not moved a number, and kept as a tool because M15 needed the same gate and a stronger one -- `docs/roadmap.md` under M9 and M15. The five paths cover what a single run does not:
 
-1. the pinned MNQ 03-24 reconciliation window, under the two settings that reproduce `verification/nt8_reconciliation_MNQ_03-24.csv` (see `verification/README.md`) -- do not "modernise" them;
+1. the pinned MNQ 03-24 reconciliation window, under the two settings that reproduce the stored MNQ 03-24 reconciliation capture (see `verification/README.md`) -- do not "modernise" them;
 2. the same contract at current fidelity settings, with costs applied;
 3. the same bars through the NQ spec, which proves instrument scaling is untouched;
 4. a real sweep over spliced continuous bars, serial *and* parallel, since the parallel path memmaps the dataset and could diverge on its own;
