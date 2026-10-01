@@ -166,7 +166,7 @@ Re-stamps stored `reconciled` rows that leave their NinjaScript as `tier-1-only`
 ./.venv/Scripts/python.exe tools/restamp_tier2.py results/sweeps.duckdb --write
 ```
 
-**The `tier2` column is stamped when a sweep is saved, so a change to the rule reaches no stored row on its own.** Named no database, the tool reads `results/sweeps.duckdb` and every `results/campaign/*.duckdb` that exists. It rebuilds each `reconciled` row of a reconciled archetype from the row's own columns and stamps it `tier-1-only` where `Archetype.tier2_for` now says so, and the report names the fields each such row leaves its port on. The rule and what it reaches: `docs/roadmap.md` § "Decisions taken".
+**The `tier2` column is stamped when a sweep is saved, so a change to the rule reaches no stored row on its own.** Named no database, the tool reads `results/sweeps.duckdb` and every campaign database in `results/campaign/`. It rebuilds each `reconciled` row of a reconciled archetype from the row's own columns and stamps it `tier-1-only` where `Archetype.tier2_for` now says so, and the report names the fields each such row leaves its port on. The rule and what it reaches: `docs/roadmap.md` § "Decisions taken".
 
 - **Without `--write` it opens every database read-only and changes nothing.** Run `--write` once no sweep is writing the database.
 - **A field the row holds no value for ran at its default**, because the field did not exist when the row was stored — the reading `campaign_crossread.ran_at` already takes. Each row is rebuilt by `campaign_shortlist.rebuild`, as the re-running readers rebuild theirs.
@@ -603,7 +603,7 @@ Captures every trade-log producer path to CSV, for comparison across a refactor.
 
 It was written for M9, which moved validated code and had to prove it had not moved a number, and kept as a tool because M15 needed the same gate and a stronger one -- `docs/roadmap.md` under M9 and M15. The five paths cover what a single run does not:
 
-1. the pinned MNQ 03-24 reconciliation window, under the two settings that reproduce `verification/nt8_reconciliation_MNQ_03-24.csv` (see `verification/README.md`) -- do not "modernise" them;
+1. the pinned MNQ 03-24 reconciliation window, under the two settings that reproduce the stored MNQ 03-24 reconciliation capture (see `verification/README.md`) -- do not "modernise" them;
 2. the same contract at current fidelity settings, with costs applied;
 3. the same bars through the NQ spec, which proves instrument scaling is untouched;
 4. a real sweep over spliced continuous bars, serial *and* parallel, since the parallel path memmaps the dataset and could diverge on its own;

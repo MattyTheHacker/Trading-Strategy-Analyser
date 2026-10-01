@@ -2,8 +2,9 @@
 
 One deterministic scenario -- bars, context, simulation, statistics -- compared against stored
 values, so that a dependency bump moving a number fails CI instead of passing quietly. The
-trade-log gate this stands in for needs `data/` and `verification/`, and neither is committed;
-the argument is in ``docs/roadmap.md`` § "What CI can gate on a dependency bump".
+trade-log gate this stands in for needs `data/` and the captures in `verification/`, and
+neither is committed; the argument is in ``docs/roadmap.md`` § "What CI can gate on a
+dependency bump".
 
 Two things here are deliberate and read as mistakes otherwise:
 

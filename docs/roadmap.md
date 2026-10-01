@@ -990,7 +990,7 @@ The original reasoning follows, and still holds.
 
 **`Summary.empty()`** replaces a splat that put 26 arguments into a 28-field dataclass and raised on every call, which went unnoticed because the only caller had grown a second, divergent empty-log policy of its own. `sweep.run_combination` no longer keeps one.
 
-Two things M20a deliberately did **not** change, because M20 may not move a number: `stats.py`'s silent branch computing Sharpe and Sortino per trade rather than per day for a log with no times ([#81]) — unreachable today, same shape as the empty-log defect, and since closed by § "Sharpe and Sortino are refused rather than approximated" — and `verification/explain_2024Q1.csv`, annotated rather than regenerated, because it is the record of what the audit trail said while it was being trusted.
+Two things M20a deliberately did **not** change, because M20 may not move a number: `stats.py`'s silent branch computing Sharpe and Sortino per trade rather than per day for a log with no times ([#81]) — unreachable today, same shape as the empty-log defect, and since closed by § "Sharpe and Sortino are refused rather than approximated" — and the 2024 Q1 `--explain` capture in `verification/`, annotated rather than regenerated, because it is the record of what the audit trail said while it was being trusted.
 
 ### M8 — bar-major restructuring: measured, and not scheduled
 
@@ -1105,7 +1105,7 @@ ______________________________________________________________________
 
 ## Replaying a prop account over the trade log
 
-`nqbt/propaccount.py` ([#75]). Profit factor cannot say whether an account survived, and survival is what decides whether a strategy can be funded at all. The instrument replays one firm's rules over a trade log and reports what a live-trading decision actually reads: whether the account passed, where the floor sat when it died, and what the sequence of attempts was worth after fees. The measurements that pulled this forward from a reranking convenience to the go/no-go instrument are in [#75]'s own comment thread; they are dated and re-derivable from `results/campaign/*.duckdb`, so quote them from there rather than from here.
+`nqbt/propaccount.py` ([#75]). Profit factor cannot say whether an account survived, and survival is what decides whether a strategy can be funded at all. The instrument replays one firm's rules over a trade log and reports what a live-trading decision actually reads: whether the account passed, where the floor sat when it died, and what the sequence of attempts was worth after fees. The measurements that pulled this forward from a reranking convenience to the go/no-go instrument are in [#75]'s own comment thread; they are dated and re-derivable from the campaign databases, so quote them from there rather than from here.
 
 **It replays account rules; it does not add any.** Nothing in this module reaches into `nqbt/sim/`, and nothing may. The simulation models exactly one prop-firm rule — flat before the session close — because that one is also NT8's behaviour, and both prop and non-prop accounts have to work. A trailing threshold is not a trading rule, it is an accounting rule applied afterwards to a log that already exists; wiring one into the simulation would make every result conditional on a funding arrangement.
 
@@ -1304,12 +1304,15 @@ Three readings were decided rather than derived:
 
 **What it reaches in stored rows is wider than the hold ladder and the strata.** The registry campaign's grids (§M27, re-run at §M44) sweep `ema_kind` on DeadCatBounce, PullBackAndGo and InsideBar, so every row at a kind other than `ema` leaves the port: three quarters of the first two grids and half of InsideBar's. InsideBar's narrow re-sweep (§M27.3) holds its entry at `hma` on every row. The hold ladder (§M29, re-run at §M44) leaves on every rung but the uncapped one, every context-filtered stratum on the four leaves, and so does every stratum `tools/rerun_sweeps.py` stores, which until this change stamped its rows by the archetype rather than by the row. The column is stamped when a sweep is saved, so **`tools/restamp_tier2.py` re-stamps what is already stored**: it rebuilds each `reconciled` row's parameters and applies the rule as it stands, reporting by default and writing only with `--write` — `tools/README.md` § "restamp_tier2.py". Like the rule, it only ever downgrades.
 
+______________________________________________________________________
+
+**`verification/` commits its README and nothing else** ([#91]). The README is hand-written reasoning that cannot be regenerated, and `.claude/rules/data-pipeline.md` cites it as the authority on what the stored captures mean, so it is tracked. The captures stay ignored: they are regenerable, and the NT8 exports beside them are NinjaTrader's output rather than this project's. `.gitignore` ignores everything in `verification/` and re-includes `verification/README.md`, so a new file in the folder is ignored until someone decides otherwise.
+
 ## Still open
 
 - **Sample size.** How many real trades exist determines whether [#48]'s guard leaves anything standing. A few dozen will not support stratification by more than one or two conditions at a time, and knowing that early sets expectations for what the review can honestly deliver.
 - **Which series to annotate against.** The sample trades a single contract, `MNQ 09-26`. Annotating against the per-contract cache sidesteps back-adjustment and roll-date questions entirely and is almost certainly right; the continuous series only earns its place if a review needs indicators with lookbacks that cross a roll.
 - **Documentation must not carry figures that go stale.** State the rule; point at where the live number is produced — `docs/nt8-fidelity.md` for agreement rates, a `pytest` run for the test count, `nqbt splice --diagnostics` for bar and roll counts. `CLAUDE.md` loads into every session, so a stale figure there is a wrong fact asserted with authority, and these numbers move on almost every fill-rule change.
-- **`verification/` is gitignored in its entirety** ([#91]), including its `README.md` — which `.claude/rules/data-pipeline.md` cites as the authority on what the stored captures mean. The CSVs are regenerable; the prose is not, and it exists on one machine.
 
 [#10]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/10
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
