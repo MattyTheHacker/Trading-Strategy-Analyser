@@ -1,6 +1,6 @@
 # Verification artefacts
 
-Outputs kept from the NT8 reconciliation work. Only this README is committed; everything else here is gitignored and exists only on the machine that produced it (#91). The docs name these files in words, and this README is where their exact paths live (#368).
+Outputs kept from the NT8 reconciliation work, and one regression-gate capture. Only this README is committed; everything else here is gitignored and exists only on the machine that produced it (#91). The docs name these files in words, and this README is where their exact paths live (#368).
 
 The four files at the top level are **nqbt's own output**, not NinjaTrader's — the DeadCatBounce trade list they were compared against was a one-off Strategy Analyzer export and is not stored here.
 
@@ -11,14 +11,23 @@ The four files at the top level are **nqbt's own output**, not NinjaTrader's —
 | `explain_2024Q1.csv`               | Per-trade audit trail. **Also a pre-fix run — its trigger arithmetic is wrong.** |
 | `ratchet_2024Q1.csv`               | Bar-by-bar stop ratchet for one trade                                            |
 
-The two folders hold **NinjaTrader's output**:
+Four of the five folders hold **NinjaTrader's output**:
 
-| file                                                               | what it is                                                                                                                                     |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nt8_trades/nt8_trades_MNQ_03-24_insidebar.csv`                    | The Trades export InsideBar is reconciled against — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBar (#126, #157)"                  |
-| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing.csv`            | The Trades export InsideBarTrailing is reconciled against — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing (#127)"        |
-| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_ported.csv`     | The ported midday configuration's export — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing with the trading window (#349)" |
-| `nt8_order_lifetime/<stem>_events.csv`, `_bars.csv`, `_config.csv` | One `NqbtOrderLifetimeProbe` run per stem — `docs/nt8-fidelity.md` § "Order lifetime and the session edge (#67)"                               |
+| file                                                               | what it is                                                                                                                                                                                          |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebar.csv`                    | The Trades export InsideBar is reconciled against — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBar (#126, #157)"                                                                       |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebar_positionaccount.csv`    | InsideBar's first export, taken while the C# guarded on `PositionAccount` and NT8 reversed — `docs/nt8-fidelity.md` § "The position guard has to read `Position`, not `PositionAccount`"            |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing.csv`            | The Trades export InsideBarTrailing is reconciled against — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing (#127)"                                                             |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_regression.csv` | The trading window's regression run, byte-identical to the export above — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing with the trading window (#349)"                       |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_gate.csv`       | The trading window's gated run, 1 minute at `SetDefaults` — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing with the trading window (#349)"                                     |
+| `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_ported.csv`     | The ported midday configuration's export — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing with the trading window (#349)"                                                      |
+| `nt8_trades/nt8_trades_MNQ_06-24_pullback.csv`                     | PullBackAndGo's export on its second contract — `docs/nt8-fidelity.md` § "Reconciliation result — PullBackAndGo on a second contract (#92)"                                                         |
+| `nt8_trades/nt8_trades_NQ_03-24_deadcat.csv`                       | DeadCatBounce's NQ export — `docs/nt8-fidelity.md` § "Reconciliation result — NQ, the second instrument (#66)"                                                                                      |
+| `nt8_order_lifetime/<stem>_events.csv`, `_bars.csv`, `_config.csv` | One `NqbtOrderLifetimeProbe` run per stem — `docs/nt8-fidelity.md` § "Order lifetime and the session edge (#67)"                                                                                    |
+| `nt8_indicators/MNQ-03-24_1min_20231206_20240310.csv`              | NT8's own indicator values, one row per bar, from `NqbtIndicatorProbe` — `docs/nt8-fidelity.md` § "M16 — ATR, StdDev, Bollinger and Keltner, read out of NT8"                                       |
+| `nt8_higher_timeframe/<stem>_primary.csv`, `_coarse.csv`           | One `NqbtHigherTimeframeProbe` run: the 1-minute bars with the 60-minute series beside them, and the 60-minute bars alone — `docs/nt8-fidelity.md` § "And so is the higher-timeframe average (#73)" |
+
+The fifth, `gate-263b/`, is **nqbt's output** again: a `tools/capture_trade_logs.py` capture taken `before/` and `after/` one change, 14 files each and byte-identical between the two. No doc names it; its name and its date, 2026-09-09, match #263, which #268 closed that day.
 
 ## The reconciliation file is mislabelled, deliberately kept
 
@@ -51,12 +60,12 @@ Measured over the *current* MNQ 03-24 window, the cap binds on **123 of 345 trad
 
 The archive added ~38k bars of leading history to MNQ 03-24 and revised volumes elsewhere, which raised the question of whether the reconciliation still held. It does — but the check that establishes it is not the obvious one, and the obvious one is misleading.
 
-Re-running the current code under `fill_limit_on_touch=True, ambiguity_policy=0` now yields **1,380 legs against the stored 1,168**. That is not a regression: the extra leading history starts the series on 2023-09-09 instead of 2023-12-07, so the simulation gets ~3 months of bars the stored run never saw and finds real signals in them. Comparing leg *counts* is therefore meaningless. Joining on `(entry_time, leg)` instead:
+Last re-run on 2026-10-01, after #367 repaired the archive, through `tools/capture_trade_logs.py`'s first path. The current code under `fill_limit_on_touch=True, ambiguity_policy=0` yields **1,380 legs against the stored 1,168**. That is not a regression: the extra leading history starts the series on 2023-09-10 instead of 2023-12-07, so the simulation gets ~3 months of bars the stored run never saw and finds real signals in them. Comparing leg *counts* is therefore meaningless. Joining on `(entry_time, leg)` instead:
 
 - all **1,168 stored legs are present**, none missing;
-- `entry_time`, `exit_time`, `entry_price`, `exit_price`, `initial_stop`, `target_price`, `exit_reason` and `net_pnl` are **identical on every one**;
-- the 68 extra legs inside the stored window are all before the stored run's first entry.
+- every field is **identical on every one** except `trade_id`, `entry_bar` and `exit_bar`, which count from the earlier start;
+- of the 212 extra legs, 144 are before the stored run's first entry and 68 after its last, so none fall inside its window.
 
-**The bar-index offset is *not* constant, and that is fine.** An earlier note here recorded a constant 38,265; measured across the window it actually drifts 38,279 → 38,296. The 17 extra bars are out-of-session stray prints the archive picked up — single-contract trades at 22:31 ET on a Saturday, and inside the 17:00–18:00 ET maintenance break. They shift the frame's positional index without being tradeable.
+Read the stored file with `float_precision="round_trip"`. pandas' default parser misreads 208 of its `r_multiple` values by up to 4.4e-16, which reads as a difference that is not there.
 
-They do enter the indicator recursion, though, because `runner.prepare` computes over every row of the frame it is handed and does not filter by `in_session`. So the question of whether they perturb anything is a real one, and it was answered by measurement rather than argument: running MNQ 03-24 with and without its 47 out-of-session bars gives **1,380 legs either way, with no differing field on any of them**. The spliced continuous series never faces this at all — `build_continuous` filters to in-session bars before splicing.
+**The bar-index offset is a constant 38,265.** Before #185 it drifted 38,279 → 38,296 across the window, because 17 out-of-session stray prints inside it shifted the frame's positional index. `ingest.load_contract` has dropped those strays since #185, so the run never sees them. Before that, running with and without MNQ 03-24's 47 strays gave 1,380 legs either way, with no differing field on any of them.
