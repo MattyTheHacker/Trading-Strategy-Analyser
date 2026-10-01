@@ -33,7 +33,7 @@ These hold across the reading tools below, so they are stated once here rather t
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Sweeping                          | `campaign_sweep.py`, `rerun_sweeps.py`                                                                                                                                                                                                                             |
 | Storing and re-running trade logs | `campaign_shortlist.py`, `campaign_swept.py`, `campaign_annotate.py`                                                                                                                                                                                               |
-| Reading a campaign                | `campaign_report.py`, `campaign_holdout.py`, `campaign_paired.py`, `campaign_crossread.py`, `campaign_crossroot.py`, `campaign_labels.py`, `campaign_hold.py`                                                                                                      |
+| Reading a campaign                | `campaign_report.py`, `campaign_holdout.py`, `campaign_paired.py`, `campaign_crossread.py`, `campaign_crossroot.py`, `campaign_labels.py`, `campaign_hold.py`, `campaign_early_exit.py`                                                                            |
 | Testing a shortlist               | `campaign_null.py`, `campaign_contracts.py`, `campaign_montecarlo.py`, `campaign_walkforward.py`, `campaign_exits.py`, `campaign_ambiguity.py`, `campaign_review.py`, `campaign_flatten.py`, `campaign_sizing.py`, `geometry_contribution.py`, `campaign_gates.py` |
 | Prop-firm accounts                | `campaign_propaccount.py`, `campaign_propobjectives.py`                                                                                                                                                                                                            |
 | Reconciling against NinjaTrader   | `reconcile_nt8.py`, `reconcile_higher_timeframe.py`, `reconcile_order_lifetime.py`, `compare_exports.py`                                                                                                                                                           |
@@ -308,6 +308,18 @@ Reads the maximum-hold-time ladder: what each cap is worth against the uncapped 
 ```
 
 `campaign_sweep.py --variants hold` runs every archetype's stored grid once per rung, the uncapped `hold=0` arm included, so two rows differ by the cap alone. This pairs each capped arm against that control cell by cell, with `campaign_paired.py`'s machinery. **Never pooled across resolutions**: the cap is a bar count, so every row is one root x resolution with the minutes each rung means printed beside it. **A rung that cannot bind must read as its control**, which is what `bound` measures -- the share of paired cells whose average hold actually moved; a low `bound` with a p-value near 1 is an arm that never fired, not a cap that did nothing. The stratum stays in the pairing key once the ladder has been run inside one, since a pair only forms within a stratum -- `docs/roadmap.md` §M31.1.
+
+### campaign_early_exit.py
+
+Reads the conditional early exit: what each arm is worth against the control with every rule off.
+
+```bash
+./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBar --window holdout
+./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBarTrailing --stratum phase=MIDDAY --picks
+./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBar --reproduce
+```
+
+`campaign_sweep.py --variants early-exit` runs every archetype's stored grid once per arm, `exit=off` included, so the pairing is `campaign_hold.py`'s: keyed on the base variant, with the same `bound`, and never pooled across resolutions, because the not-working exit is a bar count. **One stratum at a time, unfiltered by default**, since the midday cells were swept beside the unfiltered ones and a row pooling them would mix two strategies. `trade_ratio` is the arm's median trade count over the control's. **`--picks` is §M48's pre-registered verdict**: on each root and bar size the selection window picks the bound arm with the highest median delta, and the pick pays where its held-out delta is positive with the sign test at p < 0.05; a bar size clears where it pays on every root. **`--reproduce` is the check that comes first**: every control row joined to its stored campaign twin on every parameter both carry, counting what differs. A parameter the stored rows only hold as null was added after they were swept and is left out of the join -- `docs/findings/m48-early-exit-result.md`.
 
 ## Testing a shortlist
 

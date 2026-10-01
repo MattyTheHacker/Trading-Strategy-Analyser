@@ -133,7 +133,7 @@ The cell §M42 and §M45 read is the 5-minute one. The trend exit there, and at 
 
 ## How it was read
 
-From the stored rows alone: every arm is a variant named `<base variant> exit=<arm>`, in `results/campaign/<Archetype>.duckdb`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant as `tools/campaign_hold.py` keys the hold ladder; "bound" is that tool's `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. The reads were run by a local script over those functions rather than a committed tool.
+From the stored rows alone: every arm is a variant named `<base variant> exit=<arm>`, in `results/campaign/<Archetype>.duckdb`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant as `tools/campaign_hold.py` keys the hold ladder; "bound" is that tool's `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. **`tools/campaign_early_exit.py` reproduces the paired tables, the verdict (`--picks`) and the control's reproduction (`--reproduce`)**; the contrasts between arms, gate 1 and the counts behind the predictions were computed from the same functions by a local script.
 
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#351]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/351
