@@ -6,7 +6,7 @@ Read [`README.md`](README.md) first for what the project is and the traps that h
 
 ## The prime directive
 
-**Match NinjaTrader 8's default fidelity exactly — do not exceed it.** Being more precise than NT8 is as much a bug as being less precise, because it makes Tier 1 and Tier 2 disagree in ways that cannot be attributed.
+**Match NinjaTrader 8's default fidelity exactly — do not exceed it.** Being more precise than NT8 is as much a bug as being less precise, because it makes [Tier 1 and Tier 2](README.md#tier-1-and-tier-2) disagree in ways that cannot be attributed.
 
 This governs `nqbt/sim/` and everything feeding it. Before changing anything there, read [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) — it records every NT8 rule the simulation implements and the evidence for it. When the C# and intuition disagree, the C# wins; when the C# and a real NT8 trade list disagree, the trade list wins.
 
@@ -24,13 +24,13 @@ Code should be readable on its own terms. Prefer a clearer name, a smaller funct
 
 Five homes, and they are not interchangeable:
 
-| goes in                                        | what it holds                                                                                 |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it                |
-| [`docs/findings/`](docs/findings/)             | one file per campaign: what was measured, what it returned, and what it settles               |
-| [`docs/roadmap.md`](docs/roadmap.md)           | the standing constraints, the rubric, the traps and the decisions taken                       |
-| [`tools/README.md`](tools/README.md)           | what each tool does, how to run it, and why its options, defaults and grids are what they are |
-| [`nqbt/README.md`](nqbt/README.md)             | the package's design notes that no campaign, NT8 rule or decision record covers               |
+| goes in                                        | what it holds                                                                                         |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [`docs/nt8-fidelity.md`](docs/nt8-fidelity.md) | every NT8 rule the simulation reproduces, and the evidence that established it                        |
+| [`docs/findings/`](docs/findings/)             | one file per [campaign](README.md#campaign): what was measured, what it returned, and what it settles |
+| [`docs/roadmap.md`](docs/roadmap.md)           | the standing constraints, the rubric, the traps and the decisions taken                               |
+| [`tools/README.md`](tools/README.md)           | what each tool does, how to run it, and why its options, defaults and grids are what they are         |
+| [`nqbt/README.md`](nqbt/README.md)             | the package's design notes that no campaign, NT8 rule or decision record covers                       |
 
 A tool's module docstring is its summary line, its usage lines and a pointer to its section of `tools/README.md`.
 
@@ -85,7 +85,7 @@ Two exceptions, both deliberate:
 
 ## Numba
 
-**Every `@njit` function takes `cache=True`**, so parallel sweep workers load the compiled code from disk rather than each compiling it again.
+**Every `@njit` function takes `cache=True`**, so parallel [sweep](README.md#sweep) workers load the compiled code from disk rather than each compiling it again.
 
 ## Tests
 
@@ -94,7 +94,7 @@ Two exceptions, both deliberate:
 Aim to cover three kinds of case for anything non-trivial:
 
 1. **Normal operation** — the input the function exists for.
-2. **Unusual operation** — an empty series, a single bar, a session with a hole, a period longer than the data, a boundary where two conditions are exactly equal.
+2. **Unusual operation** — an empty series, a single [bar](README.md#bar), a session with a hole, a period longer than the data, a boundary where two conditions are exactly equal.
 3. **Exception operation** — the inputs that must raise, asserted on the *specific* exception type and, where the message is the point, on its content.
 
 These three cover most failure modes. When one turns up that they miss, add a test for it.
@@ -219,7 +219,7 @@ An auto-fix can change logic as well as style, inside an `@njit` loop as easily 
 
 ## The trade-log regression gate
 
-**Anything touching `nqbt/` must prove it did not move a number** — not only `nqbt/sim/`, because an indicator, a session rule or an archetype's signal reaches the trades just as surely.
+**Anything touching `nqbt/` must prove it did not move a number** — not only `nqbt/sim/`, because an indicator, a session rule or an [archetype](README.md#archetype)'s signal reaches the trades just as surely.
 
 ```bash
 ./.venv/Scripts/python.exe tools/capture_trade_logs.py before
@@ -288,7 +288,8 @@ Two things to know:
 ## Pull requests
 
 - **The body briefly explains the change**: what moved, and the reasoning a reviewer would otherwise have to reconstruct. Detailed argument still belongs in `docs/` — link to the section rather than duplicating it.
-- **State how it was verified, and keep it to a line — but only what CI does not already show.** What the workflows run on every pull request — the test suite, the linters, the trade-log gate — is implicit in its checks, so it is not listed in the body. Name what you ran that CI cannot, and what it returned: `tools/reconcile_nt8.py` against the MNQ 03-24 export: `RECONCILED`, or the trade-log gate's `ALL PRE-EXISTING COLUMNS IDENTICAL` under `--added`. A claim carries its number; it does not carry the transcript that produced it. **Raw output — a coverage table, a reconciliation's per-field agreement — belongs in `docs/` or nowhere**, because the body lands on `main` as the commit description and a pasted run cannot be re-checked from there anyway.
+- **Pull requests and issues avoid jargon, or explain it in plain English** — a link to its [glossary](README.md#glossary) entry or a few words beside it. Skip the explanation where it would cost more length or clarity than it adds.
+- **State how it was verified, and keep it to a line — but only what CI does not already show.** What the workflows run on every pull request — the test suite, the linters, the trade-log gate — is implicit in its checks, so it is not listed in the body. Name what you ran that CI cannot, and what it returned: `tools/reconcile_nt8.py` against the [MNQ](README.md#nq-and-mnq) 03-24 export: `RECONCILED`, or the trade-log gate's `ALL PRE-EXISTING COLUMNS IDENTICAL` under `--added`. A claim carries its number; it does not carry the transcript that produced it. **Raw output — a coverage table, a reconciliation's per-field agreement — belongs in `docs/` or nowhere**, because the body lands on `main` as the commit description and a pasted run cannot be re-checked from there anyway.
 - **Repeat the closing keyword for every issue.** `Closes #1, #2` links only `#1`. Write `Closes #1. Closes #2.` and check `closingIssuesReferences` on the pull request before merging. Alternatively, link the issues manually via the GUI.
 - **Do not quote figures that go stale.** Consider if the number is even needed in documentation or if it's better being generated or retrieved at the time it's needed. If it's definitely needed, point at the document that holds the live number.
 - **Branch off `main` and never commit to it directly.** This is enforced by branch protection rules at the GitHub level.
@@ -327,11 +328,11 @@ New archetypes are developed **in Python only** — no NinjaScript gets written 
 
 ## Statistics and results
 
-- **A number with no null is not a finding.** Report a spread against what resampling would produce, and an entry rule against the matched random-entry arm (`nqbt/randomentry.py`).
-- **Guard against multiple comparisons.** The best of nineteen contracts × N combinations is the *expected* output of noise. Test a combination chosen for a reason, not the best of two hundred.
-- **Say what a statistic was computed over.** Per trade or per leg, whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
-- **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse resolution.
-- **The share is not the exposure.** `ambiguous_share` says how often the fill assumption was invoked, not how much the result depends on it. Where an archetype's ambiguity varies across its own swept space, run `tools/campaign_ambiguity.py` over the shortlist: it reports the spread between the two policies, and above `disambiguate.MIN_AMBIGUOUS_SHARE` it settles what the minute bars can settle and re-summarises with the assumption corrected — [`docs/roadmap.md`](docs/roadmap.md) §M28.3 and §M28.4. **A resolved profit factor is a diagnostic and never a ranking**, and it never enters `nqbt/sim/`.
+- **A number with no null is not a finding.** Report a spread against what resampling would produce, and an entry rule against the [matched random-entry arm](README.md#matched-null) (`nqbt/randomentry.py`).
+- **Guard against multiple comparisons.** The best of nineteen contracts × N [combinations](README.md#configuration) is the *expected* output of noise. Test a combination chosen for a reason, not the best of two hundred.
+- **Say what a statistic was computed over.** Per trade or per [leg](README.md#leg), whole window or a prefix. "The trigger cap binds on 50% of signals" was a prefix, not a rate; over the whole window it is about a third.
+- **Read `session_close_share` and `ambiguous_share` before believing a result**, and always before believing a coarse [resolution](README.md#resolution).
+- **The share is not the exposure.** `ambiguous_share` says how often the [fill](README.md#fill) assumption was invoked, not how much the result depends on it. Where an archetype's ambiguity varies across its own swept space, run `tools/campaign_ambiguity.py` over the [shortlist](README.md#shortlist): it reports the spread between the two policies, and above `disambiguate.MIN_AMBIGUOUS_SHARE` it settles what the minute bars can settle and re-summarises with the assumption corrected — [`docs/roadmap.md`](docs/roadmap.md) §M28.3 and §M28.4. **A resolved [profit factor](README.md#profit-factor) is a diagnostic and never a ranking**, and it never enters `nqbt/sim/`.
 
 [#105]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/105
 [#368]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/368
