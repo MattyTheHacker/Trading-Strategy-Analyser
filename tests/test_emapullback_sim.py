@@ -317,6 +317,31 @@ def test_the_trend_flip_exit_is_off_by_default_and_produces_signal_exits_when_on
     assert "signal" in set(run_emapullback(data, on, MNQ)["exit_reason"])
 
 
+def test_the_market_entry_never_reopens_the_side_its_pending_exit_is_closing() -> None:
+    """A same-side signal on a bar whose hold exit is pending is refused -- ``docs/nt8-fidelity.md`` §M39."""
+    combination = EmaPullbackParams(bars_required_to_trade=50, min_bars_extended=1, max_hold_bars=3)
+    data = walk_dataset(combination)
+    fast, slow = pullback_averages(data, combination)
+    side_at = crossover.regime_direction(fast, slow)
+    signal = emapullback_signal(data, combination)
+    log = run_emapullback(data, combination, MNQ)
+    trades = log.groupby("trade_id").agg(
+        entry_bar=("entry_bar", "first"),
+        exit_bar=("exit_bar", "max"),
+        direction=("direction", "first"),
+    )
+    held = log[log["exit_reason"] == "time_limit"].groupby("trade_id").first()
+    decided = held["exit_bar"].to_numpy(dtype=np.int64) - 1
+    refused = signal[decided] & (side_at[decided] == held["direction"].to_numpy())
+    following = trades.shift(-1)
+    reopened = (following["entry_bar"] == trades["exit_bar"]) & (
+        following["direction"] == trades["direction"]
+    )
+
+    assert refused.any(), "no same-side signal met a pending exit, so the test proves nothing"
+    assert not reopened.any()
+
+
 def test_the_nq_spec_scales_every_leg_by_ten() -> None:
     combination = EmaPullbackParams(bars_required_to_trade=50)
     data = walk_dataset(combination)
