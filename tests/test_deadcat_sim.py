@@ -541,6 +541,17 @@ def test_reward_risk_gate_can_block_every_signal() -> None:
     assert run(rows, signal_at=[0], min_reward_risk=2.5).empty
 
 
+@pytest.mark.parametrize("tp_multiplier", [0.5, 2.0])
+def test_reward_risk_gate_reads_the_targets_after_tp_multiplier(tp_multiplier: float) -> None:
+    """The gate passes at the furthest target's scaled R and blocks above it (#373)."""
+    rows = [(102, 104, 100, 101), (101, 102, 100, 101), (100, 101, 95.5, 96)]
+    furthest_target_r = 2.0 * tp_multiplier
+    passing = run(rows, signal_at=[0], tp_multiplier=tp_multiplier, min_reward_risk=furthest_target_r)
+    blocked = run(rows, signal_at=[0], tp_multiplier=tp_multiplier, min_reward_risk=furthest_target_r + 0.5)
+    assert not passing.empty
+    assert blocked.empty
+
+
 def test_leg_quantities_put_the_remainder_on_the_runner() -> None:
     assert DeadCatParams(order_quantity=4).leg_quantities == (1, 1, 1, 1)
     assert DeadCatParams(order_quantity=10).leg_quantities == (2, 2, 2, 4)

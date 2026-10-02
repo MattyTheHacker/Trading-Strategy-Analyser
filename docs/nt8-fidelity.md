@@ -230,9 +230,9 @@ if (risk > maxRiskPerTrade * TickSize) return;
 
 `min_reward_risk` is an optional pre-trade gate from the original build spec (#315): skip a signal unless its reward-to-risk clears a minimum. **It exists on DeadCatBounce alone and is off at `0`.** Neither `DeadCatBounce.cs` nor `PullBackAndGo.cs` has a property for it, PullBackAndGo's loop passes `0` unconditionally, and no campaign in `tools/` sets it.
 
-**It filters rule sets, not trades.** Every target is an R multiple, so the ratio is fixed by the parameters before a bar is read: `bracket.passes_reward_risk` compares the furthest finite entry of `target_r_multiples` with the minimum, and either every signal passes or none does. A port would write it as a property compared against that multiple, returning early beside the risk cap above.
+**It filters rule sets, not trades.** Every target is an R multiple, so the ratio is fixed by the parameters before a bar is read: `bracket.passes_reward_risk` compares the furthest finite entry of `target_r_multiples`, scaled by `tp_multiplier`, with the minimum, and either every signal passes or none does. A port would write it as a property compared against that multiple, returning early beside the risk cap above.
 
-**It reads the multiples before `tp_multiplier` scales them**, while the targets it gates sit at `target_r × tp_multiplier`. At any multiplier other than 1 the two disagree about R: at `tp_multiplier = 2` the default targets sit at 2, 3 and 4R, and a minimum of 2.5 still blocks every signal. Recorded rather than fixed, since the gate is off everywhere — #373.
+**It reads the multiples after `tp_multiplier` scales them**, because the targets it gates sit at `target_r × tp_multiplier`. At `tp_multiplier = 2` the default targets sit at 2, 3 and 4R, so a minimum of 4 passes and 4.5 blocks. It read the unscaled multiples until #373, which nothing stored could see, since the gate is off everywhere.
 
 ### M18 — the crossover rules, and that none of them has evidence yet
 
