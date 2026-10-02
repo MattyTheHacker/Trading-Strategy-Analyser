@@ -541,7 +541,7 @@ def test_reward_risk_gate_can_block_every_signal() -> None:
     assert run(rows, signal_at=[0], min_reward_risk=2.5).empty
 
 
-@pytest.mark.parametrize("tp_multiplier", [0.5, 2.0])
+@pytest.mark.parametrize("tp_multiplier", [1.5, 2.0])
 def test_reward_risk_gate_reads_the_targets_after_tp_multiplier(tp_multiplier: float) -> None:
     """The gate passes at the furthest target's scaled R and blocks above it (#373)."""
     rows = [(102, 104, 100, 101), (101, 102, 100, 101), (100, 101, 95.5, 96)]
@@ -555,13 +555,22 @@ def test_reward_risk_gate_reads_the_targets_after_tp_multiplier(tp_multiplier: f
 def test_reward_risk_gate_passes_a_minimum_the_scaled_target_rounds_just_below() -> None:
     """A minimum equal to the furthest scaled target passes, though the float product falls short."""
     rows = [(102, 104, 100, 101), (101, 102, 100, 101), (100, 101, 95.5, 96)]
-    targets = (1.0, 1.5, 3.0, np.nan)
-    tp_multiplier = 0.7
+    targets = (0.5, 1.0, 1.5, np.nan)
+    tp_multiplier = 1.4
     furthest_target_r = 2.1
     assert targets[2] * tp_multiplier < furthest_target_r
-    scaled_targets = {"targets": targets, "tp_multiplier": tp_multiplier}
-    assert not run(rows, signal_at=[0], min_reward_risk=furthest_target_r, **scaled_targets).empty
-    assert run(rows, signal_at=[0], min_reward_risk=furthest_target_r + 1e-6, **scaled_targets).empty
+    at_target = run(
+        rows, signal_at=[0], targets=targets, tp_multiplier=tp_multiplier, min_reward_risk=furthest_target_r
+    )
+    above_target = run(
+        rows,
+        signal_at=[0],
+        targets=targets,
+        tp_multiplier=tp_multiplier,
+        min_reward_risk=furthest_target_r + 1e-6,
+    )
+    assert not at_target.empty
+    assert above_target.empty
 
 
 def test_reward_risk_gate_blocks_a_rule_set_with_no_finite_target() -> None:
@@ -570,10 +579,10 @@ def test_reward_risk_gate_blocks_a_rule_set_with_no_finite_target() -> None:
     assert not bracket.passes_reward_risk(runners_only, 1.0, bracket.REWARD_RISK_TOLERANCE / 10)
 
 
-@pytest.mark.parametrize("value", [0.0, -1.0, np.nan])
-def test_a_tp_multiplier_not_above_zero_is_refused(value: float) -> None:
-    """A target at or behind the fill is not a profit target, the way a zero stop is not one."""
-    with pytest.raises(ValueError, match="tp_multiplier must be > 0"):
+@pytest.mark.parametrize("value", [0.0, 0.5, np.nan, np.inf])
+def test_a_tp_multiplier_outside_nt8s_range_is_refused(value: float) -> None:
+    """DeadCatParams refuses a tp_multiplier below 1, nan or infinite, as DeadCatBounce.cs's Range does."""
+    with pytest.raises(ValueError, match="tp_multiplier must be >= 1"):
         DeadCatParams(tp_multiplier=value)
 
 

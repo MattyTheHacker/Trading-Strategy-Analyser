@@ -234,7 +234,7 @@ if (risk > maxRiskPerTrade * TickSize) return;
 
 **It reads the multiples after `tp_multiplier` scales them**, because the targets it gates sit at `target_r × tp_multiplier`. At `tp_multiplier = 2` the default targets sit at 2, 3 and 4R, so a minimum of 4 passes and 4.5 blocks. It read the unscaled multiples until #373, which nothing stored could see, since the gate is off everywhere.
 
-**A minimum equal to the furthest scaled target passes**, even where the product rounds just below it: `3.0 × 0.7` is `2.0999999999999996`, which a bare `>=` against 2.1 would block. `bracket.REWARD_RISK_TOLERANCE` absorbs that rounding as a fraction of the minimum, so a rule set with no finite target still fails any positive minimum, and a port would compare with the same tolerance. `DeadCatParams` refuses a `tp_multiplier` that is not above zero, `nan` included, as `InsideBarParams` refuses one at or below it: every target would sit at or behind the fill, and with the gate on it would block every signal.
+**A minimum equal to the furthest scaled target passes**, even where the product rounds just below it: `1.5 × 1.4` is `2.0999999999999996`, which a bare `>=` against 2.1 would block. `bracket.REWARD_RISK_TOLERANCE` absorbs that rounding as a fraction of the minimum, so a rule set with no finite target still fails any positive minimum, and a port would compare with the same tolerance. `DeadCatParams` refuses a `tp_multiplier` below 1, `nan` and infinity included, because `DeadCatBounce.cs` caps `TPMultiplier` with `Range(1, double.MaxValue)`.
 
 ### M18 — the crossover rules, and that none of them has evidence yet
 

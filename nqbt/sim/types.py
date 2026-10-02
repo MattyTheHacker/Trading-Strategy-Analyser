@@ -570,8 +570,8 @@ class DeadCatParams:
                 raise ValueError(msg)
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
-        if not self.tp_multiplier > 0.0:  # written this way round so that nan is refused too
-            msg = f"tp_multiplier must be > 0, got {self.tp_multiplier}"
+        if not 1.0 <= self.tp_multiplier < math.inf:
+            msg = f"tp_multiplier must be >= 1, got {self.tp_multiplier}; NT8 caps it with Range(1, ...)"
             raise ValueError(msg)
 
         validate_max_hold_bars(self.max_hold_bars)
