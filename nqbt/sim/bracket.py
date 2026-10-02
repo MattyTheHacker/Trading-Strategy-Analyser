@@ -192,6 +192,44 @@ NO_MARKET_EXIT = -1.0
 code is negative."""
 
 
+class Breakeven(NamedTuple):
+    """The breakeven stop: how far a position has to run before its stop moves to the entry.
+
+    Off at an ``at`` of ``0`` -- ``docs/nt8-fidelity.md``, "The breakeven stop".
+    """
+
+    at: float
+    unit: int
+    """One of :data:`BREAKEVEN_UNITS`."""
+
+    on: int
+    """One of :data:`BREAKEVEN_TRIGGERS`."""
+
+    offset_ticks: float
+    atr: FloatArray
+    """Read only under :data:`BREAKEVEN_ATR`."""
+
+
+BREAKEVEN_R = 0
+BREAKEVEN_ATR = 1
+BREAKEVEN_UNITS = {BREAKEVEN_R: "r", BREAKEVEN_ATR: "atr"}
+"""What the trigger distance is a multiple of: the trade's planned risk, or the ATR."""
+
+BREAKEVEN_ON_CLOSE = 0
+BREAKEVEN_ON_EXTREME = 1
+BREAKEVEN_TRIGGERS = {BREAKEVEN_ON_CLOSE: "close", BREAKEVEN_ON_EXTREME: "extreme"}
+"""Which price has to reach the trigger at a bar close: the close, or the bar's favourable extreme."""
+
+BREAKEVEN_TOLERANCE = 1e-9
+"""The fraction of the trigger distance a gain may round short by and still reach it."""
+
+NO_ATR = np.zeros(0, dtype=np.float64)
+"""A stand-in for the ATR a breakeven stop in R never reads, which numba still needs typed."""
+
+BREAKEVEN_OFF = Breakeven(at=0.0, unit=BREAKEVEN_R, on=BREAKEVEN_ON_CLOSE, offset_ticks=0.0, atr=NO_ATR)
+"""The breakeven stop off, which is every loop's default."""
+
+
 @njit(cache=True)
 def slippage_points(costs: Costs) -> float:
     """Convert slippage to a price, from the tick count the NinjaScript expresses it in."""
@@ -586,6 +624,51 @@ def tightened_stop(stop: float, candidate: float, direction: float) -> float:
         return candidate
 
     return stop
+
+
+@njit(cache=True)
+def breakeven_level(
+    rule: Breakeven,
+    trade: OpenTrade,
+    bars: Bars,
+    i: int,
+    costs: Costs,
+    fills: FillRules,
+) -> float:
+    """Return the level bar ``i``'s close moves the stop to under the breakeven rule, or ``nan``.
+
+    ``nan`` where the rule is off, the trigger was not reached within :data:`BREAKEVEN_TOLERANCE`, or
+    the level is at or through the close. Pass the result to :func:`tightened_stop`, which never
+    loosens -- ``docs/nt8-fidelity.md``, "The breakeven stop".
+    """
+    if rule.at <= 0.0:
+        return np.nan
+
+    direction = trade.direction
+    distance = rule.at * trade.risk
+    if rule.unit == BREAKEVEN_ATR:
+        at_entry = trade.entry_bar - 1
+        if at_entry < 0 or at_entry >= rule.atr.size:
+            return np.nan
+
+        distance = rule.at * rule.atr[at_entry]
+
+    reached = bars.close[i]
+    if rule.on == BREAKEVEN_ON_EXTREME:
+        _, reached = sided(bars.low[i], bars.high[i], direction)
+
+    gain = direction * (reached - trade.entry_price)
+    if np.isnan(distance) or gain < distance * (1.0 - BREAKEVEN_TOLERANCE):
+        return np.nan
+
+    level = trade.entry_price + direction * rule.offset_ticks * costs.tick_size
+    if fills.round_targets:
+        level = round_to_tick(level, costs.tick_size)
+
+    if direction * (bars.close[i] - level) <= 0.0:
+        return np.nan
+
+    return level
 
 
 @njit(cache=True)

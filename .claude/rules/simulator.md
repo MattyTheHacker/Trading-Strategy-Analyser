@@ -100,6 +100,14 @@ below and is what you quote; this file is the index, not the record.
   against the bar **before** the entry bar, and every threshold is in R. A setting nothing reads,
   or a not-working bar the hold cap always beats, is refused rather than run.
   `docs/nt8-fidelity.md`, "The conditional early exit".
+- **The breakeven stop is every archetype's too, and it moves the stop rather than exiting.**
+  `bracket.breakeven_level` is the one decision and `tightened_stop` the one ratchet, so **do not
+  fork either**. It is decided at a bar close and live from the next bar, measured in R or in ATRs
+  read on the bar before the entry bar, on the close or the bar's favourable extreme. The stop
+  goes to the entry plus `breakeven_offset_ticks` and never loosens, and a level at or through
+  the close is not submitted. InsideBarTrailing moves both lots on the bracketed lot's R. A hit is
+  still `EXIT_STOP`, it may run beside an early exit, and an unread setting is refused.
+  `docs/nt8-fidelity.md`, "The breakeven stop".
 
 ## Structure
 
@@ -116,11 +124,11 @@ below and is what you quote; this file is the index, not the record.
 - **A new archetype writes the entry half only.** `CONTRIBUTING.md` § "Adding an archetype".
 - **The loops' parameters travel as `NamedTuple` blobs declared in `bracket.py`** — `Bars`,
   `Costs`, `FillRules`, `OpenTrade`, `Legs`, `Excursion`, `LegExit`, plus one `*Rules` per
-  archetype, each carrying an `EarlyExit`. **Do not add a loose scalar back to a signature**:
-  ruff's `max-args = 10` is what every loop now sits under, and #59 is why. They must also stay
-  in an **importable module** — a blob declared beside its loop writes a `cache=True` disk cache
-  and then misses it on every run, silently, which costs the parallel workers their compile.
-  `docs/roadmap.md` §M20c.
+  archetype, each carrying an `EarlyExit` and a `Breakeven`. **Do not add a loose scalar back to
+  a signature**: ruff's `max-args = 10` is what every loop now sits under, and #59 is why. They
+  must also stay in an **importable module** — a blob declared beside its loop writes a
+  `cache=True` disk cache and then misses it on every run, silently, which costs the parallel
+  workers their compile. `docs/roadmap.md` §M20c.
 - **`atr_bracket_distance` is the one ATR sizing**, shared by EmaCrossover's stop and both
   InsideBar ports'. Its dollar floor is per contract and converted through `instruments.py`,
   because NQ and MNQ differ 10x in tick value; the ports pass `NO_BRACKET_FLOOR` because their
@@ -283,15 +291,15 @@ below and is what you quote; this file is the index, not the record.
   decided in `OnBarUpdate`. Two different `EXIT_SIGNAL` semantics, and the archetype says which.
   `docs/nt8-fidelity.md` §M23.
 - **`tightened_stop` is the one ratchet, and a trail is a ratchet over a different level.**
-  DeadCatBounce's candidate is a lagged bar's adverse extreme and EmaCrossover's is a moving
-  average plus a cushion; all either does with a candidate is refuse to loosen, and a `nan`
-  candidate leaves the stop alone. **Do not write a second comparison.** EmaCrossover's trail
-  sits *on top of* whichever mode placed the initial stop rather than replacing it, so
-  `(use_atr_stop, trail_ma_stop)` is a legal 2x2 instead of a mode with a cell where one toggle
-  masks the other. `docs/roadmap.md` § "The build spec's three loose ends". EmaPullback's
-  `trail_on_slow` points the same ratchet at the slow average and the stop's own offset;
-  `emapullback.trailed_level` picks the series and offset, and the loop is unchanged.
-  `docs/nt8-fidelity.md` §M34.
+  DeadCatBounce's candidate is a lagged bar's adverse extreme, EmaCrossover's is a moving
+  average plus a cushion and the breakeven's is the entry; all any of them does with a candidate
+  is refuse to loosen, and a `nan` candidate leaves the stop alone. **Do not write a second
+  comparison.** EmaCrossover's trail sits *on top of* whichever mode placed the initial stop
+  rather than replacing it, so `(use_atr_stop, trail_ma_stop)` is a legal 2x2 instead of a mode
+  with a cell where one toggle masks the other. `docs/roadmap.md` § "The build spec's three
+  loose ends". EmaPullback's `trail_on_slow` points the same ratchet at the slow average and the
+  stop's own offset; `emapullback.trailed_level` picks the series and offset, and the loop is
+  unchanged. `docs/nt8-fidelity.md` §M34.
 - **Round-number stop avoidance moves only a stop that lands *exactly* on a multiple**, and it
   is refused outright on bars that have not been declared `PriceBasis.RAW` — back-adjustment
   shifts every level, so the rule measures nothing on a merged series while looking fine. The

@@ -1084,7 +1084,7 @@ Four rules are built, the ones #369 pre-registers first, with their fields on ev
 
 **One exit code, `EXIT_EARLY`, with one rule on at a time.** The parameter class refuses a combination switching on two, so the code and the combination's fields together always say which rule fired, and a campaign arm is one rule. **It also refuses a combination whose setting nothing reads or that can never fire**: a threshold with the not-working exit off, "only if losing" with neither label exit on, and a not-working bar at or past `max_hold_bars`, where the hold cap closes the position first. Each would run identical trades under a different label. Under ElasticBand's stored grids, which sweep `max_hold_bars` over `[0, 30]`, the not-working exit therefore has to test a bar below 30. One code per rule would let rules share a log; nothing measured yet asks for that, and it would add four codes to `trades.py` instead of one.
 
-**No stop moves.** All four are market exits, so `tightened_stop` is untouched. The stop-moving members of the family — breakeven (#351), a trail to structure (#352), and a stop tightening with age or before the close — are not built.
+**No stop moves.** All four are market exits, so none of them touches `tightened_stop`. Breakeven, the one stop-moving member of the family built so far, is § "The breakeven stop"; a trail to structure (#352) and a stop tightening with age or before the close are not built.
 
 #### Not working by bar N
 
@@ -1105,6 +1105,28 @@ Four rules are built, the ones #369 pre-registers first, with their fields on ev
 #### Only if losing
 
 `early_exit_only_if_losing` lets the regime or the trend exit fire only at a bar close where the position is losing, which is the condition the findings name. Those two rules alone read it; the other two already carry a condition on open profit of their own.
+
+### The breakeven stop
+
+**Every archetype can move its stop to the entry once a position has run far enough** (#351). `Trading-Docs` names the rule independently: once the open gain equals what was risked, move the stop to break-even. **No NinjaScript has it, so nothing here is backed by a trade list**, and a row using it is `TIER1_ONLY`, on the reconciled ports as much as on the originals. It is off by default everywhere, so nothing measured before it rests on it.
+
+| field                    | what it sets                                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `breakeven_at`           | how far the position has to run before the stop moves, off at `0`                                          |
+| `breakeven_unit`         | what `breakeven_at` is a multiple of: `BREAKEVEN_R`, the planned risk, or `BREAKEVEN_ATR`                  |
+| `breakeven_on`           | which price has to reach it: `BREAKEVEN_ON_CLOSE`, or `BREAKEVEN_ON_EXTREME`, the bar's favourable extreme |
+| `breakeven_offset_ticks` | how many ticks past the entry price the stop goes                                                          |
+| `breakeven_atr_period`   | the ATR period, read only in ATRs                                                                          |
+
+**It is decided at a bar close and is live from the next bar.** In NinjaScript it is `if (High[0] >= Position.AveragePrice + distance) SetStopLoss(CalculationMode.Price, Position.AveragePrice + BreakevenOffsetTicks * TickSize);` in `OnBarUpdate` for a long, with `Close[0]` in place of `High[0]` for the close trigger. A stop set at the close of bar `i` is in force during bar `i + 1`, the ratchet's cadence (§ "Ratchet reads the just-closed bar"), so it cannot be hit on the bar that set it. **It is tested at every close from the entry bar's own**, and on the entry bar the extreme trigger reads the whole bar, as `High[0]` does under `Calculate.OnBarClose`, including any part before an intrabar fill. An ATM strategy's auto-breakeven acts on ticks, which is finer than NT8's default fidelity, and is deliberately not what this reproduces.
+
+**The distance is measured from the entry price, slippage included**, which is `Position.AveragePrice` and the price the early exit's open profit is measured from. In R it is a multiple of the planned risk the trade log's `r_multiple` uses: from the trigger on a stop entry, from the fill on a market entry. In ATRs it reads NT8's ATR on the bar before the entry bar, the bar `OnExecutionUpdate` has current (§M22), so like R it is fixed for the trade's life. An ATR still warming up never triggers it, and neither does a position entered on the first bar. **`breakeven_atr_period` is its own field rather than each archetype's stop ATR**, because InsideBar's stop ATR is three bars and three archetypes read theirs under one stop mode alone. **A gain exactly equal to the distance triggers it**, since the rule is "once the gain equals the risk", and it is compared within a billionth of the distance (`BREAKEVEN_TOLERANCE`), because `1.1 × 12.5` rounds above the 55 ticks it names.
+
+**The stop goes to the entry price plus the offset, snapped to the tick wherever targets are**, and goes through `tightened_stop`, so it never loosens: a ratchet, a trail or an earlier move already past the level is left where it is. **A level at or through the close is not submitted**, which only the extreme trigger or an offset can reach. That is §M18's rule that a stop at or through the price it protects is not a stop order. What NT8 does with such a `SetStopLoss` is unobserved, so this is the conservative reading rather than a measurement, and the move is tried again at the next close where the trigger holds. EmaCrossover's round-number avoidance does not apply, because the level is the entry rather than one the archetype chose.
+
+**A stop hit after the move is still `EXIT_STOP`**, as a ratcheted or a trailed stop is. The trade log tells them apart by price: a breakeven exit leaves at the entry plus the offset, less slippage, rather than at `initial_stop`. **InsideBarTrailing moves both lots**, and its trigger reads the bracketed lot's R, as the early exit's does. NT8's managed approach will not run `SetStopLoss` and `SetTrailStop` on one entry signal at once, and `SetStopLoss` takes precedence, so a port that moves the trailing lot's stop has to manage its trail some other way. That question belongs with the port. **It may run beside an early exit**: one moves a stop and the other submits a market order, so the exit codes still say which acted.
+
+**A setting nothing reads is refused**: any other `breakeven_*` field off its default while `breakeven_at` is `0`, and `breakeven_atr_period` off its default in R. `bracket.breakeven_level` is the one decision and `tightened_stop` the one ratchet; every loop calls both, so **do not fork either**.
 
 ## Order lifetime and the session edge (#67)
 

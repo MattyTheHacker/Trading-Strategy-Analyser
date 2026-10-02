@@ -91,6 +91,7 @@ class OpeningRangeRules(NamedTuple):
     block_entry_at_session_close: bool
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
+    breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
 
 
 @njit(cache=True)
@@ -289,7 +290,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             entries_this_session = 0
             broken_this_session = False
 
-        # ---- exits, using the stop and targets set when the order was submitted ------
+        # ---- exits, using the stop and targets as they stood at the close of bar i-1 -
         if in_position and pending_exit_reason != bracket.NO_MARKET_EXIT:
             # Submitted at the close of bar i-1 and filled at this bar's first price, so the
             # excursion stays where it was.
@@ -380,6 +381,11 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
                     return -1
 
             pending_bar = -1
+
+        # ---- close of bar i: move the stop -------------------------------------------
+        if in_position:
+            breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
+            stop = bracket.tightened_stop(stop, breakeven, direction)
 
         pending_exit_reason = (
             bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
@@ -563,6 +569,7 @@ def openingrange_legs(
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
+            breakeven=filters.breakeven(data, params),
         ),
         out,
     )

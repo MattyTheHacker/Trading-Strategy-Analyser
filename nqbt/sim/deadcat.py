@@ -47,6 +47,9 @@ class DeadCatRules(NamedTuple):
     """No NinjaScript property behind it either, and off by default -- see
     :attr:`nqbt.sim.types.DeadCatParams.early_exit_bars`."""
 
+    breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
+    """Nor this -- see :attr:`nqbt.sim.types.DeadCatParams.breakeven_at`."""
+
 
 @njit(cache=True)
 def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule, in bar order
@@ -204,6 +207,9 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
             if ref >= 0:
                 adverse_ref, _ = bracket.sided(bars.low[ref], bars.high[ref], direction)
                 stop = bracket.tightened_stop(stop, adverse_ref - direction * ratchet_offset, direction)
+
+            breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
+            stop = bracket.tightened_stop(stop, breakeven, direction)
         elif (
             i >= rules.bars_required
             and signal[i]

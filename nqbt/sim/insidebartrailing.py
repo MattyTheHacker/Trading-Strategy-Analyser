@@ -80,6 +80,7 @@ class InsideBarTrailingRules(NamedTuple):
     block_entry_at_session_close: bool
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
+    breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
 
 
 @njit(cache=True)
@@ -410,6 +411,12 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             # ``docs/nt8-fidelity.md`` §M23.
             lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
 
+        # ---- close of bar i: both lots' stops to breakeven, on the bracketed lot's R ----
+        if in_position:
+            breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
+            for lot in range(n_lots):
+                lots.stop[lot] = bracket.tightened_stop(lots.stop[lot], breakeven, d)
+
         # ---- the trend violation, on whichever bar the position just changed ------------
         if in_position and position_changed and i >= 1:
             # `OnPositionUpdate` runs at strategy time `i - 1`, behind the C#'s `> -200` early
@@ -582,6 +589,7 @@ def insidebartrailing_legs(
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
+            breakeven=filters.breakeven(data, params),
         ),
         out,
     )

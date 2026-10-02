@@ -39,6 +39,7 @@ class InsideBarRules(NamedTuple):
     block_entry_at_session_close: bool
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
+    breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
 
 
 @njit(cache=True)
@@ -189,6 +190,11 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
             pending_bar = -1
 
+        # ---- close of bar i: move the stop -----------------------------------------------
+        if in_position:
+            breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
+            stop = bracket.tightened_stop(stop, breakeven, d)
+
         pending_exit_reason = (
             bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
             if in_position
@@ -337,6 +343,7 @@ def insidebar_legs(
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
+            breakeven=filters.breakeven(data, params),
         ),
         out,
     )

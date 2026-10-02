@@ -21,7 +21,15 @@ from nqbt import (
     trend,
     volume,
 )
-from nqbt.sim.bracket import TREND_EXIT_FORMS, TREND_EXIT_OFF
+from nqbt.sim.bracket import (
+    BREAKEVEN_ATR,
+    BREAKEVEN_ON_CLOSE,
+    BREAKEVEN_R,
+    BREAKEVEN_TRIGGERS,
+    BREAKEVEN_UNITS,
+    TREND_EXIT_FORMS,
+    TREND_EXIT_OFF,
+)
 
 
 class ContextFilterParams(Protocol):
@@ -236,6 +244,72 @@ def validate_early_exit_ranges(params: EarlyExitParams) -> None:
         msg = (
             f"early_exit_on_trend must be one of {sorted(TREND_EXIT_FORMS)}, got {params.early_exit_on_trend}"
         )
+        raise ValueError(msg)
+
+
+BREAKEVEN_ATR_PERIOD = 14
+"""The ATR period a breakeven trigger in ATRs reads by default."""
+
+
+@runtime_checkable
+class BreakevenParams(Protocol):
+    """The breakeven stop's five fields, as one shape."""
+
+    breakeven_at: float
+    breakeven_unit: int
+    breakeven_on: int
+    breakeven_offset_ticks: int
+    breakeven_atr_period: int
+
+
+def validate_breakeven(params: BreakevenParams) -> None:
+    """Refuse a breakeven stop out of range, or one carrying a setting nothing reads."""
+    validate_breakeven_ranges(params)
+    if params.breakeven_at == 0.0:
+        unread: list[str] = [
+            name
+            for name, value, default in (
+                ("breakeven_unit", params.breakeven_unit, BREAKEVEN_R),
+                ("breakeven_on", params.breakeven_on, BREAKEVEN_ON_CLOSE),
+                ("breakeven_offset_ticks", params.breakeven_offset_ticks, 0),
+                ("breakeven_atr_period", params.breakeven_atr_period, BREAKEVEN_ATR_PERIOD),
+            )
+            if value != default
+        ]
+        if unread:
+            msg: str = (
+                f"{', '.join(unread)} set but breakeven_at is 0, so the breakeven stop that reads it is off"
+            )
+            raise ValueError(msg)
+
+    if params.breakeven_unit != BREAKEVEN_ATR and params.breakeven_atr_period != BREAKEVEN_ATR_PERIOD:
+        msg = (
+            f"breakeven_atr_period is {params.breakeven_atr_period} but breakeven_unit is "
+            f"{BREAKEVEN_UNITS[params.breakeven_unit]!r}, so nothing reads it"
+        )
+        raise ValueError(msg)
+
+
+def validate_breakeven_ranges(params: BreakevenParams) -> None:
+    """Refuse a breakeven field outside the values it can take."""
+    if not 0.0 <= params.breakeven_at < math.inf:
+        msg: str = f"breakeven_at must be >= 0 and finite, got {params.breakeven_at}"
+        raise ValueError(msg)
+
+    if params.breakeven_unit not in BREAKEVEN_UNITS:
+        msg = f"breakeven_unit must be one of {sorted(BREAKEVEN_UNITS)}, got {params.breakeven_unit}"
+        raise ValueError(msg)
+
+    if params.breakeven_on not in BREAKEVEN_TRIGGERS:
+        msg = f"breakeven_on must be one of {sorted(BREAKEVEN_TRIGGERS)}, got {params.breakeven_on}"
+        raise ValueError(msg)
+
+    if params.breakeven_offset_ticks < 0:
+        msg = f"breakeven_offset_ticks must be >= 0, got {params.breakeven_offset_ticks}"
+        raise ValueError(msg)
+
+    if params.breakeven_atr_period < 1:
+        msg = f"breakeven_atr_period must be >= 1, got {params.breakeven_atr_period}"
         raise ValueError(msg)
 
 
@@ -550,6 +624,24 @@ class DeadCatParams:
     early_exit_only_if_losing: bool = False
     """Let the regime or the trend exit fire only while the position is losing."""
 
+    breakeven_at: float = 0.0
+    """Open profit, in :attr:`breakeven_unit`, at which the stop moves to the entry; off at ``0``.
+
+    Every ``breakeven_*`` field is absent from the NinjaScript. Decided at a bar close and live
+    from the next bar -- ``docs/nt8-fidelity.md``, "The breakeven stop"."""
+
+    breakeven_unit: int = BREAKEVEN_R
+    """What :attr:`breakeven_at` is a multiple of, one of :data:`~nqbt.sim.bracket.BREAKEVEN_UNITS`."""
+
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    """Which price has to reach the trigger, one of :data:`~nqbt.sim.bracket.BREAKEVEN_TRIGGERS`."""
+
+    breakeven_offset_ticks: int = 0
+    """Ticks past the entry price the stop moves to."""
+
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """The ATR period :attr:`breakeven_at` is measured in, read only in ATRs."""
+
     ratchet_lag: int = 0
     """Which bar's high the trailing stop references at each bar close.
 
@@ -594,6 +686,7 @@ class DeadCatParams:
 
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -778,6 +871,13 @@ class PullBackAndGoParams:
     early_exit_only_if_losing: bool = False
     """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
 
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """On, although ``PullBackAndGo.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
     anyway. See ``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
@@ -810,6 +910,7 @@ class PullBackAndGoParams:
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -1042,6 +1143,13 @@ class EmaCrossoverParams:
     early_exit_only_if_losing: bool = False
     """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
 
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -1083,6 +1191,7 @@ class EmaCrossoverParams:
         validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
         validate_context_filters(self)
         validate_confluence(self, self.confluence_required)
         validate_sizing(self)
@@ -1282,6 +1391,13 @@ class InsideBarParams:
     early_exit_only_if_losing: bool = False
     """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
 
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap the stop as well as the target onto the tick grid, which NT8 does at submission
     although ``InsideBar.cs`` never calls ``RoundToTickSize`` -- ``docs/nt8-fidelity.md``,
@@ -1315,6 +1431,7 @@ class InsideBarParams:
 
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -1854,6 +1971,13 @@ class ElasticBandParams:
     early_exit_only_if_losing: bool = False
     """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
 
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
     order_quantity: int = 4
 
     bars_required_to_trade: int = 200
@@ -1985,6 +2109,7 @@ class ElasticBandParams:
         validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
 
     @property
     def target_levels(self) -> tuple[float, ...]:
@@ -2300,6 +2425,13 @@ class OpeningRangeParams:
     early_exit_only_if_losing: bool = False
     """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
 
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -2315,6 +2447,7 @@ class OpeningRangeParams:
         validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -2683,6 +2816,13 @@ class EmaPullbackParams:
     early_exit_only_if_losing: bool = False
     """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
 
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -2717,6 +2857,7 @@ class EmaPullbackParams:
         validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
         validate_context_filters(self)
         validate_sizing(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
@@ -2943,6 +3084,13 @@ class SqueezeBreakoutParams:
     early_exit_only_if_losing: bool = False
     """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
 
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
 
@@ -2956,6 +3104,7 @@ class SqueezeBreakoutParams:
         validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
+        validate_breakeven(self)
         validate_context_filters(self)
         validate_sizing(self)
 

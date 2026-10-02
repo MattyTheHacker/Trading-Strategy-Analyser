@@ -24,8 +24,9 @@ from nqbt.sim.types import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from nqbt.arrays import BoolArray, IntArray, LabelArray
+    from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
     from nqbt.context import Dataset
+    from nqbt.sim.types import BreakevenParams
 
 __all__ = [
     "ConfluenceFiltered",
@@ -35,6 +36,7 @@ __all__ = [
     "LabelSized",
     "apply_confluence_filters",
     "apply_context_filters",
+    "breakeven",
     "confluence_counts",
     "confluence_sizing",
     "context_gates",
@@ -341,4 +343,23 @@ def early_exit(data: Dataset, params: EarlyExiting) -> bracket.EarlyExit:
         near_close=near_close,
         regime_labels=regime_labels,
         trend_labels=trend_labels,
+    )
+
+
+def breakeven(data: Dataset, params: BreakevenParams) -> bracket.Breakeven:
+    """Return the breakeven stop one combination runs, carrying the ATR only where its trigger reads one.
+
+    Off, it equals :data:`nqbt.sim.bracket.BREAKEVEN_OFF` field for field --
+    ``docs/nt8-fidelity.md``, "The breakeven stop".
+    """
+    atr: FloatArray = bracket.NO_ATR
+    if params.breakeven_at > 0.0 and params.breakeven_unit == bracket.BREAKEVEN_ATR:
+        atr = data.atr_values(params.breakeven_atr_period)
+
+    return bracket.Breakeven(
+        at=float(params.breakeven_at),
+        unit=int(params.breakeven_unit),
+        on=int(params.breakeven_on),
+        offset_ticks=float(params.breakeven_offset_ticks),
+        atr=atr,
     )
