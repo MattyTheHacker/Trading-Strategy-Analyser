@@ -154,6 +154,7 @@ def squeeze_legs(
             block_entry_at_session_close=params.block_entry_at_session_close,
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
+            breakeven=filters.breakeven(data, params),
         ),
         out,
     )

@@ -36,6 +36,7 @@ from nqbt.sim.types import (
     ORB_SCALE_NONE,
     ORB_STOP_ATR,
     STOP_ATR,
+    BreakevenParams,
     ConfluenceSized,
     DeadCatParams,
     EarlyExitParams,
@@ -140,6 +141,17 @@ def _reads_label(
     filters: bool = any(int(v) != everything for v in values.get(filter_name, ()))
 
     return filters or any(any(values.get(reader, ())) for reader in readers)
+
+
+def _breakeven_atr_periods(values: Mapping[str, Sequence[AxisValue]]) -> set[int]:
+    """Return the ATR periods a breakeven trigger reads: none unless some combination measures it in ATRs."""
+    in_atr: bool = any(float(v) > 0 for v in values.get("breakeven_at", ())) and any(
+        int(v) == bracket.BREAKEVEN_ATR for v in values.get("breakeven_unit", ())
+    )
+    if not in_atr:
+        return set()
+
+    return {int(v) for v in values.get("breakeven_atr_period", ())}
 
 
 def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
@@ -259,6 +271,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
+        atr_periods=tuple(sorted(_breakeven_atr_periods(values))),
         needs_vwap=any(values.get("use_vwap", ())) or _sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -273,8 +286,9 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
 def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """Return what EmaCrossover reads: the two grids its sides name, their raw values, and an ATR.
 
-    The ATR is built only where some combination uses the ATR stop, and the trailing average, a
-    third grid, only where some combination trails on it -- ``docs/roadmap.md`` §M17.
+    The ATR is built only where some combination uses the ATR stop or a breakeven trigger in
+    ATRs, and the trailing average, a third grid, only where some combination trails on it --
+    ``docs/roadmap.md`` §M17.
     """
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())} if any(values.get("use_atr_stop", ())) else set()
@@ -285,7 +299,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
-        atr_periods=tuple(sorted(atr)),
+        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
         needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -299,10 +313,11 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
 
 def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
-    """Return what EmaPullback reads: the two grids its trend names, their raw values, and no ATR.
+    """Return what EmaPullback reads: the two grids its trend names, their raw values, and no stop ATR.
 
-    :func:`crossover_context` without the ATR. The trailing average, a third grid, is built only
-    where some combination trails on it rather than on the slow average.
+    :func:`crossover_context` without the stop's ATR, so an ATR is built only for a breakeven
+    trigger in ATRs. The trailing average, a third grid, is built only where some combination
+    trails on it rather than on the slow average.
     """
     trails_on_third_grid: bool = any(values.get("trail_ma_stop", ())) and not all(
         values.get("trail_on_slow", (False,)),
@@ -311,6 +326,7 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
+        atr_periods=tuple(sorted(_breakeven_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         needs_vwap=_sizes_on_vwap(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -328,7 +344,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
     No moving-average grid, and the band multiple is not part of the key -- ``docs/roadmap.md``
     §M26. A grid that never selects a Bollinger source builds no period grid, and one that never
-    selects the VWAP source builds no VWAP band.
+    selects the VWAP source builds no VWAP band. A breakeven trigger in ATRs adds its own period.
     """
     sources: set[int] = {int(v) for v in values.get("band_source", ())}
     periods: set[int] = {int(v) for v in values.get("band_period", ())} if sources != {BAND_VWAP} else set()
@@ -342,7 +358,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         band_periods=tuple(sorted(periods)),
         needs_vwap_band=BAND_VWAP in sources,
         needs_vwap=_sizes_on_vwap(values),
-        atr_periods=tuple(sorted(atr)),
+        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -358,7 +374,8 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
 
     No moving-average grid and no band. A range key is the anchor crossed with the window, and
     the resolution decides which are buildable -- :func:`nqbt.sessionrange.validate_key`. The
-    trailing follow-through, like the ATR, is built only where some combination reads it.
+    trailing follow-through, like the ATR, is built only where some combination reads it. A
+    breakeven trigger in ATRs adds its own period.
     """
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())}
@@ -383,7 +400,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
         ),
         follow_through_sessions=tuple(sorted(scaled)),
         needs_vwap=_sizes_on_vwap(values),
-        atr_periods=tuple(sorted(atr)),
+        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -400,6 +417,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     The squeeze's own compression series and window levels are built for every combination,
     unlike the compression *filter's*, which :func:`_compression_keys` builds only where some
     combination filters on them. A bandwidth squeeze implies its band period, as the filter's does.
+    A breakeven trigger in ATRs adds its own period.
     """
     squeezes: set[compression.CompressionKey] = {
         compression.key(int(form), int(period), int(baseline))
@@ -414,7 +432,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     )
 
     return ContextSpec(
-        atr_periods=tuple(sorted(atr)),
+        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -432,11 +450,14 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
     ``needs_ma_values`` because its three gates are strict -- ``docs/nt8-fidelity.md`` §M22. The
     session clock is built only where some combination sets a no-entry window or an early exit
-    before the close, and the VWAP only where some combination sizes on it.
+    before the close, and the VWAP only where some combination sizes on it. A breakeven trigger in
+    ATRs adds its own period.
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
-        atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())})),
+        atr_periods=tuple(
+            sorted({int(v) for v in values.get("atr_length", ())} | _breakeven_atr_periods(values))
+        ),
         needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -461,6 +482,8 @@ INERT_AT: Mapping[str, object] = {
     "quantity_per_confluence": 0,
     "early_exit_bars": 0,
     "early_exit_on_trend": bracket.TREND_EXIT_OFF,
+    "breakeven_at": 0.0,
+    "breakeven_unit": bracket.BREAKEVEN_R,
 }
 """The value at which a toggle leaves its axes unread, where that is not simply ``False``.
 
@@ -548,6 +571,15 @@ EARLY_EXIT_GATES: Mapping[str, Gate] = {
 """The threshold is read only by the not-working exit, and the losing condition only by the two
 label exits -- ``docs/nt8-fidelity.md``, "The conditional early exit"."""
 
+BREAKEVEN_GATES: Mapping[str, Gate] = {
+    "breakeven_unit": "breakeven_at",
+    "breakeven_on": "breakeven_at",
+    "breakeven_offset_ticks": "breakeven_at",
+    "breakeven_atr_period": ("breakeven_at", "breakeven_unit"),
+}
+"""Every breakeven setting is read only with the trigger on, and its ATR period only in ATRs --
+``docs/nt8-fidelity.md``, "The breakeven stop"."""
+
 CONTEXT_GATES: Mapping[str, Gate] = {
     **_read_by_filter_or(REGIME_GATES, "size_on_regime", "early_exit_on_regime_change"),
     **_read_by_filter_or(VOLUME_GATES, "size_on_volume"),
@@ -556,6 +588,7 @@ CONTEXT_GATES: Mapping[str, Gate] = {
     **_read_by_filter_or(HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe"),
     "size_symmetric": "quantity_per_confluence",
     **EARLY_EXIT_GATES,
+    **BREAKEVEN_GATES,
 }
 """Every archetype's context axes. A label's axes are read under its filter, its ``size_on_*``
 label *or* an early exit on it, and ``size_symmetric`` only beside a confluence size --
@@ -640,9 +673,14 @@ def _exits_early(params: Params) -> bool:
     return isinstance(params, EarlyExitParams) and bool(active_early_exits(params))
 
 
+def _moves_to_breakeven(params: Params) -> bool:
+    """Return whether a combination switches on the breakeven stop, which no NinjaScript has."""
+    return isinstance(params, BreakevenParams) and params.breakeven_at > 0.0
+
+
 def _leaves_the_port(params: Params) -> bool:
-    """Return whether a combination sizes per signal or exits early -- either one leaves its NinjaScript."""
-    return _sizes_per_signal(params) or _exits_early(params)
+    """Return whether a combination sizes per signal, exits early or moves to breakeven: all off the port."""
+    return _sizes_per_signal(params) or _exits_early(params) or _moves_to_breakeven(params)
 
 
 COST_FIELDS: frozenset[str] = frozenset({"commission_per_contract", "slippage_ticks"})

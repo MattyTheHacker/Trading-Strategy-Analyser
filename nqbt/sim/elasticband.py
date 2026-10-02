@@ -76,6 +76,7 @@ class ElasticBandRules(NamedTuple):
     max_hold_bars: int
     block_entry_at_session_close: bool
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
+    breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
 
 
 @njit(cache=True)
@@ -319,7 +320,11 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
 
             pending_bar = -1
 
-        # ---- close of bar i: schedule the next bar's orders --------------------------
+        # ---- close of bar i: move the stop, then schedule the next bar's orders ------
+        if in_position:
+            breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
+            stop = bracket.tightened_stop(stop, breakeven, d)
+
         if in_position and rules.exit_on_invalidation and d * (bars.close[i] - entry_extreme) < 0.0:
             # The close went further than the excursion the trade faded.
             pending_exit = True
@@ -630,6 +635,7 @@ def elasticband_legs(
             max_hold_bars=params.max_hold_bars,
             block_entry_at_session_close=params.block_entry_at_session_close,
             early_exit=filters.early_exit(data, params),
+            breakeven=filters.breakeven(data, params),
         ),
         out,
     )
