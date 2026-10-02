@@ -2,20 +2,11 @@
 
 **A backtester for Nasdaq futures strategies that spends most of its effort trying to prove its own results wrong.**
 
-`nqbt` takes a trading strategy, tries every combination of its settings against several years of price history, and ranks the results. A search that would take days in a typical backtester takes minutes here.
+`nqbt` takes a trading strategy, tries every [combination](#configuration) of its settings against several years of price history, and ranks the results. A search that would take days in a typical backtester takes minutes here.
 
 Ranking is the easy part, and on its own it lies to you. Try enough combinations and one of them will look brilliant purely by chance. Most of this project is the machinery for telling luck and skill apart.
 
-A few words used throughout, defined once:
-
-| word          | means                                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------- |
-| **NQ / MNQ**  | two Nasdaq-100 futures contracts. Same price, but MNQ is a tenth the size, so a tenth the money per point. |
-| **bar**       | one candle. A 5-minute bar holds the open, high, low and close of five minutes of trading.                 |
-| **sweep**     | running one strategy many times, once per combination of its settings, and collecting the results.         |
-| **archetype** | one strategy's shape, such as "buy a breakout". Its settings are what a sweep varies.                      |
-| **leg**       | one exit. A trade that sells half the position at one price and half at another has two legs.              |
-| **fill**      | an order actually becoming a trade, at a particular price.                                                 |
+This project gives everyday words narrow meanings, such as [sweep](#sweep), [archetype](#archetype) and [cell](#cell). The [glossary](#glossary) at the end says what each one means in plain English.
 
 ## How this fits with NinjaTrader
 
@@ -30,7 +21,7 @@ That split produces the one rule everything else follows:
 
 > **Match NinjaTrader's default accuracy exactly. Do not exceed it.**
 
-In plain terms: NinjaTrader decides trades using only each bar's open, high, low and close, so `nqbt` does the same. Tick-by-tick data sits in `data/tick/`, would be more realistic, and is deliberately left unused. If `nqbt` were more accurate than NinjaTrader, the two would disagree, and nobody could tell whether the difference was a real bug or just the extra precision. Being more accurate is as much a bug here as being less accurate.
+In plain terms: NinjaTrader decides trades using only each [bar](#bar)'s open, high, low and close, so `nqbt` does the same. Tick-by-tick data sits in `data/tick/`, would be more realistic, and is deliberately left unused. If `nqbt` were more accurate than NinjaTrader, the two would disagree, and nobody could tell whether the difference was a real bug or just the extra precision. Being more accurate is as much a bug here as being less accurate.
 
 Four of the nine strategies are translations of real NinjaScript, checked exit by exit against actual Strategy Analyzer exports. Every trading rule the simulation reproduces, and the evidence behind it, is in [docs/nt8-fidelity.md](docs/nt8-fidelity.md).
 
@@ -38,9 +29,9 @@ Four of the nine strategies are translations of real NinjaScript, checked exit b
 
 - **A sweep that finishes quickly.** All the expensive maths is done once and then shared by every combination, so trying one more set of settings is nearly free. Searches of hundreds of thousands of combinations run in about an hour and a half rather than over a week.
 - **Nine strategies behind one registry.** They all present the same interface, so "which of these is worth more work?" is a single query instead of nine separate runs that cannot be compared.
-- **Four tests a ranking table cannot pass by itself**, plus three more. They ask whether a good result would have been *pickable in advance*, whether the entry rule beats a coin flip, and whether the profit is bigger than the losing streak it took to earn.
+- **Four tests a ranking table cannot pass by itself**, plus three more. They ask whether a good result would have been *pickable in advance*, whether the entry rule beats a [coin flip](#matched-null), and whether the profit is bigger than the losing streak it took to earn.
 - **The market described separately from any strategy.** Is it trending or chopping? Is volume unusual for this time of day? Is the range unusually tight? These labels are worked out independently, which means they serve both as strategy filters and as a way of reviewing trades that no strategy produced.
-- **Real trades analysed by the same code as simulated ones.** Your actual fills, exported from NinjaTrader, become the identical format the simulator writes, so any statistic means the same thing over both.
+- **Real trades analysed by the same code as simulated ones.** Your actual [fills](#fill), exported from NinjaTrader, become the identical format the simulator writes, so any statistic means the same thing over both.
 - **Every sweep in one database.** Results accumulate in DuckDB, so comparing today's run against one from three weeks ago is a SQL query.
 
 ## Requirements
@@ -82,7 +73,7 @@ nqbt splice --root MNQ --back-adjust --diagnostics
 nqbt run --root MNQ --commission 1.50 --slippage 1 --explain 10
 ```
 
-**Why `splice` exists.** Futures contracts expire on a cycle — every three months for the index roots, five times a year for gold — so five years of history is really twenty to thirty separate contracts sitting end to end. `splice` works out the day traders moved from one contract to the next and joins them into a single series. `--back-adjust` additionally shifts the older prices so the joins line up smoothly, which matters because each new contract starts at a slightly different price.
+**Why `splice` exists.** Futures contracts expire on a cycle — every three months for the index [roots](#root), five times a year for gold — so five years of history is really twenty to thirty separate contracts sitting end to end. `splice` works out the day traders moved from one contract to the next and joins them into a single series. `--back-adjust` additionally shifts the older prices so the joins line up smoothly, which matters because each new contract starts at a slightly different price.
 
 **What `--explain` gives you.** It writes a step-by-step record of the first N trades: what the signal bar looked like, what each condition was checking and whether it passed, how the entry and stop prices were worked out, how the order filled, and where each exit landed. If `nqbt` and NinjaTrader ever disagree, this is what turns "the numbers are different" into "this specific rule is wrong".
 
@@ -115,9 +106,9 @@ results.save_sweep(
 print(sweep.rank(table, "profit_factor", top=10, min_trades=200))
 ```
 
-That runs 36 combinations, being 4 × 3 × 3, and prints the ten with the best profit factor. **Profit factor** is total winnings divided by total losses: above 1.0 makes money, below 1.0 loses it. It says nothing about how bumpy the ride was.
+That runs 36 combinations, being 4 × 3 × 3, and prints the ten with the best [profit factor](#profit-factor).
 
-**Always pass `costs.LIVE`.** Every strategy defaults its commission and slippage to zero. That is correct when checking against NinjaTrader and wrong for everything else, because a free sweep quietly ranks strategies that only work when trading costs nothing. Real costs are **$1.50 per round trip on MNQ and $4.50 on NQ**, plus a tick of slippage. Use one figure for both and you flatter NQ, which moves ten times as much money per point while costing only three times as much to trade.
+**Always pass `costs.LIVE`.** Every strategy defaults its commission and slippage to zero. That is correct when checking against NinjaTrader and wrong for everything else, because a free sweep quietly ranks strategies that only work when trading costs nothing. Real costs are **$1.50 per round trip on [MNQ](#nq-and-mnq) and $4.50 on NQ**, plus a tick of slippage. Use one figure for both and you flatter NQ, which moves ten times as much money per point while costing only three times as much to trade.
 
 `sweep.sweep` gives one summary row per combination. `sweep.sweep_axes` runs the same thing across several bar sizes, both instruments and individual contracts at once. `Grid.of_combinations` takes an explicit list of settings when you already know which ones you want.
 
@@ -149,11 +140,11 @@ All nine strategies are driven through these checks by the scripts in [tools/](t
 ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar        # compare those against the coin flip
 ```
 
-Other `campaign_*.py` scripts take up narrower questions. Among them, `campaign_holdout` and `campaign_walkforward` check whether a choice holds up on data it never saw, `campaign_montecarlo` sizes how much of a result was luck, `campaign_contracts` runs one contract at a time, and `campaign_propaccount` replays a shortlist through a prop firm's account rules. `campaign_gates` runs those reads over every cell of a variant set in one pass. [`tools/README.md`](tools/README.md) says what each one is for, how to run it, and the order a campaign usually runs them in. The sweep stores its results in one database per strategy, `results/campaign/<Strategy>.duckdb`, and nearly every other script starts from what is stored there, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
+Other `campaign_*.py` scripts take up narrower questions. Among them, `campaign_holdout` and `campaign_walkforward` check whether a choice holds up on data it never saw, `campaign_montecarlo` sizes how much of a result was luck, `campaign_contracts` runs one contract at a time, and `campaign_propaccount` replays a [shortlist](#shortlist) through a prop firm's account rules. `campaign_gates` runs those reads over every cell of a [variant set](#variant) in one pass. [`tools/README.md`](tools/README.md) says what each one is for, how to run it, and the order a [campaign](#campaign) usually runs them in. The sweep stores its results in one database per strategy, `results/campaign/<Strategy>.duckdb`, and nearly every other script starts from what is stored there, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
 
 ## The strategies
 
-An **archetype** is one strategy's shape, not one set of its settings. Changing a number gives you another run of the same archetype; changing the logic gives you a new one. Add new ones to [nqbt/archetypes.py](nqbt/archetypes.py) rather than copying the sweep code.
+Each strategy below is an [archetype](#archetype). Add new ones to [nqbt/archetypes.py](nqbt/archetypes.py) rather than copying the sweep code.
 
 | archetype           | what it does                                                          | checked against NinjaTrader? |
 | ------------------- | --------------------------------------------------------------------- | ---------------------------- |
@@ -335,6 +326,114 @@ Every strategy has been swept across every setting it has, on both instruments, 
 | [CLAUDE.md](CLAUDE.md)                       | the same ground rules, written for an AI assistant working in this repository           |
 
 Explanations live in `docs/` (and in `tools/README.md` for the scripts and `nqbt/README.md` for the package's remaining design notes), not in the code. Docstrings say what something is or does and stay short, a function's docstring starts with a verb such as "Return" or "Build", and every reference to a document names a specific section.
+
+## Glossary
+
+Words this project uses in a narrow sense, in plain English. Each one has its own heading, so any document can link straight to it.
+
+### Archetype
+
+One strategy's shape, such as "buy a breakout from a quiet bar". Changing one of its settings gives another [configuration](#configuration) of the same archetype; changing its logic gives a new archetype. *Example:* `InsideBar` is an archetype. [The strategies](#the-strategies) lists all nine.
+
+### Axis
+
+One setting a [sweep](#sweep) varies, together with the values it tries. Plural *axes*. *Example:* `tp_multiplier=[1.0, 2.0, 3.0]` in [Your first sweep](#your-first-sweep) is an axis with three values. Bar size and instrument can be axes too.
+
+### Bar
+
+One candle: the open, high, low and close over a fixed stretch of time. *Example:* a 5-minute bar holds those four prices for five minutes of trading. The bar size is the [resolution](#resolution).
+
+### Bracket
+
+The exits attached to a trade once it is open: a stop loss, up to four profit targets, and the [forced flat](#forced-flat). Every archetype shares one bracket engine, [nqbt/sim/bracket.py](nqbt/sim/bracket.py). *Example:* "the loss is in the bracket" means the entry is fine but the stop and targets are in the wrong place.
+
+### Campaign
+
+One research question, the sweeps run to answer it, and the [gates](#gate) the results are put through. Each campaign is written up as one file in [docs/findings/](docs/findings/README.md). *Example:* §M27 swept every archetype across every axis it had; its write-up is [m27-registry-campaign.md](docs/findings/m27-registry-campaign.md).
+
+### Cell
+
+One slice of a campaign's results that is read on its own. Usually one [root](#root), one [resolution](#resolution) and one [stratum](#stratum), measured in one window. Exactly which of those a cell includes depends on the tool reading it, and each tool's section of [tools/README.md](tools/README.md) says which. *Example:* "InsideBarTrailing's midday cell" is that archetype with entries allowed only during `MIDDAY`; "nine of ten cells" might mean nine of the ten root × resolution pairs.
+
+### Configuration
+
+One complete set of an archetype's settings: one value on every [axis](#axis). A sweep stores one row of results per configuration. Also called a *combination*. *Example:* `atr_multiplier=10.0, atr_length=14, tp_multiplier=2.0` is one of the 36 configurations in [Your first sweep](#your-first-sweep).
+
+### Cut
+
+The thresholds that split a measurement into labels. To *re-cut* is to move them and read the results again. A *raw* cut uses fixed numbers; a *fitted* cut picks them from the [selection window](#selection-window) so each label holds a stated share of bars. *Example:* by default, relative volume below 0.7 of usual is `THIN` and above 1.5 is `HEAVY`. That is a raw cut. Calling the busiest fifth of bars `HEAVY` is a fitted one.
+
+### Fill
+
+An order actually becoming a trade, at a particular price. *Example:* an entry order lives for one bar, so if price does not reach it on the next bar it is cancelled without a fill. How the simulation decides fills is in [docs/nt8-fidelity.md](docs/nt8-fidelity.md).
+
+### Forced flat
+
+Closing every open position just before the session ends, whatever the stop and targets say. Prop-firm accounts require it and holding out of session brings different margin requirements, so every strategy here does it, and it is not a setting. Also called *the flatten*. *Example:* a `session_close_share` of 0.4 means 40% of exits were the forced flat rather than a stop or a target.
+
+### Gate
+
+One of four checks a configuration has to pass, in order. **1:** does it make money at all? **2:** does it still make money on the [holdout](#holdout)? **3:** does its entry beat a [matched null](#matched-null)? **4:** does it earn back its own worst drawdown under walk-forward and resampling? *Example:* "passes gate 3" means its entry does better than random entries taking the same number of trades. [By gate](docs/findings/by-gate.md) lists what has passed which. The trade-log regression gate is a different thing.
+
+### Holdout
+
+The part of the price history kept back while configurations are chosen, and used only to measure them afterwards. In a campaign it is the last 40%. A result *held out* is one measured there. *Example:* "profitable held out" means the configuration was picked on the first 60% and still made money on the last 40%.
+
+### Leg
+
+One exit. *Example:* a trade that sells half the position at one price and half at another has two legs. A statistic counted per leg can differ from the same one counted per trade.
+
+### Matched null
+
+The yardstick an entry rule is measured against: the same strategy with each entry moved to a randomly chosen day at the same time of day, keeping the same number of trades and the same stop and targets. If the real entry does no better, the profit comes from the [bracket](#bracket), not from choosing when to trade. Also called the *random entry* or the *coin flip*; [nqbt/randomentry.py](nqbt/randomentry.py) builds it. *Example:* "p = 0.05 against its matched null" means only 1 random-entry run in 20 did as well.
+
+### NQ and MNQ
+
+Two Nasdaq-100 futures contracts. Same price, but MNQ is a tenth the size, so a tenth the money per point. *Example:* a 10-point move is $200 on one NQ contract and $20 on one MNQ.
+
+### Profit factor
+
+Total money won divided by total money lost. Above 1.0 makes money, below 1.0 loses it. It says nothing about how bumpy the ride was. *Example:* $15,000 of winning trades and $10,000 of losing ones is a profit factor of 1.5.
+
+### Regime
+
+A label for how the market has been moving recently: `DIRECTIONAL` (trending), `CONSOLIDATING` (going sideways) or `UNCLASSIFIABLE` (in between). It compares how far price got over a lookback with how far it travelled getting there. *Example:* price that ends 20 points up after 25 points of bar-to-bar movement is directional; one that ends 2 points up after the same 25 is consolidating.
+
+### Resolution
+
+The bar size, in minutes. *Example:* at a 5-minute resolution every bar covers five minutes.
+
+### Root
+
+The symbol shared by every contract of one future, without the expiry. *Example:* `MNQ` is the root of `MNQ 03-24` and `MNQ 06-24`. Results are reported per root because NQ and MNQ cost different amounts to trade.
+
+### Selection window
+
+The part of the price history where configurations are ranked and chosen. In a campaign it is the first 60%. A figure measured here flatters the winner, because it was picked for doing well here. *Example:* a [shortlist](#shortlist) is chosen on the selection window and then measured on the [holdout](#holdout).
+
+### Session phase
+
+Which part of the trading day a bar falls in. There are seven, in Eastern time: `OVERNIGHT` (18:00–03:00), `LONDON` (03:00–07:00), `PRE_OPEN` (07:00–09:30), `CASH_OPEN` (09:30–10:30), `MIDDAY` (10:30–14:00), `AFTERNOON` (14:00–16:00) and `CLOSE` (16:00–17:00). *Example:* "the midday lull" is `MIDDAY`.
+
+### Shortlist
+
+The few configurations a campaign takes forward for further tests, chosen by ranking on the [selection window](#selection-window). Their trades are re-run and stored so the later gates can read every one. *Example:* by default, an archetype's top 20 configurations by profit factor on the selection window.
+
+### Stratum
+
+A slice of the market defined by one label, inside which a strategy may only enter. Plural *strata*. *Unfiltered* means no slice: entries allowed everywhere. Sometimes called a *context cell*. *Example:* `phase=MIDDAY` is a stratum, allowing entries only between 10:30 and 14:00 Eastern; `regime=DIRECTIONAL` is another.
+
+### Sweep
+
+Running one archetype many times, once per [configuration](#configuration), and collecting a row of results for each. *Swept* means a sweep covered it. *Example:* [Your first sweep](#your-first-sweep) runs 4 × 3 × 3 = 36 configurations.
+
+### Tier 1 and Tier 2
+
+The two passes a strategy goes through. **Tier 1** is `nqbt`: fast, approximate, and used to narrow thousands of configurations to a handful. **Tier 2** is NinjaTrader 8's Strategy Analyzer: slow, and the final word. *Example:* `TIER1_ONLY` marks an archetype never checked against NinjaTrader. [How this fits with NinjaTrader](#how-this-fits-with-ninjatrader) says why there are two.
+
+### Variant
+
+A named starting configuration plus the axes swept around it. It is used where a difference cannot be one more axis. A *variant set* is the group of variants one campaign sweeps. *Example:* OpeningRange's stop beyond the far side of the range and its stop at a multiple of ATR read different settings, so each is its own variant.
 
 ## License
 

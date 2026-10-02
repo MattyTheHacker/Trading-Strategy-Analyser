@@ -7,6 +7,9 @@ a broken pointer.
 
 No committed doc names a file inside a gitignored output folder either --
 ``CONTRIBUTING.md`` § "Data and generated files".
+
+Every link into a heading of ``README.md``, the glossary's entries included, names a heading
+that is there.
 """
 
 from __future__ import annotations
@@ -170,3 +173,99 @@ def test_no_committed_doc_names_a_file_inside_an_output_folder() -> None:
     assert found == [], (
         "name these in words instead -- CONTRIBUTING.md, 'Data and generated files':\n" + "\n".join(found)
     )
+
+
+README = ROOT / "README.md"
+
+ANCHOR_LINK = re.compile(r"\]\(([^)\s]*)#([\w-]+)\)")
+"""A Markdown link carrying a fragment, as (path, anchor); an empty path is the file it sits in."""
+
+MIN_LINKS_INTO_README = 100
+"""Fewer than this means the link pattern has stopped matching, not that the links went away."""
+
+
+def slug(heading: str) -> str:
+    """Return the anchor GitHub gives a heading."""
+    return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+
+
+def readme_anchors() -> set[str]:
+    """Return the anchor of every heading in the README, outside its code blocks."""
+    anchors: set[str] = set()
+    in_fence = False
+    for line in README.read_text(encoding="utf-8").splitlines():
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+
+        if not in_fence and line.startswith("#"):
+            anchors.add(slug(line.lstrip("#")))
+
+    return anchors
+
+
+def links_into_readme(source: Path, text: str) -> list[tuple[int, str]]:
+    """Return every link in the text that resolves to a README heading, as (line, anchor)."""
+    found: list[tuple[int, str]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        for target, anchor in ANCHOR_LINK.findall(line):
+            if "://" in target:
+                continue
+
+            resolved: Path = (source.parent / target).resolve() if target else source
+            if resolved == README:
+                found.append((number, anchor))
+
+    return found
+
+
+def every_link_into_readme() -> list[tuple[Path, int, str]]:
+    """Find every link into a README heading in the committed Markdown, as (source, line, anchor)."""
+    return [
+        (path, number, anchor)
+        for path in tracked("*.md")
+        for number, anchor in links_into_readme(path, path.read_text(encoding="utf-8"))
+    ]
+
+
+def test_the_slug_matches_githubs_for_the_glossary_headings() -> None:
+    """Spaces become hyphens, case folds, and punctuation other than `-` and `_` is dropped."""
+    assert slug("Tier 1 and Tier 2") == "tier-1-and-tier-2"
+    assert slug("`campaign_sweep.py`") == "campaign_sweeppy"
+    assert slug("M10.4 — time of day") == "m104--time-of-day"
+
+
+def test_a_link_is_resolved_from_the_file_it_sits_in() -> None:
+    """Only links landing on the README count, however many folders up they climb."""
+    source = ROOT / "docs" / "findings" / "example.md"
+    text = (
+        "[a](../../README.md#sweep) [b](../roadmap.md#gate) [c](#cell)\n[d](https://example.com/README.md#x)"
+    )
+
+    assert links_into_readme(source, text) == [(1, "sweep")]
+    assert links_into_readme(README, "[c](#cell)") == [(1, "cell")]
+
+
+def test_the_readme_anchors_hold_the_glossary_and_nothing_invented() -> None:
+    """A missing entry is caught, so the check below can fail."""
+    anchors = readme_anchors()
+
+    assert {"glossary", "sweep", "tier-1-and-tier-2", "nq-and-mnq"} <= anchors
+    assert "no-such-heading" not in anchors
+
+
+def test_the_repository_carries_links_into_the_readme() -> None:
+    """A regex that silently stopped matching would make the check below vacuous."""
+    assert len(every_link_into_readme()) > MIN_LINKS_INTO_README
+
+
+def test_every_link_into_the_readme_names_a_heading_there() -> None:
+    """A renamed or removed glossary entry fails here rather than leaving links that go nowhere."""
+    anchors = readme_anchors()
+    missing = [
+        f"{path.relative_to(ROOT).as_posix()}:{number}: #{anchor}"
+        for path, number, anchor in every_link_into_readme()
+        if anchor not in anchors
+    ]
+
+    assert missing == [], "these links name no README heading:\n" + "\n".join(missing)
