@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, fields
-from typing import NamedTuple, Protocol, override, runtime_checkable
+from typing import ClassVar, NamedTuple, Protocol, override, runtime_checkable
 
 from nqbt import (
     bands,
@@ -140,6 +140,23 @@ def validate_max_hold_bars(max_hold_bars: int) -> None:
     """Refuse a negative maximum hold time. ``0`` is how a rule set switches it off."""
     if max_hold_bars < 0:
         msg: str = f"max_hold_bars must be >= 0, got {max_hold_bars}"
+        raise ValueError(msg)
+
+
+def validate_tp_multiplier(tp_multiplier: float, nt8_minimum: float | None = None) -> None:
+    """Refuse a target multiplier that is not finite and above zero, or is below ``nt8_minimum``.
+
+    ``nt8_minimum`` is the floor of the ``Range`` on ``TPMultiplier``, for a port whose NinjaScript has one.
+    """
+    if nt8_minimum is not None and not nt8_minimum <= tp_multiplier < math.inf:
+        msg: str = (
+            f"tp_multiplier must be >= {nt8_minimum:g}, got {tp_multiplier}; "
+            f"NT8 caps it with Range({nt8_minimum:g}, ...)"
+        )
+        raise ValueError(msg)
+
+    if not 0.0 < tp_multiplier < math.inf:
+        msg = f"tp_multiplier must be > 0 and finite, got {tp_multiplier}"
         raise ValueError(msg)
 
 
@@ -570,6 +587,11 @@ class DeadCatParams:
                 raise ValueError(msg)
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
+        validate_tp_multiplier(self.tp_multiplier, nt8_minimum=1.0)
+        if not 0.0 <= self.min_reward_risk < math.inf:
+            msg = f"min_reward_risk must be >= 0 and finite, got {self.min_reward_risk}"
+            raise ValueError(msg)
+
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_context_filters(self)
@@ -1058,6 +1080,7 @@ class EmaCrossoverParams:
             )
             raise ValueError(msg)
 
+        validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_context_filters(self)
@@ -1157,6 +1180,9 @@ class InsideBarParams:
     tp_multiplier: float = 1.0
     """How many ATRs the target sits from the fill. ``TPMultiplier`` in the NinjaScript, whose
     default is the bare 1x the target was hardcoded at -- ``docs/nt8-fidelity.md`` §M22."""
+
+    NT8_TP_MULTIPLIER_MINIMUM: ClassVar[float | None] = 0.1
+    """The floor of the ``Range`` on ``TPMultiplier``, or ``None`` where the NinjaScript has none."""
 
     bars_required_to_trade: int = 5
     """``CurrentBars[0] <= BarsRequiredToTrade`` returns, so the first tradable bar is one
@@ -1282,10 +1308,7 @@ class InsideBarParams:
             msg = f"atr_multiplier must be > 0, got {self.atr_multiplier}"
             raise ValueError(msg)
 
-        if self.tp_multiplier <= 0.0:
-            msg = f"tp_multiplier must be > 0, got {self.tp_multiplier}"
-            raise ValueError(msg)
-
+        validate_tp_multiplier(self.tp_multiplier, nt8_minimum=self.NT8_TP_MULTIPLIER_MINIMUM)
         if self.no_entry_minutes_before_close < 0:
             msg = f"no_entry_minutes_before_close must be >= 0, got {self.no_entry_minutes_before_close}"
             raise ValueError(msg)
@@ -1402,6 +1425,9 @@ class InsideBarTrailingParams(InsideBarParams):
 
     order_quantity: int = 6
     """``Range(2, int.MaxValue)`` in the NinjaScript, because it is split across two entries."""
+
+    NT8_TP_MULTIPLIER_MINIMUM: ClassVar[float | None] = None
+    """``InsideBarTrailing.cs`` has no ``TPMultiplier``; its target is one ATR from the fill."""
 
     slow_sma_period: int = 125
     error_margin: float = 0.1
@@ -1956,6 +1982,7 @@ class ElasticBandParams:
             )
             raise ValueError(msg)
 
+        validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
 
@@ -2285,6 +2312,7 @@ class OpeningRangeParams:
         self._validate_entry()
         self._validate_exit_scheme()
         self._validate_follow_through()
+        validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_context_filters(self)
@@ -2686,6 +2714,7 @@ class EmaPullbackParams:
             raise ValueError(msg)
 
         self._validate_confirmation()
+        validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_context_filters(self)
@@ -2924,6 +2953,7 @@ class SqueezeBreakoutParams:
     def __post_init__(self) -> None:
         self._validate_squeeze()
         self._validate_exit_scheme()
+        validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_context_filters(self)

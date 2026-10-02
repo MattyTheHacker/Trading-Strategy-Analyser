@@ -226,7 +226,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                 candidate_risk > 0.0
                 and not too_risky
                 and submittable
-                and bracket.passes_reward_risk(target_r, rules.min_reward_risk)
+                and bracket.passes_reward_risk(target_r, rules.tp_multiplier, rules.min_reward_risk)
             ):
                 pending_bar = i
                 pending_trigger = trigger

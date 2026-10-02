@@ -127,6 +127,24 @@ def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     assert archetypes.SQUEEZEBREAKOUT.tier2 is Tier2Status.TIER1_ONLY
 
 
+SCALES_ITS_TARGETS = [
+    a for a in archetypes.all_archetypes() if "tp_multiplier" in {f.name for f in fields(a.params_cls)}
+]
+
+
+@pytest.mark.parametrize("archetype", SCALES_ITS_TARGETS, ids=lambda a: a.name)
+@pytest.mark.parametrize("value", [0.0, -1.0, np.nan, np.inf])
+def test_every_tp_multiplier_refuses_zero_below_or_not_finite(archetype: Archetype, value: float) -> None:
+    """Every params class with a tp_multiplier refuses one at or below zero, nan or infinite."""
+    with pytest.raises(ValueError, match="tp_multiplier must be"):
+        archetype.params_cls(tp_multiplier=value)
+
+
+def test_every_archetype_but_pullbackandgo_scales_its_targets() -> None:
+    """The refusal test covers every archetype but PullBackAndGo, which has no tp_multiplier."""
+    assert {a.name for a in SCALES_ITS_TARGETS} == set(archetypes.names()) - {"PullBackAndGo"}
+
+
 # -- sweepable, and the __slots__ trap it exists to avoid ----------------------
 
 

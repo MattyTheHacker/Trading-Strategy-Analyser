@@ -186,6 +186,16 @@ def test_the_tp_multiplier_scales_the_bracketed_lots_target_only() -> None:
     assert pd.isna(trades["target_price"].iloc[1])
 
 
+def test_a_tp_multiplier_below_insidebars_nt8_floor_is_accepted() -> None:
+    """InsideBarTrailing.cs has no TPMultiplier, so InsideBar.cs's Range(0.1, ...) does not bind it."""
+    below_insidebars_floor = 0.05
+    assert (
+        InsideBarTrailingParams(tp_multiplier=below_insidebars_floor).tp_multiplier == below_insidebars_floor
+    )
+    with pytest.raises(ValueError, match=r"tp_multiplier must be >= 0\.1"):
+        InsideBarParams(tp_multiplier=below_insidebars_floor)
+
+
 def test_the_split_rounds_the_bracketed_lot_up() -> None:
     """``(int) Math.Ceiling(OrderQuantity * PartialTakeProfitPercentage)`` -- 4 of 6."""
     assert InsideBarTrailingParams().leg_quantities == (4, 2)
