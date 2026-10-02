@@ -662,12 +662,18 @@ def round_to_tick(price: float, tick_size: float) -> float:
     return float(np.floor(price / tick_size + 0.5) * tick_size)
 
 
+REWARD_RISK_TOLERANCE = 1e-9
+"""The fraction of the minimum a scaled R multiple may round short by and still pass the gate."""
+
+
 @njit(cache=True)
 def passes_reward_risk(target_r: FloatArray, tp_multiplier: float, minimum: float) -> bool:
     """Check the optional pre-trade gate on the furthest target's R multiple, off at ``minimum`` of 0.
 
-    Each multiple is scaled by ``tp_multiplier``, as the targets are. Every target is in R, so the
-    check passes for the whole rule set or for none of it.
+    Each multiple is scaled by ``tp_multiplier``, as the targets are, and compared within
+    :data:`REWARD_RISK_TOLERANCE` -- ``docs/nt8-fidelity.md``, "The reward-to-risk gate has no
+    NinjaScript behind it". Every target is in R, so the check passes for the whole rule set or
+    for none of it.
     """
     if minimum <= 0.0:
         return True
@@ -678,7 +684,7 @@ def passes_reward_risk(target_r: FloatArray, tp_multiplier: float, minimum: floa
         if not np.isnan(scaled) and scaled > best:
             best = scaled
 
-    return best >= minimum
+    return best >= minimum * (1.0 - REWARD_RISK_TOLERANCE)
 
 
 @njit(cache=True)

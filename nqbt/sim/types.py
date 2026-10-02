@@ -570,6 +570,10 @@ class DeadCatParams:
                 raise ValueError(msg)
 
             conditions.ma_key(getattr(self, f"{gate}_kind"), getattr(self, f"{gate}_period"))
+        if not self.tp_multiplier > 0.0:  # written this way round so that nan is refused too
+            msg = f"tp_multiplier must be > 0, got {self.tp_multiplier}"
+            raise ValueError(msg)
+
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_context_filters(self)
