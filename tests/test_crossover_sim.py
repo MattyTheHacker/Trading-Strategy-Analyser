@@ -485,6 +485,22 @@ def test_the_flip_can_be_switched_off() -> None:
     assert set(trades["exit_reason"]) == {"end_of_data"}
 
 
+def test_a_signal_on_the_other_side_with_no_exit_pending_opens_nothing() -> None:
+    """Only a pending exit lets the other side in, even when the stop empties the position next bar."""
+    trades = run(
+        [
+            *[(100.0, 100.5, 99.5, 100.0)] * 3,
+            (99.0, 99.5, 95.0, 96.0),  # 3: the long's stop at 96 fills; no short opens at 99
+            *FLAT,
+        ],
+        signal_at=[0, 2],
+        flip_at=[2],
+        exit_on_opposite_cross=False,
+    )
+    assert set(trades["trade_id"]) == {1}
+    assert set(trades["exit_reason"]) == {"stop"}
+
+
 # -- the bracket half, which is the shared engine ------------------------------
 
 

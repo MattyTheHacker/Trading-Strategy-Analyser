@@ -230,7 +230,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
         ):
             # `pending_exit` is what makes the archetype bidirectional: without it the flip
             # closing a long could never itself open a short, and crosses alternate. Only the
-            # other side, since the position is still open -- ``docs/nt8-fidelity.md`` §M39.
+            # other side -- ``docs/nt8-fidelity.md`` §M39.
             pending_bar = i
             pending_direction = direction_at[i]
 
