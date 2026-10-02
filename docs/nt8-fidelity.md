@@ -228,13 +228,17 @@ if (risk > maxRiskPerTrade * TickSize) return;
 
 ### The reward-to-risk gate has no NinjaScript behind it
 
-`min_reward_risk` is an optional pre-trade gate from the original build spec (#315): skip a signal unless its reward-to-risk clears a minimum. **It exists on DeadCatBounce alone and is off at `0`.** Neither `DeadCatBounce.cs` nor `PullBackAndGo.cs` has a property for it, PullBackAndGo's loop passes `0` unconditionally, and no campaign in `tools/` sets it.
+`min_reward_risk` is an optional pre-trade gate from the original build spec (#315): skip a signal unless its reward-to-risk clears a minimum. **It exists on DeadCatBounce alone and is off at `0`.** Neither `DeadCatBounce.cs` nor `PullBackAndGo.cs` has a property for it, PullBackAndGo's loop passes `0` unconditionally, and no campaign in `tools/` sets it. `DeadCatParams` refuses a minimum that is negative, `nan` or infinite.
 
 **It filters rule sets, not trades.** Every target is an R multiple, so the ratio is fixed by the parameters before a bar is read: `bracket.passes_reward_risk` compares the furthest finite entry of `target_r_multiples`, scaled by `tp_multiplier`, with the minimum, and either every signal passes or none does. A port would write it as a property compared against that multiple, returning early beside the risk cap above.
 
 **It reads the multiples after `tp_multiplier` scales them**, because the targets it gates sit at `target_r × tp_multiplier`. At `tp_multiplier = 2` the default targets sit at 2, 3 and 4R, so a minimum of 4 passes and 4.5 blocks. It read the unscaled multiples until #373, which nothing stored could see, since the gate is off everywhere.
 
-**A minimum equal to the furthest scaled target passes**, even where the product rounds just below it: `1.5 × 1.4` is `2.0999999999999996`, which a bare `>=` against 2.1 would block. `bracket.REWARD_RISK_TOLERANCE` absorbs that rounding as a fraction of the minimum, so a rule set with no finite target still fails any positive minimum, and a port would compare with the same tolerance. `DeadCatParams` refuses a `tp_multiplier` below 1, `nan` and infinity included, because `DeadCatBounce.cs` caps `TPMultiplier` with `Range(1, double.MaxValue)`.
+**It reads the multiple before the target is rounded to the tick**, so a placed target can sit just short of the minimum it passed: a short's 2.5R target at a risk of 4.25 points rounds from 10.625 to 10.5 points, about 2.47R. That is kept, because a port comparing the multiple would do the same, and gating on the placed price would make it a filter on trades.
+
+**A minimum equal to the furthest scaled target passes**, even where the product rounds just below it: `1.5 × 1.4` is `2.0999999999999996`, which a bare `>=` against 2.1 would block. `bracket.REWARD_RISK_TOLERANCE` absorbs that rounding as a fraction of the minimum, so a rule set with no finite target still fails any positive minimum, and a port would compare with the same tolerance.
+
+**Every params class refuses a `tp_multiplier` that is not finite and above zero**, and a port whose NinjaScript has a `TPMultiplier` refuses one below its `Range` floor: 1 on `DeadCatBounce.cs` and 0.1 on `InsideBar.cs`. InsideBarTrailing inherits the field and not the floor, because `InsideBarTrailing.cs` has no such property. `types.validate_tp_multiplier` is the one check.
 
 ### M18 — the crossover rules, and that none of them has evidence yet
 

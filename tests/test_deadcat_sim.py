@@ -545,9 +545,18 @@ def test_reward_risk_gate_can_block_every_signal() -> None:
 def test_reward_risk_gate_reads_the_targets_after_tp_multiplier(tp_multiplier: float) -> None:
     """The gate passes at the furthest target's scaled R and blocks above it (#373)."""
     rows = [(102, 104, 100, 101), (101, 102, 100, 101), (100, 101, 95.5, 96)]
-    furthest_target_r = 2.0 * tp_multiplier
-    passing = run(rows, signal_at=[0], tp_multiplier=tp_multiplier, min_reward_risk=furthest_target_r)
-    blocked = run(rows, signal_at=[0], tp_multiplier=tp_multiplier, min_reward_risk=furthest_target_r + 0.5)
+    targets = (1.0, 1.5, 2.0, np.nan)
+    furthest_target_r = float(np.nanmax(targets)) * tp_multiplier
+    passing = run(
+        rows, signal_at=[0], targets=targets, tp_multiplier=tp_multiplier, min_reward_risk=furthest_target_r
+    )
+    blocked = run(
+        rows,
+        signal_at=[0],
+        targets=targets,
+        tp_multiplier=tp_multiplier,
+        min_reward_risk=furthest_target_r + 0.5,
+    )
     assert not passing.empty
     assert blocked.empty
 
@@ -584,6 +593,13 @@ def test_a_tp_multiplier_outside_nt8s_range_is_refused(value: float) -> None:
     """DeadCatParams refuses a tp_multiplier below 1, nan or infinite, as DeadCatBounce.cs's Range does."""
     with pytest.raises(ValueError, match="tp_multiplier must be >= 1"):
         DeadCatParams(tp_multiplier=value)
+
+
+@pytest.mark.parametrize("value", [-1.0, np.nan, np.inf])
+def test_a_min_reward_risk_below_zero_or_not_finite_is_refused(value: float) -> None:
+    """DeadCatParams refuses a negative, nan or infinite min_reward_risk, where 0 is the gate off."""
+    with pytest.raises(ValueError, match="min_reward_risk must be >= 0 and finite"):
+        DeadCatParams(min_reward_risk=value)
 
 
 def test_leg_quantities_put_the_remainder_on_the_runner() -> None:

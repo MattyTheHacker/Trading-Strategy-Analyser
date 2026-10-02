@@ -276,11 +276,11 @@ def test_a_target_the_multiplier_pulls_inside_the_bar_is_taken_there() -> None:
     assert reachable["exit_bar"].iloc[0] == 2
 
 
-def test_a_tp_multiplier_at_or_below_zero_is_refused() -> None:
-    """A target at or behind the fill is not a profit target, the way a zero stop is not one."""
-    for value in (0.0, -1.0):
-        with pytest.raises(ValueError, match="tp_multiplier must be > 0"):
-            InsideBarParams(tp_multiplier=value)
+@pytest.mark.parametrize("value", [0.0, 0.05, np.nan, np.inf])
+def test_a_tp_multiplier_outside_nt8s_range_is_refused(value: float) -> None:
+    """InsideBarParams refuses a tp_multiplier below 0.1, nan or infinite, as InsideBar.cs's Range does."""
+    with pytest.raises(ValueError, match=r"tp_multiplier must be >= 0\.1"):
+        InsideBarParams(tp_multiplier=value)
 
 
 def test_the_target_multiplier_is_a_sweepable_axis() -> None:
