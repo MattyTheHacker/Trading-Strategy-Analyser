@@ -198,6 +198,11 @@ below and is what you quote; this file is the index, not the record.
   order still working. `docs/nt8-fidelity.md` §M39.
 - **Stop-and-reverse is not supported.** The loop's `in_position` boolean assumes flat-to-flat
   and reversal collides with the one-bar entry lifetime. A deliberate limitation.
+- **A pending market exit admits an entry on the other side only.** `simulate_crossover` lets a
+  signal on the bar an exit is decided reopen at the open that exit fills at, which is
+  EmaCrossover's flip, and refuses one on the same side, because the position is still open when
+  it is submitted and `EntriesPerDirection = 1` ignores it (#393). It binds under the hold cap and
+  the early exit, never the flip. `docs/nt8-fidelity.md` §M39.
 - **`EXIT_SIGNAL` is spent by EmaCrossover and InsideBarTrailing** — a rule-driven exit with no
   bracket level, and the second is the first with C# behind it. A test guards structurally that
   DeadCatBounce, PullBackAndGo, InsideBar and `bracket.py` never produce it, *and* that the two

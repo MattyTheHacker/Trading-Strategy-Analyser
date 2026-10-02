@@ -983,7 +983,7 @@ def test_the_opposite_cross_takes_a_bar_that_is_also_the_hold_limit() -> None:
     assert trades["exit_reason"].iloc[0] == "signal"
 
 
-def test_a_signal_on_the_hold_limits_bar_reopens_at_the_same_price_as_the_exit() -> None:
+def test_a_signal_on_the_other_side_on_the_hold_limits_bar_reopens_at_the_same_price_as_the_exit() -> None:
     """The hold limit shares ``pending_exit``, so it reaches the flip's same-bar re-entry.
 
     ``docs/nt8-fidelity.md``, "The maximum hold time, and why it is its own exit code".
@@ -991,6 +991,7 @@ def test_a_signal_on_the_hold_limits_bar_reopens_at_the_same_price_as_the_exit()
     trades = run(
         [*FLAT, *FLAT],
         signal_at=[0, 2],
+        flip_at=[2],
         max_hold_bars=1,
         exit_on_opposite_cross=False,
         atr=40.0,
@@ -999,5 +1000,23 @@ def test_a_signal_on_the_hold_limits_bar_reopens_at_the_same_price_as_the_exit()
     first = trades[trades["trade_id"] == 1].iloc[0]
     second = trades[trades["trade_id"] == 2].iloc[0]
     assert first["exit_reason"] == "time_limit"
+    assert (first["direction"], second["direction"]) == (LONG, SHORT)
     assert first["exit_bar"] == second["entry_bar"] == 3
     assert first["exit_price"] == pytest.approx(second["entry_price"])
+
+
+def test_a_signal_on_the_same_side_as_a_pending_exit_opens_nothing() -> None:
+    """``EntriesPerDirection = 1`` refuses it: the position is still open when it is submitted.
+
+    ``docs/nt8-fidelity.md`` §M39.
+    """
+    trades = run(
+        [*FLAT, *FLAT],
+        signal_at=[0, 2],
+        max_hold_bars=1,
+        exit_on_opposite_cross=False,
+        atr=40.0,
+    )
+    assert set(trades["trade_id"]) == {1}
+    assert set(trades["exit_reason"]) == {"time_limit"}
+    assert set(trades["exit_bar"]) == {3}
