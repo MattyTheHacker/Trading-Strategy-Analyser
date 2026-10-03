@@ -394,7 +394,7 @@ def test_each_archetype_gets_its_own_database(tmp_path: Path, monkeypatch: pytes
 
 def test_a_sweep_call_below_the_threshold_stays_in_process() -> None:
     assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS - 1, 8) == 1
-    assert workers_for(18, 1_000_000, 16) == 1
+    assert workers_for(4, 1_000_000, 16) == 1
 
 
 def test_a_sweep_call_at_the_threshold_gets_the_workers_it_asked_for() -> None:

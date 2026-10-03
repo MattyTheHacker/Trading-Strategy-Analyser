@@ -142,7 +142,7 @@ form is what moves. Both are ``sim/types.py`` defaults -- ``docs/roadmap.md`` §
 MIN_TRADES = 30
 """The floor ``sweep.rank`` applies, repeated here for the per-sweep progress line."""
 
-SERIAL_BELOW_COMBINATION_BARS = 20_000_000
+SERIAL_BELOW_COMBINATION_BARS = 8_000_000
 """Combinations x bars below which a sweep call stays in-process whatever ``--n-jobs`` asks for."""
 
 CAMPAIGN_DIR = paths.RESULTS_DIR / "campaign"
