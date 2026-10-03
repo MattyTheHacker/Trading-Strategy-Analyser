@@ -1215,7 +1215,7 @@ Value[0] = CurrentBar == 0 ? Input[0]
          : Input[0] * (2/(1+Period)) + (1 - 2/(1+Period)) * Value[1]
 ```
 
-For `EMA(3)` over `0..9`, TA-Lib returns exactly 8.0 and NT8 returns 8.001953125. Since `Close[0] > ema[0]` is a hard entry gate, that changes which bars signal. NT8's SMA likewise averages a *partial* window before `period` bars where TA-Lib returns NaN. Both are hand-rolled in `indicators.py`. TA-Lib remains in use for MACD and RSI, which no archetype reads yet and which carry the same unpinned discrepancy.
+For `EMA(3)` over `0..9`, TA-Lib returns exactly 8.0 and NT8 returns 8.001953125. Since `Close[0] > ema[0]` is a hard entry gate, that changes which bars signal. NT8's SMA likewise averages a *partial* window before `period` bars where TA-Lib returns NaN. Both are hand-rolled in `indicators.py`. TA-Lib is a test dependency only, kept to show these divergences; MACD and RSI are not implemented, and either would need pinning against NT8 before an archetype reads it.
 
 ### M16 — ATR, StdDev, Bollinger and Keltner, read out of NT8
 
