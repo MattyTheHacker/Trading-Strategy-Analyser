@@ -504,9 +504,6 @@ def _sweep_parallel(
 def _table(rows: list[dict[str, object]]) -> pd.DataFrame:
     """Return one grid's summary rows as a frame led by ``combo_id``."""
     frame: pd.DataFrame = pd.DataFrame(rows)
-    if frame.empty:
-        return frame
-
     cols: list[str] = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
 
     return frame[cols]

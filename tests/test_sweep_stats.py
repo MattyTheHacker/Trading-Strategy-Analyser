@@ -1,6 +1,7 @@
 """Tests for the sweep harness, statistics and DuckDB results layer."""
 
 import json
+import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -8,6 +9,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 import pytest
+from joblib import effective_n_jobs, parallel_config
 
 from nqbt import (
     archetypes,
@@ -609,18 +611,25 @@ def several_grids() -> list[sweep.Grid]:
     ]
 
 
-@pytest.mark.parametrize("n_jobs", [1, 2])
-def test_several_grids_in_one_call_match_sweeping_each_alone(prepared, n_jobs: int) -> None:
+# Threads run the chunk runner in this process, where coverage can measure it; loky's workers it cannot.
+@pytest.mark.parametrize(("n_jobs", "backend"), [(1, "loky"), (2, "loky"), (2, "threading")])
+@pytest.mark.parametrize("keep_trades", [True, False])
+def test_several_grids_in_one_call_match_sweeping_each_alone(
+    prepared, n_jobs: int, backend: str, keep_trades: bool
+) -> None:
     """A chunk of three crosses from one grid into the next, so each grid's rows are reassembled."""
     bars, _, data = prepared
     grids = several_grids()
-    together = sweep.sweep_grids(data, grids, n_jobs=n_jobs, chunk_size=3, keep_trades=True)
+    with parallel_config(backend=backend):
+        assert effective_n_jobs(n_jobs) == n_jobs, "the pool fell back to one process; its path did not run"
+        together = sweep.sweep_grids(data, grids, n_jobs=n_jobs, chunk_size=3, keep_trades=keep_trades)
 
     assert sum(int(table["trades"].sum()) for table, _ in together) > 0, "no trades; the test proves nothing"
     assert len(together) == len(grids)
     for grid, (table, logs) in zip(grids, together, strict=True):
-        alone, alone_logs = sweep.sweep(bars, grid, data=data, keep_trades=True)
+        alone, alone_logs = sweep.sweep(bars, grid, data=data, keep_trades=keep_trades)
         pd.testing.assert_frame_equal(table, alone)
+        assert bool(logs) is keep_trades
         assert sorted(logs) == sorted(alone_logs)
         for combo_id, log in logs.items():
             pd.testing.assert_frame_equal(log, alone_logs[combo_id])
@@ -646,6 +655,19 @@ def test_several_grids_share_one_pool(prepared, monkeypatch: pytest.MonkeyPatch)
 def test_no_grids_is_no_work(prepared, n_jobs: int) -> None:
     _, _, data = prepared
     assert sweep.sweep_grids(data, [], n_jobs=n_jobs) == []
+
+
+def test_a_serial_sweep_counts_its_progress_across_every_grid(
+    prepared, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, _, data = prepared
+    with caplog.at_level(logging.INFO, logger=sweep.__name__):
+        sweep.sweep_grids(data, several_grids(), n_jobs=1, progress_every=3)
+
+    reported: list[tuple[object, ...]] = [
+        r.args[:2] for r in caplog.records if r.name == sweep.__name__ and isinstance(r.args, tuple)
+    ]
+    assert reported == [("3", "7"), ("6", "7")]
 
 
 # -- sweep_axes: strategy, resolution and contract (M17.4) --------------------
