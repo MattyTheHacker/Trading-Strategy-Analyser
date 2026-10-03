@@ -295,9 +295,32 @@ Two things to know:
 - **Branch off `main` and never commit to it directly.** This is enforced by branch protection rules at the GitHub level.
 - **All PRs should target `main` as the base.** Where one PR depends on another, this should be stated in a comment or the PR body.
 - **One piece of work is one pull request, kept as small as that allows.** Do not split it because it grew; split it only when two changes are genuinely unrelated, and then each still targets `main`. Do not widen it to fix an unrelated problem, including one the documentation review below turns up — raise an issue for it instead.
-- **Use labels to accurately describe what areas the PR covers.**
+- **Label it** as [Labels](#labels) describes.
 - **PRs should have a linked issue in most cases**, so that additional reasonings and explanations can be placed there instead of in the PR body. This can be excepted though, for example simple version bumps or simple documentation updates.
 - **A PR merges itself once approved.** Auto-merge (squash) switches on once it is open and out of draft, and the `sync` label it gets on opening keeps its branch up to date with `main`.
+
+### Labels
+
+**Every issue and pull request takes at least one `type:` label, and an `area:` label wherever one fits.** `type:` says what kind of work it is and `area:` which part of the code it touches. Use every one that is true — a campaign that adds a capability is both `type:feature` and `type:research`. `type:epic` is for a parent issue only.
+
+**Three labels carry a requirement.** Applying one means the work meets it before it merges:
+
+| label          | applies when                                                | needs                                                                                       |
+| -------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `fidelity`     | the change touches NT8 parity                               | byte-identical trade logs, or a [leg](README.md#leg)-for-leg diff against an NT8 trade list |
+| `perf`         | the change moves runtime or memory                          | a measurement, not an argument                                                              |
+| `stats-hazard` | a result could be misread, or comes out of many comparisons | a stated guard against it                                                                   |
+
+**Two labels plan the work, on issues.** `next-up` marks the front of the queue, and a workflow removes it when the issue closes. `needs-ninjatrader` marks work blocked on NinjaTrader time rather than code time — `docs/roadmap.md` § "Why the order is what it is".
+
+**Four labels start or record a workflow:**
+
+- `sync` — added when a pull request opens, and keeps its branch up to date with `main`. Remove it to stop that.
+- `ready to merge` — approves the pull request so auto-merge finishes once checks pass. It acts only on the repository owner's pull requests, out of draft, and is removed when the pull request closes.
+- `expected-trade-log-change` — turns a trade-log gate failure into a warning. See ["The trade-log regression gate"](#the-trade-log-regression-gate).
+- `conflict` — added when `main` cannot be merged into a `sync` branch automatically. Resolve the conflict by hand.
+
+**`dependencies`, `python`, `github_actions` and `submodules` are never added by hand.** Dependabot and the submodule bump workflow add them.
 
 ### Keep the docs and issues current
 
