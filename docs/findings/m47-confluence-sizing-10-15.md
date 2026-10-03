@@ -6,14 +6,14 @@ issues: [295, 391]
 gates: [1, 2, 3, 4]
 outcome: mixed
 verdict: >-
-  The first of two pre-registered passes: at 10 and 15 minutes the all-labels size beats its own sizes shuffled in 13 of the 64 unfiltered cells read, 12 on OpeningRange and 1 on EmaCrossover. In 8 of the 13 the sized configurations still lose money held out; none passes gate 4's bootstrap or exclusion; and through the prop accounts the extra contracts cost passes in every one. InsideBarTrailing's midday cell clears 20 of 20 on both roots at 10 minutes, in the family read as hypothesis-generating. The 2- and 5-minute pass, which holds §M45's own cell, is #391.
+  The first of two pre-registered passes: at 10 and 15 minutes the all-labels size beats its own sizes shuffled in 13 of the 64 unfiltered cells read, 12 on OpeningRange and 1 on EmaCrossover. In 8 of the 13 the sized configurations still lose money held out; none passes gate 4's bootstrap or exclusion; and through the prop accounts the extra contracts cost passes in every one. InsideBarTrailing's midday cell clears 20 of 20 on both roots at 10 minutes, in the family read as hypothesis-generating. The 5-minute pass, which holds §M45's own cell, is §M47.1, and 2 minutes was dropped.
 ---
 
 # M47 — the confluence size on every archetype at 10 and 15 minutes ([#295], [#391])
 
-**The first of the two passes [the pre-registration](m47-confluence-sizing-preregistration.md) splits the run into**: every archetype at 10 and 15 minutes, every arm, both roots, all 23 strata and both windows. Its families and `k` count all four resolutions, so this pass does not move the bar the second is held to. The second pass, at 2 and 5 minutes, is [#391]. It holds F0 and §M45's own cell.
+**The first of the two passes [the pre-registration](m47-confluence-sizing-preregistration.md) splits the run into**: every archetype at 10 and 15 minutes, every arm, both roots, all 23 strata and both windows. Its families and `k` count all four resolutions, so this pass does not move the bar the second is held to. The second pass, at 5 minutes alone after 2 minutes was dropped, is [§M47.1](m47-1-confluence-sizing-5.md). It holds F0 and §M45's own cell.
 
-**So a "yes" below is final and a "no" is provisional.** An archetype answers F1 yes if any of its cells clears, and seven archetypes still have their 2- and 5-minute cells to come.
+**A "yes" below is final, and a "no" was provisional until [§M47.1](m47-1-confluence-sizing-5.md).** An archetype answers F1 yes if any of its cells clears. At 5 minutes InsideBarTrailing joins OpeningRange and EmaCrossover, and the other six answer no at the three bar sizes read.
 
 ## The run reproduced its stored rows
 
@@ -123,8 +123,8 @@ Read with §M45's bar: more than half the pairs improved at p < 0.05 against `sp
 
 - **#295's question has an answer on two archetypes: on OpeningRange and EmaCrossover the confluence size puts more contracts on the better trades**, at 10 and 15 minutes on both roots.
 - **It makes neither tradeable.** In 8 of OpeningRange's 12 cells the sized configurations lose money held out, no cell that clears passes gate 4's bootstrap or exclusion, and the extra contracts cost passes in every prop replay of those cells.
-- **The other seven archetypes are "not at 10 or 15 minutes", not "no"**, until [#391] runs.
-- **F0 and §M45's cell through the account are unread.** Both are at 5 minutes, in [#391].
+- **The other seven archetypes were "not at 10 or 15 minutes".** At 5 minutes [§M47.1](m47-1-confluence-sizing-5.md) adds InsideBarTrailing, and the other six answer no at the three bar sizes read.
+- **F0 and §M45's cell through the account are read in [§M47.1](m47-1-confluence-sizing-5.md)**: no label carries that cell alone, and on MNQ the size raises its prop pass rate on all four presets.
 - **It is `TIER1_ONLY`.** None of the five labels exists in NT8, and a port needs each pinned first — `docs/nt8-fidelity.md` §M47.
 
 [#295]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/295

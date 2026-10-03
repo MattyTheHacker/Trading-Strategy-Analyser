@@ -98,7 +98,7 @@ Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts
 
 **Sizing it per signal splits cleanly in two (§M45).** Tiering the first partial by how early the entry was — `Trading-Docs` §11's quarter and half — fails held out under all three rules tried, having won on the selection window; held out, the half split beats the quarter almost everywhere. One contract more per favourable label — trend, higher timeframe, [regime](../../README.md#regime) and volume — beats the same sizes shuffled across the same signals on 20 of 20 MNQ and 17 of 20 NQ held-out configurations, the first sizing rule to clear a pre-registered null. It is `TIER1_ONLY`, none of its four labels exists in NT8, and its account behaviour has not been read, so it is a candidate for a later port rather than part of this one.
 
-**[§M47](m47-confluence-sizing-10-15.md) has since carried that size to every archetype, and at 10 and 15 minutes it changes nothing above.** Unfiltered it beats its own sizes shuffled on OpeningRange and EmaCrossover and nowhere else, no cell that clears passes gate 4's bootstrap or exclusion, and through the prop accounts the extra contracts cost passes in every one of them. In this cell at 10 minutes it clears 20 of 20 on both roots, repeating §M45 at a second bar size, and its bootstrap fails there too. The five-minute cell's account read is the second pass, [#391].
+**[§M47](m47-confluence-sizing-10-15.md) and [§M47.1](m47-1-confluence-sizing-5.md) have since carried that size to every archetype, and they change nothing above.** At 5, 10 and 15 minutes it beats its own sizes shuffled unfiltered on OpeningRange, EmaCrossover and InsideBarTrailing and nowhere else, and no cell that clears passes all three gate-4 reads; on OpeningRange the extra contracts cost prop passes. **In this cell at 5 minutes no label carries the size alone**, and through the accounts it raises the MNQ pass rate on all four presets. That is a read rather than a test and is not matched for the extra contracts, and on NQ almost nothing passes either way. It strengthens the size's case for a later port; it does not change this one. 2 minutes was dropped unread.
 
 ### The one it displaces: OpeningRange, midday, on MNQ
 
@@ -333,5 +333,4 @@ Every number above comes out of the stored campaign databases and the campaign t
 
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#360]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/360
-[#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
 [#394]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/394
