@@ -253,7 +253,7 @@ All the expensive work happens once, before the sweep starts, so no combination 
 Four things to know before trying to speed it up:
 
 - **More cores stop helping at around 5×.** The limit is the hardware, not the code. Once every core is busy each one runs about 1.5 times slower, so eight cores buy roughly five. Setting `n_jobs=16` uses virtual cores and gains about 10% for twice the memory.
-- **A small sweep is faster without workers.** Every call to `sweep.sweep` pays for its pool again, so what counts is the size of one call, not of the whole run. `tools/campaign_sweep.py` makes that choice call by call; anything else that loops over sweep calls should too. `docs/roadmap.md` § "A sweep call's worker count" has where the line falls.
+- **A small sweep is faster without workers.** Every call to `sweep.sweep` pays for its pool again, so what counts is the size of one call, not of the whole run. `tools/campaign_sweep.py` runs every cell at a point in one call, `sweep.sweep_grids`, and makes the choice once for the point; anything else that loops over sweep calls should do the same. `docs/roadmap.md` § "A sweep call's worker count" has where the line falls.
 - **Workers share one copy of the data.** The dataset is mapped into memory, so eight workers do not need eight times the RAM.
 - **Only the yes/no answers are kept, not the numbers behind them.** For the moving averages that is roughly ten times smaller, and the raw values are needed by just one kind of trailing stop. The sweep also refuses a setting that cannot change any result, which would otherwise multiply the runtime for identical rows.
 

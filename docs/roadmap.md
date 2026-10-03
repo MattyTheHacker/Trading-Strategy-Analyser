@@ -1037,6 +1037,28 @@ Both thresholds are the lowest-loss value of their kind on this grid. **What is 
 
 Two things this does not settle: the threshold was measured at eight workers, where more workers mean more chunks and a later crossover, and the chunk count itself is what a small call pays for, which is a change to `nqbt/sweep.py` rather than to the campaign.
 
+**Since [#407], `run_point` makes one call per point rather than one per cell.** Every cell's grid goes to `sweep.sweep_grids` together, so the shared arrays are written out once and no cell waits on another's slowest chunk, and `workers_for` reads the point's total, so cells too small to pool alone are pooled together. The profile behind the change is on [#407].
+
+**Re-measured at the size of a point, the line moved down to 8M.** The same method on [#407]'s code, at joblib 1.5.3: eight workers, median of three, 4 to 1,024 combinations drawn evenly over a point's cells. Each archetype ran its campaign grid on the unfiltered stratum, and DeadCatBounce's confluence-sizing point was added as a point of many cells. The first size at which the pool won:
+
+| point                            | cells                  | 1m      | 5m  | 15m    |
+| -------------------------------- | ---------------------- | ------- | --- | ------ |
+| InsideBar                        | 1 × 432                | 8       | 64  | 128    |
+| ElasticBand                      | 4 × 144                | 8       | 16  | 64     |
+| EmaPullback                      | 1 × 2,304              | 4       | 32  | 128    |
+| OpeningRange                     | 12 × 24, 8 × 24 at 15m | 16      | 64  | 128    |
+| DeadCatBounce, confluence sizing | 115 × 288, 161 at 15m  | not run | 512 | >1,024 |
+
+Scored over those 92 calls:
+
+| rule                                       | time lost | worst call |
+| ------------------------------------------ | --------- | ---------- |
+| always pool                                | 27.8%     | 15.7×      |
+| combinations × bars < 20M (the line above) | 24.1%     | 2.6×       |
+| combinations × bars < 8M                   | 9.1%      | 4.5×       |
+
+8M is the lowest-loss value on this grid, and the four campaign grids cross between 4M and 20M. **The many-cell sizing point is the exception, and no single line fits it.** Its combinations are cheap in-process, 2.6 ms each at five minutes against 7.5 to 30 ms on the campaign grids, and the pool's own cost on it is higher, 1.1 s at 32 tasks against 0.4 to 0.8 s, so it crosses only near 127M. Every call measured here took under 8 s, and a campaign point is usually thousands of combinations, far above either line, so the threshold now decides seconds on a small run.
+
 ### M20b — typing and tooling ([#53])
 
 **Done.** `ruff` and `mypy` both report zero on `nqbt/` and both gate CI; `CONTRIBUTING.md` §"Linting and typing" is the rule and the workflow is the live check. What is recorded here is the reasoning that outlives the counts.
@@ -1403,6 +1425,7 @@ ______________________________________________________________________
 [#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
 [#394]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/394
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
+[#407]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/407
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#43]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/43

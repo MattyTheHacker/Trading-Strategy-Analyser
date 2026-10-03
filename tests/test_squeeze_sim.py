@@ -20,7 +20,7 @@ from nqbt import archetypes, compression, context, randomentry, sessions, sweep
 from nqbt.compression import Compression, CompressionForm
 from nqbt.instruments import MNQ, NQ
 from nqbt.sim import openingrange
-from nqbt.sim.squeeze import entry_bound, run_squeeze, squeeze_levels, squeeze_signal
+from nqbt.sim.squeeze import NO_UPPER_CUT, entry_bound, run_squeeze, squeeze_levels, squeeze_signal
 from nqbt.sim.types import (
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
@@ -258,6 +258,22 @@ def test_the_shared_compression_filter_narrows_the_squeeze_rather_than_replacing
 
     assert params.compression_key == params.squeeze_key, "the test needs both to read one row"
     assert squeeze_signal(data, params).tolist() == [True, False, False]
+
+
+def test_the_filter_narrows_a_copy_of_the_squeeze_and_leaves_the_dataset_s_gate_as_it_was() -> None:
+    """The dataset hands every reader one shared gate, so narrowing it in place would leak into the next."""
+    params = replace(
+        HAND_BUILT,
+        squeeze_below=0.5,
+        compression_filter=Compression.COMPRESSED.bit,
+        compression_period=WINDOW,
+        compression_compressed_below=0.1,
+    )
+    data = with_ranks(params, [0.05, 0.3, 0.6])
+    squeezed = data.compression_gate(params.squeeze_key, Compression.COMPRESSED.bit, 0.5, NO_UPPER_CUT)
+
+    assert squeeze_signal(data, params).tolist() == [True, False, False]
+    assert squeezed.tolist() == [True, True, False]
 
 
 # -- end to end over random-walk sessions ---------------------------------------------
