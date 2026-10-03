@@ -9,13 +9,13 @@ version = "0.1.0"
 description = "Tier 1 strategy research and backtesting tool for NQ/MNQ futures"
 requires-python = ">=3.14"
 dependencies = [
-    "numpy==2.5.2",
-    "pandas==3.0.5",
+    "numpy==2.5.3",
+    "pandas==3.0.6",
     "pyarrow==25.0.1",
-    "numba==0.67.0",
-    "duckdb==1.5.5",
-    "joblib==1.5.3",
-    "tzdata==2026.3",
+    "numba==0.68.0",
+    "duckdb==1.5.6",
+    "joblib==1.6.0",
+    "tzdata==2026.4",
 ]
 
 
@@ -23,11 +23,11 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "TA-Lib==0.7.1",
-    "ruff==0.16.4",
+    "TA-Lib==0.8.1",
+    "ruff==0.16.9",
     "mypy==2.3.1",
     "pandas-stubs==3.0.5.260914",
-    "pymarkdownlnt==0.9.39",
+    "pymarkdownlnt==0.9.40",
     "mdformat-gfm==1.0.0",
     "mdformat-frontmatter==2.1.2",
     "libcst==1.9.0",
