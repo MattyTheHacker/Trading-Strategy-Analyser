@@ -52,7 +52,12 @@ python -m venv .venv
 
 Run everything through the virtual environment, as `./.venv/Scripts/python.exe -m ...`.
 
-There are two submodules. [ninjatrader-scripts](ninjatrader-scripts) holds the NinjaScript source the Python translations are checked against, and `Trading-Docs` is private.
+There are two submodules. [ninjatrader-scripts](ninjatrader-scripts) holds the NinjaScript source the Python translations are checked against, and `Trading-Docs` is private. `.gitmodules` marks `Trading-Docs` `update = none`, so a clone and `git submodule update` both skip it, because Dependabot clones every submodule and its updates fail on one it cannot reach. With access to it, run both lines in a new clone, or the second alone in a checkout that already has it:
+
+```bash
+git submodule update --init --checkout Trading-Docs
+git config submodule.Trading-Docs.update checkout
+```
 
 ## Get some data
 
