@@ -712,7 +712,11 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M47 — the confluence size on every archetype ([#295], [#391])
 
-**First pass run, at 10 and 15 minutes: one contract per leg more per favourable label beats its own sizes shuffled on OpeningRange and EmaCrossover and on no other archetype unfiltered, no cell that clears passes gate 4's bootstrap or exclusion, and through the prop accounts the extra contracts cost passes. The 2- and 5-minute pass, which holds §M45's own cell, is [#391].** Moved to [`docs/findings/m47-confluence-sizing-10-15.md`](findings/m47-confluence-sizing-10-15.md), pre-registered in [`docs/findings/m47-confluence-sizing-preregistration.md`](findings/m47-confluence-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M47.
+**First pass run, at 10 and 15 minutes: one contract per leg more per favourable label beats its own sizes shuffled on OpeningRange and EmaCrossover and on no other archetype unfiltered, no cell that clears passes gate 4's bootstrap or exclusion, and through the prop accounts the extra contracts cost passes. The second pass, at 5 minutes alone after 2 minutes was dropped, is §M47.1.** Moved to [`docs/findings/m47-confluence-sizing-10-15.md`](findings/m47-confluence-sizing-10-15.md), pre-registered in [`docs/findings/m47-confluence-sizing-preregistration.md`](findings/m47-confluence-sizing-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md) §M47.
+
+### M47.1 — the confluence size on every archetype at 5 minutes ([#391])
+
+**Second and last pass, 2 minutes dropped: InsideBarTrailing joins OpeningRange in clearing its null unfiltered, no label carries §M45's midday cell alone, no cell that clears passes all three gate-4 reads, and in that midday cell on MNQ the size raises prop passes on all four presets.** Moved to [`docs/findings/m47-1-confluence-sizing-5.md`](findings/m47-1-confluence-sizing-5.md).
 
 ### M48 — the conditional early exit on every archetype ([#369])
 

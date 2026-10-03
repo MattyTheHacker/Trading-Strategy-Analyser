@@ -239,6 +239,10 @@ The last five run once per archetype, arm, root, resolution and stratum the fami
 
 **The run is split in two by bar size**: 10 and 15 minutes first, with their gates, then 2 and 5 minutes. Nothing in this file changes between the two passes, and every family and `k` above counts all four resolutions, so reading the first pass does not move the bar the second is held to.
 
+**The 2-minute half of the second pass was dropped on 2026-10-03, before it ran**, to save compute time and so the archive could take new data ([#354]). The second pass is 5 minutes alone ([#391]). Nothing else above changes: its cells are held to the same `k`, which over fewer tests is conservative. A 2-minute read later would be a new campaign, with its own fit and pre-registration.
+
 **Two checks run before any of it, because every loop changed.** The trade-log gate has to pass, and its captures are DeadCatBounce's alone, so the seven stored reconciliations run on `main` and on this change and have to agree exactly. Both did: `docs/nt8-fidelity.md` §M47.
 
 [#295]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/295
+[#354]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/354
+[#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
