@@ -7,3 +7,5 @@
 	path = Trading-Docs
 	url = git@github.com:MattyTheHacker/Trading-Docs.git
 	branch = main
+	# Dependabot cannot clone this private repo, so a clone skips it: README.md, "Install".
+	update = none
