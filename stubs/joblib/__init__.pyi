@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable
 
-__all__ = ["Parallel", "delayed", "effective_n_jobs"]
+__all__ = ["Parallel", "delayed", "effective_n_jobs", "parallel_config"]
 
 # The (function, args, kwargs) tuple `delayed` captures. Opaque by design: it carries the
 # call's return type to `Parallel.__call__` and is never unpacked by a caller.
@@ -13,3 +13,8 @@ class Parallel:
     def __call__[R](self, iterable: Iterable[_Delayed[R]]) -> list[R]: ...
 
 def effective_n_jobs(n_jobs: int | None = ...) -> int: ...
+
+class parallel_config:
+    def __init__(self, backend: str | None = ..., *, n_jobs: int | None = ...) -> None: ...
+    def __enter__(self) -> None: ...
+    def __exit__(self, *exc: object) -> None: ...

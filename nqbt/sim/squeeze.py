@@ -45,7 +45,7 @@ def squeeze_signal(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
         compression.Compression.COMPRESSED.bit,
         params.squeeze_below,
         NO_UPPER_CUT,
-    )
+    ).copy()
     if params.min_squeeze_bars > 1:
         squeezed = conditions.consecutive_true(squeezed) >= params.min_squeeze_bars
 

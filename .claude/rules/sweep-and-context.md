@@ -66,6 +66,11 @@ paths:
 - **Everything expensive is precomputed once in `prepare`; the sweep loop must stay cheap.**
   Never recompute an indicator inside a combination. Moving-average grids keep only the boolean
   gate unless `keep_values=True` — an order-of-magnitude difference in memory.
+- **A label gate is shared, so narrow a copy of it.** The phase, regime, volume, compression,
+  trend and higher-timeframe gates are built on the first read of their arguments and handed
+  read-only to every later reader (#407). A signal that ANDs into one in place raises rather
+  than corrupting the next combination's entry; `squeeze_signal` copies its squeeze for exactly
+  that. `nqbt/README.md` § "context.py".
 - **`phase_filter`, `regime_filter`, `volume_filter`, `trend_filter` and
   `higher_timeframe_filter` are bitmask ints so they are sweepable**, and each signal skips the
   conjunction entirely at `ALL_PHASES`/`ALL_REGIMES`/`ALL_STATES`/`ALL_TRENDS`/`ALL_SIDES`.
@@ -281,10 +286,11 @@ paths:
   lower all-core clock); SMT adds almost nothing for twice the memory. Measured, not guessed —
   don't "fix" it. Figures in `README.md`, "Performance".
 - **A pool costs more than it returns on a small sweep call, and `--n-jobs` is applied per
-  *call* rather than per run.** `campaign_sweep.run_point` makes one call per (variant ×
-  stratum), so §M33's four arms × 28 cells × 18 combinations were 112 calls of 18, and eight
-  workers ran them slower than one. `campaign_sweep.workers_for` now keeps a call in-process
-  below `SERIAL_BELOW_COMBINATION_BARS` and passes `--n-jobs` through above it. **The line is
+  *call* rather than per run.** `campaign_sweep.run_point` made one call per (variant ×
+  stratum) until #407, so §M33's four arms × 28 cells × 18 combinations were 112 calls of 18,
+  and eight workers ran them slower than one. It now hands every cell at a point to one
+  `sweep.sweep_grids` call, which `campaign_sweep.workers_for` keeps in-process below
+  `SERIAL_BELOW_COMBINATION_BARS` and pools at `--n-jobs` above it. **The line is
   combinations × bars, not combinations** — a combination's cost scales with the bars and the
   pool's overhead does not, so the same count is worth pooling at one minute and not at
   fifteen. Anything else that loops over sweep calls pays the same cost.
