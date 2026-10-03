@@ -6,8 +6,7 @@ signal. In every case so far the difference has been **seeding, not formula**, e
 which matches neither half of the usual definition.
 
 Each function's rule and the evidence it was pinned against: ``docs/nt8-fidelity.md``,
-"Indicators". TA-Lib remains in use for MACD and RSI, which no archetype reads yet and which
-carry the same unpinned discrepancy.
+"Indicators". TA-Lib is a test dependency only, and MACD and RSI are not implemented.
 """
 
 from __future__ import annotations
