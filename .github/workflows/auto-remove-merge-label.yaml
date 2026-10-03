@@ -1,4 +1,4 @@
-name: "Automatically remove committee review label from PRs"
+name: "Automatically remove ready to merge label from PRs when they are closed"
 
 on:
   pull_request:
