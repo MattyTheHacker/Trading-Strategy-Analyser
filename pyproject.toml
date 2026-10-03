@@ -13,7 +13,6 @@ dependencies = [
     "pandas==3.0.5",
     "pyarrow==25.0.1",
     "numba==0.67.0",
-    "TA-Lib==0.7.1",
     "duckdb==1.5.5",
     "joblib==1.5.3",
     "tzdata==2026.3",
@@ -24,6 +23,7 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
+    "TA-Lib==0.7.1",
     "ruff==0.16.4",
     "mypy==2.3.1",
     "pandas-stubs==3.0.5.260914",
@@ -123,7 +123,7 @@ max-args = 10
 "nqbt/sim/insidebartrailing.py" = ["FBT003"]
 "nqbt/sim/openingrange.py" = ["FBT003"]
 # Each subcommand imports what it needs when it runs, so ``nqbt --help`` does not pay for
-# numba, pandas and TA-Lib.
+# numba and pandas.
 "nqbt/cli.py" = ["PLC0415"]
 "formatting/**" = ["T201", "D102", "D103"]
 
