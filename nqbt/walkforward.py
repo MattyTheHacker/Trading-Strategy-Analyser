@@ -320,7 +320,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             )
             continue
 
-        best = finite.loc[finite[select_by].idxmax()].to_dict()
+        best = finite.iloc[finite[select_by].argmax()].to_dict()
         combo_id: int = int(best["combo_id"])
         test_log: pd.DataFrame = _window_log(
             bars,
