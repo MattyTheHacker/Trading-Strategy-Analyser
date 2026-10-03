@@ -30,6 +30,8 @@ from nqbt import (
 from nqbt.arrays import float_column, ohlc
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from nqbt.arrays import BoolArray, FloatArray, IndexArray, IntArray, LabelArray
     from nqbt.bands import BandGrid
     from nqbt.compression import CompressionGrid, WindowRangeGrid
@@ -184,6 +186,9 @@ class Dataset:
     Conditional series are reached through :meth:`ma_gate` and :meth:`vwap_gate` rather than as
     bare attributes, so reading one nobody declared raises :class:`ContextError` naming the
     spec field to set rather than returning ``None`` into a boolean AND.
+
+    A label gate is built on the first read of its arguments and shared read-only after it --
+    ``nqbt/README.md`` § "context.py".
     """
 
     bars: pd.DataFrame
@@ -247,8 +252,27 @@ class Dataset:
     path".
     """
 
+    _gate_cache: dict[tuple[object, ...], BoolArray] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    """Every label gate read so far, keyed by the method and the arguments that built it."""
+
     def __len__(self) -> int:
         return self.close.size
+
+    def _cached_gate(self, key: tuple[object, ...], build: Callable[[], BoolArray]) -> BoolArray:
+        """Return the gate ``key`` names, building it on the first read and sharing it read-only after."""
+        if key in self._gate_cache:
+            return self._gate_cache[key]
+
+        gate: BoolArray = build().view()
+        gate.flags.writeable = False
+        self._gate_cache[key] = gate
+
+        return gate
 
     @property
     def index(self) -> pd.DatetimeIndex:
@@ -390,7 +414,7 @@ class Dataset:
         Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` -- see
         :meth:`nqbt.timeofday.TimeOfDay.gate`.
         """
-        return self._time_of_day().gate(mask)
+        return self._cached_gate(("phase", mask), lambda: self._time_of_day().gate(mask))
 
     def phase_values(self) -> LabelArray:
         """Return the per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
@@ -470,7 +494,10 @@ class Dataset:
         Callers skip this entirely at :data:`nqbt.regime.ALL_REGIMES` -- see
         :func:`nqbt.regime.gate`.
         """
-        return self._regimes().gate_for(lookback, mask, consolidating_below, directional_above)
+        return self._cached_gate(
+            ("regime", lookback, mask, consolidating_below, directional_above),
+            lambda: self._regimes().gate_for(lookback, mask, consolidating_below, directional_above),
+        )
 
     def regime_values(self, lookback: int) -> FloatArray:
         """Return the per-bar efficiency ratio, the raw quantity behind the labels."""
@@ -509,7 +536,10 @@ class Dataset:
         Callers skip this entirely at :data:`nqbt.volume.ALL_STATES` -- see
         :func:`nqbt.volume.gate`.
         """
-        return self._volumes().gate_for(key, mask, thin_below, heavy_above)
+        return self._cached_gate(
+            ("volume", key, mask, thin_below, heavy_above),
+            lambda: self._volumes().gate_for(key, mask, thin_below, heavy_above),
+        )
 
     def volume_values(self, key: volume.VolumeKey) -> FloatArray:
         """Return the per-bar **absolute** volume, the form that answers execution feasibility."""
@@ -552,7 +582,10 @@ class Dataset:
         Callers skip this entirely at :data:`nqbt.compression.ALL_STATES` -- see
         :func:`nqbt.compression.gate`.
         """
-        return self._compressions().gate_for(key, mask, compressed_below, expanded_above)
+        return self._cached_gate(
+            ("compression", key, mask, compressed_below, expanded_above),
+            lambda: self._compressions().gate_for(key, mask, compressed_below, expanded_above),
+        )
 
     def compression_width(self, key: compression.CompressionKey) -> FloatArray:
         """Return the per-bar raw width measure, in whatever unit its form is in -- for reporting only."""
@@ -607,7 +640,10 @@ class Dataset:
         Callers skip this entirely at :data:`nqbt.trend.ALL_TRENDS` -- see
         :func:`nqbt.trend.gate`.
         """
-        return self._trends().gate_for(key, mask, min_agreement)
+        return self._cached_gate(
+            ("trend", key, mask, min_agreement),
+            lambda: self._trends().gate_for(key, mask, min_agreement),
+        )
 
     def trend_values(self, key: trend.TrendKey) -> FloatArray:
         """Return the per-bar agreement score, the raw quantity behind the labels."""
@@ -639,7 +675,10 @@ class Dataset:
         Callers skip this entirely at :data:`nqbt.higher_timeframe.ALL_SIDES` -- see
         :func:`nqbt.higher_timeframe.gate`.
         """
-        return self._higher_timeframes().gate_for(key, mask)
+        return self._cached_gate(
+            ("higher_timeframe", key, mask),
+            lambda: self._higher_timeframes().gate_for(key, mask),
+        )
 
     def higher_timeframe_values(self, key: higher_timeframe.HigherTimeframeKey) -> FloatArray:
         """Return the per-bar coarse average as the fine series sees it, the raw quantity behind the sides."""

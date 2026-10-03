@@ -1,6 +1,7 @@
 """Tests for the sweep harness, statistics and DuckDB results layer."""
 
 import json
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import duckdb
@@ -424,6 +425,27 @@ def test_a_combination_of_another_archetypes_parameters_is_refused() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "grid",
+    [
+        sweep.Grid.of(ema_period=[9, 15, 21], fast_sma_period=[40, 60], tp_multiplier=[1.0, 2.0]),
+        shortlist_grid(),
+        sweep.Grid.of(DeadCatParams(ema_period=15)),
+    ],
+    ids=["axes", "combination list", "no axes"],
+)
+def test_a_combination_read_by_position_is_the_one_combinations_yields_there(grid: sweep.Grid) -> None:
+    """A worker builds only its own chunk's combinations, so position must mean the same either way."""
+    assert [grid.combination(combo_id) for combo_id in range(len(grid))] == list(grid.combinations())
+
+
+@pytest.mark.parametrize("combo_id", [-1, 4])
+def test_a_position_outside_the_grid_is_refused_rather_than_wrapped(combo_id: int) -> None:
+    grid = sweep.Grid.of(ema_period=[9, 21], tp_multiplier=[1.0, 2.0])
+    with pytest.raises(IndexError, match="outside this grid of 4"):
+        grid.combination(combo_id)
+
+
 # -- parallel execution -------------------------------------------------------
 
 
@@ -442,6 +464,33 @@ def test_chunk_bounds_of_an_empty_grid_is_no_work() -> None:
 
 def test_chunk_bounds_respects_an_explicit_size() -> None:
     assert sweep.chunk_bounds(10, 4, chunk_size=3) == [(0, 3), (3, 6), (6, 9), (9, 10)]
+
+
+def test_segment_bounds_cover_every_combination_of_every_grid_exactly_once() -> None:
+    for sizes in ([1], [7, 3], [100, 1, 93], [5, 5, 5, 5]):
+        for workers in (1, 3, 8):
+            chunks = sweep.segment_bounds(sizes, workers)
+            covered = [
+                (segment.grid_index, combo_id)
+                for chunk in chunks
+                for segment in chunk
+                for combo_id in range(segment.start, segment.stop)
+            ]
+            expected = [
+                (grid_index, combo_id) for grid_index, size in enumerate(sizes) for combo_id in range(size)
+            ]
+            assert covered == expected, f"{sizes} over {workers} workers"
+
+
+def test_a_chunk_can_finish_one_grid_and_start_the_next() -> None:
+    assert sweep.segment_bounds([3, 4], 1, chunk_size=5) == [
+        [sweep.Segment(0, 0, 3), sweep.Segment(1, 0, 2)],
+        [sweep.Segment(1, 2, 4)],
+    ]
+
+
+def test_segment_bounds_of_no_grids_is_no_work() -> None:
+    assert sweep.segment_bounds([], 4) == []
 
 
 def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
@@ -542,6 +591,61 @@ def test_a_combination_grid_keys_its_rows_by_position_in_the_list(prepared) -> N
     assert serial["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
     assert list(serial["ema_period"]) == [9, 21]
     pd.testing.assert_frame_equal(serial, parallel)
+
+
+def several_grids() -> list[sweep.Grid]:
+    """Build three grids of different sizes and shapes that the ``prepared`` dataset covers."""
+    base = DeadCatParams(bars_required_to_trade=200, fast_sma_period=40)
+
+    return [
+        sweep.Grid.of(base, ema_period=[9, 21], fast_sma_period=[40, 60]),
+        sweep.Grid.of(base, ema_period=[21]),
+        sweep.Grid.of_combinations(
+            [
+                replace(base, ema_period=9, fast_sma_period=60),
+                replace(base, ema_period=21),
+            ],
+        ),
+    ]
+
+
+@pytest.mark.parametrize("n_jobs", [1, 2])
+def test_several_grids_in_one_call_match_sweeping_each_alone(prepared, n_jobs: int) -> None:
+    """A chunk of three crosses from one grid into the next, so each grid's rows are reassembled."""
+    bars, _, data = prepared
+    grids = several_grids()
+    together = sweep.sweep_grids(data, grids, n_jobs=n_jobs, chunk_size=3, keep_trades=True)
+
+    assert sum(int(table["trades"].sum()) for table, _ in together) > 0, "no trades; the test proves nothing"
+    assert len(together) == len(grids)
+    for grid, (table, logs) in zip(grids, together, strict=True):
+        alone, alone_logs = sweep.sweep(bars, grid, data=data, keep_trades=True)
+        pd.testing.assert_frame_equal(table, alone)
+        assert sorted(logs) == sorted(alone_logs)
+        for combo_id, log in logs.items():
+            pd.testing.assert_frame_equal(log, alone_logs[combo_id])
+
+
+def test_several_grids_share_one_pool(prepared, monkeypatch: pytest.MonkeyPatch) -> None:
+    _, _, data = prepared
+    opened: list[int] = []
+    real = sweep.Parallel
+
+    def counted(*args, **kwargs):
+        opened.append(1)
+
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(sweep, "Parallel", counted)
+    sweep.sweep_grids(data, several_grids(), n_jobs=2)
+
+    assert len(opened) == 1
+
+
+@pytest.mark.parametrize("n_jobs", [1, 2])
+def test_no_grids_is_no_work(prepared, n_jobs: int) -> None:
+    _, _, data = prepared
+    assert sweep.sweep_grids(data, [], n_jobs=n_jobs) == []
 
 
 # -- sweep_axes: strategy, resolution and contract (M17.4) --------------------

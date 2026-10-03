@@ -20,6 +20,7 @@ Design notes for the package that have no other home. Most modules' reasoning al
 - **Some series imply others, and `prepare` builds them in that order.** The VWAP band's basis is the session VWAP, so a dataset holding both takes the VWAP from the band rather than computing it twice. A bandwidth compression key is defined off the Bollinger grid's own rows, so it asks for that period (`band_periods_needed`). Relative volume is defined per bar of session, so it builds the time-of-day clock. Follow-through is measured against a range, so it needs `range_keys`.
 - **The session range is the only series whose existence depends on the bar size**, so it takes a stated bar size rather than one inferred per key -- `docs/roadmap.md` §M28.
 - **`DEFAULT_SPEC` is the set `prepare` built unconditionally before specs existed** (#27).
+- **A label gate is built on the first read of its arguments and shared read-only after it** (#407). The phase, regime, volume, compression, trend and higher-timeframe gates are each a pass over every bar, and every combination in a sweep cell reads the same ones, so rebuilding them per combination repeated the same work across the whole cell. Read-only is what stops one reader narrowing the gate the next one is handed: a signal that narrows a gate has to narrow a copy, as `squeeze_signal` does. `slim()` hands a worker a dataset holding none, so each worker builds its own.
 
 ## Simulation
 

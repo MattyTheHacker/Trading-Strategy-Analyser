@@ -2360,8 +2360,9 @@ def run_point(
     """Sweep every variant x stratum at one (root, archetype, resolution, window) point.
 
     The variants share one dataset built from the union of their specs, and their results are
-    concatenated into a single ``sweeps`` row: a stratum is a parameter, not a dataset. A cell
-    already stored at the point is skipped.
+    concatenated into a single ``sweeps`` row: a stratum is a parameter, not a dataset. Every
+    cell runs in one sweep call, so ``n_jobs`` is chosen for the point as a whole. A cell already
+    stored at the point is skipped.
     """
     archetype: Archetype = variants[0].archetype
     requested: list[tuple[str, str, sweep.Grid]] = [
@@ -2402,16 +2403,16 @@ def run_point(
     )
     prepared: float = time.perf_counter() - started
 
-    tables: list[pd.DataFrame] = []
+    grids: list[sweep.Grid] = [grid for _, _, grid in named]
     started = time.perf_counter()
-    for variant_name, stratum, grid in named:
-        table, _ = sweep.sweep(
-            frame,
-            grid,
-            get_instrument(root),
-            data=data,
-            n_jobs=workers_for(len(grid), len(frame), n_jobs),
-        )
+    swept: list[tuple[pd.DataFrame, dict[int, pd.DataFrame]]] = sweep.sweep_grids(
+        data,
+        grids,
+        get_instrument(root),
+        n_jobs=workers_for(sum(len(grid) for grid in grids), len(frame), n_jobs),
+    )
+    tables: list[pd.DataFrame] = []
+    for (variant_name, stratum, grid), (table, _) in zip(named, swept, strict=True):
         table.insert(0, "variant", variant_name)
         table.insert(1, "stratum", stratum)
         table.insert(2, "window", window)

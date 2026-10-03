@@ -419,35 +419,47 @@ def test_a_request_is_passed_through_in_joblibs_own_convention() -> None:
     assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS, 1) == 1
 
 
-def test_each_sweep_call_gets_the_worker_count_its_own_grid_earns(
+def unswept(grids: list[sweep.Grid]) -> list[tuple[pd.DataFrame, dict]]:
+    """Return what ``sweep.sweep_grids`` returns for ``grids``, without running anything."""
+    return [
+        (
+            pd.DataFrame(
+                {
+                    "combo_id": range(len(grid)),
+                    "trades": [0] * len(grid),
+                    "profit_factor": [math.nan] * len(grid),
+                },
+            ),
+            {},
+        )
+        for grid in grids
+    ]
+
+
+def test_a_points_cells_share_one_sweep_call_whose_total_size_picks_the_workers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Chosen per (variant x stratum) rather than once per run, which is the unit a pool is
-    opened at -- a run of many small calls is not a large call."""
+    """One call per point rather than per (variant x stratum), so cells too small to pool on their
+    own are pooled together once their combinations add up."""
     (wide,) = VARIANTS["InsideBar"]("MNQ")
-    narrow = replace(wide, name="narrow", axes={"atr_multiplier": [5.0, 10.0]})
+    narrow = [replace(wide, name=f"narrow {n}", axes={"atr_multiplier": [5.0, 10.0]}) for n in range(60)]
     frame = pd.DataFrame(index=range(SERIAL_BELOW_COMBINATION_BARS // 100))
-    called: list[tuple[int, int]] = []
+    called: list[tuple[list[int], int]] = []
 
-    def record(bars, grid, instrument, *, data, n_jobs):
-        called.append((len(grid), n_jobs))
+    def record(data, grids, instrument, *, n_jobs):
+        called.append(([len(grid) for grid in grids], n_jobs))
 
-        return pd.DataFrame(
-            {
-                "combo_id": range(len(grid)),
-                "trades": [0] * len(grid),
-                "profit_factor": [math.nan] * len(grid),
-            },
-        ), {}
+        return unswept(grids)
 
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
     monkeypatch.setattr("nqbt.context.prepare", lambda *args, **kwargs: None)
     monkeypatch.setattr("nqbt.results.save_sweep", lambda *args, **kwargs: 1)
-    monkeypatch.setattr(sweep, "sweep", record)
-    run_point(frame, [narrow, wide], "MNQ", 5, "selection", 1, UNFILTERED, NO_CUTS, n_jobs=8)
+    monkeypatch.setattr(sweep, "sweep_grids", record)
+    run_point(frame, narrow[:1], "MNQ", 5, "selection", 1, UNFILTERED, NO_CUTS, n_jobs=8)
+    run_point(frame, narrow, "MNQ", 5, "selection", 2, UNFILTERED, NO_CUTS, n_jobs=8)
 
-    assert called == [(2, 1), (wide.sized(), 8)]
-    assert narrow.sized() * len(frame) < SERIAL_BELOW_COMBINATION_BARS <= wide.sized() * len(frame)
+    assert called == [([2], 1), ([2] * 60, 8)]
+    assert 2 * len(frame) < SERIAL_BELOW_COMBINATION_BARS <= 2 * 60 * len(frame)
 
 
 VOLUME_WINDOWS = {
@@ -2359,10 +2371,8 @@ def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(
     confluence = replace(confluence, axes={"order_quantity": [3, 4]})
     stored: list[pd.DataFrame] = []
 
-    def fake_sweep(bars, grid, instrument, *, data, n_jobs):
-        return pd.DataFrame(
-            {"combo_id": range(len(grid)), "trades": [0] * len(grid), "profit_factor": [math.nan] * len(grid)}
-        ), {}
+    def fake_sweep_grids(data, grids, instrument, *, n_jobs):
+        return unswept(grids)
 
     def keep(frame, **_):
         stored.append(frame)
@@ -2372,7 +2382,7 @@ def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
     monkeypatch.setattr("nqbt.context.prepare", lambda *args, **kwargs: None)
     monkeypatch.setattr("nqbt.results.save_sweep", keep)
-    monkeypatch.setattr(sweep, "sweep", fake_sweep)
+    monkeypatch.setattr(sweep, "sweep_grids", fake_sweep_grids)
     run_point(
         pd.DataFrame(index=range(10)),
         [control, confluence],

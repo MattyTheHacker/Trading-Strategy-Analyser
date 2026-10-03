@@ -1033,6 +1033,8 @@ Both thresholds are the lowest-loss value of their kind on this grid. **What is 
 
 Two things this does not settle: the threshold was measured at eight workers, where more workers mean more chunks and a later crossover, and the chunk count itself is what a small call pays for, which is a change to `nqbt/sweep.py` rather than to the campaign.
 
+**Since [#407], `run_point` makes one call per point rather than one per cell.** Every cell's grid goes to `sweep.sweep_grids` together, so the shared arrays are written out once and no cell waits on another's slowest chunk, and `workers_for` reads the point's total, so cells too small to pool alone are pooled together. The threshold above was measured on calls the size of one cell and has not been re-measured at the size of a point. The profile behind the change is on [#407].
+
 ### M20b — typing and tooling ([#53])
 
 **Done.** `ruff` and `mypy` both report zero on `nqbt/` and both gate CI; `CONTRIBUTING.md` §"Linting and typing" is the rule and the workflow is the live check. What is recorded here is the reasoning that outlives the counts.
@@ -1399,6 +1401,7 @@ ______________________________________________________________________
 [#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
 [#394]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/394
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
+[#407]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/407
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#43]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/43

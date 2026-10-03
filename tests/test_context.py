@@ -6,11 +6,13 @@ creates: a series being missing when it should be there, and a series being sile
 absent when something reads it.
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, conditions, context, sessionrange, sessions, sweep
+from nqbt import archetypes, conditions, context, regime, sessionrange, sessions, sweep
 from nqbt.context import ContextError, ContextSpec
 from nqbt.sim.types import (
     BAND_BOLLINGER,
@@ -497,3 +499,110 @@ def test_the_follow_through_grid_counts_towards_what_a_worker_is_handed() -> Non
     )
 
     assert with_scale.nbytes == without.nbytes + with_scale.follow_through.nbytes
+
+
+# -- a label gate is built once and shared ------------------------------------
+
+
+class RecordingGates:
+    """Stand in for every label grid, recording each build and handing back a new mask for it."""
+
+    def __init__(self) -> None:
+        self.built: list[tuple[object, ...]] = []
+
+    def gate(self, *args: object) -> np.ndarray:
+        return self.gate_for(*args)
+
+    def gate_for(self, *args: object) -> np.ndarray:
+        self.built.append(args)
+
+        return np.array([len(self.built) % 2 == 0, True])
+
+
+def recorded() -> tuple[context.Dataset, RecordingGates]:
+    """Return a dataset whose every label grid is one recorder, and the recorder."""
+    gates = RecordingGates()
+    data = replace(
+        context.prepare(bars(), ContextSpec()),
+        time_of_day=gates,
+        regimes=gates,
+        volumes=gates,
+        compressions=gates,
+        trends=gates,
+        higher_timeframes=gates,
+    )
+
+    return data, gates
+
+
+LABEL_GATES = {
+    "phase_gate": ((1,), (2,)),
+    "regime_gate": ((20, 1, 0.3, 0.6), (10, 2, 0.2, 0.7)),
+    "volume_gate": (("per-bar", 1, 0.7, 1.3), ("rolling", 2, 0.6, 1.5)),
+    "compression_gate": (("bandwidth", 1, 0.2, 0.8), ("range", 2, 0.1, 0.9)),
+    "trend_gate": (("fast", 1, 2), ("slow", 2, 3)),
+    "higher_timeframe_gate": (("60m", 1), ("30m", 2)),
+}
+"""Each gate's arguments, and a different value for every one of them. The recorder reads none."""
+
+
+@pytest.mark.parametrize("method", LABEL_GATES)
+def test_a_label_gate_is_built_on_the_first_read_and_shared_after_it(method: str) -> None:
+    data, gates = recorded()
+    args, _ = LABEL_GATES[method]
+    first = getattr(data, method)(*args)
+
+    assert getattr(data, method)(*args) is first
+    assert gates.built == [args]
+
+
+@pytest.mark.parametrize("method", LABEL_GATES)
+def test_every_argument_a_label_gate_takes_is_part_of_what_it_is_remembered_by(method: str) -> None:
+    data, gates = recorded()
+    args, others = LABEL_GATES[method]
+    getattr(data, method)(*args)
+    for position, other in enumerate(others):
+        getattr(data, method)(*args[:position], other, *args[position + 1 :])
+
+    assert len(gates.built) == 1 + len(args)
+
+
+def test_two_gates_read_with_the_same_arguments_are_still_two_gates() -> None:
+    data, gates = recorded()
+    for method in ("regime_gate", "volume_gate", "compression_gate"):
+        getattr(data, method)("same", 1, 0.3, 0.6)
+
+    assert len(gates.built) == 3
+
+
+@pytest.mark.parametrize("method", LABEL_GATES)
+def test_a_shared_gate_refuses_an_edit_in_place(method: str) -> None:
+    data, _ = recorded()
+    args, _ = LABEL_GATES[method]
+    gate = getattr(data, method)(*args)
+
+    with pytest.raises(ValueError, match="read-only"):
+        gate &= False
+
+
+def test_a_slim_copy_remembers_none_of_its_parent_s_gates() -> None:
+    data, gates = recorded()
+    first = data.regime_gate(20, 1, 0.3, 0.6)
+
+    assert data.slim().regime_gate(20, 1, 0.3, 0.6) is not first
+    assert len(gates.built) == 2
+
+
+def test_a_read_that_raises_is_not_remembered() -> None:
+    data = context.prepare(bars(), ContextSpec())
+    for _ in range(2):
+        with pytest.raises(ContextError, match="regime_lookbacks"):
+            data.regime_gate(20, regime.Regime.DIRECTIONAL.bit, 0.3, 0.6)
+
+
+def test_a_remembered_gate_holds_the_grid_s_own_answer() -> None:
+    data = context.prepare(bars(), ContextSpec(regime_lookbacks=(10,)))
+    gate = data.regime_gate(10, regime.Regime.CONSOLIDATING.bit, 0.3, 0.6)
+
+    assert gate.any(), "the gate is empty, so the test proves nothing"
+    assert np.array_equal(gate, data.regimes.gate_for(10, regime.Regime.CONSOLIDATING.bit, 0.3, 0.6))

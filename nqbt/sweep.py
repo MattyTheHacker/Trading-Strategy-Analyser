@@ -7,6 +7,7 @@ Combo-major: build the dataset once in :func:`nqbt.context.prepare`, then loop c
 What remains per combination is a boolean AND over the precomputed gates, one pass of the
 jitted simulation, and a summary taken straight off the raw leg matrix. ``n_jobs`` spreads
 those over processes; the dataset is shared rather than copied -- see :func:`_sweep_parallel`.
+:func:`sweep_grids` runs several grids over one dataset in a single pool.
 
 :func:`sweep` varies parameters *inside* one :class:`~nqbt.context.Dataset`. Strategy, bar
 resolution and contract each select **which dataset gets built**, and :func:`sweep_axes` is the
@@ -241,6 +242,24 @@ class Grid:
         for values in itertools.product(*(self.axes[n] for n in names)):
             yield replace(self.base, **dict(zip(names, values, strict=True)))
 
+    def combination(self, combo_id: int) -> Params:
+        """Return the combination :meth:`combinations` yields at position ``combo_id``, building no other."""
+        if not 0 <= combo_id < len(self):
+            msg: str = f"combination {combo_id} is outside this grid of {len(self)}"
+            raise IndexError(msg)
+
+        if self.combos is not None:
+            return self.combos[combo_id]
+
+        # The last axis varies fastest, as in ``itertools.product``.
+        chosen: dict[str, AxisValue] = {}
+        remainder: int = combo_id
+        for name in reversed(list(self.axes)):
+            remainder, position = divmod(remainder, len(self.axes[name]))
+            chosen[name] = self.axes[name][position]
+
+        return replace(self.base, **chosen)
+
     def axis_values(self) -> dict[str, list[AxisValue]]:
         """Return every value each parameter will take across the sweep, swept or not."""
         if self.combos is not None:
@@ -328,24 +347,55 @@ def chunk_bounds(total: int, n_workers: int, chunk_size: int | None = None) -> l
     return [(s, min(s + chunk_size, total)) for s in range(0, total, chunk_size)]
 
 
-def _run_chunk(
+class Segment(NamedTuple):
+    """Combinations ``[start, stop)`` of the grid at ``grid_index``: one piece of a chunk."""
+
+    grid_index: int
+    start: int
+    stop: int
+
+
+def segment_bounds(
+    sizes: Sequence[int],
+    n_workers: int,
+    chunk_size: int | None = None,
+) -> list[list[Segment]]:
+    """Return chunks covering every combination of several grids exactly once, in order.
+
+    The grids are laid end to end and cut as one, so a chunk may finish one grid and start the next.
+    """
+    offsets: list[int] = list(itertools.accumulate(sizes, initial=0))
+    chunks: list[list[Segment]] = []
+    for start, stop in chunk_bounds(offsets[-1], n_workers, chunk_size):
+        chunk: list[Segment] = []
+        for grid_index, (first, end) in enumerate(itertools.pairwise(offsets)):
+            low: int = max(start, first)
+            high: int = min(stop, end)
+            if low < high:
+                chunk.append(Segment(grid_index, low - first, high - first))
+
+        chunks.append(chunk)
+
+    return chunks
+
+
+type GridRows = tuple[list[dict[str, object]], dict[int, pd.DataFrame]]
+"""One grid's summary rows and the trade logs kept beside them, keyed by ``combo_id``."""
+
+
+def _run_segment(
     data: Dataset,
     grid: Grid,
     instrument: Instrument,
-    start: int,
-    stop: int,
+    segment: Segment,
     *,
     keep_trades: bool,
-) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
-    """Run combinations ``[start, stop)``. Module level so loky can pickle it.
-
-    The worker regenerates its combinations from the grid rather than being handed a list;
-    ``combinations()`` is deterministic, so ``start + offset`` is the serial path's ``combo_id``.
-    """
+) -> GridRows:
+    """Run one segment's combinations, building only those."""
     rows: list[dict[str, object]] = []
     logs: dict[int, pd.DataFrame] = {}
-    for offset, params in enumerate(itertools.islice(grid.combinations(), start, stop)):
-        combo_id: int = start + offset
+    for combo_id in range(segment.start, segment.stop):
+        params: Params = grid.combination(combo_id)
         row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
         row["combo_id"] = combo_id
         rows.append(row)
@@ -355,64 +405,145 @@ def _run_chunk(
     return rows, logs
 
 
+def _run_chunk(
+    data: Dataset,
+    grids: Mapping[int, Grid],
+    instrument: Instrument,
+    chunk: Sequence[Segment],
+    *,
+    keep_trades: bool,
+) -> list[tuple[int, GridRows]]:
+    """Run one chunk's segments, each beside its grid's index. Module level so loky can pickle it.
+
+    ``grids`` holds only the grids the chunk touches, keyed by their index in the call.
+    """
+    ran: list[tuple[int, GridRows]] = []
+    for segment in chunk:
+        grid: Grid = grids[segment.grid_index]
+        swept: GridRows = _run_segment(data, grid, instrument, segment, keep_trades=keep_trades)
+        ran.append((segment.grid_index, swept))
+
+    return ran
+
+
 def _sweep_serial(
     data: Dataset,
-    grid: Grid,
+    grids: Sequence[Grid],
     instrument: Instrument,
     *,
     keep_trades: bool,
     progress_every: int,
-) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
-    rows: list[dict[str, object]] = []
-    logs: dict[int, pd.DataFrame] = {}
+) -> list[GridRows]:
+    swept: list[GridRows] = []
+    total: int = sum(len(grid) for grid in grids)
+    done: int = 0
     started: float = time.perf_counter()
-    for i, params in enumerate(grid.combinations()):
-        row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
-        row["combo_id"] = i
-        rows.append(row)
-        if log is not None:
-            logs[i] = log
+    for grid in grids:
+        rows: list[dict[str, object]] = []
+        logs: dict[int, pd.DataFrame] = {}
+        for combo_id, params in enumerate(grid.combinations()):
+            row, log = run_combination(data, params, instrument, grid.archetype, keep_trades=keep_trades)
+            row["combo_id"] = combo_id
+            rows.append(row)
+            if log is not None:
+                logs[combo_id] = log
 
-        if progress_every and (i + 1) % progress_every == 0:
-            rate: float = (i + 1) / (time.perf_counter() - started)
-            logger.info("  %s/%s combos  %s/s", f"{i + 1:,}", f"{len(grid):,}", f"{rate:,.0f}")
+            done += 1
+            if progress_every and done % progress_every == 0:
+                rate: float = done / (time.perf_counter() - started)
+                logger.info("  %s/%s combos  %s/s", f"{done:,}", f"{total:,}", f"{rate:,.0f}")
 
-    return rows, logs
+        swept.append((rows, logs))
+
+    return swept
 
 
 def _sweep_parallel(
     data: Dataset,
-    grid: Grid,
+    grids: Sequence[Grid],
     instrument: Instrument,
     *,
     keep_trades: bool,
     n_jobs: int,
     chunk_size: int | None,
     progress_every: int,
-) -> tuple[list[dict[str, object]], dict[int, pd.DataFrame]]:
-    """Spread chunks over processes, sharing one copy of the dataset.
+) -> list[GridRows]:
+    """Spread every grid's chunks over one pool, sharing one copy of the dataset.
 
     The payload is :meth:`Dataset.slim`, hoisted out of the generator below so every task
     references the *same* array objects -- joblib keys its memmap cache on array identity, so
     one dump on disk is shared by every worker instead of one copy per task.
     """
-    bounds: list[tuple[int, int]] = chunk_bounds(len(grid), effective_n_jobs(n_jobs), chunk_size)
+    sizes: list[int] = [len(grid) for grid in grids]
+    chunks: list[list[Segment]] = segment_bounds(sizes, effective_n_jobs(n_jobs), chunk_size)
     payload: Dataset = data.slim()
     batches = Parallel(n_jobs=n_jobs, verbose=10 if progress_every else 0)(
-        delayed(_run_chunk)(payload, grid, instrument, start, stop, keep_trades=keep_trades)
-        for start, stop in bounds
+        delayed(_run_chunk)(
+            payload,
+            {segment.grid_index: grids[segment.grid_index] for segment in chunk},
+            instrument,
+            chunk,
+            keep_trades=keep_trades,
+        )
+        for chunk in chunks
     )
 
-    rows: list[dict[str, object]] = []
-    logs: dict[int, pd.DataFrame] = {}
-    for chunk_rows, chunk_logs in batches:
-        rows.extend(chunk_rows)
-        logs.update(chunk_logs)
+    swept: list[GridRows] = [([], {}) for _ in grids]
+    for batch in batches:
+        for grid_index, (rows, logs) in batch:
+            swept[grid_index][0].extend(rows)
+            swept[grid_index][1].update(logs)
     # Chunks come back in submission order; sorting states the guarantee rather than
     # relying on it.
-    rows.sort(key=lambda r: cast("int", r["combo_id"]))
+    for grid_rows, _ in swept:
+        grid_rows.sort(key=lambda r: cast("int", r["combo_id"]))
 
-    return rows, logs
+    return swept
+
+
+def _table(rows: list[dict[str, object]]) -> pd.DataFrame:
+    """Return one grid's summary rows as a frame led by ``combo_id``."""
+    frame: pd.DataFrame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+
+    cols: list[str] = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
+
+    return frame[cols]
+
+
+def sweep_grids(
+    data: Dataset,
+    grids: Sequence[Grid],
+    instrument: Instrument = MNQ,
+    *,
+    keep_trades: bool = False,
+    progress_every: int = 0,
+    n_jobs: int = 1,
+    chunk_size: int | None = None,
+) -> list[tuple[pd.DataFrame, dict[int, pd.DataFrame]]]:
+    """Run every combination of several grids over one prepared dataset, in one pool.
+
+    Returns each grid's table and trade logs in the order the grids were given, exactly as
+    :func:`sweep` returns them one grid at a time. ``data`` must hold every series each grid's
+    :meth:`Grid.required_context` asks for. One pool rather than one per grid --
+    ``docs/roadmap.md`` § "A sweep call's worker count".
+    """
+    swept: list[GridRows]
+    if effective_n_jobs(n_jobs) == 1:
+        swept = _sweep_serial(data, grids, instrument, keep_trades=keep_trades, progress_every=progress_every)
+    else:
+        swept = _sweep_parallel(
+            data,
+            grids,
+            instrument,
+            keep_trades=keep_trades,
+            n_jobs=n_jobs,
+            chunk_size=chunk_size,
+            progress_every=progress_every,
+        )
+
+    return [(_table(rows), logs) for rows, logs in swept]
 
 
 def sweep(
@@ -437,32 +568,17 @@ def sweep(
     rate goes through ``logging``, so a caller with no handler sees nothing.
     """
     data = data if data is not None else prepare_for(bars, grid)
+    (swept,) = sweep_grids(
+        data,
+        [grid],
+        instrument,
+        keep_trades=keep_trades,
+        progress_every=progress_every,
+        n_jobs=n_jobs,
+        chunk_size=chunk_size,
+    )
 
-    if effective_n_jobs(n_jobs) == 1:
-        rows, logs = _sweep_serial(
-            data,
-            grid,
-            instrument,
-            keep_trades=keep_trades,
-            progress_every=progress_every,
-        )
-    else:
-        rows, logs = _sweep_parallel(
-            data,
-            grid,
-            instrument,
-            keep_trades=keep_trades,
-            n_jobs=n_jobs,
-            chunk_size=chunk_size,
-            progress_every=progress_every,
-        )
-
-    frame: pd.DataFrame = pd.DataFrame(rows)
-    if not frame.empty:
-        cols: list[str] = ["combo_id"] + [c for c in frame.columns if c != "combo_id"]
-        frame = frame[cols]
-
-    return frame, logs
+    return swept
 
 
 class AxisPoint(NamedTuple):
