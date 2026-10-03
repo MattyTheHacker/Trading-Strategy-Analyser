@@ -593,6 +593,16 @@ def test_a_slim_copy_remembers_none_of_its_parent_s_gates() -> None:
     assert len(gates.built) == 2
 
 
+def test_a_gate_read_before_its_grid_was_replaced_is_built_again_from_the_new_one() -> None:
+    data, _ = recorded()
+    first = data.regime_gate(20, 1, 0.3, 0.6)
+    replacement = RecordingGates()
+    data.regimes = replacement
+
+    assert data.regime_gate(20, 1, 0.3, 0.6) is not first
+    assert replacement.built == [(20, 1, 0.3, 0.6)]
+
+
 def test_a_read_that_raises_is_not_remembered() -> None:
     data = context.prepare(bars(), ContextSpec())
     for _ in range(2):

@@ -252,25 +252,34 @@ class Dataset:
     path".
     """
 
-    _gate_cache: dict[tuple[object, ...], BoolArray] = field(
+    _gate_cache: dict[tuple[object, ...], tuple[object, BoolArray]] = field(
         default_factory=dict,
         init=False,
         repr=False,
         compare=False,
     )
-    """Every label gate read so far, keyed by the method and the arguments that built it."""
+    """Every label gate read so far, keyed by the method and its arguments, beside the grid it came from."""
 
     def __len__(self) -> int:
         return self.close.size
 
-    def _cached_gate(self, key: tuple[object, ...], build: Callable[[], BoolArray]) -> BoolArray:
-        """Return the gate ``key`` names, building it on the first read and sharing it read-only after."""
-        if key in self._gate_cache:
-            return self._gate_cache[key]
+    def _cached_gate(
+        self,
+        key: tuple[object, ...],
+        source: object,
+        build: Callable[[], BoolArray],
+    ) -> BoolArray:
+        """Return the gate ``key`` names, built from ``source`` on the first read and shared read-only after.
+
+        A gate whose grid has since been replaced is built again from the new one.
+        """
+        cached: tuple[object, BoolArray] | None = self._gate_cache.get(key)
+        if cached is not None and cached[0] is source:
+            return cached[1]
 
         gate: BoolArray = build().view()
         gate.flags.writeable = False
-        self._gate_cache[key] = gate
+        self._gate_cache[key] = (source, gate)
 
         return gate
 
@@ -414,7 +423,7 @@ class Dataset:
         Callers skip this entirely at :data:`nqbt.timeofday.ALL_PHASES` -- see
         :meth:`nqbt.timeofday.TimeOfDay.gate`.
         """
-        return self._cached_gate(("phase", mask), lambda: self._time_of_day().gate(mask))
+        return self._cached_gate(("phase", mask), self.time_of_day, lambda: self._time_of_day().gate(mask))
 
     def phase_values(self) -> LabelArray:
         """Return the per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
@@ -496,6 +505,7 @@ class Dataset:
         """
         return self._cached_gate(
             ("regime", lookback, mask, consolidating_below, directional_above),
+            self.regimes,
             lambda: self._regimes().gate_for(lookback, mask, consolidating_below, directional_above),
         )
 
@@ -538,6 +548,7 @@ class Dataset:
         """
         return self._cached_gate(
             ("volume", key, mask, thin_below, heavy_above),
+            self.volumes,
             lambda: self._volumes().gate_for(key, mask, thin_below, heavy_above),
         )
 
@@ -584,6 +595,7 @@ class Dataset:
         """
         return self._cached_gate(
             ("compression", key, mask, compressed_below, expanded_above),
+            self.compressions,
             lambda: self._compressions().gate_for(key, mask, compressed_below, expanded_above),
         )
 
@@ -642,6 +654,7 @@ class Dataset:
         """
         return self._cached_gate(
             ("trend", key, mask, min_agreement),
+            self.trends,
             lambda: self._trends().gate_for(key, mask, min_agreement),
         )
 
@@ -677,6 +690,7 @@ class Dataset:
         """
         return self._cached_gate(
             ("higher_timeframe", key, mask),
+            self.higher_timeframes,
             lambda: self._higher_timeframes().gate_for(key, mask),
         )
 
