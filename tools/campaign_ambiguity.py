@@ -262,8 +262,7 @@ def survival(table: pd.DataFrame) -> list[str]:
         return ["  (nothing was measured)"]
 
     kept: int = int(table[SURVIVES].sum())
-    # Bare: ``.loc`` on one label is a Series here and a DataFrame to mypy, so no honest annotation.
-    widest = table.loc[table[SPREAD].idxmax()]
+    widest = table.iloc[table[SPREAD].argmax()]
     band: str = f"{widest['profit_factor']:.3f} -> {widest[WORST]:.3f}"
 
     return [

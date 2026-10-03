@@ -31,5 +31,5 @@ rates — quote it rather than any figure repeated elsewhere.
   session the front contract's archive does not hold, not a market event. `splice.roll_seams`
   lists them; judge an ATR-sensitive rule per contract instead (`dispersion.py`).
 
-TA-Lib is left only for MACD and RSI, which no archetype reads and which carry the same problem
-unfixed. Anything a new archetype reads must be pinned against NT8 first.
+TA-Lib is a test dependency only, kept for the tests comparing it with NT8's EMA and SMA; MACD
+and RSI are not implemented. Anything a new archetype reads must be pinned against NT8 first.
