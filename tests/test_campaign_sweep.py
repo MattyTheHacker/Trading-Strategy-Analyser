@@ -2892,6 +2892,6 @@ def test_every_structure_trail_grid_can_be_built_at_every_cell(which: str) -> No
 
 
 def test_the_structure_trail_run_states_its_strata_before_it_runs() -> None:
-    assert [name for name, _ in strata(IBT_STRUCTURE)] == [UNFILTERED, "phase=MIDDAY"]
-    assert STRATUM_SETS[IBT_STRUCTURE] == (UNFILTERED, MIDDAY)
+    assert [name for name, _ in strata(IBT_STRUCTURE)] == [name for name, _ in strata(ALL_STRATA)]
+    assert STRATUM_SETS[IBT_STRUCTURE] == STRATUM_SETS[ALL_STRATA]
     assert variants_for(IBT_STRUCTURE) is IBT_STRUCTURE_VARIANTS

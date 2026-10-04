@@ -448,7 +448,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
     IBT_SIZING: (UNFILTERED, MIDDAY),
-    IBT_STRUCTURE: (UNFILTERED, MIDDAY),
+    IBT_STRUCTURE: EVERY_DIMENSION,
     CONFLUENCE_SIZING: (UNFILTERED, REGIME, "phase", VOLUME_FORMS, "compression", "trend", "htf"),
     HOLD: (UNFILTERED,),
     EARLY_EXIT: (UNFILTERED,),
@@ -2004,10 +2004,10 @@ IBT_SIZING_VARIANTS = {"InsideBarTrailing": insidebartrailing_sizing_variants}
 stored row has, so the run cannot collide with the campaign in one database --
 ``docs/findings/m45-ibt-sizing-preregistration.md``."""
 
-STRUCTURE_TRAIL_BARS = (2, 3, 5, 10)
+STRUCTURE_TRAIL_BARS = (2, 3, 5, 10, 20, 40)
 """How many completed bars make the box the runner's stop trails to."""
 
-STRUCTURE_TRAIL_CUSHIONS = (0.0, 0.25, 0.5)
+STRUCTURE_TRAIL_CUSHIONS = (0.0, 0.25, 0.5, 1.0)
 """How far behind the box's midpoint the runner's stop sits, in ATRs."""
 
 
