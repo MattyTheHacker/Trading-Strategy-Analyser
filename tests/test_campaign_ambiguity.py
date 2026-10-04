@@ -98,6 +98,35 @@ def test_an_empty_table_says_so_instead_of_raising() -> None:
     assert survival(pd.DataFrame()) == ["  (nothing was measured)"]
 
 
+def bands(observed: list[float], worst: list[float]) -> dict[str, object]:
+    """Return both profit factors and the spread between them, as table columns."""
+    spread: list[float] = [high - low for high, low in zip(observed, worst, strict=True)]
+
+    return {"profit_factor": observed, WORST: worst, SPREAD: spread}
+
+
+def test_a_row_with_no_losing_trade_under_either_policy_is_counted_on_its_own_line() -> None:
+    """Two infinite profit factors leave no spread, so the row is reported rather than skipped."""
+    lines = survival(measured(**bands([np.inf, 1.4, 2.8], [np.inf, 0.9, 0.4])))
+    assert "  no losing trade  1 under either policy, spread undefined" in lines
+    assert any("widest spread" in line and line.strip().endswith("c") for line in lines)
+
+
+def test_a_table_with_no_defined_spread_says_so_instead_of_raising() -> None:
+    """With every spread undefined there is no widest row to name."""
+    lines = survival(measured(**bands([np.inf] * 3, [np.inf] * 3)))
+    assert "  widest spread    none defined" in lines
+    assert "  no losing trade  3 under either policy, spread undefined" in lines
+    assert not any("median spread" in line for line in lines)
+
+
+def test_a_row_that_loses_only_under_the_worst_case_has_the_widest_spread() -> None:
+    """Its spread is infinite rather than undefined, so it is ranked and not set aside."""
+    lines = survival(measured(**bands([np.inf, 1.4, 2.8], [0.8, 0.9, 0.4])))
+    assert any("widest spread" in line and line.strip().endswith("a") for line in lines)
+    assert not any("no losing trade" in line for line in lines)
+
+
 # -- the two runs ----------------------------------------------------------------------------
 
 
