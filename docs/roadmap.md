@@ -722,6 +722,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered and run: 13 of 44 cells clear, most by amounts a sign test over configurations sharing their trades inflates; an exit that can close a winner costs in both windows, one that closes only losers barely moves, and the one sizeable held-out gain is InsideBarTrailing's midday trend exit at 10 minutes, which costs at 5, and through the prop accounts at both.** Moved to [`docs/findings/m48-early-exit-result.md`](findings/m48-early-exit-result.md), pre-registered in [`docs/findings/m48-early-exit-preregistration.md`](findings/m48-early-exit-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
 
+### M49 — InsideBarTrailing's runner trailed to structure ([#352])
+
+**Pre-registered; the 15-minute pass is run and 2, 5 and 10 minutes are to follow: unfiltered, every structure-trail arm raises held-out profit factor on both roots and none raises it on the selection window, so no cell clears — the window's sign again, as at §M37; described rather than tested, 104 of 528 arm × stratum cells gain in both windows on both roots, 11 of them at midday.** Moved to [`docs/findings/m49-structure-trail-result.md`](findings/m49-structure-trail-result.md), pre-registered in [`docs/findings/m49-structure-trail-preregistration.md`](findings/m49-structure-trail-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "Trailing to structure".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1416,6 +1420,7 @@ ______________________________________________________________________
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
 [#347]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/347
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
+[#352]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/352
 [#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
 [#36]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/36
 [#369]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/369
