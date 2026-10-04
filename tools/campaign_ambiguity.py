@@ -256,21 +256,37 @@ def survival(table: pd.DataFrame) -> list[str]:
     """Report how much of the shortlist is left once the assumption is taken away.
 
     Read rather than applied: the widest spread is the row whose result is least attributable,
-    and a shortlist where that row is also the highest-ranked one is the §M28.2 shape.
+    and a shortlist where that row is also the highest-ranked one is the §M28.2 shape. A row with
+    no losing trade under either policy has no spread, and is counted on its own line.
     """
     if table.empty:
         return ["  (nothing was measured)"]
 
     kept: int = int(table[SURVIVES].sum())
-    widest = table.iloc[table[SPREAD].argmax()]
+    no_losing_trade = table[["profit_factor", WORST]].eq(float("inf")).all(axis="columns")
+    lines: list[str] = [
+        f"  {STATEMENT}",
+        f"  {kept} of {len(table)} keep a profit factor above {BREAKEVEN:.2f} under the worst case",
+        *spread_lines(table[~no_losing_trade]),
+    ]
+    if no_losing_trade.any():
+        lines.append(f"  no losing trade  {int(no_losing_trade.sum())} under either policy, spread undefined")
+
+    return lines
+
+
+def spread_lines(defined: pd.DataFrame) -> list[str]:
+    """Return the widest and median spread over rows whose spread is defined."""
+    if defined.empty:
+        return ["  widest spread    none defined"]
+
+    widest = defined.iloc[defined[SPREAD].argmax()]
     band: str = f"{widest['profit_factor']:.3f} -> {widest[WORST]:.3f}"
 
     return [
-        f"  {STATEMENT}",
-        f"  {kept} of {len(table)} keep a profit factor above {BREAKEVEN:.2f} under the worst case",
         f"  widest spread    {widest['label']}",
         f"    {band}  on ambiguous_share {widest['ambiguous_share']:.3f}",
-        f"  median spread    {table[SPREAD].median():.3f}",
+        f"  median spread    {defined[SPREAD].median():.3f}",
     ]
 
 
