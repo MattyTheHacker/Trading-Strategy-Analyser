@@ -61,7 +61,7 @@ from tools.campaign_montecarlo import resample_row
 from tools.campaign_propaccount import DEFAULT_PRESETS, replay_shortlist
 from tools.campaign_report import log_key
 from tools.campaign_shortlist import TOP, rerun_group
-from tools.campaign_sweep import Variant
+from tools.campaign_sweep import Variant, insidebartrailing_structure_variants
 from tools.campaign_walkforward import run_resolution
 
 NAME = "InsideBarTrailing"
@@ -224,6 +224,12 @@ def test_insidebartrailing_reads_against_its_half_split_and_each_tier_against_it
             ("trailing size=confluence", "trailing size=confluence symmetric"),
         ],
     )
+
+
+def test_every_structure_trail_arm_is_read_against_the_high_water_trail() -> None:
+    arms = [variant.name for variant in insidebartrailing_structure_variants("MNQ")]
+    assert arms[0] == "trailing structure=off"
+    assert controls(arms) == [("trailing structure=off", arm) for arm in arms[1:]]
 
 
 def test_a_variant_name_holding_spaces_and_signs_splits_at_its_rule() -> None:

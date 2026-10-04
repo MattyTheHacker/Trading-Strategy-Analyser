@@ -108,6 +108,8 @@ from tools.campaign_sweep import (
     EMAPULLBACK_TRAIL_VARIANTS,
     IBT_SIZING,
     IBT_SIZING_VARIANTS,
+    IBT_STRUCTURE,
+    IBT_STRUCTURE_VARIANTS,
     LONDON_OPEN_MINUTES,
     MIDDAY,
     NARROW,
@@ -154,6 +156,8 @@ from tools.campaign_sweep import (
     SIZING_SYMMETRIC,
     SLIPPAGE_TICKS,
     STRATUM_SETS,
+    STRUCTURE_TRAIL_BARS,
+    STRUCTURE_TRAIL_CUSHIONS,
     UNFILTERED,
     VARIANTS,
     VOLUME_BASELINE_SESSIONS,
@@ -179,6 +183,7 @@ from tools.campaign_sweep import (
     grids_for,
     insidebartrailing_confluence_arms,
     insidebartrailing_sizing_variants,
+    insidebartrailing_structure_variants,
     insidebartrailing_variants,
     named_forms,
     orb_geometry_ranges,
@@ -191,6 +196,7 @@ from tools.campaign_sweep import (
     sizing_cuts,
     sizing_cuts_path,
     strata,
+    structure_trail_arms,
     swept_on,
     tail_pairs,
     unstored,
@@ -2826,3 +2832,66 @@ def test_no_early_exit_variant_can_collide_with_a_stored_one_in_the_same_databas
 def test_the_early_exit_run_states_its_stratum_before_it_runs() -> None:
     assert [name for name, _ in strata(EARLY_EXIT)] == [UNFILTERED]
     assert variants_for(EARLY_EXIT) is EARLY_EXIT_VARIANTS
+
+
+# -- the structure-trail run (#352) ----------------------------------------------------
+
+
+def test_the_structure_trail_arms_are_the_control_and_every_box_at_every_cushion() -> None:
+    arms = structure_trail_arms()
+    assert len(arms) == 1 + len(STRUCTURE_TRAIL_BARS) * len(STRUCTURE_TRAIL_CUSHIONS)
+    assert arms["off"] == {}
+    assert len({tuple(sorted(fields.items())) for fields in arms.values()}) == len(arms)
+
+
+def test_every_structure_trail_arm_is_the_stored_grid_with_only_the_trail_changed() -> None:
+    """The arm is a variant dimension and not an axis, so an arm and its control pair row for row."""
+    arms = structure_trail_arms()
+    for root in COMMISSION:
+        (campaign,) = insidebartrailing_variants(root)
+        variants = insidebartrailing_structure_variants(root)
+        assert [variant.name for variant in variants] == [f"trailing structure={arm}" for arm in arms]
+        for variant, fields in zip(variants, arms.values(), strict=True):
+            assert variant.axes == campaign.axes
+            assert variant.archetype is campaign.archetype
+            assert variant.base == replace(campaign.base, **fields)
+
+
+def test_only_the_structure_trail_control_keeps_its_reconciliation() -> None:
+    """No NinjaScript trails to structure, so every other arm's rows are ``TIER1_ONLY``."""
+    for variant in insidebartrailing_structure_variants("MNQ"):
+        control: bool = variant.name.endswith(" structure=off")
+        expected = archetypes.Tier2Status.RECONCILED if control else archetypes.Tier2Status.TIER1_ONLY
+        assert variant.archetype.tier2_for(variant.base) is expected
+
+
+def test_no_structure_trail_variant_can_collide_with_a_stored_one_in_the_same_database() -> None:
+    """Rows are separated by variant name alone, and ``campaign_holdout`` pairs the two windows one-to-one."""
+    stored = {variant.name for variant in VARIANTS["InsideBarTrailing"]("MNQ")}
+    names = [variant.name for variant in insidebartrailing_structure_variants("MNQ")]
+    assert len(set(names)) == len(names)
+    assert not stored & set(names)
+
+
+def test_no_stored_grid_or_stratum_sweeps_a_field_a_structure_trail_arm_sets() -> None:
+    """An axis over the same field would override the arm on every row, which is §M29's first-pass trap."""
+    set_by_arms = {field for fields in structure_trail_arms().values() for field in fields}
+    stratum_axes = {
+        axis for which in (IBT_STRUCTURE, ALL_STRATA) for _, extra in strata(which) for axis in extra
+    }
+    (campaign,) = insidebartrailing_variants("MNQ")
+    assert not set_by_arms & (stratum_axes | set(campaign.axes))
+
+
+@pytest.mark.parametrize("which", [IBT_STRUCTURE, ALL_STRATA])
+def test_every_structure_trail_grid_can_be_built_at_every_cell(which: str) -> None:
+    """A grid that cannot be built is refused here, not an hour into the run."""
+    for variant in insidebartrailing_structure_variants("NQ"):
+        for _, grid in grids_for(variant, which):
+            assert len(grid) == variant.sized()
+
+
+def test_the_structure_trail_run_states_its_strata_before_it_runs() -> None:
+    assert [name for name, _ in strata(IBT_STRUCTURE)] == [UNFILTERED, "phase=MIDDAY"]
+    assert STRATUM_SETS[IBT_STRUCTURE] == (UNFILTERED, MIDDAY)
+    assert variants_for(IBT_STRUCTURE) is IBT_STRUCTURE_VARIANTS

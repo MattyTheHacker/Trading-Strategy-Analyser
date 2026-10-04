@@ -174,6 +174,7 @@ ELASTIC_BAND_STOP = "elastic-band-stop"
 EMAPULLBACK_TRAIL = "emapullback-trail"
 EMAPULLBACK_CONFIRM = "emapullback-confirm"
 IBT_SIZING = "ibt-sizing"
+IBT_STRUCTURE = "ibt-structure"
 CONFLUENCE_SIZING = "confluence-sizing"
 MIDDAY = "midday"
 HOLD = "hold"
@@ -447,6 +448,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
     IBT_SIZING: (UNFILTERED, MIDDAY),
+    IBT_STRUCTURE: (UNFILTERED, MIDDAY),
     CONFLUENCE_SIZING: (UNFILTERED, REGIME, "phase", VOLUME_FORMS, "compression", "trend", "htf"),
     HOLD: (UNFILTERED,),
     EARLY_EXIT: (UNFILTERED,),
@@ -2002,6 +2004,41 @@ IBT_SIZING_VARIANTS = {"InsideBarTrailing": insidebartrailing_sizing_variants}
 stored row has, so the run cannot collide with the campaign in one database --
 ``docs/findings/m45-ibt-sizing-preregistration.md``."""
 
+STRUCTURE_TRAIL_BARS = (2, 3, 5, 10)
+"""How many completed bars make the box the runner's stop trails to."""
+
+STRUCTURE_TRAIL_CUSHIONS = (0.0, 0.25, 0.5)
+"""How far behind the box's midpoint the runner's stop sits, in ATRs."""
+
+
+def structure_trail_arms() -> dict[str, dict[str, int | float]]:
+    """Return every structure-trail arm by name, each the fields it sets and ``off`` setting none."""
+    arms: dict[str, dict[str, int | float]] = {"off": {}}
+    for bars in STRUCTURE_TRAIL_BARS:
+        for cushion in STRUCTURE_TRAIL_CUSHIONS:
+            arms[f"box{bars}@{cushion:g}atr"] = {
+                "structure_trail_bars": bars,
+                "structure_trail_cushion_atr": cushion,
+            }
+
+    return arms
+
+
+def insidebartrailing_structure_variants(root: str) -> list[Variant]:
+    """Build InsideBarTrailing's stored grid once per structure-trail arm, axes unchanged."""
+    (campaign,) = insidebartrailing_variants(root)
+
+    return [
+        replace(campaign, name=f"{campaign.name} structure={arm}", base=replace(campaign.base, **fields))
+        for arm, fields in structure_trail_arms().items()
+    ]
+
+
+IBT_STRUCTURE_VARIANTS = {"InsideBarTrailing": insidebartrailing_structure_variants}
+"""The [#352] run: InsideBarTrailing's stored grid with the runner trailing the high-water mark and
+trailing to structure. Every name carries a ``structure=`` token no stored row has, so the run
+cannot collide with the campaign in one database."""
+
 SIZE_FIXED = "size=fixed"
 """The control on every archetype but InsideBarTrailing, whose control is §M45's ``split=0.5``."""
 
@@ -2196,6 +2233,7 @@ VARIANT_SETS = {
     ELASTIC_VOLUME,
     HOLD,
     IBT_SIZING,
+    IBT_STRUCTURE,
     NARROW,
     ORB,
     ORB_BRACKET,
@@ -2224,6 +2262,7 @@ def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
         ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,
         HOLD: HOLD_VARIANTS,
         IBT_SIZING: IBT_SIZING_VARIANTS,
+        IBT_STRUCTURE: IBT_STRUCTURE_VARIANTS,
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_BRACKET: ORB_BRACKET_VARIANTS,
