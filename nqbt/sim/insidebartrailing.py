@@ -2,8 +2,8 @@
 
 Ported from ``ninjatrader-scripts/Strategies/InsideBarTrailing.cs``. The entry is
 :mod:`nqbt.sim.insidebar`'s. The exit half splits the position into a bracketed lot and a
-trailing lot that resolve independently, trails the second off the high-water mark, and
-flattens whatever is left on a trend violation.
+trailing lot that resolve independently, trails the second off the high-water mark or to
+structure, and flattens whatever is left on a trend violation.
 
 Read ``docs/nt8-fidelity.md``, "Reconciliation result -- InsideBarTrailing" before changing the
 exit half.
@@ -81,6 +81,8 @@ class InsideBarTrailingRules(NamedTuple):
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
+    structure_trail_bars: int = 0
+    structure_trail_cushion_atr: float = 0.0
 
 
 @njit(cache=True)
@@ -210,6 +212,39 @@ def trailed_stop(
 
 
 @njit(cache=True)
+def structure_level(
+    bars: bracket.Bars,
+    i: int,
+    box_bars: int,
+    cushion: float,
+    costs: bracket.Costs,
+    fills: bracket.FillRules,
+    direction: float,
+) -> float:
+    """Return the midpoint of the ``box_bars`` bars before ``i``, less ``cushion``, or ``nan``.
+
+    ``nan`` unless bar ``i`` closed beyond the box's favourable edge. A box reaching before the
+    first bar reads the bars there are. Pass the result to
+    :func:`nqbt.sim.bracket.tightened_stop` -- ``docs/nt8-fidelity.md``, "Trailing to structure".
+    """
+    if i < 1:
+        return np.nan
+
+    start = max(i - box_bars, 0)
+    box_high = float(np.max(bars.high[start:i]))
+    box_low = float(np.min(bars.low[start:i]))
+    _, broken_edge = bracket.sided(box_low, box_high, direction)
+    if direction * (bars.close[i] - broken_edge) <= 0.0:
+        return np.nan
+
+    level = 0.5 * (box_high + box_low) - direction * cushion
+    if fills.round_targets:
+        level = bracket.round_to_tick(level, costs.tick_size)
+
+    return level
+
+
+@njit(cache=True)
 def open_lots(legs: bracket.Legs) -> int:
     """Count how many lots are still live."""
     total = 0
@@ -240,13 +275,16 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     Both lots fill together at the next bar's open and are bracketed off the same fill: the
     bracketed lot takes an ATR stop beyond the inside bar and a target ``tp_multiplier`` ATRs
     from the fill, the trailing lot takes a stop ``trailing_stop_multiplier`` inside-bar ranges
-    behind the high-water mark and no target. Their sizes are the ``sizing`` row the signal
-    bar names. Returns the number of rows written, or ``-1`` if ``out`` overflowed.
+    behind the high-water mark and no target. With ``structure_trail_bars`` on, that stop starts
+    the same distance from the fill and moves only to :func:`structure_level`. Their sizes are the
+    ``sizing`` row the signal bar names. Returns the number of rows written, or ``-1`` if ``out``
+    overflowed.
     """
     n = bars.close.size
     n_lots = sizing.quantities.shape[1]
     slippage = bracket.slippage_points(costs)
     min_risk = STOP_MIN_TICKS * costs.tick_size
+    trails_to_structure = rules.structure_trail_bars > 0
 
     written = 0
     trade_id = 0
@@ -259,6 +297,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     d = 0.0
     trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, True)
     trail_distance = 0.0
+    structure_cushion = 0.0
     trigger_fill = np.nan
     excursion = bracket.Excursion(0.0, 0.0)
 
@@ -382,9 +421,12 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 )
                 # The runner has no target: ``SetProfitTarget`` is never called for it.
                 legs.target[TRAILING_LOT] = np.nan
+                structure_cushion = rules.structure_trail_cushion_atr * bar_atr
                 # On the entry bar alone the trail follows the bar's own extreme before being
-                # tested -- ``docs/nt8-fidelity.md`` §M23.
-                lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
+                # tested -- ``docs/nt8-fidelity.md`` §M23. A structure stop does not.
+                if not trails_to_structure:
+                    lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
+
                 position_changed = True
                 written, trigger_fill = resolve_lots(
                     out,
@@ -409,7 +451,13 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
         if in_position and legs.is_open[TRAILING_LOT]:
             # In force from the next bar, so it cannot be hit on the bar that set it --
             # ``docs/nt8-fidelity.md`` §M23.
-            lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
+            if trails_to_structure:
+                level = structure_level(
+                    bars, i, rules.structure_trail_bars, structure_cushion, costs, fills, d
+                )
+                lots.stop[TRAILING_LOT] = bracket.tightened_stop(lots.stop[TRAILING_LOT], level, d)
+            else:
+                lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
 
         # ---- close of bar i: both lots' stops to breakeven, on the bracketed lot's R ----
         if in_position:
@@ -590,6 +638,8 @@ def insidebartrailing_legs(
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
             breakeven=filters.breakeven(data, params),
+            structure_trail_bars=params.structure_trail_bars,
+            structure_trail_cushion_atr=params.structure_trail_cushion_atr,
         ),
         out,
     )

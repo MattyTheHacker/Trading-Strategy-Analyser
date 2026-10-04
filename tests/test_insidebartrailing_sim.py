@@ -5,6 +5,8 @@ The rules the trade list settled are pinned here; the measurements that settled 
 and round so the arithmetic is checkable by eye.
 """
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -64,6 +66,9 @@ def simulate(  # noqa: PLR0913 - one argument per simulated NT8 property
     fill_limit_on_touch=True,
     ambiguity_policy=0,
     round_targets=True,
+    structure_bars: int = 0,
+    structure_cushion_atr: float = 0.0,
+    breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF,
 ):
     """Simulate hand-written OHLC rows.
 
@@ -108,6 +113,9 @@ def simulate(  # noqa: PLR0913 - one argument per simulated NT8 property
             bars_required=bars_required,
             block_entry_at_session_close=block_entry_at_close,
             max_hold_bars=max_hold_bars,
+            breakeven=breakeven,
+            structure_trail_bars=structure_bars,
+            structure_trail_cushion_atr=structure_cushion_atr,
         ),
         out,
     )
@@ -335,6 +343,255 @@ def test_an_entry_whose_fixed_stop_is_already_through_the_fill_is_still_skipped(
         *QUIET,
     ]
     assert run(rows, signal_at=[1], atr=1.0, atr_multiplier=1.0).empty
+
+
+# -- the structure trail (#352) ------------------------------------------------
+
+BROKEN_UPWARD = [
+    FLAT,  # 0: inside bar, range 1.0
+    FLAT,  # 1: signal
+    FLAT,  # 2: fill at 100; the runner's stop starts at 90.0 and box {0, 1} is unbroken
+    (100.0, 103.0, 99.6, 102.5),  # 3: closes above box {1, 2}'s 100.5, so the stop goes to 100.0
+    (102.5, 104.0, 100.1, 103.5),  # 4: closes above box {2, 3}'s 103.0: (103.0 + 99.5) / 2 = 101.25
+    (103.5, 103.6, 101.0, 101.5),  # 5: 101.0 <= 101.25, so the runner stops out here
+    *QUIET,
+]
+
+
+def runner_leg(trades: pd.DataFrame) -> pd.Series:
+    """Return the trailing lot's one leg."""
+    return trades[trades["leg"] == 2].iloc[0]
+
+
+def test_the_structure_trail_moves_the_runner_to_the_midpoint_of_each_box_its_close_broke() -> None:
+    """Each close above the two bars before it moves the runner's stop to their midpoint."""
+    runner = runner_leg(run(BROKEN_UPWARD, signal_at=[1], structure_bars=2))
+    assert runner["exit_reason"] == "stop"
+    assert runner["exit_bar"] == 5
+    assert runner["exit_price"] == pytest.approx(101.25)
+
+
+def test_a_structure_stop_cannot_be_hit_on_the_bar_whose_close_set_it() -> None:
+    """Bar 3 trades under the 100.0 its own close sets, and the runner survives it."""
+    rows = [*BROKEN_UPWARD[:4], (102.5, 102.6, 99.9, 100.2), *QUIET]
+    runner = runner_leg(run(rows, signal_at=[1], structure_bars=2))
+    assert runner["exit_bar"] == 4
+    assert runner["exit_price"] == pytest.approx(100.0)
+
+
+def test_a_high_through_the_box_or_a_close_on_its_edge_moves_nothing() -> None:
+    """Only a close strictly beyond the box is a break."""
+    rows = [
+        *BROKEN_UPWARD[:3],
+        (100.0, 103.0, 99.6, 100.5),  # 3: the high breaks box {1, 2} and the close only reaches it
+        (100.5, 100.6, 99.6, 100.0),  # 4: under the 100.0 a break would have set
+        *QUIET,
+    ]
+    runner = runner_leg(run(rows, signal_at=[1], structure_bars=2))
+    assert runner["exit_reason"] == "end_of_data"
+
+
+def test_the_structure_stop_never_loosens() -> None:
+    """A break whose midpoint sits behind the standing stop leaves it there."""
+    rows = [
+        *BROKEN_UPWARD[:3],
+        (106.0, 110.0, 106.0, 109.0),  # 3: gaps up and closes above box {1, 2}: the stop goes to 100.0
+        (109.0, 109.5, 107.0, 108.0),  # 4: inside box {2, 3}'s 110.0
+        (108.0, 110.5, 101.0, 110.25),  # 5: above box {3, 4}: (110.0 + 106.0) / 2 = 108.0
+        (110.25, 111.0, 108.5, 110.75),  # 6: above box {4, 5} too, but (110.5 + 101.0) / 2 is lower
+        (110.75, 110.8, 107.0, 107.5),  # 7: 107.0 <= 108.0, and would clear 105.75
+        *QUIET,
+    ]
+    runner = runner_leg(run(rows, signal_at=[1], structure_bars=2))
+    assert runner["exit_bar"] == 7
+    assert runner["exit_price"] == pytest.approx(108.0)
+
+
+def test_the_cushion_is_in_atrs_read_on_the_signal_bar() -> None:
+    """Half of the signal bar's 2.0 puts the stop at 99.0; the 8.0 on every other bar would put it at 96.0."""
+    rows = [*BROKEN_UPWARD[:4], (102.5, 102.6, 98.9, 99.5), *QUIET]
+    atr = [8.0] * len(rows)
+    atr[1] = 2.0
+    runner = runner_leg(
+        run(
+            rows,
+            signal_at=[1],
+            atr=atr,
+            atr_multiplier=20.0,
+            tp_multiplier=20.0,
+            structure_bars=2,
+            structure_cushion_atr=0.5,
+        ),
+    )
+    assert runner["exit_bar"] == 4
+    assert runner["exit_price"] == pytest.approx(99.0)
+
+
+def test_the_structure_trail_mirrors_onto_a_short() -> None:
+    """A close below the box moves a short's stop down to its midpoint."""
+    rows = [
+        *BROKEN_UPWARD[:3],  # 2: fill at 100; the short runner's stop starts at 110.0
+        (100.0, 100.4, 97.0, 97.5),  # 3: closes below box {1, 2}'s 99.5, so the stop goes to 100.0
+        (97.5, 99.9, 96.0, 96.5),  # 4: closes below box {2, 3}'s 97.0: (100.5 + 97.0) / 2 = 98.75
+        (96.5, 99.0, 96.4, 98.5),  # 5: 99.0 >= 98.75
+        *QUIET,
+    ]
+    runner = runner_leg(run(rows, signal_at=[1], direction=SHORT, structure_bars=2))
+    assert runner["exit_reason"] == "stop"
+    assert runner["exit_bar"] == 5
+    assert runner["exit_price"] == pytest.approx(98.75)
+
+
+def test_the_structure_trail_starts_at_the_same_stop_and_does_not_follow_the_entry_bar() -> None:
+    """The high-water trail stops this runner out on its entry bar -- see the §M23 test above."""
+    high_water = runner_leg(run(QUIET, signal_at=[1], trail_multiplier=1.0))
+    structure = runner_leg(run(QUIET, signal_at=[1], trail_multiplier=1.0, structure_bars=2))
+    assert structure["initial_stop"] == high_water["initial_stop"] == pytest.approx(99.0)
+    assert high_water["exit_bar"] == 2
+    assert structure["exit_reason"] == "end_of_data"
+
+
+@pytest.mark.parametrize(("round_targets", "level"), [(True, 100.25), (False, 100.125)])
+def test_a_structure_stop_lands_on_the_tick_grid_only_where_targets_do(
+    round_targets: bool, level: float
+) -> None:
+    """A midpoint between two ticks snaps to the grid under the switch that snaps the targets."""
+    rows = [
+        FLAT,  # 0: inside bar
+        (100.0, 100.75, 99.5, 100.0),  # 1: signal
+        FLAT,  # 2: fill at 100
+        (100.0, 101.0, 100.0, 101.0),  # 3: above box {1, 2}'s 100.75: (100.75 + 99.5) / 2 = 100.125
+        (101.0, 101.0, 100.0, 100.5),  # 4: reaches the level either way
+        *QUIET,
+    ]
+    runner = runner_leg(run(rows, signal_at=[1], structure_bars=2, round_targets=round_targets))
+    assert runner["exit_bar"] == 4
+    assert runner["exit_price"] == pytest.approx(level)
+
+
+def test_a_half_tick_midpoint_rounds_up_on_a_short_as_every_snapped_level_does() -> None:
+    """``round_to_tick`` rounds a half tick up whichever the side, so a short's stop lands half a tick looser."""
+    rows = [
+        FLAT,  # 0: inside bar
+        (100.0, 100.5, 99.25, 100.0),  # 1: signal
+        FLAT,  # 2: fill at 100
+        (100.0, 100.0, 99.0, 99.0),  # 3: below box {1, 2}'s 99.25: (100.5 + 99.25) / 2 = 99.875
+        (99.0, 100.0, 99.0, 99.5),  # 4: reaches 100.0
+        *QUIET,
+    ]
+    runner = runner_leg(run(rows, signal_at=[1], direction=SHORT, structure_bars=2))
+    assert runner["exit_bar"] == 4
+    assert runner["exit_price"] == pytest.approx(100.0)
+
+
+def test_a_box_reaching_before_the_first_bar_reads_the_bars_there_are() -> None:
+    """NT8's ``MAX`` and ``MIN`` read what there is, and a box of no bars at all is no level."""
+    arr = np.asarray([FLAT, (100.0, 102.0, 100.0, 101.5)], dtype=np.float64)
+    bars = bracket.Bars(arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], np.zeros(2, dtype=np.bool_))
+    costs = bracket.Costs(TICK, MNQ.point_value, 0.0, 0.0)
+    fills = bracket.FillRules(fill_limit_on_touch=True, ambiguity_policy=0, round_targets=True)
+    one_bar = insidebartrailing.structure_level(bars, 1, 1, 0.0, costs, fills, LONG)
+    assert (
+        insidebartrailing.structure_level(bars, 1, 5, 0.0, costs, fills, LONG)
+        == one_bar
+        == pytest.approx(100.0)
+    )
+    assert np.isnan(insidebartrailing.structure_level(bars, 0, 1, 0.0, costs, fills, LONG))
+
+
+@pytest.mark.parametrize(
+    ("offset_ticks", "runner_exit", "bracketed_exit"),
+    [
+        # The runner's structure stop passes the breakeven's 100.0; the bracketed lot keeps 100.0.
+        (0.0, (5, 101.25), (6, 100.0)),
+        # The breakeven's 102.0 sits above the structure's 100.0 on both lots.
+        (8.0, (4, 102.0), (4, 102.0)),
+    ],
+)
+def test_the_breakeven_and_the_structure_stop_hold_whichever_is_nearer_the_market(
+    offset_ticks: float,
+    runner_exit: tuple[int, float],
+    bracketed_exit: tuple[int, float],
+) -> None:
+    """Bar 3's close is 1R on a 2.5-point risk, which moves both lots to the entry plus the offset."""
+    breakeven = bracket.Breakeven(
+        1.0, bracket.BREAKEVEN_R, bracket.BREAKEVEN_ON_CLOSE, offset_ticks, bracket.NO_ATR
+    )
+    trades = run(
+        BROKEN_UPWARD, signal_at=[1], atr=2.0, tp_multiplier=20.0, structure_bars=2, breakeven=breakeven
+    )
+    for leg, (exit_bar, exit_price) in ((2, runner_exit), (1, bracketed_exit)):
+        exited = trades[trades["leg"] == leg].iloc[0]
+        assert exited["exit_reason"] == "stop"
+        assert (exited["exit_bar"], exited["exit_price"]) == (exit_bar, pytest.approx(exit_price))
+
+
+def test_a_structure_stop_hit_can_trigger_the_trend_violation() -> None:
+    """The bracketed lot leaves at the runner's fill, as it does behind the high-water trail (§M23)."""
+    rows = [
+        FLAT,  # 0: inside bar
+        (100.0, 100.5, 97.5, 100.0),  # 1: signal
+        FLAT,  # 2: fill at 100
+        (100.0, 101.0, 99.8, 100.75),  # 3: above box {1, 2}'s 100.5: (100.5 + 97.5) / 2 = 99.0
+        (100.75, 100.8, 99.2, 99.5),  # 4: under water at the close, and the EMA crosses under
+        (99.5, 99.6, 98.5, 98.8),  # 5: 98.5 <= 99.0
+        *QUIET,
+    ]
+    ema = [0.0] * 4 + [-1.0] * (len(rows) - 4)
+    trades = run(rows, signal_at=[1], ema=ema, structure_bars=2)
+    runner = runner_leg(trades)
+    bracketed = trades[trades["leg"] == 1].iloc[0]
+    assert (runner["exit_reason"], runner["exit_bar"], runner["exit_price"]) == (
+        "stop",
+        5,
+        pytest.approx(99.0),
+    )
+    assert (bracketed["exit_reason"], bracketed["exit_bar"], bracketed["exit_price"]) == (
+        "signal",
+        5,
+        pytest.approx(99.0),
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"structure_trail_bars": -1}, "structure_trail_bars must be >= 0"),
+        ({"structure_trail_bars": 2, "structure_trail_cushion_atr": -0.5}, "must be >= 0 and finite"),
+        ({"structure_trail_bars": 2, "structure_trail_cushion_atr": float("nan")}, "must be >= 0 and finite"),
+        ({"structure_trail_bars": 2, "structure_trail_cushion_atr": float("inf")}, "must be >= 0 and finite"),
+        ({"structure_trail_cushion_atr": 0.5}, "structure_trail_bars is 0"),
+    ],
+)
+def test_a_structure_trail_out_of_range_or_with_an_unread_cushion_is_refused(
+    overrides: dict[str, float],
+    message: str,
+) -> None:
+    """A negative box, a cushion that is negative or not finite, or a cushion with the trail off, raises."""
+    with pytest.raises(ValueError, match=message):
+        InsideBarTrailingParams(**overrides)
+
+
+def test_the_structure_trail_is_off_by_default_and_a_row_using_it_leaves_the_port() -> None:
+    """No NinjaScript has the structure trail, so a row using it is ``TIER1_ONLY``."""
+    params = InsideBarTrailingParams()
+    assert (params.structure_trail_bars, params.structure_trail_cushion_atr) == (0, 0.0)
+    assert archetypes.INSIDEBARTRAILING.tier2_for(params) is Tier2Status.RECONCILED
+    on = InsideBarTrailingParams(structure_trail_bars=3, structure_trail_cushion_atr=0.25)
+    assert archetypes.INSIDEBARTRAILING.tier2_for(on) is Tier2Status.TIER1_ONLY
+
+
+def test_the_cushion_is_dead_without_the_structure_trail() -> None:
+    """Sweeping the cushion with the trail off is refused as an inert axis, and with it on is two cells."""
+    archetype = archetypes.INSIDEBARTRAILING
+    assert {"structure_trail_bars", "structure_trail_cushion_atr"} <= archetype.sweepable
+    with pytest.raises(
+        sweep.SweepError, match=r"structure_trail_cushion_atr \(inert while structure_trail_bars is 0\)"
+    ):
+        sweep.Grid.of(InsideBarTrailingParams(), archetype=archetype, structure_trail_cushion_atr=[0.0, 0.5])
+
+    on = InsideBarTrailingParams(structure_trail_bars=2)
+    assert len(sweep.Grid.of(on, archetype=archetype, structure_trail_cushion_atr=[0.0, 0.5])) == 2
 
 
 # -- the trend-violation exit, the second EXIT_SIGNAL consumer ------------------
@@ -648,6 +905,28 @@ def test_a_run_produces_a_valid_leg_log_on_both_instruments() -> None:
     assert nq["entry_price"].iloc[0] == pytest.approx(mnq["entry_price"].iloc[0])
     assert mnq["gross_pnl"].abs().sum() > 0, "a ten-times assertion on zero proves nothing"
     assert list(nq["gross_pnl"]) == pytest.approx(list(mnq["gross_pnl"] * 10.0))
+
+
+def test_the_structure_trail_reaches_the_loop_from_the_parameters() -> None:
+    """Bar 4 closes above box {2, 3}: the high-water trail moves to 115.0 and the structure stop to 110.0."""
+    bars = frame(
+        [
+            *BREAKOUT,
+            (115.0, 116.0, 114.0, 115.0),  # 3: fill at 115; the inside bar's range is 10.0
+            (115.0, 125.0, 115.0, 124.0),  # 4: closes above box {2, 3}'s 120.0
+            (124.0, 124.5, 112.0, 113.0),  # 5: through 115.0 and not 110.0
+            *[(113.0, 114.0, 112.0, 113.0)] * 2,
+        ],
+    )
+    high_water = signalling(trailing_stop_multiplier=1.0, position_update_loss_gate=0.0)
+    structure = dataclasses.replace(high_water, structure_trail_bars=2)
+    data = prepared(bars, structure)
+
+    trailed = runner_leg(insidebartrailing.run_insidebartrailing(data, high_water))
+    structured = runner_leg(insidebartrailing.run_insidebartrailing(data, structure))
+    assert structured["initial_stop"] == trailed["initial_stop"]
+    assert (trailed["exit_bar"], trailed["exit_price"]) == (5, pytest.approx(115.0))
+    assert structured["exit_bar"] > 5
 
 
 # -- the registry --------------------------------------------------------------

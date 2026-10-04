@@ -1084,7 +1084,7 @@ Four rules are built, the ones #369 pre-registers first, with their fields on ev
 
 **One exit code, `EXIT_EARLY`, with one rule on at a time.** The parameter class refuses a combination switching on two, so the code and the combination's fields together always say which rule fired, and a campaign arm is one rule. **It also refuses a combination whose setting nothing reads or that can never fire**: a threshold with the not-working exit off, "only if losing" with neither label exit on, and a not-working bar at or past `max_hold_bars`, where the hold cap closes the position first. Each would run identical trades under a different label. Under ElasticBand's stored grids, which sweep `max_hold_bars` over `[0, 30]`, the not-working exit therefore has to test a bar below 30. One code per rule would let rules share a log; nothing measured yet asks for that, and it would add four codes to `trades.py` instead of one.
 
-**No stop moves.** All four are market exits, so none of them touches `tightened_stop`. Breakeven, the one stop-moving member of the family built so far, is § "The breakeven stop"; a trail to structure (#352) and a stop tightening with age or before the close are not built.
+**No stop moves.** All four are market exits, so none of them touches `tightened_stop`. The stop-moving members built so far are breakeven, § "The breakeven stop", and InsideBarTrailing's trail to structure, § "Trailing to structure"; a stop tightening with age or before the close is not built.
 
 #### Not working by bar N
 
@@ -1127,6 +1127,33 @@ Four rules are built, the ones #369 pre-registers first, with their fields on ev
 **A stop hit after the move is still `EXIT_STOP`**, as a ratcheted or a trailed stop is. The trade log tells them apart by price: a breakeven exit leaves at the entry plus the offset, less slippage, rather than at `initial_stop`. **InsideBarTrailing moves both lots**, and its trigger reads the bracketed lot's R, as the early exit's does. NT8's managed approach will not run `SetStopLoss` and `SetTrailStop` on one entry signal at once, and `SetStopLoss` takes precedence, so a port that moves the trailing lot's stop has to manage its trail some other way. That question belongs with the port. **It may run beside an early exit**: one moves a stop and the other submits a market order, so the exit codes still say which acted.
 
 **A setting nothing reads is refused**: any other `breakeven_*` field off its default while `breakeven_at` is `0`, and `breakeven_atr_period` off its default in R. `bracket.breakeven_level` is the one decision and `tightened_stop` the one ratchet; every loop calls both, so **do not fork either**.
+
+### Trailing to structure
+
+**InsideBarTrailing's trailing lot can trail to structure instead of the high-water mark** (#352). `Trading-Docs` §11 names the rule: ratchet the stop behind the most recently completed structure plus a cushion, using the midpoint of each newly broken range so the rule is unambiguous. Here a range is the last `N` completed bars. **No NinjaScript has it, so nothing here is backed by a trade list**, and a row using it is `TIER1_ONLY`. It is off by default, so nothing measured before it rests on it.
+
+| field                         | what it sets                                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `structure_trail_bars`        | how many completed bars make the box; off at `0`, which trails the high-water mark as before |
+| `structure_trail_cushion_atr` | how far behind the box's midpoint the stop sits, in ATRs                                     |
+
+**The box is the `N` bars before the bar being closed, and a break is a close strictly beyond its favourable edge.** At the close of bar `i` a long's box is bars `i - N` to `i - 1`. A high through the box with a close inside it, or a close exactly on its edge, is not a break. Every close beyond the box is a new break, so in a run of higher closes the stop moves at each one. A short is the same rule through the sign. The box reads back across a session boundary where `N` reaches past the session's first bar, and reads the bars there are where it reaches past the first bar of the data, as NT8's `MAX` and `MIN` do. That second case is reachable here, unlike SqueezeBreakout's window (§M19.2), because `BarsRequiredToTrade` is 5. In NinjaScript, for a long, in `OnBarUpdate`:
+
+```csharp
+if (Close[0] > MAX(High, StructureTrailBars)[1])
+{
+    double level = (MAX(High, StructureTrailBars)[1] + MIN(Low, StructureTrailBars)[1]) / 2 - cushion;
+    if (level > runnerStop) { runnerStop = level; SetStopLoss("entry2", CalculationMode.Price, runnerStop, false); }
+}
+```
+
+**It is decided at a bar close and is live from the next bar**, the ratchet's cadence (§ "Ratchet reads the just-closed bar"), from the entry bar's own close on. It goes through `tightened_stop`, so **it never loosens**: a break whose midpoint sits behind the standing stop leaves it there. The level is snapped to the tick wherever targets are, by the same `round_to_tick` every snapped level takes, which rounds a half tick up whichever the side: a midpoint between two ticks lands half a tick nearer the market on a long and half a tick further from it on a short. It can never be at or through the close, because the close is beyond the box's edge and the midpoint less a cushion is behind it, so §M18's submittability rule has nothing to refuse.
+
+**It replaces the high-water trail rather than sitting beside it.** The runner's stop starts where it does today, `trailing_stop_multiplier` inside-bar ranges from the fill, so both modes open every trade with the same stop and the same planned risk; after that only a break moves it. That is the shape a port can take, because NT8's managed approach will not run `SetStopLoss` and `SetTrailStop` on one entry (§ "The breakeven stop"): the runner takes `SetStopLoss("entry2", CalculationMode.Ticks, trailingStopDistance, false)` in `OnExecutionUpdate` and the price form above. Setting a stop by price in one trade and by distance at the next fill is the pattern the reconciled script already uses for `entry1`. **Nothing moves it within the entry bar**, because §M23's entry-bar advance belongs to `SetTrailStop`, which this mode never calls. `trailing_stop_multiplier` stays live as the initial stop, so read it within the mode rather than pooled across both — [`roadmap.md`](roadmap.md) §M28.1.
+
+**The cushion is in the signal bar's ATR**: the `atr_length` ATR that already sizes the bracketed lot's stop and target, read on the bar `OnExecutionUpdate` has current (§M22), so it is fixed for the trade's life. A negative box, a negative or non-finite cushion, and a cushion with the trail off are refused.
+
+**A hit is still `EXIT_STOP`**, and it can trigger the trend violation exactly as the high-water trail's does (§M23). The bracketed lot is untouched. The breakeven stop still moves both lots, and whichever level is nearer the market holds. `insidebartrailing.structure_level` is the one decision and `tightened_stop` the one ratchet, so **do not fork either**.
 
 ## Order lifetime and the session edge (#67)
 
