@@ -321,12 +321,12 @@ ______________________________________________________________________
 Every number above comes out of the stored campaign databases and the campaign tools, not from anything committed to this repository:
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_holdout.py      # the held-out shortlists
-./.venv/Scripts/python.exe tools/campaign_propaccount.py  # the prop-account replay
-./.venv/Scripts/python.exe tools/campaign_exits.py        # P&L with one exit reason removed
-./.venv/Scripts/python.exe tools/campaign_null.py         # gate 3, against a matched random entry
-./.venv/Scripts/python.exe tools/campaign_propobjectives.py  # shortlists ranked by an account objective
-./.venv/Scripts/python.exe tools/campaign_flatten.py      # the same cell at several flatten cutoffs
+uv run tools/campaign_holdout.py      # the held-out shortlists
+uv run tools/campaign_propaccount.py  # the prop-account replay
+uv run tools/campaign_exits.py        # P&L with one exit reason removed
+uv run tools/campaign_null.py         # gate 3, against a matched random entry
+uv run tools/campaign_propobjectives.py  # shortlists ranked by an account objective
+uv run tools/campaign_flatten.py      # the same cell at several flatten cutoffs
 ```
 
 **The campaign databases are not committed, and two sets of them exist.** Figures from §M44 onwards come out of the current set; everything earlier comes out of the set moved aside before that re-sweep, because §M44 replaced the archive those rows were swept on. The machine holding them carries a local README naming both. Follow the `§Mxx` pointer beside any figure to the campaign that produced it, which names the tool and the arguments it was run under — and note that the NQ half of the older set cannot be re-derived at all ([#360]).

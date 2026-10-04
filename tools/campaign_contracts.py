@@ -1,6 +1,6 @@
 """Run one campaign configuration per contract, each against its own matched null.
 
-    ./.venv/Scripts/python.exe tools/campaign_contracts.py --strategy InsideBar
+    uv run tools/campaign_contracts.py --strategy InsideBar
 
 Read the consistency across contracts, not the individual p-values --
 ``tools/README.md`` § "campaign_contracts.py".

@@ -1,7 +1,7 @@
 """Clear the sweep database and re-run the grids that still matter, stratified.
 
-    ./.venv/Scripts/python.exe tools/rerun_sweeps.py            # drop, then re-run
-    ./.venv/Scripts/python.exe tools/rerun_sweeps.py --n-jobs 8
+    uv run tools/rerun_sweeps.py            # drop, then re-run
+    uv run tools/rerun_sweeps.py --n-jobs 8
 
 **This deletes ``sweeps``, ``combos`` and ``trades``** -- ``tools/README.md`` § "rerun_sweeps.py".
 """

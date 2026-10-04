@@ -135,7 +135,7 @@ Not part of the stated reading, reported because it bears on any later choice of
 Once per arm, with the variant from the first table:
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_null.py --strategy OpeningRange --root MNQ NQ \
+uv run tools/campaign_null.py --strategy OpeningRange --root MNQ NQ \
     --stratum "regime=DIRECTIONAL@n=20 q=0.20/0.80" --resolution 5 --window selection \
     --test-window holdout --top 10 --iterations 400 --draw levels \
     --variant "window=30m stop=atr target=R"

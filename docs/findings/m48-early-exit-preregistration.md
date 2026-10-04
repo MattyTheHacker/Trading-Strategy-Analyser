@@ -28,9 +28,9 @@ verdict: >-
 | **Size**        | 3,086,208 combinations unfiltered and 259,200 at midday, on twelve workers                                              |
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants early-exit --split --strata early-exit \
+uv run tools/campaign_sweep.py --variants early-exit --split --strata early-exit \
     --resolutions 2 5 10 15 --n-jobs 12
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing OpeningRange \
+uv run tools/campaign_sweep.py --strategies InsideBarTrailing OpeningRange \
     --variants early-exit --split --strata midday --resolutions 2 5 10 15 --n-jobs 12
 ```
 

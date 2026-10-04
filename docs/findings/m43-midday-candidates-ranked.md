@@ -18,9 +18,9 @@ verdict: >-
 ## What was run
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing \
+uv run tools/campaign_propaccount.py --strategy InsideBarTrailing \
     --root MNQ --stratum phase=MIDDAY --variant trailing --resolution 5 --rerun --preset <all ten>
-./.venv/Scripts/python.exe tools/campaign_propobjectives.py --strategy InsideBarTrailing \
+uv run tools/campaign_propobjectives.py --strategy InsideBarTrailing \
     --root MNQ NQ --stratum phase=MIDDAY --resolution 5 --variant trailing
 ```
 

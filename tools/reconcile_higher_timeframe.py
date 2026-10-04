@@ -1,6 +1,6 @@
 """Compare ``NqbtHigherTimeframeProbe``'s export against nqbt's higher-timeframe projection.
 
-    ./.venv/Scripts/python.exe tools/reconcile_higher_timeframe.py <..._primary.csv> <contract> [from]
+    uv run tools/reconcile_higher_timeframe.py <..._primary.csv> <contract> [from]
 
 The companion ``_coarse.csv`` is found beside it; ``from`` is an optional ISO date trimming the export.
 ``tools/README.md`` § "reconcile_higher_timeframe.py".

@@ -1,7 +1,7 @@
 """Test whether a shortlist chosen on the selection window survives the held-out one.
 
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --n-jobs 8
-    ./.venv/Scripts/python.exe tools/campaign_holdout.py
+    uv run tools/campaign_sweep.py --split --n-jobs 8
+    uv run tools/campaign_holdout.py
 
 One row per root and stratum -- ``tools/README.md`` § "campaign_holdout.py".
 """

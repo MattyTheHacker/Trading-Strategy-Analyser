@@ -20,9 +20,9 @@ verdict: >-
 `tools/campaign_flatten.py`, new here. Each of the two midday candidates' held-out shortlists — 20 configurations per root × resolution, chosen on the selection window, read on the holdout — re-run at four cutoffs over identical bars:
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_flatten.py --strategy InsideBarTrailing \
+uv run tools/campaign_flatten.py --strategy InsideBarTrailing \
     --root MNQ NQ --stratum phase=MIDDAY --variant trailing
-./.venv/Scripts/python.exe tools/campaign_flatten.py --strategy OpeningRange \
+uv run tools/campaign_flatten.py --strategy OpeningRange \
     --root MNQ NQ --stratum phase=MIDDAY --variant "window=30m stop=opposite target=R"
 ```
 

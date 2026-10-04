@@ -1,6 +1,6 @@
 """Compare one variant against its control cell by cell, rather than distribution to distribution.
 
-    ./.venv/Scripts/python.exe tools/campaign_paired.py --strategy EmaCrossover \
+    uv run tools/campaign_paired.py --strategy EmaCrossover \
         --control "stop=atr trail=off" --treatment "stop=atr trail=on"
 
 ``tools/README.md`` § "campaign_paired.py".

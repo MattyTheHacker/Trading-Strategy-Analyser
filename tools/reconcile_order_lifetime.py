@@ -1,6 +1,6 @@
 """Read a ``NqbtOrderLifetimeProbe`` run and answer the order-lifetime questions from it.
 
-    ./.venv/Scripts/python.exe tools/reconcile_order_lifetime.py <..._events.csv>
+    uv run tools/reconcile_order_lifetime.py <..._events.csv>
 
 The companion ``_bars.csv`` and ``_config.csv`` are found beside it.
 ``tools/README.md`` § "reconcile_order_lifetime.py".

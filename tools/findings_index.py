@@ -1,7 +1,7 @@
 """Generate the findings register's three index views from each file's front matter.
 
-    ./.venv/Scripts/python.exe tools/findings_index.py
-    ./.venv/Scripts/python.exe tools/findings_index.py --check
+    uv run tools/findings_index.py
+    uv run tools/findings_index.py --check
 
 ``--check`` exits 1 when a generated file is out of date -- ``tools/README.md`` § "findings_index.py".
 """

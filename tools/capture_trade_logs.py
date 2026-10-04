@@ -1,9 +1,9 @@
 """Capture every trade-log producer path to CSV, for comparison across a refactor.
 
-    ./.venv/Scripts/python.exe tools/capture_trade_logs.py before
+    uv run tools/capture_trade_logs.py before
     ...make the change...
-    ./.venv/Scripts/python.exe tools/capture_trade_logs.py after
-    ./.venv/Scripts/python.exe tools/compare_trade_logs.py before after
+    uv run tools/capture_trade_logs.py after
+    uv run tools/compare_trade_logs.py before after
 
 ``tools/README.md`` § "capture_trade_logs.py".
 """

@@ -41,7 +41,7 @@ The trail already existed — EmaCrossover's ratchet, carried over — but on a 
 | **Size**        | **1,695,744 combinations in 141.8 minutes** on twelve workers                  |
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-trail --split \
+uv run tools/campaign_sweep.py --variants emapullback-trail --split \
     --strata emapullback-trail --resolutions 2 5 10 15 --n-jobs 12
 ```
 

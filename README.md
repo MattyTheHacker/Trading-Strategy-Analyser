@@ -36,7 +36,8 @@ Four of the nine strategies are translations of real NinjaScript, checked exit b
 
 ## Requirements
 
-- **Python 3.14.** Every dependency has a matching wheel, so nothing needs downgrading.
+- **Python 3.14.** Every dependency has a matching wheel, so nothing needs downgrading. uv installs it if it is missing.
+- **[uv](https://docs.astral.sh/uv/).** It builds the environment in `.venv` from the pinned versions in `uv.lock`.
 - **NinjaTrader 8.** It is both the only source of price data and the Tier 2 authority. **No market data ships with this repository.** Everything under `data/` and `cache/` is gitignored, and you build it from your own exports.
 - **Disk space.** Minute-bar exports run to a few hundred MB per instrument, and the processed cache is smaller again. Tick exports are roughly forty times larger, and nothing in the simulation reads them.
 
@@ -45,12 +46,11 @@ Four of the nine strategies are translations of real NinjaScript, checked exit b
 ```bash
 git clone --recurse-submodules git@github.com:MattyTheHacker/Trading-Strategy-Analyser.git
 cd Trading-Strategy-Analyser
-python -m venv .venv
-.venv/Scripts/pip install -e ".[dev]"
-.venv/Scripts/python -m pytest
+uv sync
+uv run python -m pytest
 ```
 
-Run everything through the virtual environment, as `./.venv/Scripts/python.exe -m ...`.
+Run everything as `uv run ...`, which first brings `.venv` into line with `uv.lock`.
 
 There are two submodules. [ninjatrader-scripts](ninjatrader-scripts) holds the NinjaScript source the Python translations are checked against, and `Trading-Docs` is private. `.gitmodules` marks `Trading-Docs` `update = none`, so a clone and `git submodule update` both skip it, because Dependabot clones every submodule and its updates fail on one it cannot reach. With access to it, run both lines in a new clone, or the second alone in a checkout that already has it:
 
@@ -71,11 +71,11 @@ Step 2 is worth doing, and the order matters. A manual export alone gives you ro
 Four commands, in order. The command line stops there on purpose.
 
 ```bash
-nqbt ingest                    # read the exports, clean them up, save them as Parquet
-nqbt contracts                 # show what is currently cached
-nqbt splice --root MNQ         # join the separate contracts into one continuous price history
-nqbt splice --root MNQ --back-adjust --diagnostics
-nqbt run --root MNQ --commission 1.50 --slippage 1 --explain 10
+uv run nqbt ingest                    # read the exports, clean them up, save them as Parquet
+uv run nqbt contracts                 # show what is currently cached
+uv run nqbt splice --root MNQ         # join the separate contracts into one continuous price history
+uv run nqbt splice --root MNQ --back-adjust --diagnostics
+uv run nqbt run --root MNQ --commission 1.50 --slippage 1 --explain 10
 ```
 
 **Why `splice` exists.** Futures contracts expire on a cycle — every three months for the index [roots](#root), five times a year for gold — so five years of history is really twenty to thirty separate contracts sitting end to end. `splice` works out the day traders moved from one contract to the next and joins them into a single series. `--back-adjust` additionally shifts the older prices so the joins line up smoothly, which matters because each new contract starts at a slightly different price.
@@ -139,10 +139,10 @@ Two of these refuse to answer instead of guessing, which is the point. **A strat
 All nine strategies are driven through these checks by the scripts in [tools/](tools/), each a standalone command:
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --n-jobs 8 --split         # sweep everything, split into two windows
-./.venv/Scripts/python.exe tools/campaign_report.py                           # summarise the spread, not the winners
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar   # re-run the best few, keeping every trade
-./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar        # compare those against the coin flip
+uv run tools/campaign_sweep.py --n-jobs 8 --split         # sweep everything, split into two windows
+uv run tools/campaign_report.py                           # summarise the spread, not the winners
+uv run tools/campaign_shortlist.py --strategy InsideBar   # re-run the best few, keeping every trade
+uv run tools/campaign_null.py --strategy InsideBar        # compare those against the coin flip
 ```
 
 Other `campaign_*.py` scripts take up narrower questions. Among them, `campaign_holdout` and `campaign_walkforward` check whether a choice holds up on data it never saw, `campaign_montecarlo` sizes how much of a result was luck, `campaign_contracts` runs one contract at a time, and `campaign_propaccount` replays a [shortlist](#shortlist) through a prop firm's account rules. `campaign_gates` runs those reads over every cell of a [variant set](#variant) in one pass. [`tools/README.md`](tools/README.md) says what each one is for, how to run it, and the order a [campaign](#campaign) usually runs them in. The sweep stores its results in one database per strategy, `results/campaign/<Strategy>.duckdb`, and nearly every other script starts from what is stored there, so any figure they print can be recalculated later from stored data. A stored figure belongs to the price history it was measured on, and that history grows, so `campaign_null` checks that a stored result re-runs to the same trade count and money on the same stretch of bars and refuses rather than quietly answering about a different one.
@@ -291,12 +291,12 @@ gh issue view <n>                            # what blocks it, and what it block
 
 Figures are not repeated here, because they change with almost every merge. Regenerate them instead:
 
-| number                         | where it comes from                                 |
-| ------------------------------ | --------------------------------------------------- |
-| how closely `nqbt` matches NT8 | [docs/nt8-fidelity.md](docs/nt8-fidelity.md)        |
-| test count and coverage        | `./.venv/Scripts/python.exe -m pytest`              |
-| bars, contracts and roll dates | `nqbt contracts`, `nqbt splice --diagnostics`       |
-| anything from a campaign       | `tools/campaign_report.py` over `results/campaign/` |
+| number                         | where it comes from                                         |
+| ------------------------------ | ----------------------------------------------------------- |
+| how closely `nqbt` matches NT8 | [docs/nt8-fidelity.md](docs/nt8-fidelity.md)                |
+| test count and coverage        | `uv run python -m pytest`                                   |
+| bars, contracts and roll dates | `uv run nqbt contracts`, `uv run nqbt splice --diagnostics` |
+| anything from a campaign       | `tools/campaign_report.py` over `results/campaign/`         |
 
 ## What the search has found so far
 

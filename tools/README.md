@@ -4,10 +4,10 @@ The scripts in this folder drive `nqbt` from the command line: [sweeping](../REA
 
 ## Running a tool
 
-Run every tool from the repository root with the project's venv:
+Run every tool from the repository root through uv:
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_report.py --help
+uv run tools/campaign_report.py --help
 ```
 
 Run directly, `sys.path[0]` is `tools/` rather than the repository root, so a tool importing a sibling (`from tools.campaign_report import load`) would fail. Each such tool therefore puts the repository root on `sys.path` before its sibling imports, and a test importing `tools.campaign_*` relies on the same thing.
@@ -49,10 +49,10 @@ A campaign usually runs in this order: `campaign_sweep.py --split` to store the 
 Sweeps every registered archetype across resolution, market [regime](../README.md#regime) and [session phase](../README.md#session-phase), so "which strategy is worth improving" is a query rather than six incomparable runs.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strata context --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_sweep.py --split --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_sweep.py --split --strata phase --n-jobs 8
+uv run tools/campaign_sweep.py --n-jobs 8
+uv run tools/campaign_sweep.py --strata context --n-jobs 8
+uv run tools/campaign_sweep.py --split --n-jobs 8
+uv run tools/campaign_sweep.py --split --strata phase --n-jobs 8
 ```
 
 Both [roots](../README.md#root), the spliced continuous series, resolutions 1/2/5/10/15, at the root's real commission and one tick of slippage. `--split` re-runs the same grids on a selection window and a held-out window instead of the whole series, which is what makes a shortlist testable rather than a ranking of noise -- `docs/findings/m26-elastic-band.md` § "Held out, and then the test it fails".
@@ -74,9 +74,9 @@ Some groups **re-cut** a dimension another group already owns, so `--strata all`
 - **`--regime-quantiles`** replaces the regime stratum's raw thresholds with a pair fitted to the efficiency ratio's own distribution at each `(resolution, lookback)`, and splits the stratum into one cell per lookback -- `regime=DIRECTIONAL@n=20 q=0.20/0.80`. A cell rather than an axis because the thresholds move with the lookback and a sweep crosses its axes. The fit is taken on the selection window at every window, so a held-out run reads a cut it did not see. Why a raw pair cannot be swept against the lookback, and what the quantiles are chosen for: `docs/roadmap.md` §M27.5. **The cell size is in the name**, so two of them can live in one database -- the rows §M30 wrote carry the earlier bare `@n=20` and are the stated pair, which `docs/roadmap.md` §M31 re-ran under the name that says so.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strata volume-forms --split --volume-quantiles --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strata volume-forms --split --volume-quantiles --volume-forms ROLLING --volume-rolling-bars 10 90 --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies OpeningRange --strata directional --split --regime-quantiles 0.10 0.90 --n-jobs 8
+uv run tools/campaign_sweep.py --strata volume-forms --split --volume-quantiles --n-jobs 8
+uv run tools/campaign_sweep.py --strata volume-forms --split --volume-quantiles --volume-forms ROLLING --volume-rolling-bars 10 90 --n-jobs 8
+uv run tools/campaign_sweep.py --strategies OpeningRange --strata directional --split --regime-quantiles 0.10 0.90 --n-jobs 8
 ```
 
 #### Variant sets
@@ -107,17 +107,17 @@ Some groups **re-cut** a dimension another group already owns, so `--strata all`
 | `early-exit`          | **every** archetype's stored campaign grid once per conditional early-exit arm, the control with every rule off included                                                | `docs/findings/m48-early-exit-preregistration.md`                 |
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants narrow --strata narrow --split --regime-quantiles --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-volume --split --strata elastic-volume --volume-quantiles
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants hold --split --strata hold
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-confirm --split --strata emapullback-confirm --resolutions 2 5 10 15 --n-jobs 12
-./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
-./.venv/Scripts/python.exe tools/campaign_sizing.py fit --strategy ElasticBand --resolutions 2 5 10 15
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies ElasticBand --variants confluence-sizing --split --strata confluence-sizing --resolutions 2 5 10 15
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants early-exit --split --strata early-exit --resolutions 2 5 10 15 --n-jobs 12
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing OpeningRange --variants early-exit --split --strata midday --resolutions 2 5 10 15 --n-jobs 12
+uv run tools/campaign_sweep.py --variants narrow --strata narrow --split --regime-quantiles --n-jobs 8
+uv run tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
+uv run tools/campaign_sweep.py --variants elastic-volume --split --strata elastic-volume --volume-quantiles
+uv run tools/campaign_sweep.py --variants hold --split --strata hold
+uv run tools/campaign_sweep.py --variants emapullback-confirm --split --strata emapullback-confirm --resolutions 2 5 10 15 --n-jobs 12
+uv run tools/campaign_sizing.py fit --resolutions 5
+uv run tools/campaign_sweep.py --strategies InsideBarTrailing --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
+uv run tools/campaign_sizing.py fit --strategy ElasticBand --resolutions 2 5 10 15
+uv run tools/campaign_sweep.py --strategies ElasticBand --variants confluence-sizing --split --strata confluence-sizing --resolutions 2 5 10 15
+uv run tools/campaign_sweep.py --variants early-exit --split --strata early-exit --resolutions 2 5 10 15 --n-jobs 12
+uv run tools/campaign_sweep.py --strategies InsideBarTrailing OpeningRange --variants early-exit --split --strata midday --resolutions 2 5 10 15 --n-jobs 12
 ```
 
 #### Why the grids look the way they do
@@ -146,8 +146,8 @@ Some groups **re-cut** a dimension another group already owns, so `--strata all`
 Clears the sweep database and re-runs the grids that still matter, stratified.
 
 ```bash
-./.venv/Scripts/python.exe tools/rerun_sweeps.py            # drop, then re-run
-./.venv/Scripts/python.exe tools/rerun_sweeps.py --n-jobs 8
+uv run tools/rerun_sweeps.py            # drop, then re-run
+uv run tools/rerun_sweeps.py --n-jobs 8
 ```
 
 **This deletes `sweeps`, `combos` and `trades`**, and the drop is not optional. Every row stored before it was computed against a continuous series with different roll dates, at a commission that is not the real one, and before the market-context labels existed, so those rows answer a different question and go rather than being appended to -- `docs/roadmap.md` § "Stored sweeps -- dropped and re-run, stratified".
@@ -161,9 +161,9 @@ Clears the sweep database and re-runs the grids that still matter, stratified.
 Re-stamps stored `reconciled` rows that leave their NinjaScript as `tier-1-only`, by the rule `sweep.row_tier2` applies to a new sweep.
 
 ```bash
-./.venv/Scripts/python.exe tools/restamp_tier2.py                    # report, write nothing
-./.venv/Scripts/python.exe tools/restamp_tier2.py --write
-./.venv/Scripts/python.exe tools/restamp_tier2.py results/sweeps.duckdb --write
+uv run tools/restamp_tier2.py                    # report, write nothing
+uv run tools/restamp_tier2.py --write
+uv run tools/restamp_tier2.py results/sweeps.duckdb --write
 ```
 
 **The `tier2` column is stamped when a sweep is saved, so a change to the rule reaches no stored row on its own.** Named no database, the tool reads `results/sweeps.duckdb` and every campaign database in `results/campaign/`. It rebuilds each `reconciled` row of a reconciled archetype from the row's own columns and stamps it `tier-1-only` where `Archetype.tier2_for` now says so, and the report names the fields each such row leaves its port on. The rule and what it reaches: `docs/roadmap.md` § "Decisions taken".
@@ -181,8 +181,8 @@ Re-stamps stored `reconciled` rows that leave their NinjaScript as `tier-1-only`
 Re-runs a campaign shortlist with its trade logs kept, and stores them beside the summary rows.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --root MNQ
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
+uv run tools/campaign_shortlist.py --strategy InsideBar --root MNQ
+uv run tools/campaign_shortlist.py --strategy OpeningRange --held-out
 ```
 
 The sweep stores summary rows and nothing per trade, and turning `keep_trades` on there is not the fix: every combination's log is not a thing to store, and `keep_trades` changes what `sweep.run_combination` returns and never what it measures. A bootstrap, a permutation test and a time-of-day review each need a per-trade vector, so the logs are made here: rebuild a stored `combos` row, run that configuration again with its log kept, and save it under the `(sweep_id, combo_id)` the summary row already carries. A stored log replaces whatever sits under the same key, so a second run refreshes rather than doubles. `verify` refuses to file a log whose trade count or net P&L disagrees with the row it is filed against.
@@ -196,8 +196,8 @@ It is also the home of `rebuild`, `shortlist` and `best_row`, which every tool s
 Re-runs one stored shortlist's held-out logs on the bars it was swept on, and hands them to the caller instead of storing them. It is what `--rerun` does in the reading tools.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_exits.py --strategy InsideBarTrailing --rerun
-./.venv/Scripts/python.exe tools/campaign_montecarlo.py --strategy InsideBarTrailing --rerun
+uv run tools/campaign_exits.py --strategy InsideBarTrailing --rerun
+uv run tools/campaign_montecarlo.py --strategy InsideBarTrailing --rerun
 ```
 
 Extending the archive leaves a gate-4 read of an older campaign with no log at all, because `campaign_shortlist.py`'s `verify` refuses to file one that disagrees with its row. Re-running here, over the archive cut back to where it stood when the row was swept, keeps that guard intact. **The agreement is reported rather than required** (`trades` and `net_pnl`, per root x resolution and never across resolutions, since one figure spanning two bar sizes would hide a root that reproduced at one of them and not the other): a decomposition or a bootstrap of one book does not rest on reproducing a figure measured months ago, while which bars it ran on is part of the reading either way -- `docs/findings/m41-flatten-timing.md` § "The stored rows no longer reproduce".
@@ -209,8 +209,8 @@ Extending the archive leaves a gate-4 read of an older campaign with no log at a
 Annotates a shortlist's stored trade logs and persists the annotation, so filtering trades is a query.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --root MNQ
-./.venv/Scripts/python.exe tools/campaign_annotate.py  --strategy OpeningRange --root MNQ
+uv run tools/campaign_shortlist.py --strategy OpeningRange --root MNQ
+uv run tools/campaign_annotate.py  --strategy OpeningRange --root MNQ
 ```
 
 `tools/campaign_review.py` annotates the same logs and discards the annotation. This stores it, keyed by `(sweep_id, combo_id, trade_id)`, and builds `nqbt.results.TRADE_VIEW` over the three tables -- after which "which trades were profitable, taken in an uptrend, by a configuration on a 20-period EMA" is one `SELECT`.
@@ -226,8 +226,8 @@ Every cut a configuration ran at is read off its stored row by name (`LabelThres
 Reads the campaign databases and says which archetype is worth improving.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_report.py
-./.venv/Scripts/python.exe tools/campaign_report.py --window selection holdout
+uv run tools/campaign_report.py
+uv run tools/campaign_report.py --window selection holdout
 ```
 
 **It reports distributions, not winners.** The best profit factor in a 300,000-row sweep is a statement about the size of the sweep; the median and the profitable share are statements about the strategy -- `docs/findings/m26-elastic-band.md` § "Selecting on one contract is worse than not selecting".
@@ -251,8 +251,8 @@ Notes on its helpers, which other tools import:
 Tests whether a shortlist chosen on the selection window survives the held-out one.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --split --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_holdout.py
+uv run tools/campaign_sweep.py --split --n-jobs 8
+uv run tools/campaign_holdout.py
 ```
 
 The question is the one that decides whether an archetype is worth more work: **does picking the best 20 on the first 60% of the series beat not picking at all on the last 40%?** On this project's own data it has come out *below* the median of every configuration -- `docs/findings/m26-elastic-band.md` § "Selecting on one contract is worse than not selecting".
@@ -266,7 +266,7 @@ The windows are joined on `root, resolution, variant, stratum, combo_id`. `combo
 Compares one variant against its control cell by cell, rather than distribution to distribution.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_paired.py --strategy EmaCrossover --control "stop=atr trail=off" --treatment "stop=atr trail=on"
+uv run tools/campaign_paired.py --strategy EmaCrossover --control "stop=atr trail=off" --treatment "stop=atr trail=on"
 ```
 
 `campaign_report.py` compares distributions and `campaign_holdout.py` compares shortlists. Neither answers what an A/B variant asks -- **does switching this one rule on help, holding everything else at the same value?** -- and both are biased when the arms are different sizes: the treatment's extra axes make its shortlist a best-of-more.
@@ -282,8 +282,8 @@ So this pairs instead. Every parameter the two arms agree about becomes part of 
 Reads every stored stratum against the same combination run unfiltered.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_crossread.py
-./.venv/Scripts/python.exe tools/campaign_crossread.py --dimension phase --min-score 8
+uv run tools/campaign_crossread.py
+uv run tools/campaign_crossread.py --dimension phase --min-score 8
 ```
 
 `campaign_holdout.py` asks whether a *shortlist* survives, which measures selection as much as the strategy. This asks **does pinning one context filter on beat leaving it off, for the same parameters?** Every filtered row has an unfiltered twin at identical parameters, root, resolution and variant, so the comparison is paired and free of the shortlist-size bias -- `docs/roadmap.md` § "The build spec's three loose ends, measured".
@@ -298,7 +298,7 @@ Each pair is scored in **both** windows independently and the cells are counted,
 Runs one root's shortlist on another root, to see whether a configuration travels.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_crossroot.py --top 200 --min-trades 500
+uv run tools/campaign_crossroot.py --top 200 --min-trades 500
 ```
 
 Every other tool asks whether a configuration survives a different *window* of the same instrument; this asks whether it survives a different *instrument*, a stronger test of the same kind. **Roots are paired by size class** -- NQ to ES and GC, MNQ to MES and MGC -- so the round-turn commission is the same on both sides and only the market changes. The target root's commission is set explicitly rather than inherited from the stored row.
@@ -312,9 +312,9 @@ Every other tool asks whether a configuration survives a different *window* of t
 Compares the raw context labels against the fitted ones over the same bars.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_labels.py --dimension regime
-./.venv/Scripts/python.exe tools/campaign_labels.py --dimension volume --resolutions 5
-./.venv/Scripts/python.exe tools/campaign_labels.py --dimension windows --volume-rolling-bars 10 90
+uv run tools/campaign_labels.py --dimension regime
+uv run tools/campaign_labels.py --dimension volume --resolutions 5
+uv run tools/campaign_labels.py --dimension windows --volume-rolling-bars 10 90
 ```
 
 A stratum is named for a state and cut by a threshold pair, so a result quoted under a label is a result about a cut. This measures how much of a label survives being re-cut: the share of bars each raw state keeps, and where the rest go. **No sweep and no database**: both cuts are computed here over the spliced series, so this says what two stratifications label differently and nothing about what either earns -- `docs/findings/m30-volume-regime-recut.md` reads it against the paired scores. The fit is taken on the selection window alone, exactly as `campaign_sweep.py` takes it.
@@ -324,7 +324,7 @@ A stratum is named for a state and cut by a threshold pair, so a result quoted u
 Reads the maximum-hold-time ladder: what each cap is worth against the uncapped arm.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_hold.py --strategy InsideBar --window holdout
+uv run tools/campaign_hold.py --strategy InsideBar --window holdout
 ```
 
 `campaign_sweep.py --variants hold` runs every archetype's stored grid once per rung, the uncapped `hold=0` arm included, so two rows differ by the cap alone. This pairs each capped arm against that control cell by cell, with `campaign_paired.py`'s machinery. **Never pooled across resolutions**: the cap is a bar count, so every row is one root x resolution with the minutes each rung means printed beside it. **A rung that cannot bind must read as its control**, which is what `bound` measures -- the share of paired cells whose average hold actually moved; a low `bound` with a p-value near 1 is an arm that never fired, not a cap that did nothing. The stratum stays in the pairing key once the ladder has been run inside one, since a pair only forms within a stratum -- `docs/roadmap.md` §M31.1.
@@ -334,9 +334,9 @@ Reads the maximum-hold-time ladder: what each cap is worth against the uncapped 
 Reads the conditional early exit: what each arm is worth against the control with every rule off.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBar --window holdout
-./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBarTrailing --stratum phase=MIDDAY --picks
-./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBar --reproduce
+uv run tools/campaign_early_exit.py --strategy InsideBar --window holdout
+uv run tools/campaign_early_exit.py --strategy InsideBarTrailing --stratum phase=MIDDAY --picks
+uv run tools/campaign_early_exit.py --strategy InsideBar --reproduce
 ```
 
 `campaign_sweep.py --variants early-exit` runs every archetype's stored grid once per arm, `exit=off` included, so the pairing is `campaign_hold.py`'s: keyed on the base variant, with the same `bound`, and never pooled across resolutions, because the not-working exit is a bar count. **One stratum at a time, unfiltered by default**, since the midday cells were swept beside the unfiltered ones and a row pooling them would mix two strategies. **Beside each arm are the columns the pre-registration reads**, each paired configuration by configuration and then the median taken: trades and commission as the arm's ratio to the control, win rate, average bars held and `session_close_share` as its difference. A ratio of the two arms' medians was the first form, and it can read 1.0 while most pairs lost trades. **`--picks` is §M48's pre-registered verdict**: on each root and bar size the selection window picks the bound arm with the highest median delta, and the pick pays where its held-out delta is positive with the sign test at p < 0.05; a bar size clears where it pays on every root. A root and bar size with no bound arm stays in the table with no pick, so an untested cell is counted rather than dropped. **`--reproduce` is the check that comes first**: every control row joined to its stored campaign twin on the costs and on every parameter the stored rows carry, counting the rows and the statistics that differ. A parameter the stored rows only hold as null was added after they were swept and is left out of the join, and a side holding two rows under one key is refused, because a control row would have two twins. The two reads are exclusive, and neither takes `--window` -- `docs/findings/m48-early-exit-result.md`.
@@ -348,9 +348,9 @@ Reads the conditional early exit: what each arm is worth against the control wit
 Places a shortlist's configurations against a [matched random entry](../README.md#matched-null).
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_null.py --strategy ElasticBand --root MNQ
-./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
-./.venv/Scripts/python.exe tools/campaign_null.py --strategy OpeningRange --root MNQ NQ --stratum volume=THIN regime=DIRECTIONAL --draw levels
+uv run tools/campaign_null.py --strategy ElasticBand --root MNQ
+uv run tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
+uv run tools/campaign_null.py --strategy OpeningRange --root MNQ NQ --stratum volume=THIN regime=DIRECTIONAL --draw levels
 ```
 
 A sweep can say which configuration has the highest profit factor, not whether the **entry** earned it, because a bracket that suits the bars flatters a random entry just as much. The matched null holds the signal count and the time-of-session distribution fixed and randomises the day -- `docs/roadmap.md` §M7a and § "The method that does answer the question". The parameter set is rebuilt from the stored `combos` row, so what is tested is exactly what the sweep ranked. `--top` measures that many and reports **three rankings side by side** -- the observed statistic, the excess over each configuration's own null, and net-to-drawdown -- and where they part, the excess is the one to believe -- `docs/roadmap.md` §M27.3. `profit_factor` and `expectancy` are the verdict; `win_rate` is reported because a mean-reversion entry can beat the null on payoff while losing on frequency -- `docs/roadmap.md` §M26.
@@ -368,7 +368,7 @@ A sweep can say which configuration has the highest profit factor, not whether t
 Runs one configuration per contract, each against its own matched null.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_contracts.py --strategy InsideBar
+uv run tools/campaign_contracts.py --strategy InsideBar
 ```
 
 **Read the consistency across contracts, not the individual p-values**: with nineteen contracts and two roots, one cell clearing 0.05 is the expected output of that many comparisons, while every contract agreeing on the sign is not -- `docs/roadmap.md` §M26. Per contract rather than spliced, because ATR and the moving averages both step at a roll seam and a spliced series hides whether an edge is two good quarters wide. The tally is a sign count on `expectancy`, which is bounded where a profit factor is not -- `docs/findings/m27-registry-campaign.md` § "Reading the per-contract tally".
@@ -378,8 +378,8 @@ Runs one configuration per contract, each against its own matched null.
 Resamples a shortlist's trade sequences, to size the luck in their equity paths.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar
-./.venv/Scripts/python.exe tools/campaign_montecarlo.py --strategy InsideBar
+uv run tools/campaign_shortlist.py --strategy InsideBar
+uv run tools/campaign_montecarlo.py --strategy InsideBar
 ```
 
 `nqbt.montecarlo.permutation_test` reorders the same trades, which moves only the path statistics and answers *was this drawdown the ordering's doing*; `bootstrap` resamples with replacement, which moves the values too and answers *how wide is the uncertainty around this figure*. An 87% win rate against a 5:1 loss size is exactly the shape a bootstrap exists to size -- `docs/roadmap.md` §M27.6.
@@ -391,7 +391,7 @@ Resamples a shortlist's trade sequences, to size the luck in their equity paths.
 Walks a shortlist forward through several folds rather than one hand-cut split.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_walkforward.py --strategy InsideBar
+uv run tools/campaign_walkforward.py --strategy InsideBar
 ```
 
 §M27's held-out gate is a single time cut at 60%, so it tests one regime transition. `nqbt.walkforward.walk_forward` re-selects on each training window and measures the winner on the window that follows, which asks whether **picking** survives rather than whether one choice did -- `docs/roadmap.md` §M27.6.
@@ -403,8 +403,8 @@ Walks a shortlist forward through several folds rather than one hand-cut split.
 Re-summarises a shortlist with one exit reason's legs removed, and says what survives.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
-./.venv/Scripts/python.exe tools/campaign_exits.py --strategy OpeningRange
+uv run tools/campaign_shortlist.py --strategy OpeningRange --held-out
+uv run tools/campaign_exits.py --strategy OpeningRange
 ```
 
 `campaign_report.py`'s ranked table says what each exit reason was worth, but not what is left without one: net P&L is additive and profit factor and drawdown are not, so "the flatten earned +57,256 against a bracket of −32,458" leaves unasked whether the rest of the book stands up. This drops one reason's legs and runs `nqbt.stats.summarise` over what remains -- `docs/roadmap.md` §M28.12 and §M28.15. Each half reports trades, profit factor, net P&L and drawdown; trades because a residual book below the trade floor is not a result at all. Both the residual profit factor and its net-to-drawdown have to clear 1.0, the thresholds `campaign_holdout.py` uses for the whole book.
@@ -416,8 +416,8 @@ Re-summarises a shortlist with one exit reason's legs removed, and says what sur
 Re-runs a shortlist under both ambiguity policies and reports the spread.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_ambiguity.py --strategy OpeningRange --root MNQ
-./.venv/Scripts/python.exe tools/campaign_ambiguity.py --strategy OpeningRange --window holdout
+uv run tools/campaign_ambiguity.py --strategy OpeningRange --root MNQ
+uv run tools/campaign_ambiguity.py --strategy OpeningRange --window holdout
 ```
 
 Nothing in a profit-factor ranking stops it picking a configuration whose profit factor is an artefact of `ambiguity_policy`: where an archetype resolves many bars by assumption, that is where the largest profit factors are -- `docs/roadmap.md` §M28.2. `ambiguous_share` counts how often the assumption was invoked, not how much the answer depends on it, so this re-runs each row under the second arm too and reports the **spread** between the two profit factors, the band the bar data cannot narrow -- `docs/roadmap.md` §M28.3.
@@ -431,8 +431,8 @@ Where the spread is wide enough to matter, a **third step settles it**: `nqbt.di
 Reads a shortlist's realised trades by the clock, and guards what that turns up.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --window holdout
-./.venv/Scripts/python.exe tools/campaign_review.py --strategy InsideBar --window holdout
+uv run tools/campaign_shortlist.py --strategy InsideBar --window holdout
+uv run tools/campaign_review.py --strategy InsideBar --window holdout
 ```
 
 Filtering entries to a phase and re-running the grid answers *does this strategy work if it only trades then*. The other question -- *when did these trades actually happen, and what was true when they did* -- is `nqbt.review`'s, and needs the per-trade logs the sweep discards -- `docs/roadmap.md` §M27.7. Two things come out of one annotation:
@@ -447,7 +447,7 @@ Filtering entries to a phase and re-running the grid answers *does this strategy
 Re-runs a candidate at several `ExitOnSessionCloseSeconds` and says what the timing is worth.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_flatten.py --strategy InsideBarTrailing --root MNQ NQ --stratum phase=MIDDAY --variant trailing --resolution 1 2 5 10 15
+uv run tools/campaign_flatten.py --strategy InsideBarTrailing --root MNQ NQ --stratum phase=MIDDAY --variant trailing --resolution 1 2 5 10 15
 ```
 
 In a backtest the property is inert -- NinjaTrader flattens on the session's last bar whatever the script sets, which is why `nqbt.sessions.EXIT_ON_CLOSE_SECONDS` is one default rather than a per-archetype field -- `docs/nt8-fidelity.md` §M22. **Live it is not inert**, so for a strategy whose P&L is carried by session-close legs the value the C# ships decides trades Strategy Analyzer can never show moving. The simulator takes the cutoff, so the same configurations run at the backtested value and the live one over the same bars.
@@ -461,9 +461,9 @@ The cutoffs are 30, 180, 300 and 900 seconds, control first. `30` is what every 
 Fits the cuts a confluence size runs at, on every archetype, and reads it against its own sizes shuffled.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sizing.py fit --strategy ElasticBand --resolutions 2 5 10 15
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies ElasticBand --variants confluence-sizing --split --strata confluence-sizing --resolutions 2 5 10 15
-./.venv/Scripts/python.exe tools/campaign_sizing.py null --strategy ElasticBand --root MNQ --resolution 5 --variant "target=0.0s size=confluence"
+uv run tools/campaign_sizing.py fit --strategy ElasticBand --resolutions 2 5 10 15
+uv run tools/campaign_sweep.py --strategies ElasticBand --variants confluence-sizing --split --strata confluence-sizing --resolutions 2 5 10 15
+uv run tools/campaign_sizing.py null --strategy ElasticBand --root MNQ --resolution 5 --variant "target=0.0s size=confluence"
 ```
 
 **Everything `fit` measures comes from the selection window**, so the held-out window reads cuts it had no part in. Each cut is taken per root, resolution and stored variant, at the variant's base configuration over its unfiltered signal, pooled over the sides the variant sweeps (a variant sweeping `direction` trades both sides of one signal, and a share read on one side alone would be the other's complement), and written before any sizing arm runs: the file is the pre-registration of every threshold the arms read -- `docs/findings/m47-confluence-sizing-preregistration.md`. **A cut already in the file is kept**, so the arms stored against it keep the cut they ran at; one stored before the fit read its symmetric labels gains them at its own thresholds, and nothing else in it moves. InsideBarTrailing is the default strategy, and there the null reads §M45's confluence arm unless `--variant` names another -- `docs/findings/m45-ibt-sizing-preregistration.md`. The regime and volume labels are cut at the 20% and 80% quantiles, the campaign's own regime pair and one of its volume tails, so a sizing label and a stratum mean the same thing -- `docs/roadmap.md` §M27.5 and §M27.8. A label favouring more than 90% (or fewer than 10%) of the fitted signals is dropped from the add-only count: near-constant at the signal, it adds the same contract to almost every trade and sorts nothing, as `above_ema_21` did for EmaCrossover -- `docs/findings/confluence-count-per-trade.md`. The symmetric arm keeps a label unless one step it moves the count by covers more than 90% of the same signals: up where it favours, down where it opposes, none where it does neither. The share of trades whose signal bar was early is counted over trades taken rather than signals, because a setup arriving while a position is open is never traded.
@@ -475,7 +475,7 @@ Fits the cuts a confluence size runs at, on every archetype, and reads it agains
 Splits each bracket geometry's result into what the geometry does and what the entry adds.
 
 ```bash
-./.venv/Scripts/python.exe tools/geometry_contribution.py out.csv
+uv run tools/geometry_contribution.py out.csv
 ```
 
 A sweep says which stop/target combination has the highest profit factor, not whether it *earned* it: a bracket that suits the bars flatters a random entry just as much, and on the elastic band observed profit factor correlates +0.71 with the matched null's across geometries. Ranking geometries on profit factor therefore ranks mostly the bars. This holds the entry fixed, varies only the exit geometry, and reports both terms: `null_median`, what the geometry yields with no entry edge, and `observed - null`, what the entry adds. The two can rank geometries in **opposite** orders, and where they disagree the excess is the one to believe -- `docs/findings/m26-elastic-band.md` § "The method that does answer the question".
@@ -487,8 +487,8 @@ Three of the four schemes are §M26's; `D-band` is the stop on the channel the e
 Runs every per-cell read of a swept variant set over every cell, from one load per archetype.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 --out <dir> --n-jobs 6
-./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 --out <dir> --reads gate4 --cells <csv of strategy, root, resolution, variant and stratum>
+uv run tools/campaign_gates.py --variants ibt-sizing --resolutions 5 --out <dir> --n-jobs 6
+uv run tools/campaign_gates.py --variants ibt-sizing --resolutions 5 --out <dir> --reads gate4 --cells <csv of strategy, root, resolution, variant and stratum>
 ```
 
 It loads the variant set's rows once per archetype, re-runs each shortlisted configuration once on the bars it was swept on, and hands that one log to every read. **The reads are the per-cell tools' own functions**, given what their command lines give them for one arm, root, resolution and stratum, so a cell read here and read there agree wherever both run on the same bars:
@@ -510,9 +510,9 @@ The tables land under `--out`, one file per archetype, root, resolution and arm,
 Replays a shortlist's trade logs through a prop firm's account rules.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
-./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy OpeningRange
-./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
+uv run tools/campaign_shortlist.py --strategy OpeningRange --held-out
+uv run tools/campaign_propaccount.py --strategy OpeningRange
+uv run tools/campaign_propaccount.py --strategy InsideBarTrailing --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
 ```
 
 `nqbt.propaccount` answers what no gate in §M27 or §M28 can express -- **not "is the edge real" but "would the account have survived it, and made more than it cost"** -- so a cell can be put through an account the way it is put through a null -- `docs/roadmap.md` §M28.13. The shortlist is always chosen on the selection window and replayed over the held-out one, which is why there is no `--window`. By default it reports four presets, Apex and TopStep at 50K and 150K, the four §M28.13 read the registry through; TakeProfitTrader ships as six presets covering two phases each, a table three times the size for a question about one cell.
@@ -528,7 +528,7 @@ Replays a shortlist's trade logs through a prop firm's account rules.
 Ranks a campaign's configurations by what a prop account is scored on, then reads them held out.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_propobjectives.py --strategy OpeningRange --root MNQ NQ
+uv run tools/campaign_propobjectives.py --strategy OpeningRange --root MNQ NQ
 ```
 
 `campaign_propaccount.py` replays a shortlist chosen by profit factor. This chooses it by the account objective itself -- pass rate, fees per pass, time to the first payout and funded life -- and replays it on the held-out window beside the profit-factor shortlist it is measured against. **Every objective ranks on the selection window and is read on the holdout.** An objective whose event never happened takes the value that ranks it last (fees per pass and days to payout are infinite, funded life is zero); one the preset does not answer is `nan`. What each objective means and which presets answer which: `docs/findings/m40-prop-objectives.md` § "What each objective measures".
@@ -544,7 +544,7 @@ Reasoning, results and traps for every reconciliation are in `docs/nt8-fidelity.
 Compares a Strategy Analyzer Trades export against an nqbt run, leg for leg.
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
+uv run tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
 ```
 
 `config` is a key of `CONFIGS`: usually an archetype's name, but one archetype can have several reconciled configurations at different parameters and bar sizes. `from` is an optional ISO date that trims the export. It is needed whenever NT8 was asked for more history than the contract has, because NT8 then serves its *merged* series, which a per-contract archive cannot reproduce -- `docs/nt8-fidelity.md`, "Reconciliation result -- InsideBar". Both ends of the export are excluded from the comparison: NT8 warms indicators from bars before the export starts, and the export can stop before the backtest did.
@@ -556,7 +556,7 @@ The export is stamped in NinjaTrader's display time zone -- the machine's, `Euro
 Compares `NqbtHigherTimeframeProbe`'s export against nqbt's higher-timeframe projection.
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_higher_timeframe.py <..._primary.csv> <contract> [from]
+uv run tools/reconcile_higher_timeframe.py <..._primary.csv> <contract> [from]
 ```
 
 The companion `_coarse.csv` is found beside it, and `from` trims the export for the reason `reconcile_nt8.py` gives. Four questions, reported separately because they fail for different reasons -- `docs/roadmap.md` § "Multi-timeframe moving averages":
@@ -573,7 +573,7 @@ Where the two series stop disagreeing is named rather than counted, because a lo
 Reads an `NqbtOrderLifetimeProbe` run and answers the order-lifetime questions from it.
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_order_lifetime.py <..._events.csv>
+uv run tools/reconcile_order_lifetime.py <..._events.csv>
 ```
 
 The companion `_bars.csv` and `_config.csv` are found beside it. Each measurement is reported separately, and one the run carries no data for is reported as such rather than silently passing. **Nothing here assumes the callback lag; every run re-measures it.** A probe callback reports `CurrentBar`, which for an order resolved against the *next* bar's prices is one behind the bar it filled on, because Strategy Analyzer processes those fills before calling `OnBarUpdate`. The session-close exit does not lag. Reading one rule as the other moves every conclusion by a bar, so both are checked against price first. A one-bar lifetime is the whole finding for a three-argument entry, so offsets are printed exactly where the distribution is short and as a range where an until-cancelled order spreads over hundreds of values. Findings: `docs/nt8-fidelity.md`, "Order lifetime and the session edge".
@@ -583,7 +583,7 @@ The companion `_bars.csv` and `_config.csv` are found beside it. Each measuremen
 Diffs two folders of NT8 minute exports, contract by contract.
 
 ```bash
-./.venv/Scripts/python.exe tools/compare_exports.py [baseline_dir] [candidate_dir]
+uv run tools/compare_exports.py [baseline_dir] [candidate_dir]
 ```
 
 Built to answer whether pulling bars through `BarsRequest` (the AddOn) returns anything the manual Tools -> Historical Data export does not. Manual exports gain and lose whole sessions between runs, so "different" is expected; what matters is which direction and where. Defaults to `data/minute` against `data/addon`, and is read-only. It tests for a whole-hour shift explicitly, because a time-zone mistake in an exporter moves every bar by whole hours and errors nowhere: undo the shift, and if the bars then agree the data is fine apart from one constant.
@@ -595,10 +595,10 @@ Built to answer whether pulling bars through `BarsRequest` (the AddOn) returns a
 Captures every trade-log producer path to CSV, for comparison across a refactor. It is the regression gate for anything touching the simulation; the procedure is `CONTRIBUTING.md` § "The trade-log regression gate", and the traps are in `.claude/rules/regression-gate.md`.
 
 ```bash
-./.venv/Scripts/python.exe tools/capture_trade_logs.py before
+uv run tools/capture_trade_logs.py before
 # ...make the change...
-./.venv/Scripts/python.exe tools/capture_trade_logs.py after
-./.venv/Scripts/python.exe tools/compare_trade_logs.py before after
+uv run tools/capture_trade_logs.py after
+uv run tools/compare_trade_logs.py before after
 ```
 
 It was written for M9, which moved validated code and had to prove it had not moved a number, and kept as a tool because M15 needed the same gate and a stronger one -- `docs/roadmap.md` under M9 and M15. The five paths cover what a single run does not:
@@ -620,7 +620,7 @@ Every frame is written with `float_format="%.17g"`, which is explicit but is *no
 Compares two captures from `capture_trade_logs.py`, and exits non-zero on any difference so it can gate a script.
 
 ```bash
-./.venv/Scripts/python.exe tools/compare_trade_logs.py before after [--added col ...]
+uv run tools/compare_trade_logs.py before after [--added col ...]
 ```
 
 With no `--added` it demands identity, the gate for a refactor meant to preserve behaviour exactly. A file missing from `after` fails; a file only in `after`, such as a newly registered archetype's log, is listed as new and not compared. `--added` names columns the change is expected to introduce; every other column must still match exactly, dtypes included (M9 used `--added source instrument direction`). It reads with `float_precision="round_trip"`, the other half of the `%.17g` the capture writes: pandas' default CSV parser is not correctly rounded and folds adjacent float64 values together, so a bare `read_csv` cannot see a one-ULP difference however many digits were written.
@@ -664,8 +664,8 @@ Asks whether a `NamedTuple` can carry a jitted loop's parameters without cost or
 Generates the findings register's three index views from each file's front matter.
 
 ```bash
-./.venv/Scripts/python.exe tools/findings_index.py
-./.venv/Scripts/python.exe tools/findings_index.py --check
+uv run tools/findings_index.py
+uv run tools/findings_index.py --check
 ```
 
 It reads the YAML front matter of each file in `docs/findings/` and writes `register.md`, `by-archetype.md` and `by-gate.md` beside them; the hand-written `README.md` is not touched. `--check` exits 1 when a generated file is out of date, which `tests/test_findings_index.py` runs. The views are generated rather than hand-maintained -- `docs/roadmap.md` § "Documentation must not carry a figure that goes stale".

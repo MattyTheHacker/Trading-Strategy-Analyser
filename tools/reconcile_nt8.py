@@ -1,6 +1,6 @@
 """Compare an NT8 Strategy Analyzer Trades export against an nqbt run, leg for leg.
 
-    ./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
+    uv run tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
 
 ``config`` is a key of :data:`CONFIGS`; ``from`` is an optional ISO date trimming the export.
 ``tools/README.md`` § "reconcile_nt8.py".

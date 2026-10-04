@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=80"]
+requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 
@@ -19,7 +19,11 @@ dependencies = [
 ]
 
 
-[project.optional-dependencies]
+[project.scripts]
+nqbt = "nqbt.cli:main"
+
+
+[dependency-groups]
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
@@ -34,8 +38,10 @@ dev = [
 ]
 
 
-[project.scripts]
-nqbt = "nqbt.cli:main"
+# A floor rather than a pin: Dependabot locks with its own, newer uv and stops on a mismatch.
+# CI runs the exact version named by SETUP_UV_VERSION in .github/workflows/.
+[tool.uv]
+required-version = ">=0.11.14"
 
 
 [tool.setuptools.packages.find]

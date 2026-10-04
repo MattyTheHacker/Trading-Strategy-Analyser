@@ -1,8 +1,8 @@
 """Place a campaign shortlist's configurations against a matched random entry.
 
-    ./.venv/Scripts/python.exe tools/campaign_null.py --strategy ElasticBand --root MNQ
-    ./.venv/Scripts/python.exe tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
-    ./.venv/Scripts/python.exe tools/campaign_null.py --strategy OpeningRange --root MNQ NQ \
+    uv run tools/campaign_null.py --strategy ElasticBand --root MNQ
+    uv run tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
+    uv run tools/campaign_null.py --strategy OpeningRange --root MNQ NQ \
         --stratum volume=THIN regime=DIRECTIONAL --draw levels
 
 Exits 2 when no row could be placed against a null, so a gate that did not run is not read as

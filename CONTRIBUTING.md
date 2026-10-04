@@ -111,7 +111,7 @@ Further expectations:
 **At least 90% on new lines and 85% over `nqbt` as a whole.** Codecov gates both on the run with the JIT disabled ([`codecov.yaml`](codecov.yaml)). Check with the JIT disabled before concluding anything is untested:
 
 ```bash
-NUMBA_DISABLE_JIT=1 ./.venv/Scripts/python.exe -m pytest --cov=nqbt --cov-branch
+NUMBA_DISABLE_JIT=1 uv run python -m pytest --cov=nqbt --cov-branch
 ```
 
 `coverage.py` cannot see inside `@njit`-compiled functions — numba runs machine code, so the Python bytecode never executes and every line reads as missed. The raw figure reads much lower for that reason alone. CI runs both jobs: one with the JIT active, which is the real functional test, and one with it disabled, which is the accurate coverage measurement.
@@ -123,13 +123,13 @@ Use `--cov=nqbt`, not a bare `--cov`, which includes `tests/` and inflates the t
 ## Linting and typing
 
 ```bash
-./.venv/Scripts/python.exe -m pytest
-./.venv/Scripts/ruff check nqbt formatting
-./.venv/Scripts/ruff format --check .
-./.venv/Scripts/mypy nqbt formatting
-./.venv/Scripts/python.exe -m formatting.cli --check .
-./.venv/Scripts/pymarkdown scan $(git ls-files '*.md')
-./.venv/Scripts/python.exe -m mdformat --check .
+uv run python -m pytest
+uv run ruff check nqbt formatting
+uv run ruff format --check .
+uv run mypy nqbt formatting
+uv run python -m formatting.cli --check .
+uv run pymarkdown scan $(git ls-files '*.md')
+uv run mdformat --check .
 ```
 
 CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usually noisy locally because it includes `.venv` and the gitignored notes under `docs/`. Scan the tracked files instead. `mdformat` takes a bare `.` in both places because its exclusions live in [`.mdformat.toml`](.mdformat.toml) rather than on the command line.
@@ -146,8 +146,8 @@ CI runs `pymarkdown scan --recurse .`, which is fine on a clean checkout but usu
 2. **A blank line before the last `return` in a function**, so the value a function produces is visually separated from the work that produced it.
 
 ```bash
-./.venv/Scripts/python.exe -m formatting.cli --check .      # what CI runs
-./.venv/Scripts/python.exe -m formatting.cli .              # rewrite in place
+uv run python -m formatting.cli --check .      # what CI runs
+uv run python -m formatting.cli .              # rewrite in place
 ```
 
 **It is independent of `ruff format`, and the order you run them in does not matter.** That is a property of the rules rather than a coincidence: they only ever *insert* a blank line, never at the top of a block, and only where there were none. Anywhere `ruff format` demands two blank lines, a source with none was already unformatted — so going from none to one cannot break it. `tests/test_formatting.py` pins the two properties this rests on, and is the place to look if the two ever start fighting.
@@ -189,7 +189,7 @@ Leave a local bare where the type cannot be stated honestly: a `pd.Series` whose
 
 ### Dependencies are pinned exactly
 
-Every entry in `dependencies` and the `dev` extra is `==`, not `>=`. CI resolves a fresh environment on every run, so a range means an upstream release nobody chose decides whether the build passes; with `extend-select = ["ALL"]`, that includes every new ruff rule. Dependabot raises the bumps daily, grouped into one pull request. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
+Every entry in `dependencies` and the `dev` group is `==`, not `>=`, and `uv.lock` pins everything they pull in, so a local run and a CI run use the same versions and no upstream release reaches the build until someone chooses it; with `extend-select = ["ALL"]`, that includes every new ruff rule. setuptools, which builds `nqbt` itself, is pinned the same way in `[build-system]`. CI installs with `uv sync --locked`, which fails when the lock no longer matches `pyproject.toml`: after changing a dependency, run `uv lock` and commit both files. Dependabot raises the bumps daily, grouped into one pull request that updates both. `uv run` syncs the local `.venv` to the lock before it runs, so pulling a bump to numpy, numba or pandas changes the versions your next run uses; while a campaign is running from `.venv`, start anything else with `uv run --no-sync`, so a sync cannot replace files the campaign has loaded. uv itself is pinned for CI by `SETUP_UV_VERSION` in the two workflows that install it; `required-version` in `pyproject.toml` is only a floor, because Dependabot locks with its own, newer uv and stops on a mismatch. **Do not relax a pin to make an install resolve** — take the dependabot bump instead, or pin the version that works and say why.
 
 **Treat a bump to numpy, numba, pandas or pyarrow as a change to `nqbt/sim/`**, because it is one: it reaches the simulation without touching a file in it, so nothing else will prompt you to check. CI carries the three pins that need no data — `tests/test_rng_stream_pins.py`, `tests/test_numeric_pins.py` and `tests/test_parquet_round_trip.py` — and a failure in any of them is a finding to explain, never a value to re-pin. They are canaries and not the gate: the trade-log gate runs on every dependency pull request in CI (["The trade-log regression gate"](#the-trade-log-regression-gate)), and the NT8 reconciliation still needs `verification/` and still runs locally. See [`docs/roadmap.md`](docs/roadmap.md) § "What CI can gate on a dependency bump".
 
@@ -206,7 +206,7 @@ An auto-fix can change logic as well as style, inside an `@njit` loop as easily 
 **When the Markdown job fails, run this and commit the result:**
 
 ```bash
-./.venv/Scripts/python.exe -m mdformat .
+uv run mdformat .
 ```
 
 **Do not override either setting on the command line.** Both live in [`.mdformat.toml`](.mdformat.toml), which `mdformat` discovers from the repository root, and both replace a default that would rewrite every file: `wrap = "no"` is the house style — **prose is not hard-wrapped; one line per paragraph, blank line between** — where the default, `keep`, reflows nothing, and `number = true` keeps ordered lists at `1./2./3.` where the default flattens every item to `1.`. A flag beats the file, so one run with `--wrap keep` undoes the style for everything it touches.
@@ -222,10 +222,10 @@ An auto-fix can change logic as well as style, inside an `@njit` loop as easily 
 **Anything touching `nqbt/` must prove it did not move a number** — not only `nqbt/sim/`, because an indicator, a session rule or an [archetype](README.md#archetype)'s signal reaches the trades just as surely.
 
 ```bash
-./.venv/Scripts/python.exe tools/capture_trade_logs.py before
+uv run tools/capture_trade_logs.py before
 # ...make the change...
-./.venv/Scripts/python.exe tools/capture_trade_logs.py after
-./.venv/Scripts/python.exe tools/compare_trade_logs.py before after
+uv run tools/capture_trade_logs.py after
+uv run tools/compare_trade_logs.py before after
 ```
 
 DeadCatBounce's four producer paths, and one log per other registered archetype at its defaults and live costs, so every archetype's loop runs. A refactor meant to preserve behaviour must reproduce every file; a change that adds a column must leave every other column identical (`--added <name>`). **An archetype's log sees only the rules on at its defaults**, so a change to a rule that is off by default — a filter, a sizing mode — comes back identical without having run.
@@ -275,7 +275,7 @@ Points that have each cost time:
 Check a title before you use it:
 
 ```bash
-echo "Add the phase filter to the sweep axes" | ./.venv/Scripts/python.exe tools/lint_commit_messages.py --stdin
+echo "Add the phase filter to the sweep axes" | uv run tools/lint_commit_messages.py --stdin
 ```
 
 Two things to know:
@@ -320,7 +320,7 @@ Two things to know:
 - `expected-trade-log-change` — turns a trade-log gate failure into a warning. See ["The trade-log regression gate"](#the-trade-log-regression-gate).
 - `conflict` — added when `main` cannot be merged into a `sync` branch automatically. Resolve the conflict by hand.
 
-**`dependencies`, `python`, `github_actions` and `submodules` are never added by hand.** Dependabot and the submodule bump workflow add them.
+**`dependencies`, `python:uv`, `github_actions` and `submodules` are never added by hand.** Dependabot and the submodule bump workflow add them.
 
 ### Keep the docs and issues current
 

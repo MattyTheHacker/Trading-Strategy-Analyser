@@ -1,7 +1,7 @@
 """Re-run a campaign shortlist with its trade logs kept, and store them beside the summary.
 
-    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --root MNQ
-    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
+    uv run tools/campaign_shortlist.py --strategy InsideBar --root MNQ
+    uv run tools/campaign_shortlist.py --strategy OpeningRange --held-out
 
 Also the home of :func:`rebuild`, :func:`shortlist` and :func:`best_row`, which every tool
 starting from a stored row uses -- ``tools/README.md`` § "campaign_shortlist.py".

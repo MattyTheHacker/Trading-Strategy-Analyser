@@ -83,14 +83,14 @@ Every comparison is on the holdout, over configurations whose arms were fixed be
 ## How to run it
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sizing.py fit --resolutions 5
+uv run tools/campaign_sizing.py fit --resolutions 5
 # the run records the fitted file's hash and time here, before the sweep starts
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies InsideBarTrailing \
+uv run tools/campaign_sweep.py --strategies InsideBarTrailing \
     --variants ibt-sizing --split --strata ibt-sizing --resolutions 5 --n-jobs 12
-./.venv/Scripts/python.exe tools/campaign_paired.py --strategy InsideBarTrailing --window holdout \
+uv run tools/campaign_paired.py --strategy InsideBarTrailing --window holdout \
     --stratum phase=MIDDAY --control "trailing split=0.5" --treatment "trailing tier=trend-age"
-./.venv/Scripts/python.exe tools/campaign_sizing.py null --root MNQ --resolution 5 --stratum phase=MIDDAY
-./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing \
+uv run tools/campaign_sizing.py null --root MNQ --resolution 5 --stratum phase=MIDDAY
+uv run tools/campaign_propaccount.py --strategy InsideBarTrailing \
     --stratum phase=MIDDAY --resolution 5 --variant trailing --quantities 2 3 4 6 8
 ```
 

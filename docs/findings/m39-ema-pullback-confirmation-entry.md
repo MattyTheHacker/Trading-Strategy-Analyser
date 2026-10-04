@@ -53,7 +53,7 @@ So `simulate_confirmation` is a new entry half: the pending order's trigger, sto
 | **Size**        | **317,952 combinations in 41.0 minutes** on twelve workers                               |
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants emapullback-confirm --split \
+uv run tools/campaign_sweep.py --variants emapullback-confirm --split \
     --strata emapullback-confirm --resolutions 2 5 10 15 --n-jobs 12
 ```
 

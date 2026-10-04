@@ -1,7 +1,7 @@
 """Read every stored stratum against the same combination run unfiltered.
 
-    ./.venv/Scripts/python.exe tools/campaign_crossread.py
-    ./.venv/Scripts/python.exe tools/campaign_crossread.py --dimension phase --min-score 8
+    uv run tools/campaign_crossread.py
+    uv run tools/campaign_crossread.py --dimension phase --min-score 8
 
 A score is a consistency check and not a p-value -- ``tools/README.md`` § "campaign_crossread.py".
 """

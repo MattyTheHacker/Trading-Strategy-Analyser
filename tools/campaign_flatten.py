@@ -1,6 +1,6 @@
 """Re-run a candidate at several ``ExitOnSessionCloseSeconds`` and say what the timing is worth.
 
-    ./.venv/Scripts/python.exe tools/campaign_flatten.py --strategy InsideBarTrailing \
+    uv run tools/campaign_flatten.py --strategy InsideBarTrailing \
         --root MNQ NQ --stratum phase=MIDDAY --variant trailing --resolution 1 2 5 10 15
 
 ``tools/README.md`` § "campaign_flatten.py".

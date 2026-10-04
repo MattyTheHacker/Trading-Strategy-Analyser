@@ -1,8 +1,8 @@
 """Sweep every registered archetype across resolution, market regime and session phase.
 
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --n-jobs 8
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --split --strata context --n-jobs 8
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
+    uv run tools/campaign_sweep.py --n-jobs 8
+    uv run tools/campaign_sweep.py --split --strata context --n-jobs 8
+    uv run tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
 
 ``--variants`` picks the grid and ``--strata`` the cells, and a cell already stored is skipped.
 Every option and variant set, and why each grid looks the way it does:
