@@ -25,7 +25,7 @@ from nqbt.instruments import MNQ
 
 if TYPE_CHECKING:
     from nqbt.archetypes import Params
-    from nqbt.arrays import AnyArray, BoolArray, FloatArray
+    from nqbt.arrays import AnyArray, BoolArray, FloatArray, IntArray
     from nqbt.context import Dataset
     from nqbt.costs import TradingCosts
     from nqbt.instruments import Instrument
@@ -307,9 +307,9 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             price_basis=price_basis,
         )
         scores: list[tuple[float, int]] = [_score(log, select_by) for log in train_logs]
-        table: pd.DataFrame = pd.DataFrame(scores, columns=[select_by, "trades"])
-        viable: pd.DataFrame = table[table["trades"] >= min_trades]
-        finite: pd.DataFrame = viable[np.isfinite(viable[select_by].to_numpy(dtype=float))]
+        statistics: FloatArray = np.array([statistic for statistic, _ in scores], dtype=np.float64)
+        trade_counts: IntArray = np.array([trades for _, trades in scores], dtype=np.int64)
+        viable: BoolArray = (trade_counts >= min_trades) & np.isfinite(statistics)
 
         row = {
             "split": split.index,
@@ -317,9 +317,9 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             "train_end": bars.index[split.train_end - 1],
             "test_start": bars.index[split.test_start],
             "test_end": bars.index[split.test_end - 1],
-            "combos_viable": len(finite),
+            "combos_viable": int(viable.sum()),
         }
-        if finite.empty:
+        if not viable.any():
             rows.append(
                 {
                     **row,
@@ -332,7 +332,7 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             )
             continue
 
-        combo_id: int = int(finite[select_by].idxmax())
+        combo_id: int = int(np.where(viable, statistics, -np.inf).argmax())
         train_stat, train_trades = scores[combo_id]
         (test_log,) = _window_logs(
             bars,
