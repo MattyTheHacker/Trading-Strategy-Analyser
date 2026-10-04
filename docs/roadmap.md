@@ -1079,7 +1079,7 @@ Three decisions the configuration carried when this landed, each with its reason
 
 **The order was the point.** A type checker introduced with a strict config and hundreds of errors gets switched off, so both tools reached zero *before* the CI job that enforces it existed, in a separate commit each.
 
-**The stubs move under you, and a clean local run does not prove a clean CI run.** `DateArray` was `NDArray[np.datetime64]` and type-checked against the numpy in the venv; CI installs the newest, and numpy 2.5 changed that parameter's default from `dt.date | int | None` to `Any`, so the alias smuggled in an explicit `Any` and the new gate failed on a machine nobody had run. Every alias that could carry a defaulted parameter now states it.
+**The stubs move under you, and a clean local run does not prove a clean CI run.** `DateArray` was `NDArray[np.datetime64]` and type-checked against the numpy in the venv; CI installed the newest, and numpy 2.5 changed that parameter's default from `dt.date | int | None` to `Any`, so the alias smuggled in an explicit `Any` and the new gate failed on a machine nobody had run. Every alias that could carry a defaulted parameter now states it.
 
 **The fix was to stop letting the resolver choose.** Every dependency and dev dependency is now pinned `==` rather than `>=`, so a local zero and a CI zero are the same measurement; dependabot raises the bumps and each is tested like any other change. The failure mode that forced it is worth keeping in mind whenever a pin is loosened: CI resolved fresh until `uv.lock` arrived, one minor version behind locally is enough to hide a failure, and `extend-select = ["ALL"]` gives ruff the same reach — a release that adds a rule fails a build nobody touched.
 

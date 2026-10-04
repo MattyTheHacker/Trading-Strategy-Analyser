@@ -46,7 +46,7 @@ Area-specific invariants live in `.claude/rules/` and load automatically when yo
 
 ## Environment
 
-Python 3.14, managed by uv: `uv sync` builds `.venv` from `uv.lock`. Run everything as `uv run ...`, which re-syncs `.venv` to the lock first.
+Python 3.14, managed by uv: `uv sync` builds `.venv` from `uv.lock`. Run everything as `uv run ...`, which re-syncs `.venv` to the lock first; while a campaign is running from `.venv`, use `uv run --no-sync` so a sync cannot replace numpy or numba under it.
 
 ```bash
 uv run python -m pytest

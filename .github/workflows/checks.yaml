@@ -12,10 +12,12 @@ concurrency:
 permissions:
   contents: read
 
-# Outside the checkout, so `pymarkdown scan --recurse .` and the Codecov upload's file search
-# never walk into it.
+# The venv sits outside the checkout, so `pymarkdown scan --recurse .` and the Codecov upload's
+# file search never walk into it. SETUP_UV_VERSION is the one uv CI runs; trade-log-gate.yaml
+# names the same version.
 env:
   UV_PROJECT_ENVIRONMENT: /tmp/nqbt-venv
+  SETUP_UV_VERSION: "0.11.14"
 
 jobs:
   pytest:
@@ -47,6 +49,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.2.0
         with:
+          version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
@@ -81,6 +84,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.2.0
         with:
+          version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
@@ -102,6 +106,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.2.0
         with:
+          version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
@@ -121,6 +126,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.2.0
         with:
+          version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
@@ -144,6 +150,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.2.0
         with:
+          version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
