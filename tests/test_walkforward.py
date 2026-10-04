@@ -282,6 +282,43 @@ def test_the_warmup_prefix_does_not_leak_its_trades_into_the_result() -> None:
         assert row.entry_time >= frame.index[windows[row.split].test_start]
 
 
+def test_the_warmup_prefix_does_not_leak_its_trades_into_the_training_selection() -> None:
+    """The training half: every candidate is scored on the trades entered in its window alone."""
+    frame = bars(6000, seed=3)
+    warmup = 1500
+    grid = sweep.Grid.of(DeadCatParams(), tp_multiplier=[1.5, 2.5], max_risk_ticks=[40, 80])
+    candidates = [costs.LIVE.apply(params) for params in grid.combinations()]
+    result = walkforward.walk_forward(
+        frame,
+        grid,
+        costs.LIVE,
+        train_bars=2000,
+        test_bars=1000,
+        warmup_bars=warmup,
+        min_trades=1,
+    )
+
+    leaked = 0
+    windows = walkforward.splits(len(frame), train_bars=2000, test_bars=1000)
+    for split, row in zip(windows, result.table.itertuples(), strict=True):
+        warmed = frame.iloc[max(0, split.train_start - warmup) : split.train_end]
+        scores = []
+        for params in candidates:
+            _, log = sweep.run_combination(sweep.prepare_for(warmed, sweep.Grid(base=params)), params)
+            trades = stats.per_trade(log)
+            inside = (trades["entry_time"] >= frame.index[split.train_start]).to_numpy()
+            leaked += int((~inside).sum())
+            pnl = trades["net_pnl"].to_numpy(float)[inside]
+            scores.append((stats.trade_statistic(pnl, "profit_factor"), pnl.size))
+
+        assert pd.notna(row.combo_id), "a fold selected nothing; the fixture no longer exercises selection"
+        viable = [score for score, trades in scores if trades >= 1 and np.isfinite(score)]
+        assert row.train_statistic == pytest.approx(max(viable))
+        assert (row.train_statistic, row.train_trades) == pytest.approx(scores[int(row.combo_id)])
+
+    assert leaked > 0, "fixture enters no trade in a prefix; the test proves nothing"
+
+
 def test_summary_pools_the_out_of_sample_trades_it_reports_the_count_of() -> None:
     frame = bars(6000, seed=3)
     grid = sweep.Grid.of(DeadCatParams(), tp_multiplier=[1.5, 2.5])
