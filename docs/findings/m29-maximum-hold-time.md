@@ -2,7 +2,7 @@
 id: M29
 title: "M29 — the maximum hold time: the one axis whose best value is off on every archetype"
 archetypes: [DeadCatBounce, ElasticBand, EmaCrossover, InsideBar, InsideBarTrailing, OpeningRange, PullBackAndGo]
-issues: [292]
+issues: [292, 401]
 gates: [1, 2]
 outcome: negative
 verdict: >-
@@ -137,4 +137,11 @@ DeadCatBounce and PullBackAndGo hold for a median of 2.0 and 3.0 bars, so at 20 
 
 **`tools/campaign_paired.py`'s exact sign test overflowed above 1,023 pairs.** `2.0 ** total` is `inf` in float64 there, so a cell holding a whole grid raised `OverflowError` rather than returning a p-value. Nothing had reached it because no previous pair had that many cells. The division now stays in integers until the last step; the quotient is always in [0, 1].
 
+## Re-checked after the same-side re-entry fix
+
+**EmaCrossover's capped rows ran with a bug that [#402] has since fixed, and the fix does not change this reading.** Before it ([#393]), a signal on the same side as an open position could reopen it at the open the cap's exit filled at. These rows predate §M44's repaired archive, so [#401] measured the fix on §M44's re-run of this ladder instead: both roots, 2, 5, 10 and 15 minutes. The uncapped arm and every row with `exit_on_opposite_cross` on came back identical. EmaCrossover's median change against the uncapped arm moved by at most 0.0006 of profit factor and 0.003 of net-to-drawdown at any rung in either window, and every rung still costs, less as the cap loosens. The tables above keep §M29's own figures.
+
 [#292]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/292
+[#393]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/393
+[#401]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/401
+[#402]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/402

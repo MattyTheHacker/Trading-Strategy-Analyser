@@ -2,7 +2,7 @@
 id: M44
 title: "M44 — the registry re-swept on a repaired archive, and the three gates re-read against it"
 archetypes: [DeadCatBounce, ElasticBand, EmaCrossover, EmaPullback, InsideBar, InsideBarTrailing, OpeningRange, PullBackAndGo, SqueezeBreakout]
-issues: [360]
+issues: [360, 401]
 gates: [1, 2, 3, 4]
 outcome: mixed
 verdict: >-
@@ -36,6 +36,8 @@ Three things, in the order they were found.
 The full registry grid on both index roots at the root's own commission and one tick of slippage, then the same grids again split into a selection window and a held-out one, then every variant grid each archetype owns, then the hold ladder and the fitted volume re-cut. Resolutions 2, 5, 10 and 15 throughout; **one minute was run only on the unsplit pass and deliberately not backfilled**, because it is 54% of the bar-work and every archetype's median configuration loses money there (§M27).
 
 Every pass is count-exact against its grid — the stored row count for each archetype × stratum-set × window equals combinations × cells × resolutions × roots with no remainder, so no pass is partial.
+
+**The hold ladder's EmaCrossover and EmaPullback rows were re-swept after [#402]** ([#401]), which fixed a same-side re-entry at a pending exit's open that both archetypes' capped rows ran with. No figure in this file reads them. The fix moved each archetype's median change against the uncapped arm by at most 0.0013 of profit factor at any rung, in either window.
 
 ## Gate 2 — the ordering is unchanged
 
@@ -159,3 +161,5 @@ Every figure here is one dated run over the archive as it stands, re-derivable f
 
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#360]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/360
+[#401]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/401
+[#402]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/402
