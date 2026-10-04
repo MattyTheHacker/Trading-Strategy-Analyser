@@ -186,43 +186,49 @@ class WalkForwardResult:
         )
 
 
-def _window_log(
+def _window_logs(
     bars: pd.DataFrame,
     window: tuple[int, int],
-    combination: sweep.Grid,
+    grid: sweep.Grid,
     instrument: Instrument,
     warmup: int,
+    *,
+    n_jobs: int = 1,
     price_basis: PriceBasis = PriceBasis.UNKNOWN,
-) -> pd.DataFrame:
-    """Run a one-combination grid over ``window``, dropping trades entered in the warm-up."""
+) -> list[pd.DataFrame]:
+    """Run ``grid`` over ``window`` and return each combination's log, minus warm-up trades."""
     start, end = window
     lead: int = max(0, start - warmup)
     slice_: pd.DataFrame = bars.iloc[lead:end]
-    data: Dataset = sweep.prepare_for(slice_, combination, price_basis=price_basis)
-    _, log = sweep.run_combination(
-        data,
-        combination.base,
-        instrument,
-        combination.archetype,
-        keep_trades=True,
-    )
-    if log is None or log.empty:
-        return pd.DataFrame() if log is None else log
+    # ``data`` rather than a keyword: ``sweep.sweep`` deliberately does not forward a price
+    # basis -- ``.claude/rules/sweep-and-context.md``.
+    data: Dataset = sweep.prepare_for(slice_, grid, price_basis=price_basis)
+    _, logs = sweep.sweep(slice_, grid, instrument, data=data, keep_trades=True, n_jobs=n_jobs)
 
     # ``entry_bar`` is a position into ``slice_``, which is what the prefix is measured in.
-    keep: BoolArray = log["entry_bar"].to_numpy() >= (start - lead)
+    first_bar: int = start - lead
+    kept: list[pd.DataFrame] = []
+    for combo_id in range(len(grid)):
+        log: pd.DataFrame = logs[combo_id]
+        keep: BoolArray = log["entry_bar"].to_numpy() >= first_bar
+        kept.append(log[keep].reset_index(drop=True))
 
-    return log[keep].reset_index(drop=True)
+    return kept
 
 
-def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
-    """Return ``name`` and the trade count behind it, from a leg-level log."""
-    if log.empty:
-        return np.nan, 0
-
+def _score(log: pd.DataFrame, name: str) -> tuple[float, int]:
+    """Return ``name`` and the trade count behind it, scoring no trades as a sweep summary does."""
     pnl: FloatArray = stats.per_trade(log)["net_pnl"].to_numpy(float)
 
     return stats.trade_statistic(pnl, name), int(pnl.size)
+
+
+def _statistic(log: pd.DataFrame, name: str) -> tuple[float, int]:
+    """Return ``name`` and the trade count behind it, or NaN where the log holds no trades."""
+    if log.empty:
+        return np.nan, 0
+
+    return _score(log, name)
 
 
 def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config bag would hide a swap
@@ -291,11 +297,17 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
 
     rows, logs = [], []
     for split in windows:
-        train: pd.DataFrame = bars.iloc[max(0, split.train_start - warmup_bars) : split.train_end]
-        # ``data`` rather than a keyword: ``sweep.sweep`` deliberately does not forward a price
-        # basis -- ``.claude/rules/sweep-and-context.md``.
-        trained: Dataset = sweep.prepare_for(train, costed, price_basis=price_basis)
-        table, _ = sweep.sweep(train, costed, instrument, data=trained, n_jobs=n_jobs)
+        train_logs: list[pd.DataFrame] = _window_logs(
+            bars,
+            (split.train_start, split.train_end),
+            costed,
+            instrument,
+            warmup_bars,
+            n_jobs=n_jobs,
+            price_basis=price_basis,
+        )
+        scores: list[tuple[float, int]] = [_score(log, select_by) for log in train_logs]
+        table: pd.DataFrame = pd.DataFrame(scores, columns=[select_by, "trades"])
         viable: pd.DataFrame = table[table["trades"] >= min_trades]
         finite: pd.DataFrame = viable[np.isfinite(viable[select_by].to_numpy(dtype=float))]
 
@@ -320,15 +332,15 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             )
             continue
 
-        best = finite.iloc[finite[select_by].argmax()].to_dict()
-        combo_id: int = int(best["combo_id"])
-        test_log: pd.DataFrame = _window_log(
+        combo_id: int = int(finite[select_by].idxmax())
+        train_stat, train_trades = scores[combo_id]
+        (test_log,) = _window_logs(
             bars,
             (split.test_start, split.test_end),
             sweep.Grid(base=combos[combo_id], archetype=costed.archetype),
             instrument,
             warmup_bars,
-            price_basis,
+            price_basis=price_basis,
         )
         test_stat, test_trades = _statistic(test_log, select_by)
         if not test_log.empty:
@@ -338,8 +350,8 @@ def walk_forward(  # noqa: PLR0913 - each argument is a distinct axis; a config 
             {
                 **row,
                 "combo_id": combo_id,
-                "train_statistic": float(best[select_by]),
-                "train_trades": int(best["trades"]),
+                "train_statistic": train_stat,
+                "train_trades": train_trades,
                 "test_statistic": test_stat,
                 "test_trades": test_trades,
             },
