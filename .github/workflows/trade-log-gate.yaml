@@ -27,7 +27,7 @@ defaults:
     shell: bash
 
 env:
-  SETUP_UV_VERSION: "0.11.14"  # the same uv checks.yaml runs
+  SETUP_UV_VERSION: "0.12.19"  # the same uv checks.yaml runs
   DATA_URL: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/releases/download/trade-log-gate-data-1
   CONTRACT_SHA256: ce4d388addaad4ea07789cb52f4d8945fcb8a9b4d817448f71dd60a6e3abd364
   CONTINUOUS_SHA256: 63a7cc4c48f7a03b4d73d18822041cc8bc5b66a55970d885b6fd5a0016022fa1

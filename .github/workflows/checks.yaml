@@ -17,7 +17,7 @@ permissions:
 # names the same version.
 env:
   UV_PROJECT_ENVIRONMENT: /tmp/nqbt-venv
-  SETUP_UV_VERSION: "0.11.14"
+  SETUP_UV_VERSION: "0.12.19"
 
 jobs:
   pytest:
