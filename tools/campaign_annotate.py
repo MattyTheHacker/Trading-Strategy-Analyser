@@ -1,7 +1,7 @@
 """Annotate a campaign shortlist's stored trade logs and persist them, so filtering is a query.
 
-    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --root MNQ
-    ./.venv/Scripts/python.exe tools/campaign_annotate.py  --strategy OpeningRange --root MNQ
+    uv run tools/campaign_shortlist.py --strategy OpeningRange --root MNQ
+    uv run tools/campaign_annotate.py  --strategy OpeningRange --root MNQ
 
 ``tools/README.md`` § "campaign_annotate.py".
 """

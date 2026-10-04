@@ -1,6 +1,6 @@
 """Rank a campaign's configurations by what a prop account is scored on, then read them held out.
 
-    ./.venv/Scripts/python.exe tools/campaign_propobjectives.py --strategy OpeningRange --root MNQ NQ
+    uv run tools/campaign_propobjectives.py --strategy OpeningRange --root MNQ NQ
 
 ``tools/README.md`` § "campaign_propobjectives.py".
 """

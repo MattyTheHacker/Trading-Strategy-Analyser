@@ -1,6 +1,6 @@
 """Diff two folders of NT8 minute exports, contract by contract.
 
-    ./.venv/Scripts/python.exe tools/compare_exports.py [baseline_dir] [candidate_dir]
+    uv run tools/compare_exports.py [baseline_dir] [candidate_dir]
 
 Defaults to data/minute (baseline) against data/addon (candidate). Read-only.
 ``tools/README.md`` § "compare_exports.py".

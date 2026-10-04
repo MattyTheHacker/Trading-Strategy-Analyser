@@ -70,35 +70,25 @@ jobs:
             cp MNQ_backadj.parquet "$GITHUB_WORKSPACE/$tree/cache/continuous/"
           done
 
-      - name: Set up the base's Python
+      # Run from the head and never saved, so it restores the cache checks.yaml saved on main
+      # whenever the head's lock is unchanged.
+      - name: Set up uv
         if: steps.scope.outputs.applies == 'true'
-        id: base-python
-        uses: actions/setup-python@v7
+        uses: astral-sh/setup-uv@v10.2.0
         with:
-          python-version-file: base/.python-version
-          cache: 'pip'
-          cache-dependency-path: |
-            base/pyproject.toml
-            head/pyproject.toml
+          working-directory: head
+          cache-dependency-glob: uv.lock
+          save-cache: false
 
-      - name: Set up the head's Python
-        if: steps.scope.outputs.applies == 'true'
-        id: head-python
-        uses: actions/setup-python@v7
-        with:
-          python-version-file: head/.python-version
-
+      # Each tree takes its own .python-version and is held to its own lock. A base from before
+      # uv.lock existed has none, so it resolves from its pins instead.
       - name: Install each tree into its own environment
         if: steps.scope.outputs.applies == 'true'
-        env:
-          BASE_PYTHON: ${{ steps.base-python.outputs.python-path }}
-          HEAD_PYTHON: ${{ steps.head-python.outputs.python-path }}
         run: |
-          "$BASE_PYTHON" -m venv "$RUNNER_TEMP/base-venv"
-          "$HEAD_PYTHON" -m venv "$RUNNER_TEMP/head-venv"
           for tree in base head; do
-            "$RUNNER_TEMP/$tree-venv/bin/python" -m pip install --upgrade pip
-            "$RUNNER_TEMP/$tree-venv/bin/python" -m pip install -e "./$tree"
+            locked=()
+            if [ -f "$tree/uv.lock" ]; then locked=(--locked); fi
+            UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/$tree-venv" uv --directory "$tree" sync --no-dev "${locked[@]}"
           done
 
       # Run from outside both trees, so the working directory cannot supply the answer.

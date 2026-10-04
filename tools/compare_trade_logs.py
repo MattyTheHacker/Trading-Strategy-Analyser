@@ -1,6 +1,6 @@
 """Compare two captures from ``capture_trade_logs.py``, exiting non-zero on any difference.
 
-    ./.venv/Scripts/python.exe tools/compare_trade_logs.py before after [--added col ...]
+    uv run tools/compare_trade_logs.py before after [--added col ...]
 
 ``--added`` names columns the change is expected to introduce; every other column must match.
 ``tools/README.md`` § "compare_trade_logs.py".

@@ -1,9 +1,9 @@
 """Read the conditional early exit: each arm against the control with every rule off.
 
-    ./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBar --window holdout
-    ./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBarTrailing \
+    uv run tools/campaign_early_exit.py --strategy InsideBar --window holdout
+    uv run tools/campaign_early_exit.py --strategy InsideBarTrailing \
         --stratum phase=MIDDAY --picks
-    ./.venv/Scripts/python.exe tools/campaign_early_exit.py --strategy InsideBar --reproduce
+    uv run tools/campaign_early_exit.py --strategy InsideBar --reproduce
 
 ``tools/README.md`` § "campaign_early_exit.py".
 """

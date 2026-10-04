@@ -1,6 +1,6 @@
 """Read the maximum-hold-time ladder: what each cap is worth against the uncapped arm.
 
-    ./.venv/Scripts/python.exe tools/campaign_hold.py --strategy InsideBar --window holdout
+    uv run tools/campaign_hold.py --strategy InsideBar --window holdout
 
 ``tools/README.md`` § "campaign_hold.py".
 """

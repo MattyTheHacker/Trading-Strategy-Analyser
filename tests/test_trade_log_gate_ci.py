@@ -64,6 +64,7 @@ def compare_output(tmp_path: Path, caplog: pytest.LogCaptureFixture, *, moved: b
         "nqbt/sim/bracket.py",
         "nqbt/indicators.py",
         "pyproject.toml",
+        "uv.lock",
         ".python-version",
         "tools/capture_trade_logs.py",
         "tools/campaign_null.py",

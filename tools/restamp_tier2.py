@@ -1,8 +1,8 @@
 """Re-stamp stored ``reconciled`` rows that leave their NinjaScript as ``tier-1-only``.
 
-    ./.venv/Scripts/python.exe tools/restamp_tier2.py                    # report, write nothing
-    ./.venv/Scripts/python.exe tools/restamp_tier2.py --write
-    ./.venv/Scripts/python.exe tools/restamp_tier2.py results/sweeps.duckdb --write
+    uv run tools/restamp_tier2.py                    # report, write nothing
+    uv run tools/restamp_tier2.py --write
+    uv run tools/restamp_tier2.py results/sweeps.duckdb --write
 
 ``tools/README.md`` § "restamp_tier2.py".
 """

@@ -19,7 +19,11 @@ dependencies = [
 ]
 
 
-[project.optional-dependencies]
+[project.scripts]
+nqbt = "nqbt.cli:main"
+
+
+[dependency-groups]
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
@@ -34,8 +38,9 @@ dev = [
 ]
 
 
-[project.scripts]
-nqbt = "nqbt.cli:main"
+# setup-uv installs this version too, so CI runs the uv that wrote uv.lock.
+[tool.uv]
+required-version = "==0.11.14"
 
 
 [tool.setuptools.packages.find]

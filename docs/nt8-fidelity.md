@@ -402,7 +402,7 @@ Source: **MNQ 03-24, 1-minute, an NT8 Strategy Analyzer export of 16,744 trades*
 Reproduce it with InsideBar's MNQ 03-24 Trades export as `<export.csv>`:
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> InsideBar "MNQ 03-24" 2023-12-14
+uv run tools/reconcile_nt8.py <export.csv> InsideBar "MNQ 03-24" 2023-12-14
 ```
 
 **What this settled.** The `IsFillLimitOnTouch = true` branch, which nothing in the project had evidence for. The `OnExecutionUpdate` indexing, established against both terms independently and against an inference that had them one bar later. And that `ExitOnSessionCloseSeconds` does not move a backtest's flatten. `Archetype.tier2` is `RECONCILED`.
@@ -485,7 +485,7 @@ Source: **MNQ 03-24, 1-minute, an NT8 Strategy Analyzer export of 26,086 legs** 
 Net P&L over the joined legs: NT8 −8,913.00 against nqbt −8,913.00. Reproduce it with InsideBarTrailing's MNQ 03-24 Trades export as `<export.csv>`:
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> InsideBarTrailing "MNQ 03-24" 2023-12-14
+uv run tools/reconcile_nt8.py <export.csv> InsideBarTrailing "MNQ 03-24" 2023-12-14
 ```
 
 **What this settled**, in the order the corrections landed: that the `-200` gate governs the trend violation and not just the dead branch under it (80.18% → 97.23%); that `OnPositionUpdate` runs at the same one-bar offset `OnExecutionUpdate` does (→ 97.63%, and exit reason to 100.00%); that the exit it submits is part of the triggering fill rather than a next-bar market order (→ 98.42%); and that a trail advances within its entry bar but not within any later one (→ 99.80%). `Archetype.tier2` is `RECONCILED`.
@@ -583,7 +583,7 @@ Net P&L over the joined legs agrees exactly on all three: −8,913.00, −10,510
 Reproduce the ported run with its Trades export as `<export.csv>`:
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_nt8.py <export.csv> InsideBarTrailing-midday-2035 "MNQ 03-24" 2023-12-14
+uv run tools/reconcile_nt8.py <export.csv> InsideBarTrailing-midday-2035 "MNQ 03-24" 2023-12-14
 ```
 
 `CONFIGS` carries all three, keyed `InsideBarTrailing`, `InsideBarTrailing-midday` and `InsideBarTrailing-midday-2035` — one archetype with three reconciled configurations, which is why a config name is no longer always an archetype name. The last is `docs/findings/m43-midday-candidates-ranked.md` § "The cell to port" with its commission and slippage set to zero, because NT8 ran with no fee template and a cost difference would read as a fill disagreement on every leg.
@@ -1133,7 +1133,7 @@ Four rules are built, the ones #369 pre-registers first, with their fields on ev
 Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; the outputs are kept in `verification/` and are machine-local (#91), and every figure below is reproduced by passing each run's events log to:
 
 ```bash
-./.venv/Scripts/python.exe tools/reconcile_order_lifetime.py <stem>_events.csv
+uv run tools/reconcile_order_lifetime.py <stem>_events.csv
 ```
 
 ### Read the bar column before anything else: order callbacks lag by one

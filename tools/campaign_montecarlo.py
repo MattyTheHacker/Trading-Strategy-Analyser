@@ -1,7 +1,7 @@
 """Resample a campaign shortlist's trade sequences, to size the luck in their equity paths.
 
-    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar
-    ./.venv/Scripts/python.exe tools/campaign_montecarlo.py --strategy InsideBar
+    uv run tools/campaign_shortlist.py --strategy InsideBar
+    uv run tools/campaign_montecarlo.py --strategy InsideBar
 
 Not the matched null and no replacement for it -- ``tools/README.md`` § "campaign_montecarlo.py".
 """

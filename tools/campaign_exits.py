@@ -1,7 +1,7 @@
 """Re-summarise a campaign shortlist with one exit reason's legs removed, and say what survives.
 
-    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
-    ./.venv/Scripts/python.exe tools/campaign_exits.py --strategy OpeningRange
+    uv run tools/campaign_shortlist.py --strategy OpeningRange --held-out
+    uv run tools/campaign_exits.py --strategy OpeningRange
 
 A decomposition, not a counterfactual -- ``tools/README.md`` § "campaign_exits.py".
 """

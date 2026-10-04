@@ -30,7 +30,7 @@ Every figure below is re-derivable from `results/campaign/EmaPullback.duckdb`. I
 | **Size**        | **995,328 combinations in 87.1 minutes** on twelve workers                                                 |
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies EmaPullback \
+uv run tools/campaign_sweep.py --strategies EmaPullback \
     --strata volume-forms --split --volume-quantiles --resolutions 2 5 10 15 --n-jobs 12
 ```
 

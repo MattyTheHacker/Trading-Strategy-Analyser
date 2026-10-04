@@ -1,8 +1,8 @@
 """Compare the raw context labels against the fitted ones over the same bars.
 
-    ./.venv/Scripts/python.exe tools/campaign_labels.py --dimension regime
-    ./.venv/Scripts/python.exe tools/campaign_labels.py --dimension volume --resolutions 5
-    ./.venv/Scripts/python.exe tools/campaign_labels.py --dimension windows --volume-rolling-bars 10 90
+    uv run tools/campaign_labels.py --dimension regime
+    uv run tools/campaign_labels.py --dimension volume --resolutions 5
+    uv run tools/campaign_labels.py --dimension windows --volume-rolling-bars 10 90
 
 ``tools/README.md`` § "campaign_labels.py".
 """

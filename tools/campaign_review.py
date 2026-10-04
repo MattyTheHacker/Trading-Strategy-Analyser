@@ -1,7 +1,7 @@
 """Read a campaign shortlist's realised trades by the clock, and guard what that turns up.
 
-    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy InsideBar --window holdout
-    ./.venv/Scripts/python.exe tools/campaign_review.py --strategy InsideBar --window holdout
+    uv run tools/campaign_shortlist.py --strategy InsideBar --window holdout
+    uv run tools/campaign_review.py --strategy InsideBar --window holdout
 
 ``tools/README.md`` § "campaign_review.py".
 """

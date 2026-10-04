@@ -1,8 +1,8 @@
 """Replay a campaign shortlist's stored trade logs through a prop firm's account rules.
 
-    ./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy OpeningRange --held-out
-    ./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy OpeningRange
-    ./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy InsideBarTrailing \
+    uv run tools/campaign_shortlist.py --strategy OpeningRange --held-out
+    uv run tools/campaign_propaccount.py --strategy OpeningRange
+    uv run tools/campaign_propaccount.py --strategy InsideBarTrailing \
         --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
 
 Nothing here is a ranking -- ``tools/README.md`` § "campaign_propaccount.py".

@@ -1,7 +1,7 @@
 """Re-run a campaign shortlist under both ambiguity policies, and report the spread.
 
-    ./.venv/Scripts/python.exe tools/campaign_ambiguity.py --strategy OpeningRange --root MNQ
-    ./.venv/Scripts/python.exe tools/campaign_ambiguity.py --strategy OpeningRange --window holdout
+    uv run tools/campaign_ambiguity.py --strategy OpeningRange --root MNQ
+    uv run tools/campaign_ambiguity.py --strategy OpeningRange --window holdout
 
 ``tools/README.md`` § "campaign_ambiguity.py".
 """

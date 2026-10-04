@@ -1,7 +1,7 @@
 """Read the campaign databases and say which archetype is worth improving.
 
-    ./.venv/Scripts/python.exe tools/campaign_report.py
-    ./.venv/Scripts/python.exe tools/campaign_report.py --window selection holdout
+    uv run tools/campaign_report.py
+    uv run tools/campaign_report.py --window selection holdout
 
 Reports distributions, not winners -- ``tools/README.md`` § "campaign_report.py".
 """

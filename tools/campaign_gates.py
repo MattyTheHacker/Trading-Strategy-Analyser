@@ -1,8 +1,8 @@
 r"""Every per-cell read of a swept variant set, over every cell, from one load per archetype.
 
-    ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
+    uv run tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
         --out <dir> --n-jobs 6
-    ./.venv/Scripts/python.exe tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
+    uv run tools/campaign_gates.py --variants ibt-sizing --resolutions 5 \
         --out <dir> --reads gate4 --cells <csv of strategy, root, resolution, variant and stratum>
 
 The reads are the per-cell tools' own functions, and a run reads only what ``--out`` is missing.

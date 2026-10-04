@@ -219,19 +219,19 @@ The binomial treats the 20 configurations as independent, and a shortlist's neig
 ```bash
 for s in DeadCatBounce PullBackAndGo EmaCrossover EmaPullback InsideBar InsideBarTrailing \
          ElasticBand OpeningRange SqueezeBreakout; do
-    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --strategy $s --resolutions 2 5 10 15
+    uv run tools/campaign_sizing.py fit --strategy $s --resolutions 2 5 10 15
 done
 # each archetype's sizing-cuts file hashed and transcribed here, before the sweep
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants confluence-sizing --split \
+uv run tools/campaign_sweep.py --variants confluence-sizing --split \
     --strata confluence-sizing --resolutions 2 5 10 15 --n-jobs 12
-./.venv/Scripts/python.exe tools/campaign_holdout.py --strategy ElasticBand --variant "target=0.0s size=confluence"
-./.venv/Scripts/python.exe tools/campaign_paired.py --strategy ElasticBand --window holdout \
+uv run tools/campaign_holdout.py --strategy ElasticBand --variant "target=0.0s size=confluence"
+uv run tools/campaign_paired.py --strategy ElasticBand --window holdout \
     --stratum unfiltered --control "target=0.0s size=fixed" --treatment "target=0.0s size=confluence"
-./.venv/Scripts/python.exe tools/campaign_sizing.py null --strategy ElasticBand --root MNQ \
+uv run tools/campaign_sizing.py null --strategy ElasticBand --root MNQ \
     --resolution 5 --stratum unfiltered --variant "target=0.0s size=confluence"
-./.venv/Scripts/python.exe tools/campaign_shortlist.py --strategy ElasticBand --held-out \
+uv run tools/campaign_shortlist.py --strategy ElasticBand --held-out \
     --variant "target=0.0s size=confluence"
-./.venv/Scripts/python.exe tools/campaign_propaccount.py --strategy ElasticBand \
+uv run tools/campaign_propaccount.py --strategy ElasticBand \
     --variant "target=0.0s size=confluence"
 ```
 

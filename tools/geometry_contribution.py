@@ -1,6 +1,6 @@
 """Split each bracket geometry's result into what the geometry does and what the entry adds.
 
-    ./.venv/Scripts/python.exe tools/geometry_contribution.py out.csv
+    uv run tools/geometry_contribution.py out.csv
 
 Choose the entry settings before looking at any result -- ``tools/README.md`` § "geometry_contribution.py".
 """

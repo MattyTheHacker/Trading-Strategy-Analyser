@@ -20,8 +20,8 @@ Nothing in the registry had one before except ElasticBand, whose scheme C shippe
 **341,760 rows**: every archetype's stored §M27 campaign grid, re-emitted once per rung of a five-step ladder plus the uncapped control — `max_hold_bars` at 0, 5, 10, 20, 40 and 80 bars — on both roots, resolutions 1/2/5/10/15, split 60/40 into a selection and a held-out window, at the root's own commission and one tick of slippage, unfiltered stratum only. 99.1% of rows clear 30 trades. 40.7 minutes of wall clock.
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants hold --split --strata hold --n-jobs 8
-./.venv/Scripts/python.exe tools/campaign_hold.py --strategy <name> --window holdout
+uv run tools/campaign_sweep.py --variants hold --split --strata hold --n-jobs 8
+uv run tools/campaign_hold.py --strategy <name> --window holdout
 ```
 
 **The cap is a variant dimension and not an axis, and that is what makes the reading paired.** Each rung carries §M27's axes unchanged, so every arm holds exactly the same number of combinations and two rows differ by the cap and by nothing else. A treatment arm with axes of its own would have made its shortlist a best-of-more — the bias [`sweep-and-context.md`](../../.claude/rules/sweep-and-context.md) records as sitting *in the design rather than in the data*, measured at §M27 on EmaCrossover's trailing arm. `tools/campaign_paired.py` is the instrument, with the base variant added to its cell key so the ladder pairs inside each of them.

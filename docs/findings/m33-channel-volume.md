@@ -112,9 +112,9 @@ The coarse `shape=reversal` cells are the thin ones in both channels, and every 
 ## Reproducing it
 
 ```bash
-./.venv/Scripts/python.exe tools/campaign_sweep.py --variants elastic-channel --split \
+uv run tools/campaign_sweep.py --variants elastic-channel --split \
     --strata elastic-channel --volume-quantiles --n-jobs 1
-./.venv/Scripts/python.exe tools/campaign_crossread.py --strategies ElasticBand \
+uv run tools/campaign_crossread.py --strategies ElasticBand \
     --dimension volume --min-score 6 --variant "channel-volume channel=vwap shape=reversal target=0.0s" \
     "channel-volume channel=bollinger shape=reversal target=0.0s"
 ```

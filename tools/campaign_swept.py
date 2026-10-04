@@ -1,7 +1,7 @@
 """One stored shortlist's held-out logs, re-run on the bars it was swept on.
 
-    ./.venv/Scripts/python.exe tools/campaign_exits.py --strategy InsideBarTrailing --rerun
-    ./.venv/Scripts/python.exe tools/campaign_montecarlo.py --strategy InsideBarTrailing --rerun
+    uv run tools/campaign_exits.py --strategy InsideBarTrailing --rerun
+    uv run tools/campaign_montecarlo.py --strategy InsideBarTrailing --rerun
 
 The agreement with the stored row is reported rather than required --
 ``tools/README.md`` § "campaign_swept.py".

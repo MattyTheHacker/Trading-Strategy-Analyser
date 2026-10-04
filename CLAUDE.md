@@ -46,11 +46,11 @@ Area-specific invariants live in `.claude/rules/` and load automatically when yo
 
 ## Environment
 
-Python 3.14 venv at `.venv`. Run tools as `./.venv/Scripts/python.exe -m ...`.
+Python 3.14, managed by uv: `uv sync` builds `.venv` from `uv.lock`. Run everything as `uv run ...`, which re-syncs `.venv` to the lock first.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest
-nqbt ingest | contracts | splice | run
+uv run python -m pytest
+uv run nqbt ingest | contracts | splice | run
 ```
 
 The CLI covers the four pipeline steps and stops there **by design**. `nqbt run --explain N` is the NT8 audit trail and earns its keep; sweeps, reports and walk-forward are driven from Python because a `Grid` does not survive being flattened into argparse flags. Do not add commands that duplicate the Python API.

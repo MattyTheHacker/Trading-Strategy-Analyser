@@ -1,6 +1,6 @@
 """Run one root's shortlist on another root, to see whether a configuration travels.
 
-    ./.venv/Scripts/python.exe tools/campaign_crossroot.py --top 200 --min-trades 500
+    uv run tools/campaign_crossroot.py --top 200 --min-trades 500
 
 ``tools/README.md`` § "campaign_crossroot.py".
 """

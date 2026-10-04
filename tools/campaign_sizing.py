@@ -1,10 +1,10 @@
 r"""Fit the cuts a confluence size runs at, and read it against its own sizes shuffled.
 
-    ./.venv/Scripts/python.exe tools/campaign_sizing.py fit --strategy ElasticBand \
+    uv run tools/campaign_sizing.py fit --strategy ElasticBand \
         --resolutions 2 5 10 15
-    ./.venv/Scripts/python.exe tools/campaign_sweep.py --strategies ElasticBand \
+    uv run tools/campaign_sweep.py --strategies ElasticBand \
         --variants confluence-sizing --split --strata confluence-sizing --resolutions 2 5 10 15
-    ./.venv/Scripts/python.exe tools/campaign_sizing.py null --strategy ElasticBand --root MNQ \
+    uv run tools/campaign_sizing.py null --strategy ElasticBand --root MNQ \
         --resolution 5 --variant "target=0.0s size=confluence"
 
 InsideBarTrailing is the default strategy, and there the null reads §M45's confluence arm unless

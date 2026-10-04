@@ -1,6 +1,6 @@
 """Walk a campaign shortlist forward through several folds, rather than one hand-cut split.
 
-    ./.venv/Scripts/python.exe tools/campaign_walkforward.py --strategy InsideBar
+    uv run tools/campaign_walkforward.py --strategy InsideBar
 
 ``tools/README.md`` § "campaign_walkforward.py".
 """
