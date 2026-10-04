@@ -2,7 +2,7 @@
 id: M48
 title: "M48 — the conditional early exit: exits that can close a winner cost, and the one sizeable held-out gain is at a bar size the candidate is not traded at"
 archetypes: [DeadCatBounce, ElasticBand, EmaCrossover, EmaPullback, InsideBar, InsideBarTrailing, OpeningRange, PullBackAndGo, SqueezeBreakout]
-issues: [369]
+issues: [369, 401]
 gates: [1, 2]
 outcome: mixed
 verdict: >-
@@ -40,8 +40,8 @@ In each archetype × resolution cell and on each root, the selection window pick
 | DeadCatBounce     | unfiltered   |       2 | `bars5@0.5R`     |      +0.0002 | `bars3@0.5R`            |     +0.0027 |
 | DeadCatBounce     | unfiltered   |       5 | `bars3@0.5R`     |      +0.0053 | `bars3@0.5R`            |     +0.0147 |
 | DeadCatBounce     | unfiltered   |      10 | `regime`         |      +0.0582 | `close120m`             |     +0.0206 |
-| EmaPullback       | unfiltered   |       5 | `close60m`       |      +0.0024 | `close60m`              |     +0.0035 |
-| EmaPullback       | unfiltered   |      10 | `trend-opposed`  |      +0.0155 | `trend-opposed`         |     +0.0093 |
+| EmaPullback       | unfiltered   |       5 | `close60m`       |      +0.0025 | `close60m`              |     +0.0036 |
+| EmaPullback       | unfiltered   |      10 | `trend-opposed`  |      +0.0156 | `trend-opposed`         |     +0.0093 |
 | InsideBar         | unfiltered   |       5 | `close30m`       |      +0.0034 | `trend-opposed`         |     +0.0219 |
 | InsideBarTrailing | phase=MIDDAY |      10 | `trend-opposed`  |  **+0.0705** | `trend-opposed`         | **+0.0838** |
 | OpeningRange      | unfiltered   |      10 | `trend-not-with` |      +0.0042 | `trend-not-with-losing` |     +0.0022 |
@@ -59,37 +59,37 @@ Counted over the 72 archetype × root × resolution cells unfiltered, only where
 
 | arm                     | selection: costs / gains | held out: costs / gains | held-out range   | trades, held out |
 | ----------------------- | -----------------------: | ----------------------: | ---------------- | ---------------: |
-| `bars3@-0.5R`           |                  21 / 30 |                 23 / 30 | −0.013 to +0.006 |           +0.4 % |
-| `bars3@0R`              |                  50 / 18 |                 48 / 19 | −0.116 to +0.031 |          +16.6 % |
-| `bars3@0.25R`           |                  56 / 12 |                 54 / 15 | −0.140 to +0.024 |          +27.4 % |
+| `bars3@-0.5R`           |                  21 / 29 |                 23 / 30 | −0.013 to +0.006 |           +0.4 % |
+| `bars3@0R`              |                  50 / 18 |                 48 / 19 | −0.116 to +0.032 |          +16.6 % |
+| `bars3@0.25R`           |                  56 / 12 |                 54 / 15 | −0.140 to +0.023 |          +27.4 % |
 | `bars3@0.5R`            |                  60 / 10 |                 58 / 14 | −0.140 to +0.048 |          +31.9 % |
 | `bars5@-0.5R`           |                  18 / 35 |                 22 / 32 | −0.013 to +0.006 |           +0.3 % |
 | `bars5@0R`              |                   53 / 9 |                 44 / 14 | −0.167 to +0.042 |          +12.6 % |
-| `bars5@0.25R`           |                  55 / 10 |                 47 / 15 | −0.127 to +0.030 |          +20.3 % |
-| `bars5@0.5R`            |                   59 / 8 |                 49 / 15 | −0.127 to +0.018 |          +25.7 % |
+| `bars5@0.25R`           |                  55 / 10 |                 47 / 15 | −0.127 to +0.032 |          +19.8 % |
+| `bars5@0.5R`            |                   59 / 8 |                 49 / 15 | −0.127 to +0.021 |          +25.4 % |
 | `bars10@-0.5R`          |                  24 / 32 |                 18 / 34 | −0.011 to +0.011 |           +0.3 % |
 | `bars10@0R`             |                   46 / 9 |                 34 / 22 | −0.060 to +0.052 |           +8.7 % |
 | `bars10@0.25R`          |                   50 / 6 |                 35 / 21 | −0.081 to +0.037 |          +14.6 % |
 | `bars10@0.5R`           |                   53 / 3 |                 36 / 19 | −0.114 to +0.037 |          +17.2 % |
-| `bars20@-0.5R`          |                  24 / 28 |                 14 / 39 | −0.017 to +0.006 |           +0.2 % |
+| `bars20@-0.5R`          |                  25 / 28 |                 14 / 39 | −0.017 to +0.006 |           +0.2 % |
 | `bars20@0R`             |                  37 / 19 |                 20 / 34 | −0.086 to +0.043 |           +4.7 % |
 | `bars20@0.25R`          |                  45 / 11 |                 24 / 32 | −0.089 to +0.042 |           +9.2 % |
 | `bars20@0.5R`           |                   47 / 9 |                 28 / 28 | −0.089 to +0.042 |          +10.3 % |
 | `close15m`              |                  24 / 23 |                  25 / 9 | −0.007 to +0.001 |           +0.0 % |
-| `close30m`              |                  28 / 40 |                 52 / 15 | −0.012 to +0.006 |           +0.2 % |
-| `close60m`              |                  43 / 27 |                 47 / 19 | −0.014 to +0.016 |           +0.4 % |
+| `close30m`              |                  28 / 40 |                 52 / 15 | −0.012 to +0.006 |           +0.1 % |
+| `close60m`              |                  43 / 27 |                 47 / 19 | −0.014 to +0.016 |           +0.3 % |
 | `close120m`             |                  52 / 19 |                 35 / 35 | −0.038 to +0.025 |           +1.6 % |
-| `regime`                |                  61 / 11 |                 52 / 20 | −0.128 to +0.104 |          +31.0 % |
+| `regime`                |                  61 / 11 |                 51 / 21 | −0.128 to +0.104 |          +30.7 % |
 | `regime-losing`         |                  62 / 10 |                 44 / 28 | −0.084 to +0.051 |          +16.1 % |
 | `trend-opposed`         |                  32 / 31 |                 19 / 41 | −0.055 to +0.062 |           +6.2 % |
-| `trend-opposed-losing`  |                  34 / 27 |                 20 / 39 | −0.055 to +0.038 |           +5.0 % |
+| `trend-opposed-losing`  |                  34 / 27 |                 20 / 38 | −0.055 to +0.038 |           +5.0 % |
 | `trend-not-with`        |                  37 / 21 |                 20 / 40 | −0.123 to +0.072 |           +5.4 % |
 | `trend-not-with-losing` |                  37 / 20 |                 18 / 39 | −0.123 to +0.072 |           +4.2 % |
 
 - **An exit that can close a winner costs, in both windows.** The not-working exit at a threshold of zero or above, and the regime exit, cost in most cells, more the higher the threshold and the earlier the bar. Each one frees the position for the next signal, which is where up to a third more trades come from.
 - **EmaPullback is the exception, and it is the window's sign again.** Every not-working rung at zero or above costs on its selection window, 96 of 96 cells, and gains held out in 70 of 96: the §M37 and §M39 shape, not a rule that works.
 - **The loss-only and before-close forms barely move anything.** At −0.5 R the not-working exit stays within 0.017 of its control held out; the before-close exit moves profit factor by at most 0.038 anywhere and adds a median of at most 1.6% of trades, and its 15-minute window is bound in only 38 of 72 held-out cells.
-- **The trend exit is the one rule that gains more often than it costs held out**, in 39 to 41 of 60-odd bound cells, against 20 to 31 on the selection window.
+- **The trend exit is the one rule that gains more often than it costs held out**, in 38 to 41 of 60-odd bound cells, against 20 to 31 on the selection window.
 - **The two windows agree on the sign of an arm's effect in 65% of 2,288 arm × cell pairs.**
 - **DeadCatBounce and PullBackAndGo are untested by most of the not-working ladder**, as predicted: they hold two to three bars, and every rung from 5 bars up is bound in fewer than half their paired rows.
 
@@ -155,6 +155,10 @@ On NQ the cell's median net is negative on every preset with the exit or without
 - **InsideBarTrailing's trend exit at 10 minutes is not a candidate.** It is one bar size of four, it costs profit factor at the one [#344] trades, and through the prop accounts it costs at both. It would also need porting: the trend label has no NinjaScript yet, so every row with it on is `TIER1_ONLY`.
 - **Not tested here**: a stop that moves — breakeven ([#351]), a trail to structure ([#352]) or a stop tightening with age or before the close; #369's second and third tiers; any stratum but the two; and the prop replay of every arm in every cell rather than the picks, which is [#398].
 
+## Re-swept after the same-side re-entry fix
+
+**[#402] changed EmaCrossover's and EmaPullback's rows here, and no verdict, pick or count moved.** Before it ([#393]), a signal on the same side as an open position could reopen it at the open its early exit filled at. [#401] re-swept both archetypes' arms and control. The control, and every EmaCrossover row with `exit_on_opposite_cross` on, came back identical. Of the rest, 37% of EmaPullback's rows and 46% of EmaCrossover's moved, by a median of 0.001 to 0.002 of profit factor and at most 0.12, most of them with fewer trades. The figures above are the re-swept ones: EmaPullback's two clearing cells move by 0.0001 on the verdict table, ten rows under "What each rule does" move by at most one cell, 0.003 of range or 0.5% of trades, and the trend exit's held-out gains start at 38 rather than 39. Gates 1 and 2, the predictions and the prop replay are unchanged.
+
 ## How it was read
 
 From the stored rows alone: every arm is a variant named `<base variant> exit=<arm>`, in `results/campaign/<Archetype>.duckdb`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant as `tools/campaign_hold.py` keys the hold ladder; "bound" is that tool's `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. **`tools/campaign_early_exit.py` reproduces the paired tables, the verdict (`--picks`) and the control's reproduction (`--reproduce`)**; the contrasts between arms, gate 1 and the counts behind the predictions were computed from the same functions by a local script. **The trade figures here are the ratio of the two arms' medians**, the tool's first form; it now pairs them configuration by configuration, so its `trades_ratio` can differ slightly from the numbers above. The prop replay is `tools/campaign_propaccount.py`'s `--rerun` path, one variant per call, driven by a local script; a row's figure is the median over the shortlist, then over base variants where an arm spans several.
@@ -163,5 +167,8 @@ From the stored rows alone: every arm is a variant named `<base variant> exit=<a
 [#351]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/351
 [#352]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/352
 [#369]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/369
+[#393]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/393
 [#395]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/395
 [#398]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/398
+[#401]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/401
+[#402]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/402
