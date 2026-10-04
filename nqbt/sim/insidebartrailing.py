@@ -223,11 +223,11 @@ def structure_level(
 ) -> float:
     """Return the midpoint of the ``box_bars`` bars before ``i``, less ``cushion``, or ``nan``.
 
-    ``nan`` unless bar ``i`` closed beyond the box's favourable edge. A box reaching before the
-    first bar reads the bars there are. Pass the result to
+    ``nan`` unless bar ``i`` closed beyond the box's favourable edge, and for a box of no bars. A
+    box reaching before the first bar reads the bars there are. Pass the result to
     :func:`nqbt.sim.bracket.tightened_stop` -- ``docs/nt8-fidelity.md``, "Trailing to structure".
     """
-    if i < 1:
+    if i < 1 or box_bars < 1:
         return np.nan
 
     start = max(i - box_bars, 0)

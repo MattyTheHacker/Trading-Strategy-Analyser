@@ -497,6 +497,7 @@ def test_a_box_reaching_before_the_first_bar_reads_the_bars_there_are() -> None:
         == pytest.approx(100.0)
     )
     assert np.isnan(insidebartrailing.structure_level(bars, 0, 1, 0.0, costs, fills, LONG))
+    assert np.isnan(insidebartrailing.structure_level(bars, 1, 0, 0.0, costs, fills, LONG))
 
 
 @pytest.mark.parametrize(
