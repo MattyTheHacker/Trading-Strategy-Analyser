@@ -281,6 +281,13 @@ below and is what you quote; this file is the index, not the record.
   the ratchet moves to a lagged bar's extreme. **It advances within its entry bar and at the
   close of every bar after**, which is two cadences and not one — a uniform within-bar rule
   costs 5.8 points of agreement. `docs/nt8-fidelity.md` §M23.
+- **InsideBarTrailing's structure trail replaces that trail on the runner; it does not sit
+  beside it.** With `structure_trail_bars` on, the runner starts at the same distance from the
+  fill and then moves only at a close strictly beyond the last N bars, to their midpoint less a
+  cushion in the signal bar's ATR. It has **no entry-bar advance** — that belongs to
+  `SetTrailStop`, which a port of this mode never calls. `structure_level` is the one decision
+  and `tightened_stop` the ratchet. Off by default, and `TIER1_ONLY` when on.
+  `docs/nt8-fidelity.md`, "Trailing to structure".
 - **A C# guard clause belongs to its method, not to the branch below it.** `if (pnl > -200)
   return;` at the top of `OnPositionUpdate` gates InsideBarTrailing's *trend violation* as well
   as the dead max-loss check under it; reading it as the max-loss branch's own fired the exit
@@ -292,9 +299,10 @@ below and is what you quote; this file is the index, not the record.
   `docs/nt8-fidelity.md` §M23.
 - **`tightened_stop` is the one ratchet, and a trail is a ratchet over a different level.**
   DeadCatBounce's candidate is a lagged bar's adverse extreme, EmaCrossover's is a moving
-  average plus a cushion and the breakeven's is the entry; all any of them does with a candidate
-  is refuse to loosen, and a `nan` candidate leaves the stop alone. **Do not write a second
-  comparison.** EmaCrossover's trail sits *on top of* whichever mode placed the initial stop
+  average plus a cushion, the breakeven's is the entry and InsideBarTrailing's structure
+  trail's is a broken box's midpoint; all any of them does with a candidate is refuse to
+  loosen, and a `nan` candidate leaves the stop alone. **Do not write a second comparison.**
+  EmaCrossover's trail sits *on top of* whichever mode placed the initial stop
   rather than replacing it, so `(use_atr_stop, trail_ma_stop)` is a legal 2x2 instead of a mode
   with a cell where one toggle masks the other. `docs/roadmap.md` § "The build spec's three
   loose ends". EmaPullback's `trail_on_slow` points the same ratchet at the slow average and the

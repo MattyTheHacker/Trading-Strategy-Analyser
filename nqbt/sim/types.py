@@ -1557,7 +1557,19 @@ class InsideBarTrailingParams(InsideBarParams):
     """Share of ``order_quantity`` the bracketed lot takes, rounded **up** -- 4 of 6."""
 
     trailing_stop_multiplier: float = 5.0
-    """Multiples of the inside bar's range the trailing stop follows the high-water mark by."""
+    """Multiples of the inside bar's range the trailing stop follows the high-water mark by.
+
+    With :attr:`structure_trail_bars` on it sets the trailing lot's initial stop only."""
+
+    structure_trail_bars: int = 0
+    """Completed bars in the box whose break moves the trailing lot's stop to the box's midpoint.
+
+    Off at ``0``, which trails the high-water mark -- ``docs/nt8-fidelity.md``, "Trailing to
+    structure"."""
+
+    structure_trail_cushion_atr: float = 0.0
+    """How far behind the box's midpoint the stop sits, in ATRs read on the signal bar. Read only
+    with :attr:`structure_trail_bars` on."""
 
     position_update_loss_gate: float = 200.0
     """How far under water the open position must be before ``OnPositionUpdate`` acts at all.
@@ -1626,6 +1638,26 @@ class InsideBarTrailingParams(InsideBarParams):
 
         self._check_sizing()
         self._check_lot_table()
+        self._check_structure_trail()
+
+    def _check_structure_trail(self) -> None:
+        """Refuse a structure trail out of range, or a cushion with the structure trail off."""
+        if self.structure_trail_bars < 0:
+            msg: str = f"structure_trail_bars must be >= 0, got {self.structure_trail_bars}"
+            raise ValueError(msg)
+
+        if not 0.0 <= self.structure_trail_cushion_atr < math.inf:
+            msg = (
+                f"structure_trail_cushion_atr must be >= 0 and finite, got {self.structure_trail_cushion_atr}"
+            )
+            raise ValueError(msg)
+
+        if self.structure_trail_bars == 0 and self.structure_trail_cushion_atr != 0.0:
+            msg = (
+                "structure_trail_cushion_atr set but structure_trail_bars is 0, so the structure "
+                "trail that reads it is off"
+            )
+            raise ValueError(msg)
 
     def _check_sizing(self) -> None:
         """Refuse an earliness rule that cannot run.

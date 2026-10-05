@@ -484,6 +484,7 @@ INERT_AT: Mapping[str, object] = {
     "early_exit_on_trend": bracket.TREND_EXIT_OFF,
     "breakeven_at": 0.0,
     "breakeven_unit": bracket.BREAKEVEN_R,
+    "structure_trail_bars": 0,
 }
 """The value at which a toggle leaves its axes unread, where that is not simply ``False``.
 
@@ -653,10 +654,11 @@ INSIDEBARTRAILING_GATES: Mapping[str, Gate] = {
     "early_partial_percentage": "earliness_mode",
     "early_max_extension_atr": "earliness_mode",
     "early_max_trend_bars": "earliness_mode",
+    "structure_trail_cushion_atr": "structure_trail_bars",
 }
-"""InsideBar's map, with the earliness axes read only with a rule on. What this cannot catch: the
-extension and the trend-age cut are each read under one mode alone -- ``docs/nt8-fidelity.md``
-§M45.
+"""InsideBar's map, with the earliness axes read only with a rule on and the cushion only with the
+structure trail on. What this cannot catch: the extension and the trend-age cut are each read
+under one mode alone -- ``docs/nt8-fidelity.md`` §M45.
 """
 
 
