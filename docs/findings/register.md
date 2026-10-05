@@ -356,7 +356,7 @@ Pre-registered and run: 13 of 44 cells clear the bar, the selection window's pic
 
 **[M49 — InsideBarTrailing's runner trailed to structure: it pays unfiltered at 5 minutes and costs in the midday cell](m49-structure-trail-result.md)**
 
-15-, 10- and 5-minute passes, with 2 minutes to follow; the control reproduces all 119,232 stored rows. At 5 minutes, the bar size the candidate trades at, 34 of 48 cells clear the pre-registered bar — 15 arms on both roots, every 10- and 20-bar box among them — gaining +0.013 to +0.077 held out and +0.006 to +0.056 on the selection window. At 10 minutes 5 cells clear, all on NQ by under 0.03, and at 15 none, where every arm gains held out and none on the selection window. Described rather than tested, the midday cell the epic would trade is where it costs most at 5 minutes: 13 arms cost on both roots in both windows and none clears.
+15-, 10- and 5-minute passes, with 2 minutes dropped after they were read; the control reproduces all 119,232 stored rows. At 5 minutes, the bar size the candidate trades at, 34 of 48 cells clear the pre-registered bar — 15 arms on both roots, every 10- and 20-bar box among them — gaining +0.013 to +0.077 held out and +0.006 to +0.056 on the selection window. At 10 minutes 5 cells clear, all on NQ by under 0.03, and at 15 none, where every arm gains held out and none on the selection window. Described rather than tested, the midday cell the epic would trade is where it costs most at 5 minutes: 13 arms cost on both roots in both windows and none clears.
 
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 

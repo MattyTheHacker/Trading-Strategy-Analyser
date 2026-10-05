@@ -6,18 +6,26 @@ issues: [352]
 gates: [1, 2]
 outcome: mixed
 verdict: >-
-  15-, 10- and 5-minute passes, with 2 minutes to follow; the control reproduces all 119,232 stored rows. At 5 minutes, the bar size the candidate trades at, 34 of 48 cells clear the pre-registered bar — 15 arms on both roots, every 10- and 20-bar box among them — gaining +0.013 to +0.077 held out and +0.006 to +0.056 on the selection window. At 10 minutes 5 cells clear, all on NQ by under 0.03, and at 15 none, where every arm gains held out and none on the selection window. Described rather than tested, the midday cell the epic would trade is where it costs most at 5 minutes: 13 arms cost on both roots in both windows and none clears.
+  15-, 10- and 5-minute passes, with 2 minutes dropped after they were read; the control reproduces all 119,232 stored rows. At 5 minutes, the bar size the candidate trades at, 34 of 48 cells clear the pre-registered bar — 15 arms on both roots, every 10- and 20-bar box among them — gaining +0.013 to +0.077 held out and +0.006 to +0.056 on the selection window. At 10 minutes 5 cells clear, all on NQ by under 0.03, and at 15 none, where every arm gains held out and none on the selection window. Described rather than tested, the midday cell the epic would trade is where it costs most at 5 minutes: 13 arms cost on both roots in both windows and none clears.
 ---
 
 # M49 — InsideBarTrailing's runner trailed to structure: it pays unfiltered at 5 minutes and costs in the midday cell ([#352])
 
-[The pre-registration](m49-structure-trail-preregistration.md) fixed the arms, the bar and the predictions before any row was read. This file reads them. **So far it holds the 15-, 10- and 5-minute passes**: 15 minutes swept on 2026-10-04 in 15.3 minutes on eight workers, then 10 and 5 minutes on 2026-10-05 in 32.7 and 76.1 minutes on four. The 2-minute pass will be added here, and the bar each cell is held to does not change.
+[The pre-registration](m49-structure-trail-preregistration.md) fixed the arms, the bar and the predictions before any row was read. This file reads them. **It holds the 15-, 10- and 5-minute passes**: 15 minutes swept on 2026-10-04 in 15.3 minutes on eight workers, then 10 and 5 minutes on 2026-10-05 in 32.7 and 76.1 minutes on four. The 2-minute pass was dropped, below.
 
 Every figure below comes from `results/campaign/InsideBarTrailing.duckdb`, batches 12 to 14: the paired reads are `tools/campaign_paired.py`'s and gate 2 is `tools/campaign_holdout.py`'s, called per arm, and the reproduction is the join `tools/campaign_early_exit.py --reproduce` makes, keyed on `structure=` instead of `exit=`.
 
 ## The control reproduces the stored rows exactly
 
 **All 119,232 `structure=off` rows** — 432 configurations × 23 strata × 2 roots × 2 windows × 3 resolutions — join their stored `trailing` twin, and no statistic differs in any of them. Adding the mode moved no stored row.
+
+## 2 minutes was dropped, after 5 was read
+
+**The 2-minute pass was dropped on 2026-10-05, after the 15-, 10- and 5-minute passes had been read**, to save about 2.7 hours of compute on a machine that was throttling under sustained load. The pre-registration left which bar sizes run after 15 minutes to be decided between passes, changing which cells exist and never the bar a cell is held to.
+
+**The bar does not move.** Every cell below faces the test it would have faced anyway, and the family stated before the run, 192 cells, is now 144. Dropping cells cannot make one clear; it leaves 48 unread. What goes unanswered is whether the 5-minute gain continues at finer bars.
+
+Two things made it cheap to drop. Unfiltered InsideBarTrailing at 2 minutes is a losing space in the stored campaign, at a median profit factor of 0.86 to 0.91 and with no configuration above 1 on the selection window. And the candidate trades at 5 minutes, where the answer is already in. A 2-minute read later would be a new campaign with its own pre-registration, as §M47.1 records for its own dropped pass.
 
 ## The pre-registered question
 
@@ -109,7 +117,7 @@ Median paired change held out, both roots pooled:
 |       5m | selection |         10% |        47% | 0.5% to 35% | 30% to 81% |
 |       5m | holdout   |         67% |        57% | 58% to 98%  | 31% to 94% |
 
-**Gate 2**, `tools/campaign_holdout.py` per arm, which ranks across the bar sizes run so far. The control clears on both roots in 10 strata, and the arms in 3 to 13, the most with the 40-bar box (11 to 13). Neither the control nor any arm clears `phase=MIDDAY` on both roots once the shortlist can draw on all three bar sizes.
+**Gate 2**, `tools/campaign_holdout.py` per arm, which ranks across the three bar sizes run. The control clears on both roots in 10 strata, and the arms in 3 to 13, the most with the 40-bar box (11 to 13). Neither the control nor any arm clears `phase=MIDDAY` on both roots once the shortlist can draw on all three bar sizes.
 
 ## The strata, described rather than tested
 
@@ -146,7 +154,7 @@ The same bar, applied in every stratum as description. `htf=AT` has no configura
 
 ## What this does not settle
 
-- **The 2-minute pass is still to run.**
+- **2 minutes is unread**, so whether the 5-minute gain continues at finer bars is open.
 - **The ladder is cut short at a different end at each bar size**: a one-bar box, a box wider than 40 bars and a cushion beyond 1.0 ATR are untested.
 - **The midday cell is described, not tested**, as pre-registered; the cost there is a reason to read it first in [#354], not a verdict on it.
 - **No gate 3**, as pre-registered: the null for an exit is the strategy without it, which is the control.
