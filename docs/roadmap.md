@@ -726,6 +726,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered and run at 15, 10 and 5 minutes, 2 minutes dropped: at 5 minutes, the bar size the candidate trades at, 34 of 48 cells clear and 15 arms clear on both roots, while the midday cell the epic would trade is where the trail costs most; at 10 minutes 5 cells clear, all on NQ by under 0.03, and at 15 none, the arms gaining held out and costing on the selection window.** Moved to [`docs/findings/m49-structure-trail-result.md`](findings/m49-structure-trail-result.md), pre-registered in [`docs/findings/m49-structure-trail-preregistration.md`](findings/m49-structure-trail-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "Trailing to structure".
 
+### M50 — the conditional early exit's second tier, and the breakeven stop ([#369])
+
+**Pre-registered; the sweep is running.** 38 arms against a control over every archetype's stored grid, at 5, 10 and 15 minutes, read under §M48's bar. Pre-registered in [`docs/findings/m50-early-exit-tier-2-preregistration.md`](findings/m50-early-exit-tier-2-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit" and "Tightening the stop with time".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
