@@ -167,6 +167,7 @@ class ConfirmationRules(NamedTuple):
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
+    stop_tightening: bracket.StopTightening = bracket.STOP_TIGHTENING_OFF
 
 
 @njit(cache=True)
@@ -337,6 +338,10 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
         if in_position:
             breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
             stop = bracket.tightened_stop(stop, breakeven, d)
+            timed = bracket.tightening_level(
+                rules.stop_tightening, trade, trade.initial_stop, bars, i, costs, fills
+            )
+            stop = bracket.tightened_stop(stop, timed, d)
 
         if in_position and rules.exit_on_trend_flip and series.direction_at[i] != d:
             pending_exit = True
@@ -345,7 +350,7 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
         # After the trend flip, which would have closed the position on this bar anyway.
         if in_position and not pending_exit:
             pending_exit_reason = bracket.market_exit_reason(
-                trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit
+                trade, bars, excursion, i, rules.max_hold_bars, rules.early_exit
             )
             pending_exit = pending_exit_reason != bracket.NO_MARKET_EXIT
 
@@ -400,6 +405,7 @@ def confirmation_rules(
     trail_offset_ticks: float,
     early_exit: bracket.EarlyExit,
     breakeven: bracket.Breakeven,
+    stop_tightening: bracket.StopTightening,
 ) -> ConfirmationRules:
     """Build the confirmation loop's rule set for one combination."""
     return ConfirmationRules(
@@ -415,6 +421,7 @@ def confirmation_rules(
         max_hold_bars=params.max_hold_bars,
         early_exit=early_exit,
         breakeven=breakeven,
+        stop_tightening=stop_tightening,
     )
 
 
@@ -423,6 +430,7 @@ def market_rules(
     trail_offset_ticks: float,
     early_exit: bracket.EarlyExit,
     breakeven: bracket.Breakeven,
+    stop_tightening: bracket.StopTightening,
 ) -> crossover.CrossoverRules:
     """Build the shared crossover loop's rule set for one combination, in its level-stop mode."""
     return crossover.CrossoverRules(
@@ -445,6 +453,7 @@ def market_rules(
         max_hold_bars=params.max_hold_bars,
         early_exit=early_exit,
         breakeven=breakeven,
+        stop_tightening=stop_tightening,
     )
 
 
@@ -478,6 +487,7 @@ def emapullback_legs(
     trail, trail_offset_ticks = trailed_level(data, slow, params)
     early_exit: bracket.EarlyExit = filters.early_exit(data, params)
     breakeven: bracket.Breakeven = filters.breakeven(data, params)
+    stop_tightening: bracket.StopTightening = filters.stop_tightening(data, params)
     out: FloatArray = bracket.allocate_output(int(signal.sum()), sizing.quantities.shape[1])
     bars = bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat)
     costs = bracket.Costs(
@@ -502,7 +512,7 @@ def emapullback_legs(
             targets,
             costs,
             fills,
-            confirmation_rules(params, trail_offset_ticks, early_exit, breakeven),
+            confirmation_rules(params, trail_offset_ticks, early_exit, breakeven, stop_tightening),
             out,
         )
     else:
@@ -515,7 +525,7 @@ def emapullback_legs(
             targets,
             costs,
             fills,
-            market_rules(params, trail_offset_ticks, early_exit, breakeven),
+            market_rules(params, trail_offset_ticks, early_exit, breakeven, stop_tightening),
             out,
         )
 

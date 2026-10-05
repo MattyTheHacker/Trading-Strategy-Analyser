@@ -22,11 +22,18 @@ from nqbt import (
     volume,
 )
 from nqbt.sim.bracket import (
+    AGE_STOP_SHAPES,
+    AGE_STOP_STEP,
     BREAKEVEN_ATR,
     BREAKEVEN_ON_CLOSE,
     BREAKEVEN_R,
     BREAKEVEN_TRIGGERS,
     BREAKEVEN_UNITS,
+    EARLY_EXIT_MEASURES,
+    LATE_STOP_ATR,
+    LATE_STOP_ENTRY,
+    LATE_STOP_LEVELS,
+    MEASURE_OPEN_PROFIT,
     TREND_EXIT_FORMS,
     TREND_EXIT_OFF,
 )
@@ -170,14 +177,17 @@ def validate_tp_multiplier(tp_multiplier: float, nt8_minimum: float | None = Non
 
 @runtime_checkable
 class EarlyExitParams(Protocol):
-    """The conditional early exit's six fields and the hold cap it competes with, as one shape."""
+    """The conditional early exit's nine fields and the hold cap it competes with, as one shape."""
 
     max_hold_bars: int
     early_exit_bars: int
+    early_exit_minutes: int
     early_exit_below_r: float
+    early_exit_measure: int
     early_exit_minutes_before_close: int
     early_exit_on_regime_change: bool
     early_exit_on_trend: int
+    early_exit_on_invalidation: bool
     early_exit_only_if_losing: bool
 
 
@@ -185,12 +195,22 @@ def active_early_exits(params: EarlyExitParams) -> list[str]:
     """Name every early-exit rule this combination switches on, in field order."""
     switched_on: dict[str, bool] = {
         "early_exit_bars": params.early_exit_bars > 0,
+        "early_exit_minutes": params.early_exit_minutes > 0,
         "early_exit_minutes_before_close": params.early_exit_minutes_before_close > 0,
         "early_exit_on_regime_change": params.early_exit_on_regime_change,
         "early_exit_on_trend": params.early_exit_on_trend != TREND_EXIT_OFF,
+        "early_exit_on_invalidation": params.early_exit_on_invalidation,
     }
 
     return [name for name, on in switched_on.items() if on]
+
+
+def _refuse_unread(reason: str, *settings: tuple[str, object, object]) -> None:
+    """Raise naming every setting that is off its default, when ``reason`` says nothing reads them."""
+    unread: list[str] = [name for name, value, default in settings if value != default]
+    if unread:
+        msg: str = f"{', '.join(unread)} set but {reason}"
+        raise ValueError(msg)
 
 
 def validate_early_exit(params: EarlyExitParams) -> None:
@@ -204,17 +224,22 @@ def validate_early_exit(params: EarlyExitParams) -> None:
         )
         raise ValueError(msg)
 
-    if params.early_exit_below_r != 0.0 and params.early_exit_bars == 0:
-        msg = (
-            f"early_exit_below_r is {params.early_exit_below_r} but early_exit_bars is 0, so the "
-            f"not-working exit that reads it is off"
+    if params.early_exit_bars == 0 and params.early_exit_minutes == 0:
+        _refuse_unread(
+            "early_exit_bars and early_exit_minutes are both 0, so the not-working exit that reads it is off",
+            ("early_exit_below_r", params.early_exit_below_r, 0.0),
+            ("early_exit_measure", params.early_exit_measure, MEASURE_OPEN_PROFIT),
         )
-        raise ValueError(msg)
 
-    reads_losing: bool = params.early_exit_on_regime_change or params.early_exit_on_trend != TREND_EXIT_OFF
+    reads_losing: bool = (
+        params.early_exit_on_regime_change
+        or params.early_exit_on_trend != TREND_EXIT_OFF
+        or params.early_exit_on_invalidation
+    )
     if params.early_exit_only_if_losing and not reads_losing:
         msg = (
-            "early_exit_only_if_losing is set but neither the regime exit nor the trend exit is on to read it"
+            "early_exit_only_if_losing is set but none of the regime, trend or invalidation exits "
+            "is on to read it"
         )
         raise ValueError(msg)
 
@@ -230,6 +255,17 @@ def validate_early_exit_ranges(params: EarlyExitParams) -> None:
     """Refuse an early-exit field outside the values it can take."""
     if params.early_exit_bars < 0:
         msg: str = f"early_exit_bars must be >= 0, got {params.early_exit_bars}"
+        raise ValueError(msg)
+
+    if params.early_exit_minutes < 0:
+        msg = f"early_exit_minutes must be >= 0, got {params.early_exit_minutes}"
+        raise ValueError(msg)
+
+    if params.early_exit_measure not in EARLY_EXIT_MEASURES:
+        msg = (
+            f"early_exit_measure must be one of {sorted(EARLY_EXIT_MEASURES)}, "
+            f"got {params.early_exit_measure}"
+        )
         raise ValueError(msg)
 
     if not math.isfinite(params.early_exit_below_r):
@@ -310,6 +346,94 @@ def validate_breakeven_ranges(params: BreakevenParams) -> None:
 
     if params.breakeven_atr_period < 1:
         msg = f"breakeven_atr_period must be >= 1, got {params.breakeven_atr_period}"
+        raise ValueError(msg)
+
+
+LATE_STOP_ATR_PERIOD = 14
+"""The ATR period a late stop at an ATR multiple reads by default."""
+
+
+@runtime_checkable
+class StopTighteningParams(Protocol):
+    """The stop tightening's nine fields and the hold cap it competes with, as one shape."""
+
+    max_hold_bars: int
+    age_stop_bars: int
+    age_stop_minutes: int
+    age_stop_fraction: float
+    age_stop_shape: int
+    age_stop_only_if_losing: bool
+    late_stop_minutes_before_close: int
+    late_stop_to: int
+    late_stop_atr: float
+    late_stop_atr_period: int
+
+
+def validate_stop_tightening(params: StopTighteningParams) -> None:
+    """Refuse a stop tightening out of range, one that can never move, or one with a setting nothing reads."""
+    validate_stop_tightening_ranges(params)
+    if params.age_stop_bars > 0 and params.age_stop_minutes > 0:
+        msg: str = (
+            f"age_stop_bars of {params.age_stop_bars} and age_stop_minutes of "
+            f"{params.age_stop_minutes} both set; the age stop is timed in one or the other"
+        )
+        raise ValueError(msg)
+
+    if params.age_stop_bars == 0 and params.age_stop_minutes == 0:
+        _refuse_unread(
+            "age_stop_bars and age_stop_minutes are both 0, so the age stop that reads it is off",
+            ("age_stop_fraction", params.age_stop_fraction, 1.0),
+            ("age_stop_shape", params.age_stop_shape, AGE_STOP_STEP),
+            ("age_stop_only_if_losing", params.age_stop_only_if_losing, False),
+        )
+
+    if params.late_stop_minutes_before_close == 0:
+        _refuse_unread(
+            "late_stop_minutes_before_close is 0, so the late stop that reads it is off",
+            ("late_stop_to", params.late_stop_to, LATE_STOP_ENTRY),
+        )
+
+    if params.late_stop_minutes_before_close == 0 or params.late_stop_to != LATE_STOP_ATR:
+        _refuse_unread(
+            "the late stop is not at an ATR multiple, so nothing reads it",
+            ("late_stop_atr", params.late_stop_atr, 1.0),
+            ("late_stop_atr_period", params.late_stop_atr_period, LATE_STOP_ATR_PERIOD),
+        )
+
+    stepped: bool = params.age_stop_shape == AGE_STOP_STEP
+    if stepped and 0 < params.max_hold_bars <= params.age_stop_bars:
+        msg = (
+            f"age_stop_bars of {params.age_stop_bars} can never move a stop under max_hold_bars of "
+            f"{params.max_hold_bars}: the hold cap closes the position before the step is live"
+        )
+        raise ValueError(msg)
+
+
+def validate_stop_tightening_ranges(params: StopTighteningParams) -> None:
+    """Refuse a stop-tightening field outside the values it can take."""
+    for name in ("age_stop_bars", "age_stop_minutes", "late_stop_minutes_before_close"):
+        if getattr(params, name) < 0:
+            msg: str = f"{name} must be >= 0, got {getattr(params, name)}"
+            raise ValueError(msg)
+
+    if not 0.0 < params.age_stop_fraction <= 1.0:
+        msg = f"age_stop_fraction must be above 0 and at most 1, got {params.age_stop_fraction}"
+        raise ValueError(msg)
+
+    if params.age_stop_shape not in AGE_STOP_SHAPES:
+        msg = f"age_stop_shape must be one of {sorted(AGE_STOP_SHAPES)}, got {params.age_stop_shape}"
+        raise ValueError(msg)
+
+    if params.late_stop_to not in LATE_STOP_LEVELS:
+        msg = f"late_stop_to must be one of {sorted(LATE_STOP_LEVELS)}, got {params.late_stop_to}"
+        raise ValueError(msg)
+
+    if not 0.0 < params.late_stop_atr < math.inf:
+        msg = f"late_stop_atr must be > 0 and finite, got {params.late_stop_atr}"
+        raise ValueError(msg)
+
+    if params.late_stop_atr_period < 1:
+        msg = f"late_stop_atr_period must be >= 1, got {params.late_stop_atr_period}"
         raise ValueError(msg)
 
 
@@ -607,8 +731,16 @@ class DeadCatParams:
     Each is decided at a bar close and filled at the next bar's open -- ``docs/nt8-fidelity.md``,
     "The conditional early exit"."""
 
+    early_exit_minutes: int = 0
+    """:attr:`early_exit_bars` timed in minutes: the first close at least this long after the entry
+    bar's; off at ``0``."""
+
     early_exit_below_r: float = 0.0
-    """Open profit, in R, below which :attr:`early_exit_bars` exits; ``0`` exits a losing position."""
+    """The threshold, in R, below which the not-working exit fires; ``0`` exits a losing position."""
+
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
+    """What the not-working exit compares with :attr:`early_exit_below_r`, one of
+    :data:`~nqbt.sim.bracket.EARLY_EXIT_MEASURES`."""
 
     early_exit_minutes_before_close: int = 0
     """Minutes before the session close inside which a losing position exits, off at ``0``."""
@@ -621,8 +753,11 @@ class DeadCatParams:
     """Exit once the trend label turns against the position, in one of
     :data:`~nqbt.sim.bracket.TREND_EXIT_FORMS`; off at ``0``."""
 
+    early_exit_on_invalidation: bool = False
+    """Exit once a bar closes beyond the adverse extreme of the bar before the entry bar."""
+
     early_exit_only_if_losing: bool = False
-    """Let the regime or the trend exit fire only while the position is losing."""
+    """Let the regime, trend or invalidation exit fire only while the position is losing."""
 
     breakeven_at: float = 0.0
     """Open profit, in :attr:`breakeven_unit`, at which the stop moves to the entry; off at ``0``.
@@ -641,6 +776,38 @@ class DeadCatParams:
 
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """The ATR period :attr:`breakeven_at` is measured in, read only in ATRs."""
+
+    age_stop_bars: int = 0
+    """Bars after the entry bar by which the age stop has moved all the way; off at ``0``.
+
+    Every ``age_stop_*`` and ``late_stop_*`` field is absent from the NinjaScript. Each move is
+    decided at a bar close and live from the next bar -- ``docs/nt8-fidelity.md``, "Tightening
+    the stop with time"."""
+
+    age_stop_minutes: int = 0
+    """:attr:`age_stop_bars` timed in minutes since the entry bar's close; off at ``0``."""
+
+    age_stop_fraction: float = 1.0
+    """How far of the way from the initial stop to the entry the age stop moves; ``1`` is the entry."""
+
+    age_stop_shape: int = AGE_STOP_STEP
+    """Whether the age stop moves at once or a little at every close, one of
+    :data:`~nqbt.sim.bracket.AGE_STOP_SHAPES`."""
+
+    age_stop_only_if_losing: bool = False
+    """Move the age stop only at a close where the position is losing."""
+
+    late_stop_minutes_before_close: int = 0
+    """Minutes before the session close inside which the late stop moves, off at ``0``."""
+
+    late_stop_to: int = LATE_STOP_ENTRY
+    """Where the late stop goes, one of :data:`~nqbt.sim.bracket.LATE_STOP_LEVELS`."""
+
+    late_stop_atr: float = 1.0
+    """The late stop's distance from the close in ATRs, read only at an ATR multiple."""
+
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """The ATR period :attr:`late_stop_atr` is measured in."""
 
     ratchet_lag: int = 0
     """Which bar's high the trailing stop references at each bar close.
@@ -687,6 +854,7 @@ class DeadCatParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -864,12 +1032,15 @@ class PullBackAndGoParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     early_exit_bars: int = 0
+    early_exit_minutes: int = 0
     early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
     early_exit_minutes_before_close: int = 0
     early_exit_on_regime_change: bool = False
     early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -877,6 +1048,17 @@ class PullBackAndGoParams:
     breakeven_offset_ticks: int = 0
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
 
     round_targets: bool = True
     """On, although ``PullBackAndGo.cs`` never calls ``RoundToTickSize``: NT8 snaps the targets
@@ -911,6 +1093,7 @@ class PullBackAndGoParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -1136,12 +1319,15 @@ class EmaCrossoverParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     early_exit_bars: int = 0
+    early_exit_minutes: int = 0
     early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
     early_exit_minutes_before_close: int = 0
     early_exit_on_regime_change: bool = False
     early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -1149,6 +1335,17 @@ class EmaCrossoverParams:
     breakeven_offset_ticks: int = 0
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
 
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
@@ -1192,6 +1389,7 @@ class EmaCrossoverParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
         validate_context_filters(self)
         validate_confluence(self, self.confluence_required)
         validate_sizing(self)
@@ -1384,12 +1582,15 @@ class InsideBarParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     early_exit_bars: int = 0
+    early_exit_minutes: int = 0
     early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
     early_exit_minutes_before_close: int = 0
     early_exit_on_regime_change: bool = False
     early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -1397,6 +1598,17 @@ class InsideBarParams:
     breakeven_offset_ticks: int = 0
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
 
     round_targets: bool = True
     """Snap the stop as well as the target onto the tick grid, which NT8 does at submission
@@ -1432,6 +1644,7 @@ class InsideBarParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -1996,12 +2209,15 @@ class ElasticBandParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     early_exit_bars: int = 0
+    early_exit_minutes: int = 0
     early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
     early_exit_minutes_before_close: int = 0
     early_exit_on_regime_change: bool = False
     early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -2009,6 +2225,17 @@ class ElasticBandParams:
     breakeven_offset_ticks: int = 0
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
 
     order_quantity: int = 4
 
@@ -2142,6 +2369,7 @@ class ElasticBandParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
 
     @property
     def target_levels(self) -> tuple[float, ...]:
@@ -2450,12 +2678,15 @@ class OpeningRangeParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     early_exit_bars: int = 0
+    early_exit_minutes: int = 0
     early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
     early_exit_minutes_before_close: int = 0
     early_exit_on_regime_change: bool = False
     early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -2463,6 +2694,17 @@ class OpeningRangeParams:
     breakeven_offset_ticks: int = 0
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
 
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
@@ -2480,6 +2722,7 @@ class OpeningRangeParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
         validate_context_filters(self)
         validate_sizing(self)
 
@@ -2841,12 +3084,15 @@ class EmaPullbackParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     early_exit_bars: int = 0
+    early_exit_minutes: int = 0
     early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
     early_exit_minutes_before_close: int = 0
     early_exit_on_regime_change: bool = False
     early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -2854,6 +3100,17 @@ class EmaPullbackParams:
     breakeven_offset_ticks: int = 0
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
 
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
@@ -2890,6 +3147,7 @@ class EmaPullbackParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
         validate_context_filters(self)
         validate_sizing(self)
         if (self.fast_kind, self.fast_period) == (self.slow_kind, self.slow_period):
@@ -3109,12 +3367,15 @@ class SqueezeBreakoutParams:
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
     early_exit_bars: int = 0
+    early_exit_minutes: int = 0
     early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
     early_exit_minutes_before_close: int = 0
     early_exit_on_regime_change: bool = False
     early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the five after it -- same rules, same defaults."""
+    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -3122,6 +3383,17 @@ class SqueezeBreakoutParams:
     breakeven_offset_ticks: int = 0
     breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
     """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
 
     round_targets: bool = True
     """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
@@ -3137,6 +3409,7 @@ class SqueezeBreakoutParams:
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
         validate_breakeven(self)
+        validate_stop_tightening(self)
         validate_context_filters(self)
         validate_sizing(self)
 

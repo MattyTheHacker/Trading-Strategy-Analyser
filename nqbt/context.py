@@ -263,6 +263,9 @@ class Dataset:
     )
     """Every label gate read so far, keyed by the method and its arguments, beside the grid it came from."""
 
+    _bar_seconds: FloatArray | None = field(default=None, init=False, repr=False, compare=False)
+    """:meth:`bar_seconds`, built on its first read."""
+
     def __post_init__(self) -> None:
         _check_first_signal_bar(self.first_signal_bar, len(self))
 
@@ -293,6 +296,20 @@ class Dataset:
     def index(self) -> pd.DatetimeIndex:
         """The bars' timestamp index."""
         return cast("pd.DatetimeIndex", self.bars.index)
+
+    def bar_seconds(self) -> FloatArray:
+        """Return each bar's timestamp in whole epoch seconds, for timing a position's age in minutes.
+
+        Built on the first read and shared read-only after it.
+        """
+        if self._bar_seconds is None:
+            seconds: FloatArray = (
+                self.index.to_numpy(dtype="datetime64[s]").astype(np.int64).astype(np.float64)
+            )
+            seconds.flags.writeable = False
+            self._bar_seconds = seconds
+
+        return self._bar_seconds
 
     def grid(self, kind: str) -> MovingAverageGrid:
         """Return the grid for one moving-average kind, or raise a pointed error."""

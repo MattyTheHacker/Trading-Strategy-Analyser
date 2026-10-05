@@ -92,6 +92,7 @@ class OpeningRangeRules(NamedTuple):
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
+    stop_tightening: bracket.StopTightening = bracket.STOP_TIGHTENING_OFF
 
 
 @njit(cache=True)
@@ -386,9 +387,13 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
         if in_position:
             breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
             stop = bracket.tightened_stop(stop, breakeven, direction)
+            timed = bracket.tightening_level(
+                rules.stop_tightening, trade, trade.initial_stop, bars, i, costs, fills
+            )
+            stop = bracket.tightened_stop(stop, timed, direction)
 
         pending_exit_reason = (
-            bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
+            bracket.market_exit_reason(trade, bars, excursion, i, rules.max_hold_bars, rules.early_exit)
             if in_position
             else bracket.NO_MARKET_EXIT
         )
@@ -570,6 +575,7 @@ def openingrange_legs(
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
             breakeven=filters.breakeven(data, params),
+            stop_tightening=filters.stop_tightening(data, params),
         ),
         out,
     )

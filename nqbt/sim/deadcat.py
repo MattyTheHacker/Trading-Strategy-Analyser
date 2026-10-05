@@ -50,6 +50,9 @@ class DeadCatRules(NamedTuple):
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
     """Nor this -- see :attr:`nqbt.sim.types.DeadCatParams.breakeven_at`."""
 
+    stop_tightening: bracket.StopTightening = bracket.STOP_TIGHTENING_OFF
+    """Nor this -- see :attr:`nqbt.sim.types.DeadCatParams.age_stop_bars`."""
+
 
 @njit(cache=True)
 def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule, in bar order
@@ -196,7 +199,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
             pending_bar = -1  # filled or missed, and either way it does not rest a second bar
 
         pending_exit_reason = (
-            bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
+            bracket.market_exit_reason(trade, bars, excursion, i, rules.max_hold_bars, rules.early_exit)
             if in_position
             else bracket.NO_MARKET_EXIT
         )
@@ -210,6 +213,10 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
 
             breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
             stop = bracket.tightened_stop(stop, breakeven, direction)
+            timed = bracket.tightening_level(
+                rules.stop_tightening, trade, trade.initial_stop, bars, i, costs, fills
+            )
+            stop = bracket.tightened_stop(stop, timed, direction)
         elif (
             i >= rules.bars_required
             and signal[i]
