@@ -105,7 +105,7 @@ uv run tools/campaign_sweep.py --strategies OpeningRange --strata directional --
 | `ibt-sizing`          | InsideBarTrailing's stored grid with its split held, crossed with a quantity axis, once per sizing arm, over the cuts `tools/campaign_sizing.py fit` wrote first        | `docs/findings/m45-ibt-sizing-preregistration.md`                 |
 | `confluence-sizing`   | the confluence size on every archetype: each stored grid once per arm, the regime and volume strata cut at the fit's own thresholds                                     | `docs/findings/m47-confluence-sizing-preregistration.md`          |
 | `early-exit`          | **every** archetype's stored campaign grid once per conditional early-exit arm, the control with every rule off included                                                | `docs/findings/m48-early-exit-preregistration.md`                 |
-| `early-exit-2`        | **every** archetype's stored campaign grid once per arm of #369's second tier and two breakeven arms, the control with every rule off included                           | `docs/findings/m50-early-exit-tier-2-preregistration.md`          |
+| `early-exit-2`        | **every** archetype's stored campaign grid once per arm of #369's second tier and two breakeven arms, the control with every rule off included                          | `docs/findings/m50-early-exit-tier-2-preregistration.md`          |
 | `ibt-structure`       | InsideBarTrailing's stored grid once per structure-trail arm, the runner trailing the high-water mark included as the control                                           | `docs/findings/m49-structure-trail-preregistration.md`            |
 
 ```bash
