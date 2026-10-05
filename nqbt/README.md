@@ -55,6 +55,7 @@ One copy of every exit rule the reconciliations validated -- `docs/roadmap.md` ย
 ### sim/filters.py
 
 - **`ContextFiltered` is a structural `Protocol`** rather than a union of the concrete parameter classes, so a new archetype gets all six filters by declaring the fields. `ConfluenceFiltered` is separate because declaring `confluence_required` is what opts an archetype into the confluence pattern.
+- **The first signal bar is cleared in the same step**, so every archetype gets it by ending its signal there, as it gets the filters. A signal handed to `legs` as an override skips this step, so a random-entry draw on a dataset with a first signal bar can still enter before it.
 - **The sizing labels are not the context gates.** `label_sides` reads whether each label favours or opposes each bar's own side, whereas the gates are side-blind masks, so an `UP` trend filter admits shorts in an uptrend. A `size_on_*` label adds contracts and narrows no entry; `confluence_required` narrows the entry and sizes nothing -- `docs/nt8-fidelity.md` ยงM45.
 
 ## Search
