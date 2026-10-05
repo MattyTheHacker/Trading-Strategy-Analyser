@@ -382,16 +382,24 @@ def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars, loop) -> Non
     assert np.array_equal(off.matrix[: off.count], on.matrix[: on.count], equal_nan=True)
 
 
-def test_the_breakeven_and_an_early_exit_both_act_in_one_run(bars) -> None:
-    base = TRADING["DeadCatBounce"]
-    both = dataclasses.replace(base, early_exit_bars=3, **ARMS["0.05R on the close"])
-    data = prepared(bars, both, archetypes.DEADCATBOUNCE)
-    legs = archetypes.DEADCATBOUNCE.legs(data, both, MNQ)
+def stopped_at_entry(params, data: Dataset) -> int:
+    """Count the legs ``params`` stops out exactly at their entry price on DeadCatBounce."""
+    legs = archetypes.DEADCATBOUNCE.legs(data, params, MNQ)
     # The rows past ``count`` are zero padding, which reads as a stop exit at a price of zero.
     matrix = legs.matrix[: legs.count]
     stopped = matrix[matrix[:, C_EXIT_REASON] == EXIT_STOP]
-    assert (matrix[:, C_EXIT_REASON] == EXIT_EARLY).any()
-    assert np.isclose(stopped[:, C_EXIT_PRICE], stopped[:, C_ENTRY_PRICE]).any()
+
+    return int(np.isclose(stopped[:, C_EXIT_PRICE], stopped[:, C_ENTRY_PRICE]).sum())
+
+
+def test_the_breakeven_and_an_early_exit_both_act_in_one_run(bars) -> None:
+    """The ratchet alone stops some legs out at their entry, so the breakeven has to add to that count."""
+    early_only = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_bars=3)
+    both = dataclasses.replace(early_only, **ARMS["0.05R on the close"])
+    data = prepared(bars, both, archetypes.DEADCATBOUNCE)
+    legs = archetypes.DEADCATBOUNCE.legs(data, both, MNQ)
+    assert (legs.matrix[: legs.count, C_EXIT_REASON] == EXIT_EARLY).any()
+    assert stopped_at_entry(both, data) > stopped_at_entry(early_only, data)
 
 
 # -- the registry and the sweep ----------------------------------------------------------------
