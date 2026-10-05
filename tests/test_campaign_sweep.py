@@ -77,6 +77,8 @@ from tools.campaign_sweep import (
     CORE,
     DIRECTIONAL,
     EARLY_EXIT,
+    EARLY_EXIT_2,
+    EARLY_EXIT_2_VARIANTS,
     EARLY_EXIT_BARS,
     EARLY_EXIT_BELOW_R,
     EARLY_EXIT_MINUTES,
@@ -199,6 +201,7 @@ from tools.campaign_sweep import (
     structure_trail_arms,
     swept_on,
     tail_pairs,
+    tier2_arms,
     unstored,
     variants_for,
     volume_series,
@@ -2832,6 +2835,85 @@ def test_no_early_exit_variant_can_collide_with_a_stored_one_in_the_same_databas
 def test_the_early_exit_run_states_its_stratum_before_it_runs() -> None:
     assert [name for name, _ in strata(EARLY_EXIT)] == [UNFILTERED]
     assert variants_for(EARLY_EXIT) is EARLY_EXIT_VARIANTS
+
+
+# -- the second early-exit run (#369's second tier) -----------------------------------------
+
+TIER2_FAMILIES = ("early_exit_", "age_stop_", "late_stop_", "breakeven_")
+"""The parameter families a tier-2 arm may set."""
+
+
+def tier2_fields(params: object) -> dict[str, object]:
+    """Return one parameter set's fields in the families a tier-2 arm sets, by name."""
+    return {
+        field.name: getattr(params, field.name)
+        for field in dataclasses.fields(params)
+        if field.name.startswith(TIER2_FAMILIES)
+    }
+
+
+def test_the_tier_2_arms_are_the_control_and_the_39_pre_registered_settings() -> None:
+    arms = tier2_arms()
+    assert len(arms) == 1 + 8 + 6 + 2 + 6 + 2 + 3 + 9 + 2
+    assert arms["off"] == {}
+    assert len({tuple(sorted(fields.items())) for fields in arms.values()}) == len(arms)
+    assert all(field.startswith(TIER2_FAMILIES) for fields in arms.values() for field in fields)
+
+
+def test_every_tier_2_arm_carries_its_stored_grid_unchanged_under_a_name_of_its_own() -> None:
+    arms = list(tier2_arms())
+    for name, build in VARIANTS.items():
+        stored = build("MNQ")
+        exited = EARLY_EXIT_2_VARIANTS[name]("MNQ")
+        assert len(exited) == len(stored) * len(arms)
+        tier1 = {variant.name for variant in EARLY_EXIT_VARIANTS[name]("MNQ")}
+        assert not {variant.name for variant in exited} & (tier1 | {variant.name for variant in stored})
+        for index, variant in enumerate(exited):
+            source = stored[index // len(arms)]
+            assert variant.name == f"{source.name} exit2={arms[index % len(arms)]}"
+            assert variant.axes == source.axes
+            assert variant.archetype is source.archetype
+            assert variant.sized() == source.sized()
+            assert replace(variant.base, **tier2_fields(source.base)) == source.base
+
+
+def test_each_tier_2_arm_switches_on_at_most_one_rule() -> None:
+    for name in VARIANTS:
+        for variant in EARLY_EXIT_2_VARIANTS[name]("NQ"):
+            base = variant.base
+            stop_rules = [
+                base.age_stop_bars > 0 or base.age_stop_minutes > 0,
+                base.late_stop_minutes_before_close > 0,
+                base.breakeven_at > 0,
+            ]
+            on = len(active_early_exits(base)) + sum(stop_rules)
+            assert on == (0 if variant.name.endswith(" exit2=off") else 1), variant.name
+
+
+def test_no_stored_grid_or_stratum_sweeps_a_field_a_tier_2_arm_sets() -> None:
+    set_by_arms = {field for fields in tier2_arms().values() for field in fields}
+    stratum_axes = {axis for which in (EARLY_EXIT_2, MIDDAY) for _, extra in strata(which) for axis in extra}
+    assert not set_by_arms & stratum_axes
+    for build in VARIANTS.values():
+        for variant in build("MNQ"):
+            assert not set_by_arms & set(variant.axes)
+
+
+def test_every_bar_timed_tier_2_arm_acts_before_any_stored_hold_cap() -> None:
+    """A step or a not-working bar at or past ``max_hold_bars`` can never act."""
+    bars = [fields.get("early_exit_bars", 0) for fields in tier2_arms().values()]
+    steps = [
+        fields.get("age_stop_bars", 0) for fields in tier2_arms().values() if "age_stop_shape" not in fields
+    ]
+    for build in VARIANTS.values():
+        for variant in build("MNQ"):
+            caps = [*variant.axes.get("max_hold_bars", []), variant.base.max_hold_bars]
+            assert all(cap == 0 or cap > max(*bars, *steps) for cap in caps)
+
+
+def test_the_tier_2_run_states_its_stratum_before_it_runs() -> None:
+    assert [name for name, _ in strata(EARLY_EXIT_2)] == [UNFILTERED]
+    assert variants_for(EARLY_EXIT_2) is EARLY_EXIT_2_VARIANTS
 
 
 # -- the structure-trail run (#352) ----------------------------------------------------
