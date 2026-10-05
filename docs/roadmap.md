@@ -724,7 +724,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M49 — InsideBarTrailing's runner trailed to structure ([#352])
 
-**Pre-registered; the 15- and 10-minute passes are run and 2 and 5 minutes are to follow: at 15 minutes every structure-trail arm raises held-out profit factor and none raises it on the selection window, so no cell clears; at 10 minutes the signs move and 5 of 48 cells clear, all on NQ at a 1.0 ATR cushion by under 0.03, where the same arms lose or do nothing on MNQ.** Moved to [`docs/findings/m49-structure-trail-result.md`](findings/m49-structure-trail-result.md), pre-registered in [`docs/findings/m49-structure-trail-preregistration.md`](findings/m49-structure-trail-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "Trailing to structure".
+**Pre-registered; the 15-, 10- and 5-minute passes are run and 2 minutes is to follow: at 5 minutes, the bar size the candidate trades at, 34 of 48 cells clear and 15 arms clear on both roots, while the midday cell the epic would trade is where the trail costs most; at 10 minutes 5 cells clear, all on NQ by under 0.03, and at 15 none, the arms gaining held out and costing on the selection window.** Moved to [`docs/findings/m49-structure-trail-result.md`](findings/m49-structure-trail-result.md), pre-registered in [`docs/findings/m49-structure-trail-preregistration.md`](findings/m49-structure-trail-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "Trailing to structure".
 
 ### Do the shortlists travel? ([#330])
 
