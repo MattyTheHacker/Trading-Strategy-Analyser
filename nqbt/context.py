@@ -252,6 +252,9 @@ class Dataset:
     path".
     """
 
+    first_signal_bar: int = 0
+    """The first bar an entry signal may fire on; the bars before it only warm the series."""
+
     _gate_cache: dict[tuple[object, ...], tuple[object, BoolArray]] = field(
         default_factory=dict,
         init=False,
@@ -259,6 +262,9 @@ class Dataset:
         compare=False,
     )
     """Every label gate read so far, keyed by the method and its arguments, beside the grid it came from."""
+
+    def __post_init__(self) -> None:
+        _check_first_signal_bar(self.first_signal_bar, len(self))
 
     def __len__(self) -> int:
         return self.close.size
@@ -764,6 +770,15 @@ class Dataset:
         return replace(self, bars=self.bars.iloc[:, :0])
 
 
+def _check_first_signal_bar(first_signal_bar: int, n_bars: int) -> None:
+    """Refuse a first signal bar outside ``0`` to ``n_bars``, where a slice would count from the end."""
+    if 0 <= first_signal_bar <= n_bars:
+        return
+
+    msg: str = f"first_signal_bar must be between 0 and the {n_bars} bars; got {first_signal_bar}"
+    raise ContextError(msg)
+
+
 def day_codes(index: pd.Index) -> IndexArray | None:  # type: ignore[explicit-any]  # any index; the isinstance check below is the point
     """Return each bar's calendar day as an ``int32``, in the index's own timezone.
 
@@ -792,6 +807,7 @@ class PrepareOptions(TypedDict, total=False):
     keep_ma_values: bool
     bar_minutes: int | None
     price_basis: PriceBasis
+    first_signal_bar: int
 
 
 def prepare(
@@ -802,6 +818,7 @@ def prepare(
     keep_ma_values: bool = False,
     bar_minutes: int | None = None,
     price_basis: PriceBasis = PriceBasis.UNKNOWN,
+    first_signal_bar: int = 0,
 ) -> Dataset:
     """Precompute exactly the conditions ``spec`` declares.
 
@@ -810,7 +827,8 @@ def prepare(
     bar-of-session index and is inferred from the index when not given -- pass it wherever the
     resolution is already known. ``price_basis`` is stated rather than inferred, and defaults to
     :attr:`PriceBasis.UNKNOWN`. ``exit_on_close_seconds`` is one default rather than a
-    per-archetype value -- :data:`~nqbt.sessions.EXIT_ON_CLOSE_SECONDS`.
+    per-archetype value -- :data:`~nqbt.sessions.EXIT_ON_CLOSE_SECONDS`. ``first_signal_bar``
+    blocks entry signals before that bar, so the bars ahead of it warm the series and nothing else.
     """
     if spec.follow_through_sessions and not spec.range_keys:
         msg: str = (
@@ -818,6 +836,8 @@ def prepare(
             "measured against a range, so there is nothing here to measure it over"
         )
         raise ContextError(msg)
+
+    _check_first_signal_bar(first_signal_bar, len(bars))
 
     open_: FloatArray
     high: FloatArray
@@ -947,4 +967,5 @@ def prepare(
         seconds_to_session_end=(sessions.seconds_to_session_end(info) if spec.needs_session_clock else None),
         price_basis=price_basis,
         day_codes=day_codes(bars.index),
+        first_signal_bar=first_signal_bar,
     )

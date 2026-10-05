@@ -2,7 +2,8 @@
 
 Session phase, market regime, relative volume, compression, the compact trend label and the
 side of a higher-timeframe average, ANDed onto every archetype's own conditions. A gate at its
-everything value is skipped entirely -- ``nqbt/README.md`` § "sim/filters.py".
+everything value is skipped entirely -- ``nqbt/README.md`` § "sim/filters.py". The same step
+clears every signal before the dataset's first signal bar.
 """
 
 from __future__ import annotations
@@ -170,8 +171,15 @@ def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
     return gates
 
 
+def _block_warm_up(signal: BoolArray, data: Dataset) -> None:
+    """Clear ``signal`` in place on every bar before :attr:`~nqbt.context.Dataset.first_signal_bar`."""
+    if data.first_signal_bar:
+        signal[: data.first_signal_bar] = False
+
+
 def apply_context_filters(signal: BoolArray, data: Dataset, params: ContextFiltered) -> BoolArray:
-    """Narrow an archetype's own signal to the market context its parameters admit."""
+    """Narrow an archetype's own signal to the bars it may trade and the context its parameters admit."""
+    _block_warm_up(signal, data)
     for gate in context_gates(data, params):
         signal &= gate
 
@@ -187,6 +195,7 @@ def apply_confluence_filters(signal: BoolArray, data: Dataset, params: Confluenc
     if params.confluence_required == REQUIRE_ALL:
         return apply_context_filters(signal, data, params)
 
+    _block_warm_up(signal, data)
     gates: list[BoolArray] = context_gates(data, params)
 
     return signal & (conditions.count_true(np.stack(gates)) >= params.confluence_required)

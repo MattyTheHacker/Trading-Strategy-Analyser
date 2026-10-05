@@ -21,7 +21,7 @@ The defaults themselves stay zero and must: `tools/capture_trade_logs.py` uses t
 
 **Each window is simulated independently, and that is a stated approximation.** A trade open at a boundary is not carried across it: every window starts flat. The alternative — one run with the selection changing mid-flight — cannot be measured per window at all. The cost is that a position spanning `test_start` would have blocked an entry that the sliced run now takes.
 
-**`warmup_bars` prefixes each window and its trades are discarded by entry position.** Without it every window's indicators start cold, so an SMA(200) grid measures its own warm-up for the first 200 bars of each split. `entry_bar` is already a position into the sliced frame, which is what the prefix is measured in — do not reach for `entry_time` and an index lookup.
+**`warmup_bars` prefixes each window, and the prefix takes no entries.** Without it every window's indicators start cold, so an SMA(200) grid measures its own warm-up for the first 200 bars of each split. The window's first bar is `Dataset.first_signal_bar`, the first that may signal, so the earliest fill is the bar after it. Until [#424] the prefix traded and its trades were dropped afterwards, so one still open when the window started held the position and blocked the window's own entries until it closed, at the latest at the session close.
 
 **Selection is capped to `TRADE_PNL_STATISTICS`.** Every one of them is higher-is-better, so one comparison serves both sides. Admitting `max_drawdown` would need the opposite sense and a direction bug there is invisible — it would simply select the worst combination every time.
 
@@ -36,4 +36,5 @@ The defaults themselves stay zero and must: `tools/capture_trade_logs.py` uses t
 **First result, and it is a confirmation rather than a finding.** Costed MNQ from 2025-01-01 (564,927 bars, `DeadCatParams`, 9 combinations, 120,000-bar train / 40,000-bar test, 11 splits): training profit factor runs a median 0.611 against a pooled out-of-sample 0.563, four different combinations win a training window across the eleven, and the bootstrap puts net P&L below zero in every resample. The permutation test reads p = 0.70 on max drawdown — **the losses are systematic, not an unlucky ordering**, which is the correct reading and the one that matters: this is the machinery reproducing a result the project already holds, on an archetype whose unprofitability is settled. Re-run it rather than quoting these numbers.
 
 [#32]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/32
+[#424]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/424
 [#50]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/50

@@ -12,13 +12,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, conditions, context, regime, sessionrange, sessions, sweep
+from nqbt import archetypes, conditions, context, regime, sessionrange, sessions, sweep, trend
 from nqbt.context import ContextError, ContextSpec
+from nqbt.sim import filters
 from nqbt.sim.types import (
     BAND_BOLLINGER,
     BAND_VWAP,
     DeadCatParams,
     ElasticBandParams,
+    EmaCrossoverParams,
     PullBackAndGoParams,
 )
 
@@ -616,3 +618,105 @@ def test_a_remembered_gate_holds_the_grid_s_own_answer() -> None:
 
     assert gate.any(), "the gate is empty, so the test proves nothing"
     assert np.array_equal(gate, data.regimes.gate_for(10, regime.Regime.CONSOLIDATING.bit, 0.3, 0.6))
+
+
+# -- the first signal bar ------------------------------------------------------
+
+
+@pytest.mark.parametrize("first", [-1, 801])
+def test_a_first_signal_bar_outside_the_bars_is_refused(first: int) -> None:
+    """Below zero or past the last bar, ``prepare`` raises before building anything."""
+    with pytest.raises(ContextError, match="first_signal_bar must be between 0 and the 800 bars"):
+        context.prepare(bars(), first_signal_bar=first)
+
+
+@pytest.mark.parametrize("first", [-1, 801])
+def test_a_dataset_copied_with_a_first_signal_bar_outside_its_bars_is_refused(first: int) -> None:
+    """The check is the dataset's own, so a copy cannot carry a bad value past ``prepare``."""
+    data = context.prepare(bars())
+    with pytest.raises(ContextError, match="first_signal_bar must be between 0 and the 800 bars"):
+        replace(data, first_signal_bar=first)
+
+
+def test_a_first_signal_bar_at_either_end_of_the_bars_is_accepted() -> None:
+    """The first bar is the default, and the bar past the last leaves nothing that may signal."""
+    frame = bars()
+    assert context.prepare(frame).first_signal_bar == 0
+    assert context.prepare(frame, first_signal_bar=len(frame)).first_signal_bar == len(frame)
+
+
+def test_a_slim_copy_keeps_its_first_signal_bar() -> None:
+    """The slim copy a parallel sweep runs on carries the first signal bar."""
+    first = 300
+    assert context.prepare(bars(), first_signal_bar=first).slim().first_signal_bar == first
+
+
+def test_the_default_first_signal_bar_writes_nothing_into_the_signal() -> None:
+    """At the first bar a read-only signal passes the filters untouched, as before the bar existed."""
+    params = DeadCatParams()
+    data = sweep.prepare_for(bars(), sweep.Grid.of(params))
+    signal = np.ones(len(data), dtype=np.bool_)
+    signal.flags.writeable = False
+
+    assert filters.apply_context_filters(signal, data, params) is signal
+
+
+FIRST_SIGNAL_BAR = 5_000
+
+SIGNAL_CASES = [
+    *[
+        pytest.param(archetype, archetype.params_cls(), id=archetype.name)
+        for archetype in archetypes.all_archetypes()
+    ],
+    pytest.param(
+        archetypes.EMACROSSOVER,
+        EmaCrossoverParams(
+            regime_filter=regime.Regime.DIRECTIONAL.bit,
+            trend_filter=trend.Trend.UP.bit,
+            confluence_required=1,
+        ),
+        id="EmaCrossover-confluence",
+    ),
+]
+"""Every archetype at its defaults, and the confluence count, which narrows by a path of its own."""
+
+
+@pytest.fixture(scope="module")
+def ten_days() -> pd.DataFrame:
+    """Return enough minutes for every archetype to signal and trade on both sides of the bar."""
+    return bars(n=14_400)
+
+
+@pytest.mark.parametrize(("archetype", "params"), SIGNAL_CASES)
+def test_the_first_signal_bar_clears_the_signal_before_it_and_keeps_it_from_there(
+    ten_days: pd.DataFrame,
+    archetype: archetypes.Archetype,
+    params: archetypes.Params,
+) -> None:
+    """The bar itself may signal; only the bars ahead of it are cleared."""
+    grid = sweep.Grid.of(params, archetype=archetype)
+    signal = archetype.signal(sweep.prepare_for(ten_days, grid), params)
+    blocked = archetype.signal(sweep.prepare_for(ten_days, grid, first_signal_bar=FIRST_SIGNAL_BAR), params)
+
+    assert signal[:FIRST_SIGNAL_BAR].any(), "nothing signals before the bar, so the test proves nothing"
+    assert signal[FIRST_SIGNAL_BAR:].any(), "nothing signals after the bar, so the test proves nothing"
+    assert not blocked[:FIRST_SIGNAL_BAR].any()
+    assert np.array_equal(blocked[FIRST_SIGNAL_BAR:], signal[FIRST_SIGNAL_BAR:])
+
+
+@pytest.mark.parametrize(("archetype", "params"), SIGNAL_CASES)
+def test_the_first_signal_bar_changes_a_run_through_its_signal_alone(
+    ten_days: pd.DataFrame,
+    archetype: archetypes.Archetype,
+    params: archetypes.Params,
+) -> None:
+    """Fed the same cleared signal through the override, a run from the first bar is the same run."""
+    grid = sweep.Grid.of(params, archetype=archetype)
+    data = sweep.prepare_for(ten_days, grid)
+    cleared = archetype.signal(data, params)
+    cleared[:FIRST_SIGNAL_BAR] = False
+    expected = archetype.legs(data, params, signal=cleared)
+    got = archetype.legs(sweep.prepare_for(ten_days, grid, first_signal_bar=FIRST_SIGNAL_BAR), params)
+
+    assert got.count > 0, "nothing traded after the bar, so the test proves nothing"
+    assert np.array_equal(got.matrix[: got.count], expected.matrix[: expected.count], equal_nan=True)
