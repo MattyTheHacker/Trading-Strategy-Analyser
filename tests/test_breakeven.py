@@ -386,7 +386,9 @@ def test_the_breakeven_and_an_early_exit_both_act_in_one_run(bars) -> None:
     base = TRADING["DeadCatBounce"]
     both = dataclasses.replace(base, early_exit_bars=3, **ARMS["0.05R on the close"])
     data = prepared(bars, both, archetypes.DEADCATBOUNCE)
-    matrix = archetypes.DEADCATBOUNCE.legs(data, both, MNQ).matrix
+    legs = archetypes.DEADCATBOUNCE.legs(data, both, MNQ)
+    # The rows past ``count`` are zero padding, which reads as a stop exit at a price of zero.
+    matrix = legs.matrix[: legs.count]
     stopped = matrix[matrix[:, C_EXIT_REASON] == EXIT_STOP]
     assert (matrix[:, C_EXIT_REASON] == EXIT_EARLY).any()
     assert np.isclose(stopped[:, C_EXIT_PRICE], stopped[:, C_ENTRY_PRICE]).any()
