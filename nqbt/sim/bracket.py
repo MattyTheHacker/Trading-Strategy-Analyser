@@ -149,14 +149,23 @@ class EarlyExit(NamedTuple):
     """
 
     at_bar: int
+    at_minutes: float
+    """The not-working exit's age in minutes rather than bars, measured on :attr:`clock`."""
+
     below_r: float
+    measure: int
+    """One of :data:`EARLY_EXIT_MEASURES`: what the not-working exit compares with :attr:`below_r`."""
+
     trend_form: int
     """Read only where :attr:`trend_labels` is non-empty."""
 
     only_if_losing: bool
+    on_invalidation: bool
     near_close: BoolArray
     regime_labels: LabelArray
     trend_labels: LabelArray
+    clock: FloatArray
+    """Each bar's timestamp in epoch seconds, read only for an age in minutes."""
 
 
 TREND_EXIT_OFF = 0
@@ -172,18 +181,30 @@ TREND_EXIT_FORMS = {
 TREND_MIXED = int(trend.Trend.MIXED)
 """The middle trend label, which a position's side is measured either side of."""
 
+MEASURE_OPEN_PROFIT = 0
+MEASURE_EXCURSION = 1
+EARLY_EXIT_MEASURES = {MEASURE_OPEN_PROFIT: "open_profit", MEASURE_EXCURSION: "excursion"}
+"""What the not-working exit measures: open profit at the close, or the best favourable excursion so far."""
+
+SECONDS_PER_MINUTE = 60.0
+
 NO_CLOCK = np.zeros(0, dtype=np.bool_)
 NO_LABELS = np.zeros(0, dtype=np.int8)
+NO_SECONDS = np.zeros(0, dtype=np.float64)
 """Stand-ins for a series the active rule never reads, which numba still needs typed."""
 
 EARLY_EXIT_OFF = EarlyExit(
     at_bar=0,
+    at_minutes=0.0,
     below_r=0.0,
+    measure=MEASURE_OPEN_PROFIT,
     trend_form=TREND_EXIT_OFF,
     only_if_losing=False,
+    on_invalidation=False,
     near_close=NO_CLOCK,
     regime_labels=NO_LABELS,
     trend_labels=NO_LABELS,
+    clock=NO_SECONDS,
 )
 """Every rule off, which is every loop's default."""
 
@@ -228,6 +249,59 @@ NO_ATR = np.zeros(0, dtype=np.float64)
 
 BREAKEVEN_OFF = Breakeven(at=0.0, unit=BREAKEVEN_R, on=BREAKEVEN_ON_CLOSE, offset_ticks=0.0, atr=NO_ATR)
 """The breakeven stop off, which is every loop's default."""
+
+
+class StopTightening(NamedTuple):
+    """The stop tightening as the position ages, or as the session nears its close.
+
+    The age stop is off at an ``age_after`` of ``0`` and the late stop where ``late_window`` is
+    empty -- ``docs/nt8-fidelity.md``, "Tightening the stop with time".
+    """
+
+    age_after: float
+    """The position's age at which the stop has moved all the way, in bars, or in minutes where
+    :attr:`clock` is non-empty."""
+
+    age_fraction: float
+    age_shape: int
+    """One of :data:`AGE_STOP_SHAPES`."""
+
+    age_only_if_losing: bool
+    clock: FloatArray
+    """Each bar's timestamp in epoch seconds, read only for an age in minutes."""
+
+    late_window: BoolArray
+    late_to: int
+    """One of :data:`LATE_STOP_LEVELS`."""
+
+    late_atr_multiple: float
+    late_atr: FloatArray
+    """Read only under :data:`LATE_STOP_ATR`."""
+
+
+AGE_STOP_STEP = 0
+AGE_STOP_LINE = 1
+AGE_STOP_SHAPES = {AGE_STOP_STEP: "step", AGE_STOP_LINE: "line"}
+"""How the age stop moves: all at once when the age is reached, or a little at every close until then."""
+
+LATE_STOP_ENTRY = 0
+LATE_STOP_BAR_EXTREME = 1
+LATE_STOP_ATR = 2
+LATE_STOP_LEVELS = {LATE_STOP_ENTRY: "entry", LATE_STOP_BAR_EXTREME: "bar_extreme", LATE_STOP_ATR: "atr"}
+"""Where the late stop goes: the entry, the just-closed bar's adverse extreme, or ATRs from the close."""
+
+STOP_TIGHTENING_OFF = StopTightening(
+    age_after=0.0,
+    age_fraction=1.0,
+    age_shape=AGE_STOP_STEP,
+    age_only_if_losing=False,
+    clock=NO_SECONDS,
+    late_window=NO_CLOCK,
+    late_to=LATE_STOP_ENTRY,
+    late_atr_multiple=1.0,
+    late_atr=NO_ATR,
+)
+"""Both off, which is every loop's default."""
 
 
 @njit(cache=True)
@@ -429,17 +503,19 @@ def hold_expired(entry_bar: int, i: int, max_hold_bars: int) -> bool:
 
 
 @njit(cache=True)
-def early_exit_due(rule: EarlyExit, trade: OpenTrade, i: int, close: float) -> bool:
+def early_exit_due(rule: EarlyExit, trade: OpenTrade, bars: Bars, excursion: Excursion, i: int) -> bool:
     """Return whether bar ``i``'s close is where the conditional early exit is submitted.
 
-    Off at :data:`EARLY_EXIT_OFF`. A position is losing when ``close`` is strictly worse than
-    its entry price, and the order fills at the next bar's open -- ``docs/nt8-fidelity.md``,
-    "The conditional early exit".
+    Off at :data:`EARLY_EXIT_OFF`. ``excursion`` includes bar ``i``. A position is losing when
+    the close is strictly worse than its entry price, and the order fills at the next bar's open
+    -- ``docs/nt8-fidelity.md``, "The conditional early exit".
     """
-    open_profit = trade.direction * (close - trade.entry_price)
-    losing = open_profit < 0.0
-    if rule.at_bar > 0:
-        return i - trade.entry_bar == rule.at_bar and open_profit < rule.below_r * trade.risk
+    close = float(bars.close[i])
+    losing = trade.direction * (close - trade.entry_price) < 0.0
+    if rule.at_bar > 0 or rule.at_minutes > 0.0:
+        return reached_age(rule.at_bar, rule.at_minutes, rule.clock, trade.entry_bar, i) and not_working(
+            rule, trade, excursion, close
+        )
 
     if rule.near_close.size > 0:
         return losing and rule.near_close[i]
@@ -447,6 +523,15 @@ def early_exit_due(rule: EarlyExit, trade: OpenTrade, i: int, close: float) -> b
     at_entry = trade.entry_bar - 1
     if at_entry < 0 or (rule.only_if_losing and not losing):
         return False
+
+    return turned_against(rule, trade, bars, at_entry, i)
+
+
+@njit(cache=True)
+def turned_against(rule: EarlyExit, trade: OpenTrade, bars: Bars, at_entry: int, i: int) -> bool:
+    """Return whether the invalidation, regime or trend exit, whichever is on, fires at bar ``i``'s close."""
+    if rule.on_invalidation:
+        return closed_beyond(bars, at_entry, i, trade.direction)
 
     if rule.regime_labels.size > 0:
         return regime_changed(rule.regime_labels, at_entry, i)
@@ -458,10 +543,46 @@ def early_exit_due(rule: EarlyExit, trade: OpenTrade, i: int, close: float) -> b
 
 
 @njit(cache=True)
+def reached_age(at_bar: int, at_minutes: float, clock: FloatArray, entry_bar: int, i: int) -> bool:
+    """Return whether bar ``i``'s close is the one a rule tested at a single age is tested at.
+
+    In bars, the close ``at_bar`` bars after the entry bar's; in minutes, the first close at
+    least ``at_minutes`` after the entry bar's, timed on ``clock``.
+    """
+    if at_bar > 0:
+        return i - entry_bar == at_bar
+
+    horizon = at_minutes * SECONDS_PER_MINUTE
+    if float(clock[i] - clock[entry_bar]) < horizon:
+        return False
+
+    return float(clock[i - 1] - clock[entry_bar]) < horizon
+
+
+@njit(cache=True)
+def not_working(rule: EarlyExit, trade: OpenTrade, excursion: Excursion, close: float) -> bool:
+    """Return whether the position is below the not-working exit's threshold, in R, on its measure."""
+    reached = close
+    if rule.measure == MEASURE_EXCURSION:
+        _, reached = sided(excursion.run_low, excursion.run_high, trade.direction)
+
+    return trade.direction * (reached - trade.entry_price) < rule.below_r * trade.risk
+
+
+@njit(cache=True)
+def closed_beyond(bars: Bars, at_entry: int, i: int, direction: float) -> bool:
+    """Return whether bar ``i`` closed strictly beyond the adverse extreme of bar ``at_entry``."""
+    adverse, _ = sided(bars.low[at_entry], bars.high[at_entry], direction)
+
+    return direction * (float(bars.close[i]) - adverse) < 0.0
+
+
+@njit(cache=True)
 def market_exit_reason(
     trade: OpenTrade,
+    bars: Bars,
+    excursion: Excursion,
     i: int,
-    close: float,
     max_hold_bars: int,
     early_exit: EarlyExit,
 ) -> float:
@@ -473,7 +594,7 @@ def market_exit_reason(
     if hold_expired(trade.entry_bar, i, max_hold_bars):
         return EXIT_TIME_LIMIT
 
-    if early_exit_due(early_exit, trade, i, close):
+    if early_exit_due(early_exit, trade, bars, excursion, i):
         return EXIT_EARLY
 
     return NO_MARKET_EXIT
@@ -662,13 +783,117 @@ def breakeven_level(
         return np.nan
 
     level = trade.entry_price + direction * rule.offset_ticks * costs.tick_size
+
+    return submittable_stop(level, bars.close[i], direction, costs, fills)
+
+
+@njit(cache=True)
+def submittable_stop(level: float, close: float, direction: float, costs: Costs, fills: FillRules) -> float:
+    """Return a stop level snapped to the tick wherever targets are, or ``nan`` at or through ``close``.
+
+    §M18's rule that a stop at or through the price it protects is not a stop order --
+    ``docs/nt8-fidelity.md``, "The breakeven stop".
+    """
     if fills.round_targets:
         level = round_to_tick(level, costs.tick_size)
 
-    if direction * (bars.close[i] - level) <= 0.0:
+    if direction * (close - level) <= 0.0:
         return np.nan
 
     return level
+
+
+@njit(cache=True)
+def tightening_level(
+    rule: StopTightening,
+    trade: OpenTrade,
+    initial_stop: float,
+    bars: Bars,
+    i: int,
+    costs: Costs,
+    fills: FillRules,
+) -> float:
+    """Return the level bar ``i``'s close tightens the stop to with time, or ``nan``.
+
+    The nearer the market of the age stop's level and the late stop's. ``initial_stop`` is the
+    stop the age stop moves from, which is per lot where lots differ. Pass the result to
+    :func:`tightened_stop`, which never loosens -- ``docs/nt8-fidelity.md``, "Tightening the stop
+    with time".
+    """
+    aged = age_stop_level(rule, trade, initial_stop, bars.close[i], i, costs, fills)
+    late = late_stop_level(rule, trade, bars, i, costs, fills)
+    if np.isnan(aged):
+        return late
+
+    return tightened_stop(aged, late, trade.direction)
+
+
+@njit(cache=True)
+def age_stop_level(
+    rule: StopTightening,
+    trade: OpenTrade,
+    initial_stop: float,
+    close: float,
+    i: int,
+    costs: Costs,
+    fills: FillRules,
+) -> float:
+    """Return the age stop's level at bar ``i``'s close, part of the way from ``initial_stop`` to the entry.
+
+    The part is ``age_fraction``, scaled by the age under the line shape. ``nan`` where the rule
+    is off, the step has not been reached, the line is at age 0, the position is not losing under
+    ``age_only_if_losing``, or the level is at or through the close.
+    """
+    if rule.age_after <= 0.0:
+        return np.nan
+
+    direction = trade.direction
+    if rule.age_only_if_losing and direction * (close - trade.entry_price) >= 0.0:
+        return np.nan
+
+    age = float(i - trade.entry_bar)
+    horizon = rule.age_after
+    if rule.clock.size > 0:
+        age = rule.clock[i] - rule.clock[trade.entry_bar]
+        horizon = rule.age_after * SECONDS_PER_MINUTE
+
+    progress = min(age / horizon, 1.0)
+    if rule.age_shape == AGE_STOP_STEP:
+        if age < horizon:
+            return np.nan
+
+        progress = 1.0
+
+    if progress <= 0.0:
+        return np.nan
+
+    level = initial_stop + rule.age_fraction * progress * (trade.entry_price - initial_stop)
+
+    return submittable_stop(level, close, direction, costs, fills)
+
+
+@njit(cache=True)
+def late_stop_level(
+    rule: StopTightening,
+    trade: OpenTrade,
+    bars: Bars,
+    i: int,
+    costs: Costs,
+    fills: FillRules,
+) -> float:
+    """Return the late stop's level at bar ``i``'s close, or ``nan`` outside its window or past the close."""
+    if rule.late_window.size == 0 or not rule.late_window[i]:
+        return np.nan
+
+    direction = trade.direction
+    close = float(bars.close[i])
+    level = trade.entry_price
+    if rule.late_to == LATE_STOP_BAR_EXTREME:
+        level, _ = sided(bars.low[i], bars.high[i], direction)
+    elif rule.late_to == LATE_STOP_ATR:
+        level = close - direction * rule.late_atr_multiple * rule.late_atr[i]
+
+    return submittable_stop(level, close, direction, costs, fills)
 
 
 @njit(cache=True)

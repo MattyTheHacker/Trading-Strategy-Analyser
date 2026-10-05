@@ -90,14 +90,17 @@ below and is what you quote; this file is the index, not the record.
   reaches `max_hold_bars + 1`, not `max_hold_bars`. Where a bar is both this and an
   archetype's own signal exit, the archetype's rule takes it. `docs/nt8-fidelity.md`, "The
   maximum hold time, and why it is its own exit code".
-- **The conditional early exit is every archetype's too, and it is `EXIT_EARLY`.** Four rules --
-  not working by bar N, losing before the close, a regime change and a trend turning against --
-  all off by default, and the parameter class refuses two at once, so one code says which fired.
-  `bracket.early_exit_due` is the one decision, `bracket.market_exit_reason` the one order between
-  it and the hold cap, and `bracket.flatten_position` the one writer, so **do not fork any of
-  them**. Each is decided at a bar close and fills at the next bar's open; on a bar that is two
-  exits, the archetype's own rule takes it, then the hold cap, then this. The label rules compare
-  against the bar **before** the entry bar, and every threshold is in R. A setting nothing reads,
+- **The conditional early exit is every archetype's too, and it is `EXIT_EARLY`.** Six rules --
+  not working by bar N or by minute N (on open profit or the best excursion), losing before the
+  close, a regime change, a trend turning against and a close beyond the signal bar's adverse
+  extreme -- all off by default, and the parameter class refuses two at once, so one code says
+  which fired. The minutes form reads `Dataset.bar_seconds`, UTC epoch seconds converted by
+  unit, never `asi8`, whose unit pandas 3 infers. `bracket.early_exit_due` is the one decision,
+  `bracket.market_exit_reason` the one order between it and the hold cap, and
+  `bracket.flatten_position` the one writer, so **do not fork any of them**. Each is decided at
+  a bar close and fills at the next bar's open; on a bar that is two exits, the archetype's own
+  rule takes it, then the hold cap, then this. The label rules compare against the bar
+  **before** the entry bar, and every threshold is in R. A setting nothing reads,
   or a not-working bar the hold cap always beats, is refused rather than run.
   `docs/nt8-fidelity.md`, "The conditional early exit".
 - **The breakeven stop is every archetype's too, and it moves the stop rather than exiting.**
@@ -108,6 +111,14 @@ below and is what you quote; this file is the index, not the record.
   the close is not submitted. InsideBarTrailing moves both lots on the bracketed lot's R. A hit is
   still `EXIT_STOP`, it may run beside an early exit, and an unread setting is refused.
   `docs/nt8-fidelity.md`, "The breakeven stop".
+- **The stop tightening with time is every archetype's too, and it moves the stop as the
+  breakeven does.** The age stop moves it part of the way from the initial stop to the entry, at
+  once at an age in bars or minutes or along a line until then, optionally only while losing;
+  the late stop moves it inside the window before the close to the entry, the just-closed bar's
+  adverse extreme or ATRs from the close. `bracket.tightening_level` is the one decision and
+  `tightened_stop` the one ratchet, so **do not fork either**. The fraction is of the distance
+  from the initial stop, not of R, and InsideBarTrailing moves each lot from its own initial stop.
+  A hit is still `EXIT_STOP`. `docs/nt8-fidelity.md`, "Tightening the stop with time".
 
 ## Structure
 
@@ -124,9 +135,10 @@ below and is what you quote; this file is the index, not the record.
 - **A new archetype writes the entry half only.** `CONTRIBUTING.md` § "Adding an archetype".
 - **The loops' parameters travel as `NamedTuple` blobs declared in `bracket.py`** — `Bars`,
   `Costs`, `FillRules`, `OpenTrade`, `Legs`, `Excursion`, `LegExit`, plus one `*Rules` per
-  archetype, each carrying an `EarlyExit` and a `Breakeven`. **Do not add a loose scalar back to
-  a signature**: ruff's `max-args = 10` is what every loop now sits under, and #59 is why. They
-  must also stay in an **importable module** — a blob declared beside its loop writes a
+  archetype, each carrying an `EarlyExit`, a `Breakeven` and a `StopTightening`. **Do not add a
+  loose scalar back to a signature**: ruff's `max-args = 10` is what every loop now sits under,
+  and #59 is why. They must also stay in an **importable module** — a blob declared beside its
+  loop writes a
   `cache=True` disk cache and then misses it on every run, silently, which costs the parallel
   workers their compile. `docs/roadmap.md` §M20c.
 - **`atr_bracket_distance` is the one ATR sizing**, shared by EmaCrossover's stop and both
@@ -299,9 +311,10 @@ below and is what you quote; this file is the index, not the record.
   `docs/nt8-fidelity.md` §M23.
 - **`tightened_stop` is the one ratchet, and a trail is a ratchet over a different level.**
   DeadCatBounce's candidate is a lagged bar's adverse extreme, EmaCrossover's is a moving
-  average plus a cushion, the breakeven's is the entry and InsideBarTrailing's structure
-  trail's is a broken box's midpoint; all any of them does with a candidate is refuse to
-  loosen, and a `nan` candidate leaves the stop alone. **Do not write a second comparison.**
+  average plus a cushion, the breakeven's is the entry, the stop tightening's is a point on the
+  way to it or a late level, and InsideBarTrailing's structure trail's is a broken box's
+  midpoint; all any of them does with a candidate is refuse to loosen, and a `nan` candidate
+  leaves the stop alone. **Do not write a second comparison.**
   EmaCrossover's trail sits *on top of* whichever mode placed the initial stop
   rather than replacing it, so `(use_atr_stop, trail_ma_stop)` is a legal 2x2 instead of a mode
   with a cell where one toggle masks the other. `docs/roadmap.md` § "The build spec's three

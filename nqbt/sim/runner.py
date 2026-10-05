@@ -107,6 +107,7 @@ def deadcat_legs(
             direction=trades.SHORT,  # DeadCatBounce has no long variant; PullBackAndGo does.
             early_exit=filters.early_exit(data, params),
             breakeven=filters.breakeven(data, params),
+            stop_tightening=filters.stop_tightening(data, params),
         ),
         out,
     )

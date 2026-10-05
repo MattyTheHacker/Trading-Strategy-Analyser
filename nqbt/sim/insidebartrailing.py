@@ -81,6 +81,7 @@ class InsideBarTrailingRules(NamedTuple):
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
+    stop_tightening: bracket.StopTightening = bracket.STOP_TIGHTENING_OFF
     structure_trail_bars: int = 0
     structure_trail_cushion_atr: float = 0.0
 
@@ -459,11 +460,16 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
             else:
                 lots.stop[TRAILING_LOT] = trailed_stop(lots, excursion, trail_distance, costs, fills, d)
 
-        # ---- close of bar i: both lots' stops to breakeven, on the bracketed lot's R ----
+        # ---- close of bar i: both lots' stops to breakeven, on the bracketed lot's R, then
+        # tightened with time, each from its own initial stop ----------------------------
         if in_position:
             breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
             for lot in range(n_lots):
                 lots.stop[lot] = bracket.tightened_stop(lots.stop[lot], breakeven, d)
+                timed = bracket.tightening_level(
+                    rules.stop_tightening, trade, lots.initial_stop[lot], bars, i, costs, fills
+                )
+                lots.stop[lot] = bracket.tightened_stop(lots.stop[lot], timed, d)
 
         # ---- the trend violation, on whichever bar the position just changed ------------
         if in_position and position_changed and i >= 1:
@@ -498,7 +504,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                 in_position = False
 
         pending_exit_reason = (
-            bracket.market_exit_reason(trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit)
+            bracket.market_exit_reason(trade, bars, excursion, i, rules.max_hold_bars, rules.early_exit)
             if in_position
             else bracket.NO_MARKET_EXIT
         )
@@ -638,6 +644,7 @@ def insidebartrailing_legs(
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
             breakeven=filters.breakeven(data, params),
+            stop_tightening=filters.stop_tightening(data, params),
             structure_trail_bars=params.structure_trail_bars,
             structure_trail_cushion_atr=params.structure_trail_cushion_atr,
         ),

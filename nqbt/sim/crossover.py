@@ -71,6 +71,7 @@ class CrossoverRules(NamedTuple):
     max_hold_bars: int
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
+    stop_tightening: bracket.StopTightening = bracket.STOP_TIGHTENING_OFF
 
 
 @njit(cache=True)
@@ -215,6 +216,10 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
         if in_position:
             breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
             stop = bracket.tightened_stop(stop, breakeven, d)
+            timed = bracket.tightening_level(
+                rules.stop_tightening, trade, trade.initial_stop, bars, i, costs, fills
+            )
+            stop = bracket.tightened_stop(stop, timed, d)
 
         if in_position and rules.exit_on_opposite_cross and direction_at[i] != d:
             pending_exit = True
@@ -223,7 +228,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
         # After the opposite cross, which would have closed the position on this bar anyway.
         if in_position and not pending_exit:
             pending_exit_reason = bracket.market_exit_reason(
-                trade, i, bars.close[i], rules.max_hold_bars, rules.early_exit
+                trade, bars, excursion, i, rules.max_hold_bars, rules.early_exit
             )
             pending_exit = pending_exit_reason != bracket.NO_MARKET_EXIT
 
@@ -458,6 +463,7 @@ def crossover_legs(
             max_hold_bars=params.max_hold_bars,
             early_exit=filters.early_exit(data, params),
             breakeven=filters.breakeven(data, params),
+            stop_tightening=filters.stop_tightening(data, params),
         ),
         out,
     )

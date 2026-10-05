@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
     from nqbt.context import Dataset
-    from nqbt.sim.types import BreakevenParams
+    from nqbt.sim.types import BreakevenParams, StopTighteningParams
 
 __all__ = [
     "ConfluenceFiltered",
@@ -43,6 +43,7 @@ __all__ = [
     "context_gates",
     "early_exit",
     "label_sides",
+    "stop_tightening",
 ]
 
 
@@ -344,14 +345,22 @@ def early_exit(data: Dataset, params: EarlyExiting) -> bracket.EarlyExit:
     if params.early_exit_on_trend != bracket.TREND_EXIT_OFF:
         trend_labels = data.trend_labels(params.trend_key, params.trend_min_agreement)
 
+    clock: FloatArray = bracket.NO_SECONDS
+    if params.early_exit_minutes > 0:
+        clock = data.bar_seconds()
+
     return bracket.EarlyExit(
         at_bar=int(params.early_exit_bars),
+        at_minutes=float(params.early_exit_minutes),
         below_r=float(params.early_exit_below_r),
+        measure=int(params.early_exit_measure),
         trend_form=int(params.early_exit_on_trend),
         only_if_losing=bool(params.early_exit_only_if_losing),
+        on_invalidation=bool(params.early_exit_on_invalidation),
         near_close=near_close,
         regime_labels=regime_labels,
         trend_labels=trend_labels,
+        clock=clock,
     )
 
 
@@ -371,4 +380,35 @@ def breakeven(data: Dataset, params: BreakevenParams) -> bracket.Breakeven:
         on=int(params.breakeven_on),
         offset_ticks=float(params.breakeven_offset_ticks),
         atr=atr,
+    )
+
+
+def stop_tightening(data: Dataset, params: StopTighteningParams) -> bracket.StopTightening:
+    """Return the stop tightening one combination runs, carrying only the series it reads.
+
+    Off, it equals :data:`nqbt.sim.bracket.STOP_TIGHTENING_OFF` field for field. The late
+    window is the no-entry window's, at the same minutes -- ``docs/nt8-fidelity.md``,
+    "Tightening the stop with time".
+    """
+    clock: FloatArray = bracket.NO_SECONDS
+    if params.age_stop_minutes > 0:
+        clock = data.bar_seconds()
+
+    late_window: BoolArray = bracket.NO_CLOCK
+    late_atr: FloatArray = bracket.NO_ATR
+    if params.late_stop_minutes_before_close > 0:
+        late_window = ~data.session_end_gate(params.late_stop_minutes_before_close)
+        if params.late_stop_to == bracket.LATE_STOP_ATR:
+            late_atr = data.atr_values(params.late_stop_atr_period)
+
+    return bracket.StopTightening(
+        age_after=float(params.age_stop_bars or params.age_stop_minutes),
+        age_fraction=float(params.age_stop_fraction),
+        age_shape=int(params.age_stop_shape),
+        age_only_if_losing=bool(params.age_stop_only_if_losing),
+        clock=clock,
+        late_window=late_window,
+        late_to=int(params.late_stop_to),
+        late_atr_multiple=float(params.late_stop_atr),
+        late_atr=late_atr,
     )

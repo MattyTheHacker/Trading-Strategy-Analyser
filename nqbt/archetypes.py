@@ -48,6 +48,7 @@ from nqbt.sim.types import (
     OpeningRangeParams,
     PullBackAndGoParams,
     SqueezeBreakoutParams,
+    StopTighteningParams,
     active_early_exits,
 )
 
@@ -125,8 +126,12 @@ def _sizes_on_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
 
 
 def _needs_session_clock(values: Mapping[str, Sequence[AxisValue]]) -> bool:
-    """Return whether some combination sets a window before the close: a no-entry window or an early exit."""
-    windows: tuple[str, ...] = ("no_entry_minutes_before_close", "early_exit_minutes_before_close")
+    """Return whether some combination sets a window before the close: no entry, early exit or late stop."""
+    windows: tuple[str, ...] = (
+        "no_entry_minutes_before_close",
+        "early_exit_minutes_before_close",
+        "late_stop_minutes_before_close",
+    )
 
     return any(float(v) > 0 for window in windows for v in values.get(window, ()))
 
@@ -143,15 +148,20 @@ def _reads_label(
     return filters or any(any(values.get(reader, ())) for reader in readers)
 
 
-def _breakeven_atr_periods(values: Mapping[str, Sequence[AxisValue]]) -> set[int]:
-    """Return the ATR periods a breakeven trigger reads: none unless some combination measures it in ATRs."""
-    in_atr: bool = any(float(v) > 0 for v in values.get("breakeven_at", ())) and any(
+def _stop_atr_periods(values: Mapping[str, Sequence[AxisValue]]) -> set[int]:
+    """Return the ATR periods a stop move reads: a breakeven trigger in ATRs, or a late stop in ATRs."""
+    periods: set[int] = set()
+    if any(float(v) > 0 for v in values.get("breakeven_at", ())) and any(
         int(v) == bracket.BREAKEVEN_ATR for v in values.get("breakeven_unit", ())
-    )
-    if not in_atr:
-        return set()
+    ):
+        periods |= {int(v) for v in values.get("breakeven_atr_period", ())}
 
-    return {int(v) for v in values.get("breakeven_atr_period", ())}
+    if any(float(v) > 0 for v in values.get("late_stop_minutes_before_close", ())) and any(
+        int(v) == bracket.LATE_STOP_ATR for v in values.get("late_stop_to", ())
+    ):
+        periods |= {int(v) for v in values.get("late_stop_atr_period", ())}
+
+    return periods
 
 
 def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, ...]:
@@ -271,7 +281,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
-        atr_periods=tuple(sorted(_breakeven_atr_periods(values))),
+        atr_periods=tuple(sorted(_stop_atr_periods(values))),
         needs_vwap=any(values.get("use_vwap", ())) or _sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -299,7 +309,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
-        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
         needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -326,7 +336,7 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
-        atr_periods=tuple(sorted(_breakeven_atr_periods(values))),
+        atr_periods=tuple(sorted(_stop_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         needs_vwap=_sizes_on_vwap(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -358,7 +368,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         band_periods=tuple(sorted(periods)),
         needs_vwap_band=BAND_VWAP in sources,
         needs_vwap=_sizes_on_vwap(values),
-        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -400,7 +410,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
         ),
         follow_through_sessions=tuple(sorted(scaled)),
         needs_vwap=_sizes_on_vwap(values),
-        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -432,7 +442,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     )
 
     return ContextSpec(
-        atr_periods=tuple(sorted(atr | _breakeven_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -455,9 +465,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
-        atr_periods=tuple(
-            sorted({int(v) for v in values.get("atr_length", ())} | _breakeven_atr_periods(values))
-        ),
+        atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())} | _stop_atr_periods(values))),
         needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -481,9 +489,14 @@ INERT_AT: Mapping[str, object] = {
     "earliness_mode": EARLINESS_OFF,
     "quantity_per_confluence": 0,
     "early_exit_bars": 0,
+    "early_exit_minutes": 0,
     "early_exit_on_trend": bracket.TREND_EXIT_OFF,
     "breakeven_at": 0.0,
     "breakeven_unit": bracket.BREAKEVEN_R,
+    "age_stop_bars": 0,
+    "age_stop_minutes": 0,
+    "late_stop_minutes_before_close": 0,
+    "late_stop_to": bracket.LATE_STOP_ENTRY,
     "structure_trail_bars": 0,
 }
 """The value at which a toggle leaves its axes unread, where that is not simply ``False``.
@@ -566,11 +579,28 @@ def _read_by_filter_or(gates: Mapping[str, str], *readers: str) -> dict[str, Gat
 
 
 EARLY_EXIT_GATES: Mapping[str, Gate] = {
-    "early_exit_below_r": "early_exit_bars",
-    "early_exit_only_if_losing": AnyOf(("early_exit_on_regime_change", "early_exit_on_trend")),
+    "early_exit_below_r": AnyOf(("early_exit_bars", "early_exit_minutes")),
+    "early_exit_measure": AnyOf(("early_exit_bars", "early_exit_minutes")),
+    "early_exit_only_if_losing": AnyOf(
+        ("early_exit_on_regime_change", "early_exit_on_trend", "early_exit_on_invalidation"),
+    ),
 }
-"""The threshold is read only by the not-working exit, and the losing condition only by the two
-label exits -- ``docs/nt8-fidelity.md``, "The conditional early exit"."""
+"""The threshold and the measure are read only by the not-working exit, in bars or in minutes, and
+the losing condition only by the two label exits and the invalidation exit --
+``docs/nt8-fidelity.md``, "The conditional early exit"."""
+
+STOP_TIGHTENING_GATES: Mapping[str, Gate] = {
+    "age_stop_fraction": AnyOf(("age_stop_bars", "age_stop_minutes")),
+    "age_stop_shape": AnyOf(("age_stop_bars", "age_stop_minutes")),
+    "age_stop_only_if_losing": AnyOf(("age_stop_bars", "age_stop_minutes")),
+    "late_stop_to": "late_stop_minutes_before_close",
+    "late_stop_atr": ("late_stop_minutes_before_close", "late_stop_to"),
+    "late_stop_atr_period": ("late_stop_minutes_before_close", "late_stop_to"),
+}
+"""The age stop's settings are read only with it on, in bars or in minutes, and the late stop's
+only with its window open. What this cannot catch: the two ATR settings are read at one level
+alone, and the bar extreme counts as reading them -- ``docs/nt8-fidelity.md``, "Tightening the
+stop with time"."""
 
 BREAKEVEN_GATES: Mapping[str, Gate] = {
     "breakeven_unit": "breakeven_at",
@@ -590,6 +620,7 @@ CONTEXT_GATES: Mapping[str, Gate] = {
     "size_symmetric": "quantity_per_confluence",
     **EARLY_EXIT_GATES,
     **BREAKEVEN_GATES,
+    **STOP_TIGHTENING_GATES,
 }
 """Every archetype's context axes. A label's axes are read under its filter, its ``size_on_*``
 label *or* an early exit on it, and ``size_symmetric`` only beside a confluence size --
@@ -680,9 +711,21 @@ def _moves_to_breakeven(params: Params) -> bool:
     return isinstance(params, BreakevenParams) and params.breakeven_at > 0.0
 
 
+def _tightens_with_time(params: Params) -> bool:
+    """Return whether a combination switches on the age stop or the late stop, which no NinjaScript has."""
+    return isinstance(params, StopTighteningParams) and (
+        params.age_stop_bars > 0 or params.age_stop_minutes > 0 or params.late_stop_minutes_before_close > 0
+    )
+
+
 def _leaves_the_port(params: Params) -> bool:
-    """Return whether a combination sizes per signal, exits early or moves to breakeven: all off the port."""
-    return _sizes_per_signal(params) or _exits_early(params) or _moves_to_breakeven(params)
+    """Return whether a combination sizes per signal, exits early or moves its stop: all off the port."""
+    return (
+        _sizes_per_signal(params)
+        or _exits_early(params)
+        or _moves_to_breakeven(params)
+        or _tightens_with_time(params)
+    )
 
 
 COST_FIELDS: frozenset[str] = frozenset({"commission_per_contract", "slippage_ticks"})
