@@ -78,6 +78,10 @@ uv run tools/campaign_sweep.py --strategies InsideBarTrailing OpeningRange \
 - **Two strata.** A rule inert unfiltered and live in another stratum is not looked for.
 - **Not a port.** Every row with an arm on is `TIER1_ONLY` until a trade list is diffed against it.
 
+## Added 2026-10-05, after the 15-minute pass: 5 minutes deferred
+
+**Only the 15- and 10-minute passes have run.** The sweep was stopped after its 15-minute pass, before 10 minutes began; 10 minutes was then run on its own, and the 5-minute pass is deferred with no date set. Nothing above was changed: the arms, the reads, the bar and the predictions stand as written, and the family read so far is 22 of the 33 cells. The result is [`m50-early-exit-tier-2-result.md`](m50-early-exit-tier-2-result.md).
+
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#351]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/351
 [#354]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/354
