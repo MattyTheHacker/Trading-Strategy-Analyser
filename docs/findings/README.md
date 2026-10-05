@@ -100,6 +100,8 @@ Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts
 
 **[§M47](m47-confluence-sizing-10-15.md) and [§M47.1](m47-1-confluence-sizing-5.md) have since carried that size to every archetype, and they change nothing above.** At 5, 10 and 15 minutes it beats its own sizes shuffled unfiltered on OpeningRange, EmaCrossover and InsideBarTrailing and nowhere else, and no cell that clears passes all three gate-4 reads; on OpeningRange the extra contracts cost prop passes. **In this cell at 5 minutes no label carries the size alone**, and through the accounts it raises the MNQ pass rate on all four presets. That is a read rather than a test and is not matched for the extra contracts, and on NQ almost nothing passes either way. It strengthens the size's case for a later port; it does not change this one. 2 minutes was dropped unread.
 
+**[§M49](m49-structure-trail-result.md) has since trailed the runner to structure instead of the high-water mark, and in this cell that costs, so the stop above stands.** At 5 minutes, 13 of 24 structure-trail settings lose profit factor on both roots in both windows and none gains — a description rather than a pre-registered test, since the test was the unfiltered stratum, where at 5 minutes the same rule clears broadly.
+
 ### The one it displaces: OpeningRange, midday, on MNQ
 
 The opening range's break, confined to the midday lull. It clears gates 2 and 3 on both roots (§M28.14), and **gate 4 is mixed** (§M28.15): the walk-forward and the permutation test pass, but not one of its 40 configurations has a bootstrap 5th percentile above a profit factor of 1.0 or above zero net — and none of the 40 is profitable without its session-close legs.
