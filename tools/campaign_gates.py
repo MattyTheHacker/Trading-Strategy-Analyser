@@ -299,7 +299,7 @@ class Rerun:
     """One shortlisted configuration re-run: where it sits in the shortlist, and what the run gave."""
 
     position: int
-    params: archetypes.Params
+    params: archetypes.ArchetypeParams
     summary: dict[str, object]
     log: pd.DataFrame
     data: context.Dataset

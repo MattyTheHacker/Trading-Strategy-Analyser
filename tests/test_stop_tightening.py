@@ -50,9 +50,9 @@ from tests.test_insidebartrailing_sim import walk_bars
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.archetypes import ArchetypeParams
     from nqbt.arrays import BoolArray, FloatArray
     from nqbt.context import ContextSpec, Dataset
-    from tests.test_confluence_sizing import ArchetypeParams
 
 TICK = 0.25
 COSTS = bracket.Costs(tick_size=TICK, point_value=2.0, commission_per_contract=0.0, slippage_ticks=0.0)

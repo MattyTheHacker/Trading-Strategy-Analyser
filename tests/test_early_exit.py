@@ -49,9 +49,9 @@ from tests.test_confluence_sizing import EVERY_CLASS, LOOPS, TRADING, prepared
 from tests.test_insidebartrailing_sim import short_periods, walk_bars
 
 if TYPE_CHECKING:
+    from nqbt.archetypes import ArchetypeParams
     from nqbt.arrays import FloatArray, LabelArray
     from nqbt.context import ContextSpec, Dataset
-    from tests.test_confluence_sizing import ArchetypeParams
 
 UP = int(trend.Trend.UP)
 MIXED = int(trend.Trend.MIXED)

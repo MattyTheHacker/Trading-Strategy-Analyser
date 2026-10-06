@@ -41,6 +41,7 @@ from nqbt import (
     volume,
 )
 from nqbt.arrays import float_column
+from nqbt.costs import ParamsT, TradingCosts
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import TREND_EXIT_FORMS, TREND_EXIT_OFF
 from nqbt.sim.types import (
@@ -92,7 +93,7 @@ from nqbt.sim.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
-    from nqbt.archetypes import Archetype, AxisValue, Params
+    from nqbt.archetypes import Archetype, ArchetypeParams, AxisValue, Params
 
 logger = logging.getLogger(__name__)
 
@@ -544,7 +545,7 @@ class Variant:
 
     name: str
     archetype: Archetype
-    base: Params
+    base: ArchetypeParams
     axes: dict[str, list[AxisValue]] = field(default_factory=dict)
     resolutions: tuple[int, ...] = RESOLUTIONS
     """Bar sizes this variant can be run at; a session-anchored range cannot run at all of them."""
@@ -562,9 +563,9 @@ class Variant:
         return minutes in self.resolutions
 
 
-def _costed(params: Params, root: str) -> Params:
+def _costed(params: ParamsT, root: str) -> ParamsT:
     """Return the same rule set with this root's real costs on it."""
-    return replace(params, commission_per_contract=COMMISSION[root], slippage_ticks=SLIPPAGE_TICKS)
+    return TradingCosts(commission_per_contract=COMMISSION[root], slippage_ticks=SLIPPAGE_TICKS).apply(params)
 
 
 def deadcat_variants(root: str) -> list[Variant]:
@@ -1936,7 +1937,7 @@ def arm_factory(
     every axis, so :func:`tools.campaign_paired` reads each against its control cell by cell
     rather than as two shortlists of different sizes.
     """
-    base: Params = replace(campaign.base, **cut.fitted())
+    base: ArchetypeParams = replace(campaign.base, **cut.fitted())
 
     def arm(name: str, **fields: AxisValue | bool) -> Variant:
         return Variant(

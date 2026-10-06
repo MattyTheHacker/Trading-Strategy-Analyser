@@ -64,9 +64,9 @@ def _coerced(value: object, default: object) -> object:
     return value
 
 
-def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Params:  # type: ignore[explicit-any]  # duckdb's dtypes
+def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.ArchetypeParams:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Rebuild the parameter set a stored row came from, defaults filling anything not stored."""
-    params: archetypes.Params = archetype.params_cls()
+    params: archetypes.ArchetypeParams = archetype.params_cls()
     updates: dict[str, object] = {}
     for field in fields(params):
         if field.name not in row.index or _absent(row[field.name]):
@@ -176,13 +176,13 @@ def prepared(
     minutes: int,
     price_basis: context.PriceBasis = context.PriceBasis.UNKNOWN,
     exit_on_close_seconds: int = sessions.EXIT_ON_CLOSE_SECONDS,
-) -> tuple[list[archetypes.Params], context.Dataset]:
+) -> tuple[list[archetypes.ArchetypeParams], context.Dataset]:
     """Rebuild every row of ``block``, in order, and prepare the one dataset all of them run on.
 
     ``price_basis`` says what the bars are. ``exit_on_close_seconds`` moves the forced flat off
     the value every stored row was swept at; only ``tools/campaign_flatten.py`` should pass it.
     """
-    rebuilt: list[archetypes.Params] = [rebuild(row, archetype) for _, row in block.iterrows()]
+    rebuilt: list[archetypes.ArchetypeParams] = [rebuild(row, archetype) for _, row in block.iterrows()]
     grid: sweep.Grid = sweep.Grid.of_combinations(rebuilt, archetype=archetype)
     data: context.Dataset = context.prepare(
         frame,

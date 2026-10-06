@@ -30,6 +30,7 @@ from nqbt.sim import (
     runner,
     squeeze,
 )
+from nqbt.sim.filters import EarlyExiting, LabelSized
 from nqbt.sim.types import (
     BAND_VWAP,
     EARLINESS_OFF,
@@ -86,6 +87,14 @@ class Params(Protocol):
     def as_dict(self) -> dict[str, object]:
         """Return a flat mapping of every parameter, keyed by field name."""
         ...
+
+
+class ArchetypeParams(Params, LabelSized, EarlyExiting, StopTighteningParams, BreakevenParams, Protocol):
+    """A registered archetype's parameters: what the registry, the sizing and every exit rule read."""
+
+    commission_per_contract: float
+    slippage_ticks: float
+    fill_limit_on_touch: bool
 
 
 class ArchetypeError(KeyError):
@@ -835,7 +844,7 @@ class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callabl
     name: str
     """The registry key, and the value written to the results table's ``strategy``."""
 
-    params_cls: type[Params]
+    params_cls: type[ArchetypeParams]
     """The dataclass a combination is an instance of. Replaces ``Grid.base``'s hardcoding."""
 
     run: Callable[..., pd.DataFrame]  # type: ignore[explicit-any]  # the signature differs per archetype

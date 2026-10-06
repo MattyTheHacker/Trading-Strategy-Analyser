@@ -69,7 +69,7 @@ def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     The first arm is checked against the summary the sweep stored, so a spread is never
     reported for a row the re-run did not reproduce.
     """
-    params: archetypes.Params = rebuild(row, archetype)
+    params: archetypes.ArchetypeParams = rebuild(row, archetype)
     instrument = get_instrument(root)
     ranked, _ = sweep.run_combination(
         data,
@@ -151,7 +151,7 @@ def settle_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     Runs all three arms so that a settled bar's outcome is taken from the arm that resolved it
     that way, rather than recomputed. Returns the headline row and the per-bar verdicts.
     """
-    params: archetypes.Params = rebuild(row, archetype)
+    params: archetypes.ArchetypeParams = rebuild(row, archetype)
     instrument = get_instrument(root)
     arms: dict[int, pd.DataFrame] = {}
     ranked: dict[str, object] = {}
@@ -179,7 +179,7 @@ def settle_row(  # type: ignore[explicit-any]  # duckdb's dtypes
         fine,
         coarse,
         slippage=slippage,
-        fill_limit_on_touch=bool(params.fill_limit_on_touch),  # type: ignore[attr-defined]  # every params class carries one
+        fill_limit_on_touch=bool(params.fill_limit_on_touch),
     )
     resolved: pd.DataFrame = disambiguate.resolved_log(
         arms[RANKED_POLICY],

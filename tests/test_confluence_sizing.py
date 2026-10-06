@@ -9,7 +9,7 @@ and each one carries the row of the size table its signal bar named -- ``docs/nt
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -28,7 +28,6 @@ from nqbt.sim.types import (
     PULLBACK,
     ROTATION,
     SIZING_LABELS,
-    BreakevenParams,
     DeadCatParams,
     ElasticBandParams,
     EmaCrossoverParams,
@@ -38,7 +37,6 @@ from nqbt.sim.types import (
     OpeningRangeParams,
     PullBackAndGoParams,
     SqueezeBreakoutParams,
-    StopTighteningParams,
     confluence_range,
     leg_size_table,
     sizing_labels,
@@ -63,23 +61,13 @@ from tests.test_insidebartrailing_sim import walk_bars
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.archetypes import ArchetypeParams
     from nqbt.arrays import BoolArray, FloatArray
     from nqbt.sim.types import SizingThesis
     from nqbt.trades import LegMatrix
 
 BARS = 20_000
 """Enough synthetic minutes that every archetype below trades, and at several sizes."""
-
-
-class ArchetypeParams(
-    archetypes.Params,
-    filters.LabelSized,
-    filters.EarlyExiting,
-    StopTighteningParams,
-    BreakevenParams,
-    Protocol,
-):
-    """A parameter class as the registry, the confluence size and every exit rule read it."""
 
 
 TRADING: dict[str, ArchetypeParams] = {

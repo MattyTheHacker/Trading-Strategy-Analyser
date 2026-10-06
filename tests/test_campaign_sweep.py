@@ -16,7 +16,7 @@ import math
 from dataclasses import replace
 from itertools import chain
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -216,7 +216,6 @@ from tools.campaign_sweep import (
 if TYPE_CHECKING:
     from nqbt import context
     from nqbt.instruments import Instrument
-    from tests.test_confluence_sizing import ArchetypeParams
 
 EVERY_STATE = {
     "regime": [f"regime={state.name}" for state in regime.Regime],
@@ -3100,7 +3099,7 @@ def test_each_early_exit_arm_switches_on_one_rule_and_the_control_none() -> None
     for name in VARIANTS:
         for variant in EARLY_EXIT_VARIANTS[name]("MNQ"):
             expected = 0 if variant.name.endswith(" exit=off") else 1
-            assert len(active_early_exits(cast("ArchetypeParams", variant.base))) == expected
+            assert len(active_early_exits(variant.base)) == expected
 
 
 def test_no_stored_grid_or_stratum_sweeps_a_field_an_early_exit_arm_sets() -> None:
@@ -3118,7 +3117,7 @@ def test_every_not_working_bar_is_tested_before_any_stored_hold_cap() -> None:
     for build in VARIANTS.values():
         for variant in build("MNQ"):
             ladder: list[int] = [int(cap) for cap in variant.axes.get("max_hold_bars", [])]
-            caps = [*ladder, cast("ArchetypeParams", variant.base).max_hold_bars]
+            caps = [*ladder, variant.base.max_hold_bars]
             assert all(cap == 0 or cap > max(EARLY_EXIT_BARS) for cap in caps)
 
 
