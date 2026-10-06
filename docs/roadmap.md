@@ -730,6 +730,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered and run at 15 and 10 minutes, 5 minutes not yet run: 1 of 22 cells clears, EmaPullback's breakeven stop at 1 R at 10 minutes, by 0.004 of profit factor on each root with the cell still losing; the stop moved with age or to breakeven costs more often than it gains in both windows, the stop moved before the close does so held out, and the market exits repeat §M48's split; through the prop accounts the clearing cell helps on MNQ and costs on NQ.** Moved to [`docs/findings/m50-early-exit-tier-2-result.md`](findings/m50-early-exit-tier-2-result.md), pre-registered in [`docs/findings/m50-early-exit-tier-2-preregistration.md`](findings/m50-early-exit-tier-2-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit" and "Tightening the stop with time".
 
+### M51 — when the money comes back: every archetype's shortlist through every preset ([#411])
+
+**On any one preset, at most 22% of a root's 180 shortlisted configurations ever pay back their fees inside the holdout, at a median 341 of about 612 trading days; the last 12 months rarely had a profitable month; TakeProfitTrader's linked accounts almost never pay back; and these are the default shortlists, not the recommended cells.** Moved to [`docs/findings/m51-prop-payback-timing.md`](findings/m51-prop-payback-timing.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
