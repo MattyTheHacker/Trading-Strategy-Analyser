@@ -78,15 +78,17 @@ The break of an inside bar, confined to the midday lull, with a trailing runner.
 
 Replayed through `nqbt/propaccount.py` over 20 held-out configurations, attempts uncapped, six contracts — median net, beside the cell it displaced at four contracts (§M43):
 
-| preset                     | InsideBarTrailing | OpeningRange |
-| -------------------------- | ----------------: | -----------: |
-| Apex 50K                   |       **+30,045** |      +17,718 |
-| Apex 150K                  |       **+24,396** |      +21,327 |
-| TopStep 50K                |       **+14,872** |       +9,919 |
-| TopStep 150K               |           +12,208 |  **+26,982** |
-| TakeProfitTrader 25K Test  |       **+31,564** |      +22,085 |
-| TakeProfitTrader 50K Test  |       **+29,223** |      +17,601 |
-| TakeProfitTrader 150K Test |       **+21,856** |      +19,945 |
+| preset                           | InsideBarTrailing | OpeningRange |
+| -------------------------------- | ----------------: | -----------: |
+| Apex 50K                         |       **+30,045** |      +17,718 |
+| Apex 150K                        |       **+24,396** |      +21,327 |
+| TopStep 50K                      |       **+14,872** |       +9,919 |
+| TopStep 150K                     |           +12,208 |  **+26,982** |
+| TakeProfitTrader 25K Test alone  |       **+31,564** |      +22,085 |
+| TakeProfitTrader 50K Test alone  |       **+29,223** |      +17,601 |
+| TakeProfitTrader 150K Test alone |       **+21,856** |      +19,945 |
+
+**The three TakeProfitTrader rows overstate that firm.** They replay its Test alone, which keeps trading and withdrawing under evaluation rules after its pass, and TakeProfitTrader offers no such account. [§M51](m51-prop-payback-timing.md) has since linked each Test to the PRO account its pass opens, and through that **both cells lose money at every size**: a median of −$1,772 to −$6,200 for this cell and −$6,164 to −$8,160 for OpeningRange. On Apex and TopStep §M51 agrees with the table. Every configuration of both cells pays back its fees, this one in a median of 24 to 57 trading days against OpeningRange's 42 to 230, and TopStep 50K soonest.
 
 **It nets more on nine of the ten presets §M43 ran**, seven of them in the table above, at a median held-out profit factor of 1.49 against 1.22, and every configuration of both is funded on every preset but one. **Ranked on what a prop account is actually scored on, the two are level** — 4–3 to it on time to the first payout across the seven MNQ presets and 4–3 against it on the cost of a pass — so what decides it is what those objectives have to be read beside: profit factor in all fourteen cells, net in eleven, and a session-close share of 0.09–0.49 against 0.65–0.66 (§M43).
 
@@ -161,7 +163,7 @@ Higher median net, lower pass rate. Uncapped on Apex 50K, medians (§M28.13):
 
 Paired by cell and preset on MNQ (§M40). **The largest part of the gain is that the account gets funded at all**: where the shortlists differ, 42 pairs have a cost per pass under the objective ranking and none under the control, against 1 the other way.
 
-**The cells below were chosen after the holdout was read.** They are where each objective landed best, not a recommendation, and every figure is a median over that preset's own shortlist of 20.
+**The cells below were chosen after the holdout was read.** They are where each objective landed best, not a recommendation, and every figure is a median over that preset's own shortlist of 20. **A TakeProfitTrader Test row's net and days to payout replay the Test alone and overstate that firm**, as [§M51](m51-prop-payback-timing.md) found above. Its cost, attempts and passes are the evaluation's own.
 
 #### Cheapest to get funded, and highest pass rate: InsideBarTrailing, midday, on MNQ
 
