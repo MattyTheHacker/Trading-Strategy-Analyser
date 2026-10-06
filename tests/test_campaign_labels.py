@@ -80,7 +80,7 @@ def test_named_raises_on_a_label_the_state_map_does_not_carry() -> None:
 # -- the row normalisation --------------------------------------------------------------------
 
 
-def frames(raw: list[str], fitted: list[str]) -> tuple[pd.Series, pd.Series]:
+def frames(raw: list[str], fitted: list[str]) -> tuple[pd.Series[str], pd.Series[str]]:
     """Build one bar per element, labelled twice."""
     return pd.Series(raw, name="raw"), pd.Series(fitted, name="fitted")
 
@@ -132,8 +132,10 @@ def test_the_rolling_window_is_dropped_from_every_form_that_does_not_read_it() -
 
 
 def test_every_series_a_window_ladder_names_is_labelled_under_its_own_key() -> None:
-    """`labelled` is keyed by `volume.describe_key` rather than by the form, because two rolling
-    rungs are the same form and would otherwise overwrite each other's labels.
+    """`labelled` is keyed by `volume.describe_key` rather than by the form.
+
+    That is because two rolling rungs are the same form and would otherwise overwrite each
+    other's labels.
     """
     ladder = volume_series(named_forms(["ROLLING"]), [10, 30, 90], [10, 40])
     keys = [volume.describe_key(key) for key in ladder]

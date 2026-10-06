@@ -218,10 +218,11 @@ def rerun_logs(  # type: ignore[explicit-any]  # duckdb's dtypes
     """Yield every row of one window re-run with its summary and log, one resample per resolution."""
     archetype: archetypes.Archetype = archetypes.get(name)
     for minutes, block in rows.groupby("resolution", sort=False):
-        frame: pd.DataFrame = resample.resample(bars, int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
+        frame: pd.DataFrame = resample.resample(bars, bar_minutes)
         # ``splice.load_continuous`` is called without ``back_adjust``, so these are the prices
         # that traded and a rule reading an absolute level may run, exactly as in the sweep.
-        yield from rerun_group(block, frame, archetype, root, int(minutes), context.PriceBasis.RAW)
+        yield from rerun_group(block, frame, archetype, root, bar_minutes, context.PriceBasis.RAW)
 
 
 def measure_window(
@@ -388,7 +389,7 @@ def pool(name: str, root: str, args: argparse.Namespace) -> pd.DataFrame:
             continue
 
         seen.add(configuration)
-        kept.append(int(position))
+        kept.append(int(position))  # type: ignore[call-overload]  # a RangeIndex label
 
     return ranked.iloc[kept].reset_index(drop=True)
 
@@ -434,6 +435,7 @@ def run_cell(
 
 
 def main(argv: list[str]) -> int:
+    """Rank the configurations by prop objective, read them held out and return the exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(
         description="Prop-account objectives ranked on selection, read held out."

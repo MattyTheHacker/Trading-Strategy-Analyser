@@ -7,40 +7,22 @@ wrong".
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import math
 import shutil
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
 
-if TYPE_CHECKING:
-    from types import ModuleType
+from tools import compare_trade_logs
 
-TOOL = Path(__file__).resolve().parent.parent / "tools" / "compare_trade_logs.py"
-
-
-def load_tool():
-    """Import the script by path; ``tools/`` is deliberately not a package."""
-    spec = importlib.util.spec_from_file_location("_compare_trade_logs", TOOL)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-
-    return module
-
-
-@pytest.fixture(scope="module")
-def gate():
-    return load_tool()
+type Capture = tuple[Path, Path]
+"""The before and after directories, each holding the same trade log."""
 
 
 @pytest.fixture
-def capture(tmp_path: Path):
+def capture(tmp_path: Path) -> Capture:
     """Provide a pair of directories holding one identical trade-log-shaped CSV."""
     frame = pd.DataFrame(
         {
@@ -80,12 +62,12 @@ def edit_field(path: Path, column: str, row: int, value: str) -> int:
     return common + abs(len(original) - len(edited))
 
 
-def test_identical_captures_pass(gate, capture) -> None:
+def test_identical_captures_pass(capture: Capture) -> None:
     before, after = capture
-    assert gate.compare(before, after, set()) == 0
+    assert compare_trade_logs.compare(before, after, set()) == 0
 
 
-def test_a_one_ulp_difference_is_detected(gate, capture) -> None:
+def test_a_one_ulp_difference_is_detected(capture: Capture) -> None:
     """The case the gate missed: two adjacent float64 values, a two-byte textual change."""
     before, after = capture
     original = 0.5789473684210527
@@ -95,10 +77,10 @@ def test_a_one_ulp_difference_is_detected(gate, capture) -> None:
     changed = edit_field(after / "live_mnq.csv", "r_multiple", 0, f"{perturbed:.17g}")
     assert changed <= 2, f"meant to be a minimal edit, changed {changed} bytes"
 
-    assert gate.compare(before, after, set()) == 1
+    assert compare_trade_logs.compare(before, after, set()) == 1
 
 
-def test_the_lax_parser_really_would_have_missed_it(capture) -> None:
+def test_the_lax_parser_really_would_have_missed_it(capture: Capture) -> None:
     """Pins *why* the gate needs ``round_trip``, so the fix is not silently reverted.
 
     If pandas ever fixes its default parser this fails, and the guard above becomes
@@ -114,7 +96,7 @@ def test_the_lax_parser_really_would_have_missed_it(capture) -> None:
     assert exact == perturbed
 
 
-def test_a_signed_zero_is_not_a_difference(gate, capture) -> None:
+def test_a_signed_zero_is_not_a_difference(capture: Capture) -> None:
     """``0.0`` against ``-0.0`` is not a difference, though a file hash calls it one.
 
     ``docs/roadmap.md`` § "The trade-log gate, and the two times it was wrong".
@@ -123,36 +105,35 @@ def test_a_signed_zero_is_not_a_difference(gate, capture) -> None:
     changed = edit_field(after / "live_mnq.csv", "net_pnl", 2, "-0")
     assert changed >= 1, "the fixture row was already negative zero"
 
-    assert gate.compare(before, after, set()) == 0
+    assert compare_trade_logs.compare(before, after, set()) == 0
 
 
-def test_an_added_column_is_only_tolerated_when_declared(gate, capture) -> None:
+def test_an_added_column_is_only_tolerated_when_declared(capture: Capture) -> None:
     before, after = capture
     frame = pd.read_csv(after / "live_mnq.csv")
     frame["direction"] = -1.0
     frame.to_csv(after / "live_mnq.csv", index=False, float_format="%.17g")
 
-    assert gate.compare(before, after, set()) == 1
-    assert gate.compare(before, after, {"direction"}) == 0
+    assert compare_trade_logs.compare(before, after, set()) == 1
+    assert compare_trade_logs.compare(before, after, {"direction"}) == 0
 
 
-def test_a_dropped_column_always_fails(gate, capture) -> None:
+def test_a_dropped_column_always_fails(capture: Capture) -> None:
     before, after = capture
     frame = pd.read_csv(after / "live_mnq.csv").drop(columns=["r_multiple"])
     frame.to_csv(after / "live_mnq.csv", index=False, float_format="%.17g")
 
-    assert gate.compare(before, after, {"r_multiple"}) == 1
+    assert compare_trade_logs.compare(before, after, {"r_multiple"}) == 1
 
 
-def test_a_missing_file_fails(gate, capture) -> None:
+def test_a_missing_file_fails(capture: Capture) -> None:
     before, after = capture
     (after / "live_mnq.csv").unlink()
-    assert gate.compare(before, after, set()) == 1
+    assert compare_trade_logs.compare(before, after, set()) == 1
 
 
 def test_a_file_only_in_after_is_named_rather_than_skipped(
-    gate: ModuleType,
-    capture: tuple[Path, Path],
+    capture: Capture,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A newly registered archetype's log has nothing to compare against, and the output says so."""
@@ -160,6 +141,6 @@ def test_a_file_only_in_after_is_named_rather_than_skipped(
     shutil.copy(after / "live_mnq.csv", after / "defaults_New.csv")
 
     with caplog.at_level(logging.INFO):
-        assert gate.compare(before, after, set()) == 0
+        assert compare_trade_logs.compare(before, after, set()) == 0
 
     assert "new defaults_New.csv: absent from" in caplog.text

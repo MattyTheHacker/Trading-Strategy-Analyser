@@ -75,6 +75,7 @@ EXACT = "%.17g"
 
 
 def write(frame: pd.DataFrame, path: Path) -> None:
+    """Write ``frame`` to ``path`` as CSV, every float at full precision."""
     frame.to_csv(path, index=False, float_format=EXACT)
 
 
@@ -116,6 +117,7 @@ def capture_archetypes(
 
 
 def capture(outdir: Path) -> None:
+    """Write every producer path's trade log under ``outdir``, clearing an earlier capture first."""
     outdir.mkdir(parents=True, exist_ok=True)
     logger.info("cleared %d files an earlier capture left in %s", clear_previous_capture(outdir), outdir)
 
@@ -203,6 +205,7 @@ def capture(outdir: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Capture every producer path's trade log and return the process exit code."""
     logsetup.configure(__name__)
     if len(argv) != EXPECTED_ARGV:
         logger.info("%s", __doc__)

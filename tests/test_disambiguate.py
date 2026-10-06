@@ -42,6 +42,7 @@ from nqbt.disambiguate import (
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
 from nqbt.sim.types import InsideBarParams
+from tests.rows import number
 
 LONG = 1.0
 SHORT = -1.0
@@ -73,8 +74,10 @@ def test_the_pass_runs_only_above_the_share_it_names() -> None:
 
 
 def test_each_minute_bar_maps_to_the_coarse_bar_it_was_aggregated_into() -> None:
-    """End-of-bar stamps, so a minute bar belongs to the first coarse bar stamped at or after
-    it -- get this off by one and every verdict is read from a neighbouring bar."""
+    """End-of-bar stamps, so a minute bar belongs to the first coarse bar stamped at or after it.
+
+    Get this off by one and every verdict is read from a neighbouring bar.
+    """
     index = pd.date_range("2024-01-02 14:31", periods=10, freq="min", tz="UTC")
     coarse = pd.DatetimeIndex([index[4], index[9]])
     assert list(owning_bar(index, coarse)) == [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
@@ -121,20 +124,26 @@ def test_the_target_alone_in_an_earlier_minute_settles_it() -> None:
 
 
 def test_one_minute_holding_both_levels_is_the_residue_rather_than_a_verdict() -> None:
-    """A minute is not fine enough here, and only ``data/tick/`` goes further -- so it is
-    reported as unsettled instead of assumed a second time."""
+    """A minute is not fine enough here, and only ``data/tick/`` goes further.
+
+    So it is reported as unsettled instead of assumed a second time.
+    """
     assert walk(minutes((99.0, 101.0), (85.0, 115.0))) == STILL_AMBIGUOUS
 
 
 def test_minute_bars_reaching_neither_level_are_refused() -> None:
-    """The coarse bar held both levels, so its minutes must too; that they do not means the
-    window is not the bar's."""
+    """The coarse bar held both levels, so its minutes must too.
+
+    That they do not means the window is not the bar's.
+    """
     assert walk(minutes((99.0, 101.0), (98.0, 102.0))) == MISALIGNED
 
 
 def test_the_walk_is_sided_so_a_short_reads_its_own_adverse_extreme() -> None:
-    """A short's stop is above and its target below, and reading them the long way round would
-    settle every short backwards."""
+    """A short's stop is above and its target below.
+
+    Reading them the long way round would settle every short backwards.
+    """
     assert walk(minutes((99.0, 101.0), (99.0, 115.0), (85.0, 101.0)), SHORT) == STOP_FIRST
     assert walk(minutes((99.0, 101.0), (85.0, 101.0), (99.0, 115.0)), SHORT) == TARGET_FIRST
 
@@ -143,9 +152,11 @@ def test_the_walk_is_sided_so_a_short_reads_its_own_adverse_extreme() -> None:
 
 
 def test_minutes_before_the_fill_are_not_the_trades() -> None:
-    """The dominant case rather than an edge one: every ambiguous bar in §M28.2's retest
-    shortlist exits on its own entry bar, so a walk from the bar's first minute reads levels
-    reached before the position existed."""
+    """The dominant case rather than an edge one.
+
+    Every ambiguous bar in §M28.2's retest shortlist exits on its own entry bar, so a walk from
+    the bar's first minute reads levels reached before the position existed.
+    """
     window = minutes((85.0, 101.0), (99.0, 101.0), (99.0, 115.0))
     assert walk(window) == STOP_FIRST, "the whole window reaches the stop first"
     assert walk(window, opened_in=1) == TARGET_FIRST, "held only from minute 1, the target is first"
@@ -170,8 +181,10 @@ def test_the_fill_minute_is_the_first_one_holding_the_fill_price() -> None:
 
 
 def test_a_fill_at_the_bars_open_means_the_whole_bar_was_held() -> None:
-    """A resting order filling at the open is open for every minute of it, so there is no
-    unknown ordering to protect against."""
+    """A resting order filling at the open is open for every minute of it.
+
+    There is no unknown ordering to protect against.
+    """
     window = minutes((99.0, 101.0), (95.0, 105.0))
     coarse = pd.Series({"open": 99.0, "high": 105.0, "low": 95.0, "close": 105.0})
     assert entry_minute(window, coarse, 99.0) == -1
@@ -200,8 +213,11 @@ def ladder(direction: float, *targets: float) -> pd.DataFrame:
 
 
 def test_the_target_asked_about_is_the_one_nearest_the_fill() -> None:
-    """Not the one nearest the bar's open, which is what the *policy* compares. Price reaches
-    the closest rung first, and asking about a further one biases every verdict to the stop."""
+    """Not the one nearest the bar's open, which is what the *policy* compares.
+
+    Price reaches the closest rung first, and asking about a further one biases every verdict to
+    the stop.
+    """
     coarse = pd.Series({"open": 100.0, "high": 130.0, "low": 99.0, "close": 130.0})
     assert first_target(ladder(LONG, 110.0, 120.0), coarse, LONG, fill_limit_on_touch=False) == 110.0
 
@@ -230,9 +246,11 @@ def test_the_stop_is_verified_against_the_arm_that_always_takes_it() -> None:
 
 
 def test_a_stop_that_moved_is_refused_rather_than_read_at_the_wrong_level() -> None:
-    """A trailing archetype reaches this on every leg, which is the point: the log's
-    ``initial_stop`` is not what was live, and answering against it would be answering a
-    different question confidently."""
+    """A trailing archetype reaches this on every leg, which is the point.
+
+    The log's ``initial_stop`` is not what was live, and answering against it would be answering
+    a different question confidently.
+    """
     worst = pd.DataFrame({"exit_price": [95.0]})
     assert not stop_is_the_one_it_opened_with(stop_legs(90.0), worst, 0.0)
     assert not stop_is_the_one_it_opened_with(stop_legs(90.0), pd.DataFrame({"exit_price": []}), 0.0)
@@ -275,7 +293,7 @@ def test_accuracy_of_a_run_that_settled_nothing_is_undefined_rather_than_zero() 
     """Zero would read as "the assumption was always wrong", which is the opposite claim."""
     scored = accuracy(verdicts(resolved=[STILL_AMBIGUOUS] * 4))
     assert scored["decided"] == 0
-    assert np.isnan(scored["assumption_accuracy"])
+    assert np.isnan(number(scored, "assumption_accuracy"))
 
 
 # -- rebuilding the log from the arms ----------------------------------------------------------
@@ -303,8 +321,10 @@ def test_a_settled_bar_takes_its_rows_from_the_arm_that_resolved_it_that_way() -
 
 
 def test_a_bar_the_minute_bars_could_not_settle_keeps_the_assumption() -> None:
-    """The output is the assumption corrected where the data can correct it, not a different
-    assumption applied everywhere."""
+    """The output is the assumption corrected where the data can correct it.
+
+    It is not a different assumption applied everywhere.
+    """
     ranked, worst, best = arm([1.0, 2.0, 3.0, 4.0]), arm([9.0] * 4), arm([5.0] * 4)
     out = resolved_log(ranked, worst, best, verdicts())
 
@@ -319,8 +339,10 @@ def test_nothing_settled_leaves_the_log_alone() -> None:
 
 
 def test_arms_that_are_not_the_same_trades_are_refused() -> None:
-    """A resolved log built on a false alignment would file one configuration's legs under
-    another's, and every statistic taken from it would look reasonable."""
+    """A resolved log built on a false alignment would file one configuration's legs under another's.
+
+    Every statistic taken from it would look reasonable.
+    """
     ranked = arm([1.0, 2.0, 3.0, 4.0])
     shifted = ranked.assign(exit_bar=ranked["exit_bar"] + 1)
     assert not aligned(ranked, shifted, ranked)
@@ -379,15 +401,19 @@ def three_arms() -> tuple[dict[int, pd.DataFrame], pd.DataFrame, pd.DataFrame]:
             archetypes.INSIDEBAR,
             keep_trades=True,
         )
+        assert log is not None
         logs[policy] = log
 
     return logs, fine, coarse
 
 
 def test_the_three_arms_are_the_same_trades_leg_for_leg() -> None:
-    """What the whole splice rests on, and it is a property of ``resolve_brackets`` rather than
-    of this module: the whole position closes on an ambiguous bar under either policy, so the
-    next bar starts flat in every arm and nothing downstream can diverge."""
+    """What the whole splice rests on.
+
+    It is a property of ``resolve_brackets`` rather than of this module: the whole position
+    closes on an ambiguous bar under either policy, so the next bar starts flat in every arm and
+    nothing downstream can diverge.
+    """
     logs, _, _ = three_arms()
     assert aligned(
         logs[AMBIGUITY_NEAREST_TO_OPEN],
@@ -407,8 +433,10 @@ def test_the_arms_bracket_the_ranked_result_rather_than_straddling_it() -> None:
 
 
 def test_a_real_ambiguous_bar_is_settled_against_its_own_minute_bars() -> None:
-    """The end-to-end claim: the fixture's ambiguous bar gets a verdict, and the resolved log
-    is one of the two arms on that trade rather than a third thing."""
+    """The end-to-end claim: the fixture's ambiguous bar gets a verdict.
+
+    The resolved log is one of the two arms on that trade rather than a third thing.
+    """
     logs, fine, coarse = three_arms()
     ranked, worst, best = (
         logs[AMBIGUITY_NEAREST_TO_OPEN],
@@ -437,9 +465,11 @@ def test_a_configuration_with_no_ambiguous_bar_produces_no_table() -> None:
     ).empty
 
 
-def test_a_moved_stop_is_refused_through_the_whole_pass(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The trailing-archetype guard, reached the way a real run reaches it: the log's
-    ``initial_stop`` no longer agrees with the arm that always takes the stop."""
+def test_a_moved_stop_is_refused_through_the_whole_pass() -> None:
+    """The trailing-archetype guard, reached the way a real run reaches it.
+
+    The log's ``initial_stop`` no longer agrees with the arm that always takes the stop.
+    """
     logs, fine, coarse = three_arms()
     ranked = logs[AMBIGUITY_NEAREST_TO_OPEN].copy()
     ranked.loc[ranked["ambiguous_bar"], "initial_stop"] += 7.0
@@ -450,8 +480,10 @@ def test_a_moved_stop_is_refused_through_the_whole_pass(monkeypatch: pytest.Monk
 
 
 def test_a_window_that_cannot_be_lined_up_is_refused_through_the_whole_pass() -> None:
-    """A coarse frame whose bars are not the ones the minutes built: every verdict must become
-    a refusal rather than a reading off the wrong bars."""
+    """A coarse frame whose bars are not the ones the minutes built.
+
+    Every verdict must become a refusal rather than a reading off the wrong bars.
+    """
     logs, fine, coarse = three_arms()
     shifted = coarse.assign(high=coarse["high"] + 50.0)
     table = resolve(

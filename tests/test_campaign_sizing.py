@@ -52,9 +52,14 @@ from tools.campaign_sizing import (
     trade_rows,
     unsized,
 )
+from tools.campaign_sweep import VARIANTS
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from nqbt.arrays import IntArray
+    from nqbt.instruments import Instrument
+    from tools.campaign_sweep import SizingCut
 
 BARS = 40_000
 """Enough one-minute sessions for the relative-volume baseline to be defined on most of them."""
@@ -66,7 +71,7 @@ def base() -> InsideBarTrailingParams:
 
 
 @pytest.fixture(scope="module")
-def bars():
+def bars() -> pd.DataFrame:
     return walk_bars(BARS, seed=5)
 
 
@@ -77,19 +82,25 @@ def ibt_variant(params: InsideBarTrailingParams | None = None) -> campaign_sweep
     )
 
 
+type Fitted = tuple[SizingCut, dict[str, dict[str, float]]]
+"""One fitted cut, with what it was read off."""
+
+
 @pytest.fixture(scope="module")
-def fitted(bars):
+def fitted(bars: pd.DataFrame) -> Fitted:
     return fit_cut(bars, "MNQ", 1, ibt_variant())
 
 
-def prepared(bars, params):
+def prepared(bars: pd.DataFrame, params: archetypes.Params) -> context.Dataset:
     return context.prepare(bars, sweep.Grid.of(params).required_context(), bar_minutes=1)
 
 
 # -- the fit ---------------------------------------------------------------------------------
 
 
-def test_the_cuts_put_the_fitted_quantile_of_signals_on_the_early_side(bars, fitted) -> None:
+def test_the_cuts_put_the_fitted_quantile_of_signals_on_the_early_side(
+    bars: pd.DataFrame, fitted: Fitted
+) -> None:
     cut, _ = fitted
     data = prepared(bars, probe_params(base()))
     signal = insidebar.insidebar_signal(data, base())
@@ -97,12 +108,16 @@ def test_the_cuts_put_the_fitted_quantile_of_signals_on_the_early_side(bars, fit
     extension = extension_at(data, base())[signal]
     age = age_at(data, base(), direction_at)[signal]
     assert signal.sum() > 50, "too few signals for a quantile to mean anything"
+    assert cut.early_max_extension_atr is not None
+    assert cut.early_max_trend_bars is not None
     assert np.mean(extension <= cut.early_max_extension_atr) >= EARLY_QUANTILE
     assert np.mean(age <= cut.early_max_trend_bars) >= EARLY_QUANTILE
     assert np.mean(age < cut.early_max_trend_bars) < 1.0, "the cut admits every signal"
 
 
-def test_the_label_thresholds_are_the_top_fifth_of_their_own_series(bars, fitted) -> None:
+def test_the_label_thresholds_are_the_top_fifth_of_their_own_series(
+    bars: pd.DataFrame, fitted: Fitted
+) -> None:
     cut, _ = fitted
     data = prepared(bars, probe_params(base()))
     ratios = data.regime_values(base().regime_lookback)
@@ -114,7 +129,9 @@ def test_the_label_thresholds_are_the_top_fifth_of_their_own_series(bars, fitted
     assert cut.volume_thin_below < cut.volume_heavy_above
 
 
-def test_every_label_gets_a_share_and_only_the_informative_ones_are_kept(fitted) -> None:
+def test_every_label_gets_a_share_and_only_the_informative_ones_are_kept(
+    fitted: Fitted,
+) -> None:
     cut, report = fitted
     for name in ("favourable_share", "opposing_share", "neutral_share"):
         assert list(report[name]) == list(SIZING_LABELS)
@@ -124,7 +141,9 @@ def test_every_label_gets_a_share_and_only_the_informative_ones_are_kept(fitted)
     assert set(cut.labels) <= set(cut.symmetric_labels), "a label sorting added-only sorts symmetric too"
 
 
-def test_the_three_steps_a_symmetric_count_moves_by_cover_every_signal(fitted) -> None:
+def test_the_three_steps_a_symmetric_count_moves_by_cover_every_signal(
+    fitted: Fitted,
+) -> None:
     """Up where a label favours alone, down where it opposes alone, none elsewhere."""
     _, report = fitted
     for label in SIZING_LABELS:
@@ -178,7 +197,7 @@ def test_the_fit_reads_the_selection_window_alone() -> None:
     assert selection_window(bars).index[-1] < bars.index[600]
 
 
-def test_a_window_with_no_signal_cannot_be_fitted(bars) -> None:
+def test_a_window_with_no_signal_cannot_be_fitted(bars: pd.DataFrame) -> None:
     silent = dataclasses.replace(
         archetypes.INSIDEBARTRAILING, signal=lambda data, _: np.zeros(len(data), dtype=np.bool_)
     )
@@ -189,7 +208,7 @@ def test_a_window_with_no_signal_cannot_be_fitted(bars) -> None:
 def test_fit_writes_cuts_the_sizing_arms_can_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
-    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBarTrailing", lambda root: [ibt_variant()])
+    monkeypatch.setitem(VARIANTS, "InsideBarTrailing", lambda _root: [ibt_variant()])
     path = tmp_path / "cuts.json"
     written = fit("InsideBarTrailing", ["MNQ"], [1], path)
     stored = json.loads(path.read_text(encoding="utf-8"))
@@ -200,6 +219,7 @@ def test_fit_writes_cuts_the_sizing_arms_can_read(monkeypatch: pytest.MonkeyPatc
     (cut,) = campaign_sweep.sizing_cuts(path)
     assert (cut.root, cut.minutes) == ("MNQ", 1)
     assert list(cut.labels) == stored[0]["labels"]
+    assert cut.symmetric_labels is not None
     assert list(cut.symmetric_labels) == stored[0]["symmetric_labels"]
 
 
@@ -261,12 +281,13 @@ def test_a_fixed_size_is_its_own_null() -> None:
     assert result["excess"] == 0.0
 
 
-def test_the_traded_early_share_is_counted_over_trades_taken(bars, fitted) -> None:
+def test_the_traded_early_share_is_counted_over_trades_taken(bars: pd.DataFrame, fitted: Fitted) -> None:
     """A setup that arrives in a position is never traded, so the share is not the signals' own."""
     cut, report = fitted
     traded = report["traded_early_share"]
     assert set(traded) == {"first-breakout", "sma-extension", "trend-age"}
     assert all(0.0 <= share <= 1.0 for share in traded.values())
+    assert cut.early_max_trend_bars is not None
     tiered = dataclasses.replace(
         base(),
         earliness_mode=EARLINESS_TREND_AGE,
@@ -282,7 +303,7 @@ def test_the_traded_early_share_is_counted_over_trades_taken(bars, fitted) -> No
 # -- the shortlist and the command line ------------------------------------------------------
 
 
-def stored_confluence_row(combo_id: int) -> pd.Series:
+def stored_confluence_row(combo_id: int) -> pd.Series:  # type: ignore[explicit-any]  # a row of mixed dtypes
     """Build one held-out confluence-arm row, carrying the fields ``rebuild`` restores it from."""
     return pd.Series(
         {
@@ -300,9 +321,9 @@ def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch
     bars = walk_bars(6000, seed=9)
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
     monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
-    monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda stored, archive: (archive,))
+    monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda _stored, archive: (archive,))
     monkeypatch.setattr(
-        campaign_sizing, "bars_for", lambda candidates, stored, block, minutes: (candidates[0], True)
+        campaign_sizing, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], True)
     )
     rows = pd.DataFrame([stored_confluence_row(1), stored_confluence_row(2)])
     table = campaign_sizing.null_for_shortlist(rows, "MNQ", by="profit_factor", draws=3, seed=0)
@@ -330,7 +351,7 @@ def test_the_null_reads_the_confluence_arm_and_fails_where_it_has_no_rows(
 ) -> None:
     asked = []
 
-    def held_out(*args):
+    def held_out(*args: object) -> pd.DataFrame:
         asked.append(args)
 
         return pd.DataFrame()
@@ -351,7 +372,7 @@ def test_the_null_reports_its_shortlist(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         campaign_sizing,
         "null_for_shortlist",
-        lambda shortlist, root, *, by, draws, seed, archetype: pd.DataFrame({"combo_id": [1], "p": [0.01]}),
+        lambda _shortlist, _root, *, by, draws, seed, archetype: pd.DataFrame({"combo_id": [1], "p": [0.01]}),  # noqa: ARG005 - the caller passes these by keyword
     )
     assert campaign_sizing.main(["campaign_sizing.py", "null", "--draws", "10"]) == 0
 
@@ -359,7 +380,7 @@ def test_the_null_reports_its_shortlist(monkeypatch: pytest.MonkeyPatch) -> None
 # -- every other archetype: the fit ------------------------------------------------------------
 
 
-def insidebar_base(**fields) -> InsideBarParams:
+def insidebar_base(**fields: object) -> InsideBarParams:
     """Return InsideBar at periods short enough that the synthetic walk holds many setups."""
     return InsideBarParams(
         ema_period=5,
@@ -367,11 +388,13 @@ def insidebar_base(**fields) -> InsideBarParams:
         slow_sma_period=13,
         error_margin=0.01,
         no_entry_minutes_before_close=0,
-        **fields,
+        **fields,  # type: ignore[arg-type]  # each caller passes a field's own type
     )
 
 
-def prepared_as(bars, params, archetype):
+def prepared_as(
+    bars: pd.DataFrame, params: archetypes.Params, archetype: archetypes.Archetype
+) -> context.Dataset:
     return context.prepare(
         bars,
         sweep.Grid.of(params, archetype=archetype).required_context(),
@@ -380,7 +403,7 @@ def prepared_as(bars, params, archetype):
     )
 
 
-def two_insidebar_variants(root: str) -> list[campaign_sweep.Variant]:
+def two_insidebar_variants(_root: str) -> list[campaign_sweep.Variant]:
     return [
         campaign_sweep.Variant("a", archetypes.INSIDEBAR, insidebar_base()),
         campaign_sweep.Variant("b", archetypes.INSIDEBAR, insidebar_base(tp_multiplier=2.0)),
@@ -392,7 +415,7 @@ def test_an_archetype_with_several_variants_records_each_and_no_earliness(
 ) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
-    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    monkeypatch.setitem(VARIANTS, "InsideBar", two_insidebar_variants)
     path = tmp_path / "cuts.json"
     written = fit("InsideBar", ["MNQ"], [1], path)
     assert [cut["variant"] for cut in written] == ["a", "b"]
@@ -409,7 +432,7 @@ def test_a_cut_already_in_the_file_is_kept_and_only_the_rest_are_fitted(
 ) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
-    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    monkeypatch.setitem(VARIANTS, "InsideBar", two_insidebar_variants)
     kept = campaign_sweep.SizingCut(
         root="MNQ",
         minutes=1,
@@ -436,7 +459,7 @@ def test_a_resolution_or_root_named_twice_is_fitted_once(
     """A second copy of a cut would emit every arm twice, and each would be swept and stored."""
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
-    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    monkeypatch.setitem(VARIANTS, "InsideBar", two_insidebar_variants)
     written = fit("InsideBar", ["MNQ", "MNQ"], [1, 1], tmp_path / "cuts.json")
     assert [(cut["root"], cut["minutes"], cut["variant"]) for cut in written] == [
         ("MNQ", 1, "a"),
@@ -461,7 +484,7 @@ def test_a_cut_stored_without_symmetric_labels_gains_them_and_nothing_else_moves
     """The labels come back as a fresh fit reads them, at the stored cut's own thresholds."""
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
-    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    monkeypatch.setitem(VARIANTS, "InsideBar", two_insidebar_variants)
     path = tmp_path / "cuts.json"
     fresh = json.loads(json.dumps(fit("InsideBar", ["MNQ"], [1], path)))
     stripped = without_symmetric_fields(path)
@@ -476,7 +499,7 @@ def test_a_stored_cut_whose_signals_have_moved_is_refused_rather_than_filled(
 ) -> None:
     long_walk = walk_bars(int(BARS / campaign_sweep.SELECTION_SHARE) + 1, seed=5)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: long_walk)
-    monkeypatch.setitem(campaign_sizing.VARIANTS, "InsideBar", two_insidebar_variants)
+    monkeypatch.setitem(VARIANTS, "InsideBar", two_insidebar_variants)
     path = tmp_path / "cuts.json"
     fit("InsideBar", ["MNQ"], [1], path)
     stripped = without_symmetric_fields(path)
@@ -486,10 +509,11 @@ def test_a_stored_cut_whose_signals_have_moved_is_refused_rather_than_filled(
         fit("InsideBar", ["MNQ"], [1], path)
 
 
-def test_a_one_sided_archetype_reads_its_labels_on_its_own_side(bars) -> None:
+def test_a_one_sided_archetype_reads_its_labels_on_its_own_side(bars: pd.DataFrame) -> None:
     """DeadCatBounce only sells, so its trend label favours a signal in a downtrend."""
     base = DeadCatParams(use_ema=False, use_fast_sma=False, require_new_high=False, bars_required_to_trade=20)
     probe = probe_params(base)
+    assert isinstance(probe, DeadCatParams)
     data = prepared_as(bars, probe, archetypes.DEADCATBOUNCE)
     shares = label_shares(data, probe, campaign_sweep.Variant("bracket", archetypes.DEADCATBOUNCE, base))
     signal = runner.deadcat_signal(data, base)
@@ -501,12 +525,12 @@ def test_a_one_sided_archetype_reads_its_labels_on_its_own_side(bars) -> None:
     assert shares["opposing_share"]["size_on_trend"] > 0.0, "the walk never trends up at a signal"
 
 
-def test_a_variant_sweeping_both_sides_pools_its_shares_over_them(bars) -> None:
+def test_a_variant_sweeping_both_sides_pools_its_shares_over_them(bars: pd.DataFrame) -> None:
     base = SqueezeBreakoutParams(squeeze_period=10, squeeze_below=0.5)
     probe = probe_params(base)
     data = prepared_as(bars, probe, archetypes.SQUEEZEBREAKOUT)
 
-    def on(side):
+    def on(side: float) -> dict[str, float]:
         variant = campaign_sweep.Variant(
             "one side", archetypes.SQUEEZEBREAKOUT, dataclasses.replace(base, direction=side)
         )
@@ -528,7 +552,7 @@ def test_a_variant_sweeping_both_sides_pools_its_shares_over_them(bars) -> None:
 # -- every other archetype: the recomputed null -------------------------------------------------
 
 
-def sized_insidebar(**fields) -> InsideBarParams:
+def sized_insidebar(**fields: object) -> InsideBarParams:
     return insidebar_base(
         quantity_per_confluence=1,
         size_on_vwap=True,
@@ -541,11 +565,11 @@ def sized_insidebar(**fields) -> InsideBarParams:
 
 
 @pytest.fixture(scope="module")
-def short_walk():
+def short_walk() -> pd.DataFrame:
     return walk_bars(6000, seed=9)
 
 
-def test_the_recomputed_null_reports_the_configurations_own_figures(short_walk) -> None:
+def test_the_recomputed_null_reports_the_configurations_own_figures(short_walk: pd.DataFrame) -> None:
     params = sized_insidebar()
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
     result = shuffled_null(
@@ -559,7 +583,7 @@ def test_the_recomputed_null_reports_the_configurations_own_figures(short_walk) 
     assert 1 / 6 <= result["p"] <= 1.0
 
 
-def test_recomputing_the_sizes_taken_reproduces_the_simulation_to_the_bit(short_walk) -> None:
+def test_recomputing_the_sizes_taken_reproduces_the_simulation_to_the_bit(short_walk: pd.DataFrame) -> None:
     params = sized_insidebar()
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
     legs = archetypes.INSIDEBAR.legs(data, params, MNQ)
@@ -570,7 +594,7 @@ def test_recomputing_the_sizes_taken_reproduces_the_simulation_to_the_bit(short_
     assert len(set(rows)) > 1, "every trade took one size"
 
 
-def test_a_shuffle_keeps_every_trade_and_moves_only_the_sizes_among_them(short_walk) -> None:
+def test_a_shuffle_keeps_every_trade_and_moves_only_the_sizes_among_them(short_walk: pd.DataFrame) -> None:
     params = sized_insidebar()
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
     legs = archetypes.INSIDEBAR.legs(data, params, MNQ)
@@ -587,7 +611,7 @@ def test_a_shuffle_keeps_every_trade_and_moves_only_the_sizes_among_them(short_w
     assert not np.array_equal(shuffled.matrix[:, C_QUANTITY], legs.matrix[: legs.count, C_QUANTITY])
 
 
-def test_a_symmetric_size_is_nulled_the_same_way(short_walk) -> None:
+def test_a_symmetric_size_is_nulled_the_same_way(short_walk: pd.DataFrame) -> None:
     params = sized_insidebar(order_quantity=6, size_symmetric=True)
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
     result = shuffled_null(data, params, MNQ, by="net_pnl", draws=4, seed=2, archetype=archetypes.INSIDEBAR)
@@ -596,7 +620,7 @@ def test_a_symmetric_size_is_nulled_the_same_way(short_walk) -> None:
     assert 1 / 5 <= result["p"] <= 1.0
 
 
-def test_a_fixed_size_is_its_own_null_on_every_archetype(short_walk) -> None:
+def test_a_fixed_size_is_its_own_null_on_every_archetype(short_walk: pd.DataFrame) -> None:
     params = unsized(sized_insidebar())
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
     result = shuffled_null(
@@ -606,9 +630,12 @@ def test_a_fixed_size_is_its_own_null_on_every_archetype(short_walk) -> None:
     assert result["excess"] == 0.0
 
 
-def test_the_null_is_refused_where_the_size_moved_a_trade(short_walk) -> None:
-    def dropping_a_leg_when_sized(data, params, instrument):
+def test_the_null_is_refused_where_the_size_moved_a_trade(short_walk: pd.DataFrame) -> None:
+    def dropping_a_leg_when_sized(
+        data: context.Dataset, params: archetypes.Params, instrument: Instrument
+    ) -> trades.LegMatrix:
         legs = archetypes.INSIDEBAR.legs(data, params, instrument)
+        assert isinstance(params, InsideBarParams)
         if params.quantity_per_confluence == 0:
             return legs
 
@@ -621,7 +648,7 @@ def test_the_null_is_refused_where_the_size_moved_a_trade(short_walk) -> None:
         recomputed_null(data, params, MNQ, moving, by="profit_factor", draws=1, seed=0)
 
 
-def test_a_trade_at_a_size_its_table_does_not_hold_is_refused(short_walk) -> None:
+def test_a_trade_at_a_size_its_table_does_not_hold_is_refused(short_walk: pd.DataFrame) -> None:
     params = sized_insidebar()
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
     legs = archetypes.INSIDEBAR.legs(data, params, MNQ)
@@ -637,7 +664,7 @@ def test_a_strategy_other_than_insidebartrailing_needs_its_arm_named(monkeypatch
 
     asked = []
 
-    def held_out(*args):
+    def held_out(*args: object) -> pd.DataFrame:
         asked.append(args)
 
         return pd.DataFrame()
@@ -652,12 +679,14 @@ def test_a_strategy_other_than_insidebartrailing_needs_its_arm_named(monkeypatch
     assert (args[0], args[-1]) == ("ElasticBand", arm)
 
 
-def test_a_shortlist_is_nulled_through_its_own_archetype(monkeypatch: pytest.MonkeyPatch, short_walk) -> None:
+def test_a_shortlist_is_nulled_through_its_own_archetype(
+    monkeypatch: pytest.MonkeyPatch, short_walk: pd.DataFrame
+) -> None:
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
     monkeypatch.setattr(splice, "load_continuous", lambda _root: short_walk)
-    monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda stored, archive: (archive,))
+    monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda _stored, archive: (archive,))
     monkeypatch.setattr(
-        campaign_sizing, "bars_for", lambda candidates, stored, block, minutes: (candidates[0], True)
+        campaign_sizing, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], True)
     )
     row = {
         "sweep_id": 3,
@@ -676,12 +705,14 @@ def test_a_shortlist_is_nulled_through_its_own_archetype(monkeypatch: pytest.Mon
 
 
 def test_the_null_is_refused_where_recomputing_the_sizes_taken_misses_the_simulation(
-    monkeypatch: pytest.MonkeyPatch, short_walk
+    monkeypatch: pytest.MonkeyPatch, short_walk: pd.DataFrame
 ) -> None:
     params = sized_insidebar()
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
 
-    def off_by_a_dollar(legs, quantities, point_value, commission):
+    def off_by_a_dollar(
+        legs: trades.LegMatrix, quantities: IntArray, point_value: float, commission: float
+    ) -> trades.LegMatrix:
         moved = resized(legs, quantities, point_value, commission)
         moved.matrix[0, trades.C_NET_PNL] += 1.0
 

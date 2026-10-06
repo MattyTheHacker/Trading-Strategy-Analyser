@@ -14,10 +14,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, disambiguate, resample, results, sessions, sweep
+from nqbt import archetypes, context, disambiguate, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
 from nqbt.sim.types import InsideBarParams
+from tests.rows import number
 from tools import campaign_ambiguity
 from tools.campaign_ambiguity import (
     BREAKEVEN,
@@ -31,6 +32,7 @@ from tools.campaign_ambiguity import (
     survival,
 )
 from tools.campaign_report import SHARES
+from tools.campaign_shortlist import rebuild, source
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -61,8 +63,11 @@ def measured(**columns: object) -> pd.DataFrame:
 
 
 def test_the_ranked_arm_is_nt8s_rule_and_the_second_arm_is_not() -> None:
-    """The prime directive governs what the shortlist claims, so the arm the stored rows were
-    ranked under has to be the one reproducing NT8 -- ``docs/roadmap.md`` §M28.3."""
+    """The prime directive governs what the shortlist claims.
+
+    The arm the stored rows were ranked under has to be the one reproducing NT8 --
+    ``docs/roadmap.md`` §M28.3.
+    """
     assert RANKED_POLICY == AMBIGUITY_NEAREST_TO_OPEN
     assert SECOND_ARM == AMBIGUITY_WORST_CASE
     assert RANKED_POLICY != SECOND_ARM
@@ -77,8 +82,10 @@ def test_the_survival_line_counts_the_rows_that_keep_an_edge_without_the_assumpt
 
 
 def test_the_widest_spread_is_named_rather_than_only_counted() -> None:
-    """The §M28.2 shape is a shortlist whose least attributable row is also its best one, and
-    only naming the row makes that visible."""
+    """The §M28.2 shape is a shortlist whose least attributable row is also its best one.
+
+    Only naming the row makes that visible.
+    """
     lines = survival(measured())
     assert any("widest spread" in line and "c" in line for line in lines)
 
@@ -89,8 +96,10 @@ def test_the_widest_spread_is_the_largest_rather_than_the_last() -> None:
 
 
 def test_the_statement_is_reported_beside_the_count() -> None:
-    """It is stated as a sentence rather than as a threshold on a share, the way
-    ``MIN_DRAW_FREEDOM`` and ``MIN_DONOR_SESSIONS`` are."""
+    """It is stated as a sentence rather than as a threshold on a share.
+
+    The same way ``MIN_DRAW_FREEDOM`` and ``MIN_DONOR_SESSIONS`` are.
+    """
     assert survival(measured())[0].strip() == campaign_ambiguity.STATEMENT
 
 
@@ -151,8 +160,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
 
 
 def grid() -> sweep.Grid:
-    """Build two InsideBar combinations, one of which resolves bars by assumption and one of which
-    does not.
+    """Build two InsideBar combinations, one of which resolves bars by assumption and one of which does not.
 
     A quarter-ATR stop against a quarter-ATR target puts both bracket levels inside one
     5-minute bar often enough to measure -- the geometry §M28.2 found on the retest, reached
@@ -165,7 +173,7 @@ def grid() -> sweep.Grid:
     )
 
 
-def stored(db, bars: pd.DataFrame, minutes: int, window: str) -> int:
+def stored(db: Path, bars: pd.DataFrame, minutes: int, window: str) -> int:
     """Sweep one grid at one point and store it the way ``campaign_sweep.run_point`` does."""
     frame = resample.resample(bars, minutes)
     table, _ = sweep.sweep(frame, grid(), get_instrument(ROOT))
@@ -186,17 +194,19 @@ def stored(db, bars: pd.DataFrame, minutes: int, window: str) -> int:
     )
 
 
-def combos(db) -> pd.DataFrame:
+def combos(db: Path) -> pd.DataFrame:
     return results.query("SELECT * FROM combos ORDER BY sweep_id, combo_id", db)
 
 
-def spread_table(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bars: pd.DataFrame, points) -> pd.DataFrame:
+def spread_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bars: pd.DataFrame, points: list[tuple[str, int]]
+) -> pd.DataFrame:
     """Store every ``(window, resolution)`` point, then measure the whole thing."""
     db = tmp_path / f"{STRATEGY}.duckdb"
     for window, minutes in points:
-        stored(db, campaign_ambiguity.source(bars, window), minutes, window)
+        stored(db, source(bars, window), minutes, window)
 
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
     block = combos(db)
     assert block["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
 
@@ -218,9 +228,11 @@ def test_the_first_arm_reproduces_the_stored_profit_factor(
 def test_the_worst_case_is_never_the_better_of_the_two(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Every ambiguous bar it resolves is one the ranked arm may have given to the target, so
-    the second arm can only move gross profit down and gross loss up. A spread that came out
-    negative would mean the two arms are not the same configuration."""
+    """Every ambiguous bar it resolves is one the ranked arm may have given to the target.
+
+    The second arm can only move gross profit down and gross loss up. A spread that came out
+    negative would mean the two arms are not the same configuration.
+    """
     table = spread_table(tmp_path, monkeypatch, synthetic_bars(), [("full", 5)])
 
     assert (table[WORST] <= table["profit_factor"] + 1e-12).all()
@@ -231,9 +243,11 @@ def test_the_worst_case_is_never_the_better_of_the_two(
 def test_the_share_and_the_spread_are_not_the_same_measurement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reason a ceiling on ``ambiguous_share`` is the wrong instrument: the share counts
-    how often the assumption was invoked, the spread says how much the answer depends on it.
-    The fixture holds one configuration with a band and one without."""
+    """The reason a ceiling on ``ambiguous_share`` is the wrong instrument.
+
+    The share counts how often the assumption was invoked, the spread says how much the answer
+    depends on it. The fixture holds one configuration with a band and one without.
+    """
     table = spread_table(tmp_path, monkeypatch, synthetic_bars(), [("full", 5)])
 
     assert set(table[SPREAD] > 0.0) == {True, False}
@@ -243,12 +257,15 @@ def test_the_share_and_the_spread_are_not_the_same_measurement(
 def test_a_row_whose_rerun_does_not_reproduce_it_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A spread filed against a summary it does not match would attribute a band to a
-    configuration that did not produce it -- ``tools/campaign_shortlist.verify``."""
+    """A spread must not be filed against a summary it does not match.
+
+    It would attribute a band to a configuration that did not produce it --
+    ``tools/campaign_shortlist.verify``.
+    """
     db = tmp_path / f"{STRATEGY}.duckdb"
     bars = synthetic_bars()
     stored(db, bars, 5, "full")
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
     block = combos(db)
     block.loc[:, "trades"] = block["trades"] + 1
 
@@ -260,8 +277,11 @@ def test_every_shortlisted_row_is_measured_on_the_bars_its_own_window_names(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One shortlist spans several sweep points, and a row measured on the wrong window would
-    fail ``verify`` rather than report a spread -- so this passing is the grouping."""
+    """One shortlist spans several sweep points.
+
+    A row measured on the wrong window would fail ``verify`` rather than report a spread -- so
+    this passing is the grouping.
+    """
     bars = synthetic_bars()
     points = [("selection", 5), ("holdout", 5), ("full", 10)]
     table = spread_table(tmp_path, monkeypatch, bars, points)
@@ -272,8 +292,10 @@ def test_every_shortlisted_row_is_measured_on_the_bars_its_own_window_names(
 
 
 def test_the_shares_travel_with_the_spread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The spread says how much the answer depends on the assumption and the share says how
-    often it was invoked; §M28.2 needs both columns in one table to be read at all."""
+    """The spread says how much the answer depends on the assumption; the share, how often it was invoked.
+
+    §M28.2 needs both columns in one table to be read at all.
+    """
     table = spread_table(tmp_path, monkeypatch, synthetic_bars(), [("full", 5)])
 
     assert set(SHARES) <= set(table.columns)
@@ -283,22 +305,26 @@ def test_the_second_arm_is_forced_rather_than_taken_from_the_stored_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A row stored under the worst case would otherwise report a spread of zero between two
-    arms neither of which is NT8's; forcing the policy makes it fail ``verify`` instead."""
+    """Forcing the policy makes a row stored under the worst case fail ``verify``.
+
+    Otherwise it would report a spread of zero between two arms, neither of which is NT8's.
+    """
     db = tmp_path / f"{STRATEGY}.duckdb"
     bars = synthetic_bars()
     stored(db, bars, 5, "full")
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
 
     seen: list[int] = []
-    original = campaign_ambiguity.sweep.run_combination
+    original = sweep.run_combination
 
-    def record(data, params, *args, **kwargs):
+    def record(
+        data: context.Dataset, params: InsideBarParams, *args: object, **kwargs: object
+    ) -> tuple[dict[str, object], pd.DataFrame | None]:
         seen.append(params.ambiguity_policy)
 
-        return original(data, params, *args, **kwargs)
+        return original(data, params, *args, **kwargs)  # type: ignore[arg-type]  # run_combination's own arguments, passed through
 
-    monkeypatch.setattr(campaign_ambiguity.sweep, "run_combination", record)
+    monkeypatch.setattr(sweep, "run_combination", record)
     measure(combos(db), archetypes.INSIDEBAR, ROOT)
 
     assert set(seen) == {RANKED_POLICY, SECOND_ARM}
@@ -308,8 +334,10 @@ def test_a_measured_row_carries_the_axes_that_vary_across_the_shortlist(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The §M28.2 finding was that every one of the top twenty carried one parameter value, and
-    a table naming only the sweep identifiers cannot show that."""
+    """The §M28.2 finding was that every one of the top twenty carried one parameter value.
+
+    A table naming only the sweep identifiers cannot show that.
+    """
     table = spread_table(tmp_path, monkeypatch, synthetic_bars(), [("full", 5)])
 
     assert set(table["label"]) == {"atr_multiplier=0.25", "atr_multiplier=0.5"}
@@ -318,12 +346,14 @@ def test_a_measured_row_carries_the_axes_that_vary_across_the_shortlist(
 def test_one_row_is_measured_at_a_time_rather_than_pooled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A pooled spread would average an unattributable configuration into an attributable one,
-    which is the reading §M28.2 says a shortlist cannot make."""
+    """A pooled spread would average an unattributable configuration into an attributable one.
+
+    That is the reading §M28.2 says a shortlist cannot make.
+    """
     db = tmp_path / f"{STRATEGY}.duckdb"
     bars = synthetic_bars()
     stored(db, bars, 5, "full")
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
     block = combos(db)
 
     table = measure(block, archetypes.INSIDEBAR, ROOT)
@@ -337,7 +367,7 @@ def test_a_single_row_is_measured_without_a_varying_axis(
     db = tmp_path / f"{STRATEGY}.duckdb"
     bars = synthetic_bars()
     stored(db, bars, 5, "full")
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
     block = combos(db).head(1)
 
     table = measure(block, archetypes.INSIDEBAR, ROOT)
@@ -353,30 +383,30 @@ def test_a_measured_row_reports_the_survival_of_its_own_second_arm(
     db = tmp_path / f"{STRATEGY}.duckdb"
     bars = synthetic_bars()
     stored(db, bars, 5, "full")
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
 
     table = measure(combos(db), archetypes.INSIDEBAR, ROOT)
     assert list(table[SURVIVES]) == list(table[WORST] > BREAKEVEN)
 
 
-def test_measure_row_needs_no_database_to_report_a_spread(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The tool's unit is one row against one prepared dataset, and the table is a loop over
-    it -- so a caller with a dataset in hand can ask for a single configuration's band."""
+def test_measure_row_needs_no_database_to_report_a_spread(tmp_path: Path) -> None:
+    """The tool's unit is one row against one prepared dataset, and the table is a loop over it.
+
+    So a caller with a dataset in hand can ask for a single configuration's band.
+    """
     db = tmp_path / f"{STRATEGY}.duckdb"
     bars = synthetic_bars()
     stored(db, bars, 5, "full")
     row = combos(db).iloc[0]
 
     frame = resample.resample(bars, 5)
-    params = campaign_ambiguity.rebuild(row, archetypes.INSIDEBAR)
+    params = rebuild(row, archetypes.INSIDEBAR)
     spec = sweep.Grid(base=params, archetype=archetypes.INSIDEBAR).required_context()
-    data = campaign_ambiguity.context.prepare(frame, spec, bar_minutes=5)
+    data = context.prepare(frame, spec, bar_minutes=5)
 
     result = measure_row(row, data, archetypes.INSIDEBAR, ROOT, "one")
     assert result["profit_factor"] == pytest.approx(float(row["profit_factor"]))
-    assert result[SPREAD] == pytest.approx(result["profit_factor"] - result[WORST])
+    assert result[SPREAD] == pytest.approx(number(result, "profit_factor") - number(result, WORST))
 
 
 # -- the wiring ------------------------------------------------------------------------------
@@ -438,7 +468,7 @@ def settled_over(
     """Store the fixture's two configurations, then run the third step over them."""
     db = tmp_path / f"{STRATEGY}.duckdb"
     stored(db, bars, 5, "full")
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
 
     return campaign_ambiguity.settle(combos(db), archetypes.INSIDEBAR, ROOT)
 
@@ -446,8 +476,11 @@ def settled_over(
 def test_only_the_rows_over_the_threshold_are_settled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The user-facing contract: an extra step on a finished result, run only where the
-    assumption is common enough to have decided anything -- ``disambiguate.MIN_AMBIGUOUS_SHARE``."""
+    """The user-facing contract.
+
+    An extra step on a finished result, run only where the assumption is common enough to have
+    decided anything -- ``disambiguate.MIN_AMBIGUOUS_SHARE``.
+    """
     bars = synthetic_bars()
     table = spread_table(tmp_path / "spread", monkeypatch, bars, [("full", 5)])
     over = table[table["ambiguous_share"] >= disambiguate.MIN_AMBIGUOUS_SHARE]
@@ -465,7 +498,7 @@ def test_a_shortlist_with_no_ambiguity_settles_nothing_rather_than_raising(
     db = tmp_path / f"{STRATEGY}.duckdb"
     bars = synthetic_bars()
     stored(db, bars, 5, "full")
-    monkeypatch.setattr(campaign_ambiguity.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
     block = combos(db)
     block.loc[:, "ambiguous_share"] = 0.0
 
@@ -477,8 +510,10 @@ def test_a_shortlist_with_no_ambiguity_settles_nothing_rather_than_raising(
 def test_a_settled_row_reports_the_resolved_result_beside_the_ranked_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The point of the step: the profit factor with the assumption corrected where the minute
-    bars can correct it, against the one that was ranked."""
+    """The point of the step: the corrected profit factor beside the one that was ranked.
+
+    The assumption is corrected where the minute bars can correct it.
+    """
     settled, _ = settled_over(tmp_path, monkeypatch, synthetic_bars())
     row = settled.iloc[0]
 
@@ -498,8 +533,10 @@ def test_every_ambiguous_bar_of_a_settled_row_gets_a_verdict(
 
 
 def test_the_printed_bars_are_the_ones_worth_looking_at() -> None:
-    """A bar the assumption called right is evidence, not a finding; printing every one buries
-    the handful that moved the result."""
+    """A bar the assumption called right is evidence, not a finding.
+
+    Printing every one buries the handful that moved the result.
+    """
     verdicts = pd.DataFrame(
         {
             "resolved": ["target_first", "stop_first", "still_ambiguous"],

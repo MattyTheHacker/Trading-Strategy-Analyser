@@ -16,13 +16,17 @@ the stored session labels are worth re-deriving: that comparison is what a tzdat
 
 import hashlib
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
-from pyarrow.parquet import ParquetFile
+from pyarrow.parquet import ParquetFile  # type: ignore[import-untyped]  # pyarrow ships no stubs
 
 from nqbt import sessions
+
+if TYPE_CHECKING:
+    from numpy.typing import ArrayLike
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cached_bars.parquet"
 
@@ -58,7 +62,7 @@ VALUE_DIGESTS = {
 }
 
 
-def _digest(values) -> str:
+def _digest(values: ArrayLike) -> str:
     """Hash one column as float64, reading ``-0.0`` as ``0.0``."""
     clean = np.ascontiguousarray(np.asarray(values, dtype=np.float64) + 0.0)
 
@@ -81,12 +85,12 @@ def test_the_fixture_was_written_by_the_pinned_pyarrow() -> None:
 # -- what reading it must give -------------------------------------------------
 
 
-def test_the_cached_schema_reads_back_unchanged(frame) -> None:
+def test_the_cached_schema_reads_back_unchanged(frame: pd.DataFrame) -> None:
     assert list(frame.columns) == COLUMNS
     assert {name: str(dtype) for name, dtype in frame.dtypes.items()} == DTYPES
 
 
-def test_the_index_reads_back_as_a_named_utc_timestamp(frame) -> None:
+def test_the_index_reads_back_as_a_named_utc_timestamp(frame: pd.DataFrame) -> None:
     assert frame.index.name == INDEX_NAME
     assert str(frame.index.dtype) == INDEX_DTYPE
     assert frame.index[0] == FIRST_BAR
@@ -95,12 +99,12 @@ def test_the_index_reads_back_as_a_named_utc_timestamp(frame) -> None:
     assert frame.index.is_monotonic_increasing
 
 
-def test_the_stored_values_read_back_unchanged(frame) -> None:
+def test_the_stored_values_read_back_unchanged(frame: pd.DataFrame) -> None:
     got = {name: _digest(frame[name].to_numpy()) for name in VALUE_DIGESTS}
     assert got == VALUE_DIGESTS
 
 
-def test_ohlc_ordering_survives_the_round_trip(frame) -> None:
+def test_ohlc_ordering_survives_the_round_trip(frame: pd.DataFrame) -> None:
     """Cheap, and it fails loudly if a column ever came back permuted rather than mistyped."""
     assert (frame["high"] >= frame[["open", "close"]].max(axis=1)).all()
     assert (frame["low"] <= frame[["open", "close"]].min(axis=1)).all()
@@ -109,7 +113,7 @@ def test_ohlc_ordering_survives_the_round_trip(frame) -> None:
 # -- the timezone half ---------------------------------------------------------
 
 
-def test_the_stored_session_labels_still_match_a_fresh_classification(frame) -> None:
+def test_the_stored_session_labels_still_match_a_fresh_classification(frame: pd.DataFrame) -> None:
     """The tzdata canary: stored at ingest, re-derived now, and they have to agree."""
     fresh = sessions.classify(pd.DatetimeIndex(frame.index))
     assert np.array_equal(fresh.in_session, frame["in_session"].to_numpy())
@@ -119,7 +123,7 @@ def test_the_stored_session_labels_still_match_a_fresh_classification(frame) -> 
     )
 
 
-def test_the_fixture_spans_both_dst_offsets_and_the_session_break(frame) -> None:
+def test_the_fixture_spans_both_dst_offsets_and_the_session_break(frame: pd.DataFrame) -> None:
     """What makes the check above bite. Trimming the fixture must fail here, not silently."""
     in_session = frame["in_session"]
     assert in_session.any(), "no in-session bar"
@@ -134,14 +138,14 @@ def test_the_fixture_spans_both_dst_offsets_and_the_session_break(frame) -> None
 # -- the writer, not only the reader -------------------------------------------
 
 
-def test_todays_writer_round_trips_the_fixture_exactly(frame, tmp_path: Path) -> None:
+def test_todays_writer_round_trips_the_fixture_exactly(frame: pd.DataFrame, tmp_path: Path) -> None:
     """The same call ``ingest`` and ``splice`` make, so a writer change fails here too."""
     out = tmp_path / "round_trip.parquet"
     frame.to_parquet(out, engine="pyarrow", compression="zstd", index=True)
     pd.testing.assert_frame_equal(pd.read_parquet(out), frame, check_exact=True)
 
 
-def test_a_changed_value_is_caught(frame) -> None:
+def test_a_changed_value_is_caught(frame: pd.DataFrame) -> None:
     """The gate must be able to fail."""
     tampered = frame.copy()
     tampered.loc[tampered.index[0], "close"] += 0.25

@@ -10,7 +10,7 @@ Run every tool from the repository root through uv:
 uv run tools/campaign_report.py --help
 ```
 
-Run directly, `sys.path[0]` is `tools/` rather than the repository root, so a tool importing a sibling (`from tools.campaign_report import load`) would fail. Each such tool therefore puts the repository root on `sys.path` before its sibling imports, and a test importing `tools.campaign_*` relies on the same thing.
+Run directly, `sys.path[0]` is `tools/` rather than the repository root, so a tool importing a sibling (`from tools.campaign_report import load`) would fail. Each such tool therefore puts the repository root on `sys.path` before its sibling imports. Tests import the tools as the `tools` package instead: `tests/` is a package, so pytest puts the repository root on `sys.path` itself.
 
 The campaign tools read and write **one DuckDB database per [archetype](../README.md#archetype)**, `results/campaign/<Strategy>.duckdb`, which `tools/campaign_sweep.py` creates. `results/` is not committed.
 

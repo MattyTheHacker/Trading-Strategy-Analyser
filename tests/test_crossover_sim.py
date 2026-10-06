@@ -8,54 +8,66 @@ Prices are kept small and round so the arithmetic is checkable by eye.
 """
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from nqbt import conditions, context, regime, sessions, sweep, trend, volume
-from nqbt.instruments import MNQ, NQ
-from nqbt.sim import crossover, filters, types
+from nqbt.instruments import MNQ, NQ, Instrument
+from nqbt.sim import bracket, crossover, filters, types
 from nqbt.sim.crossover import crossover_signal, regime_direction, run_crossover
 from nqbt.sim.types import EmaCrossoverParams
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nqbt.arrays import FloatArray
+
+type Row = tuple[float, float, float, float]
+"""One bar as open, high, low, close."""
+
+type PerBar = float | Sequence[float] | FloatArray
+"""One value for every bar, or a value per bar."""
+
 TICK = 0.25
 
 
-def simulate(
-    rows,
-    signal_at=(),
+def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
+    rows: Sequence[Row],
+    signal_at: Sequence[int] = (),
     *,
-    max_rows=None,
-    direction=LONG,
-    flip_at=(),
-    atr=4.0,
-    force_flat_at=(),
-    quantities=(1, 1, 1, 1),
-    targets=(1.0, 1.5, 2.0, np.nan),
-    stop_level=None,
-    use_atr_stop=True,
-    atr_stop_multiple=1.0,
-    min_bracket_dollars=0.0,
-    swing_lookback=3,
-    stop_offset_ticks=2.0,
-    trail_ma=None,
-    trail_offset_ticks=2.0,
-    round_number_points=0.0,
-    round_number_offset_ticks=2.0,
-    tp_multiplier=1.0,
-    slippage=0.0,
-    commission=0.0,
-    instrument=MNQ,
-    bars_required=0,
-    exit_on_opposite_cross=True,
-    block_entry_at_close=True,
-    max_hold_bars=0,
-    fill_limit_on_touch=True,  # tests target exact prices; opt out explicitly
-    ambiguity_policy=0,
-    round_targets=True,
-):
+    max_rows: int | None = None,
+    direction: float = LONG,
+    flip_at: Sequence[int] = (),
+    atr: PerBar = 4.0,
+    force_flat_at: Sequence[int] = (),
+    quantities: Sequence[int] = (1, 1, 1, 1),
+    targets: Sequence[float] = (1.0, 1.5, 2.0, np.nan),
+    stop_level: PerBar | None = None,
+    use_atr_stop: bool = True,
+    atr_stop_multiple: float = 1.0,
+    min_bracket_dollars: float = 0.0,
+    swing_lookback: int = 3,
+    stop_offset_ticks: float = 2.0,
+    trail_ma: PerBar | None = None,
+    trail_offset_ticks: float = 2.0,
+    round_number_points: float = 0.0,
+    round_number_offset_ticks: float = 2.0,
+    tp_multiplier: float = 1.0,
+    slippage: float = 0.0,
+    commission: float = 0.0,
+    instrument: Instrument = MNQ,
+    bars_required: int = 0,
+    exit_on_opposite_cross: bool = True,
+    block_entry_at_close: bool = True,
+    max_hold_bars: int = 0,
+    fill_limit_on_touch: bool = True,  # tests target exact prices; opt out explicitly
+    ambiguity_policy: int = 0,
+    round_targets: bool = True,
+) -> tuple[int, FloatArray]:
     """Simulate hand-written OHLC rows.
 
     ``signal_at`` lists the bars whose close schedules an entry; ``direction`` is the
@@ -77,12 +89,12 @@ def simulate(
         force_flat[i] = True
 
     out = (
-        crossover.bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
+        bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
         if max_rows is None
         else np.zeros((max_rows, N_COLUMNS), dtype=np.float64)
     )
     count = crossover.simulate_crossover(
-        crossover.bracket.Bars(o, h, low, c, force_flat),
+        bracket.Bars(o, h, low, c, force_flat),
         signal,
         direction_at,
         crossover.CrossoverSeries(
@@ -90,10 +102,10 @@ def simulate(
             crossover.NO_TRAIL if trail_ma is None else np.asarray(trail_ma, dtype=np.float64),
             crossover.NO_LEVEL if stop_level is None else np.asarray(stop_level, dtype=np.float64),
         ),
-        crossover.bracket.fixed_sizing(tuple(quantities), len(signal)),
+        bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(targets, dtype=np.float64),
-        crossover.bracket.Costs(TICK, instrument.point_value, commission, slippage),
-        crossover.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
+        bracket.Costs(TICK, instrument.point_value, commission, slippage),
+        bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         crossover.CrossoverRules(
             use_level_stop=stop_level is not None,
             use_atr_stop=use_atr_stop,
@@ -117,12 +129,15 @@ def simulate(
     return count, out
 
 
-def run(rows, signal_at=(), **kwargs):
+def run(rows: Sequence[Row], signal_at: Sequence[int] = (), **kwargs: object) -> pd.DataFrame:
     """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
-    count, out = simulate(rows, signal_at, **kwargs)
+    count, out = simulate(rows, signal_at, **kwargs)  # type: ignore[arg-type]  # the keywords are simulate's own
     assert count >= 0, "trade buffer overflowed"
 
-    return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
+    instrument: object = kwargs.get("instrument", MNQ)
+    assert isinstance(instrument, Instrument)
+
+    return validate(trades_to_frame(out, count, instrument=instrument.symbol))
 
 
 FLAT = [(100.0, 100.5, 99.5, 100.0)] * 6
@@ -154,8 +169,11 @@ def test_slippage_on_the_entry_takes_the_direction_sign() -> None:
 
 
 def test_the_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
-    """NT8 fills the resting order and only then flattens -- ``docs/nt8-fidelity.md``,
-    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    """NT8 fills the resting order and only then flattens.
+
+    ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat bar, and is flattened at
+    its close".
+    """
     trades = run(FLAT, signal_at=[0], force_flat_at=[1])
     assert list(trades["entry_bar"].unique()) == [1]
     assert set(trades["exit_reason"]) == {"session_close"}
@@ -559,11 +577,11 @@ def bars(n: int = 1200, seed: int = 11) -> pd.DataFrame:
     return frame
 
 
-def prepared(params: EmaCrossoverParams):
+def prepared(params: EmaCrossoverParams) -> context.Dataset:
     return sweep.prepare_for(bars(), sweep.Grid.of(params))
 
 
-def basis_prepared(params: EmaCrossoverParams, basis: context.PriceBasis):
+def basis_prepared(params: EmaCrossoverParams, basis: context.PriceBasis) -> context.Dataset:
     """Run :func:`prepared` for a caller that states what its prices are."""
     return context.prepare(bars(), sweep.Grid.of(params).required_context(), price_basis=basis)
 
@@ -619,9 +637,9 @@ def test_the_regime_boundary_matches_the_cross_it_pairs_with() -> None:
         ({"fast_period": 21, "fast_kind": "sma", "slow_kind": "sma"}, "both sma\\(21\\)"),
     ],
 )
-def test_an_unusable_parameter_set_is_refused(kwargs, match) -> None:
+def test_an_unusable_parameter_set_is_refused(kwargs: dict[str, object], match: str) -> None:
     with pytest.raises(ValueError, match=match.replace("\nx?", " ")):
-        EmaCrossoverParams(**kwargs)
+        EmaCrossoverParams(**kwargs)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_equal_periods_of_different_kinds_are_a_real_cross_and_are_allowed() -> None:
@@ -679,12 +697,14 @@ OVERFLOW_CASES = {
 
 
 @pytest.mark.parametrize(("rows", "kwargs"), OVERFLOW_CASES.values(), ids=list(OVERFLOW_CASES))
-def test_a_full_buffer_is_reported_rather_than_written_past(rows, kwargs) -> None:
+def test_a_full_buffer_is_reported_rather_than_written_past(
+    rows: Sequence[Row], kwargs: dict[str, object]
+) -> None:
     # One row of room against a four-leg trade, so the second write has nowhere to go.
-    assert simulate(rows, max_rows=1, **kwargs)[0] == -1
+    assert simulate(rows, max_rows=1, **kwargs)[0] == -1  # type: ignore[arg-type]  # the keywords are simulate's own
     # The same scenario with room is a normal trade, which is what says the buffer size is
     # the only thing under test here.
-    assert not run(rows, **kwargs).empty
+    assert not run(rows, **kwargs).empty  # type: ignore[arg-type]  # the keywords are run's own
 
 
 def test_trading_the_short_side_only_removes_the_long_one() -> None:
@@ -898,9 +918,9 @@ def test_a_combination_that_never_avoids_a_round_number_needs_no_basis() -> None
         ({"trail_ma_kind": "kalman"}, "kalman"),
     ],
 )
-def test_the_new_stop_parameters_are_range_checked(kwargs, match) -> None:
+def test_the_new_stop_parameters_are_range_checked(kwargs: dict[str, object], match: str) -> None:
     with pytest.raises(ValueError, match=match):
-        EmaCrossoverParams(**kwargs)
+        EmaCrossoverParams(**kwargs)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 # -- confluence counting -------------------------------------------------------
@@ -939,7 +959,7 @@ def test_a_confluence_count_admits_bars_the_conjunction_refuses() -> None:
     assert crossover_signal(data, loose).sum() > crossover_signal(data, strict).sum()
 
 
-def test_a_gate_at_its_everything_value_is_not_one_of_the_M() -> None:
+def test_a_gate_at_its_everything_value_is_not_one_of_the_m() -> None:
     """Otherwise "2 of 3" would quietly become "2 of 6" and admit far more."""
     counted = EmaCrossoverParams(
         bars_required_to_trade=50,

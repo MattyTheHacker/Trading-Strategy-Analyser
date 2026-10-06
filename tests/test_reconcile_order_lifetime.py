@@ -11,12 +11,15 @@ processed fills after advancing the bar rather than before, and it is the readin
 shift every lifetime in this file by one bar.
 """
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
 
 from tools import reconcile_order_lifetime as rol
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 EVENT_COLUMNS = [
     "kind",
@@ -367,7 +370,7 @@ def test_an_absent_state_describes_as_none(tmp_path: Path) -> None:
     assert rol.describe_offsets(frame, "filled") == "none"
 
 
-def test_main_reports_usage_when_given_no_export(tmp_path: Path) -> None:
+def test_main_reports_usage_when_given_no_export() -> None:
     assert rol.main(["reconcile_order_lifetime.py"]) == 2
 
 

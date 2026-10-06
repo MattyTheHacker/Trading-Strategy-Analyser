@@ -10,6 +10,7 @@ values and keep the arithmetic checkable by eye. The end-to-end tests use the re
 """
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ import pytest
 
 from nqbt import archetypes, conditions, randomentry, regime, sessions, sweep, trend
 from nqbt.instruments import MNQ, NQ
-from nqbt.sim import crossover, emapullback
+from nqbt.sim import bracket, crossover, emapullback
 from nqbt.sim.emapullback import (
     emapullback_signal,
     extension_run,
@@ -28,6 +29,13 @@ from nqbt.sim.emapullback import (
 )
 from nqbt.sim.types import TOUCH_ANY, TOUCH_CLOSE, TOUCH_WICK, EmaPullbackParams
 from nqbt.trades import LONG, SHORT, trades_to_frame, validate
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nqbt import context
+    from nqbt.archetypes import AxisValue
+    from nqbt.arrays import BoolArray, FloatArray
 
 FAST = 100.0
 SLOW = 95.0
@@ -45,11 +53,11 @@ UPTREND = [
 DEFAULTS = {"bars_required_to_trade": 0, "min_bars_extended": 3}
 
 
-def params(**overrides) -> EmaPullbackParams:
-    return EmaPullbackParams(**(DEFAULTS | overrides))
+def params(**overrides: object) -> EmaPullbackParams:
+    return EmaPullbackParams(**(DEFAULTS | overrides))  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
-def frame(rows) -> pd.DataFrame:
+def frame(rows: Sequence[Row]) -> pd.DataFrame:
     """Build a bar frame from hand-written OHLC rows."""
     arr = np.asarray(rows, dtype=np.float64)
     idx = pd.date_range("2024-01-02 00:00", periods=len(arr), freq="min", tz="UTC")
@@ -68,22 +76,29 @@ def frame(rows) -> pd.DataFrame:
     return out
 
 
-def dataset(rows, combination: EmaPullbackParams):
+def dataset(rows: Sequence[Row], combination: EmaPullbackParams) -> context.Dataset:
     return sweep.prepare_for(frame(rows), sweep.Grid.of(combination, archetype=archetypes.EMAPULLBACK))
 
 
-def flat(value: float, n: int):
+def flat(value: float, n: int) -> FloatArray:
     return np.full(n, value, dtype=np.float64)
 
 
-def signal_for(rows, combination: EmaPullbackParams, *, fast=FAST, slow=SLOW, direction=LONG):
+def signal_for(
+    rows: Sequence[Row],
+    combination: EmaPullbackParams,
+    *,
+    fast: float = FAST,
+    slow: float = SLOW,
+    direction: float = LONG,
+) -> BoolArray:
     """Compute one side's signal over ``rows``, with both averages held flat at stated values."""
     data = dataset(rows, combination)
 
     return side_signal(data, flat(fast, len(rows)), flat(slow, len(rows)), combination, direction)
 
 
-def mirrored(rows, pivot: float = 200.0):
+def mirrored(rows: Sequence[Row], pivot: float = 200.0) -> list[Row]:
     """Reflect the bars about ``pivot`` -- an uptrend's rows become a downtrend's."""
     return [(pivot - o, pivot - low, pivot - high, pivot - c) for o, high, low, c in rows]
 
@@ -247,7 +262,7 @@ def walk_bars(n: int = 4000, seed: int = 11) -> pd.DataFrame:
     return out
 
 
-def walk_dataset(combination: EmaPullbackParams):
+def walk_dataset(combination: EmaPullbackParams) -> context.Dataset:
     grid = sweep.Grid.of(combination, archetype=archetypes.EMAPULLBACK)
 
     return sweep.prepare_for(walk_bars(), grid)
@@ -577,11 +592,11 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
     force_flat = np.zeros(n, dtype=np.bool_)
     force_flat[list(force_flat_at)] = True
     levels = np.broadcast_to(np.asarray(stop_level, dtype=np.float64), (n,)).copy()
-    sizing = emapullback.bracket.fixed_sizing((1,) * len(targets), n)
-    out = emapullback.bracket.allocate_output(max(int(signal.sum()), 1), len(targets))
+    sizing = bracket.fixed_sizing((1,) * len(targets), n)
+    out = bracket.allocate_output(max(int(signal.sum()), 1), len(targets))
 
     count = emapullback.simulate_confirmation(
-        emapullback.bracket.Bars(arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], force_flat),
+        bracket.Bars(arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], force_flat),
         signal,
         emapullback.ConfirmationSeries(
             direction_at,
@@ -590,8 +605,8 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
         ),
         sizing,
         np.asarray(targets, dtype=np.float64),
-        emapullback.bracket.Costs(TICK, MNQ.point_value, 0.0, slippage),
-        emapullback.bracket.FillRules(fill_limit_on_touch=True, ambiguity_policy=1, round_targets=True),
+        bracket.Costs(TICK, MNQ.point_value, 0.0, slippage),
+        bracket.FillRules(fill_limit_on_touch=True, ambiguity_policy=1, round_targets=True),
         emapullback.ConfirmationRules(
             entry_offset_ticks=entry_offset_ticks,
             stop_offset_ticks=2.0,
@@ -613,17 +628,17 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
 
 def test_the_stop_entry_fills_at_the_trigger_and_at_the_open_past_it() -> None:
     """A market order once triggered, so a gap fills where the market opened -- both entries' rule."""
-    bars = emapullback.bracket.Bars(
+    bars = bracket.Bars(
         np.array([100.0, 102.0]),
         np.array([101.5, 103.0]),
         np.array([99.0, 101.5]),
         np.array([101.0, 102.5]),
         np.zeros(2, dtype=np.bool_),
     )
-    assert emapullback.bracket.stop_entry_fill(bars, 0, TRIGGER, 0.25, LONG) == (True, TRIGGER + 0.25)
-    assert emapullback.bracket.stop_entry_fill(bars, 1, TRIGGER, 0.25, LONG) == (True, 102.25)
-    assert emapullback.bracket.stop_entry_fill(bars, 0, 101.75, 0.25, LONG) == (False, 0.0)
-    assert emapullback.bracket.stop_entry_fill(bars, 0, 99.0, 0.25, SHORT) == (True, 98.75)
+    assert bracket.stop_entry_fill(bars, 0, TRIGGER, 0.25, LONG) == (True, TRIGGER + 0.25)
+    assert bracket.stop_entry_fill(bars, 1, TRIGGER, 0.25, LONG) == (True, 102.25)
+    assert bracket.stop_entry_fill(bars, 0, 101.75, 0.25, LONG) == (False, 0.0)
+    assert bracket.stop_entry_fill(bars, 0, 99.0, 0.25, SHORT) == (True, 98.75)
 
 
 def test_the_order_fills_where_the_next_bar_trades_through_the_signal_bars_extreme() -> None:
@@ -836,7 +851,7 @@ def test_the_context_spec_asks_for_the_two_averages_their_values_and_no_atr() ->
 
 
 def test_the_trail_grid_is_built_only_where_some_combination_trails_on_it() -> None:
-    axes = {
+    axes: dict[str, list[AxisValue]] = {
         "fast_kind": ["ema"],
         "fast_period": [9],
         "slow_kind": ["ema"],
@@ -862,7 +877,11 @@ def test_the_trail_axes_are_dead_while_the_trail_is_off() -> None:
 @pytest.mark.parametrize("axis", ["trail_ma_kind", "trail_ma_period", "trail_offset_ticks"])
 def test_the_third_grid_axes_are_dead_while_the_trail_is_on_the_slow_average(axis: str) -> None:
     """The mode leaves all three unread, and sweeping the mode itself brings them back."""
-    values = {"trail_ma_kind": ["ema", "sma"], "trail_ma_period": [20, 50], "trail_offset_ticks": [2, 8]}
+    values: dict[str, list[AxisValue]] = {
+        "trail_ma_kind": ["ema", "sma"],
+        "trail_ma_period": [20, 50],
+        "trail_offset_ticks": [2, 8],
+    }
     on_slow = EmaPullbackParams(trail_ma_stop=True, trail_on_slow=True)
     with pytest.raises(sweep.SweepError, match=rf"{axis} \(inert while trail_on_slow is True\)"):
         sweep.Grid.of(on_slow, archetype=archetypes.EMAPULLBACK, **{axis: values[axis]})
@@ -893,7 +912,7 @@ def test_the_confirmation_axes_are_dead_at_the_market_entry(axis: str, values: l
 
 def test_the_trail_grid_is_not_built_where_every_combination_trails_on_the_slow_average() -> None:
     """The slow average is already built, so a sweep trailing only on it pays for no third grid."""
-    axes = {
+    axes: dict[str, list[AxisValue]] = {
         "fast_kind": ["ema"],
         "fast_period": [9],
         "slow_kind": ["ema"],

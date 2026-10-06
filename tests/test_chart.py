@@ -8,9 +8,9 @@ its session -- ``docs/roadmap.md`` § "Charting a trade".
 """
 
 import re
+import xml.etree.ElementTree as ET
 from itertools import pairwise
 from typing import TYPE_CHECKING
-from xml.etree import ElementTree
 
 import numpy as np
 import pandas as pd
@@ -97,7 +97,7 @@ def bars(
 
 def dataset(**kwargs: int | bool) -> context.Dataset:
     """Build the fixture bars as a dataset. No conditions: a chart reads bars and a log, nothing else."""
-    return context.prepare(bars(**kwargs), ContextSpec(), price_basis=PriceBasis.RAW)
+    return context.prepare(bars(**kwargs), ContextSpec(), price_basis=PriceBasis.RAW)  # type: ignore[arg-type]  # bars' own keywords, passed through
 
 
 def with_indicators() -> tuple[context.Dataset, list[chart.Overlay]]:
@@ -167,9 +167,9 @@ def case(**kwargs: object) -> tuple[chart.TradeChart, context.Dataset, pd.DataFr
     return chart.chart(trades_log, data, 1, **kwargs), data, trades_log  # type: ignore[arg-type]  # keyword passthrough for the options under test
 
 
-def elements(drawn: chart.TradeChart, tag: str, css: str | None = None) -> list[ElementTree.Element]:
+def elements(drawn: chart.TradeChart, tag: str, css: str | None = None) -> list[ET.Element]:
     """Find every ``tag`` element of the document, optionally only those carrying one CSS class."""
-    root = ElementTree.fromstring(drawn.svg)
+    root = ET.fromstring(drawn.svg)
 
     return [
         element
@@ -178,7 +178,7 @@ def elements(drawn: chart.TradeChart, tag: str, css: str | None = None) -> list[
     ]
 
 
-def only(drawn: chart.TradeChart, tag: str, css: str) -> ElementTree.Element:
+def only(drawn: chart.TradeChart, tag: str, css: str) -> ET.Element:
     """Return the one element of that tag and class, asserting there is exactly one."""
     found = elements(drawn, tag, css)
     assert len(found) == 1, f"expected one {tag}.{css}, found {len(found)}"
@@ -195,14 +195,14 @@ def at(value: float) -> object:
     return pytest.approx(value, abs=ROUNDING)
 
 
-def vertices(element: ElementTree.Element) -> list[tuple[float, float]]:
+def vertices(element: ET.Element) -> list[tuple[float, float]]:
     """Return one polyline's points, in the order it draws them."""
     points = (element.get("points") or "").split()
 
     return [(float(x), float(y)) for x, y in (point.split(",") for point in points)]
 
 
-def number(element: ElementTree.Element, attribute: str) -> float:
+def number(element: ET.Element, attribute: str) -> float:
     """Read one numeric attribute of an element."""
     value = element.get(attribute)
     assert value is not None, f"{element.tag} carries no {attribute}"
@@ -312,6 +312,7 @@ def test_the_excursions_are_drawn_at_the_prices_the_log_recorded_them_at() -> No
 def test_the_figures_are_the_ones_stats_per_trade_computes() -> None:
     drawn, _, trades_log = case()
     expected = stats.per_trade(trades_log).loc[1]
+    assert isinstance(expected, pd.Series)
 
     assert drawn.figures.net_pnl == pytest.approx(float(expected["net_pnl"]))
     assert drawn.figures.r_multiple == pytest.approx(float(expected["r_multiple"]))
@@ -342,7 +343,8 @@ def test_overlays_for_draws_every_price_series_the_dataset_holds() -> None:
     assert [one for one in labels if one.startswith("bb(20")], "one entry per band period"
     assert [one for one in labels if one.startswith("ema(3) @ 5m")], "one entry per coarse average"
     assert [one for one in labels if one.startswith("range(930")], "one entry per session range"
-    assert data.band is not None and data.session_ranges is not None
+    assert data.band is not None
+    assert data.session_ranges is not None
 
 
 def test_a_vwap_band_is_drawn_instead_of_the_vwap_and_never_beside_it() -> None:
@@ -423,7 +425,7 @@ def test_an_overlay_far_from_the_window_does_not_move_the_price_axis() -> None:
 def test_every_overlay_is_drawn_inside_the_panel_it_may_not_rescale() -> None:
     data, drawn_overlays = with_indicators()
     drawn = chart.chart(log([100], [110], data), data, 1, overlays=drawn_overlays)
-    root = ElementTree.fromstring(drawn.svg)
+    root = ET.fromstring(drawn.svg)
     clip = root.find(f"{SVG}defs/{SVG}clipPath")
     assert clip is not None, "an overlay is clipped rather than fitted"
 
@@ -455,7 +457,7 @@ def test_two_charts_in_one_document_are_clipped_to_their_own_panels() -> None:
     assert _clip(wide) != _clip(narrow), "two panels, two clip paths"
     assert _clip(wide) == _clip(again), "one panel is one clip path, however often it is drawn"
     for one in (wide, narrow):
-        box = ElementTree.fromstring(one.svg).find(f"{SVG}defs/{SVG}clipPath/{SVG}rect")
+        box = ET.fromstring(one.svg).find(f"{SVG}defs/{SVG}clipPath/{SVG}rect")
         panel = only(one, "rect", "panel")
 
         assert box is not None
@@ -464,7 +466,7 @@ def test_two_charts_in_one_document_are_clipped_to_their_own_panels() -> None:
 
 def _clip(drawn: chart.TradeChart) -> str:
     """Return the id of the clip path one chart's overlays are drawn inside."""
-    found = ElementTree.fromstring(drawn.svg).find(f"{SVG}defs/{SVG}clipPath")
+    found = ET.fromstring(drawn.svg).find(f"{SVG}defs/{SVG}clipPath")
     assert found is not None, "an overlaid chart clips its overlays"
 
     return found.get("id") or ""
@@ -537,12 +539,12 @@ def test_the_legend_makes_its_own_room_above_the_panel() -> None:
 
     assert drawn.plot.top > plain.plot.top
     assert all(number(entry, "y") < drawn.plot.top for entry in elements(drawn, "text", "legend"))
-    assert float(ElementTree.fromstring(drawn.svg).get("height") or 0) > _canvas_height(plain)
+    assert float(ET.fromstring(drawn.svg).get("height") or 0) > _canvas_height(plain)
 
 
 def _canvas_height(drawn: chart.TradeChart) -> float:
     """Return the document's own height."""
-    return float(ElementTree.fromstring(drawn.svg).get("height") or 0)
+    return float(ET.fromstring(drawn.svg).get("height") or 0)
 
 
 def test_a_legend_too_wide_for_the_panel_wraps_rather_than_running_off_it() -> None:
@@ -558,7 +560,7 @@ def test_the_trade_geometry_is_dashed_where_the_market_context_is_solid() -> Non
     """A reader has to be able to tell what the trade carried from what the market was doing."""
     data, _ = with_indicators()
     drawn = chart.chart(log([100], [110], data), data, 1, overlays=[chart.session_vwap(data)])
-    style = ElementTree.fromstring(drawn.svg).find(f"{SVG}style")
+    style = ET.fromstring(drawn.svg).find(f"{SVG}style")
 
     assert style is not None
     assert re.search(r"\.level \{[^}]*stroke-dasharray", style.text or "")
@@ -612,7 +614,7 @@ def test_a_chart_states_the_caution_it_must_not_be_read_without() -> None:
 def test_the_caution_stays_inside_the_canvas_however_narrow_the_chart() -> None:
     """The narrowest chart wraps the caution over many lines; the canvas has to grow with it."""
     drawn, _, _ = case(bars_either_side=0)
-    root = ElementTree.fromstring(drawn.svg)
+    root = ET.fromstring(drawn.svg)
     lowest = max(number(line, "y") for line in elements(drawn, "text", "caution"))
 
     assert len(elements(drawn, "text", "caution")) > 1
@@ -762,14 +764,14 @@ def test_the_canvas_grows_by_one_bar_width_for_each_extra_bar_of_window() -> Non
     wide, _, _ = case(bars_either_side=25)
     extra = (wide.plot.bars - narrow.plot.bars) * narrow.plot.bar_width
 
-    assert ElementTree.fromstring(narrow.svg).tag == f"{SVG}svg"
+    assert ET.fromstring(narrow.svg).tag == f"{SVG}svg"
     assert _canvas(wide) - _canvas(narrow) == at(extra)
     assert number(only(narrow, "rect", "panel"), "width") == at(narrow.plot.width)
 
 
 def _canvas(drawn: chart.TradeChart) -> float:
     """Return the document's own width."""
-    return float(ElementTree.fromstring(drawn.svg).get("width") or 0)
+    return float(ET.fromstring(drawn.svg).get("width") or 0)
 
 
 def test_charts_draws_each_trade_asked_for_in_order() -> None:

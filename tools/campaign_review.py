@@ -167,7 +167,7 @@ def review_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     logger.info("")
     logger.info("%s", guarded)
 
-    return clock.reset_index().assign(**labelled(row))
+    return clock.reset_index().assign(**labelled(row))  # type: ignore[arg-type]  # a stored row's tag values
 
 
 def review_shortlist(
@@ -186,8 +186,9 @@ def review_shortlist(
     bars: pd.DataFrame = splice.load_continuous(root)
     tables: list[pd.DataFrame] = []
     for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
-        frame: pd.DataFrame = resample.resample(source(bars, str(window)), int(minutes))
-        data: context.Dataset = context.prepare(frame, review_spec(), bar_minutes=int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
+        frame: pd.DataFrame = resample.resample(source(bars, str(window)), bar_minutes)
+        data: context.Dataset = context.prepare(frame, review_spec(), bar_minutes=bar_minutes)
         tables.extend(review_row(row, data, path, root, iterations, tolerance) for _, row in block.iterrows())
 
     present: list[pd.DataFrame] = [table for table in tables if not table.empty]
@@ -211,6 +212,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Review the shortlist's trades by the clock and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Time-of-day review of a campaign shortlist.")
     parser.add_argument("--strategy", required=True)

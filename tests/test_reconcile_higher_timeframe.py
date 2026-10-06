@@ -10,7 +10,7 @@ reading the coarse bar before the one it closes alongside. That is the reading a
 export would show if nqbt has the boundary backwards, so it is what the tool must catch.
 """
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,9 @@ import pytest
 
 from nqbt import higher_timeframe, indicators, resample, sessions
 from tools import reconcile_higher_timeframe as rht
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 COARSE_MINUTES = 60
 SHORT, LONG = 3, 50
@@ -76,8 +79,12 @@ def agreeing_export(bars: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return primary, coarse
 
 
+type Export = tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
+"""The bars, the primary series and the coarse series of one probe export."""
+
+
 @pytest.fixture
-def export():
+def export() -> Export:
     bars = minute_bars()
     primary, coarse = agreeing_export(bars)
 
@@ -99,7 +106,9 @@ def as_microseconds(frame: pd.DataFrame) -> pd.DataFrame:
 # -- the checks pass on an export that agrees ---------------------------------
 
 
-def test_every_check_agrees_on_an_export_that_matches(export) -> None:
+def test_every_check_agrees_on_an_export_that_matches(
+    export: Export,
+) -> None:
     bars, primary, coarse = export
 
     assert rht.check_anchoring(coarse, bars, COARSE_MINUTES)
@@ -108,14 +117,18 @@ def test_every_check_agrees_on_an_export_that_matches(export) -> None:
     assert rht.check_warmup(primary, higher_timeframe.key(COARSE_MINUTES, LONG))
 
 
-def test_the_resolution_and_periods_are_recovered_from_the_export(export) -> None:
+def test_the_resolution_and_periods_are_recovered_from_the_export(
+    export: Export,
+) -> None:
     _, primary, coarse = export
 
     assert rht.infer_coarse_minutes(pd.DatetimeIndex(coarse.index)) == COARSE_MINUTES
     assert rht.infer_periods(primary, coarse) == {"short": SHORT, "long": LONG}
 
 
-def test_the_projection_survives_a_microsecond_index(export) -> None:
+def test_the_projection_survives_a_microsecond_index(
+    export: Export,
+) -> None:
     """The resolution the export actually parses to, not the one date_range produces."""
     _, primary, coarse = export
     assert pd.DatetimeIndex(coarse.index).unit == "us"
@@ -130,7 +143,9 @@ def test_the_projection_survives_a_microsecond_index(export) -> None:
 # -- and fail on the one difference each exists to catch ----------------------
 
 
-def test_the_projection_check_catches_the_other_candidate_rule(export) -> None:
+def test_the_projection_check_catches_the_other_candidate_rule(
+    export: Export,
+) -> None:
     _, primary, coarse = export
 
     # Rule B: read the coarse bar strictly before this one, not the one closing alongside it.
@@ -143,7 +158,9 @@ def test_the_projection_check_catches_the_other_candidate_rule(export) -> None:
     assert not rht.check_projection(lagged, coarse)
 
 
-def test_the_projection_check_refuses_a_run_that_cannot_discriminate(export) -> None:
+def test_the_projection_check_refuses_a_run_that_cannot_discriminate(
+    export: Export,
+) -> None:
     _, primary, coarse = export
 
     # No primary bar closes alongside a coarse one, so neither rule could be distinguished.
@@ -153,22 +170,30 @@ def test_the_projection_check_refuses_a_run_that_cannot_discriminate(export) -> 
     assert not rht.check_projection(primary, shifted)
 
 
-def test_the_anchoring_check_catches_a_moved_bucket(export) -> None:
+def test_the_anchoring_check_catches_a_moved_bucket(
+    export: Export,
+) -> None:
     bars, _, coarse = export
 
     moved = coarse.copy()
-    moved.iloc[5, moved.columns.get_loc("high")] += 0.25
+    high = moved["high"].to_numpy(copy=True)
+    high[5] += 0.25
+    moved["high"] = high
 
     assert not rht.check_anchoring(moved, bars, COARSE_MINUTES)
 
 
-def test_the_anchoring_check_catches_a_bucket_that_only_one_side_has(export) -> None:
+def test_the_anchoring_check_catches_a_bucket_that_only_one_side_has(
+    export: Export,
+) -> None:
     bars, _, coarse = export
 
     assert not rht.check_anchoring(coarse.iloc[:-3], bars, COARSE_MINUTES)
 
 
-def test_the_seeding_check_catches_a_differently_seeded_average(export) -> None:
+def test_the_seeding_check_catches_a_differently_seeded_average(
+    export: Export,
+) -> None:
     _, primary, coarse = export
 
     reseeded = primary.copy()
@@ -177,11 +202,13 @@ def test_the_seeding_check_catches_a_differently_seeded_average(export) -> None:
     assert not rht.check_seeding(coarse, reseeded, {"short": SHORT, "long": LONG})
 
 
-def test_the_warmup_check_catches_a_different_number_of_unreadable_bars(export) -> None:
+def test_the_warmup_check_catches_a_different_number_of_unreadable_bars(
+    export: Export,
+) -> None:
     _, primary, _ = export
 
     late = primary.copy()
-    late.iloc[:120, late.columns.get_loc("coarse_bar")] = rht.NO_COARSE_BAR
+    late.iloc[:120, list(late.columns).index("coarse_bar")] = rht.NO_COARSE_BAR
 
     assert not rht.check_warmup(late, higher_timeframe.key(COARSE_MINUTES, LONG))
 
@@ -189,7 +216,9 @@ def test_the_warmup_check_catches_a_different_number_of_unreadable_bars(export) 
 # -- the export parses, warm-up rows included ---------------------------------
 
 
-def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path: Path, export) -> None:
+def test_a_written_export_round_trips_including_its_empty_warm_up_rows(
+    tmp_path: Path, export: Export
+) -> None:
     _, primary, coarse = export
     stem = tmp_path / "MNQ-03-24_60min_20240107_20240111"
     write_probe_csv(primary, stem.with_name(stem.name + "_primary.csv"), coarse_columns=True)
@@ -204,7 +233,7 @@ def test_a_written_export_round_trips_including_its_empty_warm_up_rows(tmp_path:
     assert read_primary["coarse_utc"].notna().any()
 
 
-def test_a_missing_coarse_half_is_refused_rather_than_half_checked(tmp_path: Path, export) -> None:
+def test_a_missing_coarse_half_is_refused_rather_than_half_checked(tmp_path: Path, export: Export) -> None:
     _, primary, _ = export
     path = tmp_path / "MNQ-03-24_60min_20240107_20240111_primary.csv"
     write_probe_csv(primary, path, coarse_columns=True)

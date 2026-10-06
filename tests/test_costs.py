@@ -9,18 +9,22 @@ import pytest
 from nqbt import costs
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
 
-ALL_PARAMS = (DeadCatParams, EmaCrossoverParams, PullBackAndGoParams)
+type CostedParams = DeadCatParams | EmaCrossoverParams | PullBackAndGoParams
+
+ALL_PARAMS: tuple[type[CostedParams], ...] = (DeadCatParams, EmaCrossoverParams, PullBackAndGoParams)
 
 
 @pytest.mark.parametrize("params_cls", ALL_PARAMS)
-def test_every_archetype_defaults_to_free_so_a_ranking_needs_an_explicit_choice(params_cls) -> None:
+def test_every_archetype_defaults_to_free_so_a_ranking_needs_an_explicit_choice(
+    params_cls: type[CostedParams],
+) -> None:
     params = params_cls()
     assert params.commission_per_contract == 0.0
     assert params.slippage_ticks == 0.0
 
 
 @pytest.mark.parametrize("params_cls", ALL_PARAMS)
-def test_apply_sets_both_costs_and_leaves_every_other_field_alone(params_cls) -> None:
+def test_apply_sets_both_costs_and_leaves_every_other_field_alone(params_cls: type[CostedParams]) -> None:
     before = params_cls()
     after = costs.LIVE.apply(before)
 
@@ -55,7 +59,7 @@ def test_a_cost_that_is_only_half_zero_is_not_free() -> None:
     ("commission", "slippage"),
     [(-0.01, 0.0), (0.0, -1.0), (-1.0, -1.0)],
 )
-def test_negative_costs_raise(commission, slippage) -> None:
+def test_negative_costs_raise(commission: float, slippage: float) -> None:
     with pytest.raises(costs.CostError, match="cannot be negative"):
         costs.TradingCosts(commission_per_contract=commission, slippage_ticks=slippage)
 

@@ -10,6 +10,7 @@ unless a test says otherwise.
 """
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -28,8 +29,8 @@ from nqbt import (
     trend,
     volume,
 )
-from nqbt.instruments import MNQ, NQ
-from nqbt.sim import openingrange
+from nqbt.instruments import MNQ, NQ, Instrument
+from nqbt.sim import bracket, openingrange
 from nqbt.sim.openingrange import entry_bound, openingrange_signal, run_openingrange
 from nqbt.sim.types import (
     ORB_ENTRY_BREAKOUT,
@@ -50,51 +51,62 @@ from nqbt.sim.types import (
 )
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nqbt.arrays import FloatArray
+
+type Row = tuple[float, float, float, float]
+"""One bar as open, high, low, close."""
+
+type PerBar = float | Sequence[float] | FloatArray
+"""One value for every bar, or a value per bar."""
+
 TICK = 0.25
 RANGE_HIGH = 110.0
 RANGE_LOW = 90.0
 
 
-def simulate(
-    rows,
-    signal_at=(),
+def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
+    rows: Sequence[Row],
+    signal_at: Sequence[int] = (),
     *,
-    max_rows=None,
-    direction=LONG,
-    range_high=RANGE_HIGH,
-    range_low=RANGE_LOW,
-    session_id=None,
-    armed=None,
-    atr=4.0,
-    force_flat_at=(),
-    quantities=(1,),
-    levels=(1.0,),
-    entry_mode=ORB_ENTRY_BREAKOUT,
-    entry_offset_ticks=0.0,
-    break_confirm_ticks=0.0,
-    retest_offset_ticks=0.0,
-    stop_mode=ORB_STOP_OPPOSITE,
-    stop_offset_ticks=0.0,
-    stop_range_fraction=0.5,
-    atr_stop_multiple=1.0,
-    min_bracket_dollars=0.0,
-    target_mode=ORB_TARGET_R,
-    tp_multiplier=1.0,
-    scale=1.0,
-    scales=None,
-    scale_target=False,
-    scale_stop=False,
-    max_entries_per_session=0,
-    bars_required=0,
-    block_entry_at_close=True,
-    max_hold_bars=0,
-    slippage=0.0,
-    commission=0.0,
-    instrument=MNQ,
-    fill_limit_on_touch=True,  # tests target exact prices; opt out explicitly
-    ambiguity_policy=0,
-    round_targets=False,
-):
+    max_rows: int | None = None,
+    direction: float = LONG,
+    range_high: float = RANGE_HIGH,
+    range_low: float = RANGE_LOW,
+    session_id: Sequence[int] | None = None,
+    armed: Sequence[bool] | None = None,
+    atr: PerBar = 4.0,
+    force_flat_at: Sequence[int] = (),
+    quantities: Sequence[int] = (1,),
+    levels: Sequence[float] = (1.0,),
+    entry_mode: int = ORB_ENTRY_BREAKOUT,
+    entry_offset_ticks: float = 0.0,
+    break_confirm_ticks: float = 0.0,
+    retest_offset_ticks: float = 0.0,
+    stop_mode: int = ORB_STOP_OPPOSITE,
+    stop_offset_ticks: float = 0.0,
+    stop_range_fraction: float = 0.5,
+    atr_stop_multiple: float = 1.0,
+    min_bracket_dollars: float = 0.0,
+    target_mode: int = ORB_TARGET_R,
+    tp_multiplier: float = 1.0,
+    scale: float = 1.0,
+    scales: Sequence[float] | None = None,
+    scale_target: bool = False,
+    scale_stop: bool = False,
+    max_entries_per_session: int = 0,
+    bars_required: int = 0,
+    block_entry_at_close: bool = True,
+    max_hold_bars: int = 0,
+    slippage: float = 0.0,
+    commission: float = 0.0,
+    instrument: Instrument = MNQ,
+    fill_limit_on_touch: bool = True,  # tests target exact prices; opt out explicitly
+    ambiguity_policy: int = 0,
+    round_targets: bool = False,
+) -> tuple[int, FloatArray]:
     """Simulate hand-written OHLC rows against a range supplied directly.
 
     ``signal_at`` lists the bars that may submit an order, and ``range_high``/``range_low``
@@ -114,16 +126,16 @@ def simulate(
     for i in force_flat_at:
         force_flat[i] = True
 
-    def per_session(value):
+    def per_session(value: float) -> FloatArray:
         return np.full(int(ids.max()) + 1, value, dtype=np.float64)
 
     out = (
-        openingrange.bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
+        bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
         if max_rows is None
         else np.zeros((max_rows, N_COLUMNS), dtype=np.float64)
     )
     count = openingrange.simulate_openingrange(
-        openingrange.bracket.Bars(o, h, low, c, force_flat),
+        bracket.Bars(o, h, low, c, force_flat),
         signal,
         openingrange.RangeSeries(
             armed=live,
@@ -133,10 +145,10 @@ def simulate(
             scale=per_session(scale) if scales is None else np.asarray(scales, dtype=np.float64),
             atr=np.full(n, atr, dtype=np.float64),
         ),
-        openingrange.bracket.fixed_sizing(tuple(quantities), len(signal)),
+        bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(levels, dtype=np.float64),
-        openingrange.bracket.Costs(TICK, instrument.point_value, commission, slippage),
-        openingrange.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
+        bracket.Costs(TICK, instrument.point_value, commission, slippage),
+        bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         openingrange.OpeningRangeRules(
             direction=direction,
             entry_mode=entry_mode,
@@ -163,12 +175,15 @@ def simulate(
     return count, out
 
 
-def run(rows, signal_at=(), **kwargs):
+def run(rows: Sequence[Row], signal_at: Sequence[int] = (), **kwargs: object) -> pd.DataFrame:
     """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
-    count, out = simulate(rows, signal_at, **kwargs)
+    count, out = simulate(rows, signal_at, **kwargs)  # type: ignore[arg-type]  # the keywords are simulate's own
     assert count >= 0, "trade buffer overflowed"
 
-    return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
+    instrument: object = kwargs.get("instrument", MNQ)
+    assert isinstance(instrument, Instrument)
+
+    return validate(trades_to_frame(out, count, instrument=instrument.symbol))
 
 
 BELOW = (100.0, 105.0, 95.0, 100.0)
@@ -233,8 +248,10 @@ def test_the_order_rests_for_the_whole_session_rather_than_one_bar() -> None:
 
 
 def test_a_bar_whose_range_never_completed_cannot_submit_an_order() -> None:
-    """``armed`` is checked in the loop, not inherited from the signal, because the
-    random-entry arm substitutes the signal and can drop one anywhere."""
+    """``armed`` is checked in the loop, not inherited from the signal.
+
+    That is because the random-entry arm substitutes the signal and can drop one anywhere.
+    """
     assert len(run([BELOW, BREAKS], signal_at=(0,), armed=[False, False])) == 0
 
 
@@ -255,7 +272,7 @@ def test_one_entry_a_session_is_the_default_and_a_stop_out_ends_the_session() ->
     rows = [BELOW, STOPS_OUT, BELOW, BREAKS]
     trades = run(rows, signal_at=(0, 1, 2), max_entries_per_session=1)
 
-    assert trades["trade_id"].nunique() == 1
+    assert trades["trade_id"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
     assert trades["exit_reason"].iloc[0] == "stop"
 
 
@@ -274,7 +291,7 @@ def test_the_cap_re_arms_at_the_session_boundary() -> None:
     # would refuse the second one.
     rows = [BELOW, BREAKS, (100.0, 105.0, 85.0, 95.0), BELOW, BREAKS]
     same_session = run(rows, signal_at=(0, 3), max_entries_per_session=1)
-    assert same_session["trade_id"].nunique() == 1, "premise gone; the cap is not binding"
+    assert same_session["trade_id"].nunique() == 1, "premise gone; the cap is not binding"  # noqa: PD101 - a count of one also fails an empty frame
 
     trades = run(rows, signal_at=(0, 3), session_id=[0, 0, 0, 1, 1], max_entries_per_session=1)
 
@@ -310,8 +327,8 @@ def test_the_atr_stop_is_a_multiple_back_from_the_trigger_and_is_floored() -> No
 def test_the_stop_offset_does_nothing_under_the_atr_stop() -> None:
     """The blind spot ``dead_axes`` cannot see, asserted so it is at least written down."""
     kwargs = {"signal_at": (0,), "stop_mode": ORB_STOP_ATR}
-    wide = run([BELOW, BREAKS], stop_offset_ticks=40.0, **kwargs)
-    none = run([BELOW, BREAKS], stop_offset_ticks=0.0, **kwargs)
+    wide = run([BELOW, BREAKS], stop_offset_ticks=40.0, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    none = run([BELOW, BREAKS], stop_offset_ticks=0.0, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
 
     assert wide["initial_stop"].iloc[0] == none["initial_stop"].iloc[0]
 
@@ -323,8 +340,8 @@ def test_the_fraction_stop_reproduces_the_opposite_stop_exactly_at_one() -> None
     broken, and that extreme plus a width *is* the other extreme.
     """
     kwargs = {"signal_at": (0,), "stop_offset_ticks": 4.0}
-    fraction = run([BELOW, BREAKS], stop_mode=ORB_STOP_FRACTION, stop_range_fraction=1.0, **kwargs)
-    opposite = run([BELOW, BREAKS], stop_mode=ORB_STOP_OPPOSITE, **kwargs)
+    fraction = run([BELOW, BREAKS], stop_mode=ORB_STOP_FRACTION, stop_range_fraction=1.0, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    opposite = run([BELOW, BREAKS], stop_mode=ORB_STOP_OPPOSITE, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
 
     assert fraction["initial_stop"].iloc[0] == opposite["initial_stop"].iloc[0]
     assert fraction["risk_points"].iloc[0] == opposite["risk_points"].iloc[0]
@@ -410,8 +427,8 @@ def test_break_confirm_ticks_decides_how_far_past_the_level_counts_as_a_break() 
     rows = [BELOW, BREAKS_BELOW, RECLAIMS]
     kwargs = {"signal_at": (0, 1, 2), "entry_mode": ORB_ENTRY_FADE, "stop_mode": ORB_STOP_FRACTION}
 
-    assert len(run(rows, break_confirm_ticks=0.0, **kwargs)) == 1
-    assert len(run(rows, break_confirm_ticks=24.0, **kwargs)) == 0
+    assert len(run(rows, break_confirm_ticks=0.0, **kwargs)) == 1  # type: ignore[arg-type]  # the keywords are run's own
+    assert len(run(rows, break_confirm_ticks=24.0, **kwargs)) == 0  # type: ignore[arg-type]  # the keywords are run's own
 
 
 def test_the_break_is_forgotten_at_the_session_boundary() -> None:
@@ -434,8 +451,8 @@ def test_the_break_is_forgotten_at_the_session_boundary() -> None:
         "break_confirm_ticks": 20.0,
     }
 
-    assert len(run(rows, session_id=[0, 0, 1, 1], **kwargs)) == 0
-    assert len(run(rows, session_id=[0, 0, 0, 0], **kwargs)) == 1
+    assert len(run(rows, session_id=[0, 0, 1, 1], **kwargs)) == 0  # type: ignore[arg-type]  # the keywords are run's own
+    assert len(run(rows, session_id=[0, 0, 0, 0], **kwargs)) == 1  # type: ignore[arg-type]  # the keywords are run's own
 
 
 def test_a_retest_waits_for_the_break_then_buys_the_pullback_on_a_limit() -> None:
@@ -463,8 +480,8 @@ def test_a_retest_limit_must_trade_through_and_not_merely_touch() -> None:
         "stop_mode": ORB_STOP_FRACTION,
     }
 
-    assert len(run(rows, fill_limit_on_touch=False, **kwargs)) == 0
-    assert len(run(rows, fill_limit_on_touch=True, **kwargs)) == 1
+    assert len(run(rows, fill_limit_on_touch=False, **kwargs)) == 0  # type: ignore[arg-type]  # the keywords are run's own
+    assert len(run(rows, fill_limit_on_touch=True, **kwargs)) == 1  # type: ignore[arg-type]  # the keywords are run's own
 
 
 def test_a_retest_that_gaps_past_its_limit_fills_better_rather_than_worse() -> None:
@@ -489,8 +506,8 @@ def test_a_retest_limit_takes_no_slippage() -> None:
         "entry_mode": ORB_ENTRY_RETEST,
         "stop_mode": ORB_STOP_FRACTION,
     }
-    slipped = run(rows, slippage=4.0, **kwargs)
-    clean = run(rows, slippage=0.0, **kwargs)
+    slipped = run(rows, slippage=4.0, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    clean = run(rows, slippage=0.0, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
 
     assert slipped["entry_price"].iloc[0] == clean["entry_price"].iloc[0] == RANGE_HIGH
 
@@ -522,9 +539,9 @@ def test_a_rejection_fills_on_an_approach_the_fade_never_arms_for() -> None:
     rows = [BELOW, APPROACHES]
     kwargs = {"signal_at": (0, 1), "stop_mode": ORB_STOP_FRACTION, "entry_offset_ticks": 4.0}
 
-    assert len(run(rows, entry_mode=ORB_ENTRY_FADE, **kwargs)) == 0
+    assert len(run(rows, entry_mode=ORB_ENTRY_FADE, **kwargs)) == 0  # type: ignore[arg-type]  # the keywords are run's own
 
-    trades = run(rows, entry_mode=ORB_ENTRY_REJECTION, **kwargs)
+    trades = run(rows, entry_mode=ORB_ENTRY_REJECTION, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
 
     assert len(trades) == 1
     assert trades["entry_price"].iloc[0] == RANGE_LOW + 1.0
@@ -629,14 +646,14 @@ def test_a_width_target_is_a_multiple_of_the_range_and_ignores_the_r_ladder() ->
 def test_tp_multiplier_scales_an_r_target_and_not_a_width_target() -> None:
     """A width multiple is already a distance, so scaling it too would be one axis twice."""
     kwargs = {"signal_at": (0,), "levels": (1.0,)}
-    r_one = run([BELOW, BREAKS], tp_multiplier=1.0, **kwargs)["target_price"].iloc[0]
-    r_two = run([BELOW, BREAKS], tp_multiplier=2.0, **kwargs)["target_price"].iloc[0]
+    r_one = run([BELOW, BREAKS], tp_multiplier=1.0, **kwargs)["target_price"].iloc[0]  # type: ignore[arg-type]  # the keywords are run's own
+    r_two = run([BELOW, BREAKS], tp_multiplier=2.0, **kwargs)["target_price"].iloc[0]  # type: ignore[arg-type]  # the keywords are run's own
     assert r_two - RANGE_HIGH == pytest.approx(2.0 * (r_one - RANGE_HIGH))
 
     width = {"target_mode": ORB_TARGET_WIDTH, **kwargs}
     assert (
-        run([BELOW, BREAKS], tp_multiplier=1.0, **width)["target_price"].iloc[0]
-        == run([BELOW, BREAKS], tp_multiplier=2.0, **width)["target_price"].iloc[0]
+        run([BELOW, BREAKS], tp_multiplier=1.0, **width)["target_price"].iloc[0]  # type: ignore[arg-type]  # the keywords are run's own
+        == run([BELOW, BREAKS], tp_multiplier=2.0, **width)["target_price"].iloc[0]  # type: ignore[arg-type]  # the keywords are run's own
     )
 
 
@@ -684,8 +701,10 @@ def test_slippage_worsens_the_stop_entry_and_never_the_limit_target() -> None:
 
 
 def test_a_resting_order_still_fills_on_the_force_flat_bar_and_is_flattened_at_its_close() -> None:
-    """NT8 fills the resting order and refuses only a *new* signal there --
-    ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat bar"."""
+    """NT8 fills the resting order and refuses only a *new* signal there.
+
+    ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat bar".
+    """
     trades = run([BELOW, BREAKS], signal_at=(0,), force_flat_at=(1,), levels=(float("nan"),))
 
     assert len(trades) == 1
@@ -716,27 +735,27 @@ LEGGED = {"quantities": (1, 1), "levels": (1.0, float("nan"))}
 
 
 def test_an_overflow_at_the_end_of_the_data_is_reported_rather_than_written_past() -> None:
-    count, _ = simulate([BELOW, BREAKS], signal_at=(0,), max_rows=1, **LEGGED)
+    count, _ = simulate([BELOW, BREAKS], signal_at=(0,), max_rows=1, **LEGGED)  # type: ignore[arg-type]  # the keywords are simulate's own
 
     assert count == -1
 
 
 def test_an_overflow_on_the_entry_bar_is_reported_rather_than_written_past() -> None:
     """The entry bar resolves its own bracket, so it has an overflow path of its own."""
-    count, _ = simulate([BELOW, STOPS_OUT], signal_at=(0,), max_rows=1, **LEGGED)
+    count, _ = simulate([BELOW, STOPS_OUT], signal_at=(0,), max_rows=1, **LEGGED)  # type: ignore[arg-type]  # the keywords are simulate's own
 
     assert count == -1
 
 
 def test_an_overflow_on_a_later_exit_is_reported_rather_than_written_past() -> None:
     stops_next_bar = (100.0, 105.0, 85.0, 95.0)
-    count, _ = simulate([BELOW, BREAKS, stops_next_bar], signal_at=(0,), max_rows=1, **LEGGED)
+    count, _ = simulate([BELOW, BREAKS, stops_next_bar], signal_at=(0,), max_rows=1, **LEGGED)  # type: ignore[arg-type]  # the keywords are simulate's own
 
     assert count == -1
 
 
 def test_an_overflow_on_the_hold_limit_is_reported_rather_than_written_past() -> None:
-    count, _ = simulate([BELOW, BREAKS, BELOW, BELOW], signal_at=(0,), max_rows=1, max_hold_bars=1, **LEGGED)
+    count, _ = simulate([BELOW, BREAKS, BELOW, BELOW], signal_at=(0,), max_rows=1, max_hold_bars=1, **LEGGED)  # type: ignore[arg-type]  # the keywords are simulate's own
 
     assert count == -1
 
@@ -783,8 +802,10 @@ def dataset_for(params: OpeningRangeParams, bars: pd.DataFrame | None = None) ->
 
 
 def test_the_output_is_sized_from_the_session_cap_not_the_dense_signal() -> None:
-    """The signal is true on most bars of the day, so the usual bound would allocate a
-    thousandfold more rows than the run can possibly write."""
+    """The signal is true on most bars of the day.
+
+    The usual bound would allocate a thousandfold more rows than the run can possibly write.
+    """
     params = OpeningRangeParams(bars_required_to_trade=0, max_entries_per_session=1)
     data = dataset_for(params)
     signal = openingrange_signal(data, params)
@@ -827,8 +848,8 @@ def test_nothing_the_entry_reads_comes_from_a_bar_after_the_signal() -> None:
     tampered = bars.copy()
     after = int(first["entry_bar"]) + 1
     for column in ("open", "high", "close"):
-        tampered.iloc[after:, tampered.columns.get_loc(column)] += 50.0
-    tampered.iloc[after:, tampered.columns.get_loc("low")] -= 50.0
+        tampered.iloc[after:, list(tampered.columns).index(column)] += 50.0
+    tampered.iloc[after:, list(tampered.columns).index("low")] -= 50.0
     again = run_openingrange(dataset_for(params, tampered), params, NQ).iloc[0]
 
     for column in ("entry_bar", "entry_price", "initial_stop", "target_price", "risk_points"):
@@ -937,7 +958,7 @@ def test_the_level_null_places_each_donor_at_the_session_it_is_traded_on() -> No
     key = params.range_key
     drawn = randomentry.matched_random_ranges(data, key, np.random.default_rng(0))
 
-    reference = randomentry._window_close(  # noqa: SLF001 - the reference is the property under test
+    reference = randomentry._window_close(
         data.close,
         data.range_armed(key),
         data.range_session_id(),
@@ -955,7 +976,7 @@ def test_a_series_where_no_range_ever_completes_has_no_reference_price() -> None
     params, data = levels_dataset()
     none_armed = np.zeros(len(data), dtype=bool)
 
-    reference = randomentry._window_close(  # noqa: SLF001 - the empty case is the behaviour under test
+    reference = randomentry._window_close(
         data.close,
         none_armed,
         data.range_session_id(),
@@ -989,13 +1010,13 @@ def test_the_level_draw_produces_a_null_where_the_bar_draw_could_not() -> None:
     )
 
     assert len(null) == 8
-    assert null["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"
+    assert null["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"  # noqa: PD101 - a NaN draw is ignored, which an equality check would not do
 
 
 def test_a_level_draw_is_refused_for_an_archetype_with_no_range() -> None:
     """Falling back to the draw over bars would be a null silently taken over the wrong thing."""
     with pytest.raises(randomentry.RandomEntryError, match="no session range"):
-        randomentry._range_key_for(  # noqa: SLF001 - the refusal is the behaviour under test
+        randomentry._range_key_for(
             DeadCatParams(),
             archetypes.DEADCATBOUNCE,
             randomentry.OVER_LEVELS,
@@ -1004,7 +1025,7 @@ def test_a_level_draw_is_refused_for_an_archetype_with_no_range() -> None:
 
 def test_an_unknown_draw_is_refused_by_name() -> None:
     with pytest.raises(randomentry.RandomEntryError, match="unknown draw"):
-        randomentry._range_key_for(  # noqa: SLF001 - the refusal is the behaviour under test
+        randomentry._range_key_for(
             OpeningRangeParams(),
             archetypes.OPENINGRANGE,
             "sideways",
@@ -1038,9 +1059,9 @@ def test_a_two_sided_range_cannot_be_asked_for() -> None:
         ({"retest_offset_ticks": -1}, "retest_offset_ticks must be >= 0"),
     ],
 )
-def test_an_impossible_rule_set_is_refused_by_name(kwargs: dict, message: str) -> None:
+def test_an_impossible_rule_set_is_refused_by_name(kwargs: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        OpeningRangeParams(**kwargs)
+        OpeningRangeParams(**kwargs)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 @pytest.mark.parametrize("entry_mode", [ORB_ENTRY_FADE, ORB_ENTRY_REJECTION])
@@ -1081,7 +1102,7 @@ REACHES = (115.0, 130.0, 112.0, 128.0)
 """A bar that trades a whole further range width past the high, so every target here is inside it."""
 
 
-def scaled(**kwargs):
+def scaled(**kwargs: object) -> dict[str, object]:
     """Build a width-target combination on the fraction stop, which is what the scale can reach."""
     return {
         "target_mode": ORB_TARGET_WIDTH,
@@ -1216,7 +1237,7 @@ def test_each_context_filter_narrows_the_signal(field: str, value: int) -> None:
     properties. A filter that narrowed nothing would mean one of those was never wired.
     """
     base = OpeningRangeParams(bars_required_to_trade=0)
-    filtered = replace(base, **{field: value})
+    filtered = replace(base, **{field: value})  # type: ignore[arg-type]  # each caller passes a field's own type
 
     wide = openingrange_signal(dataset_for(base), base)
     narrow = openingrange_signal(dataset_for(filtered), filtered)

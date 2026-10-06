@@ -105,7 +105,7 @@ def stored_for(stored: pd.DataFrame, row: pd.Series) -> pd.Series | None:  # typ
     if key not in stored.index:
         return None
 
-    return stored.loc[key]
+    return stored.loc[key]  # type: ignore[index]  # a row's join key
 
 
 def _naive(when: pd.Timestamp) -> pd.Timestamp:
@@ -263,7 +263,8 @@ def measure(
 
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
-        frame: pd.DataFrame = resample.resample(tested, int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
+        frame: pd.DataFrame = resample.resample(tested, bar_minutes)
         rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         for row, _ in rebuilt:
             verify_bars(stored_for(stored, row), frame, label_of(row, axes), test_window)
@@ -274,7 +275,7 @@ def measure(
         data: context.Dataset = context.prepare(
             frame,
             spec,
-            bar_minutes=int(minutes),
+            bar_minutes=bar_minutes,
             price_basis=context.PriceBasis.RAW,
         )
 
@@ -411,6 +412,7 @@ def cell(
 
 
 def main(argv: list[str]) -> int:
+    """Compare the shortlist against a matched random entry and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Matched-null test of a campaign shortlist.")
     parser.add_argument("--strategy", required=True)

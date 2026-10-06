@@ -11,12 +11,16 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
 from nqbt import higher_timeframe, indicators, ingest, logsetup, resample, sessions
 from nqbt.instruments import ContractId
+
+if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray, IntArray
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,9 @@ PRICE_TOLERANCE = 0.0
 
 MA_TOLERANCE = 1e-6
 """Averages are not. The probe writes NinjaTrader's own round-trip through text."""
+
+MIN_COARSE_BARS = 2
+"""Fewer coarse bars than this leave no gap to infer a resolution from."""
 
 
 def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -66,7 +73,7 @@ def report(name: str, *, agreed: bool, detail: str) -> bool:
 def check_anchoring(nt8_coarse: pd.DataFrame, bars: pd.DataFrame, minutes: int) -> bool:
     """Check that NinjaTrader buckets the coarse series where :mod:`nqbt.resample` buckets it."""
     ours: pd.DataFrame = resample.resample(bars, minutes)
-    shared: pd.DatetimeIndex = nt8_coarse.index.intersection(ours.index)
+    shared: pd.DatetimeIndex = pd.DatetimeIndex(nt8_coarse.index.intersection(ours.index))
     only_nt8: int = len(nt8_coarse.index.difference(ours.index))
     only_ours: int = len(ours.index.difference(nt8_coarse.index))
 
@@ -119,7 +126,7 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
     Taken over NT8's *own* coarse closes and read at the bars that close alongside one, so
     an anchoring difference cannot be mistaken for a seeding one.
     """
-    closes: np.ndarray = nt8_coarse["close"].to_numpy(np.float64)
+    closes: FloatArray = nt8_coarse["close"].to_numpy(np.float64)
     functions = {"ema": indicators.nt8_ema, "sma": indicators.nt8_sma}
     agreed: bool = True
     for kind, function in functions.items():
@@ -128,8 +135,8 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
             if column not in primary.columns:
                 continue
 
-            ours: pd.Series = pd.Series(function(closes, period), index=nt8_coarse.index)
-            theirs: pd.Series = primary[column].reindex(ours.index)
+            ours: pd.Series[float] = pd.Series(function(closes, period), index=nt8_coarse.index)
+            theirs: pd.Series[float] = primary[column].reindex(ours.index)
             usable = theirs.notna()
             differs = ~np.isclose(
                 ours[usable].to_numpy(np.float64),
@@ -147,20 +154,20 @@ def check_seeding(nt8_coarse: pd.DataFrame, primary: pd.DataFrame, periods: dict
     return agreed
 
 
-def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.Series:
+def nqbt_reads(coarse_stamps: pd.DatetimeIndex, stamps: pd.DatetimeIndex) -> pd.Series[pd.Timestamp]:
     """Return which coarse stamp nqbt's projection reads at each fine bar.
 
     Runs the coarse stamps through :func:`nqbt.higher_timeframe.project` itself. ``dtype=`` is
     not optional on either conversion: ``read_csv`` hands back microsecond stamps, and reading
     those as nanoseconds puts every bar in 1970.
     """
-    seconds: np.ndarray = epoch_seconds(coarse_stamps)
-    read: np.ndarray = higher_timeframe.project(coarse_stamps, seconds.astype(np.float64), stamps)
+    seconds: IntArray = epoch_seconds(coarse_stamps)
+    read: FloatArray = higher_timeframe.project(coarse_stamps, seconds.astype(np.float64), stamps)
 
     return pd.Series(pd.to_datetime(read, unit="s", utc=True), index=stamps)
 
 
-def epoch_seconds(stamps: pd.DatetimeIndex) -> np.ndarray:
+def epoch_seconds(stamps: pd.DatetimeIndex) -> IntArray:
     """Convert to UTC seconds since the epoch, whatever resolution the index happens to carry."""
     naive: pd.DatetimeIndex = stamps.tz_convert("UTC").tz_localize(None) if stamps.tz else stamps
 
@@ -170,8 +177,8 @@ def epoch_seconds(stamps: pd.DatetimeIndex) -> np.ndarray:
 def check_projection(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> bool:
     """Check which coarse bar each 1-minute bar reads -- the question trades cannot answer."""
     stamps = pd.DatetimeIndex(primary.index)
-    ours: pd.Series = nqbt_reads(pd.DatetimeIndex(nt8_coarse.index), stamps)
-    theirs: pd.Series = primary["coarse_utc"]
+    ours: pd.Series[pd.Timestamp] = nqbt_reads(pd.DatetimeIndex(nt8_coarse.index), stamps)
+    theirs: pd.Series[pd.Timestamp] = primary["coarse_utc"]
 
     comparable = ours.notna() & theirs.notna()
     differs = comparable & (ours != theirs)
@@ -263,7 +270,7 @@ def reconcile(primary_path: Path, contract: str, start: str | None) -> bool:
 
 def infer_coarse_minutes(coarse_stamps: pd.DatetimeIndex) -> int:
     """Infer the coarse resolution, as the most common gap between consecutive coarse stamps."""
-    if coarse_stamps.size < 2:
+    if coarse_stamps.size < MIN_COARSE_BARS:
         msg: str = "the coarse export holds fewer than two bars; nothing to infer a resolution from"
         raise ValueError(msg)
 
@@ -279,14 +286,14 @@ def infer_periods(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> dict[str, 
     The probe writes ``short``/``long`` rather than the numbers, so they are read back off the
     data. An EMA is determined by its period, so the match is unambiguous.
     """
-    closes: np.ndarray = nt8_coarse["close"].to_numpy(np.float64)
+    closes: FloatArray = nt8_coarse["close"].to_numpy(np.float64)
     found: dict[str, int] = {}
     for label in ("short", "long"):
         column: str = f"coarse_ema_{label}"
         if column not in primary.columns:
             continue
 
-        theirs: pd.Series = primary[column].reindex(nt8_coarse.index)
+        theirs: pd.Series[float] = primary[column].reindex(nt8_coarse.index)
         usable = theirs.notna()
         if not usable.any():
             continue
@@ -303,12 +310,15 @@ def infer_periods(primary: pd.DataFrame, nt8_coarse: pd.DataFrame) -> dict[str, 
 
 
 def main(argv: list[str]) -> int:
+    """Reconcile the probe's export against nqbt and return the process exit code."""
     logsetup.configure(__name__)
     if len(argv) not in EXPECTED_ARGV:
         logger.info("%s", __doc__)
         return 2
 
-    return 0 if reconcile(Path(argv[1]), argv[2], argv[3] if len(argv) == 4 else None) else 1
+    start: str | None = argv[3] if len(argv) == max(EXPECTED_ARGV) else None
+
+    return 0 if reconcile(Path(argv[1]), argv[2], start) else 1
 
 
 if __name__ == "__main__":

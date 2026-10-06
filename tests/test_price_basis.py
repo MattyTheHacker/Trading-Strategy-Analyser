@@ -97,10 +97,15 @@ def test_the_search_finds_call_sites_to_check() -> None:
     [pytest.param(*site, id=f"{site[0]}:{site[1]}:{site[2]}") for site in call_sites()],
 )
 def test_every_prepared_dataset_states_its_price_basis(
-    path: str, function: str, call: str, stated: bool
+    path: str,
+    function: str,
+    call: str,
+    stated: bool,  # noqa: FBT001 - a parametrised case
 ) -> None:
-    """A dataset built without a basis refuses a round-number configuration at run time, and
-    the refusal is a crash in the middle of a campaign rather than a number to read ([#341])."""
+    """A dataset built without a basis refuses a round-number configuration at run time.
+
+    The refusal is a crash in the middle of a campaign rather than a number to read ([#341]).
+    """
     if (path, function) in EXEMPT:
         assert not stated, f"{path}:{function} states a basis now; drop it from EXEMPT"
 

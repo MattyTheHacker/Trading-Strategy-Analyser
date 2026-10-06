@@ -18,7 +18,7 @@ import math
 import sys
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, Protocol, TypedDict
 
 import pandas as pd
 
@@ -41,6 +41,7 @@ from nqbt import (
     volume,
 )
 from nqbt.arrays import float_column
+from nqbt.costs import ParamsT, TradingCosts
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import TREND_EXIT_FORMS, TREND_EXIT_OFF
 from nqbt.sim.types import (
@@ -92,7 +93,7 @@ from nqbt.sim.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
-    from nqbt.archetypes import Archetype, AxisValue, Params
+    from nqbt.archetypes import Archetype, ArchetypeParams, AxisValue, Params
 
 logger = logging.getLogger(__name__)
 
@@ -544,7 +545,7 @@ class Variant:
 
     name: str
     archetype: Archetype
-    base: Params
+    base: ArchetypeParams
     axes: dict[str, list[AxisValue]] = field(default_factory=dict)
     resolutions: tuple[int, ...] = RESOLUTIONS
     """Bar sizes this variant can be run at; a session-anchored range cannot run at all of them."""
@@ -562,9 +563,9 @@ class Variant:
         return minutes in self.resolutions
 
 
-def _costed(params: Params, root: str) -> Params:
+def _costed(params: ParamsT, root: str) -> ParamsT:
     """Return the same rule set with this root's real costs on it."""
-    return replace(params, commission_per_contract=COMMISSION[root], slippage_ticks=SLIPPAGE_TICKS)
+    return TradingCosts(commission_per_contract=COMMISSION[root], slippage_ticks=SLIPPAGE_TICKS).apply(params)
 
 
 def deadcat_variants(root: str) -> list[Variant]:
@@ -1510,7 +1511,16 @@ SPEC_ROUNDS: dict[str, dict[str, list[AxisValue]]] = {
 }
 """The round-number spacings tried, against a control that avoids nothing; every cell needs raw prices."""
 
-SPEC_CONFLUENCE_FILTERS: dict[str, int] = {
+
+class ConfluenceFilters(TypedDict):
+    """The three filter masks a confluence count is measured over."""
+
+    regime_filter: int
+    volume_filter: int
+    compression_filter: int
+
+
+SPEC_CONFLUENCE_FILTERS: ConfluenceFilters = {
     "regime_filter": regime.Regime.DIRECTIONAL.bit,
     "volume_filter": volume.VolumeState.HEAVY.bit,
     "compression_filter": compression.Compression.EXPANDED.bit,
@@ -1567,7 +1577,10 @@ def spec_variants(root: str) -> list[Variant]:
     ]
 
 
-VARIANTS = {
+type VariantBuilders = dict[str, Callable[[str], list[Variant]]]
+"""Each archetype's variant builder, keyed by its name."""
+
+VARIANTS: VariantBuilders = {
     "DeadCatBounce": deadcat_variants,
     "PullBackAndGo": pullback_variants,
     "EmaCrossover": crossover_variants,
@@ -1584,54 +1597,54 @@ This is what §M27 measured, so a re-sweep that changes an axis belongs in its o
 :data:`VARIANT_SETS`.
 """
 
-NARROW_VARIANTS = {"InsideBar": insidebar_narrow_variants}
+NARROW_VARIANTS: VariantBuilders = {"InsideBar": insidebar_narrow_variants}
 """The §M27.3 re-sweep: one archetype, the bracket pair §M27 could not cross."""
 
-ORB_VARIANTS = {"OpeningRange": openingrange_further_variants}
+ORB_VARIANTS: VariantBuilders = {"OpeningRange": openingrange_further_variants}
 """The §M28.2 re-sweep: §M28's deferred anchors, entries and stop levels, over §M28.1's
 archetype. Its own set rather than an edit to :data:`VARIANTS`, which is what §M28.1 measured
 and what the stored rows were produced by."""
 
-ORB_FADE_VARIANTS = {"OpeningRange": openingrange_fade_variants}
+ORB_FADE_VARIANTS: VariantBuilders = {"OpeningRange": openingrange_fade_variants}
 """The §M28.5 re-run: the fade alone, with a stop tighter than §M28.2's axis reached and a
 target that stops at the middle of the range -- ``docs/roadmap.md`` §M28.5."""
 
-ORB_BRACKET_VARIANTS = {"OpeningRange": openingrange_bracket_variants}
+ORB_BRACKET_VARIANTS: VariantBuilders = {"OpeningRange": openingrange_bracket_variants}
 """The §M28.11 run: the stop ladder carried past the value it stopped on, crossed with the
 width ladder no ORB campaign has ever varied -- [#262]."""
 
-ORB_FOLLOW_THROUGH_VARIANTS = {"OpeningRange": openingrange_follow_through_variants}
+ORB_FOLLOW_THROUGH_VARIANTS: VariantBuilders = {"OpeningRange": openingrange_follow_through_variants}
 """The §M28.10 run: the bracket denominated in trailing follow-through rather than in the
 session's own range width, over the two ranges §M28.8's null separated -- [#261]."""
 
-ORB_GEOMETRY_VARIANTS = {"OpeningRange": openingrange_geometry_variants}
+ORB_GEOMETRY_VARIANTS: VariantBuilders = {"OpeningRange": openingrange_geometry_variants}
 """The §M28.8 run: the anchor axis §M28.2 opened, crossed with the length axis nothing had swept."""
 
-ORB_REJECTION_VARIANTS = {"OpeningRange": openingrange_rejection_variants}
+ORB_REJECTION_VARIANTS: VariantBuilders = {"OpeningRange": openingrange_rejection_variants}
 """The §M28.7 run: the rejection alone, over §M28.5's bracket, so that the two reversion
 entries differ by their entry rule and nothing else -- ``docs/roadmap.md`` §M28.7."""
 
-ELASTIC_SHAPE_VARIANTS = {"ElasticBand": elasticband_shape_variants}
+ELASTIC_SHAPE_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_shape_variants}
 """The §M26.5 run: the two signal-bar requirements [#221] asked for, each against the
 ``shape=any`` control in the same pass. Its own set rather than an edit to :data:`VARIANTS`
 for that dict's own reason -- ``docs/roadmap.md`` §M26.5."""
 
-ELASTIC_VOLUME_VARIANTS = {"ElasticBand": elasticband_volume_variants}
+ELASTIC_VOLUME_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_volume_variants}
 """The §M26.9 run: §M26.5's shape pair over a held bracket, so that the volume strata are
 the only cells the pass adds. The names carry ``break-volume`` where the stored shape rows
 carry none, so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.9."""
 
-ELASTIC_CHANNEL_VARIANTS = {"ElasticBand": elasticband_channel_variants}
+ELASTIC_CHANNEL_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_channel_variants}
 """The §M33 run: §M26.9's bracket and shape pair, crossed with the channel §M30 read its
 opposite answer on. The names carry ``channel-volume`` where §M26.9's carry ``break-volume``,
 so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M33."""
 
-ELASTIC_RECOVERY_VARIANTS = {"ElasticBand": elasticband_recovery_variants}
+ELASTIC_RECOVERY_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_recovery_variants}
 """The §M26.6 run: the recovery trigger against the shapes it replaces, in one pass. The names
 carry an ``entry=`` token where the stored shape rows carry none, so the two runs cannot collide
 in one database -- ``docs/roadmap.md`` §M26.6."""
 
-ELASTIC_BAND_STOP_VARIANTS = {"ElasticBand": elasticband_band_stop_variants}
+ELASTIC_BAND_STOP_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_band_stop_variants}
 """The §M26.8 run: the stop on the band itself against the three stops that are not, over one
 entry pair. The names carry a ``stop=`` token where every stored ElasticBand row carries none,
 so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.8."""
@@ -1662,7 +1675,7 @@ def _held(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant
     return variants
 
 
-HOLD_VARIANTS = {name: _held(build) for name, build in VARIANTS.items()}
+HOLD_VARIANTS: VariantBuilders = {name: _held(build) for name, build in VARIANTS.items()}
 """The [#292] run: every archetype's stored campaign grid, once per maximum hold time."""
 
 EARLY_EXIT_BARS = (3, 5, 10, 20)
@@ -1716,7 +1729,7 @@ def _early_exited(build: Callable[[str], list[Variant]]) -> Callable[[str], list
     return variants
 
 
-EARLY_EXIT_VARIANTS = {name: _early_exited(build) for name, build in VARIANTS.items()}
+EARLY_EXIT_VARIANTS: VariantBuilders = {name: _early_exited(build) for name, build in VARIANTS.items()}
 """The [#369] run: every archetype's stored campaign grid, once per early-exit arm."""
 
 EMAPULLBACK_TRAILS: dict[str, dict[str, bool]] = {
@@ -1736,7 +1749,7 @@ def emapullback_trail_variants(root: str) -> list[Variant]:
     ]
 
 
-EMAPULLBACK_TRAIL_VARIANTS = {"EmaPullback": emapullback_trail_variants}
+EMAPULLBACK_TRAIL_VARIANTS: VariantBuilders = {"EmaPullback": emapullback_trail_variants}
 """The [#313] run: EmaPullback's stored grid with the stop fixed and trailed on the slow average.
 Every name carries a ``trail=`` token no stored row has, so the two runs cannot collide in one
 database -- ``docs/findings/m37-ema-pullback-trail-on-slow.md``."""
@@ -1769,7 +1782,7 @@ def emapullback_confirm_variants(root: str) -> list[Variant]:
     ]
 
 
-EMAPULLBACK_CONFIRM_VARIANTS = {"EmaPullback": emapullback_confirm_variants}
+EMAPULLBACK_CONFIRM_VARIANTS: VariantBuilders = {"EmaPullback": emapullback_confirm_variants}
 """The [#311] run: EmaPullback's market entry against its confirmation entry. Every name carries an
 ``entry=`` token no stored row has, so the runs cannot collide in one database --
 ``docs/findings/m39-ema-pullback-confirmation-entry.md``."""
@@ -1905,18 +1918,26 @@ SIZING_STEP = 1
 whole position before its split."""
 
 
+class Arm(Protocol):
+    """Build one sizing arm from its name and the fields it holds over the fitted base."""
+
+    def __call__(self, name: str, **fields: AxisValue | bool) -> Variant:
+        """Return the arm called ``name``, with ``fields`` replaced on the fitted base."""
+        ...
+
+
 def arm_factory(
     campaign: Variant,
     cut: SizingCut,
     axes: dict[str, list[AxisValue]],
-) -> Callable[..., Variant]:
+) -> Arm:
     """Return what builds one sizing arm over ``campaign`` at ``cut``, every arm on the same axes.
 
     Each arm is the fitted values on the base with its own fields over them. The arms share
     every axis, so :func:`tools.campaign_paired` reads each against its control cell by cell
     rather than as two shortlists of different sizes.
     """
-    base: Params = replace(campaign.base, **cut.fitted())
+    base: ArchetypeParams = replace(campaign.base, **cut.fitted())
 
     def arm(name: str, **fields: AxisValue | bool) -> Variant:
         return Variant(
@@ -1956,7 +1977,7 @@ def sizing_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
         )
         raise SystemExit(msg)
 
-    arm: Callable[..., Variant] = arm_factory(campaign, cut, sizing_axes(campaign))
+    arm: Arm = arm_factory(campaign, cut, sizing_axes(campaign))
     arms: list[Variant] = [
         arm(name, partial_take_profit_percentage=share) for name, share in SIZING_SPLITS.items()
     ]
@@ -1999,7 +2020,7 @@ def insidebartrailing_sizing_variants(root: str) -> list[Variant]:
     return [arm for cut in sizing_cuts() if cut.root == root for arm in sizing_arms(campaign, cut)]
 
 
-IBT_SIZING_VARIANTS = {"InsideBarTrailing": insidebartrailing_sizing_variants}
+IBT_SIZING_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailing_sizing_variants}
 """The [#295] and [#353] run. Every name carries a ``split=``, ``tier=`` or ``size=`` token no
 stored row has, so the run cannot collide with the campaign in one database --
 ``docs/findings/m45-ibt-sizing-preregistration.md``."""
@@ -2034,7 +2055,7 @@ def insidebartrailing_structure_variants(root: str) -> list[Variant]:
     ]
 
 
-IBT_STRUCTURE_VARIANTS = {"InsideBarTrailing": insidebartrailing_structure_variants}
+IBT_STRUCTURE_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailing_structure_variants}
 """The [#352] run: InsideBarTrailing's stored grid with the runner trailing the high-water mark and
 trailing to structure. Every name carries a ``structure=`` token no stored row has, so the run
 cannot collide with the campaign in one database."""
@@ -2070,9 +2091,7 @@ def sheds_a_step(together: Variant) -> bool:
     )
 
 
-def label_arms(
-    arm: Callable[..., Variant], labels: tuple[str, ...], **held: AxisValue | bool
-) -> list[Variant]:
+def label_arms(arm: Arm, labels: tuple[str, ...], **held: AxisValue | bool) -> list[Variant]:
     """Return an add-only arm per kept label alone, or none where one is kept: that is the all-labels arm."""
     if len(labels) < 2:  # noqa: PLR2004 - one label alone is the all-labels arm
         return []
@@ -2080,7 +2099,7 @@ def label_arms(
     return [arm(f"size={LABEL_TOKENS[label]}", **counted((label,), **held)) for label in labels]
 
 
-def symmetric_arms(arm: Callable[..., Variant], cut: SizingCut, **held: AxisValue | bool) -> list[Variant]:
+def symmetric_arms(arm: Arm, cut: SizingCut, **held: AxisValue | bool) -> list[Variant]:
     """Return the arm counting every symmetric label, a step off per opposing one, where each base can shed.
 
     Refused on a cut stored before the fit read its symmetric labels, rather than counting the
@@ -2113,7 +2132,7 @@ def confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
     symmetrically where the base can shed a step --
     ``docs/findings/m47-confluence-sizing-preregistration.md``.
     """
-    arm: Callable[..., Variant] = arm_factory(campaign, cut, campaign.axes)
+    arm: Arm = arm_factory(campaign, cut, campaign.axes)
     control: Variant = arm(SIZE_FIXED)
     added: list[Variant] = (
         [arm(SIZING_CONFLUENCE, **counted(cut.labels)), *label_arms(arm, cut.labels)] if cut.labels else []
@@ -2130,7 +2149,7 @@ def confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
 def insidebartrailing_confluence_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
     """Build §M45's nine arms, then §M47's label-alone and symmetric ones, all on §M45's grid."""
     arms: list[Variant] = sizing_arms(campaign, cut)
-    arm: Callable[..., Variant] = arm_factory(campaign, cut, sizing_axes(campaign))
+    arm: Arm = arm_factory(campaign, cut, sizing_axes(campaign))
     held: dict[str, AxisValue | bool] = {"partial_take_profit_percentage": SIZING_ESTABLISHED_SHARE}
 
     return [*arms, *label_arms(arm, cut.labels, **held), *symmetric_arms(arm, cut, **held)]
@@ -2156,7 +2175,7 @@ def confluence_variants(
     return variants
 
 
-CONFLUENCE_SIZING_VARIANTS = {
+CONFLUENCE_SIZING_VARIANTS: VariantBuilders = {
     name: confluence_variants(
         name,
         insidebartrailing_confluence_arms if name == archetypes.INSIDEBARTRAILING.name else confluence_arms,
@@ -2213,7 +2232,7 @@ def confluence_cuts(name: str, root: str) -> dict[int, Cuts]:
     return {minutes: sizing_strata_cuts(*next(iter(found))) for minutes, found in fitted.items()}
 
 
-SPEC_VARIANTS = {"EmaCrossover": spec_variants}
+SPEC_VARIANTS: VariantBuilders = {"EmaCrossover": spec_variants}
 """The [#74] re-sweep: the moving-average trail, round-number avoidance and the confluence
 count, each against a control in the same pass. One archetype, because that is where the three
 axes exist -- ``docs/roadmap.md`` § "The build spec's three loose ends, measured"."""
@@ -2248,9 +2267,9 @@ lands in the same database as the campaign it follows and is still separable fro
 ``--variant narrow`` to the reading tools."""
 
 
-def variants_for(which: str) -> dict[str, Callable[[str], list[Variant]]]:
+def variants_for(which: str) -> VariantBuilders:
     """Return the variant builders one ``--variants`` name selects."""
-    sets: dict[str, dict[str, Callable[[str], list[Variant]]]] = {
+    sets: dict[str, VariantBuilders] = {
         CONFLUENCE_SIZING: CONFLUENCE_SIZING_VARIANTS,
         EARLY_EXIT: EARLY_EXIT_VARIANTS,
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
@@ -2721,6 +2740,7 @@ def fit_regime(bars: pd.DataFrame, argv: argparse.Namespace) -> dict[int, Calibr
 
 
 def main(argv: list[str]) -> int:
+    """Run the campaign sweep and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Sweep every archetype across resolution and context.")
     parser.add_argument(

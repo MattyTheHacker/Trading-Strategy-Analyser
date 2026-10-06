@@ -60,13 +60,13 @@ def test_the_ma_grid_gate_is_one_byte_and_its_values_are_eight(data: context.Dat
     grid = data.grid("ema")
     assert grid.below.dtype == np.bool_
     assert grid.above.dtype == np.bool_
-    assert grid.values is not None
-    assert grid.values.dtype == np.float64
-    assert grid.below.itemsize * 8 == grid.values.itemsize
+    assert grid.values is not None  # noqa: PD011 - a grid attribute, not a Series
+    assert grid.values.dtype == np.float64  # noqa: PD011 - a grid attribute, not a Series
+    assert grid.below.itemsize * 8 == grid.values.itemsize  # noqa: PD011 - a grid attribute, not a Series
 
 
 def test_session_info_holds_dates_and_flags_as_different_things() -> None:
-    info = sessions.classify(bars(200).index)
+    info = sessions.classify(pd.DatetimeIndex(bars(200).index))
     assert info.trading_day.dtype == np.dtype("datetime64[D]")
     assert info.in_session.dtype == np.bool_
     assert info.is_session_open.dtype == np.bool_
@@ -87,7 +87,7 @@ def test_the_leg_matrix_is_float64_so_codes_ride_in_it_as_floats(data: context.D
 def test_the_clock_keeps_its_three_widths(data: context.Dataset) -> None:
     assert data.phase_values().dtype == np.int8
     assert data.bar_of_session().dtype == np.int32
-    tod = timeofday.classify(bars(200).index)
+    tod = timeofday.classify(pd.DatetimeIndex(bars(200).index))
     assert tod.phase_bits.dtype == np.uint8
 
 

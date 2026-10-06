@@ -7,6 +7,8 @@ warm-up. And **asking for the label must not switch on the raw moving-average va
 ``docs/roadmap.md`` §M10.3 and §M20b.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -26,6 +28,11 @@ from nqbt.trend import (
     TrendError,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from nqbt.arrays import BoolArray, FloatArray, LabelArray
+
 FAST = 20
 SLOW = 50
 SLOPE = 5
@@ -34,13 +41,21 @@ UNANIMOUS = 3
 KEY = trend.key(FAST, SLOW, SLOPE)
 OTHER = trend.key(10, SLOW, SLOPE)
 
-PARAMS_CLASSES = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
+type FilteredParams = DeadCatParams | PullBackAndGoParams | EmaCrossoverParams
+"""The three archetypes the context filters were built on."""
+
+PARAMS_CLASSES: list[type[FilteredParams]] = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
 
 # 18:01 ET on a Sunday: the first bar of the session that ends on Monday the 8th.
 FIRST_OPEN = "2024-01-07 23:01"
 
 
-def votes_of(close, fast, slow, slope_lookback: int = SLOPE):
+def votes_of(
+    close: Sequence[float] | FloatArray,
+    fast: Sequence[float] | FloatArray,
+    slow: Sequence[float] | FloatArray,
+    slope_lookback: int = SLOPE,
+) -> tuple[LabelArray, FloatArray]:
     """Return the vote block and agreement score for three series given directly, not via averages."""
     return trend.components(
         np.asarray(close, dtype=np.float64),
@@ -112,7 +127,7 @@ def test_no_label_is_taken_from_two_components() -> None:
 # -- the label -----------------------------------------------------------------
 
 
-def scores(*values: float) -> np.ndarray:
+def scores(*values: float) -> FloatArray:
     return np.array(values, dtype=np.float64)
 
 
@@ -147,7 +162,7 @@ def test_an_undefined_score_is_labelled_undefined_and_not_folded_into_mixed() ->
 
 
 @pytest.mark.parametrize("min_agreement", [0, -1, N_COMPONENTS + 1])
-def test_an_agreement_no_bar_could_reach_or_every_bar_reaches_is_refused(min_agreement) -> None:
+def test_an_agreement_no_bar_could_reach_or_every_bar_reaches_is_refused(min_agreement: int) -> None:
     with pytest.raises(TrendError, match="trend_min_agreement"):
         trend.validate_min_agreement(min_agreement)
 
@@ -168,7 +183,7 @@ def test_the_everything_mask_is_the_three_trends_and_nothing_else() -> None:
 
 
 @pytest.mark.parametrize("mask", [0, -1, ALL_TRENDS + 1])
-def test_an_impossible_mask_is_refused(mask) -> None:
+def test_an_impossible_mask_is_refused(mask: int) -> None:
     with pytest.raises(TrendError):
         trend.validate_mask(mask)
 
@@ -195,7 +210,7 @@ def test_an_undefined_bar_passes_no_mask_including_the_everything_mask() -> None
 
 
 @pytest.mark.parametrize(("fast", "slow"), [(50, 50), (60, 50)])
-def test_a_fast_period_that_is_not_shorter_is_refused(fast, slow) -> None:
+def test_a_fast_period_that_is_not_shorter_is_refused(fast: int, slow: int) -> None:
     with pytest.raises(TrendError, match="not shorter"):
         trend.key(fast, slow, SLOPE)
 
@@ -217,7 +232,7 @@ def test_a_key_carries_the_three_things_a_label_is_determined_by() -> None:
 # -- the grid ------------------------------------------------------------------
 
 
-def walk(n: int = 4000, seed: int = 3) -> np.ndarray:
+def walk(n: int = 4000, seed: int = 3) -> FloatArray:
     rng = np.random.default_rng(seed)
 
     return 16000.0 + np.cumsum(rng.normal(0, 1.0, n))
@@ -337,7 +352,7 @@ def bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
 def prepared(**spec: object) -> context.Dataset:
     return context.prepare(
         bars(),
-        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),  # type: ignore[arg-type]  # each caller passes a field's own type
         bar_minutes=1,
     )
 
@@ -374,7 +389,7 @@ def test_asking_for_a_trend_label_does_not_switch_on_the_raw_moving_averages() -
     data = prepared(trend_keys=(KEY,))
     assert data.spec.trend_keys == (KEY,)
     assert not data.spec.needs_ma_values
-    assert all(grid.values is None for grid in data.mas.values())
+    assert all(grid.values is None for grid in data.mas.values())  # noqa: PD011 - a grid attribute, not a Series
     with pytest.raises(ValueError, match="keep_values"):
         data.ma_values("ema", 11)
 
@@ -385,6 +400,7 @@ def test_a_trend_label_costs_the_labels_rather_than_the_average_values() -> None
     values = prepared(needs_ma_values=True)
     n = len(plain)
 
+    assert labelled.trends is not None
     assert labelled.nbytes - plain.nbytes == labelled.trends.nbytes
     assert labelled.trends.nbytes == n * (8 + N_COMPONENTS), "one float64 score and three votes"
     assert labelled.nbytes < values.nbytes, "the label is cheaper than keeping three MA series"
@@ -411,7 +427,7 @@ TREND_AXES = {
     "archetype",
     [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER],
 )
-def test_every_archetype_can_sweep_every_trend_axis(archetype) -> None:
+def test_every_archetype_can_sweep_every_trend_axis(archetype: archetypes.Archetype) -> None:
     assert archetype.sweepable >= TREND_AXES, archetype.name
 
 
@@ -419,7 +435,7 @@ def test_every_archetype_can_sweep_every_trend_axis(archetype) -> None:
     "archetype",
     [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER],
 )
-def test_no_archetype_asks_a_sweep_for_a_trend_label_by_default(archetype) -> None:
+def test_no_archetype_asks_a_sweep_for_a_trend_label_by_default(archetype: archetypes.Archetype) -> None:
     grid = sweep.Grid(archetype=archetype, base=archetype.params_cls())
     assert grid.required_context().trend_keys == (), archetype.name
 
@@ -453,11 +469,11 @@ def test_a_swept_pair_that_inverts_is_refused_rather_than_silently_ordered() -> 
 
 
 @pytest.mark.parametrize("axis", sorted(TREND_AXES - {"trend_filter"}))
-def test_sweeping_a_trend_axis_that_no_filter_reads_is_refused(axis) -> None:
+def test_sweeping_a_trend_axis_that_no_filter_reads_is_refused(axis: str) -> None:
     """``ALL_TRENDS`` is 7, so a truthiness test would read the filter as switched on."""
     values = [1, 2] if axis == "trend_min_agreement" else [5, 10]
     with pytest.raises(sweep.SweepError, match="trend_filter"):
-        sweep.Grid.of(**{axis: values})
+        sweep.Grid.of(**{axis: values})  # type: ignore[arg-type]  # each keyword is an axis of the base
 
 
 @pytest.mark.parametrize(
@@ -468,7 +484,9 @@ def test_sweeping_a_trend_axis_that_no_filter_reads_is_refused(axis) -> None:
         (crossover_signal, EmaCrossoverParams),
     ],
 )
-def test_the_filter_narrows_a_signal_to_the_trends_it_admits(signal_fn, params_cls) -> None:
+def test_the_filter_narrows_a_signal_to_the_trends_it_admits(
+    signal_fn: Callable[[context.Dataset, FilteredParams], BoolArray], params_cls: type[FilteredParams]
+) -> None:
     spec = ContextSpec(
         ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
         atr_periods=(14,),
@@ -549,7 +567,7 @@ def test_a_filtered_run_enters_only_inside_the_admitted_trends() -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_an_impossible_filter_is_refused_at_construction(params_cls) -> None:
+def test_an_impossible_filter_is_refused_at_construction(params_cls: type[FilteredParams]) -> None:
     with pytest.raises(TrendError):
         params_cls(trend_filter=0)
     with pytest.raises(TrendError):
@@ -557,7 +575,9 @@ def test_an_impossible_filter_is_refused_at_construction(params_cls) -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_a_degenerate_pair_slope_or_agreement_is_refused_at_construction(params_cls) -> None:
+def test_a_degenerate_pair_slope_or_agreement_is_refused_at_construction(
+    params_cls: type[FilteredParams],
+) -> None:
     # Checked whatever the filter, so a nonsense value cannot ride along inertly until the
     # filter is swept onto it.
     with pytest.raises(TrendError, match="not shorter"):
@@ -569,13 +589,13 @@ def test_a_degenerate_pair_slope_or_agreement_is_refused_at_construction(params_
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_the_key_says_which_label_the_combination_reads(params_cls) -> None:
+def test_the_key_says_which_label_the_combination_reads(params_cls: type[FilteredParams]) -> None:
     params = params_cls(trend_fast_period=10, trend_slope_lookback=15)
     assert params.trend_key == trend.key(10, SLOW, 15)
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_the_trend_parameters_reach_the_results_row(params_cls) -> None:
+def test_the_trend_parameters_reach_the_results_row(params_cls: type[FilteredParams]) -> None:
     # They are parameters, so they ride in ``as_dict`` like every other one -- which is what
     # stops two rows of a trend sweep being indistinguishable in the results table.
     row = params_cls(trend_filter=Trend.UP.bit, trend_slope_lookback=15).as_dict()

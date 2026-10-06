@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from nqbt import montecarlo, results, stats, trades
+from tests.rows import number
 from tools import campaign_montecarlo, campaign_shortlist
 from tools.campaign_montecarlo import PERMUTED, STATISTICS, labelled, main, resample_row
 from tools.campaign_report import load_trades, log_key
@@ -27,7 +28,7 @@ SWEEP_ID = 30
 COMBO_ID = 417
 
 
-def stored_row(**columns: object) -> pd.Series:
+def stored_row(**columns: object) -> pd.Series:  # type: ignore[explicit-any]  # a row of mixed dtypes
     """Build one ranked row, carrying the tags the report labels a result with."""
     base = {
         "sweep_id": SWEEP_ID,
@@ -43,13 +44,25 @@ def stored_row(**columns: object) -> pd.Series:
     return pd.Series({**base, **columns})
 
 
-def resample_stored(row: pd.Series, db, iterations: int, seed: int):  # noqa: ANN001, ANN201 - a path and the function's own return
+def resample_stored(  # type: ignore[explicit-any]  # a row of mixed dtypes
+    row: pd.Series, db: Path, iterations: int, seed: int
+) -> tuple[dict[str, object], pd.DataFrame] | None:
     """Run :func:`resample_row` over whatever log ``db`` holds for that row.
 
     Loading is the caller's job now, so that ``--rerun`` can hand it a freshly re-run log
     instead -- ``tools/campaign_swept.py``.
     """
     return resample_row(row, load_trades(*log_key(row), db), iterations, seed)
+
+
+def resampled(  # type: ignore[explicit-any]  # a row of mixed dtypes
+    row: pd.Series, db: Path, iterations: int, seed: int
+) -> tuple[dict[str, object], pd.DataFrame]:
+    """Return :func:`resample_stored`'s result, for a row the calling test expects a log for."""
+    result = resample_stored(row, db, iterations, seed)
+    assert result is not None, "no log was resampled"
+
+    return result
 
 
 def trade_log(n: int = 120, seed: int = 3) -> pd.DataFrame:
@@ -80,7 +93,7 @@ def trade_log(n: int = 120, seed: int = 3) -> pd.DataFrame:
 
 
 @pytest.fixture
-def stocked(tmp_path: Path):
+def stocked(tmp_path: Path) -> Path:
     """Provide a database holding one stored log, at the ids the ranked row names."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(), SWEEP_ID, COMBO_ID, db)
@@ -102,10 +115,12 @@ def test_a_row_missing_a_tag_column_is_labelled_with_what_it_has() -> None:
     assert "variant" not in labelled(stored_row().drop("variant"))
 
 
-def test_every_bootstrap_row_names_the_configuration_it_was_drawn_from(stocked) -> None:
-    """One report holds several configurations' percentiles, so a row that does not say which
-    is a number attributed by position in a table."""
-    permutation, spread = resample_stored(stored_row(), stocked, 50, 0)
+def test_every_bootstrap_row_names_the_configuration_it_was_drawn_from(stocked: Path) -> None:
+    """One report holds several configurations' percentiles.
+
+    A row that does not say which is a number attributed by position in a table.
+    """
+    permutation, spread = resampled(stored_row(), stocked, 50, 0)
     assert set(spread["statistic"]) == set(STATISTICS)
     assert set(spread["combo_id"]) == {COMBO_ID}
     assert set(spread["stratum"]) == {"unfiltered"}
@@ -115,52 +130,62 @@ def test_every_bootstrap_row_names_the_configuration_it_was_drawn_from(stocked) 
 # -- what each test actually asks ----------------------------------------------------------
 
 
-def test_the_permutation_test_asks_about_the_path_and_not_about_the_value(stocked) -> None:
-    """Reordering cannot move a profit factor, so permuting one returns 1.0 for every input
-    and reads like a passed check -- ``docs/roadmap.md`` §M7b."""
-    permutation, _ = resample_stored(stored_row(), stocked, 50, 0)
+def test_the_permutation_test_asks_about_the_path_and_not_about_the_value(stocked: Path) -> None:
+    """Reordering cannot move a profit factor.
+
+    Permuting one returns 1.0 for every input and reads like a passed check --
+    ``docs/roadmap.md`` §M7b.
+    """
+    permutation, _ = resampled(stored_row(), stocked, 50, 0)
     assert permutation["statistic"] == PERMUTED
     assert PERMUTED in stats.PATH_STATISTICS
     assert PERMUTED not in stats.TRADE_PNL_STATISTICS
-    assert 0.0 <= permutation["p_value"] <= 1.0
+    assert 0.0 <= number(permutation, "p_value") <= 1.0
 
 
-def test_the_bootstrap_reports_the_observed_figure_beside_its_percentiles(stocked) -> None:
-    """The point of the table: a drawdown with no spread beside it is the reading §M27's Gate 4
-    could not check."""
-    _, spread = resample_stored(stored_row(), stocked, 200, 0)
+def test_the_bootstrap_reports_the_observed_figure_beside_its_percentiles(stocked: Path) -> None:
+    """The point of the table.
+
+    A drawdown with no spread beside it is the reading §M27's Gate 4 could not check.
+    """
+    _, spread = resampled(stored_row(), stocked, 200, 0)
     for _, row in spread.iterrows():
         assert row["p05"] <= row["median"] <= row["p95"]
         assert np.isfinite(row["observed"])
 
 
-def test_the_observed_figure_is_the_log_s_own_and_not_a_resample_of_it(stocked) -> None:
-    """A bootstrap median is close to the observation and is not it; quoting the median as the
-    result would report a figure the strategy never produced."""
-    _, spread = resample_stored(stored_row(), stocked, 200, 0)
+def test_the_observed_figure_is_the_log_s_own_and_not_a_resample_of_it(stocked: Path) -> None:
+    """A bootstrap median is close to the observation and is not it.
+
+    Quoting the median as the result would report a figure the strategy never produced.
+    """
+    _, spread = resampled(stored_row(), stocked, 200, 0)
     pnl = montecarlo.trade_pnl(trade_log())
     observed = spread.set_index("statistic")["observed"]
     assert observed["net_pnl"] == pytest.approx(float(pnl.sum()))
     assert observed["max_drawdown"] == pytest.approx(stats.path_statistic(pnl, "max_drawdown"))
 
 
-def test_the_same_seed_reproduces_the_same_percentiles(stocked) -> None:
-    once, _ = resample_stored(stored_row(), stocked, 100, 7)
-    twice, _ = resample_stored(stored_row(), stocked, 100, 7)
+def test_the_same_seed_reproduces_the_same_percentiles(stocked: Path) -> None:
+    once, _ = resampled(stored_row(), stocked, 100, 7)
+    twice, _ = resampled(stored_row(), stocked, 100, 7)
     assert once == twice
 
 
 # -- absence -------------------------------------------------------------------------------
 
 
-def test_a_row_with_no_stored_log_is_skipped_rather_than_resampled(stocked) -> None:
+def test_a_row_with_no_stored_log_is_skipped_rather_than_resampled(stocked: Path) -> None:
     """Silently dropping it would leave a report that looks like the whole shortlist."""
     assert resample_stored(stored_row(combo_id=999), stocked, 50, 0) is None
 
 
 def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path: Path) -> None:
-    """``trades`` is created lazily, so before ``campaign_shortlist.py`` runs there is no table
-    to read at all -- which must not be an exception halfway through a report."""
+    """``trades`` is created lazily.
+
+    Before ``campaign_shortlist.py`` runs there is no table to read at all -- which must not be
+    an exception halfway through a report.
+    """
     empty = tmp_path / "InsideBar.duckdb"
     results.query("SELECT 1", empty)
     assert resample_stored(stored_row(), empty, 50, 0) is None
@@ -176,7 +201,7 @@ def test_a_log_too_short_to_resample_is_skipped_rather_than_reported(tmp_path: P
 # -- the report over a whole shortlist ------------------------------------------------------
 
 
-def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db: Path) -> int:
     monkeypatch.setattr(campaign_montecarlo, "shortlist", lambda *_: rows)
     monkeypatch.setattr(campaign_montecarlo, "db_path", lambda _: db)
 
@@ -184,14 +209,17 @@ def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db) -> int:
 
 
 def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(
-    monkeypatch: pytest.MonkeyPatch, stocked
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
 ) -> None:
-    """The flag a campaign the archive has moved under needs: no log can be stored for it at all,
-    so the shortlist is re-run and the disagreement reported -- ``tools/campaign_swept.py``."""
+    """The flag a campaign the archive has moved under needs.
+
+    No log can be stored for it at all, so the shortlist is re-run and the disagreement reported
+    -- ``tools/campaign_swept.py``.
+    """
     monkeypatch.setattr(
         campaign_montecarlo,
         "logs_for",
-        lambda name, rows, root: ({(SWEEP_ID, COMBO_ID): trade_log()}, pd.DataFrame([{"root": root}])),
+        lambda _name, _rows, root: ({(SWEEP_ID, COMBO_ID): trade_log()}, pd.DataFrame([{"root": root}])),
     )
     monkeypatch.setattr(campaign_montecarlo, "stored_logs", lambda *_: pytest.fail("read a stored log"))
     rows = pd.DataFrame([stored_row()])
@@ -201,7 +229,9 @@ def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(
     assert main(["campaign_montecarlo.py", "--strategy", "InsideBar", "--iterations", "50", "--rerun"]) == 0
 
 
-def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
+def test_a_shortlist_with_stored_logs_reports_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
+) -> None:
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), stocked) == 0
 
 
@@ -209,23 +239,29 @@ def test_a_shortlist_with_no_stored_logs_fails_rather_than_printing_an_empty_tab
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """An empty report is indistinguishable from a strategy with nothing to say, so the
-    missing prerequisite has to be an exit status rather than a blank table."""
+    """An empty report is indistinguishable from a strategy with nothing to say.
+
+    The missing prerequisite has to be an exit status rather than a blank table.
+    """
     db = tmp_path / "InsideBar.duckdb"
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), db) == 1
 
 
-def test_the_rows_that_do_have_logs_are_still_reported(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
+def test_the_rows_that_do_have_logs_are_still_reported(
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
+) -> None:
     """One missing log must not cost the other nineteen their percentiles."""
     rows = pd.DataFrame([stored_row(), stored_row(combo_id=999)])
     assert run_main(monkeypatch, rows, stocked) == 0
 
 
 def test_the_variant_flag_confines_the_shortlist_to_one_geometry(
-    monkeypatch: pytest.MonkeyPatch, stocked
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
 ) -> None:
-    """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of, and a
-    flag that parses without reaching ``shortlist`` reads exactly like one that works."""
+    """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of.
+
+    A flag that parses without reaching ``shortlist`` reads exactly like one that works.
+    """
     rows = pd.DataFrame([stored_row(), stored_row(variant="fade", profit_factor=9.9)])
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: rows)
     monkeypatch.setattr(campaign_montecarlo, "db_path", lambda _: stocked)
@@ -233,7 +269,9 @@ def test_the_variant_flag_confines_the_shortlist_to_one_geometry(
     resampled: list[str] = []
     measure = campaign_montecarlo.resample_row
 
-    def spy(row, log, iterations, seed):
+    def spy(  # type: ignore[explicit-any]  # a row of mixed dtypes
+        row: pd.Series, log: pd.DataFrame, iterations: int, seed: int
+    ) -> tuple[dict[str, object], pd.DataFrame] | None:
         resampled.append(str(row["variant"]))
 
         return measure(row, log, iterations, seed)
@@ -250,10 +288,12 @@ def test_the_variant_flag_confines_the_shortlist_to_one_geometry(
 
 def test_held_out_sizes_the_figure_a_gate_reads_rather_than_a_selected_maximum(
     monkeypatch: pytest.MonkeyPatch,
-    stocked,
+    stocked: Path,
 ) -> None:
-    """A spread put around a figure chosen on the same window sizes the selection and calls it
-    the strategy's uncertainty -- ``docs/roadmap.md`` §M28.13."""
+    """A spread put around a figure chosen on the same window sizes the selection.
+
+    It would call that the strategy's uncertainty -- ``docs/roadmap.md`` §M28.13.
+    """
     asked: list[str] = []
 
     def fake_held_out(*_: object) -> pd.DataFrame:

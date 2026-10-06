@@ -4,6 +4,8 @@ Pinned hardest, because their failures look like noise: **Eastern time** and the
 convention** -- ``docs/roadmap.md`` §M10.4.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,11 +18,20 @@ from nqbt.sim.runner import deadcat_signal, run_deadcat
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
 from nqbt.timeofday import ALL_PHASES, OUT_OF_SESSION, SessionPhase
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nqbt.arrays import BoolArray
+
 CASH_OPEN = SessionPhase.CASH_OPEN
 
 
 def idx(*stamps: str) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(pd.to_datetime(list(stamps), utc=True))
+
+
+type FilteredParams = DeadCatParams | PullBackAndGoParams | EmaCrossoverParams
+"""The three archetypes the context filters were built on."""
 
 
 def session_index(open_utc: str, minutes: int = 1380) -> pd.DatetimeIndex:
@@ -81,8 +92,8 @@ def test_phase_ordering_matches_the_session_clock() -> None:
     [(WINTER_OPEN, 14), (SPRING_FORWARD_OPEN, 13)],
 )
 def test_the_cash_open_is_one_bucket_on_both_sides_of_a_dst_transition(
-    open_utc,
-    utc_hour_of_cash_open,
+    open_utc: str,
+    utc_hour_of_cash_open: int,
 ) -> None:
     """The same Eastern hour lands in :attr:`SessionPhase.CASH_OPEN` in both sessions.
 
@@ -163,7 +174,7 @@ def test_bar_size_is_inferred_from_the_index_when_not_given() -> None:
     assert timeofday.infer_bar_minutes(session_index(WINTER_OPEN)[4::5]) == 5
     # The mode, not the minimum or the mean: the maintenance break and the archive's holes
     # are gaps between sessions, not bar sizes.
-    two_sessions = session_index(WINTER_OPEN).append(session_index("2024-01-08 23:01"))
+    two_sessions = pd.DatetimeIndex(session_index(WINTER_OPEN).append(session_index("2024-01-08 23:01")))
     assert timeofday.infer_bar_minutes(two_sessions) == 1
     assert timeofday.infer_bar_minutes(idx("2024-01-08 00:00")) == 1
 
@@ -186,7 +197,7 @@ def test_a_coarse_resolution_gives_fewer_bars_of_session() -> None:
         ("2024-03-11 21:30:00", "inside the 17:00-18:00 maintenance break (17:30 EDT)"),
     ],
 )
-def test_a_bar_outside_any_session_gets_no_phase_and_no_index(stamp, why) -> None:
+def test_a_bar_outside_any_session_gets_no_phase_and_no_index(stamp: str, why: str) -> None:
     tod = timeofday.classify(idx(stamp))
     assert tod.phase[0] == OUT_OF_SESSION, why
     assert tod.bar_of_session[0] == OUT_OF_SESSION, why
@@ -216,7 +227,7 @@ def test_a_mask_round_trips_through_its_phases() -> None:
 
 
 @pytest.mark.parametrize("mask", [0, -1, ALL_PHASES + 1, 1 << 12])
-def test_an_impossible_mask_raises_rather_than_silently_admitting_nothing(mask) -> None:
+def test_an_impossible_mask_raises_rather_than_silently_admitting_nothing(mask: int) -> None:
     with pytest.raises(timeofday.TimeOfDayError):
         timeofday.validate_mask(mask)
 
@@ -306,7 +317,7 @@ def test_the_union_of_two_specs_keeps_the_time_of_day_request() -> None:
     "archetype",
     [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER],
 )
-def test_every_archetype_can_sweep_the_phase_filter(archetype) -> None:
+def test_every_archetype_can_sweep_the_phase_filter(archetype: archetypes.Archetype) -> None:
     assert "phase_filter" in archetype.sweepable, archetype.name
 
 
@@ -326,7 +337,9 @@ def test_a_grid_asks_for_the_labels_only_when_some_combination_narrows_the_phase
         (crossover_signal, EmaCrossoverParams),
     ],
 )
-def test_the_filter_narrows_a_signal_to_the_phases_it_admits(signal_fn, params_cls) -> None:
+def test_the_filter_narrows_a_signal_to_the_phases_it_admits(
+    signal_fn: Callable[[context.Dataset, FilteredParams], BoolArray], params_cls: type[FilteredParams]
+) -> None:
     frame = bars()
     spec = ContextSpec(
         ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
@@ -388,7 +401,7 @@ def test_a_filtered_run_enters_only_inside_the_admitted_phases() -> None:
 
 
 @pytest.mark.parametrize("params_cls", [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams])
-def test_an_impossible_filter_is_refused_at_construction(params_cls) -> None:
+def test_an_impossible_filter_is_refused_at_construction(params_cls: type[FilteredParams]) -> None:
     with pytest.raises(timeofday.TimeOfDayError):
         params_cls(phase_filter=0)
     with pytest.raises(timeofday.TimeOfDayError):

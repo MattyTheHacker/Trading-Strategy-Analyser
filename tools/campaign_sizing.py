@@ -83,7 +83,7 @@ from tools.campaign_sweep import (
 from tools.campaign_swept import HELD_OUT, bars_for, candidate_bars
 
 if TYPE_CHECKING:
-    from nqbt.archetypes import Params
+    from nqbt.archetypes import ArchetypeParams
     from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.instruments import Instrument
 
@@ -110,7 +110,7 @@ SIZED_COLUMNS = (C_QUANTITY, C_GROSS_PNL, C_COMMISSION, C_NET_PNL)
 """The four leg columns a size writes. Every other one is the trade itself."""
 
 
-def probe_params(base: Params) -> Params:
+def probe_params(base: ArchetypeParams) -> ArchetypeParams:
     """Return ``base`` with every label switched on, so one prepared dataset holds all five."""
     return dataclasses.replace(
         base,
@@ -137,7 +137,9 @@ def extension_at(data: context.Dataset, params: InsideBarTrailingParams) -> Floa
     return extension
 
 
-def label_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> dict[str, dict[str, float]]:
+def label_shares(
+    data: context.Dataset, labelled: ArchetypeParams, campaign: Variant
+) -> dict[str, dict[str, float]]:
     """Return, per label, the share of the unfiltered signals it favours, opposes alone, and leaves at none.
 
     Pooled over the sides the variant sweeps. A label that both favours and opposes, as the VWAP
@@ -145,7 +147,7 @@ def label_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> 
     """
     archetype: archetypes.Archetype = campaign.archetype
     sides: list[object] = list(campaign.axes.get("direction", []))
-    configurations: list[Params] = (
+    configurations: list[ArchetypeParams] = (
         [dataclasses.replace(labelled, direction=side) for side in sides] if sides else [labelled]
     )
     favours: list[list[BoolArray]] = [[] for _ in SIZING_LABELS]
@@ -198,16 +200,17 @@ def fit_cut(
     InsideBarTrailing, per earliness rule the share of the base configuration's own trades that
     came out early under the fitted cut.
     """
-    probe: Params = probe_params(campaign.base)
+    probe: ArchetypeParams = probe_params(campaign.base)
     data: context.Dataset = probed(frame, minutes, campaign)
     consolidating, directional = regime.thresholds_from_quantiles(
         data.regime_values(probe.regime_lookback),
         *SIZING_LABEL_QUANTILES,
     )
     thin, heavy = volume.thresholds_from_quantiles(
-        data.relative_volume(probe.volume_key), *SIZING_LABEL_QUANTILES
+        data.relative_volume(probe.volume_key),
+        *SIZING_LABEL_QUANTILES,
     )
-    labelled: Params = dataclasses.replace(
+    labelled: ArchetypeParams = dataclasses.replace(
         probe,
         regime_consolidating_below=consolidating,
         regime_directional_above=directional,
@@ -235,7 +238,7 @@ def fit_cut(
 def earliness_cut(
     data: context.Dataset,
     cut: SizingCut,
-    base: Params,
+    base: ArchetypeParams,
     report: dict[str, dict[str, float]],
     instrument: Instrument,
 ) -> tuple[SizingCut, dict[str, dict[str, float]]]:
@@ -247,24 +250,28 @@ def earliness_cut(
     signal: BoolArray = insidebar.insidebar_signal(data, base)
     direction_at: FloatArray = insidebar.insidebar_direction(data, base)
     extension: FloatArray = extension_at(data, base)[signal]
-    tiered: SizingCut = dataclasses.replace(
-        cut,
+    fitted: InsideBarTrailingParams = dataclasses.replace(
+        base,
         early_max_extension_atr=float(np.quantile(extension[np.isfinite(extension)], EARLY_QUANTILE)),
         early_max_trend_bars=int(np.quantile(age_at(data, base, direction_at)[signal], EARLY_QUANTILE)),
     )
+    tiered: SizingCut = dataclasses.replace(
+        cut,
+        early_max_extension_atr=fitted.early_max_extension_atr,
+        early_max_trend_bars=fitted.early_max_trend_bars,
+    )
 
-    return tiered, {**report, "traded_early_share": traded_early_shares(data, tiered, base, instrument)}
+    return tiered, {**report, "traded_early_share": traded_early_shares(data, fitted, instrument)}
 
 
 def traded_early_shares(
     data: context.Dataset,
-    cut: SizingCut,
     base: InsideBarTrailingParams,
     instrument: Instrument,
 ) -> dict[str, float]:
     """Return, per earliness rule, the share of the base configuration's trades whose signal bar was early.
 
-    Counted over the trades taken rather than the signals.
+    Counted over the trades taken rather than the signals, at the earliness cuts ``base`` carries.
     """
     direction_at: FloatArray = insidebar.insidebar_direction(data, base)
     shares: dict[str, float] = {}
@@ -272,12 +279,7 @@ def traded_early_shares(
         if mode == EARLINESS_OFF:
             continue
 
-        tiered: InsideBarTrailingParams = dataclasses.replace(
-            base,
-            earliness_mode=mode,
-            early_max_extension_atr=cut.early_max_extension_atr,
-            early_max_trend_bars=cut.early_max_trend_bars,
-        )
+        tiered: InsideBarTrailingParams = dataclasses.replace(base, earliness_mode=mode)
         log: pd.DataFrame = insidebartrailing.run_insidebartrailing(
             data, tiered, instrument, with_times=False
         )
@@ -318,7 +320,7 @@ def symmetric_fill(
     Nothing it already holds is refitted. Its favourable shares are read again first and have to
     come back exactly as stored, which is what shows the signals are the ones it was fitted at.
     """
-    labelled: Params = dataclasses.replace(probe_params(campaign.base), **cut.thresholds())
+    labelled: ArchetypeParams = dataclasses.replace(probe_params(campaign.base), **cut.thresholds())
     report: dict[str, dict[str, float]] = label_shares(
         probed(frame, cut.minutes, campaign), labelled, campaign
     )
@@ -460,7 +462,7 @@ def resimulated_null(
     return placed(observed, by, null)
 
 
-def unsized(params: Params) -> Params:
+def unsized(params: ArchetypeParams) -> ArchetypeParams:
     """Return ``params`` at its fixed size, with the confluence size switched off."""
     return dataclasses.replace(
         params,
@@ -504,7 +506,7 @@ def resized(
     matrix: FloatArray = legs.matrix[: legs.count].copy()
     per_unit: FloatArray = (matrix[:, C_EXIT_PRICE] - matrix[:, C_ENTRY_PRICE]) * matrix[:, C_DIRECTION]
     gross: FloatArray = per_unit * quantities * point_value
-    fees: FloatArray = commission * quantities
+    fees: FloatArray = quantities.astype(np.float64) * commission
     matrix[:, C_QUANTITY] = quantities
     matrix[:, C_GROSS_PNL] = gross
     matrix[:, C_COMMISSION] = fees
@@ -515,7 +517,7 @@ def resized(
 
 def recomputed_null(
     data: context.Dataset,
-    params: Params,
+    params: ArchetypeParams,
     instrument: Instrument,
     archetype: archetypes.Archetype,
     *,
@@ -536,7 +538,7 @@ def recomputed_null(
         )
         raise RuntimeError(msg)
 
-    table: IntArray = np.asarray(params.size_table, dtype=np.int64)  # type: ignore[attr-defined]  # every params class carries one
+    table: IntArray = np.asarray(params.size_table, dtype=np.int64)
     trade_of_leg, leg, rows = trade_rows(legs, table)
 
     def at(trade_row: IntArray) -> trades.LegMatrix:
@@ -544,7 +546,7 @@ def recomputed_null(
             legs,
             table[trade_row[trade_of_leg], leg],
             instrument.point_value,
-            params.commission_per_contract,  # type: ignore[attr-defined]  # every params class carries one
+            params.commission_per_contract,
         )
 
     if not np.array_equal(at(rows).matrix, legs.matrix[: legs.count], equal_nan=True):
@@ -561,7 +563,7 @@ def recomputed_null(
 
 def shuffled_null(
     data: context.Dataset,
-    params: Params,
+    params: ArchetypeParams,
     instrument: Instrument,
     *,
     by: str,
@@ -594,13 +596,14 @@ def null_for_shortlist(
     candidates: tuple[pd.DataFrame, ...] = candidate_bars(stored, splice.load_continuous(root))
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
-        frame, swept = bars_for(candidates, stored, block, int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
+        frame, swept = bars_for(candidates, stored, block, bar_minutes)
         for _, row in block.iterrows():
-            params: Params = rebuild(row, archetype)
+            params: ArchetypeParams = rebuild(row, archetype)
             data: context.Dataset = context.prepare(
                 frame,
                 sweep.Grid.of(params, archetype=archetype).required_context(),
-                bar_minutes=int(minutes),
+                bar_minutes=bar_minutes,
                 price_basis=context.PriceBasis.RAW,
             )
             result: dict[str, float] = shuffled_null(
@@ -613,7 +616,7 @@ def null_for_shortlist(
                 archetype=archetype,
             )
             measured.append(
-                null_row(log_key(row), row.get("stratum"), params, int(minutes), result, swept=swept)
+                null_row(log_key(row), row.get("stratum"), params, bar_minutes, result, swept=swept)
             )
 
     return pd.DataFrame(measured)
@@ -622,7 +625,7 @@ def null_for_shortlist(
 def null_row(
     key: tuple[int, int],
     stratum: object,
-    params: Params,
+    params: ArchetypeParams,
     minutes: int,
     result: dict[str, float],
     *,
@@ -636,14 +639,15 @@ def null_row(
         "stratum": stratum,
         "sweep_id": sweep_id,
         "combo_id": combo_id,
-        "order_quantity": params.order_quantity,  # type: ignore[attr-defined]  # every params class carries one
-        "labels": ",".join(sizing_labels(params)),  # type: ignore[arg-type]  # every params class is ConfluenceSized
+        "order_quantity": params.order_quantity,
+        "labels": ",".join(sizing_labels(params)),
         "swept_bars": swept,
         **result,
     }
 
 
 def main(argv: list[str]) -> int:
+    """Run one subcommand and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="The confluence size's cuts, and its shuffled-size null.")
     commands = parser.add_subparsers(dest="command", required=True)

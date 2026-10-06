@@ -1,7 +1,7 @@
 """The commit-message linter against each rule it checks."""
 
 import io
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -15,6 +15,9 @@ from tools.lint_commit_messages import (
     main,
     verb_candidate,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def rules(message: str, suffix: str = "") -> set[str]:

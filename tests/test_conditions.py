@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import conditions
+from nqbt import conditions, indicators
 
 
-def bars(rows) -> pd.DataFrame:
+def bars(rows: list[tuple[float, ...]]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["open", "high", "low", "close"], dtype=float)
 
 
@@ -25,7 +25,7 @@ def bars(rows) -> pd.DataFrame:
         ((10.0, 12.0, 9.5, 10.5), True, "upper 1.5 >= 1.0, lower 0.5 <= body 0.5"),
     ],
 )
-def test_inverted_hammer(row, expected, why) -> None:
+def test_inverted_hammer(row: tuple[float, ...], expected: bool, why: str) -> None:  # noqa: FBT001 - a parametrised case
     assert conditions.inverted_hammer(bars([row]))[0] == expected, why
 
 
@@ -50,7 +50,7 @@ def test_inverted_hammer_boundary_is_inclusive_on_both_tests() -> None:
         ((10.0, 11.0, 8.0, 10.5), True, "green bar with a long lower wick still counts"),
     ],
 )
-def test_hammer(row, expected, why) -> None:
+def test_hammer(row: tuple[float, ...], expected: bool, why: str) -> None:  # noqa: FBT001 - a parametrised case
     assert conditions.hammer(bars([row]))[0] == expected, why
 
 
@@ -163,26 +163,28 @@ def test_grid_deduplicates_and_sorts_periods() -> None:
 def test_grid_drops_raw_values_unless_asked() -> None:
     close = np.arange(50, dtype=np.float64)
     lean = conditions.moving_average_grid(close, [21, 60])
-    assert lean.values is None
+    assert lean.values is None  # noqa: PD011 - a grid attribute, not a Series
     with pytest.raises(ValueError, match="keep_values=True"):
         lean.values_for(21)
 
     full = conditions.moving_average_grid(close, [21, 60], keep_values=True)
-    assert full.values.shape == (2, 50)
+    assert full.values is not None  # noqa: PD011 - a grid attribute, not a Series
+    assert full.values.shape == (2, 50)  # noqa: PD011 - a grid attribute, not a Series
     # Eight bytes per element versus one is the whole point -- compare like-shaped arrays
     # directly rather than the grid totals, which also carry the below+above bool pair
     # regardless of keep_values and would dilute the ratio.
-    assert full.values.nbytes == full.below.nbytes * 8
+    assert full.values.nbytes == full.below.nbytes * 8  # noqa: PD011 - a grid attribute, not a Series
     assert full.nbytes > lean.nbytes
 
 
 def test_grid_row_lookup_is_by_period_not_position() -> None:
     close = np.arange(50, dtype=np.float64)
     grid = conditions.moving_average_grid(close, [60, 21, 5], keep_values=True)
+    assert grid.values is not None  # noqa: PD011 - a grid attribute, not a Series
     assert grid.row(5) == 0
     assert grid.row(60) == 2
     # Indexing the matrix with the period itself would silently return another series.
-    assert grid.values_for(21) is not grid.values[21 % 3]
+    assert grid.values_for(21) is not grid.values[21 % 3]  # noqa: PD011 - a grid attribute, not a Series
 
 
 def test_grid_rejects_a_period_it_was_not_built_for() -> None:
@@ -192,7 +194,6 @@ def test_grid_rejects_a_period_it_was_not_built_for() -> None:
 
 
 def test_grid_rows_match_the_standalone_indicator() -> None:
-    from nqbt import indicators
 
     close = np.random.default_rng(2).normal(20000, 40, 500)
     grid = conditions.moving_average_grid(close, [21, 175], kind="sma", keep_values=True)

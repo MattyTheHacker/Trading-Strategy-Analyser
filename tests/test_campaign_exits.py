@@ -19,6 +19,7 @@ import pandas as pd
 import pytest
 
 from nqbt import results, stats, trades
+from tests.rows import number
 from tools import campaign_exits
 from tools.campaign_exits import (
     PASS_MARK,
@@ -74,7 +75,7 @@ CARRIED = [(900.0, FLATTEN), (800.0, FLATTEN), (-300.0, "stop"), (-400.0, "stop"
 """A book the flatten pays for: +1,700 from the clock against -500 from the bracket."""
 
 
-def stored_row(log: pd.DataFrame, **columns: object) -> pd.Series:
+def stored_row(log: pd.DataFrame, **columns: object) -> pd.Series:  # type: ignore[explicit-any]  # a row of mixed dtypes
     """Build the held-out row a log is filed against, carrying the net P&L it must reproduce."""
     base = {
         "sweep_id": SWEEP_ID,
@@ -91,7 +92,7 @@ def stored_row(log: pd.DataFrame, **columns: object) -> pd.Series:
 
 
 @pytest.fixture
-def stocked(tmp_path: Path):
+def stocked(tmp_path: Path) -> Path:
     """Provide a database holding one stored log, at the ids the held-out row names."""
     db = tmp_path / "OpeningRange.duckdb"
     results.save_trades(leg_log(CARRIED), SWEEP_ID, COMBO_ID, db)
@@ -118,8 +119,10 @@ def test_an_exit_reason_the_log_never_took_leaves_the_book_whole() -> None:
 
 
 def test_removing_every_leg_leaves_the_zero_summary_rather_than_raising() -> None:
-    """A configuration whose every leg was the clock's is exactly the case being looked for,
-    so it must produce a row rather than an exception."""
+    """A configuration whose every leg was the clock's is exactly the case being looked for.
+
+    It must produce a row rather than an exception.
+    """
     row = measure_row(stored_row(leg_log([(5.0, FLATTEN)])), leg_log([(5.0, FLATTEN)]), FLATTEN)
     assert row["trades_rest"] == 0
     assert row["net_pnl_rest"] == 0.0
@@ -130,11 +133,13 @@ def test_removing_every_leg_leaves_the_zero_summary_rather_than_raising() -> Non
 
 
 def test_net_is_additive_across_the_split_and_profit_factor_is_not() -> None:
-    """The reason this is a re-summarise rather than a subtraction on the decomposition
-    ``tools/campaign_report.py`` already prints."""
+    """The reason this is a re-summarise rather than a subtraction on an existing decomposition.
+
+    That decomposition is the one ``tools/campaign_report.py`` already prints.
+    """
     log = leg_log(CARRIED)
     row = measure_row(stored_row(log), log, FLATTEN)
-    assert row[f"{FLATTEN}_net"] + row["net_pnl_rest"] == pytest.approx(row["net_pnl_whole"])
+    assert number(row, f"{FLATTEN}_net") + number(row, "net_pnl_rest") == pytest.approx(row["net_pnl_whole"])
     assert row["profit_factor_rest"] != pytest.approx(row["profit_factor_whole"])
 
 
@@ -142,9 +147,9 @@ def test_a_book_the_flatten_carries_does_not_survive_without_it() -> None:
     """§M28.12's finding in one row: the bracket is a net cost and the clock is the result."""
     log = leg_log(CARRIED)
     row = measure_row(stored_row(log), log, FLATTEN)
-    assert row["profit_factor_whole"] > PASS_MARK
-    assert row["profit_factor_rest"] < PASS_MARK
-    assert row["net_pnl_rest"] < 0.0
+    assert number(row, "profit_factor_whole") > PASS_MARK
+    assert number(row, "profit_factor_rest") < PASS_MARK
+    assert number(row, "net_pnl_rest") < 0.0
     assert not row["survives"]
 
 
@@ -152,18 +157,20 @@ def test_a_book_that_stands_up_without_the_flatten_is_reported_as_surviving() ->
     """The test that can pass, without which "nothing survives" is a claim about the tool."""
     log = leg_log([(900.0, "target"), (800.0, "target"), (-200.0, "stop"), (50.0, FLATTEN)])
     row = measure_row(stored_row(log), log, FLATTEN)
-    assert row["profit_factor_rest"] > PASS_MARK
-    assert row[NET_TO_DRAWDOWN + "_rest"] > PASS_MARK
+    assert number(row, "profit_factor_rest") > PASS_MARK
+    assert number(row, NET_TO_DRAWDOWN + "_rest") > PASS_MARK
     assert row["survives"]
 
 
 def test_surviving_needs_the_drawdown_as_well_as_the_profit_factor() -> None:
-    """Gate 4 is both, and a profitable book that gave back more than it made is the case a
-    profit factor alone passes."""
+    """Gate 4 is both.
+
+    A profitable book that gave back more than it made is the case a profit factor alone passes.
+    """
     log = leg_log([(1_000.0, "target"), (-900.0, "stop"), (100.0, "target"), (10.0, FLATTEN)])
     row = measure_row(stored_row(log), log, FLATTEN)
-    assert row["profit_factor_rest"] > PASS_MARK
-    assert 0.0 < row[NET_TO_DRAWDOWN + "_rest"] < PASS_MARK
+    assert number(row, "profit_factor_rest") > PASS_MARK
+    assert 0.0 < number(row, NET_TO_DRAWDOWN + "_rest") < PASS_MARK
     assert not row["survives"]
 
 
@@ -197,8 +204,10 @@ def test_summary_of_reports_net_to_drawdown_beside_the_summary_fields() -> None:
 
 
 def test_a_log_that_does_not_reproduce_its_stored_row_is_refused() -> None:
-    """Every figure below it would otherwise be attributed to a configuration that did not
-    produce it -- the guard ``tools/campaign_shortlist.verify`` puts on the run that wrote it."""
+    """Every figure below it would otherwise be attributed to a configuration that did not produce it.
+
+    The guard ``tools/campaign_shortlist.verify`` puts on the run that wrote it.
+    """
     log = leg_log(CARRIED)
     with pytest.raises(RuntimeError, match="not the"):
         measure_row(stored_row(log, net_pnl=99.0), log, FLATTEN)
@@ -217,15 +226,18 @@ def test_a_measured_row_carries_the_tags_of_the_configuration_it_came_from() -> 
     assert "net_pnl" not in labelled(stored_row(leg_log(CARRIED))), "a statistic is not a tag"
 
 
-def test_a_row_with_no_stored_log_is_skipped_rather_than_re_summarised(stocked) -> None:
+def test_a_row_with_no_stored_log_is_skipped_rather_than_re_summarised(stocked: Path) -> None:
     log = leg_log(CARRIED)
     rows = pd.DataFrame([stored_row(log), stored_row(log, combo_id=999)])
     assert list(measure(rows, stored_logs(rows, stocked), FLATTEN)["combo_id"]) == [COMBO_ID]
 
 
 def test_a_re_run_log_is_read_back_against_its_stored_row_rather_than_refused_by_it() -> None:
-    """``--rerun`` exists for a campaign the archive has moved under, so the disagreement its
-    stored row now carries is reported by ``tools/campaign_swept.py`` and not raised here."""
+    """``--rerun`` exists for a campaign the archive has moved under.
+
+    The disagreement its stored row now carries is reported by ``tools/campaign_swept.py`` and
+    not raised here.
+    """
     log = leg_log(CARRIED)
     row = measure_row(stored_row(log, net_pnl=99.0), log, FLATTEN, require_stored=False)
 
@@ -256,7 +268,7 @@ def test_an_empty_table_says_so_rather_than_dividing_by_nothing() -> None:
 # -- the report ------------------------------------------------------------------------------
 
 
-def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, *extra: str) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db: Path, *extra: str) -> int:
     monkeypatch.setattr(campaign_exits, "held_out", lambda *_, **__: rows)
     monkeypatch.setattr(campaign_exits, "db_path", lambda _: db)
 
@@ -264,15 +276,18 @@ def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, *extra: st
 
 
 def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(
-    monkeypatch: pytest.MonkeyPatch, stocked
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
 ) -> None:
-    """The flag a campaign the archive has moved under needs: no log can be stored for it at all,
-    so the shortlist is re-run and the disagreement reported -- ``tools/campaign_swept.py``."""
+    """The flag a campaign the archive has moved under needs.
+
+    No log can be stored for it at all, so the shortlist is re-run and the disagreement reported
+    -- ``tools/campaign_swept.py``.
+    """
     log = leg_log(CARRIED)
     monkeypatch.setattr(
         campaign_exits,
         "logs_for",
-        lambda name, rows, root: ({(SWEEP_ID, COMBO_ID): log}, pd.DataFrame([{"root": root, "rows": 1}])),
+        lambda _name, _rows, root: ({(SWEEP_ID, COMBO_ID): log}, pd.DataFrame([{"root": root, "rows": 1}])),
     )
     monkeypatch.setattr(campaign_exits, "stored_logs", lambda *_: pytest.fail("read a stored log"))
     rows = pd.DataFrame([stored_row(log, net_pnl=99.0)])
@@ -280,7 +295,9 @@ def test_rerun_builds_the_logs_rather_than_reading_a_stored_one(
     assert run_main(monkeypatch, rows, stocked, "--rerun") == 0, "a moved stored row is not a refusal"
 
 
-def test_a_shortlist_with_stored_logs_reports_and_succeeds(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
+def test_a_shortlist_with_stored_logs_reports_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
+) -> None:
     assert run_main(monkeypatch, pd.DataFrame([stored_row(leg_log(CARRIED))]), stocked) == 0
 
 
@@ -294,10 +311,13 @@ def test_a_shortlist_with_no_stored_logs_fails_rather_than_printing_an_empty_tab
 
 
 def test_the_reason_offered_is_the_simulator_s_own_vocabulary(
-    monkeypatch: pytest.MonkeyPatch, stocked, capsys
+    monkeypatch: pytest.MonkeyPatch, stocked: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An imported log's reasons are its source's, so a free-text reason would silently
-    remove nothing and report the whole book twice -- ``docs/roadmap.md`` §M9."""
+    """An imported log's reasons are its source's.
+
+    A free-text reason would silently remove nothing and report the whole book twice --
+    ``docs/roadmap.md`` §M9.
+    """
     rows = pd.DataFrame([stored_row(leg_log(CARRIED))])
     assert run_main(monkeypatch, rows, stocked, "--reason", "stop") == 0
     with pytest.raises(SystemExit):
@@ -306,9 +326,13 @@ def test_the_reason_offered_is_the_simulator_s_own_vocabulary(
     assert "flattened" in capsys.readouterr().err
 
 
-def test_the_default_reason_is_the_one_no_strategy_chose(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
-    """The flatten is an account rule rather than a rule of any archetype, which is what
-    makes it the exclusion worth defaulting to -- ``docs/roadmap.md`` §M28.15."""
+def test_the_default_reason_is_the_one_no_strategy_chose(
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
+) -> None:
+    """The flatten is an account rule rather than a rule of any archetype.
+
+    That is what makes it the exclusion worth defaulting to -- ``docs/roadmap.md`` §M28.15.
+    """
     assert campaign_exits.main.__module__
     assert FLATTEN in trades.EXIT_REASONS.values()
 
@@ -330,7 +354,7 @@ def test_the_default_reason_is_the_one_no_strategy_chose(monkeypatch: pytest.Mon
 
 def test_the_shortlist_is_the_held_out_pair_and_never_the_window_that_chose_it(
     monkeypatch: pytest.MonkeyPatch,
-    stocked,
+    stocked: Path,
 ) -> None:
     """There is no ``--window`` here on purpose -- ``docs/roadmap.md`` §M28.13."""
     called: list[tuple[object, ...]] = []

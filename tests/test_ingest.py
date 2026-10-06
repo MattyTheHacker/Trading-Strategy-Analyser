@@ -1,12 +1,14 @@
 """Ingesting NT8 text exports into the bar cache."""
 
+import json
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import ingest
+from nqbt import archive, ingest
 from nqbt.instruments import ContractId
 
 if TYPE_CHECKING:
@@ -22,14 +24,14 @@ LINES = [
 ]
 
 
-def session_lines(count, start="2024-03-08 18:00"):
+def session_lines(count: int, start: str = "2024-03-08 18:00") -> list[str]:
     """Write ``count`` consecutive in-session minute bars, so a fixture can carry a stray legally."""
     stamps = pd.date_range(start, periods=count, freq="min")
 
     return [f"{ts:%Y%m%d %H%M%S};18000.25;18002.00;17999.50;18001.00;120" for ts in stamps]
 
 
-def write(path, lines, *, trailing_newline=True):
+def write(path: Path, lines: list[str], *, trailing_newline: bool = True) -> Path:
     text = "\n".join(lines) + ("\n" if trailing_newline else "")
     path.write_text(text, encoding="utf-8")
 
@@ -37,7 +39,7 @@ def write(path, lines, *, trailing_newline=True):
 
 
 @pytest.fixture
-def export(tmp_path: Path):
+def export(tmp_path: Path) -> Path:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 
@@ -45,11 +47,11 @@ def export(tmp_path: Path):
 
 
 @pytest.fixture
-def cache(tmp_path: Path):
+def cache(tmp_path: Path) -> Path:
     return tmp_path / "cache"
 
 
-def run(export, cache, **kw):
+def run(export: Path, cache: Path, **kw: bool) -> tuple[ingest.IngestResult, ingest.ContractManifest]:
     manifest = ingest.load_manifest(cache / "manifest.json")
     result, entry = ingest.ingest_contract(CONTRACT, export, cache_dir=cache, manifest=manifest, **kw)
     ingest.save_manifest(manifest, cache / "manifest.json")
@@ -57,7 +59,7 @@ def run(export, cache, **kw):
     return result, entry
 
 
-def test_parses_ohlcv_and_utc_timestamps(export, cache) -> None:
+def test_parses_ohlcv_and_utc_timestamps(export: Path, cache: Path) -> None:
     result, _ = run(export, cache)
     assert result.action == "created"
     assert result.rows_added == 3
@@ -70,21 +72,21 @@ def test_parses_ohlcv_and_utc_timestamps(export, cache) -> None:
     assert frame["volume"].dtype == np.int64
 
 
-def test_attaches_session_classification(export, cache) -> None:
+def test_attaches_session_classification(export: Path, cache: Path) -> None:
     run(export, cache)
     frame = ingest.load_contract(CONTRACT, cache)
     assert frame["in_session"].all()
     assert (frame["trading_day"] == pd.Timestamp("2024-03-08")).all()
 
 
-def test_second_ingest_of_unchanged_file_is_a_no_op(export, cache) -> None:
+def test_second_ingest_of_unchanged_file_is_a_no_op(export: Path, cache: Path) -> None:
     run(export, cache)
     result, _ = run(export, cache)
     assert result.action == "up-to-date"
     assert result.rows_added == 0
 
 
-def test_appended_rows_are_parsed_without_rereading_the_head(export, cache) -> None:
+def test_appended_rows_are_parsed_without_rereading_the_head(export: Path, cache: Path) -> None:
     _, first = run(export, cache)
     extra = "20240308 213300;18001.75;18002.50;18000.00;18000.25;77"
     write(export, [*LINES, extra])
@@ -101,7 +103,7 @@ def test_appended_rows_are_parsed_without_rereading_the_head(export, cache) -> N
     assert frame["close"].iloc[-1] == pytest.approx(18000.25)
 
 
-def test_partial_trailing_line_is_deferred_until_complete(export, cache) -> None:
+def test_partial_trailing_line_is_deferred_until_complete(export: Path, cache: Path) -> None:
     run(export, cache)
     # Simulate reading mid-write: the final line has no newline terminator yet.
     partial = "20240308 213300;18001.75;18002.50"
@@ -117,7 +119,7 @@ def test_partial_trailing_line_is_deferred_until_complete(export, cache) -> None
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
 
 
-def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cache) -> None:
+def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export: Path, cache: Path) -> None:
     """A part-formed last bar that a later export completes is replaced, not frozen.
 
     A head-only append check cannot see the rewrite -- ``nqbt/README.md`` § "ingest.py".
@@ -141,7 +143,7 @@ def test_a_bar_exported_mid_formation_is_corrected_by_a_later_export(export, cac
     assert result.action == "reparsed"
 
 
-def test_a_bar_withdrawn_between_exports_is_dropped_from_the_cache(export, cache) -> None:
+def test_a_bar_withdrawn_between_exports_is_dropped_from_the_cache(export: Path, cache: Path) -> None:
     """NT8 re-exports do not always contain every bar a previous export did.
 
     An append-only cache keeps the withdrawn bar forever as a phantom, because appending
@@ -159,7 +161,7 @@ def test_a_bar_withdrawn_between_exports_is_dropped_from_the_cache(export, cache
     assert result.action == "reparsed"
 
 
-def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export, cache) -> None:
+def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export: Path, cache: Path) -> None:
     # Same byte count, different content: size alone cannot distinguish this.
     run(export, cache)
     swapped = [*LINES[:2], "20240308 213200;18002.50;18004.00;18001.25;18003.75;143"]
@@ -171,10 +173,7 @@ def test_a_rewrite_that_keeps_the_file_length_is_still_detected(export, cache) -
     assert frame["close"].iloc[-1] == pytest.approx(18003.75)
 
 
-def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(
-    export, cache, tmp_path: Path
-) -> None:
-    import json
+def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(export: Path, cache: Path) -> None:
 
     run(export, cache)
     path = cache / "manifest.json"
@@ -191,7 +190,7 @@ def test_a_legacy_manifest_entry_forces_a_reparse_rather_than_a_bad_append(
     assert len(ingest.load_contract(CONTRACT, cache)) == 4
 
 
-def test_regenerated_export_triggers_a_full_reparse(export, cache) -> None:
+def test_regenerated_export_triggers_a_full_reparse(export: Path, cache: Path) -> None:
     run(export, cache)
     # A re-export with a different head must not be treated as an append.
     rewritten = ["20240308 212900;17999.00;18000.50;17998.75;18000.25;55", *LINES]
@@ -206,7 +205,7 @@ def test_regenerated_export_triggers_a_full_reparse(export, cache) -> None:
     assert frame.index[0] == pd.Timestamp("2024-03-08 21:29:00", tz="UTC")
 
 
-def test_truncated_export_triggers_a_full_reparse(export, cache) -> None:
+def test_truncated_export_triggers_a_full_reparse(export: Path, cache: Path) -> None:
     run(export, cache)
     write(export, LINES[:1])
     result, _ = run(export, cache)
@@ -215,14 +214,14 @@ def test_truncated_export_triggers_a_full_reparse(export, cache) -> None:
     assert any("shrank" in w for w in result.warnings)
 
 
-def test_force_reparses_even_when_unchanged(export, cache) -> None:
+def test_force_reparses_even_when_unchanged(export: Path, cache: Path) -> None:
     run(export, cache)
     result, _ = run(export, cache, force=True)
     assert result.action == "reparsed"
     assert result.rows_total == 3
 
 
-def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path: Path) -> None:
+def test_duplicate_timestamps_keep_the_latest_bar(cache: Path, tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -238,7 +237,7 @@ def test_duplicate_timestamps_keep_the_latest_bar(cache, tmp_path: Path) -> None
     assert frame["close"].iloc[0] == pytest.approx(18004.00)
 
 
-def test_out_of_session_prints_are_cached_but_not_handed_out(cache, tmp_path: Path) -> None:
+def test_out_of_session_prints_are_cached_but_not_handed_out(cache: Path, tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -302,7 +301,7 @@ def test_an_empty_frame_has_no_stray_share_to_divide_by() -> None:
     assert ingest.drop_out_of_session(empty, source_name=CONTRACT.nt8_name).empty
 
 
-def test_ohlc_violations_are_rejected_loudly(cache, tmp_path: Path) -> None:
+def test_ohlc_violations_are_rejected_loudly(cache: Path, tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     src = write(
@@ -354,7 +353,7 @@ def test_a_skipped_export_is_still_reported_when_filtered_to_one_root(tmp_path: 
     assert [skip.path.name for skip in scan.skipped] == ["NG 02-26.Last.txt"]
 
 
-def test_ingest_all_returns_the_files_it_skipped(export, cache) -> None:
+def test_ingest_all_returns_the_files_it_skipped(export: Path, cache: Path) -> None:
     (export.parent / "NG 02-26.Last.txt").write_text("", encoding="utf-8")
 
     _, results, skipped = ingest.ingest_all(data_dir=export.parent, cache_dir=cache)
@@ -381,7 +380,7 @@ def test_ingest_all_reports_when_nothing_is_found(tmp_path: Path) -> None:
         ingest.ingest_all(data_dir=empty, cache_dir=tmp_path / "cache")
 
 
-def test_empty_export_raises_ingest_error(cache, tmp_path: Path) -> None:
+def test_empty_export_raises_ingest_error(cache: Path, tmp_path: Path) -> None:
     """Ensure that an empty or whitespace-only file is rejected cleanly."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -392,7 +391,7 @@ def test_empty_export_raises_ingest_error(cache, tmp_path: Path) -> None:
         run(src, cache)
 
 
-def test_tick_export_is_rejected_early(cache, tmp_path: Path) -> None:
+def test_tick_export_is_rejected_early(cache: Path, tmp_path: Path) -> None:
     """Verify tick-level exports are rejected rather than parsed incorrectly.
 
     NinjaTrader tick files have 5 fields instead of 6, and a 3-part timestamp
@@ -409,7 +408,7 @@ def test_tick_export_is_rejected_early(cache, tmp_path: Path) -> None:
         run(src, cache)
 
 
-def test_unparseable_timestamps_raise_error(cache, tmp_path: Path) -> None:
+def test_unparseable_timestamps_raise_error(cache: Path, tmp_path: Path) -> None:
     """Ensures export files with malformed timestamps trigger a failure."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -428,13 +427,11 @@ def test_load_contract_raises_file_not_found_when_missing(tmp_path: Path) -> Non
 
 
 def test_ingest_all_builds_archive_when_data_dir_is_none(
-    monkeypatch: pytest.MonkeyPatch, export, cache
+    monkeypatch: pytest.MonkeyPatch, export: Path, cache: Path
 ) -> None:
     """Verifies that ingest_all defaults to refreshing the archive if no data_dir is provided."""
-    from unittest.mock import MagicMock
-
     mock_build = MagicMock(return_value=[])
-    monkeypatch.setattr(ingest.archive, "build_archive", mock_build)
+    monkeypatch.setattr(archive, "build_archive", mock_build)
 
     # Point the archive_dir to the tmp_path containing our export fixture so it succeeds
     ingest.ingest_all(archive_dir=export.parent, cache_dir=cache, root="MNQ")

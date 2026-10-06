@@ -7,13 +7,15 @@ reads comes from a bar it could not have seen.
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from nqbt import archetypes, conditions, sweep
-from nqbt.instruments import MNQ, NQ
-from nqbt.sim import elasticband
+from nqbt.instruments import MNQ, NQ, Instrument
+from nqbt.sim import bracket, elasticband
 from nqbt.sim.elasticband import (
     beyond_band,
     closed_off_extreme,
@@ -46,43 +48,55 @@ from nqbt.sim.types import (
 )
 from nqbt.trades import EXIT_REASONS, LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nqbt import context
+    from nqbt.arrays import FloatArray
+
+type Row = tuple[float, float, float, float]
+"""One bar as open, high, low, close."""
+
+type PerBar = float | Sequence[float] | FloatArray
+"""One value for every bar, or a value per bar."""
+
 TICK = 0.25
 
 
-def simulate(
-    rows,
-    signal_at=(),
+def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
+    rows: Sequence[Row],
+    signal_at: Sequence[int] = (),
     *,
-    max_rows=None,
-    direction=LONG,
-    basis=100.0,
-    stddev=2.0,
-    atr=4.0,
-    extremes=None,
-    force_flat_at=(),
-    quantities=(1,),
-    levels=(0.0,),
-    stop_mode=STOP_CATASTROPHE,
-    swing_lookback=1,
-    atr_stop_multiple=1.0,
-    min_bracket_dollars=0.0,
-    stop_offset_ticks=2.0,
-    catastrophe_stop_ticks=40.0,
-    entry_std=2.0,
-    band_stop_std=1.0,
-    target_mode=TARGET_STRETCH,
-    tp_multiplier=1.0,
-    bars_required=0,
-    exit_on_invalidation=False,
-    max_hold_bars=0,
-    block_entry_at_close=True,
-    slippage=0.0,
-    commission=0.0,
-    instrument=MNQ,
-    fill_limit_on_touch=True,  # tests target exact prices; opt out explicitly
-    ambiguity_policy=0,
-    round_targets=True,
-):
+    max_rows: int | None = None,
+    direction: float = LONG,
+    basis: PerBar = 100.0,
+    stddev: PerBar = 2.0,
+    atr: PerBar = 4.0,
+    extremes: PerBar | None = None,
+    force_flat_at: Sequence[int] = (),
+    quantities: Sequence[int] = (1,),
+    levels: Sequence[float] = (0.0,),
+    stop_mode: int = STOP_CATASTROPHE,
+    swing_lookback: int = 1,
+    atr_stop_multiple: float = 1.0,
+    min_bracket_dollars: float = 0.0,
+    stop_offset_ticks: float = 2.0,
+    catastrophe_stop_ticks: float = 40.0,
+    entry_std: float = 2.0,
+    band_stop_std: float = 1.0,
+    target_mode: int = TARGET_STRETCH,
+    tp_multiplier: float = 1.0,
+    bars_required: int = 0,
+    exit_on_invalidation: bool = False,
+    max_hold_bars: int = 0,
+    block_entry_at_close: bool = True,
+    slippage: float = 0.0,
+    commission: float = 0.0,
+    instrument: Instrument = MNQ,
+    fill_limit_on_touch: bool = True,  # tests target exact prices; opt out explicitly
+    ambiguity_policy: int = 0,
+    round_targets: bool = True,
+) -> tuple[int, FloatArray]:
     """Simulate hand-written OHLC rows against a band supplied directly.
 
     ``signal_at`` lists the bars whose close schedules an entry; ``basis``, ``stddev`` and
@@ -101,16 +115,16 @@ def simulate(
     for i in force_flat_at:
         force_flat[i] = True
 
-    def series(value):
+    def series(value: PerBar) -> FloatArray:
         return np.full(n, value, dtype=np.float64) if np.isscalar(value) else np.asarray(value, np.float64)
 
     out = (
-        elasticband.bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
+        bracket.allocate_output(max(int(signal.sum()), 1), len(quantities))
         if max_rows is None
         else np.zeros((max_rows, N_COLUMNS), dtype=np.float64)
     )
     count = elasticband.simulate_elasticband(
-        elasticband.bracket.Bars(o, h, low, c, force_flat),
+        bracket.Bars(o, h, low, c, force_flat),
         signal,
         direction_at,
         elasticband.BandSeries(
@@ -119,10 +133,10 @@ def simulate(
             excursion_extreme=series(low.min() if extremes is None else extremes),
             atr=series(atr),
         ),
-        elasticband.bracket.fixed_sizing(tuple(quantities), len(signal)),
+        bracket.fixed_sizing(tuple(quantities), len(signal)),
         np.asarray(levels, dtype=np.float64),
-        elasticband.bracket.Costs(TICK, instrument.point_value, commission, slippage),
-        elasticband.bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
+        bracket.Costs(TICK, instrument.point_value, commission, slippage),
+        bracket.FillRules(fill_limit_on_touch, ambiguity_policy, round_targets),
         elasticband.ElasticBandRules(
             stop_mode=stop_mode,
             atr_stop_multiple=atr_stop_multiple,
@@ -145,12 +159,15 @@ def simulate(
     return count, out
 
 
-def run(rows, signal_at=(), **kwargs):
+def run(rows: Sequence[Row], signal_at: Sequence[int] = (), **kwargs: object) -> pd.DataFrame:
     """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
-    count, out = simulate(rows, signal_at, **kwargs)
+    count, out = simulate(rows, signal_at, **kwargs)  # type: ignore[arg-type]  # the keywords are simulate's own
     assert count >= 0, "trade buffer overflowed"
 
-    return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
+    instrument: object = kwargs.get("instrument", MNQ)
+    assert isinstance(instrument, Instrument)
+
+    return validate(trades_to_frame(out, count, instrument=instrument.symbol))
 
 
 FLAT = [(100.0, 100.5, 99.5, 100.0)] * 8
@@ -173,8 +190,11 @@ def test_the_entry_fills_at_the_next_bars_open_without_touching_anything() -> No
 
 
 def test_the_resting_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
-    """NT8 fills the resting order and only then flattens -- ``docs/nt8-fidelity.md``,
-    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    """NT8 fills the resting order and only then flattens.
+
+    ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat bar, and is flattened at
+    its close".
+    """
     # The basis target sits out of reach so the flatten is what the exit reports.
     trades = run(FLAT, signal_at=[0], force_flat_at=[1], levels=(1.0,))
     assert list(trades["entry_bar"].unique()) == [1]
@@ -328,16 +348,17 @@ def test_the_band_stop_mirrors_on_the_short_side() -> None:
 
 
 def test_the_band_stop_is_measured_past_the_entry_threshold_rather_than_from_the_basis() -> None:
-    """Which is what makes cells comparable across a swept ``entry_std``: the same multiple is
-    the same distance beyond wherever the entry was taken."""
+    """Which is what makes cells comparable across a swept ``entry_std``.
+
+    The same multiple is the same distance beyond wherever the entry was taken.
+    """
     for entry_std in (1.5, 2.0, 3.0):
         trades = run(FLAT, signal_at=[0], stop_mode=STOP_BAND, entry_std=entry_std, band_stop_std=0.5)
         assert trades["initial_stop"].iloc[0] == pytest.approx(100.0 - (entry_std + 0.5) * 2.0)
 
 
 def test_the_band_stops_distance_scales_with_the_dispersion_the_threshold_uses() -> None:
-    """The property it exists for -- no other stop here is denominated in the same units as
-    the entry rule."""
+    """The property it exists for -- no other stop here is denominated in the same units as the entry rule."""
     for stddev in (1.0, 2.0, 5.0):
         trades = run(
             FLAT,
@@ -378,8 +399,11 @@ def test_the_band_stop_is_not_floored_because_it_is_a_level() -> None:
 
 
 def test_a_band_narrow_enough_to_put_its_stop_at_the_fill_skips_the_entry() -> None:
-    """The refusal path every stop here shares: a stop at or through the price it protects is
-    not a stop order -- ``docs/nt8-fidelity.md`` §M18."""
+    """The refusal path every stop here shares.
+
+    A stop at or through the price it protects is not a stop order -- ``docs/nt8-fidelity.md``
+    §M18.
+    """
     assert run(FLAT, signal_at=[0], stop_mode=STOP_BAND, basis=100.0, stddev=0.0).empty
     # A band exactly STOP_MIN_TICKS wide at the stop is the boundary, and it passes: 2 sigma
     # of 0.125 is one tick.
@@ -615,7 +639,7 @@ def test_run_extreme_restarts_when_the_run_breaks_or_changes_side() -> None:
 # -- the signal -----------------------------------------------------------------
 
 
-def frame(close):
+def frame(close: Sequence[float] | FloatArray) -> pd.DataFrame:
     """Build a one-column bar frame at a fixed geometry, enough for the signal path."""
     close = np.asarray(close, dtype=np.float64)
     index = pd.date_range("2024-01-02 19:00", periods=close.size, freq="1min", tz="UTC")
@@ -633,7 +657,7 @@ def frame(close):
     )
 
 
-def dataset(close, params):
+def dataset(close: Sequence[float] | FloatArray, params: ElasticBandParams) -> context.Dataset:
     grid = sweep.Grid.of(params, archetype=archetypes.ELASTICBAND)
 
     return sweep.prepare_for(frame(close), grid)
@@ -748,7 +772,7 @@ def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
 # -- what the signal bar itself looks like ----------------------------------------
 
 
-def candle_frame(close, seed):
+def candle_frame(close: Sequence[float] | FloatArray, seed: int) -> pd.DataFrame:
     """Build a bar frame with real bodies and wicks, which :func:`frame` deliberately has neither of.
 
     Every random value is drawn per bar out of one array, so a prefix of a series is built
@@ -772,20 +796,22 @@ def candle_frame(close, seed):
     )
 
 
-def candle_dataset(close, params, seed=101):
+def candle_dataset(
+    close: Sequence[float] | FloatArray, params: ElasticBandParams, seed: int = 101
+) -> context.Dataset:
     grid = sweep.Grid.of(params, archetype=archetypes.ELASTICBAND)
 
     return sweep.prepare_for(candle_frame(close, seed), grid)
 
 
-def shape_params(**kwargs):
+def shape_params(**kwargs: object) -> ElasticBandParams:
     """Build a parameter set on the Bollinger source, warmed up enough for the signal path."""
     defaults = {"band_period": 20, "entry_std": 2.0, "bars_required_to_trade": 30}
 
-    return ElasticBandParams(**(defaults | kwargs))
+    return ElasticBandParams(**(defaults | kwargs))  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
-def walk(seed, periods=800, step=2.0):
+def walk(seed: int, periods: int = 800, step: float = 2.0) -> FloatArray:
     rng = np.random.default_rng(seed)
 
     return 18000.0 + np.cumsum(rng.normal(0.0, step, periods))
@@ -931,7 +957,7 @@ def test_the_count_is_over_a_window_rather_than_over_an_unbroken_run() -> None:
         shape_params(min_one_sided_bars=5, one_sided_lookback=8),
     ],
 )
-def test_every_signal_bar_gate_reads_only_bars_up_to_and_including_its_own(params) -> None:
+def test_every_signal_bar_gate_reads_only_bars_up_to_and_including_its_own(params: ElasticBandParams) -> None:
     """Nothing the signal reads comes from a later bar, checked once per gate."""
     close = walk(59)
     full = elasticband_signal(candle_dataset(close, params), params)
@@ -946,7 +972,7 @@ def test_an_unknown_signal_shape_is_refused_by_name() -> None:
 
 
 @pytest.mark.parametrize("fraction", [-0.1, 1.1])
-def test_a_rejection_fraction_outside_the_bar_is_refused(fraction) -> None:
+def test_a_rejection_fraction_outside_the_bar_is_refused(fraction: float) -> None:
     with pytest.raises(ValueError, match=r"must be in \[0, 1\]"):
         ElasticBandParams(rejection_close_fraction=fraction)
 
@@ -984,7 +1010,7 @@ def test_a_shaped_run_produces_a_valid_trade_log() -> None:
 # -- the VWAP band as the second source -------------------------------------------
 
 
-def vwap_params(**kwargs):
+def vwap_params(**kwargs: object) -> ElasticBandParams:
     """Build a VWAP-source parameter set with the warm-up gate off unless a test sets it."""
     defaults = {
         "band_source": BAND_VWAP,
@@ -993,7 +1019,7 @@ def vwap_params(**kwargs):
         "bars_required_to_trade": 0,
     }
 
-    return ElasticBandParams(**(defaults | kwargs))
+    return ElasticBandParams(**(defaults | kwargs))  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_the_vwap_source_reads_the_session_band_and_never_the_period_grid() -> None:
@@ -1091,7 +1117,7 @@ def test_a_negative_warm_up_is_refused() -> None:
 # -- which bar of an extension signals ---------------------------------------------
 
 
-def recovery_params(**kwargs):
+def recovery_params(**kwargs: object) -> ElasticBandParams:
     """Build a VWAP-source recovery set, on the channel §M26.6's campaign runs."""
     defaults = {
         "band_source": BAND_VWAP,
@@ -1101,7 +1127,7 @@ def recovery_params(**kwargs):
         "bars_required_to_trade": 0,
     }
 
-    return ElasticBandParams(**(defaults | kwargs))
+    return ElasticBandParams(**(defaults | kwargs))  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_the_default_trigger_is_the_bar_that_is_still_outside() -> None:
@@ -1234,9 +1260,11 @@ def test_the_excursion_stop_hangs_off_the_run_that_ended_rather_than_off_nothing
 
 
 def test_the_band_stop_reads_the_same_band_under_both_triggers() -> None:
-    """The three reads that had to move a bar back for the recovery trigger are the run's;
-    the band stop is a level on the channel itself, so it is defined on a signal bar inside
-    the band as much as on one outside it -- ``docs/nt8-fidelity.md`` §M26.8."""
+    """The three reads that had to move a bar back for the recovery trigger are the run's.
+
+    The band stop is a level on the channel itself, so it is defined on a signal bar inside the
+    band as much as on one outside it -- ``docs/nt8-fidelity.md`` §M26.8.
+    """
     rng = np.random.default_rng(107)
     close = 18000.0 + np.cumsum(rng.normal(0.0, 3.0, 1500))
     params = recovery_params(stop_mode=STOP_BAND, band_stop_std=1.0, max_hold_bars=10)
@@ -1270,7 +1298,7 @@ def test_an_unknown_entry_trigger_is_refused_by_name() -> None:
 
 
 @pytest.mark.parametrize("fraction", [-0.1, 0.0, 1.1])
-def test_a_recovery_depth_outside_the_band_is_refused(fraction) -> None:
+def test_a_recovery_depth_outside_the_band_is_refused(fraction: float) -> None:
     with pytest.raises(ValueError, match=r"must be in \(0, 1\]"):
         ElasticBandParams(recovery_fraction=fraction)
 
@@ -1361,9 +1389,11 @@ OVERFLOW_CASES = {
 
 
 @pytest.mark.parametrize(("rows", "kwargs"), OVERFLOW_CASES.values(), ids=list(OVERFLOW_CASES))
-def test_a_full_buffer_is_reported_rather_than_written_past(rows, kwargs) -> None:
+def test_a_full_buffer_is_reported_rather_than_written_past(
+    rows: Sequence[Row], kwargs: dict[str, object]
+) -> None:
     # One row of room against a two-leg trade, so the second write has nowhere to go.
-    assert simulate(rows, max_rows=1, **kwargs)[0] == -1
+    assert simulate(rows, max_rows=1, **kwargs)[0] == -1  # type: ignore[arg-type]  # the keywords are simulate's own
     # The same scenario with room is a normal trade, which is what says the buffer size is
     # the only thing under test here.
-    assert not run(rows, **kwargs).empty
+    assert not run(rows, **kwargs).empty  # type: ignore[arg-type]  # the keywords are run's own

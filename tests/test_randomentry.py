@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,11 @@ import pytest
 from nqbt import archetypes, randomentry, sessions, stats, sweep, trades
 from nqbt.instruments import NQ
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+
+if TYPE_CHECKING:
+    from nqbt import context
+    from nqbt.arrays import BoolArray
+    from nqbt.instruments import Instrument
 
 
 def session_bars(days: int = 30, seed: int = 11) -> pd.DataFrame:
@@ -45,8 +51,12 @@ def session_bars(days: int = 30, seed: int = 11) -> pd.DataFrame:
     return frame
 
 
+type Prepared = tuple[context.Dataset, DeadCatParams, BoolArray]
+"""The dataset, the configuration run on it and that configuration's signal."""
+
+
 @pytest.fixture(scope="module")
-def prepared():
+def prepared() -> Prepared:
     bars = session_bars()
     params = DeadCatParams(bars_required_to_trade=200)
     data = sweep.prepare_for(bars, sweep.Grid.of(params))
@@ -59,13 +69,17 @@ def prepared():
 # -- what the null matches, and what it does not ------------------------------
 
 
-def test_the_null_draws_exactly_as_many_entries_as_the_strategy(prepared) -> None:
+def test_the_null_draws_exactly_as_many_entries_as_the_strategy(
+    prepared: Prepared,
+) -> None:
     data, _, signal = prepared
     drawn = randomentry.matched_random_signal(data, signal, np.random.default_rng(0))
     assert int(drawn.sum()) == int(signal.sum())
 
 
-def test_the_time_of_session_distribution_is_matched_exactly_not_approximately(prepared) -> None:
+def test_the_time_of_session_distribution_is_matched_exactly_not_approximately(
+    prepared: Prepared,
+) -> None:
     """The drawn signal matches the real one's minute-of-session counts exactly, not approximately."""
     data, _, signal = prepared
     minutes = randomentry.minute_of_session(data.index)
@@ -74,7 +88,9 @@ def test_the_time_of_session_distribution_is_matched_exactly_not_approximately(p
         assert collections.Counter(minutes[drawn]) == collections.Counter(minutes[signal])
 
 
-def test_the_null_actually_moves_the_entries_it_is_supposed_to_randomise(prepared) -> None:
+def test_the_null_actually_moves_the_entries_it_is_supposed_to_randomise(
+    prepared: Prepared,
+) -> None:
     """Guards the guard: returning the strategy's own signal would pass every match test."""
     data, _, signal = prepared
     drawn = randomentry.matched_random_signal(data, signal, np.random.default_rng(0))
@@ -82,21 +98,27 @@ def test_the_null_actually_moves_the_entries_it_is_supposed_to_randomise(prepare
     assert shared < int(signal.sum()) * 0.5, "the draw barely moved; it is not a null"
 
 
-def test_two_seeds_give_two_different_draws(prepared) -> None:
+def test_two_seeds_give_two_different_draws(
+    prepared: Prepared,
+) -> None:
     data, _, signal = prepared
     a = randomentry.matched_random_signal(data, signal, np.random.default_rng(0))
     b = randomentry.matched_random_signal(data, signal, np.random.default_rng(1))
     assert (a != b).any()
 
 
-def test_one_seed_gives_the_same_draw_twice(prepared) -> None:
+def test_one_seed_gives_the_same_draw_twice(
+    prepared: Prepared,
+) -> None:
     data, _, signal = prepared
     a = randomentry.matched_random_signal(data, signal, np.random.default_rng(7))
     b = randomentry.matched_random_signal(data, signal, np.random.default_rng(7))
     assert np.array_equal(a, b)
 
 
-def test_no_two_entries_land_on_the_same_bar(prepared) -> None:
+def test_no_two_entries_land_on_the_same_bar(
+    prepared: Prepared,
+) -> None:
     """Drawing without replacement is what makes the count exact rather than expected."""
     data, _, signal = prepared
     for seed in range(5):
@@ -104,7 +126,9 @@ def test_no_two_entries_land_on_the_same_bar(prepared) -> None:
         assert int(drawn.sum()) == int(signal.sum())
 
 
-def test_the_pool_is_never_smaller_than_the_draw_it_must_serve(prepared) -> None:
+def test_the_pool_is_never_smaller_than_the_draw_it_must_serve(
+    prepared: Prepared,
+) -> None:
     """The structural guarantee behind drawing without replacement.
 
     Every real signal at minute *m* is itself one of the bars at minute *m*, so the pool is a
@@ -117,7 +141,9 @@ def test_the_pool_is_never_smaller_than_the_draw_it_must_serve(prepared) -> None
         assert pool.pool_for(minute).size >= count, f"minute {minute}"
 
 
-def test_the_hoisted_pool_gives_the_same_draw_as_building_it_inline(prepared) -> None:
+def test_the_hoisted_pool_gives_the_same_draw_as_building_it_inline(
+    prepared: Prepared,
+) -> None:
     """The optimisation is a 12x speedup on the draw, so it must not change the draw."""
     data, _, signal = prepared
     pool = randomentry.SessionMinutePool.build(data.index)
@@ -129,7 +155,9 @@ def test_the_hoisted_pool_gives_the_same_draw_as_building_it_inline(prepared) ->
 # -- the null is a control, which means it runs the strategy's own machinery ---
 
 
-def test_the_null_runs_the_archetypes_own_simulation_not_a_copy(prepared) -> None:
+def test_the_null_runs_the_archetypes_own_simulation_not_a_copy(
+    prepared: Prepared,
+) -> None:
     """Feeding the real signal back through the override must reproduce the real run.
 
     Brackets, ratchet, costs, force-flat and direction are identical between the arms because
@@ -160,7 +188,6 @@ def test_the_null_keeps_the_direction_of_the_archetype_it_controls() -> None:
     drawn = randomentry.matched_random_signal(data, signal, np.random.default_rng(0))
     log = archetypes.PULLBACKANDGO.run(data, params, NQ, signal=drawn)
     assert len(log), "the null traded nothing; the test proves nothing"
-    from nqbt import trades
 
     assert (log["direction"] == trades.LONG).all()
 
@@ -168,7 +195,9 @@ def test_the_null_keeps_the_direction_of_the_archetype_it_controls() -> None:
 # -- calibration: does it say "nothing" when there is nothing? -----------------
 
 
-def test_a_strategy_with_no_edge_reads_as_indistinguishable_from_random(prepared) -> None:
+def test_a_strategy_with_no_edge_reads_as_indistinguishable_from_random(
+    prepared: Prepared,
+) -> None:
     """On random-walk bars the verdict is "indistinguishable", which a rigged null would not give."""
     data, params, _ = prepared
     results = randomentry.compare(data, params, instrument=NQ, iterations=120, seed=5)
@@ -176,7 +205,9 @@ def test_a_strategy_with_no_edge_reads_as_indistinguishable_from_random(prepared
     assert results["win_rate"].verdict == randomentry.INDISTINGUISHABLE
 
 
-def test_the_observed_value_sits_inside_the_null_range_on_random_bars(prepared) -> None:
+def test_the_observed_value_sits_inside_the_null_range_on_random_bars(
+    prepared: Prepared,
+) -> None:
     data, params, _ = prepared
     got = randomentry.compare(data, params, instrument=NQ, iterations=120, seed=5)
     pf = got["profit_factor"]
@@ -283,7 +314,9 @@ def test_a_wider_null_makes_the_same_observation_less_significant() -> None:
 # -- count sensitivity, which the fill-rate gap makes real ---------------------
 
 
-def test_count_sensitive_statistics_are_flagged_and_rate_ones_are_not(prepared) -> None:
+def test_count_sensitive_statistics_are_flagged_and_rate_ones_are_not(
+    prepared: Prepared,
+) -> None:
     data, params, _ = prepared
     got = randomentry.compare(
         data,
@@ -296,7 +329,9 @@ def test_count_sensitive_statistics_are_flagged_and_rate_ones_are_not(prepared) 
     assert got["net_pnl"].count_sensitive is True
 
 
-def test_every_comparison_reports_both_trade_counts(prepared) -> None:
+def test_every_comparison_reports_both_trade_counts(
+    prepared: Prepared,
+) -> None:
     """The arms match on signals and diverge on fills, so the counts are never noise."""
     data, params, _ = prepared
     got = randomentry.compare(data, params, instrument=NQ, iterations=30)
@@ -313,21 +348,27 @@ def test_the_default_statistics_are_the_ones_trade_count_divides_out_of() -> Non
 # -- reproducibility and parallelism ------------------------------------------
 
 
-def test_the_null_distribution_is_reproducible_from_its_seed(prepared) -> None:
+def test_the_null_distribution_is_reproducible_from_its_seed(
+    prepared: Prepared,
+) -> None:
     data, params, _ = prepared
     a = randomentry.null_summaries(data, params, instrument=NQ, iterations=20, seed=3)
     b = randomentry.null_summaries(data, params, instrument=NQ, iterations=20, seed=3)
     pd.testing.assert_frame_equal(a, b)
 
 
-def test_a_different_seed_gives_a_different_null(prepared) -> None:
+def test_a_different_seed_gives_a_different_null(
+    prepared: Prepared,
+) -> None:
     data, params, _ = prepared
     a = randomentry.null_summaries(data, params, instrument=NQ, iterations=20, seed=3)
     b = randomentry.null_summaries(data, params, instrument=NQ, iterations=20, seed=4)
     assert not a["profit_factor"].equals(b["profit_factor"])
 
 
-def test_parallel_draws_match_serial_exactly(prepared) -> None:
+def test_parallel_draws_match_serial_exactly(
+    prepared: Prepared,
+) -> None:
     """``n_jobs`` may change the wall clock and nothing else."""
     data, params, _ = prepared
     serial = randomentry.null_summaries(data, params, instrument=NQ, iterations=8, n_jobs=1)
@@ -335,7 +376,9 @@ def test_parallel_draws_match_serial_exactly(prepared) -> None:
     pd.testing.assert_frame_equal(serial, parallel)
 
 
-def test_one_row_per_iteration_carrying_the_whole_summary(prepared) -> None:
+def test_one_row_per_iteration_carrying_the_whole_summary(
+    prepared: Prepared,
+) -> None:
     data, params, _ = prepared
     null = randomentry.null_summaries(data, params, instrument=NQ, iterations=12)
     assert len(null) == 12
@@ -345,7 +388,9 @@ def test_one_row_per_iteration_carrying_the_whole_summary(prepared) -> None:
 # -- refusals ------------------------------------------------------------------
 
 
-def test_a_strategy_with_no_signals_refuses_rather_than_returning_a_null(prepared) -> None:
+def test_a_strategy_with_no_signals_refuses_rather_than_returning_a_null(
+    prepared: Prepared,
+) -> None:
     """Zero signals is a wiring or warm-up bug, and a null against nothing means nothing."""
     data, _, _ = prepared
     empty = np.zeros(len(data), dtype=bool)
@@ -353,25 +398,29 @@ def test_a_strategy_with_no_signals_refuses_rather_than_returning_a_null(prepare
         randomentry.matched_random_signal(data, empty, np.random.default_rng(0))
 
 
-def test_a_signal_of_the_wrong_length_is_refused(prepared) -> None:
+def test_a_signal_of_the_wrong_length_is_refused(
+    prepared: Prepared,
+) -> None:
     data, _, _ = prepared
     with pytest.raises(randomentry.RandomEntryError, match="per-bar"):
         randomentry.matched_random_signal(data, np.zeros(7, dtype=bool), np.random.default_rng(0))
 
 
-def test_an_unknown_statistic_names_what_is_available(prepared) -> None:
+def test_an_unknown_statistic_names_what_is_available(
+    prepared: Prepared,
+) -> None:
     data, params, _ = prepared
     with pytest.raises(randomentry.RandomEntryError, match="not statistics of a Summary"):
         randomentry.compare(data, params, instrument=NQ, iterations=5, statistics=("alpha",))
 
 
-def test_zero_iterations_is_refused(prepared) -> None:
+def test_zero_iterations_is_refused(prepared: Prepared) -> None:
     data, params, _ = prepared
     with pytest.raises(randomentry.RandomEntryError, match="at least 1"):
         randomentry.null_summaries(data, params, instrument=NQ, iterations=0)
 
 
-def stub_log(pnl_per_trade) -> pd.DataFrame:
+def stub_log(pnl_per_trade: list[float]) -> pd.DataFrame:
     """Build a minimal leg-level log that :func:`nqbt.stats.summarise` will accept."""
     base = pd.Timestamp("2024-01-02 10:00", tz="UTC")
 
@@ -393,7 +442,7 @@ def stub_log(pnl_per_trade) -> pd.DataFrame:
     )
 
 
-def stub_legs(pnl_per_trade) -> trades.LegMatrix:
+def stub_legs(pnl_per_trade: list[float]) -> trades.LegMatrix:
     """Build the same stub as a raw leg matrix, which is what ``compare`` actually reads."""
     matrix = np.zeros((len(pnl_per_trade), trades.N_COLUMNS))
     matrix[:, trades.C_TRADE_ID] = np.arange(1, len(pnl_per_trade) + 1)
@@ -412,7 +461,9 @@ def stub_legs(pnl_per_trade) -> trades.LegMatrix:
     return trades.LegMatrix(matrix, len(pnl_per_trade))
 
 
-def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared) -> None:
+def test_an_infinite_observed_statistic_is_refused_rather_than_compared(
+    prepared: Prepared,
+) -> None:
     """An infinite observed profit factor is refused rather than compared with the null.
 
     Driven by a stub archetype, because no random-walk seed produces an all-winning
@@ -420,13 +471,27 @@ def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared
     """
     data, params, signal = prepared
 
-    def all_wins_when_real(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def all_wins_when_real(
+        _data: context.Dataset,
+        _params: DeadCatParams,
+        _instrument: Instrument = NQ,
+        *,
+        signal: BoolArray | None = None,
+        **_kwargs: object,
+    ) -> pd.DataFrame:
         # Observed run: no losses at all, so profit factor is infinite. Null draws keep a
         # loser, so the null distribution itself stays finite and the refusal is about the
         # observation rather than about an empty comparison.
         return stub_log([5.0] * 8) if signal is None else stub_log([5.0] * 6 + [-4.0] * 2)
 
-    def all_wins_legs(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def all_wins_legs(
+        _data: context.Dataset,
+        _params: DeadCatParams,
+        _instrument: Instrument = NQ,
+        *,
+        signal: BoolArray | None = None,
+        **_kwargs: object,
+    ) -> trades.LegMatrix:
         return stub_legs([5.0] * 8) if signal is None else stub_legs([5.0] * 6 + [-4.0] * 2)
 
     probe = archetypes.Archetype(
@@ -434,7 +499,7 @@ def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared
         params_cls=DeadCatParams,
         run=all_wins_when_real,
         legs=all_wins_legs,
-        signal=lambda d, p: signal,
+        signal=lambda _d, _p: signal,
         long_side=archetypes.DEADCATBOUNCE.long_side,
         tier2=archetypes.Tier2Status.TIER1_ONLY,
     )
@@ -443,7 +508,9 @@ def test_an_infinite_observed_statistic_is_refused_rather_than_compared(prepared
         randomentry.compare(data, params, probe, NQ, iterations=5)
 
 
-def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(prepared) -> None:
+def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(
+    prepared: Prepared,
+) -> None:
     """The mirror of the previous test: the *null* is what has nothing to divide by.
 
     Dropping the infinite draws and comparing against the two that survived would put a
@@ -451,10 +518,24 @@ def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(prepared
     """
     data, params, signal = prepared
 
-    def wins_only_in_the_null(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def wins_only_in_the_null(
+        _data: context.Dataset,
+        _params: DeadCatParams,
+        _instrument: Instrument = NQ,
+        *,
+        signal: BoolArray | None = None,
+        **_kwargs: object,
+    ) -> pd.DataFrame:
         return stub_log([5.0, -4.0]) if signal is None else stub_log([5.0] * 4)
 
-    def wins_only_in_the_null_legs(data_, params_, instrument=NQ, *, signal=None, **kwargs):
+    def wins_only_in_the_null_legs(
+        _data: context.Dataset,
+        _params: DeadCatParams,
+        _instrument: Instrument = NQ,
+        *,
+        signal: BoolArray | None = None,
+        **_kwargs: object,
+    ) -> trades.LegMatrix:
         return stub_legs([5.0, -4.0]) if signal is None else stub_legs([5.0] * 4)
 
     probe = archetypes.Archetype(
@@ -462,7 +543,7 @@ def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(prepared
         params_cls=DeadCatParams,
         run=wins_only_in_the_null,
         legs=wins_only_in_the_null_legs,
-        signal=lambda d, p: signal,
+        signal=lambda _d, _p: signal,
         long_side=archetypes.DEADCATBOUNCE.long_side,
         tier2=archetypes.Tier2Status.TIER1_ONLY,
     )
@@ -470,7 +551,9 @@ def test_a_null_that_is_mostly_infinite_is_refused_rather_than_averaged(prepared
         randomentry.compare(data, params, probe, NQ, iterations=5)
 
 
-def test_report_gives_one_row_per_statistic(prepared) -> None:
+def test_report_gives_one_row_per_statistic(
+    prepared: Prepared,
+) -> None:
     data, params, _ = prepared
     got = randomentry.compare(data, params, instrument=NQ, iterations=20)
     frame = randomentry.report(got)
@@ -481,7 +564,9 @@ def test_report_gives_one_row_per_statistic(prepared) -> None:
 # -- the draw that cannot randomise anything -----------------------------------
 
 
-def test_a_signal_filling_every_pool_it_touches_is_refused_rather_than_drawn(prepared) -> None:
+def test_a_signal_filling_every_pool_it_touches_is_refused_rather_than_drawn(
+    prepared: Prepared,
+) -> None:
     """Drawing without replacement from a pool the signal already fills returns that signal.
 
     Left unguarded the null is the observation, reported as a p-value of 1 and read as
@@ -495,7 +580,9 @@ def test_a_signal_filling_every_pool_it_touches_is_refused_rather_than_drawn(pre
         randomentry.matched_random_signal(data, every_bar, np.random.default_rng(0))
 
 
-def test_a_nearly_saturated_signal_is_refused_too(prepared) -> None:
+def test_a_nearly_saturated_signal_is_refused_too(
+    prepared: Prepared,
+) -> None:
     """A signal leaving a sliver of spare bars is refused too, not only a saturating one.
 
     ``docs/roadmap.md`` §M28.1.
@@ -512,7 +599,9 @@ def test_a_nearly_saturated_signal_is_refused_too(prepared) -> None:
         randomentry.matched_random_signal(data, nearly_every_bar, np.random.default_rng(0))
 
 
-def test_draw_freedom_separates_the_registry_from_the_degenerate_case(prepared) -> None:
+def test_draw_freedom_separates_the_registry_from_the_degenerate_case(
+    prepared: Prepared,
+) -> None:
     """The cut is meaningful because nothing real sits near it -- ``docs/roadmap.md`` §M28.1."""
     data, _, signal = prepared
     pool = randomentry.SessionMinutePool.build(data.index)
@@ -523,7 +612,7 @@ def test_draw_freedom_separates_the_registry_from_the_degenerate_case(prepared) 
 
 
 def test_a_null_whose_draws_all_agree_is_refused_from_the_result_side(
-    prepared, monkeypatch: pytest.MonkeyPatch
+    prepared: Prepared, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The second guard: the same failure seen from the result, whatever caused the point mass.
 
@@ -541,7 +630,9 @@ def test_a_null_whose_draws_all_agree_is_refused_from_the_result_side(
         randomentry.compare(data, params, statistics=("profit_factor",), iterations=4)
 
 
-def test_a_sparse_signal_still_draws_and_still_moves(prepared) -> None:
+def test_a_sparse_signal_still_draws_and_still_moves(
+    prepared: Prepared,
+) -> None:
     """The guard must not fire for the archetypes it was not written for."""
     data, _, signal = prepared
 
@@ -551,7 +642,9 @@ def test_a_sparse_signal_still_draws_and_still_moves(prepared) -> None:
     assert not np.array_equal(drawn, signal), "the draw randomised nothing"
 
 
-def test_spare_bars_counts_the_room_the_draw_has(prepared) -> None:
+def test_spare_bars_counts_the_room_the_draw_has(
+    prepared: Prepared,
+) -> None:
     """One bar short of saturation is still a legal draw, which is where the boundary is."""
     data, _, _ = prepared
     pool = randomentry.SessionMinutePool.build(data.index)
@@ -561,7 +654,9 @@ def test_spare_bars_counts_the_room_the_draw_has(prepared) -> None:
     assert pool.spare_bars(minutes, counts - 1) == len(minutes)
 
 
-def test_the_refusal_survives_the_parallel_path_as_the_same_exception(prepared) -> None:
+def test_the_refusal_survives_the_parallel_path_as_the_same_exception(
+    prepared: Prepared,
+) -> None:
     """``tools/campaign_null.py`` catches ``RandomEntryError`` to report gate 3 as not run.
 
     joblib reconstructs a worker's exception rather than re-raising it, so the type surviving
@@ -570,7 +665,7 @@ def test_the_refusal_survives_the_parallel_path_as_the_same_exception(prepared) 
     data, params, _ = prepared
     every_bar = np.ones(len(data), dtype=bool)
 
-    def dense(*_args, **_kwargs):
+    def dense(*_args: object, **_kwargs: object) -> BoolArray:
         return every_bar
 
     for jobs in (1, 2):

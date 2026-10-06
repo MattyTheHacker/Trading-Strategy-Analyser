@@ -13,6 +13,7 @@ statement it belongs to -- see ``CONTRIBUTING.md`` § "Where the blank line goes
 
 from __future__ import annotations
 
+import itertools
 import textwrap
 from typing import TYPE_CHECKING
 
@@ -301,7 +302,7 @@ def test_no_rule_inserts_a_blank_line_at_the_top_of_a_block(source: str) -> None
 
     assert not [
         line
-        for previous, line in zip(lines, lines[1:], strict=False)
+        for previous, line in itertools.pairwise(lines)
         if previous.rstrip().endswith(":") and not line.strip()
     ]
 

@@ -148,13 +148,19 @@ def survival(table: pd.DataFrame, reason: str) -> list[str]:
     survives: int = int(table["survives"].sum())
 
     return [
-        f"  profit factor above {PASS_MARK}       {profitable_whole:3d} of {len(table)} whole, "
-        f"{profitable_rest:3d} of {len(table)} without {reason}",
+        (
+            f"  profit factor above {PASS_MARK}       {profitable_whole:3d} of {len(table)} whole, "
+            f"{profitable_rest:3d} of {len(table)} without {reason}"
+        ),
         f"  and net-to-drawdown above {PASS_MARK}  {survives:3d} of {len(table)} without {reason}",
-        f"  median profit factor          {table['profit_factor_whole'].median():.3f} whole, "
-        f"{table['profit_factor_rest'].median():.3f} without {reason}",
-        f"  median net P&L                {table['net_pnl_whole'].median():,.2f} whole, "
-        f"{table['net_pnl_rest'].median():,.2f} without {reason}",
+        (
+            f"  median profit factor          {table['profit_factor_whole'].median():.3f} whole, "
+            f"{table['profit_factor_rest'].median():.3f} without {reason}"
+        ),
+        (
+            f"  median net P&L                {table['net_pnl_whole'].median():,.2f} whole, "
+            f"{table['net_pnl_rest'].median():,.2f} without {reason}"
+        ),
     ]
 
 
@@ -172,6 +178,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Re-summarise the shortlist without one exit reason and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Re-summarise a shortlist without one exit reason.")
     parser.add_argument("--strategy", required=True)

@@ -124,6 +124,7 @@ COLUMNS = [
 
 
 def main(argv: list[str]) -> int:
+    """Read each hold-time cap against the uncapped arm and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Read the maximum-hold-time ladder against its control.")
     parser.add_argument("--strategy", required=True)

@@ -8,12 +8,14 @@ an axis explains, and whether a stored row rebuilds into the parameters it came 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from nqbt import archetypes, stats, trades
+from nqbt.sim.types import ElasticBandParams, InsideBarParams
 from tools import campaign_holdout, campaign_report
 from tools.campaign_holdout import (
     GROUP_KEYS,
@@ -53,6 +55,9 @@ from tools.campaign_report import (
     swept_axes,
 )
 from tools.campaign_shortlist import rebuild
+
+if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray
 
 
 def combos(**columns: object) -> pd.DataFrame:
@@ -96,8 +101,10 @@ def test_tags_and_statistics_are_never_axes() -> None:
 
 
 def test_the_cost_fields_are_tags_rather_than_axes() -> None:
-    """They vary with the root and nothing else, so reporting them would report the root
-    twice under a name that hides it."""
+    """They vary with the root and nothing else.
+
+    Reporting them would report the root twice under a name that hides it.
+    """
     assert {"commission_per_contract", "slippage_ticks"} <= TAGS
 
 
@@ -149,8 +156,10 @@ def test_profile_groups_by_every_column_it_is_given() -> None:
 
 
 def test_every_table_carries_the_two_shares_a_result_is_read_wrong_without() -> None:
-    """A coarse resolution and the final session phase are both misread without them, and
-    optional columns are the ones nobody adds -- ``CONTRIBUTING.md`` § "Statistics and results"."""
+    """A coarse resolution and the final session phase are both misread without them.
+
+    Optional columns are the ones nobody adds -- ``CONTRIBUTING.md`` § "Statistics and results".
+    """
     frame = combos(session_close_share=[0.0, 0.1, 0.2, 0.3], ambiguous_share=[0.0, 0.0, 0.0, 0.4])
     row = profile(frame, ["root"]).iloc[0]
     assert row["session_close_share_med"] == pytest.approx(0.15)
@@ -171,8 +180,11 @@ def legs(reason: list[str], net_pnl: list[float], bars_held: list[int]) -> pd.Da
 
 
 def test_a_decomposition_says_what_each_exit_reason_was_worth() -> None:
-    """The claim ``session_close_share`` cannot make: a share counts the legs the flatten took
-    and never what they returned -- ``docs/roadmap.md`` §M28.9."""
+    """The claim ``session_close_share`` cannot make.
+
+    A share counts the legs the flatten took and never what they returned -- ``docs/roadmap.md``
+    §M28.9.
+    """
     row = exit_decomposition(
         legs(
             ["stop", "stop", "target", "session_close"],
@@ -188,8 +200,11 @@ def test_a_decomposition_says_what_each_exit_reason_was_worth() -> None:
 
 
 def test_every_exit_reason_the_simulator_can_write_is_decomposed() -> None:
-    """The reasons are read from ``trades.EXIT_REASONS`` rather than listed here, so a reason
-    added to the simulator is reported rather than dropped out of a total that still sums."""
+    """The reasons are read from ``trades.EXIT_REASONS`` rather than listed here.
+
+    A reason added to the simulator is reported rather than dropped out of a total that still
+    sums.
+    """
     reasons = list(trades.EXIT_REASONS.values())
     log = legs(reasons, [float(n) for n in range(len(reasons))], list(range(1, len(reasons) + 1)))
     row = exit_decomposition(log)
@@ -199,8 +214,11 @@ def test_every_exit_reason_the_simulator_can_write_is_decomposed() -> None:
 
 
 def test_the_decomposition_reads_leg_summary_rather_than_defining_its_own_total() -> None:
-    """A second definition of a net total would drift from the sweep's silently, because both
-    numbers would look reasonable -- ``CONTRIBUTING.md`` § "Statistics and results"."""
+    """A second definition of a net total would drift from the sweep's silently.
+
+    That is because both numbers would look reasonable -- ``CONTRIBUTING.md`` § "Statistics and
+    results".
+    """
     log = legs(["stop", "target", "stop"], [-2.0, 5.0, -4.0], [10, 30, 20])
     row = exit_decomposition(log)
     stopped = stats.leg_summary(log[log["exit_reason"] == "stop"])
@@ -224,8 +242,11 @@ def test_a_log_with_no_legs_decomposes_into_nothing() -> None:
 def test_the_decomposition_columns_follow_the_simulator_rather_than_the_alphabet(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``session_close`` sorts ahead of ``stop`` and ``target``, so an alphabetical grouping
-    would put the flatten before the bracket legs that decide whether it is reached."""
+    """``session_close`` sorts ahead of ``stop`` and ``target``.
+
+    An alphabetical grouping would put the flatten before the bracket legs that decide whether
+    it is reached.
+    """
     log = legs(["stop", "target", "session_close"], [-2.0, 5.0, 9.0], [10, 30, 400])
     monkeypatch.setattr(campaign_report, "load_trades", lambda *_: log)
 
@@ -239,8 +260,11 @@ def test_the_decomposition_columns_follow_the_simulator_rather_than_the_alphabet
 def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``campaign_report`` ranks every stored row and ``tools/campaign_shortlist.py`` stores a
-    log for a chosen few, so most ranked rows have none and are still rows."""
+    """Most ranked rows have no stored log and are still rows.
+
+    ``campaign_report`` ranks every stored row and ``tools/campaign_shortlist.py`` stores a log
+    for a chosen few.
+    """
     logged = {0: legs(["stop"], [-2.0], [10])}
     monkeypatch.setattr(
         campaign_report,
@@ -256,8 +280,10 @@ def test_a_ranked_row_with_no_stored_log_is_blank_rather_than_dropped(
 
 
 def test_a_shortlists_logs_are_keyed_by_the_ids_its_rows_carry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The mapping every gate-4 tool works from, so a stored log and one re-run by
-    ``tools/campaign_swept.py`` are read through the same loop."""
+    """The mapping every gate-4 tool works from.
+
+    A stored log and one re-run by ``tools/campaign_swept.py`` are read through the same loop.
+    """
     logged = {0: legs(["stop"], [-2.0], [10])}
     monkeypatch.setattr(
         campaign_report,
@@ -273,8 +299,11 @@ def test_a_shortlists_logs_are_keyed_by_the_ids_its_rows_carry(monkeypatch: pyte
 
 
 def test_the_one_table_that_ranks_carries_the_shares_the_decomposition_sits_beside() -> None:
-    """The distribution tables carry them and the ranking table did not, which is the half of
-    the reading rule a shortlist most needs -- ``CONTRIBUTING.md`` § "Statistics and results"."""
+    """The distribution tables carry them and the ranking table did not.
+
+    That is the half of the reading rule a shortlist most needs -- ``CONTRIBUTING.md`` §
+    "Statistics and results".
+    """
     assert set(SHARES) <= set(RANKED_COLUMNS)
 
 
@@ -294,16 +323,22 @@ def test_the_unfiltered_stratum_names_no_dimension() -> None:
 
 
 def test_every_dimension_present_is_reported_and_each_exactly_once() -> None:
-    """§M27 swept twenty strata and read one pooled row per stratum, which is how session phase
-    and volume went into the campaign and no finding about either came out."""
+    """§M27 swept twenty strata and read one pooled row per stratum.
+
+    That is how session phase and volume went into the campaign and no finding about either came
+    out.
+    """
     frame = combos(stratum=["phase=MIDDAY", "phase=CLOSE", "volume=HEAVY", UNFILTERED])
     assert dimensions(frame) == ["phase", "volume"]
     assert len(in_dimension(frame, "phase")) == 2
 
 
 def test_a_dimensions_influence_is_measured_inside_a_resolution_and_never_across_it() -> None:
-    """Bar size is the largest lever in the campaign, so a figure pooled over resolutions
-    reports that instead of the dimension -- ``docs/roadmap.md`` §M27."""
+    """Bar size is the largest lever in the campaign.
+
+    A figure pooled over resolutions reports that instead of the dimension --
+    ``docs/roadmap.md`` §M27.
+    """
     frame = combos(
         stratum=["phase=MIDDAY", "phase=CLOSE", "phase=MIDDAY", "phase=CLOSE"],
         resolution=[5, 5, 15, 15],
@@ -332,7 +367,7 @@ def test_rank_correlation_is_one_for_an_order_that_survives_and_minus_one_for_a_
     assert rank_correlation(reversed_order) == pytest.approx(-1.0)
 
 
-def paired_rows(stratum: str, holdout: np.ndarray, size: int = TOP + 10) -> pd.DataFrame:
+def paired_rows(stratum: str, holdout: FloatArray, size: int = TOP + 10) -> pd.DataFrame:
     """Build one stratum's paired window, ranked so the shortlist is the last ``TOP`` rows."""
     return pd.DataFrame(
         {
@@ -359,8 +394,10 @@ def test_the_verdict_compares_the_shortlist_against_not_shortlisting() -> None:
 
 
 def test_a_shortlist_that_beats_1_but_not_the_unselected_median_does_not_pass() -> None:
-    """Gate 2 is two conditions and the second is the one a profit factor alone hides:
-    selecting can be profitable and still be worse than not selecting at all."""
+    """Gate 2 is two conditions and the second is the one a profit factor alone hides.
+
+    Selecting can be profitable and still be worse than not selecting at all.
+    """
     size = 5 * TOP
     holdout = np.full(size, 3.0)
     holdout[-TOP:] = 1.5
@@ -372,9 +409,12 @@ def test_a_shortlist_that_beats_1_but_not_the_unselected_median_does_not_pass() 
 
 
 def test_a_stratum_is_shortlisted_within_itself_and_never_pooled() -> None:
-    """The hazard §M27.4 exists to avoid: pooling lets the twenty largest selection-window
-    profit factors come from the fattest-tailed stratum, so a weak stratum inherits a
-    shortlist it never produced and reads as having been tested."""
+    """The hazard §M27.4 exists to avoid.
+
+    Pooling lets the twenty largest selection-window profit factors come from the fattest-tailed
+    stratum, so a weak stratum inherits a shortlist it never produced and reads as having been
+    tested.
+    """
     size = TOP + 10
     unselected = np.full(size - TOP, 1.0)
     fat = paired_rows("regime=DIRECTIONAL", np.r_[unselected, np.full(TOP, 2.0)])
@@ -394,8 +434,10 @@ def test_a_shortlist_is_chosen_within_one_root_and_one_stratum() -> None:
 
 
 def test_the_windows_are_paired_on_a_key_that_identifies_one_configuration() -> None:
-    """``combo_id`` is a position in a deterministic product, so it only means the same
-    parameters within the same grid, root and resolution."""
+    """``combo_id`` is a position in a deterministic product.
+
+    It only means the same parameters within the same grid, root and resolution.
+    """
     assert JOIN_KEYS == ["root", "resolution", "variant", "stratum", "combo_id"]
 
 
@@ -433,8 +475,11 @@ def both_windows(monkeypatch: pytest.MonkeyPatch, selection: pd.DataFrame, holdo
 
 
 def test_the_held_out_rows_are_the_ones_the_selection_window_ranked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The whole point of the pair: reading the rows the holdout window ranks itself is the
-    trap §M28.12 records, and both orders look like a shortlist afterwards."""
+    """The whole point of the pair.
+
+    Reading the rows the holdout window ranks itself is the trap §M28.12 records, and both
+    orders look like a shortlist afterwards.
+    """
     both_windows(
         monkeypatch,
         windowed("selection", [1.9, 1.1, 1.0, 0.9]),
@@ -448,8 +493,10 @@ def test_the_held_out_rows_are_the_ones_the_selection_window_ranked(monkeypatch:
 def test_the_held_out_half_comes_back_under_the_names_a_stored_row_carries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A tool reading stored logs uses these rows where it would use a shortlist, so a
-    ``_hold`` suffix reaching one is a KeyError at every call site."""
+    """A tool reading stored logs uses these rows where it would use a shortlist.
+
+    A ``_hold`` suffix reaching one is a KeyError at every call site.
+    """
     both_windows(monkeypatch, windowed("selection", [1.9, 1.1, 1.0, 0.9]), windowed("holdout", [1.2] * 4))
     rows = held_out("OpeningRange", "MNQ", top=1)
     assert not [column for column in rows.columns if column.endswith(("_sel", "_hold"))]
@@ -459,8 +506,10 @@ def test_the_held_out_half_comes_back_under_the_names_a_stored_row_carries(
 
 
 def test_no_selection_window_figure_survives_into_the_returned_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    """One row carrying two windows' statistics under one set of names is how a selected
-    maximum gets reported as a held-out result."""
+    """One row must not carry two windows' statistics under one set of names.
+
+    That is how a selected maximum gets reported as a held-out result.
+    """
     both_windows(monkeypatch, windowed("selection", [1.9, 1.1, 1.0, 0.9]), windowed("holdout", [1.2] * 4))
     rows = held_out("OpeningRange", "MNQ", top=4)
     assert list(rows["profit_factor"]) == [1.2] * 4
@@ -469,8 +518,10 @@ def test_no_selection_window_figure_survives_into_the_returned_row(monkeypatch: 
 
 
 def test_each_confinement_narrows_the_pair_before_it_is_ranked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A cell is one root x resolution x variant x stratum, and a flag that parses without
-    reaching the filter reads exactly like one that works."""
+    """A cell is one root x resolution x variant x stratum.
+
+    A flag that parses without reaching the filter reads exactly like one that works.
+    """
     selection = pd.concat(
         [windowed("selection", [1.0] * 4), windowed("selection", [9.0] * 4, resolution=15)],
         ignore_index=True,
@@ -505,8 +556,10 @@ def test_a_ranking_with_no_top_keeps_every_pair_in_selection_order_and_both_halv
 def test_a_cell_with_no_paired_rows_raises_rather_than_returning_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An empty frame reads downstream as a shortlist whose logs were never stored, which
-    sends the reader to re-run a step that would not have helped."""
+    """An empty frame reads downstream as a shortlist whose logs were never stored.
+
+    That sends the reader to re-run a step that would not have helped.
+    """
     both_windows(monkeypatch, windowed("selection", [1.0] * 4), windowed("holdout", [1.2] * 4))
     with pytest.raises(RuntimeError, match="no paired windows"):
         held_out("OpeningRange", "NQ")
@@ -518,16 +571,20 @@ def test_a_cell_with_no_paired_rows_raises_rather_than_returning_nothing(
 def test_a_split_that_was_never_run_raises_rather_than_pairing_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``paired`` returns an empty frame where one window has no rows at all, which is the
-    state before ``tools/campaign_sweep.py --split`` has ever run."""
+    """``paired`` returns an empty frame where one window has no rows at all.
+
+    That is the state before ``tools/campaign_sweep.py --split`` has ever run.
+    """
     both_windows(monkeypatch, windowed("selection", [1.0] * 4).iloc[:0], windowed("holdout", [1.2] * 4))
     with pytest.raises(RuntimeError, match="no paired windows"):
         held_out("OpeningRange", "MNQ")
 
 
 def test_a_ranking_statistic_undefined_on_every_paired_row_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``rank`` drops the rows it cannot order, so an undefined statistic empties the
-    shortlist silently -- the defect ``rank`` exists for, one level up."""
+    """``rank`` drops the rows it cannot order, so an undefined statistic empties the shortlist silently.
+
+    The defect ``rank`` exists for, one level up.
+    """
     both_windows(
         monkeypatch,
         windowed("selection", [float("nan")] * 4),
@@ -542,25 +599,29 @@ def test_a_ranking_statistic_undefined_on_every_paired_row_raises(monkeypatch: p
 
 def test_a_stored_row_rebuilds_into_the_parameters_it_came_from() -> None:
     """What the null test is actually run on, so a coerced type here is a different strategy."""
-    params = archetypes.INSIDEBAR.params_cls(ema_period=33, atr_length=7, atr_multiplier=12.5)
+    params = InsideBarParams(ema_period=33, atr_length=7, atr_multiplier=12.5)
     row = pd.Series({**params.as_dict(), "variant": "bracket"})
     assert rebuild(row, archetypes.INSIDEBAR) == params
 
 
 def test_rebuilding_restores_the_elastic_ladder_the_variant_names() -> None:
-    """``target_stretch_levels`` is not sweepable, so it is popped from every stored row and
-    only the variant name says which ladder ran."""
+    """``target_stretch_levels`` is not sweepable.
+
+    It is popped from every stored row and only the variant name says which ladder ran.
+    """
     row = pd.Series({**archetypes.ELASTICBAND.params_cls().as_dict(), "variant": "target=+2.0s"})
     del row["target_stretch_levels"]
     rebuilt = rebuild(row, archetypes.ELASTICBAND)
+    assert isinstance(rebuilt, ElasticBandParams)
     assert rebuilt.target_stretch_levels[0] == pytest.approx(2.0)
 
 
 def test_rebuilding_keeps_the_default_for_a_column_the_row_does_not_carry() -> None:
     row = pd.Series({"ema_period": 44, "variant": "bracket"})
     rebuilt = rebuild(row, archetypes.INSIDEBAR)
+    assert isinstance(rebuilt, InsideBarParams)
     assert rebuilt.ema_period == 44
-    assert rebuilt.atr_length == archetypes.INSIDEBAR.params_cls().atr_length
+    assert rebuilt.atr_length == InsideBarParams().atr_length
 
 
 # -- net-to-drawdown, the ranking Gate 4 is actually about ----------------------------------
@@ -572,16 +633,20 @@ def test_net_to_drawdown_divides_the_profit_by_the_worst_peak_to_trough() -> Non
 
 
 def test_a_row_with_no_drawdown_is_undefined_rather_than_infinite() -> None:
-    """The defect §M27.5's tally records against profit factor, one statistic along: an
-    unbounded value wins a ranking it was never measured on."""
+    """The defect §M27.5's tally records against profit factor, one statistic along.
+
+    An unbounded value wins a ranking it was never measured on.
+    """
     frame = combos(net_pnl=[100.0, 1.0, 1.0, 1.0], max_drawdown=[0.0, 10.0, 10.0, 10.0])
     assert np.isnan(net_to_drawdown(frame).iloc[0])
     assert not np.isinf(net_to_drawdown(frame)).any()
 
 
 def test_nlargest_pads_with_undefined_rows_which_is_why_rank_exists() -> None:
-    """The premise of :func:`rank`, pinned because it is the opposite of what it looks like:
-    a shortlist drawn straight through ``nlargest`` carries rows it could not measure."""
+    """The premise of :func:`rank`, pinned because it is the opposite of what it looks like.
+
+    A shortlist drawn straight through ``nlargest`` carries rows it could not measure.
+    """
     frame = combos(net_pnl=[100.0, 1.0, 1.0, 1.0], max_drawdown=[0.0, 10.0, 10.0, 10.0])
     frame["ntd"] = net_to_drawdown(frame)
 
@@ -598,8 +663,11 @@ def test_rank_returns_the_largest_rows_in_order() -> None:
 
 
 def test_the_scalar_and_the_vectorised_guard_agree_exactly() -> None:
-    """Two implementations of one rule, so the faster route is pinned to the slower one rather
-    than re-derived -- the shape ``guard.separate`` and ``review.rank_conditions`` use."""
+    """Two implementations of one rule.
+
+    The faster route is pinned to the slower one rather than re-derived -- the shape
+    ``guard.separate`` and ``review.rank_conditions`` use.
+    """
     frame = combos(net_pnl=[100.0, -50.0, 7.0, 0.0], max_drawdown=[50.0, 25.0, 0.0, 10.0])
     scalar = [
         ratio_to_drawdown(net, dd) for net, dd in zip(frame["net_pnl"], frame["max_drawdown"], strict=True)
@@ -621,8 +689,11 @@ def test_a_derived_statistic_is_never_reported_as_a_swept_axis() -> None:
 
 
 def test_the_two_predicates_agree_on_what_a_parameter_is() -> None:
-    """``swept_axes`` is ``parameter_columns`` plus a variance filter and nothing else, which is
-    what stops the holdout's parameter check and the report's axis table from drifting apart."""
+    """``swept_axes`` is ``parameter_columns`` plus a variance filter and nothing else.
+
+    That is what stops the holdout's parameter check and the report's axis table from drifting
+    apart.
+    """
     frame = combos(ema_period=[11, 22, 33, 44], atr_length=[3, 3, 3, 3])
     assert set(swept_axes(frame)) <= set(parameter_columns(frame))
     assert "atr_length" in parameter_columns(frame)
@@ -632,8 +703,10 @@ def test_the_two_predicates_agree_on_what_a_parameter_is() -> None:
 
 
 def test_the_holdout_can_shortlist_on_net_to_drawdown_instead_of_profit_factor() -> None:
-    """§M27.3's instruction: the two disagree on this dataset, so the tool has to be able to
-    take the other one."""
+    """§M27.3's instruction: the two disagree on this dataset.
+
+    The tool has to be able to take the other one.
+    """
     size = 2 * TOP
     rows = paired_rows("unfiltered", np.linspace(0.9, 1.1, size), size)
     # The two rankings pick disjoint halves: profit factor ascends, net-to-drawdown descends.
@@ -664,8 +737,10 @@ def test_the_shortlisted_count_is_reported_because_an_undefined_ranking_drops_ro
 
 
 def test_a_variant_can_be_held_out_on_its_own() -> None:
-    """A narrow re-sweep lands in the same database as the campaign it follows, so a shortlist
-    drawn without ``--variant`` would pool two grids inside one stratum -- §M27.3."""
+    """A narrow re-sweep lands in the same database as the campaign it follows.
+
+    A shortlist drawn without ``--variant`` would pool two grids inside one stratum -- §M27.3.
+    """
     frame = combos(variant=["bracket", "bracket", "narrow", "narrow"], window="selection")
     assert list(frame[frame["variant"] == "narrow"]["combo_id"]) == [2, 3]
     assert "variant" not in parameter_columns(frame), "variant is a tag, not an axis"

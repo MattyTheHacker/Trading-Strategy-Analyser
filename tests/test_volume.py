@@ -5,6 +5,8 @@ per bar of session**, and **no bar contributes to its own baseline** -- ``docs/r
 §M10.2.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -25,11 +27,19 @@ from nqbt.volume import (
     VolumeState,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nqbt.arrays import BoolArray, DateArray, FloatArray, IndexArray
+
 THIN = 0.7
 HEAVY = 1.5
 BASELINE = 20
 
-PARAMS_CLASSES = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
+type FilteredParams = DeadCatParams | PullBackAndGoParams | EmaCrossoverParams
+"""The three archetypes the context filters were built on."""
+
+PARAMS_CLASSES: list[type[FilteredParams]] = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
 
 PER_BAR = volume.key(VolumeForm.PER_BAR, 30, BASELINE)
 ROLLING = volume.key(VolumeForm.ROLLING, 30, BASELINE)
@@ -44,7 +54,7 @@ def stamps(days: int = 35) -> pd.DatetimeIndex:
     return pd.date_range(FIRST_OPEN, periods=days * 24 * 60, freq="min", tz="UTC")
 
 
-def clock(index: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def clock(index: pd.DatetimeIndex) -> tuple[DateArray, BoolArray, IndexArray]:
     """Return the trading day, in-session flag and bar-of-session index for one series of stamps."""
     info = sessions.classify(index)
     labels = timeofday.classify(index, bar_minutes=1, info=info)
@@ -52,13 +62,13 @@ def clock(index: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return info.trading_day, info.in_session, labels.bar_of_session
 
 
-def grid_of(counts: np.ndarray, index: pd.DatetimeIndex, *keys: volume.VolumeKey) -> volume.VolumeGrid:
+def grid_of(counts: FloatArray, index: pd.DatetimeIndex, *keys: volume.VolumeKey) -> volume.VolumeGrid:
     trading_day, in_session, bar_of_session = clock(index)
 
     return volume.volume_grid(counts, trading_day, in_session, bar_of_session, keys or (PER_BAR,))
 
 
-def hump(index: pd.DatetimeIndex) -> np.ndarray:
+def hump(index: pd.DatetimeIndex) -> FloatArray:
     """Build volume that depends on **nothing but the time of day**, identical every session.
 
     A Gaussian peak over the cash open on a flat overnight floor -- the shape that makes a
@@ -248,7 +258,8 @@ def test_a_step_in_absolute_volume_washes_out_of_the_baseline_after_the_window()
 
     on_roll = relative[in_session & (trading_day == roll) & np.isfinite(relative)]
     settled = relative[in_session & (trading_day == days[len(days) // 2 + BASELINE]) & np.isfinite(relative)]
-    assert on_roll.size and settled.size
+    assert on_roll.size
+    assert settled.size
     assert np.allclose(on_roll, 10.0), "the incoming contract is ten times the outgoing one"
     assert np.allclose(settled, 1.0), "and a baseline window later it is simply normal"
 
@@ -260,7 +271,7 @@ def test_a_baseline_shorter_than_the_floor_is_refused() -> None:
 
 def test_an_empty_series_produces_an_empty_baseline() -> None:
     empty = np.array([], dtype=np.float64)
-    assert volume.relative_to_bar_of_session(empty, empty, empty, BASELINE).size == 0
+    assert volume.relative_to_bar_of_session(empty, empty, empty, BASELINE).size == 0  # type: ignore[arg-type]  # empty inputs, so the dtype is moot
 
 
 def test_a_series_with_no_session_at_all_is_undefined_throughout() -> None:
@@ -338,7 +349,7 @@ def test_thresholds_that_cross_are_refused_rather_than_silently_ordered() -> Non
 
 
 @pytest.mark.parametrize(("thin", "heavy"), [(-0.1, 1.5), (0.7, -1.0)])
-def test_a_negative_threshold_is_refused(thin, heavy) -> None:
+def test_a_negative_threshold_is_refused(thin: float, heavy: float) -> None:
     with pytest.raises(VolumeError, match=">= 0"):
         volume.label(np.array([1.0]), thin, heavy)
 
@@ -364,7 +375,7 @@ def test_the_everything_mask_is_the_three_states_and_nothing_else() -> None:
 
 
 @pytest.mark.parametrize("mask", [0, ALL_STATES + 1, -1])
-def test_an_impossible_mask_is_refused(mask) -> None:
+def test_an_impossible_mask_is_refused(mask: int) -> None:
     with pytest.raises(VolumeError):
         volume.validate_mask(mask)
 
@@ -453,8 +464,10 @@ def test_a_grid_gate_and_a_grid_label_read_the_same_row() -> None:
 
 
 def test_a_fitted_pair_admits_the_share_of_bars_the_quantiles_name() -> None:
-    """The whole point of the fit: 0.7/1.5 is a different share under each form and at each
-    resolution, so the cell it makes cannot be read against another one."""
+    """The whole point of the fit: 0.7/1.5 is a different share under each form and at each resolution.
+
+    The cell it makes cannot be read against another one.
+    """
     index = stamps(35)
     grid = grid_of(hump(index) + np.arange(index.size) % 31, index, PER_BAR)
     relative = grid.relative_for(PER_BAR)
@@ -484,7 +497,7 @@ def test_a_series_with_no_measured_ratio_is_refused_rather_than_cut_at_nan() -> 
         (0.9, 0.1, "exceeds heavy_quantile"),
     ],
 )
-def test_an_impossible_pair_of_quantiles_is_refused(thin, heavy, message) -> None:
+def test_an_impossible_pair_of_quantiles_is_refused(thin: float, heavy: float, message: str) -> None:
     with pytest.raises(VolumeError, match=message):
         volume.thresholds_from_quantiles(np.arange(10.0), thin, heavy)
 
@@ -551,7 +564,7 @@ def bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
 def prepared(**spec: object) -> context.Dataset:
     return context.prepare(
         bars(),
-        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),  # type: ignore[arg-type]  # each caller passes a field's own type
         bar_minutes=1,
     )
 
@@ -612,7 +625,7 @@ VOLUME_AXES = {
     "archetype",
     [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER],
 )
-def test_every_archetype_can_sweep_every_volume_axis(archetype) -> None:
+def test_every_archetype_can_sweep_every_volume_axis(archetype: archetypes.Archetype) -> None:
     assert archetype.sweepable >= VOLUME_AXES, archetype.name
 
 
@@ -641,11 +654,11 @@ def test_a_swept_form_reaches_the_context_spec_once_per_distinct_series() -> Non
 
 
 @pytest.mark.parametrize("axis", sorted(VOLUME_AXES - {"volume_filter"}))
-def test_sweeping_a_volume_axis_that_no_filter_reads_is_refused(axis) -> None:
+def test_sweeping_a_volume_axis_that_no_filter_reads_is_refused(axis: str) -> None:
     """``ALL_STATES`` is 7, so a truthiness test would read the filter as switched on."""
     values = [0.5, 1.5] if axis in {"volume_thin_below", "volume_heavy_above"} else [10, 20]
     with pytest.raises(sweep.SweepError, match="volume_filter"):
-        sweep.Grid.of(**{axis: values})
+        sweep.Grid.of(**{axis: values})  # type: ignore[arg-type]  # each keyword is an axis of the base
 
 
 @pytest.mark.parametrize(
@@ -656,7 +669,9 @@ def test_sweeping_a_volume_axis_that_no_filter_reads_is_refused(axis) -> None:
         (crossover_signal, EmaCrossoverParams),
     ],
 )
-def test_the_filter_narrows_a_signal_to_the_states_it_admits(signal_fn, params_cls) -> None:
+def test_the_filter_narrows_a_signal_to_the_states_it_admits(
+    signal_fn: Callable[[context.Dataset, FilteredParams], BoolArray], params_cls: type[FilteredParams]
+) -> None:
     spec = ContextSpec(
         ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
         atr_periods=(14,),
@@ -737,7 +752,7 @@ def test_a_filtered_run_enters_only_inside_the_admitted_states() -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_an_impossible_filter_is_refused_at_construction(params_cls) -> None:
+def test_an_impossible_filter_is_refused_at_construction(params_cls: type[FilteredParams]) -> None:
     with pytest.raises(VolumeError):
         params_cls(volume_filter=0)
     with pytest.raises(VolumeError):
@@ -745,7 +760,9 @@ def test_an_impossible_filter_is_refused_at_construction(params_cls) -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_a_degenerate_window_form_or_threshold_pair_is_refused_at_construction(params_cls) -> None:
+def test_a_degenerate_window_form_or_threshold_pair_is_refused_at_construction(
+    params_cls: type[FilteredParams],
+) -> None:
     with pytest.raises(VolumeError, match="one-bar window"):
         params_cls(volume_rolling_bars=1)
     with pytest.raises(VolumeError, match="sessions"):
@@ -757,20 +774,20 @@ def test_a_degenerate_window_form_or_threshold_pair_is_refused_at_construction(p
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_the_rolling_window_is_checked_whatever_the_form(params_cls) -> None:
+def test_the_rolling_window_is_checked_whatever_the_form(params_cls: type[FilteredParams]) -> None:
     # Otherwise a nonsense value rides along inertly until the form is swept onto it.
     with pytest.raises(VolumeError, match="one-bar window"):
         params_cls(volume_form=int(VolumeForm.PER_BAR), volume_rolling_bars=0)
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_the_key_says_which_series_the_combination_reads(params_cls) -> None:
+def test_the_key_says_which_series_the_combination_reads(params_cls: type[FilteredParams]) -> None:
     params = params_cls(volume_form=int(VolumeForm.ROLLING), volume_rolling_bars=45)
     assert params.volume_key == volume.key(VolumeForm.ROLLING, 45, BASELINE)
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_the_volume_parameters_reach_the_results_row(params_cls) -> None:
+def test_the_volume_parameters_reach_the_results_row(params_cls: type[FilteredParams]) -> None:
     # They are parameters, so they ride in ``as_dict`` like every other one -- which is what
     # stops two rows of a volume sweep being indistinguishable in the results table.
     row = params_cls(volume_filter=VolumeState.HEAVY.bit, volume_rolling_bars=45).as_dict()

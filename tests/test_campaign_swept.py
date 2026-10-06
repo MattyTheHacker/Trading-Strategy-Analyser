@@ -16,7 +16,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, resample
+from nqbt import archetypes, resample, splice
 from tests.test_campaign_shortlist import synthetic_bars
 from tools import campaign_swept as module
 from tools.campaign_holdout import JOIN_KEYS
@@ -96,8 +96,10 @@ def measured(**columns: object) -> pd.DataFrame:
 
 
 def test_the_stored_stamp_is_read_back_into_the_archives_own_zone() -> None:
-    """``save_sweep`` stores it naive and the spliced series is tz-aware, so a bare compare
-    would raise rather than cut."""
+    """``save_sweep`` stores it naive and the spliced series is tz-aware.
+
+    A bare compare would raise rather than cut.
+    """
     bars = synthetic_bars(n=200)
     stored = stored_frame(bars, 0, 150)
 
@@ -105,8 +107,10 @@ def test_the_stored_stamp_is_read_back_into_the_archives_own_zone() -> None:
 
 
 def test_the_archive_cut_back_is_tried_before_the_archive_as_it_stands() -> None:
-    """The order is the whole behaviour: preferring today's bars would silently read a holdout
-    the stored row never measured."""
+    """The order is the whole behaviour.
+
+    Preferring today's bars would silently read a holdout the stored row never measured.
+    """
     bars = synthetic_bars(n=200)
     cut, whole = candidate_bars(stored_frame(bars, 0, 150), bars)
 
@@ -126,8 +130,10 @@ def test_a_cell_is_run_on_the_window_its_rows_were_swept_on_where_that_survives(
 
 
 def test_a_window_no_truncation_recovers_falls_back_and_says_so() -> None:
-    """NQ gained history earlier than its tail, so its 60/40 split moved and nothing recovers
-    it -- the run still happens and the cell is reported as not being on the swept bars."""
+    """NQ gained history earlier than its tail, so its 60/40 split moved and nothing recovers it.
+
+    The run still happens and the cell is reported as not being on the swept bars.
+    """
     bars = synthetic_bars(n=3000)
     stored = stored_frame(bars, 0, 10)
     chosen, swept = bars_for((bars,), stored, stored_row(), 5)
@@ -159,8 +165,11 @@ def test_a_re_run_that_reproduces_its_stored_rows_reconciles_on_both_figures() -
 
 
 def test_a_re_run_that_no_longer_reproduces_is_counted_rather_than_raised() -> None:
-    """The weakening this module exists for: an archive that moved under a stored row makes the
-    *levels* this run's, and refusing the run would leave a gate-4 read with no book at all."""
+    """The weakening this module exists for.
+
+    An archive that moved under a stored row makes the *levels* this run's, and refusing the run
+    would leave a gate-4 read with no book at all.
+    """
     table = reconciliation(measured(net_pnl=[-10.0, 68.0]), CELL_KEYS)
 
     assert table["same_trades"].iloc[0] == 2
@@ -194,13 +203,15 @@ def test_the_stored_figures_a_re_run_is_read_back_against_are_tagged_as_stored()
 def test_every_configuration_gets_a_log_keyed_by_the_ids_its_row_carries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A log filed under the wrong key would attribute a whole decomposition to another
-    configuration, which is the failure ``campaign_shortlist.verify`` exists to stop."""
+    """A log filed under the wrong key would attribute a whole decomposition to another configuration.
+
+    That is the failure ``campaign_shortlist.verify`` exists to stop.
+    """
     bars = synthetic_bars(n=6000)
     frame = resample.resample(source(bars, HELD_OUT), 5)
-    monkeypatch.setattr(module.splice, "load_continuous", lambda root: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
     monkeypatch.setattr(
-        module, "stored_rows", lambda name, root, window: stored_frame(frame, 0, len(frame) - 1)
+        module, "stored_rows", lambda _name, _root, _window: stored_frame(frame, 0, len(frame) - 1)
     )
     logs, reconciled = logs_for(archetypes.INSIDEBAR.name, stored_row(), "MNQ")
 
@@ -214,8 +225,8 @@ def test_a_cell_read_off_bars_it_was_not_swept_on_reaches_the_reconciliation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bars = synthetic_bars(n=6000)
-    monkeypatch.setattr(module.splice, "load_continuous", lambda root: bars)
-    monkeypatch.setattr(module, "stored_rows", lambda name, root, window: stored_frame(bars, 0, 10))
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
+    monkeypatch.setattr(module, "stored_rows", lambda _name, _root, _window: stored_frame(bars, 0, 10))
     _, reconciled = logs_for(archetypes.INSIDEBAR.name, stored_row(), "MNQ")
 
     assert bool(reconciled[SWEPT_BARS].iloc[0]) is False

@@ -9,6 +9,7 @@ Prices are kept small and round so the arithmetic is checkable by eye.
 """
 
 from dataclasses import replace
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
@@ -16,36 +17,47 @@ import pytest
 
 from nqbt import context, sessions, sweep
 from nqbt.context import ContextError
-from nqbt.instruments import MNQ, NQ
+from nqbt.instruments import MNQ, NQ, Instrument
 from nqbt.sim import bracket, insidebar
 from nqbt.sim.insidebar import insidebar_direction, insidebar_signal, run_insidebar
 from nqbt.sim.types import InsideBarParams
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nqbt.arrays import FloatArray
+
+type Row = tuple[float, float, float, float]
+"""One bar as open, high, low, close."""
+
+type PerBar = float | Sequence[float] | FloatArray
+"""One value for every bar, or a value per bar."""
+
 TICK = 0.25
 
 
-def simulate(
-    rows,
-    signal_at=(),
+def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
+    rows: Sequence[Row],
+    signal_at: Sequence[int] = (),
     *,
-    max_rows=None,
-    direction=LONG,
-    atr=4.0,
-    force_flat_at=(),
-    quantities=(4,),
-    atr_multiplier=1.0,
-    tp_multiplier=1.0,
-    slippage=0.0,
-    commission=0.0,
-    instrument=MNQ,
-    bars_required=-1,
-    block_entry_at_close=True,
-    max_hold_bars=0,
-    fill_limit_on_touch=True,
-    ambiguity_policy=0,
-    round_targets=True,
-):
+    max_rows: int | None = None,
+    direction: float = LONG,
+    atr: PerBar = 4.0,
+    force_flat_at: Sequence[int] = (),
+    quantities: Sequence[int] = (4,),
+    atr_multiplier: float = 1.0,
+    tp_multiplier: float = 1.0,
+    slippage: float = 0.0,
+    commission: float = 0.0,
+    instrument: Instrument = MNQ,
+    bars_required: int = -1,
+    block_entry_at_close: bool = True,
+    max_hold_bars: int = 0,
+    fill_limit_on_touch: bool = True,
+    ambiguity_policy: int = 0,
+    round_targets: bool = True,
+) -> tuple[int, FloatArray]:
     """Simulate hand-written OHLC rows.
 
     ``signal_at`` lists the bars whose close schedules an entry and ``direction`` is the side
@@ -90,12 +102,15 @@ def simulate(
     return count, out
 
 
-def run(rows, signal_at=(), **kwargs):
+def run(rows: Sequence[Row], signal_at: Sequence[int] = (), **kwargs: object) -> pd.DataFrame:
     """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
-    count, out = simulate(rows, signal_at, **kwargs)
+    count, out = simulate(rows, signal_at, **kwargs)  # type: ignore[arg-type]  # the keywords are simulate's own
     assert count >= 0, "trade buffer overflowed"
 
-    return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
+    instrument: object = kwargs.get("instrument", MNQ)
+    assert isinstance(instrument, Instrument)
+
+    return validate(trades_to_frame(out, count, instrument=instrument.symbol))
 
 
 FLAT = [(100.0, 100.5, 99.5, 100.0)] * 6
@@ -139,8 +154,11 @@ def test_slippage_on_the_entry_takes_the_direction_sign() -> None:
 
 
 def test_the_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
-    """NT8 fills the resting order and only then flattens -- ``docs/nt8-fidelity.md``,
-    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    """NT8 fills the resting order and only then flattens.
+
+    ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat bar, and is flattened at
+    its close".
+    """
     trades = run(FLAT, signal_at=[1], force_flat_at=[2], atr=40.0)
     assert list(trades["entry_bar"].unique()) == [2]
     assert set(trades["exit_reason"]) == {"session_close"}
@@ -286,7 +304,7 @@ def test_a_tp_multiplier_outside_nt8s_range_is_refused(value: float) -> None:
 def test_the_target_multiplier_is_a_sweepable_axis() -> None:
     """What #197 was for: the campaign could move the stop across the grid and not the target."""
     combinations = sweep.Grid.of(InsideBarParams(), tp_multiplier=[1.0, 2.0, 4.0]).combinations()
-    assert {p.tp_multiplier for p in combinations} == {1.0, 2.0, 4.0}
+    assert {cast("InsideBarParams", p).tp_multiplier for p in combinations} == {1.0, 2.0, 4.0}
 
 
 def test_the_bracket_reads_the_signal_bars_atr_not_the_fill_bars() -> None:
@@ -449,7 +467,7 @@ SESSION_CLOSE = "2024-01-16 22:00"
 so without it a handful of hand-written rows would be a session ending wherever they stop."""
 
 
-def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
+def frame(rows: Sequence[Row], start: str = "2024-01-16 15:00") -> pd.DataFrame:
     """Build hand-written bars on a minute index, stamped mid-session unless told otherwise.
 
     A copy of the final row is appended at :data:`SESSION_CLOSE` to close the session, so the
@@ -457,7 +475,7 @@ def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
     """
     arr = np.asarray(rows, dtype=np.float64)
     idx = pd.date_range(start, periods=len(arr), freq="min", tz="UTC")
-    idx = idx.append(pd.DatetimeIndex([pd.Timestamp(SESSION_CLOSE, tz="UTC")]))
+    idx = pd.DatetimeIndex(idx.append(pd.DatetimeIndex([pd.Timestamp(SESSION_CLOSE, tz="UTC")])))
     arr = np.vstack([arr, arr[-1]])
     out = pd.DataFrame(
         {
@@ -474,12 +492,12 @@ def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
     return out
 
 
-def prepared(bars: pd.DataFrame, params: InsideBarParams):
+def prepared(bars: pd.DataFrame, params: InsideBarParams) -> context.Dataset:
     """Prepare the dataset the archetype's own ``ContextSpec`` asks for."""
     return context.prepare(bars, sweep.Grid.of(params).required_context())
 
 
-def signalling(**overrides) -> InsideBarParams:
+def signalling(**overrides: object) -> InsideBarParams:
     """Build params with short periods, so three real averages sit under a rising close on hand-built bars."""
     defaults = {
         "ema_period": 2,
@@ -489,7 +507,7 @@ def signalling(**overrides) -> InsideBarParams:
         "bars_required_to_trade": 0,
     }
 
-    return InsideBarParams(**{**defaults, **overrides})
+    return InsideBarParams(**{**defaults, **overrides})  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 # Bar 0 is the mother bar, bar 1 is inside it, and bar 2's close breaks out above.

@@ -13,17 +13,9 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
-from test_campaign_review import (  # noqa: F401 - fixtures
-    COMBO_ID,
-    HEAVY,
-    THIN,
-    bars,
-    data,
-    stored_row,
-    trade_log,
-)
 
-from nqbt import annotate, archetypes, context, notes, results
+from nqbt import annotate, archetypes, context, notes, resample, results, splice
+from tests.test_campaign_review import COMBO_ID, HEAVY, THIN, bars, dataset, stored_row, trade_log
 from tools import campaign_annotate
 from tools.campaign_annotate import annotation_spec, main, store_row, thresholds_for
 
@@ -32,6 +24,12 @@ if TYPE_CHECKING:
 
 COMPRESSED = 0.25
 EXPANDED = 0.75
+
+
+@pytest.fixture(scope="module")
+def data() -> context.Dataset:
+    """Provide ``test_campaign_review``'s :func:`dataset`, built once per module."""
+    return dataset()
 
 
 def combo_frame() -> pd.DataFrame:
@@ -48,7 +46,7 @@ def combo_frame() -> pd.DataFrame:
 
 
 @pytest.fixture
-def stocked(tmp_path: Path, data):
+def stocked(tmp_path: Path, data: context.Dataset) -> tuple[Path, int]:
     """Provide a database holding one combination's summary row and its stored trade log."""
     db = tmp_path / "InsideBar.duckdb"
     sweep_id = results.save_sweep(
@@ -102,7 +100,7 @@ def test_the_agreement_score_is_read_as_a_whole_number() -> None:
 # -- what a dataset has to hold ------------------------------------------------
 
 
-def test_the_spec_covers_the_configurations_own_series_as_well_as_the_reviews(data) -> None:
+def test_the_spec_covers_the_configurations_own_series_as_well_as_the_reviews() -> None:
     """The union is what lets one prepared dataset serve a whole block of stored rows."""
     spec = annotation_spec(pd.DataFrame([stored_row()]), archetypes.get("InsideBar"))
     assert spec.needs_time_of_day, "the clock is the review's half"
@@ -113,7 +111,9 @@ def test_the_spec_covers_the_configurations_own_series_as_well_as_the_reviews(da
 # -- storing one row -----------------------------------------------------------
 
 
-def test_a_stored_annotation_carries_the_context_at_each_trades_entry_bar(stocked, data) -> None:
+def test_a_stored_annotation_carries_the_context_at_each_trades_entry_bar(
+    stocked: tuple[Path, int], data: context.Dataset
+) -> None:
     db, sweep_id = stocked
     assert store_row(stored_row(sweep_id=sweep_id), data, db, "MNQ", -1.0)
 
@@ -123,7 +123,7 @@ def test_a_stored_annotation_carries_the_context_at_each_trades_entry_bar(stocke
     assert set(stored["sweep_id"]) == {sweep_id}
 
 
-def test_the_cut_is_stored_with_the_rows_it_cut(stocked, data) -> None:
+def test_the_cut_is_stored_with_the_rows_it_cut(stocked: tuple[Path, int], data: context.Dataset) -> None:
     db, sweep_id = stocked
     store_row(stored_row(sweep_id=sweep_id), data, db, "MNQ", -1.0)
     stored = results.query("SELECT * FROM annotations", db)
@@ -131,7 +131,9 @@ def test_the_cut_is_stored_with_the_rows_it_cut(stocked, data) -> None:
     assert stored["cut_volume_heavy_above"].iloc[0] == HEAVY
 
 
-def test_storing_a_row_twice_replaces_rather_than_doubles_it(stocked, data) -> None:
+def test_storing_a_row_twice_replaces_rather_than_doubles_it(
+    stocked: tuple[Path, int], data: context.Dataset
+) -> None:
     """A doubled annotation still joins and every count taken through it moves."""
     db, sweep_id = stocked
     row = stored_row(sweep_id=sweep_id)
@@ -140,18 +142,18 @@ def test_storing_a_row_twice_replaces_rather_than_doubles_it(stocked, data) -> N
     assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == len(trade_log(data))
 
 
-def test_a_row_with_no_stored_log_is_named_and_skipped(tmp_path: Path, data) -> None:
+def test_a_row_with_no_stored_log_is_named_and_skipped(tmp_path: Path, data: context.Dataset) -> None:
     empty = tmp_path / "empty.duckdb"
     assert not store_row(stored_row(), data, empty, "MNQ", -1.0)
 
 
 def test_a_log_whose_fill_lands_outside_its_bar_is_skipped_rather_than_annotated(
-    tmp_path: Path, data
+    tmp_path: Path, data: context.Dataset
 ) -> None:
     """The price check is the only thing that catches a back-adjusted series."""
     db = tmp_path / "InsideBar.duckdb"
     moved = trade_log(data)
-    moved.loc[0, "entry_price"] = float(moved.loc[0, "entry_price"]) + 500.0
+    moved.loc[0, "entry_price"] = float(moved["entry_price"].loc[0]) + 500.0
     results.save_trades(moved, 1, COMBO_ID, db)
 
     assert not store_row(stored_row(sweep_id=1), data, db, "MNQ", -1.0)
@@ -163,36 +165,38 @@ def test_a_log_whose_fill_lands_outside_its_bar_is_skipped_rather_than_annotated
 # -- end to end ----------------------------------------------------------------
 
 
-def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db: Path, frame: pd.DataFrame) -> int:
     monkeypatch.setattr(campaign_annotate, "shortlist", lambda *_: rows)
     monkeypatch.setattr(campaign_annotate, "db_path", lambda _: db)
     monkeypatch.setattr(campaign_annotate, "source", lambda bars, _window: bars)
-    monkeypatch.setattr(campaign_annotate.splice, "load_continuous", lambda _root: frame)
-    monkeypatch.setattr(campaign_annotate.resample, "resample", lambda bars, _minutes: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: frame)
+    monkeypatch.setattr(resample, "resample", lambda bars, _minutes: bars)
 
     return main(["campaign_annotate.py", "--strategy", "InsideBar"])
 
 
 def test_a_shortlist_with_a_stored_log_is_annotated_and_leaves_a_queryable_view(
     monkeypatch: pytest.MonkeyPatch,
-    stocked,
+    stocked: tuple[Path, int],
 ) -> None:
     db, sweep_id = stocked
     assert run_main(monkeypatch, pd.DataFrame([stored_row(sweep_id=sweep_id)]), db, bars()) == 0
 
-    rows = results.query(f"SELECT * FROM {results.TRADE_VIEW}", db)
+    rows = results.query(f"SELECT * FROM {results.TRADE_VIEW}", db)  # noqa: S608 - the view name is a constant
     assert not rows.empty
     assert "entry_phase" in rows.columns, "the context at the entry bar"
     assert "combo_ema_period" in rows.columns, "the configuration, as a filter"
     assert "net_pnl" in rows.columns, "and the leg's own P&L, not the combination's"
 
 
-def test_the_view_answers_the_question_the_tool_exists_for(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
+def test_the_view_answers_the_question_the_tool_exists_for(
+    monkeypatch: pytest.MonkeyPatch, stocked: tuple[Path, int]
+) -> None:
     """Profitable, and taken in a named phase -- one query over the three tables."""
     db, sweep_id = stocked
     run_main(monkeypatch, pd.DataFrame([stored_row(sweep_id=sweep_id)]), db, bars())
     rows = results.query(
-        f"SELECT entry_phase, COUNT(*) n FROM {results.TRADE_VIEW} "
+        f"SELECT entry_phase, COUNT(*) n FROM {results.TRADE_VIEW} "  # noqa: S608 - the view name is a constant
         f"WHERE net_pnl > 0 AND combo_ema_period = 9 GROUP BY 1 ORDER BY 1",
         db,
     )
@@ -208,7 +212,9 @@ def test_a_shortlist_with_no_stored_logs_fails_rather_than_leaving_an_empty_view
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), db, bars()) == 1
 
 
-def test_an_annotation_carrying_a_note_never_reaches_a_column_a_query_can_group_by(stocked, data) -> None:
+def test_an_annotation_carrying_a_note_never_reaches_a_column_a_query_can_group_by(
+    stocked: tuple[Path, int], data: context.Dataset
+) -> None:
     """The exclusion rail is enforced at this door too -- ``docs/roadmap.md`` §M11.5."""
     db, _ = stocked
     ann = annotate.annotate_trades(trade_log(data), context.prepare(bars(), bar_minutes=1))

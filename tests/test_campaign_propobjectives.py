@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import disambiguate, propaccount, resample, results, sessions, sweep
+from nqbt import disambiguate, propaccount, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import InsideBarParams
 from tools import campaign_propobjectives
@@ -44,11 +44,13 @@ from tools.campaign_shortlist import source
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from nqbt.arrays import DateArray
+
 ROOT = "MNQ"
 START = dt.date(2024, 1, 2)
 
 
-def days_from(start: dt.date, n: int) -> np.ndarray:
+def days_from(start: dt.date, n: int) -> DateArray:
     """Build a calendar of ``n`` consecutive trading days, so a count of days is a count of dates."""
     return np.datetime64(start, "D") + np.arange(n).astype("timedelta64[D]")
 
@@ -93,7 +95,7 @@ def evaluation(**overrides: object) -> propaccount.PropAccount:
         "withdrawal_threshold": 10_000.0,
     }
 
-    return propaccount.PropAccount(name="Evaluation", rules=propaccount.AccountRules(**(fields | overrides)))
+    return propaccount.PropAccount(name="Evaluation", rules=propaccount.AccountRules(**(fields | overrides)))  # type: ignore[arg-type]  # AccountRules' own fields
 
 
 def funded(**overrides: object) -> propaccount.PropAccount:
@@ -117,10 +119,14 @@ def test_the_days_between_two_dates_count_both_ends_and_only_trading_days() -> N
 
 
 def test_the_calendar_holds_each_session_day_once_and_no_day_the_break_alone_touched() -> None:
-    """A trading day is counted from the bars rather than from the log, so a day the strategy
-    did not trade still counts toward how long an account lived."""
+    """A trading day is counted from the bars rather than from the log.
+
+    A day the strategy did not trade still counts toward how long an account lived.
+    """
     in_session = pd.date_range("2024-01-02 15:00", periods=120, freq="min", tz="UTC")
-    in_session = in_session.append(pd.date_range("2024-01-03 15:00", periods=120, freq="min", tz="UTC"))
+    in_session = pd.DatetimeIndex(
+        in_session.append(pd.date_range("2024-01-03 15:00", periods=120, freq="min", tz="UTC"))
+    )
     in_break = pd.date_range("2024-01-04 22:10", periods=30, freq="min", tz="UTC")
     bars = pd.DataFrame({"close": 1.0}, index=in_session.append(in_break))
     assert not sessions.classify(in_break).in_session.any(), "fixture: 17:10 to 17:40 ET is the break"
@@ -141,8 +147,10 @@ def test_a_firm_with_one_rule_set_for_both_phases_answers_every_objective() -> N
 
 
 def test_a_split_firm_answers_the_evaluation_from_one_preset_and_the_funded_life_from_the_other() -> None:
-    """What a Test preset does after it passes is a fiction, and a PRO preset has no evaluation
-    -- ``docs/roadmap.md`` § "A firm that changes its rules at the pass ships as two presets"."""
+    """What a Test preset does after it passes is a fiction, and a PRO preset has no evaluation.
+
+    ``docs/roadmap.md`` § "A firm that changes its rules at the pass ships as two presets".
+    """
     assert names(propaccount.TPT_50K_TEST) == {"pass_rate", "fees_per_pass", "days_to_payout"}
     assert names(propaccount.TPT_50K_PRO) == {"funded_days"}
 
@@ -180,8 +188,10 @@ def test_an_attempt_that_never_passed_has_no_funded_life_at_all() -> None:
 
 
 def test_the_first_payout_is_counted_from_the_first_account_even_when_a_later_one_pays() -> None:
-    """The first account breaches on day 0 and the second passes and withdraws on day 1: two
-    trading days from opening the first account, not one from opening the second."""
+    """The first account breaches on day 0 and the second passes and withdraws on day 1.
+
+    Two trading days from opening the first account, not one from opening the second.
+    """
     account = evaluation(withdrawal_threshold=1_000.0)
     result = replayed([-2_500.0, 3_000.0], account)
     assert result.attempts == 2
@@ -219,8 +229,10 @@ def test_fees_per_pass_is_what_the_whole_sequence_cost_over_what_it_passed() -> 
 
 
 def test_an_objective_the_preset_cannot_answer_is_blank_and_never_a_number() -> None:
-    """A PRO preset's "pass" is its first profitable day, so a pass rate read off it would be
-    a figure about nothing."""
+    """A PRO preset's "pass" is its first profitable day.
+
+    A pass rate read off it would be a figure about nothing.
+    """
     measured = measure(replayed([100.0, 100.0], funded()), funded(), days_from(START, 30))
     for name in ("pass_rate", "fees_per_pass", "days_to_payout"):
         assert np.isnan(measured[name])
@@ -229,8 +241,10 @@ def test_an_objective_the_preset_cannot_answer_is_blank_and_never_a_number() -> 
 
 
 def test_a_rule_set_that_refuses_the_log_costs_only_its_own_row() -> None:
-    """Apex reads open equity, so a log with no excursions cannot answer it; the closed-book
-    rule set still can, and dropping both would read as a preset nobody offered."""
+    """Apex reads open equity, so a log with no excursions cannot answer it.
+
+    The closed-book rule set still can, and dropping both would read as a preset nobody offered.
+    """
     log = leg_log([100.0, 100.0]).assign(mae_points=np.nan, mfe_points=np.nan)
     row = pd.Series(
         {
@@ -384,8 +398,11 @@ def pool_args(size: int) -> argparse.Namespace:
 def test_the_pool_leaves_out_the_hold_caps_and_takes_a_configuration_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The ``narrow`` row is the ``bracket`` row's configuration under another name; re-run on
-    one archive the two are the same trades, and two copies would fill two shortlist places."""
+    """The ``narrow`` row is the ``bracket`` row's configuration under another name.
+
+    Re-run on one archive the two are the same trades, and two copies would fill two shortlist
+    places.
+    """
     monkeypatch.setattr(campaign_propobjectives, "ranked_pairs", lambda *_: paired_rows())
     kept = pool("InsideBar", ROOT, pool_args(10))
     assert list(zip(kept["variant"], kept["combo_id"], strict=True)) == [("bracket", 0), ("bracket", 2)]
@@ -407,8 +424,10 @@ def test_the_pool_stops_at_its_size_in_rank_order(monkeypatch: pytest.MonkeyPatc
 def test_the_pool_ranks_every_stored_pair_rather_than_a_shortlist_of_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Hold arms and duplicates are removed after ranking, so a truncated ranking would leave a
-    pool smaller than asked for."""
+    """Hold arms and duplicates are removed after ranking.
+
+    A truncated ranking would leave a pool smaller than asked for.
+    """
     asked: list[tuple[object, ...]] = []
 
     def fake_ranked_pairs(*args: object) -> pd.DataFrame:
@@ -424,8 +443,11 @@ def test_the_pool_ranks_every_stored_pair_rather_than_a_shortlist_of_them(
 def test_a_row_the_fill_assumption_could_have_decided_never_enters_the_pool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ranking a pool on profit factor selects for ``ambiguous_share``, and §M28.7's rejection is
-    what that looks like -- profit factors past 200 that are the assumption and not the entry."""
+    """Ranking a pool on profit factor selects for ``ambiguous_share``.
+
+    §M28.7's rejection is what that looks like -- profit factors past 200 that are the
+    assumption and not the entry.
+    """
     rows = paired_rows()
     rows.loc[0, "ambiguous_share_sel"] = disambiguate.MIN_AMBIGUOUS_SHARE + 0.001
     monkeypatch.setattr(campaign_propobjectives, "ranked_pairs", lambda *_: rows)
@@ -517,7 +539,7 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     return frame
 
 
-def stored_selection(db, bars: pd.DataFrame) -> pd.DataFrame:
+def stored_selection(db: Path, bars: pd.DataFrame) -> pd.DataFrame:
     """Sweep two InsideBar configurations on the selection window and read them back as stored rows."""
     frame = resample.resample(source(bars, "selection"), 5)
     grid = sweep.Grid.of(
@@ -570,8 +592,10 @@ def test_a_window_is_re_run_and_replayed_through_every_preset_each_configuration
 def test_a_stored_row_the_archive_no_longer_reproduces_is_re_measured_rather_than_refused(
     tmp_path: Path,
 ) -> None:
-    """The archive moved under every campaign stored before 2026-09-16, so the figures a
-    shortlist is read by are the re-run's own and never the stored row's."""
+    """The archive moved under every campaign stored before 2026-09-16.
+
+    The figures a shortlist is read by are the re-run's own and never the stored row's.
+    """
     bars = synthetic_bars()
     rows = stored_selection(tmp_path / "InsideBar.duckdb", bars)
     stale = rows.assign(trades=rows["trades"] + 1, profit_factor=99.0)
@@ -586,7 +610,7 @@ def test_a_stored_row_the_archive_no_longer_reproduces_is_re_measured_rather_tha
 
 
 def run_main(monkeypatch: pytest.MonkeyPatch, table: pd.DataFrame, *extra: str) -> int:
-    monkeypatch.setattr(campaign_propobjectives.splice, "load_continuous", lambda _: pd.DataFrame())
+    monkeypatch.setattr(splice, "load_continuous", lambda _: pd.DataFrame())
     monkeypatch.setattr(campaign_propobjectives, "run_cell", lambda *_: (held_frame(), table))
 
     return main(["campaign_propobjectives.py", "--strategy", "InsideBar", "--preset", "Apex 50K", *extra])
@@ -618,7 +642,6 @@ def test_an_unknown_preset_is_refused_by_name(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_a_rerun_of_an_unknown_archetype_fails_before_it_re_runs_anything() -> None:
-    """A wrong name is a KeyError up front rather than a log rebuilt from another archetype's
-    parameters."""
+    """A wrong name is a KeyError up front rather than a log rebuilt from another archetype's parameters."""
     with pytest.raises(KeyError):
         list(campaign_propobjectives.rerun_logs("NoSuchArchetype", pd.DataFrame(), ROOT, pd.DataFrame()))

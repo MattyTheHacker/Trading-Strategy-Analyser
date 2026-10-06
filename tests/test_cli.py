@@ -7,6 +7,7 @@ which is exactly the regression these tests exist to catch.
 import argparse
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -14,9 +15,12 @@ import pytest
 
 from nqbt import cli, conditions, ingest, splice, stats
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
 
 @pytest.fixture(autouse=True)
-def console(caplog):
+def console(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     """Capture what the CLI logs, at the level its own entry point sets.
 
     Deliberately does not call ``nqbt.logsetup.configure``: it uses ``basicConfig(force=True)``,
@@ -29,11 +33,11 @@ def console(caplog):
 
 
 @pytest.fixture
-def base_args():
+def base_args() -> argparse.Namespace:
     return argparse.Namespace(data_dir=Path("/mock/data"), cache_dir=Path("/mock/cache"))
 
 
-def output(caplog) -> str:
+def output(caplog: pytest.LogCaptureFixture) -> str:
     return "\n".join(r.getMessage() for r in caplog.records)
 
 
@@ -50,7 +54,9 @@ def failing_main(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
     "error",
     [FileNotFoundError("no cached bars"), splice.SpliceError("no crossover"), ingest.IngestError("no bars")],
 )
-def test_main_explains_an_expected_failure_on_stderr(monkeypatch: pytest.MonkeyPatch, capsys, error) -> None:
+def test_main_explains_an_expected_failure_on_stderr(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], error: Exception
+) -> None:
     """An expected failure is explained, not swallowed into a bare exit code.
 
     Reading ``capsys`` rather than ``caplog`` is the point: it exercises the real handler
@@ -64,7 +70,9 @@ def test_main_explains_an_expected_failure_on_stderr(monkeypatch: pytest.MonkeyP
     assert captured.out == ""
 
 
-def test_main_writes_results_to_stdout_so_they_can_be_piped(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+def test_main_writes_results_to_stdout_so_they_can_be_piped(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     parser = MagicMock()
     parser.parse_args.return_value = argparse.Namespace(func=lambda _: _log_and_succeed())
     monkeypatch.setattr(cli, "build_parser", MagicMock(return_value=parser))
@@ -85,17 +93,17 @@ def _log_and_succeed() -> int:
 
 
 def test_cmd_ingest_reports_the_merge_and_the_bar_count(
-    monkeypatch: pytest.MonkeyPatch, base_args, console
+    monkeypatch: pytest.MonkeyPatch, base_args: argparse.Namespace, console: pytest.LogCaptureFixture
 ) -> None:
     base_args.root = "MNQ"
     base_args.force = False
 
     merge = MagicMock(added=True, revised=False, bars=500)
-    merge.__str__ = lambda self: "MNQ 03-24: +12 bars"
+    merge.__str__.return_value = "MNQ 03-24: +12 bars"  # type: ignore[attr-defined]  # a MagicMock method
     result = MagicMock(warnings=["a stray print"], rows_total=100)
-    result.__str__ = lambda self: "MNQ 03-24 appended"
+    result.__str__.return_value = "MNQ 03-24 appended"  # type: ignore[attr-defined]  # a MagicMock method
     ingest_all = MagicMock(return_value=([merge], [result], ["NG 02-26.Last.txt: not quarterly"]))
-    monkeypatch.setattr(cli.ingest, "ingest_all", ingest_all)
+    monkeypatch.setattr(ingest, "ingest_all", ingest_all)
 
     assert cli._cmd_ingest(base_args) == 0
     ingest_all.assert_called_once_with(
@@ -118,18 +126,18 @@ def test_cmd_ingest_reports_the_merge_and_the_bar_count(
 
 
 def test_cmd_contracts_says_so_when_nothing_is_ingested(
-    monkeypatch: pytest.MonkeyPatch, base_args, console
+    monkeypatch: pytest.MonkeyPatch, base_args: argparse.Namespace, console: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setattr(cli.ingest, "load_manifest", MagicMock(return_value=None))
+    monkeypatch.setattr(ingest, "load_manifest", MagicMock(return_value=None))
     assert cli._cmd_contracts(base_args) == 1
     assert "nothing ingested yet" in output(console)
 
 
 def test_cmd_contracts_tabulates_every_cached_contract(
-    monkeypatch: pytest.MonkeyPatch, base_args, console
+    monkeypatch: pytest.MonkeyPatch, base_args: argparse.Namespace, console: pytest.LogCaptureFixture
 ) -> None:
     entry = MagicMock(rows=132454, last_timestamp="2024-03-17T14:55:00+00:00")
-    monkeypatch.setattr(cli.ingest, "load_manifest", MagicMock(return_value={"MNQ 03-24": entry}))
+    monkeypatch.setattr(ingest, "load_manifest", MagicMock(return_value={"MNQ 03-24": entry}))
 
     assert cli._cmd_contracts(base_args) == 0
     text = output(console)
@@ -142,7 +150,7 @@ def test_cmd_contracts_tabulates_every_cached_contract(
 # --- splice ------------------------------------------------------------------
 
 
-def splice_args(base_args, *, diagnostics: bool):
+def splice_args(base_args: argparse.Namespace, *, diagnostics: bool) -> argparse.Namespace:
     base_args.root = "MNQ"
     base_args.back_adjust = False
     base_args.confirm_sessions = 1
@@ -152,19 +160,23 @@ def splice_args(base_args, *, diagnostics: bool):
     return base_args
 
 
-def spliced(monkeypatch: pytest.MonkeyPatch, *, early_rolls, rolls=()):
+def spliced(
+    monkeypatch: pytest.MonkeyPatch, *, early_rolls: Iterable[MagicMock], rolls: Iterable[MagicMock] = ()
+) -> pd.DataFrame:
     series = pd.DataFrame(
         {"close": [1.0, 2.0]},
         index=pd.to_datetime(["2024-03-01", "2024-03-02"], utc=True),
     )
     report = MagicMock(early_rolls=list(early_rolls), rolls=list(rolls))
     report.summary.return_value = "MNQ continuous series (raw prices)"
-    monkeypatch.setattr(cli.splice, "splice_root", MagicMock(return_value=(series, report)))
+    monkeypatch.setattr(splice, "splice_root", MagicMock(return_value=(series, report)))
 
     return series
 
 
-def test_cmd_splice_reports_the_series_it_wrote(monkeypatch: pytest.MonkeyPatch, base_args, console) -> None:
+def test_cmd_splice_reports_the_series_it_wrote(
+    monkeypatch: pytest.MonkeyPatch, base_args: argparse.Namespace, console: pytest.LogCaptureFixture
+) -> None:
     spliced(monkeypatch, early_rolls=[])
     assert cli._cmd_splice(splice_args(base_args, diagnostics=False)) == 0
 
@@ -175,7 +187,7 @@ def test_cmd_splice_reports_the_series_it_wrote(monkeypatch: pytest.MonkeyPatch,
 
 
 def test_cmd_splice_prints_the_volume_tables_under_diagnostics(
-    monkeypatch: pytest.MonkeyPatch, base_args, console
+    monkeypatch: pytest.MonkeyPatch, base_args: argparse.Namespace, console: pytest.LogCaptureFixture
 ) -> None:
     roll = MagicMock(notes=["rolled at the coverage boundary"])
     roll.front.nt8_name = "MNQ 03-24"
@@ -192,7 +204,7 @@ def test_cmd_splice_prints_the_volume_tables_under_diagnostics(
 
 
 def test_cmd_splice_stays_quiet_about_rolls_without_diagnostics(
-    monkeypatch: pytest.MonkeyPatch, base_args, console
+    monkeypatch: pytest.MonkeyPatch, base_args: argparse.Namespace, console: pytest.LogCaptureFixture
 ) -> None:
     roll = MagicMock(notes=["rolled at the coverage boundary"])
     spliced(monkeypatch, early_rolls=[], rolls=[roll])
@@ -204,7 +216,7 @@ def test_cmd_splice_stays_quiet_about_rolls_without_diagnostics(
 # --- run ---------------------------------------------------------------------
 
 
-def run_args(base_args, **overrides):
+def run_args(base_args: argparse.Namespace, **overrides: object) -> argparse.Namespace:
     base_args.root = "MNQ"
     base_args.ema = 21
     base_args.slow_sma = 175
@@ -229,13 +241,13 @@ def run_args(base_args, **overrides):
 
 
 @pytest.fixture
-def stub_run(monkeypatch: pytest.MonkeyPatch):
+def stub_run(monkeypatch: pytest.MonkeyPatch) -> pd.DataFrame:
     """Stub everything ``_cmd_run`` calls; these tests are about what it reports."""
     bars = pd.DataFrame(
         {"close": [1.0, 2.0]},
         index=pd.to_datetime(["2024-01-02", "2024-03-01"], utc=True),
     )
-    monkeypatch.setattr(cli.splice, "load_continuous", MagicMock(return_value=bars))
+    monkeypatch.setattr(splice, "load_continuous", MagicMock(return_value=bars))
     monkeypatch.setattr("nqbt.instruments.get_instrument", MagicMock())
     monkeypatch.setattr("nqbt.context.prepare", MagicMock())
 
@@ -267,8 +279,11 @@ def trade_log() -> pd.DataFrame:
     )
 
 
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_says_so_when_there_are_no_trades(
-    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
+    monkeypatch: pytest.MonkeyPatch,
+    base_args: argparse.Namespace,
+    console: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=pd.DataFrame()))
     explain = MagicMock()
@@ -279,11 +294,10 @@ def test_cmd_run_says_so_when_there_are_no_trades(
     explain.assert_not_called()
 
 
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_builds_a_grid_for_every_gate_when_two_of_them_share_a_kind(
     monkeypatch: pytest.MonkeyPatch,
-    base_args,
-    stub_run,
-    console,
+    base_args: argparse.Namespace,
 ) -> None:
     """The stock gates are ema/sma/sma, so a spec keyed by kind loses the fast SMA entirely.
 
@@ -300,11 +314,10 @@ def test_cmd_run_builds_a_grid_for_every_gate_when_two_of_them_share_a_kind(
     assert spec.ma_keys == conditions.ma_keys(ema=(21,), sma=(60, 175))
 
 
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_asks_for_the_kind_each_gate_was_given(
     monkeypatch: pytest.MonkeyPatch,
-    base_args,
-    stub_run,
-    console,
+    base_args: argparse.Namespace,
 ) -> None:
     prepare = MagicMock()
     monkeypatch.setattr("nqbt.context.prepare", prepare)
@@ -317,12 +330,12 @@ def test_cmd_run_asks_for_the_kind_each_gate_was_given(
 
 
 @pytest.mark.parametrize(("explain", "kept"), [(None, False), (20, True)])
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_keeps_the_indicator_values_exactly_when_explain_asked_for_them(
     monkeypatch: pytest.MonkeyPatch,
-    base_args,
-    stub_run,
-    explain,
-    kept,
+    base_args: argparse.Namespace,
+    explain: int | None,
+    kept: bool,  # noqa: FBT001 - a parametrised case
 ) -> None:
     """``--explain`` prepares the moving-average values ``explain_trades`` raises without.
 
@@ -336,8 +349,11 @@ def test_cmd_run_keeps_the_indicator_values_exactly_when_explain_asked_for_them(
     assert prepare.call_args.kwargs["keep_ma_values"] is kept
 
 
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_reports_the_statistics_it_computed(
-    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
+    monkeypatch: pytest.MonkeyPatch,
+    base_args: argparse.Namespace,
+    console: pytest.LogCaptureFixture,
 ) -> None:
     """The profit factor and drawdown reach the output."""
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
@@ -358,8 +374,11 @@ def test_cmd_run_reports_the_statistics_it_computed(
     assert "exit reasons  target 2, stop 1" in text
 
 
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_reports_an_infinite_profit_factor_rather_than_dividing_by_zero(
-    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
+    monkeypatch: pytest.MonkeyPatch,
+    base_args: argparse.Namespace,
+    console: pytest.LogCaptureFixture,
 ) -> None:
     winners = trade_log().assign(net_pnl=[30.0, 10.0, 20.0])
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=winners))
@@ -368,8 +387,11 @@ def test_cmd_run_reports_an_infinite_profit_factor_rather_than_dividing_by_zero(
     assert "profit factor inf" in output(console)
 
 
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_reports_the_profit_factor_stats_defines_when_nothing_won_or_lost(
-    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console
+    monkeypatch: pytest.MonkeyPatch,
+    base_args: argparse.Namespace,
+    console: pytest.LogCaptureFixture,
 ) -> None:
     """Scratches only. Two definitions disagreed here, and ``stats._ratio``'s is the one."""
     scratches = trade_log().assign(net_pnl=[0.0, 0.0, 0.0])
@@ -380,8 +402,12 @@ def test_cmd_run_reports_the_profit_factor_stats_defines_when_nothing_won_or_los
     assert "profit factor 0.000" in output(console)
 
 
+@pytest.mark.usefixtures("stub_run")
 def test_cmd_run_names_every_file_it_wrote(
-    monkeypatch: pytest.MonkeyPatch, base_args, stub_run, console, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    base_args: argparse.Namespace,
+    console: pytest.LogCaptureFixture,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setattr("nqbt.sim.runner.run_deadcat", MagicMock(return_value=trade_log()))
     detail = pd.DataFrame({"trade_id": [1, 2]})
