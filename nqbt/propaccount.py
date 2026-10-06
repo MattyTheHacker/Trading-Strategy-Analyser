@@ -10,6 +10,7 @@ the trade log".
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, NamedTuple
@@ -20,7 +21,7 @@ import pandas as pd
 from nqbt import instruments, sessions, stats
 
 if TYPE_CHECKING:
-    import datetime as dt
+    from collections.abc import Iterator, Mapping
 
     from nqbt.arrays import DateArray, FloatArray, IntArray
 
@@ -28,28 +29,39 @@ __all__ = [
     "APEX_50K",
     "APEX_150K",
     "EXCURSION_COLUMNS",
+    "LINKED_PRESETS",
     "PRESETS",
     "REQUIRED_COLUMNS",
     "TOPSTEP_50K",
     "TOPSTEP_150K",
+    "TPT_25K",
     "TPT_25K_PRO",
     "TPT_25K_TEST",
+    "TPT_50K",
     "TPT_50K_PRO",
     "TPT_50K_TEST",
+    "TPT_150K",
     "TPT_150K_PRO",
     "TPT_150K_TEST",
+    "Account",
     "AccountFees",
     "AccountRules",
     "AccountRun",
+    "Charge",
     "DailyBreach",
     "EquityBasis",
     "ExcursionOrder",
+    "FeeKind",
+    "LinkedAccount",
     "Outcome",
     "PropAccount",
     "PropAccountError",
     "PropReplay",
     "TrailBasis",
     "TrailLock",
+    "Withdrawal",
+    "account_named",
+    "evaluation_of",
     "preset",
     "replay",
 ]
@@ -155,6 +167,13 @@ class Outcome(StrEnum):
 
     BREACHED_DAILY_LOSS = "breached-daily-loss"
     """The daily loss limit was reached, under a rule set where that ends the account."""
+
+    PROMOTED = "promoted"
+    """The evaluation passed and closed, for the funded account a :class:`LinkedAccount` opens."""
+
+
+_BREACHES = frozenset({Outcome.BREACHED_TRAILING, Outcome.BREACHED_DAILY_LOSS})
+"""The outcomes that end an attempt by breaking a rule."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -300,6 +319,33 @@ class AccountFees:
             raise PropAccountError(msg)
 
 
+class FeeKind(StrEnum):
+    """Which of :class:`AccountFees`' fees a charge was."""
+
+    EVALUATION = "evaluation"
+    MONTHLY = "monthly"
+    ACTIVATION = "activation"
+
+
+class Charge(NamedTuple):
+    """One fee, on the day it was charged."""
+
+    day: dt.date
+    amount: float
+    kind: FeeKind
+
+
+class Withdrawal(NamedTuple):
+    """One withdrawal, on the trading day it was taken."""
+
+    day: dt.date
+    withdrawn: float
+    """Taken out of the account, before the firm's split."""
+
+    payout: float
+    """What reached the trader."""
+
+
 @dataclass(frozen=True, slots=True)
 class PropAccount:
     """A named rule set and what it costs."""
@@ -307,6 +353,46 @@ class PropAccount:
     name: str
     rules: AccountRules
     fees: AccountFees = AccountFees()
+
+
+@dataclass(frozen=True, slots=True)
+class LinkedAccount:
+    """An evaluation and the funded account its pass opens, replayed as one sequence.
+
+    Each keeps its own rule set -- ``docs/roadmap.md`` § "A firm that changes its rules at the
+    pass ships as two presets".
+    """
+
+    name: str
+    evaluation: PropAccount
+    funded: PropAccount
+
+    def __post_init__(self) -> None:
+        """Refuse a pair the replay could not tell apart or would charge wrongly at the hand-over."""
+        if self.evaluation.name == self.funded.name:
+            msg: str = (
+                f"the two accounts of {self.name!r} need different names; both are {self.funded.name!r}"
+            )
+            raise PropAccountError(msg)
+
+        if self.evaluation.fees.activation_fee != self.funded.fees.evaluation_fee:
+            msg = (
+                f"{self.name!r} charges the evaluation's activation fee as the funded account's "
+                f"opening fee, once; got {self.evaluation.fees.activation_fee} and "
+                f"{self.funded.fees.evaluation_fee}"
+            )
+            raise PropAccountError(msg)
+
+    @property
+    def opened_by_pass(self) -> PropAccount:
+        """The funded account as a pass opens it, its opening fee already charged as the activation."""
+        fees: AccountFees = dataclasses.replace(self.funded.fees, evaluation_fee=0.0)
+
+        return dataclasses.replace(self.funded, fees=fees)
+
+
+type Account = PropAccount | LinkedAccount
+"""Anything :func:`replay` replays."""
 
 
 APEX_50K = PropAccount(
@@ -499,16 +585,47 @@ Dated, and not quotable terms. Where each number came from: ``docs/roadmap.md`` 
 preset numbers came from".
 """
 
+TPT_25K = LinkedAccount(name="TakeProfitTrader 25K Test+PRO", evaluation=TPT_25K_TEST, funded=TPT_25K_PRO)
+TPT_50K = LinkedAccount(name="TakeProfitTrader 50K Test+PRO", evaluation=TPT_50K_TEST, funded=TPT_50K_PRO)
+TPT_150K = LinkedAccount(name="TakeProfitTrader 150K Test+PRO", evaluation=TPT_150K_TEST, funded=TPT_150K_PRO)
+
+LINKED_PRESETS: dict[str, LinkedAccount] = {linked.name: linked for linked in (TPT_25K, TPT_50K, TPT_150K)}
+"""TakeProfitTrader's Test and PRO presets at each size, chained so each pass opens a PRO."""
+
 
 def preset(name: str) -> PropAccount:
     """Look up a preset by name, case-insensitively."""
+    return _named(name, PRESETS)
+
+
+def account_named(name: str) -> Account:
+    """Look up a preset or a linked pair by name, case-insensitively."""
+    known: dict[str, Account] = {**PRESETS, **LINKED_PRESETS}
+
+    return _named(name, known)
+
+
+def _named[A: PropAccount | LinkedAccount](name: str, known: Mapping[str, A]) -> A:
+    """Return the account in ``known`` called ``name``, ignoring case, or refuse naming every one."""
     wanted: str = name.strip().casefold()
-    for account in PRESETS.values():
+    for account in known.values():
         if account.name.casefold() == wanted:
             return account
 
-    msg: str = f"unknown preset {name!r}; known presets: {', '.join(sorted(PRESETS))}"
+    msg: str = f"unknown preset {name!r}; known presets: {', '.join(sorted(known))}"
     raise PropAccountError(msg)
+
+
+def evaluation_of(account: Account) -> PropAccount:
+    """Return the account an attempt is bought as: a linked pair's evaluation, or the preset itself."""
+    if isinstance(account, LinkedAccount):
+        return account.evaluation
+
+    return account
+
+
+_NOT_FLAT = frozenset({"summary", "charges", "withdrawals"})
+"""The :class:`AccountRun` fields a report row leaves out."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -519,6 +636,9 @@ class AccountRun:
     every other field describes the account. The two part company at a breach, where the
     account is liquidated at the floor and the trade log is not.
     """
+
+    account_name: str
+    """The preset this account ran under, which tells a linked pair's two accounts apart."""
 
     outcome: Outcome
     passed: bool
@@ -562,15 +682,22 @@ class AccountRun:
     net: float
     """:attr:`payout` minus :attr:`fees_paid`: what this attempt was worth."""
 
+    charges: tuple[Charge, ...]
+    """Every fee, dated, adding up to :attr:`fees_paid`."""
+
+    withdrawals: tuple[Withdrawal, ...]
+    """Every withdrawal, dated, adding up to :attr:`withdrawn` and :attr:`payout`."""
+
     summary: stats.Summary
 
     def as_dict(self) -> dict[str, str | float | int | bool | None]:
         """Return a flat mapping of the account's own figures, for a report row.
 
-        The performance half is :attr:`summary`, which carries its own ``as_dict``.
+        The performance half is :attr:`summary`, which carries its own ``as_dict``, and the dated
+        money is :attr:`charges` and :attr:`withdrawals`.
         """
         row: dict[str, str | float | int | bool | None] = {
-            f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.name != "summary"
+            f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.name not in _NOT_FLAT
         }
         row["outcome"] = str(self.outcome)
         row["first_day"] = self.first_day.isoformat()
@@ -588,9 +715,15 @@ class PropReplay:
 
     account_name: str
     attempts: int
+    """Evaluations bought. A linked pair's funded account belongs to the attempt that passed."""
+
     passes: int
+    """Evaluations passed."""
+
     pass_rate: float
     breaches: int
+    """Attempts a breach ended, of either account of a linked pair."""
+
     withdrawn: float
     """Taken out of the accounts, before the firm's split."""
 
@@ -603,7 +736,10 @@ class PropReplay:
 
     trades_taken: int
     trades_total: int
-    """Trades in the log. Below :attr:`trades_taken` by whatever lockouts and breaches skipped."""
+    """Trades in the log from the first account's opening day on.
+
+    Above :attr:`trades_taken` by whatever lockouts and breaches skipped.
+    """
 
     runs: tuple[AccountRun, ...]
     summary: stats.Summary
@@ -661,6 +797,7 @@ class _AccountState:
     first_withdrawal_on: dt.date | None = None
     taken: list[int] = field(default_factory=list)
     daily: list[float] = field(default_factory=list)
+    withdrawals: list[Withdrawal] = field(default_factory=list)
 
 
 class _Attempt(NamedTuple):
@@ -674,54 +811,107 @@ class _Attempt(NamedTuple):
     """Day index the next attempt may open on."""
 
 
-def replay(log: pd.DataFrame, account: PropAccount, *, max_accounts: int = 1) -> PropReplay:
+def replay(
+    log: pd.DataFrame,
+    account: Account,
+    *,
+    max_accounts: int = 1,
+    start: dt.date | None = None,
+) -> PropReplay:
     """Replay ``account``'s rules over a trade log, one attempt after another.
 
     ``max_accounts`` of 1 gives a single verdict; higher opens a fresh account on the day after
-    each breach, up to that many attempts, and nets the withdrawals against the fees.
+    each breach, up to that many attempts, and nets the withdrawals against the fees. The first
+    account opens on the log's first trading day, or its first on or after ``start``.
+
+    A :class:`LinkedAccount` closes its evaluation at the pass and opens the funded account on
+    the next trading day; an attempt ends when either breaches.
     """
     if max_accounts < 1:
         msg: str = f"max_accounts must be at least 1; got {max_accounts}"
         raise PropAccountError(msg)
 
-    table: _TradeTable = _trade_table(log, account.rules)
+    table: _TradeTable = _trade_table(log, needs_excursions=_reads_open_equity(account))
+    first_day: int = _first_day(table, start)
+    funded: PropAccount | None = account.opened_by_pass if isinstance(account, LinkedAccount) else None
     runs: list[AccountRun] = []
     taken: list[int] = []
-    day: int = 0
-    while day < table.n_days and len(runs) < max_accounts:
-        attempt: _Attempt = _run_account(table, account, day)
-        runs.append(_finish(log, table, account, attempt))
+    for opened, attempt in _attempts(table, evaluation_of(account), funded, first_day, max_accounts):
+        runs.append(_finish(log, table, opened, attempt))
         taken.extend(attempt.state.taken)
-        day = attempt.resume
 
-    return _lifetime(log, table, account, tuple(runs), taken)
+    return _lifetime(log, table, account, tuple(runs), taken, first_day)
+
+
+def _reads_open_equity(account: Account) -> bool:
+    """Return whether any rule set the account trades under is measured against open equity."""
+    if isinstance(account, LinkedAccount):
+        return account.evaluation.rules.needs_excursions or account.funded.rules.needs_excursions
+
+    return account.rules.needs_excursions
+
+
+def _first_day(table: _TradeTable, start: dt.date | None) -> int:
+    """Return the index of the first trading day on or after ``start``, or of the log's first."""
+    if start is None:
+        return 0
+
+    return int(np.searchsorted(table.days, np.datetime64(start, "D"), side="left"))
+
+
+def _attempts(
+    table: _TradeTable,
+    bought: PropAccount,
+    funded: PropAccount | None,
+    day: int,
+    max_accounts: int,
+) -> Iterator[tuple[PropAccount, _Attempt]]:
+    """Yield one account after another, each opening on the trading day after the last one closed.
+
+    With a ``funded`` account, each evaluation closes at its pass and the funded account follows.
+    """
+    opened: int = 0
+    while day < table.n_days and opened < max_accounts:
+        evaluation: _Attempt = _run_account(table, bought, day, until_pass=funded is not None)
+        yield bought, evaluation
+        opened += 1
+        day = evaluation.resume
+        if funded is None or evaluation.outcome is not Outcome.PROMOTED or day >= table.n_days:
+            continue
+
+        held: _Attempt = _run_account(table, funded, day)
+        yield funded, held
+        day = held.resume
 
 
 def _lifetime(
     log: pd.DataFrame,
     table: _TradeTable,
-    account: PropAccount,
+    account: Account,
     runs: tuple[AccountRun, ...],
     taken: list[int],
+    first_day: int,
 ) -> PropReplay:
     """Total the attempts, and summarise every trade any of them took."""
-    passes: int = sum(run.passed for run in runs)
+    bought: str = evaluation_of(account).name
+    evaluations: list[AccountRun] = [run for run in runs if run.account_name == bought]
+    passes: int = sum(run.passed for run in evaluations)
     withdrawn: float = sum(run.withdrawn for run in runs)
     payout: float = sum(run.payout for run in runs)
     fees_paid: float = sum(run.fees_paid for run in runs)
 
     return PropReplay(
         account_name=account.name,
-        attempts=len(runs),
+        attempts=len(evaluations),
         passes=passes,
-        pass_rate=passes / len(runs) if runs else 0.0,
-        breaches=sum(run.outcome is not Outcome.SURVIVED for run in runs),
+        pass_rate=passes / len(evaluations) if evaluations else 0.0,
+        breaches=sum(run.outcome in _BREACHES for run in runs),
         withdrawn=withdrawn,
         payout=payout,
         fees_paid=fees_paid,
         net=payout - fees_paid,
         trades_taken=len(taken),
-        trades_total=table.trade_id.size,
+        trades_total=table.trade_id.size - int(table.day_starts[first_day]),
         runs=runs,
         summary=stats.summarise(_legs_taken(log, table, taken)),
     )
@@ -737,9 +927,9 @@ def _legs_taken(log: pd.DataFrame, table: _TradeTable, positions: list[int]) -> 
     return log[log["trade_id"].isin(wanted)]
 
 
-def _trade_table(log: pd.DataFrame, rules: AccountRules) -> _TradeTable:
+def _trade_table(log: pd.DataFrame, *, needs_excursions: bool) -> _TradeTable:
     """Collapse a leg-level log into the per-trade, per-day quantities the replay walks."""
-    _require_columns(log, rules)
+    _require_columns(log, needs_excursions=needs_excursions)
     if log.empty:
         empty_days: DateArray = np.empty(0, dtype="datetime64[D]")
 
@@ -754,7 +944,9 @@ def _trade_table(log: pd.DataFrame, rules: AccountRules) -> _TradeTable:
         )
 
     per_trade: pd.DataFrame = stats.per_trade(log).sort_values("exit_time", kind="stable")
-    excursions: pd.DataFrame = _excursion_dollars(log, rules).reindex(per_trade.index)
+    excursions: pd.DataFrame = _excursion_dollars(log, needs_excursions=needs_excursions).reindex(
+        per_trade.index
+    )
     # The exchange trading day, not the calendar date ``stats.summarise`` groups Sharpe by: a
     # daily loss limit resets at the session open, and the two disagree every evening.
     trading_day: DateArray = sessions.classify(pd.DatetimeIndex(per_trade["exit_time"])).trading_day
@@ -771,14 +963,14 @@ def _trade_table(log: pd.DataFrame, rules: AccountRules) -> _TradeTable:
     )
 
 
-def _require_columns(log: pd.DataFrame, rules: AccountRules) -> None:
-    """Refuse a log that cannot answer this rule set, naming the rule that needed the column."""
+def _require_columns(log: pd.DataFrame, *, needs_excursions: bool) -> None:
+    """Refuse a log that cannot answer the rules, naming the rule that needed the column."""
     missing: list[str] = [c for c in REQUIRED_COLUMNS if c not in log.columns]
     if missing:
         msg: str = f"trade log is missing required column(s): {missing}. The schema is nqbt.trades.SCHEMA."
         raise PropAccountError(msg)
 
-    if not rules.needs_excursions:
+    if not needs_excursions:
         return
 
     null: list[str] = [c for c in EXCURSION_COLUMNS if log[c].isna().any()]
@@ -792,13 +984,13 @@ def _require_columns(log: pd.DataFrame, rules: AccountRules) -> None:
         raise PropAccountError(msg)
 
 
-def _excursion_dollars(log: pd.DataFrame, rules: AccountRules) -> pd.DataFrame:
+def _excursion_dollars(log: pd.DataFrame, *, needs_excursions: bool) -> pd.DataFrame:
     """Return each trade's worst and best open equity in dollars, summed over its legs.
 
     Zero on both when no enabled limit reads them, so a log with no excursions still replays.
     """
     index: pd.Index[int] = pd.Index(sorted(set(log["trade_id"])), name="trade_id")
-    if not rules.needs_excursions:
+    if not needs_excursions:
         return pd.DataFrame({"adverse": 0.0, "favourable": 0.0}, index=index)
 
     point_value: FloatArray = _point_values(log)
@@ -904,6 +1096,8 @@ def _trade_one_day(
     day: int,
     rules: AccountRules,
     state: _AccountState,
+    *,
+    until_pass: bool,
 ) -> Outcome:
     """Walk one trading day's trades, record the day, then close it if the account survived.
 
@@ -919,7 +1113,7 @@ def _trade_one_day(
     if outcome is not Outcome.SURVIVED:
         return outcome
 
-    return _close_day(table, day, rules, state)
+    return _close_day(table, day, rules, state, until_pass=until_pass)
 
 
 def _walk_day(table: _TradeTable, day: int, rules: AccountRules, state: _AccountState) -> Outcome:
@@ -940,16 +1134,27 @@ def _walk_day(table: _TradeTable, day: int, rules: AccountRules, state: _Account
     return Outcome.SURVIVED
 
 
-def _close_day(table: _TradeTable, day: int, rules: AccountRules, state: _AccountState) -> Outcome:
+def _close_day(
+    table: _TradeTable,
+    day: int,
+    rules: AccountRules,
+    state: _AccountState,
+    *,
+    until_pass: bool,
+) -> Outcome:
     """Advance the high-water mark, then test the pass and take any withdrawal due.
 
     The floor needs no second test here: a trade's own probe is never above the balance it
-    leaves behind, so the closing balance cannot breach a floor the day's trades did not.
+    leaves behind, so the closing balance cannot breach a floor the day's trades did not. An
+    account replayed ``until_pass`` closes at its pass, before it could withdraw anything.
     """
     if rules.trail_basis is TrailBasis.END_OF_DAY:
         state.high_water = max(state.high_water, state.balance)
 
     _check_pass(table, day, rules, state)
+    if until_pass and state.passed_on is not None:
+        return Outcome.PROMOTED
+
     _withdraw(table, day, rules, state)
 
     return Outcome.SURVIVED
@@ -998,16 +1203,25 @@ def _withdraw(table: _TradeTable, day: int, rules: AccountRules, state: _Account
     if excess <= 0.0:
         return
 
+    taken_on: dt.date = _as_date(table.days[day])
     if state.first_withdrawal_on is None:
-        state.first_withdrawal_on = _as_date(table.days[day])
+        state.first_withdrawal_on = taken_on
 
+    payout: float = excess * rules.profit_split
     state.balance -= excess
     state.withdrawn += excess
-    state.payout += excess * rules.profit_split
+    state.payout += payout
+    state.withdrawals.append(Withdrawal(taken_on, excess, payout))
 
 
-def _run_account(table: _TradeTable, account: PropAccount, first_day: int) -> _Attempt:
-    """Replay one attempt from ``first_day``, and report the day the next one may open on."""
+def _run_account(
+    table: _TradeTable,
+    account: PropAccount,
+    first_day: int,
+    *,
+    until_pass: bool = False,
+) -> _Attempt:
+    """Replay one account from ``first_day``, and report the day the next one may open on."""
     rules: AccountRules = account.rules
     state = _AccountState(
         balance=rules.starting_balance,
@@ -1019,7 +1233,7 @@ def _run_account(table: _TradeTable, account: PropAccount, first_day: int) -> _A
     last_day: int = first_day
     for day in range(first_day, table.n_days):
         last_day = day
-        outcome = _trade_one_day(table, day, rules, state)
+        outcome = _trade_one_day(table, day, rules, state, until_pass=until_pass)
         if outcome is not Outcome.SURVIVED:
             break
 
@@ -1043,6 +1257,7 @@ def _finish(
     profit: float = state.balance + state.withdrawn - rules.starting_balance
 
     return AccountRun(
+        account_name=account.name,
         outcome=attempt.outcome,
         passed=state.passed_on is not None,
         first_day=opened,
@@ -1065,6 +1280,8 @@ def _finish(
         payout=state.payout,
         fees_paid=fees,
         net=state.payout - fees,
+        charges=_charges(account.fees, opened, closed, passed_on=state.passed_on),
+        withdrawals=tuple(state.withdrawals),
         summary=stats.summarise(_legs_taken(log, table, state.taken)),
     )
 
@@ -1077,13 +1294,49 @@ def _fees_paid(
     passed_on: dt.date | None,
 ) -> float:
     """Return one attempt's cost: the entry fee, a month for every month it was billed, and activation."""
-    billed_to: dt.date = closed
-    if fees.monthly_fee_ends_at_pass and passed_on is not None:
-        billed_to = passed_on
-
+    billed_to: dt.date = _billed_to(fees, closed, passed_on=passed_on)
     months: int = (billed_to.year - opened.year) * 12 + billed_to.month - opened.month + 1
     total: float = fees.evaluation_fee + fees.monthly_fee * months
     if passed_on is None:
         return total
 
     return total + fees.activation_fee
+
+
+def _charges(
+    fees: AccountFees,
+    opened: dt.date,
+    closed: dt.date,
+    *,
+    passed_on: dt.date | None,
+) -> tuple[Charge, ...]:
+    """Return one attempt's fees, each on the day it was charged, leaving out any that cost nothing.
+
+    The entry fee and the first month fall on the opening day, each later month on its first
+    calendar day, and the activation fee on the day of the pass.
+    """
+    billed: list[dt.date] = [opened, *_month_starts(opened, _billed_to(fees, closed, passed_on=passed_on))]
+    charges: list[Charge] = [
+        Charge(opened, fees.evaluation_fee, FeeKind.EVALUATION),
+        *(Charge(day, fees.monthly_fee, FeeKind.MONTHLY) for day in billed),
+    ]
+    if passed_on is not None:
+        charges.append(Charge(passed_on, fees.activation_fee, FeeKind.ACTIVATION))
+
+    return tuple(charge for charge in charges if charge.amount > 0.0)
+
+
+def _billed_to(fees: AccountFees, closed: dt.date, *, passed_on: dt.date | None) -> dt.date:
+    """Return the last day the monthly fee covers: the close, or the pass where billing stops there."""
+    if fees.monthly_fee_ends_at_pass and passed_on is not None:
+        return passed_on
+
+    return closed
+
+
+def _month_starts(opened: dt.date, billed_to: dt.date) -> list[dt.date]:
+    """List the first day of every month after the opening one, up to the one ``billed_to`` is in."""
+    first: int = opened.year * 12 + opened.month - 1
+    last: int = billed_to.year * 12 + billed_to.month - 1
+
+    return [dt.date(month // 12, month % 12 + 1, 1) for month in range(first + 1, last + 1)]

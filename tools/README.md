@@ -518,10 +518,22 @@ Replays a shortlist's trade logs through a prop firm's account rules.
 ```bash
 uv run tools/campaign_shortlist.py --strategy OpeningRange --held-out
 uv run tools/campaign_propaccount.py --strategy OpeningRange
+uv run tools/campaign_propaccount.py --strategy OpeningRange --preset all --last-months 12
 uv run tools/campaign_propaccount.py --strategy InsideBarTrailing --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
 ```
 
-`nqbt.propaccount` answers what no gate in §M27 or §M28 can express -- **not "is the edge real" but "would the account have survived it, and made more than it cost"** -- so a cell can be put through an account the way it is put through a null -- `docs/roadmap.md` §M28.13. The shortlist is always chosen on the selection window and replayed over the held-out one, which is why there is no `--window`. By default it reports four presets, Apex and TopStep at 50K and 150K, the four §M28.13 read the registry through; TakeProfitTrader ships as six presets covering two phases each, a table three times the size for a question about one cell.
+`nqbt.propaccount` answers what no gate in §M27 or §M28 can express -- **not "is the edge real" but "would the account have survived it, and made more than it cost"** -- so a cell can be put through an account the way it is put through a null -- `docs/roadmap.md` §M28.13. The shortlist is always chosen on the selection window and replayed over the held-out one, which is why there is no `--window`. By default it reports four presets, Apex and TopStep at 50K and 150K, the four §M28.13 read the registry through, and `campaign_gates.py`'s prop read uses the same four. **`--preset all` adds TakeProfitTrader's three linked pairs**, each Test chained to the PRO its pass opens -- `docs/roadmap.md` § "A firm that changes its rules at the pass ships as two presets". The six presets they chain can still be named one at a time.
+
+**Every row also says when the money came back and how steady the months were.** Money in is what reached the trader after the firm's split, money out is every fee, and both are dated and totalled to the cent, so the figures below can be read off them and an exact tie never reads as ahead. Days are trading days on the held-out session calendar, counted the way `campaign_propobjectives.py` counts `days_to_payout`.
+
+- `days_to_profit`: from the first account's opening to the first day total payouts exceed total fees. `inf` means never, and `broke_even` says the same as a yes or no.
+- `profitable_months`: of the last `--last-months` whole calendar months of the holdout (12 by default), how many had payouts above fees in the one continuous run. A month at either end of the holdout counts as whole only when the holdout misses none of its weekdays, so a holiday at the edge can leave out a month it did cover.
+- `fresh_ahead`: for each of those months, a fresh run opened on its first trading day -- the same log, no account history -- and whether it ends the window ahead.
+- `out_of_pocket`, the most the fees stood above the payouts before they first passed them; `evaluations_before_payout` and `fees_before_payout`, blank where nothing was ever paid out since the row's totals already say what it cost; `payouts` and `payout_median`; `best_month`, `worst_month` and `losing_streak` over the same months.
+
+The verdict adds the share of configurations that ever broke even and the medians of `days_to_profit`, `profitable_months` and `fresh_ahead`. A third table names each configuration's fastest preset to profit, with more profitable months breaking a tie, or `none` where no preset ever broke even. `--out DIR` writes the three as `replays.csv`, `verdict.csv` and `best.csv`. Each fresh start is one more replay per row, so the run takes roughly `--last-months` times longer than one without them.
+
+**Three cautions travel with those figures.** Days to profit is a best case: every payout is taken in full on the first day it is allowed, with no caps or waiting periods. The fastest preset is not the most profitable one, and `net` still rewards variance, so the held-out profit factor stays on every row. And everything covers the holdout only, so `--last-months` can be no more than the whole months it holds, and a later fresh start has less time to get ahead.
 
 **The attempt cap must not bind, and by default it cannot.** §M28.13's population run capped attempts at five, which bound on 98% of configurations and truncated their net figures badly enough to be wrong in sign: a blown account costs its fees and not its trading losses, so stopping early hides the wins that come after. `capped` says on every row whether the cap was reached.
 

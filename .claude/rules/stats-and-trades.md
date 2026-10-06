@@ -78,7 +78,10 @@ paths:
   `AccountRules` holds one rule set, and TakeProfitTrader trails end-of-day during its
   evaluation and intraday once funded. `TPT_50K_TEST` and `TPT_50K_PRO` are separate accounts
   rather than a phase-aware rule set, because the alternative is a second conditional
-  definition of the floor inside the module whose premise is that there is one.
+  definition of the floor inside the module whose premise is that there is one. `TPT_50K`
+  chains them as a `LinkedAccount` — the Test closes at its pass and pays nothing, the PRO
+  opens the next trading day, the $130 hand-over is charged once — and each account still
+  has one rule set. A linked pair's `attempts` and `passes` count Tests only.
   `docs/roadmap.md` § "A firm that changes its rules at the pass ships as two presets".
 - **`withdrawn` is what left the account and `payout` is what reached the trader.** The firm's
   `profit_split` separates them, and `net` is the payout minus the fees. They must stay apart:

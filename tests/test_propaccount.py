@@ -18,8 +18,11 @@ from nqbt import instruments, propaccount, stats
 from nqbt.propaccount import (
     AccountFees,
     AccountRules,
+    Charge,
     DailyBreach,
     EquityBasis,
+    FeeKind,
+    LinkedAccount,
     Outcome,
     PropAccount,
     PropAccountError,
@@ -901,3 +904,283 @@ def test_a_frozen_rule_set_can_be_varied_without_touching_the_preset() -> None:
 
     assert tighter.trailing_threshold == 1_000.0
     assert propaccount.APEX_50K.rules.trailing_threshold == 2_500.0
+
+
+# -- every fee and withdrawal carries its day ----------------------------------
+
+
+def priced(fees: AccountFees, **overrides: object) -> PropAccount:
+    """Build the plain rule set with ``fees`` attached."""
+    return PropAccount(name="Test", rules=account(**overrides).rules, fees=fees)
+
+
+FEE_SCENARIOS = {
+    "never passes": [(0, -100.0, 1.0), (40, -100.0, 1.0)],
+    "passes and withdraws": [(day, 1_000.0, 1.0) for day in (0, 1, 2, 3, 35, 70)],
+    "breaches and reopens": [(0, -2_500.0, 1.0), (1, 1_500.0, 1.0), (2, 1_500.0, 1.0), (33, 500.0, 1.0)],
+}
+
+
+@pytest.mark.parametrize(
+    "preset",
+    [*propaccount.PRESETS.values(), *propaccount.LINKED_PRESETS.values()],
+    ids=lambda a: a.name,
+)
+@pytest.mark.parametrize("rows", FEE_SCENARIOS.values(), ids=list(FEE_SCENARIOS))
+def test_every_preset_s_dated_fees_add_up_to_what_it_paid(
+    preset: propaccount.Account,
+    rows: list[tuple[int, float, float]],
+) -> None:
+    """The dated charges are a second derivation of ``fees_paid``, so the two must agree everywhere."""
+    result = propaccount.replay(leg_log(rows), preset, max_accounts=10)
+
+    assert result.runs
+    for run in result.runs:
+        assert sum(charge.amount for charge in run.charges) == pytest.approx(run.fees_paid)
+
+
+def test_the_entry_fee_and_the_first_month_fall_on_the_opening_day() -> None:
+    fees = AccountFees(evaluation_fee=100.0, monthly_fee=50.0)
+    run = propaccount.replay(leg_log([(0, -100.0, 1.0)]), priced(fees)).runs[0]
+
+    assert run.charges == (
+        Charge(dt.date(2024, 1, 2), 100.0, FeeKind.EVALUATION),
+        Charge(dt.date(2024, 1, 2), 50.0, FeeKind.MONTHLY),
+    )
+
+
+def test_each_later_month_is_charged_on_its_first_calendar_day() -> None:
+    """2 January to 11 March is three months: the opening day, then 1 February and 1 March."""
+    log = leg_log([(0, 10.0, 1.0), (69, 10.0, 1.0)])
+    run = propaccount.replay(log, priced(AccountFees(monthly_fee=50.0))).runs[0]
+
+    assert [charge.day for charge in run.charges] == [
+        dt.date(2024, 1, 2),
+        dt.date(2024, 2, 1),
+        dt.date(2024, 3, 1),
+    ]
+
+
+def test_a_monthly_charge_crosses_the_year_end() -> None:
+    log = leg_log([(0, 10.0, 1.0), (64, 10.0, 1.0)], start="2024-12-02 15:00")
+    run = propaccount.replay(log, priced(AccountFees(monthly_fee=50.0))).runs[0]
+
+    assert [charge.day for charge in run.charges] == [
+        dt.date(2024, 12, 2),
+        dt.date(2025, 1, 1),
+        dt.date(2025, 2, 1),
+    ]
+
+
+def test_the_activation_fee_falls_on_the_day_of_the_pass() -> None:
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(4)])
+    run = propaccount.replay(log, priced(AccountFees(activation_fee=25.0))).runs[0]
+
+    assert run.passed_on == dt.date(2024, 1, 4)
+    assert run.charges == (Charge(dt.date(2024, 1, 4), 25.0, FeeKind.ACTIVATION),)
+
+
+def test_a_fee_that_costs_nothing_is_not_charged() -> None:
+    """Apex charges no entry fee, so its only charge on the opening day is the month."""
+    run = propaccount.replay(leg_log([(0, -100.0, 1.0)]), propaccount.APEX_50K).runs[0]
+
+    assert [charge.kind for charge in run.charges] == [FeeKind.MONTHLY]
+
+
+def test_a_monthly_fee_that_ends_at_the_pass_stops_its_dated_charges_there() -> None:
+    log = leg_log([(0, 3_000.0, 1.0), (40, 10.0, 1.0)])
+    fees = AccountFees(monthly_fee=50.0, monthly_fee_ends_at_pass=True)
+    run = propaccount.replay(log, priced(fees)).runs[0]
+
+    assert [charge.day for charge in run.charges] == [dt.date(2024, 1, 2)]
+
+
+def test_each_withdrawal_carries_its_day_and_adds_up_to_the_totals() -> None:
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(4)])
+    run = propaccount.replay(log, paying(profit_split=0.80)).runs[0]
+
+    assert [taken.day for taken in run.withdrawals] == [dt.date(2024, 1, 4), dt.date(2024, 1, 5)]
+    assert [taken.withdrawn for taken in run.withdrawals] == pytest.approx([2_000.0, 1_000.0])
+    assert sum(taken.withdrawn for taken in run.withdrawals) == pytest.approx(run.withdrawn)
+    assert sum(taken.payout for taken in run.withdrawals) == pytest.approx(run.payout)
+    assert run.first_withdrawal_on == run.withdrawals[0].day
+
+
+def test_the_dated_money_stays_out_of_a_report_row() -> None:
+    """Neither is one value, so a row carries the totals and the tuples stay on the run."""
+    run = propaccount.replay(leg_log([(day, 1_000.0, 1.0) for day in range(4)]), paying()).runs[0]
+    row = run.as_dict()
+
+    assert run.charges == ()
+    assert run.withdrawals
+    assert "charges" not in row
+    assert "withdrawals" not in row
+    assert row["account_name"] == "Test"
+
+
+# -- an evaluation linked to the funded account its pass opens -----------------
+
+
+def linked(**funded: object) -> LinkedAccount:
+    """Build an evaluation that passes at 3,000, linked to a funded account with no target."""
+    evaluation = PropAccount(
+        name="Eval",
+        rules=account().rules,
+        fees=AccountFees(monthly_fee=50.0, activation_fee=130.0, monthly_fee_ends_at_pass=True),
+    )
+    held = PropAccount(
+        name="Funded",
+        rules=paying(profit_target=0.0, **funded).rules,
+        fees=AccountFees(evaluation_fee=130.0),
+    )
+
+    return LinkedAccount(name="Eval+Funded", evaluation=evaluation, funded=held)
+
+
+PASS_THEN_TRADE = [(0, 1_000.0, 1.0), (1, 1_000.0, 1.0), (2, 1_000.0, 1.0), (3, 500.0, 1.0)]
+"""Passes the evaluation on 4 January, then gives the funded account one day of 500."""
+
+
+def test_a_linked_evaluation_closes_at_its_pass_and_pays_nothing() -> None:
+    """Alone, the same evaluation keeps trading and withdraws from its pass day on."""
+    log = leg_log(PASS_THEN_TRADE)
+    evaluation = propaccount.replay(log, linked()).runs[0]
+
+    assert evaluation.account_name == "Eval"
+    assert evaluation.outcome is Outcome.PROMOTED
+    assert evaluation.passed_on == evaluation.last_day == dt.date(2024, 1, 4)
+    assert evaluation.withdrawals == ()
+    assert evaluation.payout == 0.0
+    assert propaccount.replay(log, linked().evaluation).runs[0].withdrawn > 0.0
+
+
+def test_the_funded_account_opens_the_next_trading_day_without_the_evaluation_s_profit() -> None:
+    funded = propaccount.replay(leg_log(PASS_THEN_TRADE), linked()).runs[1]
+
+    assert funded.account_name == "Funded"
+    assert funded.first_day == dt.date(2024, 1, 5)
+    # The evaluation made 3,000; the funded account opens at 50,000 and made 500 of its own.
+    assert funded.final_balance + funded.withdrawn == pytest.approx(50_500.0)
+
+
+def test_the_hand_over_charges_the_shared_fee_once() -> None:
+    """The evaluation's activation fee is what opening the funded account costs, not a second fee."""
+    result = propaccount.replay(leg_log(PASS_THEN_TRADE), linked())
+    charged = [(charge.kind, charge.amount) for run in result.runs for charge in run.charges]
+
+    assert charged == [(FeeKind.MONTHLY, 50.0), (FeeKind.ACTIVATION, 130.0)]
+    assert result.fees_paid == pytest.approx(180.0)
+
+
+def test_a_funded_breach_buys_a_new_evaluation_on_the_next_trading_day() -> None:
+    log = leg_log([*PASS_THEN_TRADE[:3], (3, -2_500.0, 1.0), (6, -100.0, 1.0)])
+    result = propaccount.replay(log, linked(), max_accounts=5)
+
+    assert [run.account_name for run in result.runs] == ["Eval", "Funded", "Eval"]
+    assert result.runs[1].outcome is Outcome.BREACHED_TRAILING
+    assert result.runs[2].first_day == dt.date(2024, 1, 8)
+    assert (result.attempts, result.passes, result.breaches) == (2, 1, 1)
+
+
+def test_an_evaluation_breach_buys_another_evaluation() -> None:
+    log = leg_log([(0, -2_500.0, 1.0), (1, 100.0, 1.0)])
+    result = propaccount.replay(log, linked(), max_accounts=5)
+
+    assert [run.account_name for run in result.runs] == ["Eval", "Eval"]
+    assert (result.attempts, result.passes, result.breaches) == (2, 0, 1)
+
+
+def test_a_funded_account_s_first_profitable_day_is_not_counted_as_a_pass() -> None:
+    """A funded account reads "eligible to withdraw" as a pass; the attempt passed once, not twice."""
+    result = propaccount.replay(leg_log(PASS_THEN_TRADE), linked())
+
+    assert result.runs[1].passed
+    assert (result.attempts, result.passes, result.breaches) == (1, 1, 0)
+    assert result.pass_rate == 1.0
+
+
+def test_a_pass_on_the_log_s_last_day_opens_no_funded_account() -> None:
+    result = propaccount.replay(leg_log(PASS_THEN_TRADE[:3]), linked())
+
+    assert [run.account_name for run in result.runs] == ["Eval"]
+    assert result.fees_paid == pytest.approx(180.0)
+
+
+def test_the_attempt_cap_counts_evaluations_bought() -> None:
+    log = leg_log([*PASS_THEN_TRADE[:3], (3, -2_500.0, 1.0), (6, -100.0, 1.0)])
+    result = propaccount.replay(log, linked(), max_accounts=1)
+
+    assert [run.account_name for run in result.runs] == ["Eval", "Funded"]
+    assert result.attempts == 1
+
+
+def test_a_pair_whose_hand_over_fees_differ_is_refused() -> None:
+    pair = linked()
+    dearer = dataclasses.replace(pair.funded, fees=AccountFees(evaluation_fee=99.0))
+    with pytest.raises(PropAccountError, match="activation fee"):
+        LinkedAccount(name="Mismatched", evaluation=pair.evaluation, funded=dearer)
+
+
+def test_a_pair_whose_accounts_share_a_name_is_refused() -> None:
+    pair = linked()
+    renamed = dataclasses.replace(pair.funded, name="Eval")
+    with pytest.raises(PropAccountError, match="different names"):
+        LinkedAccount(name="Shared", evaluation=pair.evaluation, funded=renamed)
+
+
+def test_a_pair_refuses_a_log_its_funded_account_could_not_read() -> None:
+    """The evaluation here reads closed balances; its funded account reads open equity."""
+    log = leg_log([(0, 100.0, 1.0)])
+    log.loc[0, "mae_points"] = None
+    with pytest.raises(PropAccountError, match="mae_points"):
+        propaccount.replay(log, linked(trail_breach=EquityBasis.UNREALISED))
+
+
+@pytest.mark.parametrize("pair", propaccount.LINKED_PRESETS.values(), ids=lambda a: a.name)
+def test_a_linked_preset_chains_the_test_and_pro_of_one_size(pair: LinkedAccount) -> None:
+    assert pair.evaluation.rules.starting_balance == pair.funded.rules.starting_balance
+    assert pair.evaluation.name.removesuffix(" Test") == pair.funded.name.removesuffix(" PRO")
+    assert pair.evaluation.fees.activation_fee == pair.funded.fees.evaluation_fee == 130.0
+    assert pair.opened_by_pass.fees.evaluation_fee == 0.0
+    assert pair.funded.fees.evaluation_fee == 130.0, "the preset itself is untouched"
+
+
+@pytest.mark.parametrize("pair", propaccount.LINKED_PRESETS.values(), ids=lambda a: a.name)
+def test_every_linked_preset_replays(pair: LinkedAccount) -> None:
+    result = propaccount.replay(leg_log([(day, 400.0, 1.0) for day in range(10)]), pair, max_accounts=2)
+
+    assert result.attempts >= 1
+    assert result.account_name == pair.name
+
+
+def test_a_linked_pair_is_found_by_name_beside_the_single_presets() -> None:
+    assert propaccount.account_named("takeprofittrader 50k test+pro") is propaccount.TPT_50K
+    assert propaccount.account_named("TakeProfitTrader 50K Test") is propaccount.TPT_50K_TEST
+
+
+def test_an_unknown_name_lists_the_linked_pairs_too() -> None:
+    with pytest.raises(PropAccountError, match=r"TakeProfitTrader 50K Test\+PRO"):
+        propaccount.account_named("Made Up 25K")
+
+
+def test_an_attempt_is_bought_as_the_pair_s_evaluation() -> None:
+    assert propaccount.evaluation_of(propaccount.TPT_25K) is propaccount.TPT_25K_TEST
+    assert propaccount.evaluation_of(propaccount.APEX_50K) is propaccount.APEX_50K
+
+
+# -- opening the first account later than the log's first day ------------------
+
+
+def test_the_first_account_opens_on_the_first_trading_day_on_or_after_the_start() -> None:
+    log = leg_log([(0, 100.0, 1.0), (1, 100.0, 1.0), (6, 100.0, 1.0)])
+    result = propaccount.replay(log, account(), start=dt.date(2024, 1, 4))
+
+    assert result.runs[0].first_day == dt.date(2024, 1, 8)
+    assert result.trades_taken == result.trades_total == 1
+
+
+def test_a_start_after_the_log_ends_opens_no_account() -> None:
+    result = propaccount.replay(leg_log([(0, 100.0, 1.0)]), linked(), start=dt.date(2024, 2, 1))
+
+    assert result.runs == ()
+    assert (result.attempts, result.trades_total, result.net) == (0, 0, 0.0)

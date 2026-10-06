@@ -1202,13 +1202,15 @@ The headline figure is **withdrawn minus fees**, across however many attempts `m
 
 TakeProfitTrader runs an **end-of-day** trailing drawdown during the evaluation and an **intraday** one on the funded account, with the consistency ratio and the minimum-days rule applying to the first and neither to the second. One `AccountRules` cannot hold both, and the alternative to two presets — a phase-aware rule set — would put a second, conditional definition of the floor inside the module whose whole premise is that there is one. So `TPT_50K_TEST` and `TPT_50K_PRO` are separate accounts and a full picture reads both.
 
+**`TPT_50K` reads both in order** ([#411]). It is a `LinkedAccount`: the Test runs until it passes and closes there, the PRO opens on the next trading day, and when the PRO breaches a new Test is bought. Each account still has one rule set, so this chains two presets rather than adding a phase-aware one. The PRO opens at its own starting balance and none of the Test's profit carries over, which matches TakeProfitTrader's terms as read on 2026-10-06, from third-party summaries because the firm's own FAQ refused the request. Three linked pairs ship, one per size, and the six presets they chain can still be replayed alone.
+
 That difference is not cosmetic. §M28.13 measures the intraday basis and `excursion_order` as the single largest lever in the model on a full-size contract, so the funded preset is the harsher of the two by the largest margin any axis here produces.
 
 Three consequences of the split worth stating, because each looks like a defect from one side:
 
-- **The PRO preset's `profit_target` is `0.0`,** because a funded account has no target. The replay reads a pass as "eligible to withdraw", which is exactly right for a funded account that may withdraw above its buffer from day one — so a PRO run reports `passed` on its first profitable day and that is the model working, not a pass it did not earn.
-- **The $130 activation fee is the PRO preset's `evaluation_fee`,** since it is what opening that account costs, and the Test preset's `activation_fee`, since it is what passing costs. The same $130 under two field names because it is charged at the boundary the two presets share.
-- **What the Test preset does after it passes is a fiction** — it keeps trading under evaluation rules, because that is what the module does with any passed account. Read the Test preset for whether the evaluation is survivable and what it cost; read the PRO preset for what the funded account then does.
+- **The PRO preset's `profit_target` is `0.0`,** because a funded account has no target. The replay reads a pass as "eligible to withdraw", which is exactly right for a funded account that may withdraw above its buffer from day one — so a PRO run reports `passed` on its first profitable day and that is the model working, not a pass it did not earn. A linked pair counts the Test's pass alone: `attempts` is Tests bought, `passes` is Tests passed and `breaches` is attempts either account ended.
+- **The $130 activation fee is the PRO preset's `evaluation_fee`,** since it is what opening that account costs, and the Test preset's `activation_fee`, since it is what passing costs. The same $130 under two field names because it is charged at the boundary the two presets share, and a linked pair charges it once: on the pass day as the Test's activation fee, with the PRO's opening fee waived. `LinkedAccount` refuses a pair whose two figures differ.
+- **What the Test preset does after it passes is a fiction** — it keeps trading under evaluation rules, because that is what the module does with any passed account. Read the Test preset for whether the evaluation is survivable and what it cost; read the PRO preset for what the funded account then does. A linked pair has no such fiction: its Test closes at the pass, as `Outcome.PROMOTED`, before it can withdraw anything.
 
 **`monthly_fee_ends_at_pass` exists for the same reason.** TakeProfitTrader's subscription is cancelled the day the account passes and the funded account carries no recurring fee, where Apex's and TopStep's run for the life of the account. Without the flag a passed TPT account would be billed monthly for the remaining length of the trade log, which on a multi-year log is a larger error than every other fee in the model put together.
 
@@ -1219,7 +1221,7 @@ Three consequences of the split worth stating, because each looks like a defect 
 - **Position-size limits, which TakeProfitTrader publishes per account size** (3/6/15 minis, ten times that in micros). Contract size is whatever the trade log says, as for every other firm here.
 - **The prohibition on automated execution.** Both TakeProfitTrader's Universal Trading Policies and its PRO contract require every trade to be placed by hand. That governs how a strategy may be traded, not whether its trade log survives the account's risk rules, and the replay answers only the second.
 - **Payout caps and cadence.** A withdrawal is taken whenever it is eligible, in full.
-- **A funded phase whose rules differ from the evaluation's, *within one preset*.** One `AccountRules` covers both phases. Where a firm changes its rules at the pass, it ships as two presets instead — see above.
+- **A funded phase whose rules differ from the evaluation's, *within one preset*.** One `AccountRules` covers both phases. Where a firm changes its rules at the pass, it ships as two presets instead, and a linked pair chains them — see above.
 - **Scaling plans and position-size limits.** Contract size is whatever the trade log says. `tools/campaign_propaccount.py --quantities` re-runs a shortlist at each contract count and replays each, but nothing checks a rung against the firm's own limit, so keep the rungs inside it.
 - **The consistency rule at payout time.** It gates the pass only.
 
@@ -1438,6 +1440,7 @@ ______________________________________________________________________
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
 [#407]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/407
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
+[#411]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/411
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#43]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/43
 [#44]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/44

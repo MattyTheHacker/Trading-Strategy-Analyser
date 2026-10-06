@@ -20,9 +20,9 @@ from joblib import Parallel, delayed
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nqbt import archetypes, context, disambiguate, logsetup, propaccount, resample, sessions, splice
+from nqbt import archetypes, context, disambiguate, logsetup, propaccount, resample, splice
 from tools.campaign_holdout import HELD_OUT_SUFFIX, JOIN_KEYS, SELECTION_SUFFIX, half, ranked_pairs
-from tools.campaign_propaccount import labelled, uncapped
+from tools.campaign_propaccount import calendar, labelled, sessions_between, uncapped
 from tools.campaign_shortlist import TOP, rebuild, rerun_group, source
 from tools.campaign_sweep import HOLD_VARIANTS
 
@@ -86,21 +86,6 @@ def reads(account: propaccount.PropAccount, objective: Objective) -> bool:
         return not account.fees.monthly_fee_ends_at_pass
 
     return account.rules.profit_target > 0.0
-
-
-def calendar(bars: pd.DataFrame) -> DateArray:
-    """List every trading day a window's bars hold a session bar on, in order."""
-    info: sessions.SessionInfo = sessions.classify(pd.DatetimeIndex(bars.index))
-
-    return np.unique(info.trading_day[info.in_session])
-
-
-def sessions_between(days: DateArray, first: dt.date, last: dt.date) -> int:
-    """Count trading days from ``first`` to ``last``, both included."""
-    start: int = int(np.searchsorted(days, np.datetime64(first, "D"), side="left"))
-    end: int = int(np.searchsorted(days, np.datetime64(last, "D"), side="right"))
-
-    return max(0, end - start)
 
 
 def funded_lives(
