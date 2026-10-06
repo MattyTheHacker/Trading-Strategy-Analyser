@@ -157,7 +157,7 @@ Read the same way, one arm against another, as description. A count is of the 36
 
 ## What this settles, and what it does not
 
-- **At 10 and 15 minutes, #369's second tier rescues no archetype.** Moving the stop with age, before the close or to breakeven costs more often than it gains in both windows; the market exits repeat §M48; and the one cell that clears does so by 0.004 with its configurations still losing.
+- **At 10 and 15 minutes, #369's second tier rescues no archetype.** Moving the stop with age or to breakeven costs more often than it gains in both windows, and before the close it costs more often held out at every level, having gained more often on the selection window at four of its six bound settings; the market exits repeat §M48; and the one cell that clears does so by 0.004 with its configurations still losing.
 - **EmaPullback's breakeven cell is a candidate for [#354]'s re-read and nothing more**, as the pre-registration says of any cell that clears. At 15 minutes the same archetype picks something else, which costs.
 - **Not run**: the 5-minute pass, above, and 2 minutes; the prop-account replay of the picks, which §M48 ran after its verdict and which was not pre-registered here; #369's third tier; and any stratum but the two.
 

@@ -20,6 +20,7 @@ from tools.campaign_early_exit import (
     ARM_MARKER,
     ARM_SETS,
     CONTROL_ARM,
+    EXIT_FIELD_PREFIXES,
     arm_table,
     clearing,
     exit_variants,
@@ -27,6 +28,7 @@ from tools.campaign_early_exit import (
     ladder,
     parse,
     picks,
+    reproduced,
     reproduction,
     stored_twins,
     tagged,
@@ -101,13 +103,23 @@ def test_the_tier_2_set_tags_by_its_own_marker_and_builds_its_own_arms() -> None
     assert tagged_frame[ARM].iloc[0] == "late30m-bar-extreme"
     names = exit_variants("EmaCrossover", tier2)
     assert len(names) == 2 * len(tier2_arms())
+    assert all(tier2.marker in name for name in names)
     assert not set(names) & set(exit_variants("EmaCrossover"))
 
 
-def test_the_tier_1_marker_does_not_split_a_tier_2_name() -> None:
-    """``exit=`` is inside ``exit2=`` only if a marker drops its leading space, mixing the two sets."""
-    frame = pd.DataFrame({"variant": [f"stop=atr{ARM_SETS[EARLY_EXIT_2].marker}off"]})
-    assert tagged(frame)[ARM].isna().all()
+def test_neither_set_s_marker_splits_the_other_set_s_names() -> None:
+    tier1, tier2 = ARM_SETS[EARLY_EXIT], ARM_SETS[EARLY_EXIT_2]
+    tier2_name = pd.DataFrame({"variant": [f"stop=atr{tier2.marker}off"]})
+    tier1_name = pd.DataFrame({"variant": [f"stop=atr{tier1.marker}off"]})
+    assert tagged(tier2_name, tier1.marker)[ARM].isna().all()
+    assert tagged(tier1_name, tier2.marker)[ARM].isna().all()
+
+
+def test_every_field_an_arm_sets_is_in_a_family_the_reproduction_leaves_out() -> None:
+    """A stored row swept before a family existed reads null there, so joining on it would unmatch the row."""
+    for arm_set in ARM_SETS.values():
+        for fields in arm_set.arms().values():
+            assert all(field.startswith(EXIT_FIELD_PREFIXES) for field in fields), arm_set.name
 
 
 def test_reading_keeps_one_stratum_because_a_pair_only_forms_within_one(
@@ -278,6 +290,24 @@ def test_the_tier_2_control_reproduces_through_its_own_marker_without_joining_on
     assert found["rows_differing"] == 0
 
 
+def test_a_stratum_with_no_control_row_is_refused_rather_than_read_as_reproducing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With nothing to join, every count reads zero, which looks like a control that reproduces."""
+    monkeypatch.setattr(module, "stored_twins", lambda _name, _stratum, _arm_set: rows("bracket", ""))
+    with pytest.raises(SystemExit, match="no --variants early-exit-2 control rows"):
+        reproduced("InsideBar", "unfiltered", ARM_SETS[EARLY_EXIT_2])
+
+
+def test_the_reproduction_reads_the_set_s_own_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    marker = ARM_SETS[EARLY_EXIT_2].marker
+    control = rows("bracket", "", variant=f"bracket{marker}{CONTROL_ARM}")
+    twins = pd.concat([control, rows("bracket", "")], ignore_index=True)
+    monkeypatch.setattr(module, "stored_twins", lambda _name, _stratum, _arm_set: twins)
+    found = reproduced("InsideBar", "unfiltered", ARM_SETS[EARLY_EXIT_2])
+    assert found["control_rows"] == found["joined"] == 4
+
+
 def test_a_twin_swept_at_other_costs_is_not_a_twin() -> None:
     control = rows("bracket", CONTROL_ARM, commission_per_contract=1.5)
     stored = rows("bracket", "", commission_per_contract=0.0)
@@ -354,4 +384,15 @@ def test_the_set_defaults_to_tier_1_and_names_its_own_rows_when_none_were_swept(
 def test_an_unknown_strategy_is_refused_by_name_rather_than_as_a_key_error() -> None:
     with pytest.raises(SystemExit) as refused:
         parse(["prog", "--strategy", "insidebar"])
+    assert refused.value.code == 2
+
+
+def test_a_strategy_the_chosen_set_builds_no_arms_for_is_refused_rather_than_a_key_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tier2 = ARM_SETS[EARLY_EXIT_2]
+    narrower = tier2._replace(variants={k: v for k, v in tier2.variants.items() if k != "InsideBar"})
+    monkeypatch.setattr(module, "ARM_SETS", {**ARM_SETS, EARLY_EXIT_2: narrower})
+    with pytest.raises(SystemExit) as refused:
+        parse(["prog", "--set", EARLY_EXIT_2, "--strategy", "InsideBar"])
     assert refused.value.code == 2

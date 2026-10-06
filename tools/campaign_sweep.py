@@ -1695,6 +1695,9 @@ EARLY_EXIT_BELOW_R = (-0.5, 0.0, 0.25, 0.5)
 EARLY_EXIT_MINUTES = (15, 30, 60, 120)
 """The window before the session close in which a losing position is closed."""
 
+EARLY_EXIT_MARKER = " exit="
+"""What every ``--variants early-exit`` name carries between its base variant and its arm."""
+
 
 def early_exit_arms() -> dict[str, dict[str, AxisValue | bool]]:
     """Return every early-exit arm by name, each the fields it sets and ``off`` setting none."""
@@ -1724,24 +1727,32 @@ def early_exit_arms() -> dict[str, dict[str, AxisValue | bool]]:
     return arms
 
 
-def _early_exited(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
-    """Re-emit one archetype's stored campaign variants once per early-exit arm, axes unchanged."""
+def _exited(
+    build: Callable[[str], list[Variant]],
+    arms: Callable[[], dict[str, dict[str, AxisValue | bool]]],
+    marker: str,
+) -> Callable[[str], list[Variant]]:
+    """Re-emit one archetype's stored campaign variants once per arm of a set, axes unchanged."""
 
     def variants(root: str) -> list[Variant]:
+        every: dict[str, dict[str, AxisValue | bool]] = arms()
+
         return [
-            replace(variant, name=f"{variant.name} exit={arm}", base=replace(variant.base, **fields))
+            replace(variant, name=f"{variant.name}{marker}{arm}", base=replace(variant.base, **fields))
             for variant in build(root)
-            for arm, fields in early_exit_arms().items()
+            for arm, fields in every.items()
         ]
 
     return variants
 
 
-EARLY_EXIT_VARIANTS: VariantBuilders = {name: _early_exited(build) for name, build in VARIANTS.items()}
+EARLY_EXIT_VARIANTS: VariantBuilders = {
+    name: _exited(build, early_exit_arms, EARLY_EXIT_MARKER) for name, build in VARIANTS.items()
+}
 """The [#369] run: every archetype's stored campaign grid, once per early-exit arm."""
 
 EXCURSION_BARS = EARLY_EXIT_BARS
-"""The bar at which the excursion exit is tested: the not-working exit's ladder, so the two pair."""
+"""The bar at which the excursion exit is tested, which is the not-working exit's ladder."""
 
 EXCURSION_REACHED_R = (0.5, 1.0)
 """The favourable excursion, in R, a position has to have reached by that bar to stay."""
@@ -1762,7 +1773,10 @@ LATE_STOP_MINUTES = (15, 30, 60)
 """The window before the session close in which the late stop moves."""
 
 BREAKEVEN_AT_R = (0.5, 1.0)
-"""The open profit, in R and on the close, at which the breakeven stop moves; #369 asks for it here."""
+"""The open profit, in R and on the close, at which the breakeven stop moves."""
+
+EARLY_EXIT_2_MARKER = " exit2="
+"""What every ``--variants early-exit-2`` name carries between its base variant and its arm."""
 
 
 def tier2_arms() -> dict[str, dict[str, AxisValue | bool]]:
@@ -1830,20 +1844,9 @@ def _tier2_stop_moves() -> dict[str, dict[str, AxisValue | bool]]:
     return arms
 
 
-def _tier2_exited(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
-    """Re-emit one archetype's stored campaign variants once per tier-2 arm, axes unchanged."""
-
-    def variants(root: str) -> list[Variant]:
-        return [
-            replace(variant, name=f"{variant.name} exit2={arm}", base=replace(variant.base, **fields))
-            for variant in build(root)
-            for arm, fields in tier2_arms().items()
-        ]
-
-    return variants
-
-
-EARLY_EXIT_2_VARIANTS = {name: _tier2_exited(build) for name, build in VARIANTS.items()}
+EARLY_EXIT_2_VARIANTS: VariantBuilders = {
+    name: _exited(build, tier2_arms, EARLY_EXIT_2_MARKER) for name, build in VARIANTS.items()
+}
 """The second [#369] run: every archetype's stored campaign grid, once per tier-2 arm."""
 
 EMAPULLBACK_TRAILS: dict[str, dict[str, bool]] = {

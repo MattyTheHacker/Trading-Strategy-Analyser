@@ -30,7 +30,9 @@ from tools.campaign_report import ROWS_SQL, STATISTICS, UNFILTERED, load, narrow
 from tools.campaign_sweep import (
     EARLY_EXIT,
     EARLY_EXIT_2,
+    EARLY_EXIT_2_MARKER,
     EARLY_EXIT_2_VARIANTS,
+    EARLY_EXIT_MARKER,
     EARLY_EXIT_VARIANTS,
     ROOTS,
     db_path,
@@ -41,7 +43,7 @@ from tools.campaign_sweep import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from tools.campaign_sweep import Variant
+    from tools.campaign_sweep import VariantBuilders
 
 logger = logging.getLogger(__name__)
 
@@ -50,14 +52,14 @@ class ArmSet(NamedTuple):
     """One ``--variants`` set of arms: its name, its variants, its arms and the marker naming them."""
 
     name: str
-    variants: Mapping[str, Callable[[str], list[Variant]]]
+    variants: VariantBuilders
     arms: Callable[[], Mapping[str, Mapping[str, object]]]
     marker: str
 
 
 ARM_SETS: dict[str, ArmSet] = {
-    EARLY_EXIT: ArmSet(EARLY_EXIT, EARLY_EXIT_VARIANTS, early_exit_arms, " exit="),
-    EARLY_EXIT_2: ArmSet(EARLY_EXIT_2, EARLY_EXIT_2_VARIANTS, tier2_arms, " exit2="),
+    EARLY_EXIT: ArmSet(EARLY_EXIT, EARLY_EXIT_VARIANTS, early_exit_arms, EARLY_EXIT_MARKER),
+    EARLY_EXIT_2: ArmSet(EARLY_EXIT_2, EARLY_EXIT_2_VARIANTS, tier2_arms, EARLY_EXIT_2_MARKER),
 }
 """§M48's arms and §M50's, each read the same way against its own control."""
 
@@ -173,7 +175,10 @@ def ladder(
     stacked: list[pd.DataFrame] = [arm_table(rows, arm, by) for arm in arm_set.arms() if arm != CONTROL_ARM]
     tables: list[pd.DataFrame] = [table for table in stacked if not table.empty]
     if not tables:
-        msg = f"{name}: no arm pairs with the control in windows {windows}, stratum {stratum}"
+        msg = (
+            f"{name}: no arm pairs with the control in --variants {arm_set.name} rows, "
+            f"windows {windows}, stratum {stratum}"
+        )
         raise SystemExit(msg)
 
     return pd.concat(tables, ignore_index=True)
@@ -287,6 +292,19 @@ def reproduction(rows: pd.DataFrame, marker: str = ARM_MARKER) -> dict[str, obje
     }
 
 
+def reproduced(name: str, stratum: str, arm_set: ArmSet = TIER_1) -> dict[str, object]:
+    """Return one stratum's reproduction for an arm set, refusing a stratum holding no control row."""
+    found: dict[str, object] = reproduction(stored_twins(name, stratum, arm_set), arm_set.marker)
+    if not found["control_rows"]:
+        msg: str = (
+            f"{name}: no --variants {arm_set.name} control rows in stratum {stratum}; "
+            "run campaign_sweep first"
+        )
+        raise SystemExit(msg)
+
+    return found
+
+
 COLUMNS = [
     ARM,
     "root",
@@ -331,6 +349,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
     if args.window is not None and (args.picks or args.reproduce):
         parser.error("--window is not read by --picks or --reproduce, which use both windows")
 
+    if args.strategy not in ARM_SETS[args.set].variants:
+        parser.error(f"--set {args.set} builds no arms for {args.strategy}")
+
     return args
 
 
@@ -339,29 +360,25 @@ def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
     args: argparse.Namespace = parse(argv)
     arm_set: ArmSet = ARM_SETS[args.set]
+    where: str = f"--variants {arm_set.name}, stratum {args.stratum}"
 
     if args.reproduce:
-        found: dict[str, object] = reproduction(
-            stored_twins(args.strategy, args.stratum, arm_set), arm_set.marker
-        )
-        show(
-            f"{args.strategy}: the control against its stored twin, stratum {args.stratum}",
-            pd.DataFrame([found]),
-        )
+        found: dict[str, object] = reproduced(args.strategy, args.stratum, arm_set)
+        show(f"{args.strategy}: the control against its stored twin, {where}", pd.DataFrame([found]))
         return 0
 
     if args.picks:
         selection: pd.DataFrame = ladder(args.strategy, ["selection"], args.by, args.stratum, arm_set)
         holdout: pd.DataFrame = ladder(args.strategy, ["holdout"], args.by, args.stratum, arm_set)
         read: pd.DataFrame = picks(selection, holdout)
-        show(f"{args.strategy}: the selection window's pick, read held out, stratum {args.stratum}", read)
+        show(f"{args.strategy}: the selection window's pick, read held out, {where}", read)
         show("per resolution: the pick pays on every root", clearing(read))
         return 0
 
     window: str = args.window or "holdout"
     table: pd.DataFrame = ladder(args.strategy, [window], args.by, args.stratum, arm_set)
     show(
-        f"{args.strategy}: each arm against {CONTROL_ARM}, on {args.by}, {window}, stratum {args.stratum}",
+        f"{args.strategy}: each arm against {CONTROL_ARM}, on {args.by}, {window}, {where}",
         table[COLUMNS],
     )
 

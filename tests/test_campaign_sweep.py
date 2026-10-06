@@ -37,6 +37,7 @@ from nqbt import (
     trend,
     volume,
 )
+from nqbt.sim.bracket import BREAKEVEN_ON_CLOSE, BREAKEVEN_R, MEASURE_OPEN_PROFIT
 from nqbt.sim.types import (
     BAND_BOLLINGER,
     BAND_VWAP,
@@ -3200,6 +3201,31 @@ def test_every_bar_timed_tier_2_arm_acts_before_any_stored_hold_cap() -> None:
             ladder: list[int] = [int(cap) for cap in variant.axes.get("max_hold_bars", [])]
             caps = [*ladder, variant.base.max_hold_bars]
             assert all(cap == 0 or cap > max(*bars, *steps) for cap in caps)
+
+
+def test_each_tier_2_arm_runs_at_the_settings_the_pre_registration_names_where_it_leaves_a_default() -> None:
+    """The late stop's ATR is 1 of 14, the breakeven stop is in R on the close, and a line reaches the entry.
+
+    A losing exit is below 0 R of open profit -- ``docs/findings/m50-early-exit-tier-2-preregistration.md``.
+    """
+    (campaign,) = VARIANTS["InsideBar"]("MNQ")
+    for arm, fields in tier2_arms().items():
+        base = replace(campaign.base, **fields)
+        if arm.startswith("late") and arm.endswith("-atr"):
+            assert (base.late_stop_atr, base.late_stop_atr_period) == (1.0, 14), arm
+
+        if arm.startswith("breakeven"):
+            assert (base.breakeven_unit, base.breakeven_on, base.breakeven_offset_ticks) == (
+                BREAKEVEN_R,
+                BREAKEVEN_ON_CLOSE,
+                0,
+            ), arm
+
+        if arm.startswith("losing"):
+            assert (base.early_exit_below_r, base.early_exit_measure) == (0.0, MEASURE_OPEN_PROFIT), arm
+
+        if arm.startswith("line"):
+            assert base.age_stop_fraction == 1.0, arm
 
 
 def test_the_tier_2_run_states_its_stratum_before_it_runs() -> None:
