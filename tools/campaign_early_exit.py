@@ -4,6 +4,7 @@
     uv run tools/campaign_early_exit.py --strategy InsideBarTrailing \
         --stratum phase=MIDDAY --picks
     uv run tools/campaign_early_exit.py --strategy InsideBar --reproduce
+    uv run tools/campaign_early_exit.py --set early-exit-2 --strategy InsideBar --picks
 
 ``tools/README.md`` § "campaign_early_exit.py".
 """
@@ -15,6 +16,7 @@ import logging
 import math
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple
 
 import pandas as pd
 
@@ -25,15 +27,53 @@ from nqbt import logsetup, results
 from tools.campaign_hold import BASE_VARIANT, bound_by_row
 from tools.campaign_paired import CELL_KEYS, REPORT_KEYS, paired, verdict
 from tools.campaign_report import ROWS_SQL, STATISTICS, UNFILTERED, load, narrowing, parameter_columns
-from tools.campaign_sweep import EARLY_EXIT_VARIANTS, ROOTS, db_path, early_exit_arms
+from tools.campaign_sweep import (
+    EARLY_EXIT,
+    EARLY_EXIT_2,
+    EARLY_EXIT_2_MARKER,
+    EARLY_EXIT_2_VARIANTS,
+    EARLY_EXIT_MARKER,
+    EARLY_EXIT_VARIANTS,
+    ROOTS,
+    db_path,
+    early_exit_arms,
+    tier2_arms,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from tools.campaign_sweep import VariantBuilders
 
 logger = logging.getLogger(__name__)
+
+
+class ArmSet(NamedTuple):
+    """One ``--variants`` set of arms: its name, its variants, its arms and the marker naming them."""
+
+    name: str
+    variants: VariantBuilders
+    arms: Callable[[], Mapping[str, Mapping[str, object]]]
+    marker: str
+
+
+ARM_SETS: dict[str, ArmSet] = {
+    EARLY_EXIT: ArmSet(EARLY_EXIT, EARLY_EXIT_VARIANTS, early_exit_arms, EARLY_EXIT_MARKER),
+    EARLY_EXIT_2: ArmSet(EARLY_EXIT_2, EARLY_EXIT_2_VARIANTS, tier2_arms, EARLY_EXIT_2_MARKER),
+}
+"""§M48's arms and §M50's, each read the same way against its own control."""
+
+TIER_1 = ARM_SETS[EARLY_EXIT]
+"""The set every read takes unless told otherwise, which is §M48's."""
 
 ARM = "arm"
 """The early-exit arm a row belongs to, read off its variant name."""
 
-ARM_MARKER = " exit="
+ARM_MARKER = TIER_1.marker
 """What every ``--variants early-exit`` name carries between its base variant and its arm."""
+
+EXIT_FIELD_PREFIXES = ("early_exit_", "breakeven_", "age_stop_", "late_stop_")
+"""The parameter families an arm sets, which a stored twin need not carry and is never joined on."""
 
 CONTROL_ARM = "off"
 """The arm with every rule off, which every other one is read against."""
@@ -57,27 +97,29 @@ REPRODUCED_KEYS = ["root", "resolution", "window", "stratum", BASE_VARIANT]
 """What joins a control row to its stored twin, beside the costs and the parameters both carry."""
 
 
-def exit_variants(name: str) -> list[str]:
-    """Return every variant name the early-exit set builds for one archetype, on every root."""
-    return sorted({variant.name for root in ROOTS for variant in EARLY_EXIT_VARIANTS[name](root)})
+def exit_variants(name: str, arm_set: ArmSet = TIER_1) -> list[str]:
+    """Return every variant name an arm set builds for one archetype, on every root."""
+    return sorted({variant.name for root in ROOTS for variant in arm_set.variants[name](root)})
 
 
-def tagged(frame: pd.DataFrame) -> pd.DataFrame:
+def tagged(frame: pd.DataFrame, marker: str = ARM_MARKER) -> pd.DataFrame:
     """Return the rows with their base variant and arm read off the variant name."""
-    split = frame["variant"].str.split(ARM_MARKER, n=1, regex=False)
+    split = frame["variant"].str.split(marker, n=1, regex=False)
 
     return frame.assign(**{BASE_VARIANT: split.str[0], ARM: split.str[1]})
 
 
-def exited(name: str, windows: list[str], stratum: str = UNFILTERED) -> pd.DataFrame:
-    """Return every viable early-exit row for one archetype in one stratum, tagged by base variant and arm.
+def exited(
+    name: str, windows: list[str], stratum: str = UNFILTERED, arm_set: ArmSet = TIER_1
+) -> pd.DataFrame:
+    """Return every viable row of an arm set for one archetype in one stratum, tagged by base variant and arm.
 
     One stratum at a time, because a pair only forms within one -- ``docs/roadmap.md`` §M31.1.
     """
-    frame: pd.DataFrame = load(name, windows, variants=exit_variants(name))
+    frame: pd.DataFrame = load(name, windows, variants=exit_variants(name, arm_set))
     rows: pd.DataFrame = frame[frame["stratum"] == stratum]
 
-    return tagged(rows)
+    return tagged(rows, arm_set.marker)
 
 
 def paired_change(
@@ -118,22 +160,25 @@ def arm_table(rows: pd.DataFrame, arm: str, by: str) -> pd.DataFrame:
     return table
 
 
-def ladder(name: str, windows: list[str], by: str, stratum: str = UNFILTERED) -> pd.DataFrame:
+def ladder(
+    name: str, windows: list[str], by: str, stratum: str = UNFILTERED, arm_set: ArmSet = TIER_1
+) -> pd.DataFrame:
     """Stack every arm's table against the control."""
-    rows: pd.DataFrame = exited(name, windows, stratum)
+    rows: pd.DataFrame = exited(name, windows, stratum, arm_set=arm_set)
     if rows.empty:
         msg: str = (
-            f"{name}: no --variants early-exit rows in windows {windows}, stratum {stratum}; "
+            f"{name}: no --variants {arm_set.name} rows in windows {windows}, stratum {stratum}; "
             "run campaign_sweep first"
         )
         raise SystemExit(msg)
 
-    stacked: list[pd.DataFrame] = [
-        arm_table(rows, arm, by) for arm in early_exit_arms() if arm != CONTROL_ARM
-    ]
+    stacked: list[pd.DataFrame] = [arm_table(rows, arm, by) for arm in arm_set.arms() if arm != CONTROL_ARM]
     tables: list[pd.DataFrame] = [table for table in stacked if not table.empty]
     if not tables:
-        msg = f"{name}: no arm pairs with the control in windows {windows}, stratum {stratum}"
+        msg = (
+            f"{name}: no arm pairs with the control in --variants {arm_set.name} rows, "
+            f"windows {windows}, stratum {stratum}"
+        )
         raise SystemExit(msg)
 
     return pd.concat(tables, ignore_index=True)
@@ -175,12 +220,13 @@ def clearing(read: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
 
 
-def stored_twins(name: str, stratum: str) -> pd.DataFrame:
+def stored_twins(name: str, stratum: str, arm_set: ArmSet = TIER_1) -> pd.DataFrame:
     """Return every control row and every stored row of its base variant in one stratum, viable or not."""
+    control_suffix: str = f"{arm_set.marker}{CONTROL_ARM}"
     controls: list[str] = [
-        variant for variant in exit_variants(name) if variant.endswith(f"{ARM_MARKER}{CONTROL_ARM}")
+        variant for variant in exit_variants(name, arm_set) if variant.endswith(control_suffix)
     ]
-    bases: list[str] = [variant.removesuffix(f"{ARM_MARKER}{CONTROL_ARM}") for variant in controls]
+    bases: list[str] = [variant.removesuffix(control_suffix) for variant in controls]
 
     return results.query(
         ROWS_SQL + narrowing(["selection", "holdout"], controls + bases, strata=[stratum]),
@@ -198,21 +244,21 @@ def refuse_duplicates(frame: pd.DataFrame, keys: list[str], side: str) -> None:
         raise RuntimeError(msg)
 
 
-def reproduction(rows: pd.DataFrame) -> dict[str, object]:
+def reproduction(rows: pd.DataFrame, marker: str = ARM_MARKER) -> dict[str, object]:
     """Join every control row to its stored twin and count the rows and statistics that differ.
 
-    Joined on the costs and on every parameter the stored rows carry; ``tools/README.md``
-    § "campaign_early_exit.py".
+    Joined on the costs and on every parameter the stored rows carry but the arms' families;
+    ``tools/README.md`` § "campaign_early_exit.py".
     """
-    named: pd.DataFrame = tagged(rows)
+    named: pd.DataFrame = tagged(rows, marker)
     control: pd.DataFrame = named[named[ARM] == CONTROL_ARM]
-    stored: pd.DataFrame = rows[~rows["variant"].str.contains(ARM_MARKER, regex=False)].assign(
+    stored: pd.DataFrame = rows[~rows["variant"].str.contains(marker, regex=False)].assign(
         **{BASE_VARIANT: lambda frame: frame["variant"]},
     )
     shared: list[str] = [
         column
         for column in parameter_columns(rows)
-        if not column.startswith("early_exit_")
+        if not column.startswith(EXIT_FIELD_PREFIXES)
         and column not in REPRODUCED_KEYS
         and stored[column].notna().any()
     ]
@@ -246,6 +292,19 @@ def reproduction(rows: pd.DataFrame) -> dict[str, object]:
     }
 
 
+def reproduced(name: str, stratum: str, arm_set: ArmSet = TIER_1) -> dict[str, object]:
+    """Return one stratum's reproduction for an arm set, refusing a stratum holding no control row."""
+    found: dict[str, object] = reproduction(stored_twins(name, stratum, arm_set), arm_set.marker)
+    if not found["control_rows"]:
+        msg: str = (
+            f"{name}: no --variants {arm_set.name} control rows in stratum {stratum}; "
+            "run campaign_sweep first"
+        )
+        raise SystemExit(msg)
+
+    return found
+
+
 COLUMNS = [
     ARM,
     "root",
@@ -276,6 +335,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 def parse(argv: list[str]) -> argparse.Namespace:
     """Parse the command line, refusing a window the chosen read does not use."""
     parser = argparse.ArgumentParser(description="Read the conditional early exit against its control.")
+    parser.add_argument("--set", default=EARLY_EXIT, choices=sorted(ARM_SETS), help="which arms to read")
     parser.add_argument("--strategy", required=True, choices=sorted(EARLY_EXIT_VARIANTS))
     parser.add_argument("--window", default=None, help="which stored window to read; default holdout")
     parser.add_argument("--by", default="profit_factor", help="the statistic to compare on")
@@ -289,6 +349,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
     if args.window is not None and (args.picks or args.reproduce):
         parser.error("--window is not read by --picks or --reproduce, which use both windows")
 
+    if args.strategy not in ARM_SETS[args.set].variants:
+        parser.error(f"--set {args.set} builds no arms for {args.strategy}")
+
     return args
 
 
@@ -296,27 +359,26 @@ def main(argv: list[str]) -> int:
     """Read each early-exit arm against its control and return the process exit code."""
     logsetup.configure(__name__)
     args: argparse.Namespace = parse(argv)
+    arm_set: ArmSet = ARM_SETS[args.set]
+    where: str = f"--variants {arm_set.name}, stratum {args.stratum}"
 
     if args.reproduce:
-        found: dict[str, object] = reproduction(stored_twins(args.strategy, args.stratum))
-        show(
-            f"{args.strategy}: the control against its stored twin, stratum {args.stratum}",
-            pd.DataFrame([found]),
-        )
+        found: dict[str, object] = reproduced(args.strategy, args.stratum, arm_set)
+        show(f"{args.strategy}: the control against its stored twin, {where}", pd.DataFrame([found]))
         return 0
 
     if args.picks:
-        selection: pd.DataFrame = ladder(args.strategy, ["selection"], args.by, args.stratum)
-        holdout: pd.DataFrame = ladder(args.strategy, ["holdout"], args.by, args.stratum)
+        selection: pd.DataFrame = ladder(args.strategy, ["selection"], args.by, args.stratum, arm_set)
+        holdout: pd.DataFrame = ladder(args.strategy, ["holdout"], args.by, args.stratum, arm_set)
         read: pd.DataFrame = picks(selection, holdout)
-        show(f"{args.strategy}: the selection window's pick, read held out, stratum {args.stratum}", read)
+        show(f"{args.strategy}: the selection window's pick, read held out, {where}", read)
         show("per resolution: the pick pays on every root", clearing(read))
         return 0
 
     window: str = args.window or "holdout"
-    table: pd.DataFrame = ladder(args.strategy, [window], args.by, args.stratum)
+    table: pd.DataFrame = ladder(args.strategy, [window], args.by, args.stratum, arm_set)
     show(
-        f"{args.strategy}: each arm against {CONTROL_ARM}, on {args.by}, {window}, stratum {args.stratum}",
+        f"{args.strategy}: each arm against {CONTROL_ARM}, on {args.by}, {window}, {where}",
         table[COLUMNS],
     )
 

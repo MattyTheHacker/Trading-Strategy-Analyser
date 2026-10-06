@@ -43,7 +43,13 @@ from nqbt import (
 from nqbt.arrays import float_column
 from nqbt.costs import ParamsT, TradingCosts
 from nqbt.instruments import get_instrument
-from nqbt.sim.bracket import TREND_EXIT_FORMS, TREND_EXIT_OFF
+from nqbt.sim.bracket import (
+    AGE_STOP_LINE,
+    LATE_STOP_LEVELS,
+    MEASURE_EXCURSION,
+    TREND_EXIT_FORMS,
+    TREND_EXIT_OFF,
+)
 from nqbt.sim.types import (
     BAND_BOLLINGER,
     BAND_VWAP,
@@ -180,6 +186,7 @@ CONFLUENCE_SIZING = "confluence-sizing"
 MIDDAY = "midday"
 HOLD = "hold"
 EARLY_EXIT = "early-exit"
+EARLY_EXIT_2 = "early-exit-2"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -453,6 +460,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     CONFLUENCE_SIZING: (UNFILTERED, REGIME, "phase", VOLUME_FORMS, "compression", "trend", "htf"),
     HOLD: (UNFILTERED,),
     EARLY_EXIT: (UNFILTERED,),
+    EARLY_EXIT_2: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: EVERY_DIMENSION,
 }
@@ -1687,6 +1695,9 @@ EARLY_EXIT_BELOW_R = (-0.5, 0.0, 0.25, 0.5)
 EARLY_EXIT_MINUTES = (15, 30, 60, 120)
 """The window before the session close in which a losing position is closed."""
 
+EARLY_EXIT_MARKER = " exit="
+"""What every ``--variants early-exit`` name carries between its base variant and its arm."""
+
 
 def early_exit_arms() -> dict[str, dict[str, AxisValue | bool]]:
     """Return every early-exit arm by name, each the fields it sets and ``off`` setting none."""
@@ -1716,21 +1727,127 @@ def early_exit_arms() -> dict[str, dict[str, AxisValue | bool]]:
     return arms
 
 
-def _early_exited(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
-    """Re-emit one archetype's stored campaign variants once per early-exit arm, axes unchanged."""
+def _exited(
+    build: Callable[[str], list[Variant]],
+    arms: Callable[[], dict[str, dict[str, AxisValue | bool]]],
+    marker: str,
+) -> Callable[[str], list[Variant]]:
+    """Re-emit one archetype's stored campaign variants once per arm of a set, axes unchanged."""
 
     def variants(root: str) -> list[Variant]:
+        every: dict[str, dict[str, AxisValue | bool]] = arms()
+
         return [
-            replace(variant, name=f"{variant.name} exit={arm}", base=replace(variant.base, **fields))
+            replace(variant, name=f"{variant.name}{marker}{arm}", base=replace(variant.base, **fields))
             for variant in build(root)
-            for arm, fields in early_exit_arms().items()
+            for arm, fields in every.items()
         ]
 
     return variants
 
 
-EARLY_EXIT_VARIANTS: VariantBuilders = {name: _early_exited(build) for name, build in VARIANTS.items()}
+EARLY_EXIT_VARIANTS: VariantBuilders = {
+    name: _exited(build, early_exit_arms, EARLY_EXIT_MARKER) for name, build in VARIANTS.items()
+}
 """The [#369] run: every archetype's stored campaign grid, once per early-exit arm."""
+
+EXCURSION_BARS = EARLY_EXIT_BARS
+"""The bar at which the excursion exit is tested, which is the not-working exit's ladder."""
+
+EXCURSION_REACHED_R = (0.5, 1.0)
+"""The favourable excursion, in R, a position has to have reached by that bar to stay."""
+
+NOT_WORKING_MINUTES = (15, 30, 60)
+"""The age in minutes at which the not-working exit is tested; 30 is ``Trading-Docs`` §7.2's."""
+
+AGE_STOP_BARS = (3, 5, 10)
+"""The age in bars at which the stepped age stop moves."""
+
+AGE_STOP_FRACTIONS = (0.5, 1.0)
+"""How far of the way to the entry the stepped age stop moves: half way, or to the entry."""
+
+AGE_LINE_BARS = (10, 20)
+"""The age in bars by which the age stop's line reaches the entry."""
+
+LATE_STOP_MINUTES = (15, 30, 60)
+"""The window before the session close in which the late stop moves."""
+
+BREAKEVEN_AT_R = (0.5, 1.0)
+"""The open profit, in R and on the close, at which the breakeven stop moves."""
+
+EARLY_EXIT_2_MARKER = " exit2="
+"""What every ``--variants early-exit-2`` name carries between its base variant and its arm."""
+
+
+def tier2_arms() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return every arm of #369's second tier, and two breakeven arms, by name, ``off`` setting none."""
+    return {"off": {}, **_tier2_market_exits(), **_tier2_stop_moves()}
+
+
+def _tier2_market_exits() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return the second tier's market-exit arms: the excursion, the minutes form and the invalidation."""
+    arms: dict[str, dict[str, AxisValue | bool]] = {}
+    excursion: dict[str, AxisValue] = {"early_exit_measure": MEASURE_EXCURSION}
+    for bars in EXCURSION_BARS:
+        for reached in EXCURSION_REACHED_R:
+            arms[f"excursion{bars}@{reached:g}R"] = {
+                "early_exit_bars": bars,
+                **excursion,
+                "early_exit_below_r": reached,
+            }
+
+    for minutes in NOT_WORKING_MINUTES:
+        arms[f"losing{minutes}m"] = {"early_exit_minutes": minutes}
+        arms[f"excursion{minutes}m@0.5R"] = {
+            "early_exit_minutes": minutes,
+            **excursion,
+            "early_exit_below_r": 0.5,
+        }
+
+    for only_if_losing in (False, True):
+        suffix: str = "-losing" if only_if_losing else ""
+        arms[f"invalidated{suffix}"] = {
+            "early_exit_on_invalidation": True,
+            "early_exit_only_if_losing": only_if_losing,
+        }
+
+    return arms
+
+
+def _tier2_stop_moves() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return the second tier's stop-moving arms, the age stop and the late stop, then the breakeven's."""
+    arms: dict[str, dict[str, AxisValue | bool]] = {}
+    for bars in AGE_STOP_BARS:
+        for fraction in AGE_STOP_FRACTIONS:
+            arms[f"step{bars}@{fraction:g}"] = {"age_stop_bars": bars, "age_stop_fraction": fraction}
+
+    for bars in AGE_LINE_BARS:
+        arms[f"line{bars}"] = {"age_stop_bars": bars, "age_stop_shape": AGE_STOP_LINE}
+
+    for bars in AGE_STOP_BARS:
+        arms[f"step{bars}@0.5-losing"] = {
+            "age_stop_bars": bars,
+            "age_stop_fraction": 0.5,
+            "age_stop_only_if_losing": True,
+        }
+
+    for minutes in LATE_STOP_MINUTES:
+        for level, level_name in LATE_STOP_LEVELS.items():
+            arms[f"late{minutes}m-{level_name.replace('_', '-')}"] = {
+                "late_stop_minutes_before_close": minutes,
+                "late_stop_to": level,
+            }
+
+    for at in BREAKEVEN_AT_R:
+        arms[f"breakeven@{at:g}R"] = {"breakeven_at": at}
+
+    return arms
+
+
+EARLY_EXIT_2_VARIANTS: VariantBuilders = {
+    name: _exited(build, tier2_arms, EARLY_EXIT_2_MARKER) for name, build in VARIANTS.items()
+}
+"""The second [#369] run: every archetype's stored campaign grid, once per tier-2 arm."""
 
 EMAPULLBACK_TRAILS: dict[str, dict[str, bool]] = {
     "trail=off": {"trail_ma_stop": False},
@@ -2243,6 +2360,7 @@ VARIANT_SETS = {
     CAMPAIGN,
     CONFLUENCE_SIZING,
     EARLY_EXIT,
+    EARLY_EXIT_2,
     ELASTIC_BAND_STOP,
     EMAPULLBACK_CONFIRM,
     EMAPULLBACK_TRAIL,
@@ -2272,6 +2390,7 @@ def variants_for(which: str) -> VariantBuilders:
     sets: dict[str, VariantBuilders] = {
         CONFLUENCE_SIZING: CONFLUENCE_SIZING_VARIANTS,
         EARLY_EXIT: EARLY_EXIT_VARIANTS,
+        EARLY_EXIT_2: EARLY_EXIT_2_VARIANTS,
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
         EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
         EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,
