@@ -136,13 +136,20 @@ def test_the_calendar_holds_each_session_day_once_and_no_day_the_break_alone_tou
 # -- which preset answers which objective ------------------------------------------------------
 
 
+APEX_EVALUATION = propaccount.APEX_50K_INTRADAY.evaluation
+"""An evaluation preset, which answers every objective but the funded account's life."""
+
+
 def names(account: propaccount.PropAccount) -> set[str]:
     return {objective.name for objective in OBJECTIVES if reads(account, objective)}
 
 
-def test_a_firm_with_one_rule_set_for_both_phases_answers_every_objective() -> None:
-    assert names(propaccount.APEX_50K) == {"pass_rate", "fees_per_pass", "days_to_payout", "funded_days"}
-    assert names(propaccount.TOPSTEP_150K) == names(propaccount.APEX_50K)
+@pytest.mark.parametrize("pair", propaccount.LINKED_PRESETS.values(), ids=lambda a: a.name)
+def test_every_firm_answers_the_evaluation_from_one_preset_and_the_funded_life_from_the_other(
+    pair: propaccount.LinkedAccount,
+) -> None:
+    assert names(pair.evaluation) == {"pass_rate", "fees_per_pass", "days_to_payout"}
+    assert names(pair.funded) == {"funded_days"}
 
 
 def test_a_split_firm_answers_the_evaluation_from_one_preset_and_the_funded_life_from_the_other() -> None:
@@ -211,8 +218,8 @@ def test_an_objective_whose_event_never_happened_ranks_last_rather_than_vanishin
     assert measured["passes"] == 0
     assert measured["fees_per_pass"] == float("inf")
     assert measured["days_to_payout"] == float("inf")
-    assert measured["funded_days"] == 0.0
     assert not measured["ever_passed"]
+    assert np.isnan(measured["funded_days"]), "an evaluation does not answer a funded objective"
 
 
 def test_fees_per_pass_is_what_the_whole_sequence_cost_over_what_it_passed() -> None:
@@ -260,7 +267,7 @@ def test_a_rule_set_that_refuses_the_log_costs_only_its_own_row() -> None:
         row,
         {"trades": 2, CONTROL: 1.5, "ambiguous_share": 0.0, "session_close_share": 0.5},
         log,
-        [propaccount.APEX_50K, evaluation()],
+        [APEX_EVALUATION, evaluation()],
         days_from(START, 30),
     )
     assert [entry["account_name"] for entry in measured] == ["Evaluation"]
@@ -297,37 +304,40 @@ def selection_frame() -> pd.DataFrame:
                 "ambiguous_share": 0.002,
                 "session_close_share": 0.3,
             }
-            for account in ("Apex 50K", "TakeProfitTrader 50K PRO")
+            for account in (APEX_EVALUATION.name, "TakeProfitTrader 50K PRO")
             for combo in range(4)
         ],
     )
 
 
 def test_each_preset_is_shortlisted_by_the_control_and_by_every_objective_it_answers() -> None:
-    accounts = [propaccount.APEX_50K, propaccount.TPT_50K_PRO, propaccount.TOPSTEP_50K]
+    accounts = [APEX_EVALUATION, propaccount.TPT_50K_PRO, propaccount.TOPSTEP_50K.evaluation]
     chosen = shortlists(selection_frame(), accounts, top=2)
 
     by_account = chosen.groupby("account_name")["ranked_by"].unique()
-    assert set(by_account["Apex 50K"]) == {
-        CONTROL,
-        "pass_rate",
-        "fees_per_pass",
-        "days_to_payout",
-        "funded_days",
-    }
+    assert set(by_account[APEX_EVALUATION.name]) == {CONTROL, "pass_rate", "fees_per_pass", "days_to_payout"}
     assert set(by_account["TakeProfitTrader 50K PRO"]) == {CONTROL, "funded_days"}
-    assert "TopStep 50K" not in by_account.index, "a preset with nothing measured has no shortlist"
+    assert "TopStep 50K Combine" not in by_account.index, "a preset with nothing measured has no shortlist"
     assert chosen.groupby(["account_name", "ranked_by"]).size().max() == 2
 
 
 def test_each_objective_shortlists_the_configurations_it_ranks_best() -> None:
-    chosen = shortlists(selection_frame(), [propaccount.APEX_50K], top=1)
-    picked = dict(zip(chosen["ranked_by"], chosen["combo_id"], strict=True))
-    assert picked == {CONTROL: 1, "pass_rate": 0, "fees_per_pass": 1, "days_to_payout": 0, "funded_days": 1}
+    chosen = shortlists(selection_frame(), [APEX_EVALUATION, propaccount.TPT_50K_PRO], top=1)
+    keys = zip(chosen["account_name"], chosen["ranked_by"], strict=True)
+    picked = dict(zip(keys, chosen["combo_id"], strict=True))
+    apex, pro = APEX_EVALUATION.name, "TakeProfitTrader 50K PRO"
+    assert picked == {
+        (apex, CONTROL): 1,
+        (apex, "pass_rate"): 0,
+        (apex, "fees_per_pass"): 1,
+        (apex, "days_to_payout"): 0,
+        (pro, CONTROL): 1,
+        (pro, "funded_days"): 1,
+    }
 
 
 def test_no_preset_with_a_measure_means_no_shortlist_rather_than_an_empty_row() -> None:
-    assert shortlists(selection_frame(), [propaccount.TOPSTEP_50K], top=2).empty
+    assert shortlists(selection_frame(), [propaccount.TOPSTEP_50K.evaluation], top=2).empty
 
 
 # -- the verdict -------------------------------------------------------------------------------
@@ -348,7 +358,7 @@ def held_frame() -> pd.DataFrame:
 
 
 def test_the_verdict_puts_each_shortlist_s_selection_and_held_out_medians_side_by_side() -> None:
-    chosen = shortlists(selection_frame(), [propaccount.APEX_50K], top=2)
+    chosen = shortlists(selection_frame(), [APEX_EVALUATION], top=2)
     table = verdict(chosen, held_frame()).set_index("ranked_by")
 
     by_pass_rate = table.loc["pass_rate"]
@@ -363,7 +373,7 @@ def test_the_verdict_puts_each_shortlist_s_selection_and_held_out_medians_side_b
 
 
 def test_nothing_chosen_or_nothing_held_has_no_verdict() -> None:
-    chosen = shortlists(selection_frame(), [propaccount.APEX_50K], top=2)
+    chosen = shortlists(selection_frame(), [APEX_EVALUATION], top=2)
     assert verdict(chosen, pd.DataFrame()).empty
     assert verdict(pd.DataFrame(), held_frame()).empty
 
@@ -481,7 +491,9 @@ def test_the_holdout_replays_only_the_shortlisted_configurations_through_their_o
     ) -> pd.DataFrame:
         calls.append((rows, wanted))
         frame = selection_frame()
-        frame = frame[(frame["account_name"] == "Apex 50K") & frame["combo_id"].isin(rows["combo_id"])]
+        frame = frame[
+            (frame["account_name"] == APEX_EVALUATION.name) & frame["combo_id"].isin(rows["combo_id"])
+        ]
 
         return frame.assign(funded_accounts=1, funded_censored=0, ever_passed=True, paid_out=True, net=1.0)
 
@@ -490,14 +502,14 @@ def test_the_holdout_replays_only_the_shortlisted_configurations_through_their_o
         {"close": np.arange(100.0)}, index=pd.date_range("2024-01-02", periods=100, freq="min")
     )
     args = argparse.Namespace(top=1, n_jobs=1)
-    _, table = run_cell("InsideBar", ROOT, args, [propaccount.APEX_50K], bars)
+    _, table = run_cell("InsideBar", ROOT, args, [APEX_EVALUATION], bars)
 
     (selection_rows, everything), (held_rows, wanted) = calls
     assert len(selection_rows) == 3
-    assert all(accounts == [propaccount.APEX_50K] for accounts in everything.values())
+    assert all(accounts == [APEX_EVALUATION] for accounts in everything.values())
     assert set(held_rows["combo_id"]) == {0, 1}, "combo 2 leads no shortlist, so it is never held out"
-    assert all(accounts == [propaccount.APEX_50K] for accounts in wanted.values())
-    assert set(table["ranked_by"]) == {CONTROL, "pass_rate", "fees_per_pass", "days_to_payout", "funded_days"}
+    assert all(accounts == [APEX_EVALUATION] for accounts in wanted.values())
+    assert set(table["ranked_by"]) == {CONTROL, "pass_rate", "fees_per_pass", "days_to_payout"}
 
 
 def test_a_pool_nothing_was_measured_on_is_never_read_held_out(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -513,7 +525,7 @@ def test_a_pool_nothing_was_measured_on_is_never_read_held_out(monkeypatch: pyte
     bars = pd.DataFrame(
         {"close": np.arange(100.0)}, index=pd.date_range("2024-01-02", periods=100, freq="min")
     )
-    _, table = run_cell("InsideBar", ROOT, argparse.Namespace(top=1, n_jobs=1), [propaccount.APEX_50K], bars)
+    _, table = run_cell("InsideBar", ROOT, argparse.Namespace(top=1, n_jobs=1), [APEX_EVALUATION], bars)
     assert table.empty
     assert len(held) == 1, "the selection window only"
 
@@ -572,15 +584,13 @@ def test_a_window_is_re_run_and_replayed_through_every_preset_each_configuration
 
     closed = evaluation()
     wanted = {
-        campaign_propobjectives.key_of(row): [propaccount.APEX_50K, closed]
-        if row["combo_id"] == 0
-        else [closed]
+        campaign_propobjectives.key_of(row): [APEX_EVALUATION, closed] if row["combo_id"] == 0 else [closed]
         for _, row in rows.iterrows()
     }
     measured = measure_window("InsideBar", rows, ROOT, source(bars, "selection"), wanted, n_jobs=1)
 
     assert sorted(zip(measured["combo_id"], measured["account_name"], strict=True)) == [
-        (0, "Apex 50K"),
+        (0, APEX_EVALUATION.name),
         (0, "Evaluation"),
         (1, "Evaluation"),
     ]
@@ -612,13 +622,15 @@ def run_main(monkeypatch: pytest.MonkeyPatch, table: pd.DataFrame, *extra: str) 
     monkeypatch.setattr(splice, "load_continuous", lambda _: pd.DataFrame())
     monkeypatch.setattr(campaign_propobjectives, "run_cell", lambda *_: (held_frame(), table))
 
-    return main(["campaign_propobjectives.py", "--strategy", "InsideBar", "--preset", "Apex 50K", *extra])
+    return main(
+        ["campaign_propobjectives.py", "--strategy", "InsideBar", "--preset", APEX_EVALUATION.name, *extra]
+    )
 
 
 def test_a_run_with_a_verdict_writes_every_replay_and_the_verdict(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    table = verdict(shortlists(selection_frame(), [propaccount.APEX_50K], top=2), held_frame())
+    table = verdict(shortlists(selection_frame(), [APEX_EVALUATION], top=2), held_frame())
     assert run_main(monkeypatch, table, "--out", str(tmp_path / "out")) == 0
     written = pd.read_csv(tmp_path / "out" / "verdict.csv")
     assert set(written["strategy"]) == {"InsideBar"}

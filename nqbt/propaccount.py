@@ -27,8 +27,11 @@ if TYPE_CHECKING:
     from nqbt.arrays import DateArray, FloatArray, IntArray
 
 __all__ = [
-    "APEX_50K",
-    "APEX_150K",
+    "APEX_50K_EOD",
+    "APEX_50K_INTRADAY",
+    "APEX_150K_EOD",
+    "APEX_150K_INTRADAY",
+    "APEX_LOCK_BUFFER",
     "EXCURSION_COLUMNS",
     "LINKED_PRESETS",
     "LUCIDDAILY_50K",
@@ -497,38 +500,106 @@ type Account = PropAccount | LinkedAccount
 """Anything :func:`replay` replays."""
 
 
-APEX_50K = PropAccount(
-    name="Apex 50K",
-    rules=AccountRules(
-        starting_balance=50_000.0,
-        profit_target=3_000.0,
-        trailing_threshold=2_500.0,
-        trail_basis=TrailBasis.INTRADAY,
+APEX_LOCK_BUFFER = 100.0
+"""Dollars above the starting balance an Apex floor locks at, and that its safety net adds."""
+
+
+class _ApexSize(NamedTuple):
+    """The figures one Apex account size sets, whichever trail it is bought with."""
+
+    balance: float
+    target: float
+    drawdown: float
+    evaluation_contracts: float
+    evaluation_daily_loss: float
+    """The end-of-day evaluation's daily loss limit; the intraday one has none."""
+
+    scaling_plan: tuple[ScalingTier, ...]
+    funded_daily_loss: float
+    payout_cap: float
+
+
+def _apex(
+    size: _ApexSize, basis: TrailBasis, *, fee: float, activation: float, day_profit: float
+) -> LinkedAccount:
+    """Build Apex's evaluation and the Performance Account its pass opens, at one size and trail."""
+    end_of_day: bool = basis is TrailBasis.END_OF_DAY
+    name: str = f"Apex {size.balance / 1_000:.0f}K {'EOD' if end_of_day else 'Intraday'}"
+    trail = AccountRules(
+        starting_balance=size.balance,
+        profit_target=0.0,
+        trailing_threshold=size.drawdown,
+        trail_basis=basis,
         trail_breach=EquityBasis.UNREALISED,
         trail_lock=TrailLock.ABOVE_STARTING_BALANCE,
-        trail_lock_buffer=100.0,
-        consistency_ratio=0.30,
-        minimum_trading_days=7,
-        withdrawal_threshold=2_600.0,
-    ),
-    fees=AccountFees(monthly_fee=167.0, activation_fee=130.0),
+        trail_lock_buffer=APEX_LOCK_BUFFER,
+        daily_loss_basis=EquityBasis.UNREALISED,
+        on_daily_breach=DailyBreach.LOCKOUT,
+        withdrawal_threshold=size.drawdown + APEX_LOCK_BUFFER,
+    )
+    evaluation = PropAccount(
+        name=f"{name} Evaluation",
+        rules=dataclasses.replace(
+            trail,
+            profit_target=size.target,
+            daily_loss_limit=size.evaluation_daily_loss if end_of_day else 0.0,
+            max_contracts=size.evaluation_contracts,
+            evaluation_days=30,
+        ),
+        fees=AccountFees(evaluation_fee=fee, activation_fee=activation),
+    )
+    performance = PropAccount(
+        name=f"{name} PA",
+        rules=dataclasses.replace(
+            trail,
+            daily_loss_limit=size.funded_daily_loss,
+            max_contracts=size.scaling_plan[-1].contracts,
+            scaling_plan=size.scaling_plan,
+            payout_days=5,
+            payout_day_profit=day_profit,
+            payout_consistency=0.50,
+            payout_cap=size.payout_cap,
+            payout_minimum=500.0,
+            max_payouts=6,
+        ),
+        fees=AccountFees(evaluation_fee=activation),
+    )
+
+    return LinkedAccount(name=f"{name} Evaluation+PA", evaluation=evaluation, funded=performance)
+
+
+_APEX_50K_SIZE = _ApexSize(
+    balance=50_000.0,
+    target=3_000.0,
+    drawdown=2_000.0,
+    evaluation_contracts=6.0,
+    evaluation_daily_loss=1_000.0,
+    scaling_plan=(ScalingTier(0.0, 2.0), ScalingTier(1_500.0, 3.0), ScalingTier(3_000.0, 4.0)),
+    funded_daily_loss=1_000.0,
+    payout_cap=1_500.0,
 )
 
-APEX_150K = PropAccount(
-    name="Apex 150K",
-    rules=AccountRules(
-        starting_balance=150_000.0,
-        profit_target=9_000.0,
-        trailing_threshold=5_000.0,
-        trail_basis=TrailBasis.INTRADAY,
-        trail_breach=EquityBasis.UNREALISED,
-        trail_lock=TrailLock.ABOVE_STARTING_BALANCE,
-        trail_lock_buffer=100.0,
-        consistency_ratio=0.30,
-        minimum_trading_days=7,
-        withdrawal_threshold=5_100.0,
+_APEX_150K_SIZE = _ApexSize(
+    balance=150_000.0,
+    target=9_000.0,
+    drawdown=4_000.0,
+    evaluation_contracts=12.0,
+    evaluation_daily_loss=2_000.0,
+    scaling_plan=(
+        ScalingTier(0.0, 4.0),
+        ScalingTier(2_000.0, 5.0),
+        ScalingTier(3_000.0, 7.0),
+        ScalingTier(5_000.0, 10.0),
     ),
-    fees=AccountFees(monthly_fee=297.0, activation_fee=130.0),
+    funded_daily_loss=2_500.0,
+    payout_cap=2_500.0,
+)
+
+APEX_50K_EOD = _apex(_APEX_50K_SIZE, TrailBasis.END_OF_DAY, fee=47.20, activation=129.0, day_profit=250.0)
+APEX_50K_INTRADAY = _apex(_APEX_50K_SIZE, TrailBasis.INTRADAY, fee=19.92, activation=99.0, day_profit=200.0)
+APEX_150K_EOD = _apex(_APEX_150K_SIZE, TrailBasis.END_OF_DAY, fee=175.20, activation=159.0, day_profit=350.0)
+APEX_150K_INTRADAY = _apex(
+    _APEX_150K_SIZE, TrailBasis.INTRADAY, fee=95.20, activation=149.0, day_profit=300.0
 )
 
 
@@ -911,6 +982,10 @@ TPT_150K = LinkedAccount(name="TakeProfitTrader 150K Test+PRO", evaluation=TPT_1
 LINKED_PRESETS: dict[str, LinkedAccount] = {
     linked.name: linked
     for linked in (
+        APEX_50K_EOD,
+        APEX_50K_INTRADAY,
+        APEX_150K_EOD,
+        APEX_150K_INTRADAY,
         TOPSTEP_50K,
         TOPSTEP_150K,
         LUCIDPRO_50K,
@@ -928,11 +1003,8 @@ LINKED_PRESETS: dict[str, LinkedAccount] = {
 
 PRESETS: dict[str, PropAccount] = {
     account.name: account
-    for account in (
-        APEX_50K,
-        APEX_150K,
-        *(half for linked in LINKED_PRESETS.values() for half in (linked.evaluation, linked.funded)),
-    )
+    for linked in LINKED_PRESETS.values()
+    for account in (linked.evaluation, linked.funded)
 }
 """Every evaluation and funded account on its own, for replaying one phase alone.
 

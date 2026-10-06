@@ -78,12 +78,12 @@ MEASURES = (
 
 
 def reads(account: propaccount.PropAccount, objective: Objective) -> bool:
-    """Return whether a preset's replay answers an objective.
+    """Return whether a preset's replay answers an objective: a funded one only a funded account's.
 
     ``docs/roadmap.md`` § "A firm that changes its rules at the pass ships as two presets".
     """
     if objective.funded:
-        return not account.fees.monthly_fee_ends_at_pass
+        return account.rules.profit_target <= 0.0
 
     return account.rules.profit_target > 0.0
 

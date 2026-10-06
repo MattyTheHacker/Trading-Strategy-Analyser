@@ -306,7 +306,7 @@ def test_a_withdrawal_into_the_floor_breaches_the_account_it_funded() -> None:
     assert run.passed
     assert run.outcome is Outcome.BREACHED_TRAILING
     # The floor is above the balance the withdrawal left behind, and nothing else moved it.
-    assert run.trailing_floor > propaccount.APEX_50K.rules.starting_balance
+    assert run.trailing_floor > 50_000.0
 
 
 def test_a_withdrawal_does_not_lower_the_high_water_mark() -> None:
@@ -951,10 +951,13 @@ def test_every_preset_replays(preset: PropAccount) -> None:
     assert result.summary == stats.summarise(log[log["trade_id"].isin(range(1, 11))])
 
 
-def test_the_two_firms_disagree_about_what_raises_the_floor() -> None:
+def test_the_two_apex_trails_disagree_about_what_raises_the_floor() -> None:
     """The reason both are shipped: they are not the same rule with different numbers."""
-    assert propaccount.APEX_50K.rules.trail_basis is TrailBasis.INTRADAY
-    assert propaccount.TOPSTEP_50K.evaluation.rules.trail_basis is TrailBasis.END_OF_DAY
+    for pair in (propaccount.APEX_50K_INTRADAY, propaccount.APEX_150K_INTRADAY):
+        assert {pair.evaluation.rules.trail_basis, pair.funded.rules.trail_basis} == {TrailBasis.INTRADAY}
+
+    for pair in (propaccount.APEX_50K_EOD, propaccount.APEX_150K_EOD):
+        assert {pair.evaluation.rules.trail_basis, pair.funded.rules.trail_basis} == {TrailBasis.END_OF_DAY}
 
 
 # TakeProfitTrader's published table, which is what these presets have to reproduce:
@@ -1048,6 +1051,68 @@ def test_a_takeprofittrader_pro_account_may_withdraw_before_it_has_a_target_to_h
     assert run.passed_on == dt.date(2024, 1, 2)
     assert run.withdrawn == pytest.approx(2_000.0)
     assert run.payout == pytest.approx(1_600.0)
+
+
+# Apex's product cards: size, profit target, drawdown, the evaluation's fee with the coupon
+# applied, the activation fee, and the largest position in the evaluation and the PA.
+APEX_TABLE = [
+    (propaccount.APEX_50K_EOD, 50_000.0, 3_000.0, 2_000.0, 47.20, 129.0, 6.0, 4.0),
+    (propaccount.APEX_50K_INTRADAY, 50_000.0, 3_000.0, 2_000.0, 19.92, 99.0, 6.0, 4.0),
+    (propaccount.APEX_150K_EOD, 150_000.0, 9_000.0, 4_000.0, 175.20, 159.0, 12.0, 10.0),
+    (propaccount.APEX_150K_INTRADAY, 150_000.0, 9_000.0, 4_000.0, 95.20, 149.0, 12.0, 10.0),
+]
+
+
+@pytest.mark.parametrize(
+    ("pair", "balance", "target", "drawdown", "fee", "activation", "evaluation_size", "funded_size"),
+    APEX_TABLE,
+    ids=lambda value: getattr(value, "name", value),
+)
+def test_an_apex_pair_carries_its_product_card(  # one argument per column of the table
+    pair: LinkedAccount,
+    balance: float,
+    target: float,
+    drawdown: float,
+    fee: float,
+    activation: float,
+    evaluation_size: float,
+    funded_size: float,
+) -> None:
+    evaluation, performance = pair.evaluation.rules, pair.funded.rules
+
+    assert evaluation.starting_balance == performance.starting_balance == balance
+    assert evaluation.profit_target == target
+    assert evaluation.trailing_threshold == performance.trailing_threshold == drawdown
+    assert pair.evaluation.fees == AccountFees(evaluation_fee=fee, activation_fee=activation)
+    assert evaluation.max_contracts == evaluation_size
+    assert performance.max_contracts == performance.scaling_plan[-1].contracts == funded_size
+
+
+@pytest.mark.parametrize("pair", [row[0] for row in APEX_TABLE], ids=lambda a: a.name)
+def test_apex_gives_its_evaluation_thirty_days_and_its_pa_six_payouts(pair: LinkedAccount) -> None:
+    evaluation, performance = pair.evaluation.rules, pair.funded.rules
+
+    assert evaluation.evaluation_days == 30
+    assert (evaluation.consistency_ratio, evaluation.minimum_trading_days) == (0.0, 0)
+    assert (performance.payout_consistency, performance.max_payouts) == (0.50, 6)
+    assert performance.withdrawal_threshold == performance.trailing_threshold + propaccount.APEX_LOCK_BUFFER
+    assert performance.profit_split == 1.0
+    assert performance.on_daily_breach is DailyBreach.LOCKOUT
+
+
+def test_only_apex_s_end_of_day_evaluation_has_a_daily_loss_limit() -> None:
+    assert propaccount.APEX_50K_EOD.evaluation.rules.daily_loss_limit == 1_000.0
+    assert propaccount.APEX_50K_INTRADAY.evaluation.rules.daily_loss_limit == 0.0
+    assert propaccount.APEX_50K_INTRADAY.funded.rules.daily_loss_limit == 1_000.0
+
+
+def test_an_apex_evaluation_that_has_not_passed_in_thirty_days_buys_another() -> None:
+    log = leg_log([(day, 50.0, 1.0) for day in range(40)])
+    result = propaccount.replay(log, propaccount.APEX_50K_EOD, max_accounts=5)
+
+    assert result.runs[0].outcome is Outcome.EXPIRED
+    assert result.runs[1].first_day == dt.date(2024, 2, 1)
+    assert result.fees_paid == pytest.approx(2 * 47.20)
 
 
 # TopStep's published rows: size, profit target, maximum loss limit, monthly fee, the largest
@@ -1154,7 +1219,7 @@ def test_lucid_s_three_funded_accounts_pay_out_by_three_different_rules() -> Non
 
 
 def test_a_preset_is_found_by_name_case_insensitively() -> None:
-    assert propaccount.preset("apex 50k") is propaccount.APEX_50K
+    assert propaccount.preset("apex 50k eod pa") is propaccount.APEX_50K_EOD.funded
     assert propaccount.preset("  TopStep 150K Combine ") is propaccount.TOPSTEP_150K.evaluation
 
 
@@ -1274,10 +1339,11 @@ def test_the_rows_a_report_prints_are_plain_python_values() -> None:
 
 def test_a_frozen_rule_set_can_be_varied_without_touching_the_preset() -> None:
     """`dataclasses.replace` is how a caller overrides a dated preset number."""
-    tighter = dataclasses.replace(propaccount.APEX_50K.rules, trailing_threshold=1_000.0)
+    preset = propaccount.APEX_50K_EOD.evaluation
+    tighter = dataclasses.replace(preset.rules, trailing_threshold=1_000.0)
 
     assert tighter.trailing_threshold == 1_000.0
-    assert propaccount.APEX_50K.rules.trailing_threshold == 2_500.0
+    assert preset.rules.trailing_threshold == 2_000.0
 
 
 # -- every fee and withdrawal carries its day ----------------------------------
@@ -1355,8 +1421,8 @@ def test_the_activation_fee_falls_on_the_day_of_the_pass() -> None:
 
 
 def test_a_fee_that_costs_nothing_is_not_charged() -> None:
-    """Apex charges no entry fee, so its only charge on the opening day is the month."""
-    run = propaccount.replay(leg_log([(0, -100.0, 1.0)]), propaccount.APEX_50K).runs[0]
+    """TopStep charges no entry fee, so its only charge on the opening day is the month."""
+    run = propaccount.replay(leg_log([(0, -100.0, 1.0)]), propaccount.TOPSTEP_50K).runs[0]
 
     assert [charge.kind for charge in run.charges] == [FeeKind.MONTHLY]
 
@@ -1545,7 +1611,7 @@ def test_an_unknown_name_lists_the_linked_pairs_too() -> None:
 
 def test_an_attempt_is_bought_as_the_pair_s_evaluation() -> None:
     assert propaccount.evaluation_of(propaccount.TPT_25K) is propaccount.TPT_25K_TEST
-    assert propaccount.evaluation_of(propaccount.APEX_50K) is propaccount.APEX_50K
+    assert propaccount.evaluation_of(propaccount.TPT_25K_TEST) is propaccount.TPT_25K_TEST
 
 
 # -- opening the first account later than the log's first day ------------------

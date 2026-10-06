@@ -53,18 +53,24 @@ REPORTED = (
     "fees_paid",
     "net",
     "trades_taken",
+    "trades_rejected",
     "trades_total",
 )
 """Which of :class:`~nqbt.propaccount.PropReplay`'s lifetime figures reach a row."""
 
-DEFAULT_PRESETS = ("Apex 50K", "Apex 150K", "TopStep 50K", "TopStep 150K")
-"""Which rule sets a run reports unless ``--preset`` says otherwise: the four §M28.13 read."""
+DEFAULT_PRESETS = (
+    "Apex 50K Intraday Evaluation+PA",
+    "Apex 150K Intraday Evaluation+PA",
+    "TopStep 50K Combine+XFA",
+    "TopStep 150K Combine+XFA",
+)
+"""Which rule sets a run reports unless ``--preset`` says otherwise: the firms and sizes §M28.13 read."""
 
 ALL = "all"
 """The ``--preset`` value standing for :data:`EVERY_PRESET`."""
 
-EVERY_PRESET = (*DEFAULT_PRESETS, *propaccount.LINKED_PRESETS)
-"""What ``--preset all`` replays: Apex and TopStep, and TakeProfitTrader's three linked pairs."""
+EVERY_PRESET = tuple(propaccount.LINKED_PRESETS)
+"""What ``--preset all`` replays: every firm's evaluation linked to its funded account."""
 
 LAST_MONTHS = 12
 """How many of the holdout's last whole months the monthly figures read by default."""

@@ -45,6 +45,8 @@ ______________________________________________________________________
 
 **The scoring question is different, and reading it wrong inverts the answer.** A prop account is not asking "did it survive" — nearly all accounts eventually breach. It is asking "was the *sequence* of accounts worth more than it cost", because a blown account costs its fees and not its trading losses. Survival and profitability are close to independent here, and only the second is about money (§M28.13).
 
+**Every Apex and TopStep figure on this page was replayed on the presets before [#440].** Those kept an account on its evaluation rules after the pass, on terms dated before 2026 — Apex's 50K drawdown was $2,500 then and is $2,000 now. [#440] has replaced them with each firm's evaluation linked to the funded account its pass opens, on the 2026 terms and with their payout rules, and added Lucid. Until §M51's two recommended cells are re-run through those, read each figure below as what the older rules paid, not what either firm would pay today.
+
 ### The binding constraint is position size, not the strategy
 
 At 4 contracts a full-size NQ position leaves almost no room under a trailing threshold:
@@ -338,3 +340,4 @@ uv run tools/campaign_flatten.py      # the same cell at several flatten cutoffs
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#360]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/360
 [#394]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/394
+[#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
