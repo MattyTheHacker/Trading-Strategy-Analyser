@@ -6,7 +6,7 @@ issues: [369, 351]
 gates: [1, 2]
 outcome: negative
 verdict: >-
-  Run at 15 and 10 minutes, with 5 minutes not yet run: the control reproduces all 61,568 stored rows it joins to; 1 of the 22 pre-registered cells read clears, EmaPullback at 10 minutes with the breakeven stop at 1 R, +0.004 of profit factor held out on each root while its median configuration still loses; the market exits repeat §M48's split, every stop moved toward the entry with age costs more often than it gains in both windows, the late stop moves held-out profit factor by at most 0.024 unfiltered, and on InsideBar, where it was predicted to help, it costs in 34 of 36 held-out cells. InsideBarTrailing's midday cell is traded at 5 minutes, which is the bar size not yet run.
+  Run at 15 and 10 minutes, with 5 minutes not yet run: the control reproduces all 61,568 stored rows it joins to; 1 of the 22 pre-registered cells read clears, EmaPullback at 10 minutes with the breakeven stop at 1 R, +0.004 of profit factor held out on each root while its median configuration still loses; the market exits repeat §M48's split, every stop moved toward the entry with age costs more often than it gains in both windows, the late stop moves held-out profit factor by at most 0.024 unfiltered, and on InsideBar, where it was predicted to help, it costs in 34 of 36 held-out cells. Through the prop accounts, not pre-registered, the clearing cell helps on MNQ and lowers the median net on three of four NQ presets. InsideBarTrailing's midday cell is traded at 5 minutes, which is the bar size not yet run.
 ---
 
 # M50 — the conditional early exit's second tier, and the breakeven stop: at 10 and 15 minutes one cell in 22 clears, by 0.004 ([#369])
@@ -155,15 +155,52 @@ Read the same way, one arm against another, as description. A count is of the 36
 
 **Gate 2 moves in most root × stratum cells, in both directions.** Where the control passes, on EmaCrossover, InsideBar, OpeningRange unfiltered and InsideBarTrailing's midday NQ, between 2 and 19 arms fail; where it fails, on EmaPullback, SqueezeBreakout, InsideBarTrailing unfiltered, InsideBarTrailing's midday MNQ and PullBackAndGo's NQ, between 1 and 19 arms pass. OpeningRange's midday cell passes on both roots under every arm. Gate 2 is `tools/campaign_holdout.py`'s shortlist pooled over resolutions and base variants, which the paired read keeps apart, so the two can disagree and neither is the verdict.
 
+## Through the prop accounts
+
+Not pre-registered, and run after the verdict was read. For the six cells where a pick pays on at least one root, the one that clears and the five that pay on one root, each root's pick and the control were replayed over the held-out window through Apex and TopStep at 50K and 150K: the selection window's top 20 under each, once per base variant. That is 48 replays, every one re-run on the bars it was swept on and reproducing its stored row, 960 of 960 on trades and on net. A row below is one cell, root and preset, comparing the pick's median across its shortlist with the control's; net is payout less fees.
+
+| across 12 cell × root pairs and 4 presets  | better | same | worse |
+| ------------------------------------------ | -----: | ---: | ----: |
+| share of the shortlist that ends in profit |     10 |   30 |     8 |
+| median net                                 |     21 |    9 |    18 |
+
+**The one cell that clears helps the MNQ accounts and hurts the NQ ones.** EmaPullback at 10 minutes, the breakeven stop at 1 R against the control:
+
+| root | preset       | profitable, control | profitable, breakeven | median net, control | median net, breakeven |
+| ---- | ------------ | ------------------: | --------------------: | ------------------: | --------------------: |
+| MNQ  | Apex 50K     |                 25% |                   30% |              −5,177 |                −5,094 |
+| MNQ  | Apex 150K    |                  0% |                   15% |              −8,613 |                −8,613 |
+| MNQ  | TopStep 50K  |                 35% |                   60% |              −1,446 |                +1,440 |
+| MNQ  | TopStep 150K |                 35% |                   35% |              −4,023 |                −4,023 |
+| NQ   | Apex 50K     |                  0% |                    0% |              −8,851 |               −12,024 |
+| NQ   | Apex 150K    |                  0% |                    5% |             −14,405 |               −18,266 |
+| NQ   | TopStep 50K  |                  0% |                    0% |              −2,622 |                −3,430 |
+| NQ   | TopStep 150K |                  5% |                   25% |              −6,705 |                −6,035 |
+
+On MNQ it raises the profitable share on three presets and turns TopStep 50K's median net positive. On NQ every median net stays negative, three of the four fall, and the median number of attempts rises by 16.5 to 25.5 on every preset.
+
+**The largest account effect of any pick is a cost**: InsideBarTrailing's unfiltered 10-minute pick, `losing30m`, which paid on NQ's profit factor and cost on MNQ's. On MNQ, where the control is profitable on all four presets:
+
+| preset       | profitable, control | profitable, `losing30m` | median net, control | median net, `losing30m` |
+| ------------ | ------------------: | ----------------------: | ------------------: | ----------------------: |
+| Apex 50K     |                 55% |                      0% |              +2,720 |                 −23,274 |
+| Apex 150K    |                100% |                      0% |             +21,590 |                 −12,478 |
+| TopStep 50K  |                100% |                    100% |             +10,929 |                 +11,826 |
+| TopStep 150K |                100% |                     95% |             +41,491 |                  +9,706 |
+
+On NQ every median net is negative with the arm and without it.
+
+**Elsewhere the picks move little.** DeadCatBounce's and PullBackAndGo's medians are negative on every preset either way but one, PullBackAndGo's NQ TopStep 150K, whose shortlist stays 100% profitable while its median net falls from 9,689 to 2,021. ElasticBand's change in median net is under 3,000 on every row but one, NQ's Apex 150K at 15 minutes, +9,441 on a control median of −57,852.
+
 ## What this settles, and what it does not
 
 - **At 10 and 15 minutes, #369's second tier rescues no archetype.** Moving the stop with age or to breakeven costs more often than it gains in both windows, and before the close it costs more often held out at every level, having gained more often on the selection window at four of its six bound settings; the market exits repeat §M48; and the one cell that clears does so by 0.004 with its configurations still losing.
-- **EmaPullback's breakeven cell is a candidate for [#354]'s re-read and nothing more**, as the pre-registration says of any cell that clears. At 15 minutes the same archetype picks something else, which costs.
-- **Not run**: the 5-minute pass, above, and 2 minutes; the prop-account replay of the picks, which §M48 ran after its verdict and which was not pre-registered here; #369's third tier; and any stratum but the two.
+- **EmaPullback's breakeven cell is a candidate for [#354]'s re-read and nothing more**, as the pre-registration says of any cell that clears. At 15 minutes the same archetype picks something else, which costs, and through the prop accounts the cell helps on MNQ and costs on NQ.
+- **Not run**: the 5-minute pass, above, and 2 minutes; the prop replay of every arm rather than the picks; #369's third tier; and any stratum but the two.
 
 ## How it was read
 
-From the stored rows alone: every arm is a variant named `<base variant> exit2=<arm>`, in each archetype's campaign database under `results/campaign/`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant; "bound" is `tools/campaign_hold.py`'s `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. **`tools/campaign_early_exit.py --set early-exit-2` reproduces the verdict (`--picks`) and the control's reproduction (`--reproduce`)**; the per-arm table, the contrasts, gate 1 and the counts behind the predictions were computed from the same functions by a local script. The trade figures are each cell's ratio of the two arms' median trade counts, then the median over cells.
+From the stored rows alone: every arm is a variant named `<base variant> exit2=<arm>`, in each archetype's campaign database under `results/campaign/`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant; "bound" is `tools/campaign_hold.py`'s `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. **`tools/campaign_early_exit.py --set early-exit-2` reproduces the verdict (`--picks`) and the control's reproduction (`--reproduce`)**; the per-arm table, the contrasts, gate 1 and the counts behind the predictions were computed from the same functions by a local script. The trade figures are each cell's ratio of the two arms' median trade counts, then the median over cells. The prop replay is `tools/campaign_propaccount.py`'s `--rerun` path, one variant per call, driven by a local script; a row's figure is the median over the shortlist, then over base variants where a cell has several.
 
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#351]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/351
