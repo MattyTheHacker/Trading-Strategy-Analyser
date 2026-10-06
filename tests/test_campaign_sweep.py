@@ -64,7 +64,6 @@ from nqbt.sim.types import (
     ElasticBandParams,
     EmaCrossoverParams,
     EmaPullbackParams,
-    InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
     SqueezeBreakoutParams,
@@ -334,11 +333,8 @@ def test_every_base_carries_its_roots_real_costs() -> None:
     for name, build in VARIANTS.items():
         for root, commission in COMMISSION.items():
             for variant in build(root):
-                assert variant.base.as_dict()["commission_per_contract"] == pytest.approx(commission), (
-                    name,
-                    root,
-                )
-                assert variant.base.as_dict()["slippage_ticks"] == pytest.approx(SLIPPAGE_TICKS), (name, root)
+                assert variant.base.commission_per_contract == pytest.approx(commission), (name, root)
+                assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS), (name, root)
 
 
 def test_every_costed_root_is_a_registered_instrument() -> None:
@@ -1113,8 +1109,8 @@ def test_the_narrow_entry_is_held_at_a_value_and_never_swept() -> None:
 def test_the_narrow_variants_carry_the_roots_real_costs() -> None:
     for root, commission in COMMISSION.items():
         for variant in NARROW_VARIANTS["InsideBar"](root):
-            assert base_as(variant, InsideBarParams).commission_per_contract == commission
-            assert base_as(variant, InsideBarParams).slippage_ticks == SLIPPAGE_TICKS
+            assert variant.base.commission_per_contract == commission
+            assert variant.base.slippage_ticks == SLIPPAGE_TICKS
 
 
 def test_every_narrow_variant_is_named_for_the_reading_tools_to_filter_on() -> None:
@@ -1703,10 +1699,9 @@ def test_every_ladder_has_a_leg_for_each_target_the_order_can_fill() -> None:
     A set built with one would fail the whole run rather than the cell.
     """
     for variant in bracket_variants():
-        assert (
-            len(base_as(variant, OpeningRangeParams).target_levels)
-            <= base_as(variant, OpeningRangeParams).order_quantity
-        ), variant.name
+        assert len(base_as(variant, OpeningRangeParams).target_levels) <= variant.base.order_quantity, (
+            variant.name
+        )
 
 
 def test_no_bracket_variant_can_collide_with_a_stored_one() -> None:
@@ -1805,8 +1800,8 @@ def test_the_stored_orb_grids_are_untouched_by_the_bracket_run() -> None:
 def test_the_bracket_run_carries_the_roots_real_costs() -> None:
     for root in COMMISSION:
         for variant in ORB_BRACKET_VARIANTS["OpeningRange"](root):
-            assert base_as(variant, OpeningRangeParams).commission_per_contract == COMMISSION[root]
-            assert base_as(variant, OpeningRangeParams).slippage_ticks == SLIPPAGE_TICKS
+            assert variant.base.commission_per_contract == COMMISSION[root]
+            assert variant.base.slippage_ticks == SLIPPAGE_TICKS
 
 
 # -- the §M26.9 volume run -------------------------------------------------------------------
@@ -1920,10 +1915,8 @@ def test_every_volume_variant_grid_can_be_built_at_every_cell() -> None:
 def test_the_volume_run_carries_the_roots_real_costs() -> None:
     for root in COMMISSION:
         for variant in volume_variants(root):
-            assert base_as(variant, ElasticBandParams).commission_per_contract == pytest.approx(
-                COMMISSION[root]
-            )
-            assert base_as(variant, ElasticBandParams).slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
 
 
 def test_variants_for_selects_the_volume_grid() -> None:
@@ -2092,10 +2085,8 @@ def test_every_channel_variant_grid_can_be_built_at_every_cell() -> None:
 def test_the_channel_run_carries_the_roots_real_costs() -> None:
     for root in COMMISSION:
         for variant in channel_variants(root):
-            assert base_as(variant, ElasticBandParams).commission_per_contract == pytest.approx(
-                COMMISSION[root]
-            )
-            assert base_as(variant, ElasticBandParams).slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
 
 
 def test_variants_for_selects_the_channel_grid() -> None:
@@ -2221,10 +2212,8 @@ def test_every_recovery_variant_grid_can_be_built_at_every_cell() -> None:
 def test_the_recovery_run_carries_the_roots_real_costs() -> None:
     for root in COMMISSION:
         for variant in recovery_variants(root):
-            assert base_as(variant, ElasticBandParams).commission_per_contract == pytest.approx(
-                COMMISSION[root]
-            )
-            assert base_as(variant, ElasticBandParams).slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
 
 
 def test_variants_for_selects_the_recovery_grid() -> None:
@@ -2361,10 +2350,8 @@ def test_every_band_stop_variant_grid_can_be_built_at_every_cell() -> None:
 def test_the_band_stop_run_carries_the_roots_real_costs() -> None:
     for root in COMMISSION:
         for variant in band_stop_variants(root):
-            assert base_as(variant, ElasticBandParams).commission_per_contract == pytest.approx(
-                COMMISSION[root]
-            )
-            assert base_as(variant, ElasticBandParams).slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
 
 
 def test_variants_for_selects_the_band_stop_grid() -> None:
@@ -2589,15 +2576,11 @@ def test_the_fitted_values_reach_every_arm_and_the_labels_only_the_confluence_on
     (campaign,) = insidebartrailing_variants("MNQ")
     arms = {arm.name.removeprefix(f"{campaign.name} "): arm for arm in sizing_arms(campaign, a_cut())}
     assert all(base_as(arm, InsideBarTrailingParams).early_max_trend_bars == 14 for arm in arms.values())
-    assert all(base_as(arm, InsideBarTrailingParams).regime_directional_above == 0.4 for arm in arms.values())
+    assert all(arm.base.regime_directional_above == 0.4 for arm in arms.values())
     confluence = base_as(arms[SIZING_CONFLUENCE], InsideBarTrailingParams)
     assert sizing_labels(confluence) == ("size_on_vwap", "size_on_regime")
     assert confluence.quantity_per_confluence == 1
-    assert all(
-        sizing_labels(base_as(arm, InsideBarTrailingParams)) == ()
-        for name, arm in arms.items()
-        if name != SIZING_CONFLUENCE
-    )
+    assert all(sizing_labels(arm.base) == () for name, arm in arms.items() if name != SIZING_CONFLUENCE)
 
 
 def test_each_tier_runs_beside_its_inverse() -> None:
@@ -2775,23 +2758,21 @@ def test_a_bracket_above_its_floor_also_gets_the_symmetric_arm() -> None:
     campaign = VARIANTS["ElasticBand"]("MNQ")[0]
     arms = confluence_arms(campaign, m47_cut())
     assert arm_names(campaign, arms)[-1] == SIZING_SYMMETRIC
-    assert base_as(arms[-1], ElasticBandParams).size_symmetric
-    assert sizing_labels(base_as(arms[-1], ElasticBandParams)) == ("size_on_trend", "size_on_regime")
+    assert arms[-1].base.size_symmetric
+    assert sizing_labels(arms[-1].base) == ("size_on_trend", "size_on_regime")
 
 
 def test_the_arms_count_what_their_names_say() -> None:
     campaign = VARIANTS["ElasticBand"]("MNQ")[0]
     control, together, trend_alone, regime_alone, symmetric = confluence_arms(campaign, m47_cut())
-    assert sizing_labels(base_as(control, ElasticBandParams)) == ()
-    assert base_as(control, ElasticBandParams).quantity_per_confluence == 0
+    assert sizing_labels(control.base) == ()
+    assert control.base.quantity_per_confluence == 0
     assert (
-        sizing_labels(base_as(together, ElasticBandParams))
-        == sizing_labels(base_as(symmetric, ElasticBandParams))
-        == ("size_on_trend", "size_on_regime")
+        sizing_labels(together.base) == sizing_labels(symmetric.base) == ("size_on_trend", "size_on_regime")
     )
-    assert sizing_labels(base_as(trend_alone, ElasticBandParams)) == ("size_on_trend",)
-    assert sizing_labels(base_as(regime_alone, ElasticBandParams)) == ("size_on_regime",)
-    assert not base_as(together, ElasticBandParams).size_symmetric
+    assert sizing_labels(trend_alone.base) == ("size_on_trend",)
+    assert sizing_labels(regime_alone.base) == ("size_on_regime",)
+    assert not together.base.size_symmetric
 
 
 def test_the_symmetric_arm_counts_the_labels_fitted_for_it_rather_than_the_add_only_ones() -> None:
@@ -2801,8 +2782,8 @@ def test_the_symmetric_arm_counts_the_labels_fitted_for_it_rather_than_the_add_o
     cut = m47_cut(labels=("size_on_higher_timeframe",), symmetric_labels=symmetric)
     arms = confluence_arms(campaign, cut)
     assert arm_names(campaign, arms) == [SIZE_FIXED, SIZING_CONFLUENCE, SIZING_SYMMETRIC]
-    assert sizing_labels(base_as(arms[1], ElasticBandParams)) == ("size_on_higher_timeframe",)
-    assert sizing_labels(base_as(arms[2], ElasticBandParams)) == symmetric
+    assert sizing_labels(arms[1].base) == ("size_on_higher_timeframe",)
+    assert sizing_labels(arms[2].base) == symmetric
 
 
 def test_a_cut_keeping_labels_for_the_symmetric_arm_alone_runs_the_control_and_that_arm() -> None:
@@ -2836,8 +2817,8 @@ def test_every_arm_shares_the_stored_grid_and_the_fitted_thresholds() -> None:
         for arm in confluence_arms(campaign, m47_cut(root="NQ")):
             assert arm.axes == campaign.axes
             assert arm.resolutions == (5,)
-            assert base_as(arm, ElasticBandParams).regime_directional_above == 0.4
-            assert base_as(arm, ElasticBandParams).volume_thin_below == 0.6
+            assert arm.base.regime_directional_above == 0.4
+            assert arm.base.volume_thin_below == 0.6
 
 
 def test_insidebartrailing_keeps_its_nine_arms_and_adds_the_new_ones_on_the_same_grid() -> None:
@@ -2857,7 +2838,7 @@ def test_insidebartrailing_runs_its_symmetric_arm_on_its_own_labels() -> None:
     symmetric = ("size_on_trend", "size_on_vwap", "size_on_regime")
     arms = insidebartrailing_confluence_arms(campaign, a_cut(symmetric_labels=symmetric))
     assert arm_names(campaign, arms)[-1] == SIZING_SYMMETRIC
-    assert sizing_labels(base_as(arms[-1], InsideBarTrailingParams)) == symmetric
+    assert sizing_labels(arms[-1].base) == symmetric
     bare = insidebartrailing_confluence_arms(campaign, a_cut(labels=(), symmetric_labels=symmetric))
     assert arm_names(campaign, bare) == [
         *arm_names(campaign, sizing_arms(campaign, a_cut(labels=()))),

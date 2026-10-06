@@ -112,7 +112,7 @@ def parse_front_matter(text: str, slug: str) -> dict[str, str | list[str]]:
     key = ""
     for line in block.splitlines():
         if line.startswith("  ") and key:
-            fields[key] = f"{fields[key]} {line.strip()}".strip()
+            fields[key] = _continued(fields[key], key, line, slug)
             continue
 
         name, colon, value = line.partition(":")
@@ -139,6 +139,15 @@ def parse_front_matter(text: str, slug: str) -> dict[str, str | list[str]]:
         raise FrontMatterError(msg)
 
     return fields
+
+
+def _continued(value: str | list[str], key: str, line: str, slug: str) -> str:
+    """Return a folded scalar with ``line`` joined on, refusing to turn a list into text."""
+    if isinstance(value, list):
+        msg = f"{slug}: {key} must be a flow list on one line, got a continuation {line!r}"
+        raise FrontMatterError(msg)
+
+    return f"{value} {line.strip()}".strip()
 
 
 def _unquote(value: str) -> str:

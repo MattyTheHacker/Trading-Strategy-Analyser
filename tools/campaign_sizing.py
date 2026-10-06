@@ -250,24 +250,28 @@ def earliness_cut(
     signal: BoolArray = insidebar.insidebar_signal(data, base)
     direction_at: FloatArray = insidebar.insidebar_direction(data, base)
     extension: FloatArray = extension_at(data, base)[signal]
-    tiered: SizingCut = dataclasses.replace(
-        cut,
+    fitted: InsideBarTrailingParams = dataclasses.replace(
+        base,
         early_max_extension_atr=float(np.quantile(extension[np.isfinite(extension)], EARLY_QUANTILE)),
         early_max_trend_bars=int(np.quantile(age_at(data, base, direction_at)[signal], EARLY_QUANTILE)),
     )
+    tiered: SizingCut = dataclasses.replace(
+        cut,
+        early_max_extension_atr=fitted.early_max_extension_atr,
+        early_max_trend_bars=fitted.early_max_trend_bars,
+    )
 
-    return tiered, {**report, "traded_early_share": traded_early_shares(data, tiered, base, instrument)}
+    return tiered, {**report, "traded_early_share": traded_early_shares(data, fitted, instrument)}
 
 
 def traded_early_shares(
     data: context.Dataset,
-    cut: SizingCut,
     base: InsideBarTrailingParams,
     instrument: Instrument,
 ) -> dict[str, float]:
     """Return, per earliness rule, the share of the base configuration's trades whose signal bar was early.
 
-    Counted over the trades taken rather than the signals.
+    Counted over the trades taken rather than the signals, at the earliness cuts ``base`` carries.
     """
     direction_at: FloatArray = insidebar.insidebar_direction(data, base)
     shares: dict[str, float] = {}
@@ -275,12 +279,7 @@ def traded_early_shares(
         if mode == EARLINESS_OFF:
             continue
 
-        tiered: InsideBarTrailingParams = dataclasses.replace(
-            base,
-            earliness_mode=mode,
-            early_max_extension_atr=cut.early_max_extension_atr,  # type: ignore[arg-type]  # set by earliness_cut
-            early_max_trend_bars=cut.early_max_trend_bars,  # type: ignore[arg-type]  # set by earliness_cut
-        )
+        tiered: InsideBarTrailingParams = dataclasses.replace(base, earliness_mode=mode)
         log: pd.DataFrame = insidebartrailing.run_insidebartrailing(
             data, tiered, instrument, with_times=False
         )

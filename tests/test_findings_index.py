@@ -141,6 +141,11 @@ def test_every_cite_resolves_to_a_roadmap_stub() -> None:
         ('---\nid: M1\ntitle: "x"\n', "unterminated front matter"),
         (VALID.replace("outcome: mixed", "nonsense: mixed"), "unknown front-matter field"),
         (VALID.replace("archetypes: [OpeningRange]", "archetypes: OpeningRange"), "must be a flow list"),
+        (
+            VALID.replace("archetypes: [OpeningRange]", "archetypes: [OpeningRange]\n  InsideBar"),
+            "on one line",
+        ),
+        (VALID.replace("gates: [3]", "gates: [3]\n  4"), "on one line"),
         (VALID.replace('title: "A campaign"\n', ""), "is missing"),
         (VALID.replace("outcome: mixed", "outcome"), "cannot parse front-matter line"),
     ],

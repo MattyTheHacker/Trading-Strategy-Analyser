@@ -7,7 +7,9 @@ the same way a stale JIT cache does, so both are pinned here rather than trusted
 import io
 import json
 import logging
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,15 +29,22 @@ from tools.trade_log_gate_ci import (
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "trade-log-gate.yaml"
+COMPARE_TOOL = ROOT / "tools" / "compare_trade_logs.py"
 
 
-def compare_output(tmp_path: Path, caplog: pytest.LogCaptureFixture, *, moved: bool) -> tuple[int, str]:
-    """Run the real comparison over two one-file captures and return its status and output."""
+def write_captures(tmp_path: Path, *, moved: bool) -> tuple[Path, Path]:
+    """Write two one-file captures under ``tmp_path``, differing in one number when ``moved``."""
     before, after = tmp_path / "before", tmp_path / "after"
     for directory, pnl in ((before, 10.0), (after, 10.25 if moved else 10.0)):
         directory.mkdir()
         pd.DataFrame({"trade_id": [1], "net_pnl": [pnl]}).to_csv(directory / "live_mnq.csv", index=False)
 
+    return before, after
+
+
+def compare_output(tmp_path: Path, caplog: pytest.LogCaptureFixture, *, moved: bool) -> tuple[int, str]:
+    """Run the real comparison over two one-file captures and return its status and output."""
+    before, after = write_captures(tmp_path, moved=moved)
     with caplog.at_level(logging.INFO, logger=compare_trade_logs.__name__):
         status = 1 if compare_trade_logs.compare(before, after, set()) else 0
 
@@ -126,6 +135,26 @@ def test_identical_captures_pass(tmp_path: Path, caplog: pytest.LogCaptureFixtur
     status, output = compare_output(tmp_path, caplog, moved=False)
     assert status == 0
     assert verdict(status, output, []) is Verdict.IDENTICAL
+
+
+@pytest.mark.parametrize(("moved", "expected"), [(False, Verdict.IDENTICAL), (True, Verdict.MOVED)])
+def test_the_comparison_runs_as_the_workflow_runs_it_from_outside_the_repository(
+    tmp_path: Path, *, moved: bool, expected: Verdict
+) -> None:
+    """The workflow runs the script by path from a scratch directory, where ``tools`` is not importable."""
+    assert re.search(r"tools/compare_trade_logs\.py\"?\s+before after", WORKFLOW.read_text(encoding="utf-8"))
+    write_captures(tmp_path, moved=moved)
+    environment = {name: value for name, value in os.environ.items() if name != "PYTHONPATH"}
+    finished = subprocess.run(  # noqa: S603 - a fixed argument list with nothing from outside it
+        [sys.executable, str(COMPARE_TOOL), "before", "after"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert verdict(finished.returncode, finished.stdout + finished.stderr, []) is expected, finished.stderr
 
 
 def test_a_moved_number_fails(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

@@ -399,7 +399,7 @@ def test_every_archetype_can_be_swept_on_the_maximum_hold_time() -> None:
     """
     for a in archetypes.all_archetypes():
         assert "max_hold_bars" in a.sweepable, a.name
-        assert a.params_cls().as_dict()["max_hold_bars"] == 0, a.name
+        assert a.params_cls().max_hold_bars == 0, a.name
 
 
 # -- leaving the reconciled port -----------------------------------------------

@@ -15,15 +15,7 @@ import pandas as pd
 import pytest
 
 from nqbt import annotate, archetypes, context, notes, resample, results, splice
-from tests.test_campaign_review import (  # noqa: F401 - fixtures
-    COMBO_ID,
-    HEAVY,
-    THIN,
-    bars,
-    data,
-    stored_row,
-    trade_log,
-)
+from tests.test_campaign_review import COMBO_ID, HEAVY, THIN, bars, stored_row, trade_log
 from tools import campaign_annotate
 from tools.campaign_annotate import annotation_spec, main, store_row, thresholds_for
 

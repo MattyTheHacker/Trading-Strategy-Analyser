@@ -1083,7 +1083,7 @@ Three decisions the configuration carried when this landed, each with its reason
 
 **The order was the point.** A type checker introduced with a strict config and hundreds of errors gets switched off, so both tools reached zero *before* the CI job that enforces it existed, in a separate commit each.
 
-**`tools/` and `tests/` followed the same order later.** Both reached zero under the package's own configuration before the CI steps were widened to cover them. Each is now a package, which is what lets `mypy` see every file once, and `tests/` alone ignores `D103`, `PLR2004` and `SLF001`, each with its reason in `pyproject.toml`.
+**`tools/` and `tests/` followed the same order later.** Both reached zero under the package's own configuration before the CI steps were widened to cover them. Each is now a package, which is what lets `mypy` see every file once, and `tests/` alone ignores `D103` and `PLR2004`, each with its reason in `pyproject.toml`. `SLF001` is off only in the test files that call a private helper on purpose, each named there with its reason.
 
 **The stubs move under you, and a clean local run does not prove a clean CI run.** `DateArray` was `NDArray[np.datetime64]` and type-checked against the numpy in the venv; CI installed the newest, and numpy 2.5 changed that parameter's default from `dt.date | int | None` to `Any`, so the alias smuggled in an explicit `Any` and the new gate failed on a machine nobody had run. Every alias that could carry a defaulted parameter now states it.
 

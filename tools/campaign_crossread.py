@@ -119,7 +119,7 @@ def common_variants(frame: pd.DataFrame) -> set[str]:
     filtered: pd.DataFrame = frame[frame["stratum"] != UNFILTERED]
     recut = filtered["stratum"].map(lambda name: is_recut(str(name))).astype(bool)
     plain: pd.DataFrame = filtered[~recut]
-    per_stratum = plain.groupby("stratum")["variant"].agg(set)  # duckdb's dtypes
+    per_stratum = plain.groupby("stratum")["variant"].agg(set)
     if per_stratum.empty:
         return set()
 

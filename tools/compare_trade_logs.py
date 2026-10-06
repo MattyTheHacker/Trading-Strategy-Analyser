@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 def compare(before: Path, after: Path, added: set[str]) -> int:
-    """Compare every capture in ``before`` with ``after`` and return how many failed."""
+    """Compare every capture in ``before`` with ``after`` and return how many checks failed.
+
+    One capture can fail more than one check, and an empty ``before`` returns 1.
+    """
     failures = 0
     names = sorted(p.name for p in before.iterdir() if p.is_file())
     if not names:
