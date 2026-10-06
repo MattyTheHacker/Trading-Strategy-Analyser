@@ -65,6 +65,9 @@ class Instrument:
     tick_size: float
     point_value: float
     """Dollars per 1.00 of price movement, per contract."""
+    mini_equivalent: float = 1.0
+    """How many full-size contracts one of these counts as, where a size limit counts a micro
+    against its full-size root."""
     contract_months: frozenset[int] = QUARTERLY_MONTHS
     """The months this root lists contracts in, as :data:`MONTH_CODES` keys."""
     exchange: str = "CME"
@@ -171,6 +174,7 @@ MNQ = Instrument(
     name="Micro E-mini Nasdaq-100",
     tick_size=0.25,
     point_value=2.0,
+    mini_equivalent=0.1,
 )
 
 ES = Instrument(
@@ -212,6 +216,7 @@ MES = Instrument(
     name="Micro E-mini S&P 500",
     tick_size=0.25,
     point_value=5.0,
+    mini_equivalent=0.1,
 )
 
 MGC = Instrument(
@@ -219,6 +224,7 @@ MGC = Instrument(
     name="Micro Gold",
     tick_size=0.10,
     point_value=10.0,
+    mini_equivalent=0.1,
     contract_months=months_from_codes("GJMQZ"),
     exchange="COMEX",
 )
@@ -229,6 +235,7 @@ SIL = Instrument(
     name="Micro Silver",
     tick_size=0.005,
     point_value=1000.0,
+    mini_equivalent=0.2,
     contract_months=months_from_codes("FHKNUZ"),
     exchange="COMEX",
 )
@@ -238,6 +245,7 @@ MCL = Instrument(
     name="Micro WTI Crude Oil",
     tick_size=0.01,
     point_value=100.0,
+    mini_equivalent=0.1,
     contract_months=ALL_MONTHS,
     exchange="NYMEX",
 )

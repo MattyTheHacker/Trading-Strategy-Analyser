@@ -666,19 +666,280 @@ def test_two_trades_inside_one_session_are_one_trading_day() -> None:
     assert run.days_traded == 1
 
 
+# -- the size limit --------------------------------------------------------------
+
+
+def resized(log: pd.DataFrame, quantities: Sequence[int], *, instrument: str = "MNQ") -> pd.DataFrame:
+    """Return ``log`` with each trade's quantity replaced, in trade order."""
+    changed = log.copy()
+    changed["quantity"] = list(quantities)
+    changed["instrument"] = instrument
+
+    return changed
+
+
+def test_a_trade_over_the_size_limit_is_rejected_and_never_taken() -> None:
+    log = leg_log([(0, 500.0, 1.0), (0, 700.0, 1.0)])
+    result = propaccount.replay(resized(log, [3, 5]), account(max_contracts=0.4))
+
+    assert result.runs[0].trades_rejected == result.trades_rejected == 1
+    assert result.trades_taken == 1
+    assert result.runs[0].final_balance == pytest.approx(50_500.0)
+
+
+def test_a_micro_counts_as_its_share_of_a_mini_against_the_limit() -> None:
+    """Four micros sit exactly on a 0.4 limit; four minis are ten times over it."""
+    log = leg_log([(0, 500.0, 1.0)])
+
+    assert propaccount.replay(log, account(max_contracts=0.4)).trades_taken == 1
+    assert (
+        propaccount.replay(resized(log, [4], instrument="NQ"), account(max_contracts=0.4)).trades_taken == 0
+    )
+
+
+def test_a_day_whose_every_trade_is_rejected_is_not_a_day_traded() -> None:
+    log = resized(leg_log([(0, 500.0, 1.0), (1, 500.0, 1.0)]), [5, 3])
+    run = propaccount.replay(log, account(max_contracts=0.4)).runs[0]
+
+    assert run.days_traded == 1
+    assert run.first_day == dt.date(2024, 1, 2)
+
+
+SCALING = (propaccount.ScalingTier(0.0, 0.3), propaccount.ScalingTier(500.0, 0.5))
+"""A 3-lot limit until the account opens a session 500 up, then a 5-lot one."""
+
+
+def test_the_scaling_plan_reads_the_profit_the_session_opened_on() -> None:
+    """The second trade comes after the account is 600 up, and is still refused that day."""
+    log = resized(leg_log([(0, 600.0, 1.0), (0, 100.0, 1.0), (1, 100.0, 1.0)]), [3, 5, 5])
+    result = propaccount.replay(log, account(scaling_plan=SCALING))
+
+    assert result.trades_rejected == 1
+    assert result.runs[0].final_balance == pytest.approx(50_700.0)
+
+
+def test_the_first_rung_of_a_scaling_plan_also_covers_a_loss() -> None:
+    log = resized(leg_log([(0, -300.0, 1.0), (1, 100.0, 1.0)]), [3, 3])
+
+    assert propaccount.replay(log, account(scaling_plan=SCALING)).trades_rejected == 0
+
+
+def test_the_lower_of_the_two_limits_binds() -> None:
+    log = resized(leg_log([(0, 600.0, 1.0), (1, 100.0, 1.0)]), [3, 5])
+    result = propaccount.replay(log, account(scaling_plan=SCALING, max_contracts=0.4))
+
+    assert result.trades_rejected == 1
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        (propaccount.ScalingTier(100.0, 1.0),),
+        (propaccount.ScalingTier(0.0, 1.0), propaccount.ScalingTier(0.0, 2.0)),
+        (propaccount.ScalingTier(0.0, 1.0), propaccount.ScalingTier(500.0, 0.0)),
+    ],
+    ids=["not from zero", "not rising", "no position"],
+)
+def test_a_scaling_plan_that_cannot_be_read_is_refused(plan: tuple[propaccount.ScalingTier, ...]) -> None:
+    with pytest.raises(PropAccountError, match="scaling_plan"):
+        account(scaling_plan=plan)
+
+
+# -- the days an evaluation has to pass in ---------------------------------------
+
+
+def test_an_evaluation_that_has_not_passed_in_its_days_expires() -> None:
+    """Opened on 2 January with seven days, it cannot trade on the 9th; the next one opens there."""
+    log = leg_log([(day, 100.0, 1.0) for day in range(10)])
+    result = propaccount.replay(log, account(evaluation_days=7), max_accounts=5)
+
+    assert result.runs[0].outcome is Outcome.EXPIRED
+    assert result.runs[0].last_day == dt.date(2024, 1, 8)
+    assert result.runs[1].first_day == dt.date(2024, 1, 9)
+
+
+def test_an_expiry_ends_the_attempt_without_counting_as_a_breach() -> None:
+    log = leg_log([(day, 100.0, 1.0) for day in range(10)])
+    result = propaccount.replay(log, account(evaluation_days=7), max_accounts=5)
+
+    assert (result.attempts, result.passes, result.breaches) == (2, 0, 0)
+
+
+def test_an_account_that_passed_in_time_never_expires() -> None:
+    log = leg_log([(day, 1_000.0, 1.0) for day in range(12)])
+    run = propaccount.replay(log, paying(evaluation_days=7)).runs[0]
+
+    assert run.passed_on == dt.date(2024, 1, 4)
+    assert run.outcome is Outcome.SURVIVED
+    assert run.last_day == dt.date(2024, 1, 13)
+
+
+# -- the payout rules ------------------------------------------------------------
+
+
+def funded_account(**overrides: object) -> PropAccount:
+    """Build a funded account: no target, so it may pay out from its first profitable day."""
+    fields = {
+        "profit_target": 0.0,
+        "withdrawal_threshold": 1_000.0,
+        "trail_lock": TrailLock.AT_STARTING_BALANCE,
+    }
+
+    return account(**(fields | overrides))
+
+
+def test_a_payout_waits_for_its_qualifying_days() -> None:
+    """Only the days making 150 count, so the payout waits for the third of them."""
+    log = leg_log([(0, 1_500.0, 1.0), (1, 100.0, 1.0), (2, 200.0, 1.0), (3, 300.0, 1.0)])
+    run = propaccount.replay(log, funded_account(payout_days=3, payout_day_profit=150.0)).runs[0]
+
+    assert [taken.day for taken in run.withdrawals] == [dt.date(2024, 1, 5)]
+
+
+def test_a_qualifying_day_with_no_profit_floor_is_any_day_traded() -> None:
+    log = leg_log([(0, 1_500.0, 1.0), (1, -100.0, 1.0), (2, 100.0, 1.0)])
+    run = propaccount.replay(log, funded_account(payout_days=3)).runs[0]
+
+    assert [taken.day for taken in run.withdrawals] == [dt.date(2024, 1, 4)]
+
+
+def test_the_qualifying_days_start_again_after_each_payout() -> None:
+    log = leg_log([(day, 1_200.0, 1.0) for day in range(4)])
+    run = propaccount.replay(log, funded_account(payout_days=2)).runs[0]
+
+    assert [taken.day for taken in run.withdrawals] == [dt.date(2024, 1, 3), dt.date(2024, 1, 5)]
+
+
+def test_a_payout_takes_no_more_than_its_share_of_the_profit() -> None:
+    log = leg_log([(0, 3_000.0, 1.0)])
+    run = propaccount.replay(log, funded_account(withdrawal_threshold=0.0, payout_share=0.5)).runs[0]
+
+    assert run.withdrawn == pytest.approx(1_500.0)
+
+
+def test_a_payout_takes_no_more_than_its_cap() -> None:
+    log = leg_log([(0, 5_000.0, 1.0)])
+    run = propaccount.replay(log, funded_account(payout_cap=1_500.0)).runs[0]
+
+    assert run.withdrawn == pytest.approx(1_500.0)
+
+
+def test_a_payout_below_the_minimum_waits_for_more() -> None:
+    log = leg_log([(0, 1_300.0, 1.0), (1, 300.0, 1.0)])
+    run = propaccount.replay(log, funded_account(payout_minimum=500.0)).runs[0]
+
+    assert [(taken.day, taken.withdrawn) for taken in run.withdrawals] == [(dt.date(2024, 1, 3), 600.0)]
+
+
+def test_the_payout_consistency_reads_only_the_days_since_the_last_payout() -> None:
+    """Day 0's 3,000 is most of what the account holds after its first payout, and is not read."""
+    log = leg_log([(0, 3_000.0, 1.0), (1, 2_500.0, 1.0), (2, 600.0, 1.0), (3, 600.0, 1.0)])
+    run = propaccount.replay(log, funded_account(payout_consistency=0.6)).runs[0]
+
+    assert [taken.day for taken in run.withdrawals] == [dt.date(2024, 1, 3), dt.date(2024, 1, 5)]
+
+
+def test_the_profit_goal_counts_from_the_last_payout() -> None:
+    log = leg_log([(0, 1_600.0, 1.0), (1, 400.0, 1.0), (2, 200.0, 1.0)])
+    run = propaccount.replay(log, funded_account(payout_profit_goal=500.0)).runs[0]
+
+    assert [taken.day for taken in run.withdrawals] == [dt.date(2024, 1, 2), dt.date(2024, 1, 4)]
+
+
+def test_a_losing_cycle_pays_nothing_under_a_positive_goal() -> None:
+    """Half the balance is still above the floor after the loss, which a share alone would pay."""
+    log = leg_log([(0, 2_000.0, 1.0), (1, -200.0, 1.0)])
+    rules = {"withdrawal_threshold": 0.0, "payout_share": 0.5}
+
+    assert len(propaccount.replay(log, funded_account(**rules)).runs[0].withdrawals) == 2
+    assert (
+        len(propaccount.replay(log, funded_account(**rules, payout_profit_goal=0.01)).runs[0].withdrawals)
+        == 1
+    )
+
+
+def test_the_first_payout_moves_the_floor_straight_to_its_lock() -> None:
+    """Before the payout the floor sits 2,000 under a 51,000 mark; after it, at the start."""
+    log = leg_log([(0, 1_000.0, 1.0), (1, -600.0, 1.0)])
+    rules = {"withdrawal_threshold": 0.0, "payout_share": 0.5}
+    kept = propaccount.replay(log, funded_account(**rules)).runs[0]
+    locked = propaccount.replay(log, funded_account(**rules, floor_locks_at_payout=True)).runs[0]
+
+    assert kept.trailing_floor == pytest.approx(49_000.0)
+    assert locked.trailing_floor == pytest.approx(50_000.0)
+    assert locked.outcome is Outcome.BREACHED_TRAILING
+    assert kept.outcome is Outcome.SURVIVED
+
+
+def test_the_last_payout_moves_the_account_live() -> None:
+    log = leg_log([(day, 1_200.0, 1.0) for day in range(5)])
+    run = propaccount.replay(log, funded_account(max_payouts=2)).runs[0]
+
+    assert run.outcome is Outcome.MOVED_LIVE
+    assert len(run.withdrawals) == 2
+    assert run.last_day == dt.date(2024, 1, 3)
+
+
+def test_a_day_at_the_profit_cap_moves_the_account_live_after_its_payout() -> None:
+    log = leg_log([(0, 500.0, 1.0), (1, 2_000.0, 1.0), (2, 100.0, 1.0)])
+    run = propaccount.replay(log, funded_account(daily_profit_cap=2_000.0)).runs[0]
+
+    assert run.outcome is Outcome.MOVED_LIVE
+    assert run.last_day == dt.date(2024, 1, 3)
+    assert run.withdrawn == pytest.approx(1_500.0)
+
+
+def test_a_funded_account_that_moves_live_buys_a_new_evaluation_without_a_breach() -> None:
+    log = leg_log([*PASS_THEN_TRADE[:3], (3, 1_200.0, 1.0), (4, 100.0, 1.0)])
+    result = propaccount.replay(log, linked(max_payouts=1), max_accounts=5)
+
+    assert [run.account_name for run in result.runs] == ["Eval", "Funded", "Eval"]
+    assert result.runs[1].outcome is Outcome.MOVED_LIVE
+    assert (result.attempts, result.passes, result.breaches) == (2, 1, 0)
+
+
+@pytest.mark.parametrize("share", [0.0, -0.5, 1.5])
+def test_a_payout_share_outside_its_range_is_refused(share: float) -> None:
+    with pytest.raises(PropAccountError, match="payout_share"):
+        account(payout_share=share)
+
+
+def test_a_payout_consistency_above_one_is_refused() -> None:
+    with pytest.raises(PropAccountError, match="payout_consistency"):
+        account(payout_consistency=1.5)
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        {"trail_lock": TrailLock.NEVER},
+        {"trail_lock": TrailLock.AT_STARTING_BALANCE, "trailing_threshold": 0.0},
+    ],
+    ids=["never locks", "no floor"],
+)
+def test_a_floor_that_locks_at_payout_needs_a_lock_to_move_to(rules: dict[str, object]) -> None:
+    with pytest.raises(PropAccountError, match="floor_locks_at_payout"):
+        account(floor_locks_at_payout=True, **rules)
+
+
 # -- the presets ---------------------------------------------------------------
 
 
 @pytest.mark.parametrize("preset", propaccount.PRESETS.values(), ids=lambda a: a.name)
 def test_a_preset_withdrawal_cannot_breach_its_own_floor(preset: PropAccount) -> None:
-    """The one way `withdrawal_threshold` and `trail_lock` can be set to kill the account."""
-    rules = preset.rules
-    if rules.trail_lock is TrailLock.NEVER:
+    """The one way the payout rules and `trail_lock` can be set to kill the account.
+
+    A payout that leaves the balance on the locked floor lets the next trade's adverse excursion
+    end the account it funded, so a steadily winning path must pay out and never breach.
+    """
+    if preset.rules.trail_lock is TrailLock.NEVER:
         pytest.skip("an unlocked floor has no fixed level a withdrawal could land on")
 
-    locked = rules.starting_balance + rules.trail_lock_buffer
+    log = leg_log([(day, 400.0, 1.0) for day in range(80)])
+    result = propaccount.replay(log, preset, max_accounts=10)
 
-    assert rules.starting_balance + rules.withdrawal_threshold > locked
+    assert any(run.withdrawals for run in result.runs), "a path that never pays out tests nothing"
+    assert result.breaches == 0
 
 
 @pytest.mark.parametrize("preset", propaccount.PRESETS.values(), ids=lambda a: a.name)
@@ -693,7 +954,7 @@ def test_every_preset_replays(preset: PropAccount) -> None:
 def test_the_two_firms_disagree_about_what_raises_the_floor() -> None:
     """The reason both are shipped: they are not the same rule with different numbers."""
     assert propaccount.APEX_50K.rules.trail_basis is TrailBasis.INTRADAY
-    assert propaccount.TOPSTEP_50K.rules.trail_basis is TrailBasis.END_OF_DAY
+    assert propaccount.TOPSTEP_50K.evaluation.rules.trail_basis is TrailBasis.END_OF_DAY
 
 
 # TakeProfitTrader's published table, which is what these presets have to reproduce:
@@ -789,9 +1050,112 @@ def test_a_takeprofittrader_pro_account_may_withdraw_before_it_has_a_target_to_h
     assert run.payout == pytest.approx(1_600.0)
 
 
+# TopStep's published rows: size, profit target, maximum loss limit, monthly fee, the largest
+# position, and the Standard path's largest payout.
+TOPSTEP_TABLE = [
+    (propaccount.TOPSTEP_50K, 50_000.0, 3_000.0, 2_000.0, 49.0, 5.0, 2_000.0),
+    (propaccount.TOPSTEP_150K, 150_000.0, 9_000.0, 4_500.0, 199.0, 15.0, 5_000.0),
+]
+
+
+@pytest.mark.parametrize(
+    ("pair", "balance", "target", "drawdown", "monthly", "contracts", "cap"),
+    TOPSTEP_TABLE,
+    ids=lambda value: getattr(value, "name", value),
+)
+def test_a_topstep_pair_carries_its_published_row(  # one argument per column of the table
+    pair: LinkedAccount,
+    balance: float,
+    target: float,
+    drawdown: float,
+    monthly: float,
+    contracts: float,
+    cap: float,
+) -> None:
+    combine, express = pair.evaluation.rules, pair.funded.rules
+
+    assert combine.starting_balance == express.starting_balance == balance
+    assert combine.profit_target == target
+    assert combine.trailing_threshold == express.trailing_threshold == drawdown
+    assert pair.evaluation.fees.monthly_fee == monthly
+    assert combine.max_contracts == express.max_contracts == express.scaling_plan[-1].contracts == contracts
+    assert express.payout_cap == cap
+
+
+@pytest.mark.parametrize("pair", [row[0] for row in TOPSTEP_TABLE], ids=lambda a: a.name)
+def test_topstep_s_express_account_pays_half_its_balance_and_locks_its_floor_there(
+    pair: LinkedAccount,
+) -> None:
+    combine, express = pair.evaluation, pair.funded
+
+    assert combine.rules.consistency_ratio == 0.55
+    assert combine.fees.monthly_fee_ends_at_pass
+    assert combine.fees.activation_fee == 149.0
+    assert (express.rules.payout_days, express.rules.payout_day_profit) == (5, 150.0)
+    assert express.rules.payout_share == 0.50
+    assert express.rules.floor_locks_at_payout
+    assert combine.rules.profit_split == express.rules.profit_split == 0.90
+    assert combine.rules.daily_loss_limit == express.rules.daily_loss_limit == 0.0, "optional, and off"
+
+
+# Lucid's published rows: size, profit target, maximum loss limit, the largest position, and the
+# one-time evaluation fee with the coupon applied.
+LUCID_TABLE = [
+    (propaccount.LUCIDPRO_50K, 50_000.0, 3_000.0, 2_000.0, 4.0, 140.40),
+    (propaccount.LUCIDPRO_150K, 150_000.0, 9_000.0, 4_500.0, 10.0, 300.50),
+    (propaccount.LUCIDFLEX_50K, 50_000.0, 3_000.0, 2_000.0, 4.0, 105.20),
+    (propaccount.LUCIDFLEX_150K, 150_000.0, 9_000.0, 4_500.0, 10.0, 295.40),
+    (propaccount.LUCIDDAILY_50K, 50_000.0, 3_000.0, 2_000.0, 4.0, 125.20),
+    (propaccount.LUCIDDAILY_150K, 150_000.0, 9_000.0, 4_500.0, 10.0, 280.50),
+]
+
+
+@pytest.mark.parametrize(
+    ("pair", "balance", "target", "drawdown", "contracts", "fee"),
+    LUCID_TABLE,
+    ids=lambda value: getattr(value, "name", value),
+)
+def test_a_lucid_pair_carries_its_published_row(  # one argument per column of the table
+    pair: LinkedAccount,
+    balance: float,
+    target: float,
+    drawdown: float,
+    contracts: float,
+    fee: float,
+) -> None:
+    evaluation, held = pair.evaluation.rules, pair.funded.rules
+
+    assert evaluation.starting_balance == held.starting_balance == balance
+    assert evaluation.profit_target == target
+    assert evaluation.trailing_threshold == held.trailing_threshold == drawdown
+    assert evaluation.max_contracts == held.max_contracts == contracts
+    assert pair.evaluation.fees == AccountFees(evaluation_fee=fee)
+    assert pair.funded.fees == AccountFees(), "Lucid charges nothing to activate"
+    assert evaluation.trail_lock_buffer == held.trail_lock_buffer == propaccount.LUCID_LOCK_BUFFER
+    assert held.profit_split == 0.90
+
+
+def test_lucid_s_three_funded_accounts_pay_out_by_three_different_rules() -> None:
+    pro = propaccount.LUCIDPRO_50K.funded.rules
+    flex = propaccount.LUCIDFLEX_50K.funded.rules
+    daily = propaccount.LUCIDDAILY_50K.funded.rules
+
+    assert (pro.withdrawal_threshold, pro.payout_consistency, pro.payout_profit_goal) == (
+        2_100.0,
+        0.40,
+        500.0,
+    )
+    assert (flex.withdrawal_threshold, flex.payout_share, flex.max_payouts) == (0.0, 0.50, 5)
+    assert flex.floor_locks_at_payout
+    assert flex.scaling_plan[-1].contracts == flex.max_contracts
+    assert daily.trail_basis is TrailBasis.INTRADAY
+    assert (daily.daily_profit_cap, daily.payout_cap) == (8_000.0, 0.0)
+    assert {pro.trail_basis, flex.trail_basis} == {TrailBasis.END_OF_DAY}
+
+
 def test_a_preset_is_found_by_name_case_insensitively() -> None:
     assert propaccount.preset("apex 50k") is propaccount.APEX_50K
-    assert propaccount.preset("  TopStep 150K ") is propaccount.TOPSTEP_150K
+    assert propaccount.preset("  TopStep 150K Combine ") is propaccount.TOPSTEP_150K.evaluation
 
 
 def test_an_unknown_preset_names_the_ones_that_exist() -> None:
@@ -844,7 +1208,17 @@ def test_a_profit_split_outside_its_range_is_refused(share: float) -> None:
 
 @pytest.mark.parametrize(
     "field",
-    ["trailing_threshold", "daily_loss_limit", "profit_target", "withdrawal_threshold"],
+    [
+        "trailing_threshold",
+        "daily_loss_limit",
+        "profit_target",
+        "withdrawal_threshold",
+        "max_contracts",
+        "payout_days",
+        "payout_cap",
+        "payout_minimum",
+        "daily_profit_cap",
+    ],
 )
 def test_a_negative_limit_is_refused_by_name(field: str) -> None:
     with pytest.raises(PropAccountError, match=field):
@@ -1137,12 +1511,18 @@ def test_a_pair_refuses_a_log_its_funded_account_could_not_read() -> None:
 
 
 @pytest.mark.parametrize("pair", propaccount.LINKED_PRESETS.values(), ids=lambda a: a.name)
-def test_a_linked_preset_chains_the_test_and_pro_of_one_size(pair: LinkedAccount) -> None:
+def test_a_linked_preset_chains_the_evaluation_and_funded_account_of_one_size(pair: LinkedAccount) -> None:
+    size, evaluation = pair.evaluation.name.rsplit(" ", 1)
+    funded_size, held = pair.funded.name.rsplit(" ", 1)
+
+    assert size == funded_size
+    assert pair.name == f"{size} {evaluation}+{held}"
     assert pair.evaluation.rules.starting_balance == pair.funded.rules.starting_balance
-    assert pair.evaluation.name.removesuffix(" Test") == pair.funded.name.removesuffix(" PRO")
-    assert pair.evaluation.fees.activation_fee == pair.funded.fees.evaluation_fee == 130.0
+    assert pair.funded.rules.profit_target == 0.0
     assert pair.opened_by_pass.fees.evaluation_fee == 0.0
-    assert pair.funded.fees.evaluation_fee == 130.0, "the preset itself is untouched"
+    assert pair.funded.fees.evaluation_fee == pair.evaluation.fees.activation_fee, (
+        "the preset itself is untouched"
+    )
 
 
 @pytest.mark.parametrize("pair", propaccount.LINKED_PRESETS.values(), ids=lambda a: a.name)
