@@ -1176,7 +1176,7 @@ A daily loss limit resets at the session open, so the replay groups by `sessions
 
 ### Passing, withdrawing, and what a blown account is still worth
 
-An account that passes **keeps trading under the same rules**, and begins withdrawing everything above `starting_balance + withdrawal_threshold` at each day's end. That threshold is the safety net a firm requires a trader to leave behind. Accurate for Apex and TopStep; TakeProfitTrader is why "the same rules" is no longer a property of the module — see "A firm that changes its rules at the pass ships as two presets" below.
+An account that passes **keeps trading under the same rules**, and begins withdrawing everything above `starting_balance + withdrawal_threshold` at each day's end. That threshold is the safety net a firm requires a trader to leave behind. Taken as accurate for Apex and TopStep, which [#440] re-checks against their 2026 terms; TakeProfitTrader is why "the same rules" is no longer a property of the module — see "A firm that changes its rules at the pass ships as two presets" below.
 
 **`profit_split` is what reaches the trader, and it is not what leaves the account.** The firm takes the whole withdrawal out of the balance and pays a share of it, so `AccountRun.withdrawn` is the gross and `payout` is the share, with `net = payout − fees_paid`. Keeping the two apart is load-bearing rather than tidy: the consistency ratio is a share of what *the account* made, so crediting the trader's half to `withdrawn` would inflate every reported consistency figure by the firm's cut. It defaults to `1.0` rather than `0.0`, which is the one field where "no rule" is not zero — a firm paying `0.0` would be one that pays nothing.
 
@@ -1448,6 +1448,7 @@ ______________________________________________________________________
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#43]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/43
 [#44]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/44
+[#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
 [#45]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/45
 [#46]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/46
 [#47]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/47

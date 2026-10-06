@@ -79,6 +79,7 @@ The default shortlist ranks a whole archetype by profit factor, so it does not h
 - **For a prop account, both recommended cells pay back on Apex and TopStep**, InsideBarTrailing sooner, and TopStep 50K soonest. That agrees with the choice `docs/findings/README.md` already makes.
 - **Neither cell pays on TakeProfitTrader once its Test is linked to its PRO.** Every earlier Test-alone net overstates that firm, and `docs/findings/README.md` now says so where it quotes one.
 - **The registry's default shortlists mostly do not pay back their fees,** and when they do it takes more than half of a holdout of about two and a third years.
-- **Apex's and TopStep's funded accounts are not modelled.** Both keep their evaluation rules after the pass, which `docs/roadmap.md` § "Passing, withdrawing, and what a blown account is still worth" takes as accurate for both. The TakeProfitTrader result is a reason to re-check that against each firm's current funded-account terms.
+- **Apex's and TopStep's funded accounts are not modelled.** Both keep their evaluation rules after the pass, which `docs/roadmap.md` § "Passing, withdrawing, and what a blown account is still worth" takes as accurate for both. The TakeProfitTrader result is a reason to re-check that against each firm's current funded-account terms, which [#440] does, adding Lucid as a third firm.
 
 [#411]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/411
+[#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
