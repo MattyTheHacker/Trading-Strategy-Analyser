@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from nqbt import annotate, archetypes, context, notes, resample, results, splice
-from tests.test_campaign_review import COMBO_ID, HEAVY, THIN, bars, stored_row, trade_log
+from tests.test_campaign_review import COMBO_ID, HEAVY, THIN, bars, dataset, stored_row, trade_log
 from tools import campaign_annotate
 from tools.campaign_annotate import annotation_spec, main, store_row, thresholds_for
 
@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 
 COMPRESSED = 0.25
 EXPANDED = 0.75
+
+
+@pytest.fixture(scope="module")
+def data() -> context.Dataset:
+    """Provide ``test_campaign_review``'s :func:`dataset`, built once per module."""
+    return dataset()
 
 
 def combo_frame() -> pd.DataFrame:

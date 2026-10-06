@@ -39,6 +39,7 @@ from tools.campaign_review import (
     labelled,
     main,
     review_row,
+    review_spec,
     thresholds_for,
     tolerance_for,
     volume_keys,
@@ -86,6 +87,17 @@ def bars() -> pd.DataFrame:
     frame["trading_day"] = sessions.classify(index).trading_day
 
     return frame
+
+
+def dataset() -> context.Dataset:
+    """Return the bars a stored log would have been simulated over, with the clock and all three forms."""
+    return context.prepare(bars(), review_spec(), bar_minutes=1)
+
+
+@pytest.fixture(scope="module")
+def data() -> context.Dataset:
+    """Provide :func:`dataset`, built once per module."""
+    return dataset()
 
 
 def entry_bars(data: context.Dataset, per_phase: int = 60) -> IntArray:
