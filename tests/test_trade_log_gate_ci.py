@@ -4,18 +4,17 @@ A trigger that misses a path or a verdict that passes a failure disables the gat
 the same way a stale JIT cache does, so both are pinned here rather than trusted to the YAML.
 """
 
-import importlib.util
 import io
 import json
 import logging
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
 
+from tools import compare_trade_logs
 from tools.trade_log_gate_ci import (
     ACCEPT_LABEL,
     DOCUMENTATION_DIRECTORIES,
@@ -26,36 +25,19 @@ from tools.trade_log_gate_ci import (
     verdict,
 )
 
-if TYPE_CHECKING:
-    from types import ModuleType
-
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "trade-log-gate.yaml"
-COMPARE_TOOL = ROOT / "tools" / "compare_trade_logs.py"
-
-
-def load_compare_tool() -> ModuleType:
-    """Import the comparison script by path, as ``tests/test_trade_log_gate.py`` does."""
-    spec = importlib.util.spec_from_file_location("_compare_trade_logs_for_ci", COMPARE_TOOL)
-    assert spec is not None, f"cannot import {COMPARE_TOOL}"
-    assert spec.loader is not None, f"cannot import {COMPARE_TOOL}"
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-
-    return module
 
 
 def compare_output(tmp_path: Path, caplog: pytest.LogCaptureFixture, *, moved: bool) -> tuple[int, str]:
     """Run the real comparison over two one-file captures and return its status and output."""
-    tool = load_compare_tool()
     before, after = tmp_path / "before", tmp_path / "after"
     for directory, pnl in ((before, 10.0), (after, 10.25 if moved else 10.0)):
         directory.mkdir()
         pd.DataFrame({"trade_id": [1], "net_pnl": [pnl]}).to_csv(directory / "live_mnq.csv", index=False)
 
-    with caplog.at_level(logging.INFO, logger=tool.__name__):
-        status = 1 if tool.compare(before, after, set()) else 0
+    with caplog.at_level(logging.INFO, logger=compare_trade_logs.__name__):
+        status = 1 if compare_trade_logs.compare(before, after, set()) else 0
 
     return status, "\n".join(caplog.messages)
 
