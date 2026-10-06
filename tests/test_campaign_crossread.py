@@ -83,8 +83,10 @@ def test_the_fitted_regime_axes_are_context_columns_too() -> None:
 
 
 def test_the_two_volume_windows_are_context_columns_too() -> None:
-    """A window ladder moves them off the unfiltered row's defaults, so keeping either in the
-    join key would drop every ladder pair -- §M30's defect, in a new column.
+    """A window ladder moves them off the unfiltered row's defaults.
+
+    Keeping either in the join key would drop every ladder pair -- §M30's defect, in a new
+    column.
     """
     assert {"volume_rolling_bars", "volume_baseline_sessions"} <= context_columns()
 
@@ -370,8 +372,10 @@ def recut_only(arm_pf: list[float], base_pf: list[float], variant: str = "channe
 
 
 def test_a_recut_only_campaign_pairs_nothing_without_its_variants_named() -> None:
-    """``common_variants`` intersects the plain strata, and such a campaign has none -- which
-    is why §M33 could not be read before ``--variant`` existed."""
+    """``common_variants`` intersects the plain strata, and such a campaign has none.
+
+    Which is why §M33 could not be read before ``--variant`` existed.
+    """
     frame = recut_only([1.2, 1.2, 1.2, 1.2], [1.0, 1.0, 1.0, 1.0])
 
     assert common_variants(frame) == set()
@@ -395,8 +399,10 @@ def test_a_named_variant_absent_from_the_frame_pairs_nothing() -> None:
 
 
 def test_an_explicit_set_still_pairs_only_within_one_variant() -> None:
-    """Naming both arms must not let one channel's filtered rows pair against the other's
-    unfiltered rows -- that would report the channel as the cell's effect."""
+    """Naming both arms must not let one channel's filtered rows pair against the other's unfiltered rows.
+
+    That would report the channel as the cell's effect.
+    """
     vwap = recut_only([1.5, 1.5, 1.5, 1.5], [1.0, 1.0, 1.0, 1.0], variant="channel=vwap")
     boll = recut_only([0.5, 0.5, 0.5, 0.5], [1.0, 1.0, 1.0, 1.0], variant="channel=bollinger")
     merged = paired(pd.concat([vwap, boll], ignore_index=True), {"channel=vwap", "channel=bollinger"})
@@ -413,8 +419,11 @@ def variant_cells(selection: float, holdout: float, variant: str) -> pd.DataFram
 
 
 def test_scoring_by_variant_keeps_two_arms_apart() -> None:
-    """The §M33 claim needs one score per arm: pooling them is what made the two campaigns'
-    opposite answers look like one archetype's answer."""
+    """The §M33 claim needs one score per arm.
+
+    Pooling them is what made the two campaigns' opposite answers look like one archetype's
+    answer.
+    """
     block = pd.concat(
         [variant_cells(0.2, 0.3, "channel=vwap"), variant_cells(-0.2, -0.3, "channel=bollinger")],
         ignore_index=True,

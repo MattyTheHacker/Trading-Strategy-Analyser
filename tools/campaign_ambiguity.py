@@ -69,7 +69,7 @@ def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     The first arm is checked against the summary the sweep stored, so a spread is never
     reported for a row the re-run did not reproduce.
     """
-    params: archetypes.Params = rebuild(row, archetype)
+    params: archetypes.ArchetypeParams = rebuild(row, archetype)
     instrument = get_instrument(root)
     ranked, _ = sweep.run_combination(
         data,
@@ -119,7 +119,8 @@ def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> p
 
     measured: list[dict[str, object]] = []
     for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
-        frame: pd.DataFrame = resample.resample(source(bars, str(window)), int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
+        frame: pd.DataFrame = resample.resample(source(bars, str(window)), bar_minutes)
         rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
@@ -127,7 +128,7 @@ def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> p
         data: context.Dataset = context.prepare(
             frame,
             spec,
-            bar_minutes=int(minutes),
+            bar_minutes=bar_minutes,
             price_basis=context.PriceBasis.RAW,
         )
 
@@ -150,7 +151,7 @@ def settle_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     Runs all three arms so that a settled bar's outcome is taken from the arm that resolved it
     that way, rather than recomputed. Returns the headline row and the per-bar verdicts.
     """
-    params: archetypes.Params = rebuild(row, archetype)
+    params: archetypes.ArchetypeParams = rebuild(row, archetype)
     instrument = get_instrument(root)
     arms: dict[int, pd.DataFrame] = {}
     ranked: dict[str, object] = {}
@@ -223,8 +224,9 @@ def settle(
     measured: list[dict[str, object]] = []
     verdicts: list[pd.DataFrame] = []
     for (window, minutes), block in qualifying.groupby(["window", "resolution"], sort=False):
+        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
         fine: pd.DataFrame = source(bars, str(window))
-        coarse: pd.DataFrame = resample.resample(fine, int(minutes))
+        coarse: pd.DataFrame = resample.resample(fine, bar_minutes)
         rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
         spec: context.ContextSpec = context.ContextSpec()
         for _, params in rebuilt:
@@ -232,7 +234,7 @@ def settle(
         data: context.Dataset = context.prepare(
             coarse,
             spec,
-            bar_minutes=int(minutes),
+            bar_minutes=bar_minutes,
             price_basis=context.PriceBasis.RAW,
         )
 
@@ -301,7 +303,7 @@ def unsettled(verdicts: pd.DataFrame) -> pd.DataFrame:
 
     # A nullable boolean: NA is "not settled", so it has to survive the filter rather than be
     # compared away -- ``!= True`` on NA is NA, which drops exactly the rows this exists to show.
-    return verdicts[~verdicts["agrees"].fillna(False).astype(bool)]
+    return verdicts[~verdicts["agrees"].fillna(value=False).astype(bool)]
 
 
 def show(title: str, frame: pd.DataFrame) -> None:
@@ -318,6 +320,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Measure the ambiguity spread and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Ambiguity spread over a campaign shortlist.")
     parser.add_argument("--strategy", required=True)

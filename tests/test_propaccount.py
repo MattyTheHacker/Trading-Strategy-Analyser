@@ -9,6 +9,7 @@ be profitable**, because the money already withdrawn is kept.
 
 import dataclasses
 import datetime as dt
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
@@ -26,6 +27,9 @@ from nqbt.propaccount import (
     TrailLock,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 # MNQ is $2 a point, so one 4-lot moves $8 for every point of excursion. Every dollar figure
 # below is derived from that rather than written out, so a tick-value change cannot pass here.
 LOTS = 4
@@ -33,7 +37,9 @@ MNQ_PER_POINT = instruments.MNQ.point_value * LOTS
 COMMISSION = 6.0
 
 
-def leg_log(rows, *, instrument: str = "MNQ", start: str = "2024-01-02 15:00") -> pd.DataFrame:
+def leg_log(
+    rows: Sequence[tuple[int, float, float]], *, instrument: str = "MNQ", start: str = "2024-01-02 15:00"
+) -> pd.DataFrame:
     """Build a one-leg-per-trade log from ``(day_offset, net_pnl, mae_points)`` triples.
 
     Times are UTC and mid-afternoon, so every trade lands on the trading day its offset names
@@ -67,7 +73,7 @@ def leg_log(rows, *, instrument: str = "MNQ", start: str = "2024-01-02 15:00") -
     return pd.DataFrame(built)
 
 
-def account(**overrides) -> PropAccount:
+def account(**overrides: object) -> PropAccount:
     """Build a deliberately plain rule set, so each test switches on exactly the field it names."""
     fields = {
         "starting_balance": 50_000.0,
@@ -78,7 +84,7 @@ def account(**overrides) -> PropAccount:
         "daily_loss_basis": EquityBasis.REALISED,
     }
 
-    return PropAccount(name="Test", rules=AccountRules(**(fields | overrides)))
+    return PropAccount(name="Test", rules=AccountRules(**(fields | overrides)))  # type: ignore[arg-type]  # AccountRules' own fields
 
 
 # -- the summary must stay stats.summarise's -----------------------------------
@@ -116,7 +122,7 @@ def test_the_module_defines_no_statistic_summarise_already_owns() -> None:
 # -- unrealised P&L must decide what realised P&L gets wrong -------------------
 
 
-def _dips_but_wins(mae_points: float):
+def _dips_but_wins(mae_points: float) -> pd.DataFrame:
     """Build one profitable trade that first goes ``mae_points`` against, then a quiet second day."""
     return leg_log([(0, 100.0, mae_points), (1, 100.0, 1.0)])
 
@@ -179,7 +185,7 @@ def test_an_intraday_high_water_mark_raises_the_floor_a_daily_one_does_not() -> 
 # -- which excursion moves the floor first -------------------------------------
 
 
-def _spikes_then_dips():
+def _spikes_then_dips() -> pd.DataFrame:
     """Build one trade that runs $3,000 in favour and $1,000 against, under Apex's geometry.
 
     The peak takes the high-water mark to $52,994, which under a $2,500 threshold locks the
@@ -197,7 +203,7 @@ def _spikes_then_dips():
     return log
 
 
-def _intraday(**overrides) -> PropAccount:
+def _intraday(**overrides: object) -> PropAccount:
     """Build Apex's trailing geometry: an intraday mark and a floor that locks just above the start."""
     return account(
         trailing_threshold=2_500.0,
@@ -368,7 +374,7 @@ def test_a_monthly_fee_that_ends_at_the_pass_bills_an_attempt_that_never_passed(
 # -- the firm's split of what is withdrawn -------------------------------------
 
 
-def paying(**overrides) -> PropAccount:
+def paying(**overrides: object) -> PropAccount:
     """Build a rule set that passes and then withdraws without walking onto its own floor."""
     return account(
         withdrawal_threshold=1_000.0,
@@ -643,7 +649,7 @@ def test_two_trades_either_side_of_the_session_close_are_two_trading_days() -> N
     assert run.outcome is Outcome.SURVIVED
     assert run.days_traded == 2
     # And the half that stops this being a tautology: they share a calendar date.
-    assert log["exit_time"].dt.date.nunique() == 1
+    assert log["exit_time"].dt.date.nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
 
 
 def test_two_trades_inside_one_session_are_one_trading_day() -> None:
@@ -661,7 +667,7 @@ def test_two_trades_inside_one_session_are_one_trading_day() -> None:
 
 
 @pytest.mark.parametrize("preset", propaccount.PRESETS.values(), ids=lambda a: a.name)
-def test_a_preset_withdrawal_cannot_breach_its_own_floor(preset) -> None:
+def test_a_preset_withdrawal_cannot_breach_its_own_floor(preset: PropAccount) -> None:
     """The one way `withdrawal_threshold` and `trail_lock` can be set to kill the account."""
     rules = preset.rules
     if rules.trail_lock is TrailLock.NEVER:
@@ -673,7 +679,7 @@ def test_a_preset_withdrawal_cannot_breach_its_own_floor(preset) -> None:
 
 
 @pytest.mark.parametrize("preset", propaccount.PRESETS.values(), ids=lambda a: a.name)
-def test_every_preset_replays(preset) -> None:
+def test_every_preset_replays(preset: PropAccount) -> None:
     log = leg_log([(day, 400.0, 1.0) for day in range(10)])
     result = propaccount.replay(log, preset, max_accounts=2)
 
@@ -705,10 +711,10 @@ TPT_TABLE = [
     ids=lambda value: getattr(value, "name", value),
 )
 def test_a_takeprofittrader_preset_carries_its_published_row(
-    preset,
-    balance,
-    target,
-    drawdown,
+    preset: PropAccount,
+    balance: float,
+    target: float,
+    drawdown: float,
 ) -> None:
     """The three figures the firm publishes per account size, checked against the table."""
     assert preset.rules.starting_balance == balance
@@ -717,7 +723,7 @@ def test_a_takeprofittrader_preset_carries_its_published_row(
 
 
 @pytest.mark.parametrize("preset", [row[0] for row in TPT_TABLE], ids=lambda a: a.name)
-def test_the_takeprofittrader_buffer_zone_is_its_own_drawdown(preset) -> None:
+def test_the_takeprofittrader_buffer_zone_is_its_own_drawdown(preset: PropAccount) -> None:
     """The firm defines the withdrawal floor as the drawdown, rather than as a separate number."""
     assert preset.rules.withdrawal_threshold == preset.rules.trailing_threshold
     assert preset.rules.profit_split == 0.80
@@ -735,8 +741,8 @@ def test_the_takeprofittrader_buffer_zone_is_its_own_drawdown(preset) -> None:
     ids=["25K", "50K", "150K"],
 )
 def test_takeprofittrader_changes_its_rules_when_the_account_passes(
-    test_account,
-    pro_account,
+    test_account: PropAccount,
+    pro_account: PropAccount,
 ) -> None:
     """The reason it ships as two presets: one `AccountRules` cannot hold both phases."""
     assert test_account.rules.trail_basis is TrailBasis.END_OF_DAY
@@ -759,8 +765,8 @@ def test_takeprofittrader_changes_its_rules_when_the_account_passes(
     ids=["25K", "50K", "150K"],
 )
 def test_a_takeprofittrader_pro_account_carries_no_monthly_fee(
-    test_account,
-    pro_account,
+    test_account: PropAccount,
+    pro_account: PropAccount,
 ) -> None:
     """The subscription is the evaluation's; the funded account pays $130 once and nothing more."""
     assert test_account.fees.monthly_fee > 0.0
@@ -816,7 +822,7 @@ def test_and_the_same_log_replays_on_closed_pnl_alone() -> None:
 
 
 @pytest.mark.parametrize("count", [0, -1])
-def test_fewer_than_one_account_is_refused(count) -> None:
+def test_fewer_than_one_account_is_refused(count: int) -> None:
     with pytest.raises(PropAccountError, match="max_accounts"):
         propaccount.replay(leg_log([(0, 100.0, 1.0)]), account(), max_accounts=count)
 
@@ -827,7 +833,7 @@ def test_a_consistency_ratio_above_one_is_refused() -> None:
 
 
 @pytest.mark.parametrize("share", [0.0, -0.5, 1.5])
-def test_a_profit_split_outside_its_range_is_refused(share) -> None:
+def test_a_profit_split_outside_its_range_is_refused(share: float) -> None:
     """0.0 is refused rather than read as "off", which is the convention every other field uses."""
     with pytest.raises(PropAccountError, match="profit_split"):
         account(profit_split=share)
@@ -837,7 +843,7 @@ def test_a_profit_split_outside_its_range_is_refused(share) -> None:
     "field",
     ["trailing_threshold", "daily_loss_limit", "profit_target", "withdrawal_threshold"],
 )
-def test_a_negative_limit_is_refused_by_name(field) -> None:
+def test_a_negative_limit_is_refused_by_name(field: str) -> None:
     with pytest.raises(PropAccountError, match=field):
         account(**{field: -1.0})
 

@@ -8,6 +8,9 @@ the selection window's pick, and a cell clears only where the pick pays on every
 
 from __future__ import annotations
 
+import math
+from typing import TYPE_CHECKING
+
 import pandas as pd
 import pytest
 
@@ -31,8 +34,11 @@ from tools.campaign_early_exit import (
 from tools.campaign_hold import BASE_VARIANT
 from tools.campaign_sweep import EARLY_EXIT, EARLY_EXIT_2, early_exit_arms, tier2_arms
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
-def rows(base: str, arm: str, **columns: object) -> pd.DataFrame:
+
+def rows(base: str, arm: str, **columns: str | float | Sequence[float] | None) -> pd.DataFrame:
     """Build a results frame with the tag columns every stored row carries, under one arm's name."""
     frame = pd.DataFrame(
         {
@@ -99,7 +105,7 @@ def test_the_tier_2_set_tags_by_its_own_marker_and_builds_its_own_arms() -> None
 
 
 def test_the_tier_1_marker_does_not_split_a_tier_2_name() -> None:
-    """``exit=`` is inside ``exit2=`` only if a marker drops its leading space, which would mix the two sets."""
+    """``exit=`` is inside ``exit2=`` only if a marker drops its leading space, mixing the two sets."""
     frame = pd.DataFrame({"variant": [f"stop=atr{ARM_SETS[EARLY_EXIT_2].marker}off"]})
     assert tagged(frame)[ARM].isna().all()
 
@@ -111,7 +117,7 @@ def test_reading_keeps_one_stratum_because_a_pair_only_forms_within_one(
         [rows("bracket", CONTROL_ARM), rows("bracket", CONTROL_ARM, stratum="phase=MIDDAY")],
         ignore_index=True,
     )
-    monkeypatch.setattr(module, "load", lambda name, windows, variants: frame)
+    monkeypatch.setattr(module, "load", lambda _name, _windows, variants: frame)  # noqa: ARG005 - the caller passes it by keyword
     assert set(exited("InsideBar", ["holdout"])["stratum"]) == {"unfiltered"}
     assert set(exited("InsideBar", ["holdout"], "phase=MIDDAY")["stratum"]) == {"phase=MIDDAY"}
 
@@ -266,7 +272,7 @@ def test_the_tier_2_control_reproduces_through_its_own_marker_without_joining_on
     """A stored row swept before a family existed reads null there, and one swept after reads its default."""
     marker = ARM_SETS[EARLY_EXIT_2].marker
     control = rows("bracket", "", variant=f"bracket{marker}{CONTROL_ARM}", age_stop_bars=0, breakeven_at=0.0)
-    stored = rows("bracket", "", age_stop_bars=None, breakeven_at=[0.0, None, 0.0, None])
+    stored = rows("bracket", "", age_stop_bars=None, breakeven_at=[0.0, math.nan, 0.0, math.nan])
     found = reproduction(pd.concat([control, stored], ignore_index=True), marker)
     assert found["joined"] == 4
     assert found["rows_differing"] == 0
@@ -303,7 +309,7 @@ def test_every_column_the_pre_registration_reads_beside_an_arm_is_reported() -> 
 
 
 def test_reading_an_archetype_that_was_never_swept_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(module, "exited", lambda name, windows, stratum, arm_set: pd.DataFrame())
+    monkeypatch.setattr(module, "exited", lambda _name, _windows, _stratum, **_options: pd.DataFrame())
     with pytest.raises(SystemExit, match="no --variants early-exit rows"):
         ladder("DeadCatBounce", ["holdout"], "profit_factor")
 
@@ -312,7 +318,7 @@ def test_rows_with_no_arm_to_pair_say_so_rather_than_failing_to_stack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        module, "exited", lambda name, windows, stratum, arm_set: both(rows("bracket", CONTROL_ARM))
+        module, "exited", lambda _name, _windows, _stratum, **_options: both(rows("bracket", CONTROL_ARM))
     )
     with pytest.raises(SystemExit, match="no arm pairs with the control"):
         ladder("DeadCatBounce", ["holdout"], "profit_factor")
@@ -340,7 +346,7 @@ def test_the_set_defaults_to_tier_1_and_names_its_own_rows_when_none_were_swept(
 ) -> None:
     assert parse(["prog", "--strategy", "InsideBar"]).set == EARLY_EXIT
     assert parse(["prog", "--set", EARLY_EXIT_2, "--strategy", "InsideBar"]).set == EARLY_EXIT_2
-    monkeypatch.setattr(module, "exited", lambda name, windows, stratum, arm_set: pd.DataFrame())
+    monkeypatch.setattr(module, "exited", lambda _name, _windows, _stratum, **_options: pd.DataFrame())
     with pytest.raises(SystemExit, match="no --variants early-exit-2 rows"):
         ladder("DeadCatBounce", ["holdout"], "profit_factor", arm_set=ARM_SETS[EARLY_EXIT_2])
 

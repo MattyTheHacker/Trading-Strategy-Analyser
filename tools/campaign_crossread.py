@@ -119,7 +119,7 @@ def common_variants(frame: pd.DataFrame) -> set[str]:
     filtered: pd.DataFrame = frame[frame["stratum"] != UNFILTERED]
     recut = filtered["stratum"].map(lambda name: is_recut(str(name))).astype(bool)
     plain: pd.DataFrame = filtered[~recut]
-    per_stratum: pd.Series = plain.groupby("stratum")["variant"].agg(set)  # duckdb's dtypes
+    per_stratum = plain.groupby("stratum")["variant"].agg(set)
     if per_stratum.empty:
         return set()
 
@@ -277,6 +277,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Read each stratum against its unfiltered run and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Read every stratum against its unfiltered twin.")
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))

@@ -14,7 +14,8 @@ import duckdb
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, regime, sweep, timeofday
+from nqbt import archetypes, context, regime, results, splice, sweep, timeofday
+from nqbt.sim.types import DeadCatParams
 from tools import rerun_sweeps
 from tools.rerun_sweeps import TABLES, drop_tables, grids, strata
 
@@ -54,6 +55,7 @@ def test_ambiguity_policy_is_not_swept_and_stays_at_nt8s_rule() -> None:
     """Policy 0 is more pessimistic than NT8, so ranking against it violates fidelity."""
     for _, grid in grids():
         assert "ambiguity_policy" not in grid.axes
+        assert isinstance(grid.base, DeadCatParams)
         assert grid.base.ambiguity_policy == 1
 
 
@@ -65,6 +67,7 @@ def test_every_stratum_runs_the_same_number_of_combinations() -> None:
 
 def test_every_grid_carries_the_real_commission_and_slippage() -> None:
     for _, grid in grids():
+        assert isinstance(grid.base, DeadCatParams)
         assert grid.base.commission_per_contract == pytest.approx(1.50)
         assert grid.base.slippage_ticks == pytest.approx(1.0)
 
@@ -121,10 +124,10 @@ def test_every_stored_row_carries_its_own_tier2(monkeypatch: pytest.MonkeyPatch,
 
         return len(stored)
 
-    monkeypatch.setattr(rerun_sweeps.splice, "load_continuous", lambda _root: bars)
-    monkeypatch.setattr(rerun_sweeps.context, "prepare", lambda *_, **__: None)
-    monkeypatch.setattr(rerun_sweeps.sweep, "sweep", swept)
-    monkeypatch.setattr(rerun_sweeps.results, "save_sweep", saved)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
+    monkeypatch.setattr(context, "prepare", lambda *_, **__: None)
+    monkeypatch.setattr(sweep, "sweep", swept)
+    monkeypatch.setattr(results, "save_sweep", saved)
     rerun_sweeps.run_root("MNQ", 1, n_jobs=1, db_path=tmp_path / "sweeps.duckdb")
 
     assert set(stored["unfiltered"]) == {"reconciled"}

@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from nqbt import disambiguate
+from nqbt.instruments import get_instrument
 from tools import campaign_crossroot
 from tools.campaign_crossroot import COMMISSION, PAIRS, selected, summarise
 
@@ -35,25 +36,31 @@ def stored(n: int = 40) -> pd.DataFrame:
 
 
 @pytest.fixture
-def loaded(monkeypatch: pytest.MonkeyPatch):
+def loaded(monkeypatch: pytest.MonkeyPatch) -> pd.DataFrame:
     frame = stored()
-    monkeypatch.setattr(campaign_crossroot, "load", lambda name, windows: frame)
+    monkeypatch.setattr(campaign_crossroot, "load", lambda _name, _windows: frame)
 
     return frame
 
 
-def test_the_trade_floor_drops_every_row_below_it(loaded) -> None:
-    """The defect the floor exists for: ranked at the campaign's own 30, two thirds of a
-    top-200 holds under 50 trades and the profit factor being ranked is small-sample noise."""
+@pytest.mark.usefixtures("loaded")
+def test_the_trade_floor_drops_every_row_below_it() -> None:
+    """The defect the floor exists for.
+
+    Ranked at the campaign's own 30, two thirds of a top-200 holds under 50 trades and the
+    profit factor being ranked is small-sample noise.
+    """
     picked = selected("InsideBar", "NQ", top=200, min_trades=500)
 
     assert len(picked) > 0
     assert picked["trades"].min() >= 500
 
 
-def test_an_infinite_profit_factor_is_dropped_rather_than_ranked_first(loaded) -> None:
-    """Nine stored OpeningRange rows have no losing trade at all, so they sort above every
-    real configuration and would take the top of any shortlist."""
+def test_an_infinite_profit_factor_is_dropped_rather_than_ranked_first(loaded: pd.DataFrame) -> None:
+    """Nine stored OpeningRange rows have no losing trade at all.
+
+    They sort above every real configuration and would take the top of any shortlist.
+    """
     loaded.loc[loaded.index[0], ["trades", "profit_factor"]] = [900, np.inf]
 
     picked = selected("InsideBar", "NQ", top=200, min_trades=500)
@@ -61,9 +68,11 @@ def test_an_infinite_profit_factor_is_dropped_rather_than_ranked_first(loaded) -
     assert np.isfinite(picked["profit_factor"]).all()
 
 
-def test_a_row_its_fill_assumption_decided_is_dropped_before_ranking(loaded) -> None:
-    """Rows whose result the ambiguity assumption decides are kept out of the shortlist --
-    ``docs/roadmap.md`` §M28.7."""
+def test_a_row_its_fill_assumption_decided_is_dropped_before_ranking(loaded: pd.DataFrame) -> None:
+    """Rows whose result the ambiguity assumption decides are kept out of the shortlist.
+
+    ``docs/roadmap.md`` §M28.7.
+    """
     loaded.loc[loaded.index[0], ["trades", "profit_factor", "ambiguous_share"]] = [900, 3955.0, 0.89]
 
     picked = selected("InsideBar", "NQ", top=200, min_trades=500)
@@ -72,37 +81,46 @@ def test_a_row_its_fill_assumption_decided_is_dropped_before_ranking(loaded) -> 
     assert 3955.0 not in set(picked["profit_factor"])
 
 
-def test_a_variant_swept_into_a_stratum_is_excluded(loaded) -> None:
-    """A hold= arm is a later variant set swept into the same database, so a top-N drawn over
-    it mixes the campaign grid with six hold arms -- docs/roadmap.md, "Standing traps"."""
+@pytest.mark.usefixtures("loaded")
+def test_a_variant_swept_into_a_stratum_is_excluded() -> None:
+    """A hold= arm is a later variant set swept into the same database.
+
+    A top-N drawn over it mixes the campaign grid with six hold arms -- docs/roadmap.md,
+    "Standing traps".
+    """
     picked = selected("InsideBar", "NQ", top=200, min_trades=500)
 
     assert not picked["variant"].str.contains("hold=").any()
 
 
-def test_only_the_named_source_roots_rows_are_selected(loaded) -> None:
+@pytest.mark.usefixtures("loaded")
+def test_only_the_named_source_roots_rows_are_selected() -> None:
     picked = selected("InsideBar", "MNQ", top=200, min_trades=500)
 
     assert set(picked["root"]) == {"MNQ"}
 
 
-def test_a_source_root_with_nothing_above_the_floor_raises(loaded) -> None:
-    """Returning an empty shortlist would report a target root as untested rather than
-    untestable, and the difference matters."""
+@pytest.mark.usefixtures("loaded")
+def test_a_source_root_with_nothing_above_the_floor_raises() -> None:
+    """Returning an empty shortlist would report a target root as untested rather than untestable.
+
+    The difference matters.
+    """
     with pytest.raises(RuntimeError, match="no stored row clears"):
         selected("InsideBar", "NQ", top=200, min_trades=10_000)
 
 
 def test_each_pair_matches_its_size_class_on_commission() -> None:
-    """Pairing a micro shortlist onto a full-size root would change the market and the cost
-    structure at once, and the result could not be attributed to either."""
+    """Pairing a micro shortlist onto a full-size root would change the market and the cost structure at once.
+
+    The result could not be attributed to either.
+    """
     for source_root, targets in PAIRS.items():
         for target in targets:
             assert COMMISSION[target] == COMMISSION[source_root], (source_root, target)
 
 
 def test_every_paired_root_is_a_registered_instrument() -> None:
-    from nqbt.instruments import get_instrument
 
     for source_root, targets in PAIRS.items():
         assert get_instrument(source_root).symbol == source_root
@@ -111,8 +129,10 @@ def test_every_paired_root_is_a_registered_instrument() -> None:
 
 
 def test_the_summary_reports_a_distribution_and_never_a_ranking() -> None:
-    """Picking the best performer on the target root would re-introduce the selection bias
-    one level up, so the tool reports spread and never sorts by it."""
+    """Picking the best performer on the target root would re-introduce the selection bias one level up.
+
+    The tool reports spread and never sorts by it.
+    """
     rows = pd.DataFrame(
         {
             "strategy": ["InsideBar"] * 4,

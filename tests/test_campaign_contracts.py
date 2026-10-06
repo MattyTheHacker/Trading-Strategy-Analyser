@@ -74,8 +74,10 @@ def test_the_verdict_is_the_sign_count_across_contracts() -> None:
 
 
 def test_a_thin_contract_is_counted_and_its_trade_count_is_reported() -> None:
-    """There is no minimum. The exclusion existed to keep a handful of trades out of an
-    unbounded mean, and there is no longer an unbounded mean to keep them out of."""
+    """There is no minimum. The exclusion existed to keep a handful of trades out of an unbounded mean.
+
+    There is no longer an unbounded mean to keep them out of.
+    """
     row = tally(contract_rows(trades=[120, 90, 3], excess=[10.0, -10.0, 5.0])).iloc[0]
     assert row["contracts"] == 3
     assert row["fewest_trades"] == 3
@@ -96,8 +98,10 @@ def test_a_contract_the_configuration_never_traded_is_reported_but_not_counted()
 
 
 def test_each_root_is_tallied_on_its_own_row() -> None:
-    """NQ and MNQ share a tick size and differ tenfold in tick value, so an expectancy pooled
-    across the two would be reporting the root rather than the rule."""
+    """NQ and MNQ share a tick size and differ tenfold in tick value.
+
+    An expectancy pooled across the two would be reporting the root rather than the rule.
+    """
     both = pd.concat(
         [
             contract_rows(),
@@ -149,8 +153,10 @@ def test_a_contract_reports_a_finite_excess_over_its_own_null() -> None:
 
 
 def test_a_contract_too_short_to_trade_still_fills_every_column() -> None:
-    """``run_root`` logs a field per contract and ``tally`` reads a column per row, so a key
-    this path omitted would surface as a silent NaN column rather than as an error."""
+    """``run_root`` logs a field per contract and ``tally`` reads a column per row.
+
+    A key this path omitted would surface as a silent NaN column rather than as an error.
+    """
     short = row_for(synthetic_bars(n=200))
     assert short["trades"] == 0
     assert short.keys() == row_for(synthetic_bars()).keys()

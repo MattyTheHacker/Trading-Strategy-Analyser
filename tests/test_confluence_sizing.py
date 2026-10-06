@@ -9,6 +9,7 @@ and each one carries the row of the size table its signal bar named -- ``docs/nt
 from __future__ import annotations
 
 import dataclasses
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -57,10 +58,19 @@ from nqbt.trades import (
 )
 from tests.test_insidebartrailing_sim import walk_bars
 
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from nqbt.archetypes import ArchetypeParams
+    from nqbt.arrays import BoolArray, FloatArray
+    from nqbt.sim.types import SizingThesis
+    from nqbt.trades import LegMatrix
+
 BARS = 20_000
 """Enough synthetic minutes that every archetype below trades, and at several sizes."""
 
-TRADING: dict[str, archetypes.Params] = {
+
+TRADING: dict[str, ArchetypeParams] = {
     "DeadCatBounce": DeadCatParams(
         use_ema=False, use_fast_sma=False, require_new_high=False, bars_required_to_trade=20
     ),
@@ -78,7 +88,7 @@ TRADING: dict[str, archetypes.Params] = {
 }
 """A combination per archetype but InsideBarTrailing that trades on :func:`walk_bars`."""
 
-LOOPS: dict[str, tuple[str, archetypes.Params]] = {
+LOOPS: dict[str, tuple[str, ArchetypeParams]] = {
     **{name: (name, params) for name, params in TRADING.items()},
     "EmaPullback confirmation": (
         "EmaPullback",
@@ -87,7 +97,7 @@ LOOPS: dict[str, tuple[str, archetypes.Params]] = {
 }
 """Every entry loop a size reaches: EmaPullback's confirmation entry is a loop of its own."""
 
-EVERY_CLASS = (
+EVERY_CLASS: tuple[type[ArchetypeParams], ...] = (
     DeadCatParams,
     PullBackAndGoParams,
     EmaCrossoverParams,
@@ -103,7 +113,7 @@ SIZE_COLUMNS = (C_QUANTITY, C_GROSS_PNL, C_COMMISSION, C_NET_PNL)
 """The columns a size writes. Everything else is the trade."""
 
 
-def every_label(params: archetypes.Params, **fields: object) -> archetypes.Params:
+def every_label[P: archetypes.Params](params: P, **fields: object) -> P:
     """Return ``params`` sizing on all five labels at one contract per leg per label."""
     return dataclasses.replace(
         params, quantity_per_confluence=1, **dict.fromkeys(SIZING_LABELS, True), **fields
@@ -111,11 +121,11 @@ def every_label(params: archetypes.Params, **fields: object) -> archetypes.Param
 
 
 @pytest.fixture(scope="module")
-def bars():
+def bars() -> pd.DataFrame:
     return walk_bars(BARS, seed=5)
 
 
-def prepared(bars, params, archetype):
+def prepared(bars: pd.DataFrame, params: ArchetypeParams, archetype: archetypes.Archetype) -> context.Dataset:
     return context.prepare(
         bars,
         sweep.Grid.of(params, archetype=archetype).required_context(),
@@ -165,7 +175,7 @@ def test_the_default_table_is_the_one_fixed_split_on_every_class() -> None:
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_the_smallest_position_is_one_contract_per_leg(cls) -> None:
+def test_the_smallest_position_is_one_contract_per_leg(cls: type[ArchetypeParams]) -> None:
     params = cls()
     if cls is InsideBarTrailingParams:
         # 0.6 of 2 rounds up to both contracts, so the stored split needs three.
@@ -186,18 +196,22 @@ def test_the_smallest_position_is_one_contract_per_leg(cls) -> None:
         ({"size_symmetric": True}, "no confluence size"),
     ],
 )
-def test_a_size_that_cannot_run_or_runs_as_fixed_size_is_refused_on_every_class(cls, fields, message) -> None:
+def test_a_size_that_cannot_run_or_runs_as_fixed_size_is_refused_on_every_class(
+    cls: type[ArchetypeParams], fields: dict[str, object], message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
         cls(**fields)
 
 
 @pytest.mark.parametrize("cls", [c for c in EVERY_CLASS if c is not InsideBarTrailingParams])
-def test_a_symmetric_size_at_the_smallest_position_is_refused_rather_than_run_as_add_only(cls) -> None:
+def test_a_symmetric_size_at_the_smallest_position_is_refused_rather_than_run_as_add_only(
+    cls: type[ArchetypeParams],
+) -> None:
     smallest = cls().minimum_quantity
     with pytest.raises(ValueError, match="can remove nothing"):
-        cls(order_quantity=smallest, quantity_per_confluence=1, size_on_trend=True, size_symmetric=True)
+        cls(order_quantity=smallest, quantity_per_confluence=1, size_on_trend=True, size_symmetric=True)  # type: ignore[call-arg]  # every params class takes its fields as keywords
 
-    above = cls(
+    above = cls(  # type: ignore[call-arg]  # every params class takes its fields as keywords
         order_quantity=smallest + 1, quantity_per_confluence=1, size_on_trend=True, size_symmetric=True
     )
     shed, base, _ = above.size_table
@@ -250,18 +264,20 @@ def test_insidebartrailing_adds_to_the_whole_position_before_the_split() -> None
         (OpeningRangeParams(entry_mode=ORB_ENTRY_REJECTION, stop_mode=2), ROTATION),
     ],
 )
-def test_each_archetype_names_the_regime_and_volume_its_entry_wants(params, thesis) -> None:
+def test_each_archetype_names_the_regime_and_volume_its_entry_wants(
+    params: ArchetypeParams, thesis: SizingThesis
+) -> None:
     assert params.sizing_thesis == thesis
 
 
 # -- the labels --------------------------------------------------------------------------------
 
 
-def labelled_insidebar(**fields) -> InsideBarParams:
+def labelled_insidebar(**fields: object) -> ArchetypeParams:
     return dataclasses.replace(every_label(TRADING["InsideBar"]), **fields)
 
 
-def test_a_sided_label_favours_one_side_and_opposes_the_other(bars) -> None:
+def test_a_sided_label_favours_one_side_and_opposes_the_other(bars: pd.DataFrame) -> None:
     params = labelled_insidebar()
     data = prepared(bars, params, archetypes.INSIDEBAR)
     long_side = np.ones(len(data), dtype=np.bool_)
@@ -274,7 +290,7 @@ def test_a_sided_label_favours_one_side_and_opposes_the_other(bars) -> None:
         assert as_long[position].opposes.any()
 
 
-def test_the_trend_label_leaves_a_mixed_bar_neither_favouring_nor_opposing(bars) -> None:
+def test_the_trend_label_leaves_a_mixed_bar_neither_favouring_nor_opposing(bars: pd.DataFrame) -> None:
     params = labelled_insidebar()
     data = prepared(bars, params, archetypes.INSIDEBAR)
     trend_label = filters.label_sides(data, params, np.ones(len(data), dtype=np.bool_))[0]
@@ -292,12 +308,17 @@ def test_the_trend_label_leaves_a_mixed_bar_neither_favouring_nor_opposing(bars)
         (every_label(ElasticBandParams()), regime.Regime.CONSOLIDATING, regime.Regime.DIRECTIONAL),
     ],
 )
-def test_the_regime_label_follows_the_archetypes_thesis(bars, params, favoured, opposed) -> None:
+def test_the_regime_label_follows_the_archetypes_thesis(
+    bars: pd.DataFrame,
+    params: ArchetypeParams,
+    favoured: regime.Regime,
+    opposed: regime.Regime,
+) -> None:
     archetype = archetypes.for_params(params)
     data = prepared(bars, params, archetype)
     regime_label = filters.label_sides(data, params, np.ones(len(data), dtype=np.bool_))[3]
 
-    def labelled(state):
+    def labelled(state: regime.Regime) -> BoolArray:
         return data.regime_gate(
             params.regime_lookback,
             regime.regimes_mask([state]),
@@ -316,7 +337,9 @@ def test_the_regime_label_follows_the_archetypes_thesis(bars, params, favoured, 
         (every_label(DeadCatParams()), volume.VolumeState.THIN),
     ],
 )
-def test_the_volume_label_follows_the_archetypes_thesis(bars, params, favoured) -> None:
+def test_the_volume_label_follows_the_archetypes_thesis(
+    bars: pd.DataFrame, params: ArchetypeParams, favoured: volume.VolumeState
+) -> None:
     archetype = archetypes.for_params(params)
     data = prepared(bars, params, archetype)
     volume_label = filters.label_sides(data, params, np.zeros(len(data), dtype=np.bool_))[4]
@@ -327,7 +350,9 @@ def test_the_volume_label_follows_the_archetypes_thesis(bars, params, favoured) 
     assert not (volume_label.favours & volume_label.opposes).any()
 
 
-def test_an_add_only_count_is_the_favourable_labels_and_a_symmetric_one_nets_the_opposing(bars) -> None:
+def test_an_add_only_count_is_the_favourable_labels_and_a_symmetric_one_nets_the_opposing(
+    bars: pd.DataFrame,
+) -> None:
     add_only = labelled_insidebar()
     symmetric = labelled_insidebar(size_symmetric=True, order_quantity=6)
     data = prepared(bars, add_only, archetypes.INSIDEBAR)
@@ -342,7 +367,7 @@ def test_an_add_only_count_is_the_favourable_labels_and_a_symmetric_one_nets_the
     )
 
 
-def test_every_row_a_bar_can_take_is_in_its_table(bars) -> None:
+def test_every_row_a_bar_can_take_is_in_its_table(bars: pd.DataFrame) -> None:
     params = labelled_insidebar(size_symmetric=True, order_quantity=6)
     data = prepared(bars, params, archetypes.INSIDEBAR)
     sizing = filters.confluence_sizing(data, params, data.close > data.open)
@@ -351,7 +376,7 @@ def test_every_row_a_bar_can_take_is_in_its_table(bars) -> None:
     assert sizing.row_at.max() < 11
 
 
-def test_no_labels_counts_nothing_and_sizing_off_is_the_fixed_split_on_every_bar(bars) -> None:
+def test_no_labels_counts_nothing_and_sizing_off_is_the_fixed_split_on_every_bar(bars: pd.DataFrame) -> None:
     params = TRADING["InsideBar"]
     data = prepared(bars, params, archetypes.INSIDEBAR)
     assert not filters.confluence_counts(data, params, np.ones(len(data), dtype=np.bool_)).any()
@@ -363,7 +388,7 @@ def test_no_labels_counts_nothing_and_sizing_off_is_the_fixed_split_on_every_bar
 # -- the loops ---------------------------------------------------------------------------------
 
 
-def trades_of(legs) -> np.ndarray:
+def trades_of(legs: LegMatrix) -> FloatArray:
     """Return every column of every leg but the four a size writes."""
     kept = [column for column in range(N_COLUMNS) if column not in SIZE_COLUMNS]
 
@@ -371,7 +396,7 @@ def trades_of(legs) -> np.ndarray:
 
 
 @pytest.mark.parametrize("loop", sorted(LOOPS))
-def test_sizing_moves_the_quantities_and_never_a_trade(bars, loop) -> None:
+def test_sizing_moves_the_quantities_and_never_a_trade(bars: pd.DataFrame, loop: str) -> None:
     name, params = LOOPS[loop]
     archetype = archetypes.get(name)
     sized = every_label(params)
@@ -385,7 +410,7 @@ def test_sizing_moves_the_quantities_and_never_a_trade(bars, loop) -> None:
 
 
 @pytest.mark.parametrize("loop", sorted(LOOPS))
-def test_sizing_off_takes_the_fixed_split_on_every_trade(bars, loop) -> None:
+def test_sizing_off_takes_the_fixed_split_on_every_trade(bars: pd.DataFrame, loop: str) -> None:
     name, params = LOOPS[loop]
     archetype = archetypes.get(name)
     data = prepared(bars, params, archetype)
@@ -397,7 +422,7 @@ def test_sizing_off_takes_the_fixed_split_on_every_trade(bars, loop) -> None:
 
 @pytest.mark.parametrize("loop", sorted(LOOPS))
 def test_each_trade_takes_the_row_its_signal_bar_names_and_not_its_fill_bars(
-    monkeypatch: pytest.MonkeyPatch, bars, loop
+    monkeypatch: pytest.MonkeyPatch, bars: pd.DataFrame, loop: str
 ) -> None:
     """Alternating rows, so reading the fill bar instead would give every trade the other one."""
     name, params = LOOPS[loop]
@@ -414,7 +439,7 @@ def test_each_trade_takes_the_row_its_signal_bar_names_and_not_its_fill_bars(
     assert np.array_equal(matrix[:, C_QUANTITY], table[signal_bar % 2, 0])
 
 
-def test_every_leg_of_a_trade_scales_together(bars) -> None:
+def test_every_leg_of_a_trade_scales_together(bars: pd.DataFrame) -> None:
     params = every_label(TRADING["DeadCatBounce"])
     data = prepared(bars, params, archetypes.DEADCATBOUNCE)
     legs = archetypes.DEADCATBOUNCE.legs(data, params, MNQ)
@@ -439,7 +464,7 @@ def test_size_legs_copies_the_signal_bars_row_into_the_legs() -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_a_labels_axes_are_live_when_sizing_reads_them_and_dead_otherwise(name) -> None:
+def test_a_labels_axes_are_live_when_sizing_reads_them_and_dead_otherwise(name: str) -> None:
     archetype = archetypes.get(name)
     sized = dataclasses.replace(TRADING[name], quantity_per_confluence=1, size_on_regime=True)
     sweep.Grid.of(sized, archetype=archetype, regime_lookback=[10, 20])
@@ -448,7 +473,7 @@ def test_a_labels_axes_are_live_when_sizing_reads_them_and_dead_otherwise(name) 
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_the_symmetric_axis_is_dead_without_a_confluence_size(name) -> None:
+def test_the_symmetric_axis_is_dead_without_a_confluence_size(name: str) -> None:
     with pytest.raises(
         sweep.SweepError, match=r"size_symmetric \(inert while quantity_per_confluence is 0\)"
     ):
@@ -456,7 +481,7 @@ def test_the_symmetric_axis_is_dead_without_a_confluence_size(name) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_every_label_a_size_counts_is_built_into_the_dataset(name) -> None:
+def test_every_label_a_size_counts_is_built_into_the_dataset(name: str) -> None:
     archetype = archetypes.get(name)
     spec = sweep.Grid.of(every_label(TRADING[name]), archetype=archetype).required_context()
     assert spec.needs_vwap
@@ -479,7 +504,9 @@ def test_every_label_a_size_counts_is_built_into_the_dataset(name) -> None:
         (archetypes.INSIDEBARTRAILING, InsideBarTrailingParams()),
     ],
 )
-def test_a_sized_row_leaves_every_reconciled_port(archetype, params) -> None:
+def test_a_sized_row_leaves_every_reconciled_port(
+    archetype: archetypes.Archetype, params: archetypes.Params
+) -> None:
     assert archetype.tier2_for(params) is Tier2Status.RECONCILED
     assert archetype.tier2_for(every_label(params)) is Tier2Status.TIER1_ONLY
 
@@ -497,7 +524,7 @@ def test_a_grid_refuses_a_symmetric_size_where_some_base_cannot_shed_a_step_befo
         sweep.Grid.of(sized, order_quantity=[1, 3])
 
 
-def test_long_and_short_sides_are_read_per_archetype(bars) -> None:
+def test_long_and_short_sides_are_read_per_archetype(bars: pd.DataFrame) -> None:
     """The side a sided label is read against: fixed for the one-sided archetypes, per bar otherwise."""
     data = prepared(bars, TRADING["OpeningRange"], archetypes.OPENINGRANGE)
     assert not archetypes.DEADCATBOUNCE.long_side(data, DeadCatParams()).any()
@@ -507,12 +534,12 @@ def test_long_and_short_sides_are_read_per_archetype(bars) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_a_sized_row_would_leave_any_archetype_once_it_is_reconciled(name) -> None:
+def test_a_sized_row_would_leave_any_archetype_once_it_is_reconciled(name: str) -> None:
     """Reconciling an original later needs no change to the rule, whatever its parameter class."""
     reconciled = dataclasses.replace(
         archetypes.get(name),
         tier2=Tier2Status.RECONCILED,
-        departs_from_port=archetypes._sizes_per_signal,  # noqa: SLF001 - the rule under test
+        departs_from_port=archetypes._sizes_per_signal,
         port_properties=None,
     )
     assert reconciled.tier2_for(TRADING[name]) is Tier2Status.RECONCILED
@@ -520,7 +547,9 @@ def test_a_sized_row_would_leave_any_archetype_once_it_is_reconciled(name) -> No
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_each_trade_is_entered_on_the_side_its_labels_were_read_against(bars, name) -> None:
+def test_each_trade_is_entered_on_the_side_its_labels_were_read_against(
+    bars: pd.DataFrame, name: str
+) -> None:
     """The long-side series a sized label reads has to be the side the loop actually enters on."""
     archetype = archetypes.get(name)
     params = TRADING[name]

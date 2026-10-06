@@ -121,7 +121,7 @@ def parse_nt8(path: Path) -> pd.DataFrame:
     raw = pd.read_csv(path)
     raw.columns = [c.strip() for c in raw.columns]
 
-    def money(column: pd.Series) -> pd.Series:
+    def money(column: pd.Series[str]) -> pd.Series[float]:
         """Parse NT8's money, which writes a loss as ``-$4.50`` or, in accounting format, as ``($4.50)``.
 
         Stripping the brackets without negating turns every loss into a gain, and the join
@@ -132,7 +132,7 @@ def parse_nt8(path: Path) -> pd.DataFrame:
 
         return bare.where(~negative, -bare.abs())
 
-    def when(column: str) -> pd.Series:
+    def when(column: str) -> pd.Series[pd.Timestamp]:
         naive = pd.to_datetime(raw[column], format="%d/%m/%Y %I:%M:%S %p")
 
         return naive.dt.tz_localize(EXPORT_TZ, ambiguous="infer", nonexistent="shift_forward").dt.tz_convert(
@@ -164,6 +164,7 @@ def parse_nt8(path: Path) -> pd.DataFrame:
 
 
 def run_nqbt(config_name: str, contract: str) -> pd.DataFrame:
+    """Return nqbt's trade log for one named configuration on one contract."""
     if config_name not in CONFIGS:
         msg = f"unknown config {config_name!r}; known: {sorted(CONFIGS)}"
         raise SystemExit(msg)
@@ -175,7 +176,7 @@ def run_nqbt(config_name: str, contract: str) -> pd.DataFrame:
     bars = resample.resample(ingest.load_contract(contract_id), config.resolution)
     data = context.prepare(
         bars,
-        archetype.context_for({k: [v] for k, v in params.as_dict().items()}),
+        archetype.context_for({k: [v] for k, v in params.as_dict().items()}),  # type: ignore[list-item]  # a params field holds an axis value
         bar_minutes=config.resolution,
         price_basis=context.PriceBasis.RAW,
     )
@@ -185,6 +186,7 @@ def run_nqbt(config_name: str, contract: str) -> pd.DataFrame:
 
 
 def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
+    """Log how NT8's legs and nqbt's agree, leg for leg, over the window both cover."""
     # Both ends are excluded: NT8 warms indicators from bars before the export starts, and
     # the export can stop before the backtest did. See docs/nt8-fidelity.md.
     cut = nt8["exit_reason"] == REVERSAL
@@ -252,6 +254,7 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Reconcile the NT8 export against an nqbt run and return the process exit code."""
     logsetup.configure(__name__)
     if len(argv) not in EXPECTED_ARGV:
         logger.info("%s", __doc__)

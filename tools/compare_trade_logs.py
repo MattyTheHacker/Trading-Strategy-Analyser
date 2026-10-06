@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 def compare(before: Path, after: Path, added: set[str]) -> int:
+    """Compare every capture in ``before`` with ``after`` and return how many checks failed.
+
+    One capture can fail more than one check, and an empty ``before`` returns 1.
+    """
     failures = 0
     names = sorted(p.name for p in before.iterdir() if p.is_file())
     if not names:
@@ -74,6 +78,7 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
 
 
 def main(argv: list[str]) -> int:
+    """Compare the two captures and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before", type=Path)

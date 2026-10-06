@@ -7,6 +7,7 @@ the one thing costs punish, so it must be refused rather than defaulted.
 """
 
 from dataclasses import replace
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -98,7 +99,7 @@ def test_one_bar_too_few_raises_rather_than_returning_nothing() -> None:
 
 
 @pytest.mark.parametrize(("train", "test"), [(0, 50), (200, 0), (-1, 50)])
-def test_a_window_of_no_bars_raises(train, test) -> None:
+def test_a_window_of_no_bars_raises(train: int, test: int) -> None:
     with pytest.raises(WalkForwardError, match="must both be >= 1"):
         walkforward.splits(1000, train_bars=train, test_bars=test)
 
@@ -138,9 +139,10 @@ def test_costs_reach_every_combination_rather_than_only_the_base() -> None:
         archetype=grid.archetype,
     )
     for params in costed.combinations():
+        assert isinstance(params, DeadCatParams)
         assert params.commission_per_contract == costs.LIVE.commission_per_contract
         assert params.slippage_ticks == costs.LIVE.slippage_ticks
-    assert {p.tp_multiplier for p in costed.combinations()} == {1.5, 2.0, 2.5}
+    assert {cast("DeadCatParams", p).tp_multiplier for p in costed.combinations()} == {1.5, 2.0, 2.5}
 
 
 def test_a_shortlist_grid_walks_forward_exactly_as_the_axis_that_would_produce_it() -> None:
@@ -238,9 +240,9 @@ def test_a_real_walk_forward_selects_and_measures_on_disjoint_windows() -> None:
 
     chosen = result.table[result.table["combo_id"].notna()]
     assert len(chosen) > 0
-    for row in chosen.itertuples():
-        assert row.train_end < row.test_start
-        assert row.train_trades >= 1
+    for row in chosen.to_dict("records"):
+        assert row["train_end"] < row["test_start"]
+        assert row["train_trades"] >= 1
 
 
 def test_every_out_of_sample_trade_entered_inside_its_own_test_window() -> None:
@@ -259,9 +261,9 @@ def test_every_out_of_sample_trade_entered_inside_its_own_test_window() -> None:
         pytest.skip("no out-of-sample trades on this fixture")
 
     windows = {s.index: s for s in walkforward.splits(len(frame), train_bars=2000, test_bars=1000)}
-    for row in result.trades.itertuples():
-        split = windows[row.split]
-        assert frame.index[split.test_start] <= row.entry_time <= frame.index[split.test_end - 1]
+    for row in result.trades.to_dict("records"):
+        split = windows[row["split"]]
+        assert frame.index[split.test_start] <= row["entry_time"] <= frame.index[split.test_end - 1]
 
 
 def test_the_warmup_prefix_does_not_leak_its_trades_into_the_result() -> None:
@@ -281,8 +283,8 @@ def test_the_warmup_prefix_does_not_leak_its_trades_into_the_result() -> None:
         pytest.skip("no out-of-sample trades on this fixture")
 
     windows = {s.index: s for s in walkforward.splits(len(frame), train_bars=2000, test_bars=1000)}
-    for row in result.trades.itertuples():
-        assert row.entry_time > frame.index[windows[row.split].test_start]
+    for row in result.trades.to_dict("records"):
+        assert row["entry_time"] > frame.index[windows[row["split"]].test_start]
 
 
 def test_every_training_candidate_is_scored_on_a_run_that_signals_nothing_in_the_prefix() -> None:
@@ -303,7 +305,7 @@ def test_every_training_candidate_is_scored_on_a_run_that_signals_nothing_in_the
 
     cleared = 0
     windows = walkforward.splits(len(frame), train_bars=2000, test_bars=1000)
-    for split, row in zip(windows, result.table.itertuples(), strict=True):
+    for split, row in zip(windows, result.table.to_dict("records"), strict=True):
         lead = max(0, split.train_start - warmup)
         data = sweep.prepare_for(frame.iloc[lead : split.train_end], sweep.Grid.of_combinations(candidates))
         scores = []
@@ -315,10 +317,10 @@ def test_every_training_candidate_is_scored_on_a_run_that_signals_nothing_in_the
             pnl = stats.per_trade(log)["net_pnl"].to_numpy(float)
             scores.append((stats.trade_statistic(pnl, "profit_factor"), pnl.size))
 
-        assert pd.notna(row.combo_id), "a fold selected nothing; the fixture no longer exercises selection"
+        assert pd.notna(row["combo_id"]), "a fold selected nothing; the fixture no longer exercises selection"
         viable = [score for score, trades in scores if trades >= 1 and np.isfinite(score)]
-        assert row.train_statistic == max(viable)
-        assert (row.train_statistic, row.train_trades) == scores[int(row.combo_id)]
+        assert row["train_statistic"] == max(viable)
+        assert (row["train_statistic"], row["train_trades"]) == scores[int(row["combo_id"])]
 
     assert cleared > 0, "fixture signals in no prefix; the test proves nothing"
 

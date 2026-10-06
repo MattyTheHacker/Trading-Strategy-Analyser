@@ -45,7 +45,7 @@ SAMPLE_GROSS = -173.50
 SAMPLE_TRADE_GROSS = {1: -86.50, 2: -87.00}
 
 
-def grid(tmp_path: Path, rows, *, header=HEADER, name="grid.csv"):
+def grid(tmp_path: Path, rows: list[str], *, header: str = HEADER, name: str = "grid.csv") -> Path:
     """Write ``rows`` as an executions grid: newest first, CRLF, trailing comma intact."""
     path = tmp_path / name
     path.write_text("\r\n".join([header, *rows, ""]), encoding="utf-8")
@@ -53,19 +53,19 @@ def grid(tmp_path: Path, rows, *, header=HEADER, name="grid.csv"):
     return path
 
 
-def fill(time, order, price, position, name="Entry"):
+def fill(time: str, order: str, price: str, position: str, name: str = "Entry") -> str:
     """Build one row of the minimal column set. ``order`` reads as it does on the grid: ``"Sell 4"``."""
     action, quantity = order.split()
 
     return f"MNQ 09-26,{action},{quantity},{price},{time},{position},{name},"
 
 
-def chronological(tmp_path: Path, rows, **kwargs: str):
+def chronological(tmp_path: Path, rows: list[str], **kwargs: str) -> Path:
     """Write rows given oldest-first, reversing them the way the grid itself does."""
     return grid(tmp_path, list(reversed(rows)), **kwargs)
 
 
-def short_scale_out(tmp_path: Path):
+def short_scale_out(tmp_path: Path) -> Path:
     """Go four short at 100, out one at 99, then three at 105. One trade, four legs."""
     return chronological(
         tmp_path,
@@ -77,7 +77,7 @@ def short_scale_out(tmp_path: Path):
     )
 
 
-def cache_bars(cache_dir, contract, first, last):
+def cache_bars(cache_dir: Path, contract: str, first: str, last: str) -> Path:
     """Write a minimal cached-bar file so coverage has a real range to read."""
     path = ingest.contract_cache_path(ContractId.parse(contract), cache_dir)
     path.parent.mkdir(parents=True, exist_ok=True)

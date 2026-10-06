@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 import tools.restamp_tier2 as module
-from nqbt import archetypes, regime, results
+from nqbt import archetypes, paths, regime, results
 from nqbt.archetypes import Tier2Status
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, InsideBarParams
 from tools.restamp_tier2 import UNREADABLE, default_databases, departures, main, restamp
@@ -172,7 +172,7 @@ def test_a_departure_only_the_rule_for_any_port_catches_is_still_named() -> None
         tier2=Tier2Status.RECONCILED,
         departs_from_port=lambda _: True,
     )
-    assert module._leaving(flagged, pd.Series(dtype=object)) == ("departs_from_port",)  # noqa: SLF001 - the reason path
+    assert module._leaving(flagged, pd.Series(dtype=object)) == ("departs_from_port",)
 
 
 def test_the_report_and_the_write_are_main_s_two_modes(db: Path) -> None:
@@ -194,7 +194,7 @@ def test_the_default_databases_are_the_ones_that_exist(
     campaigns.mkdir()
     (campaigns / "InsideBar.duckdb").touch()
     (campaigns / "notes.txt").touch()
-    monkeypatch.setattr(module.paths, "SWEEPS_DB", tmp_path / "sweeps.duckdb")
+    monkeypatch.setattr(paths, "SWEEPS_DB", tmp_path / "sweeps.duckdb")
     monkeypatch.setattr(module, "CAMPAIGN_DIR", campaigns)
     assert default_databases() == [campaigns / "InsideBar.duckdb"]
     (tmp_path / "sweeps.duckdb").touch()
@@ -202,6 +202,6 @@ def test_the_default_databases_are_the_ones_that_exist(
 
 
 def test_no_stored_databases_is_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(module.paths, "SWEEPS_DB", tmp_path / "sweeps.duckdb")
+    monkeypatch.setattr(paths, "SWEEPS_DB", tmp_path / "sweeps.duckdb")
     monkeypatch.setattr(module, "CAMPAIGN_DIR", tmp_path / "campaign")
     assert main(["restamp_tier2.py"]) == 0

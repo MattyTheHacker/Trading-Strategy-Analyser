@@ -17,7 +17,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import annotate, context, guard, results, review, sessions, timeofday, trades, volume
+from nqbt import (
+    annotate,
+    context,
+    guard,
+    resample,
+    results,
+    review,
+    sessions,
+    splice,
+    timeofday,
+    trades,
+    volume,
+)
 from tools import campaign_review
 from tools.campaign_review import (
     BY,
@@ -56,7 +68,7 @@ def bars() -> pd.DataFrame:
     """Build ``MINUTES`` one-minute bars from 09:00 ET on each of ``SESSIONS`` weekdays."""
     days = pd.bdate_range("2024-01-02", periods=SESSIONS)
     stamps = [pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=MINUTES, freq="min", tz="UTC") for day in days]
-    index = stamps[0].append(stamps[1:])
+    index = pd.DatetimeIndex(stamps[0].append(stamps[1:]))
 
     count = len(index)
     rng = np.random.default_rng(11)
@@ -77,10 +89,15 @@ def bars() -> pd.DataFrame:
     return frame
 
 
+def dataset() -> context.Dataset:
+    """Return the bars a stored log would have been simulated over, with the clock and all three forms."""
+    return context.prepare(bars(), review_spec(), bar_minutes=1)
+
+
 @pytest.fixture(scope="module")
 def data() -> context.Dataset:
-    """Provide the bars a stored log would have been simulated over, with the clock and all three forms."""
-    return context.prepare(bars(), review_spec(), bar_minutes=1)
+    """Provide :func:`dataset`, built once per module."""
+    return dataset()
 
 
 def entry_bars(data: context.Dataset, per_phase: int = 60) -> IntArray:
@@ -154,7 +171,7 @@ def stored_row(**columns: object) -> pd.Series:  # type: ignore[explicit-any]  #
 
 
 @pytest.fixture
-def stocked(tmp_path: Path, data):
+def stocked(tmp_path: Path, data: context.Dataset) -> Path:
     """Provide a database holding one stored log, at the ids the ranked row names."""
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(trade_log(data), SWEEP_ID, COMBO_ID, db)
@@ -175,11 +192,14 @@ def annotation_of(data: context.Dataset) -> annotate.Annotation:
 
 
 def test_the_clock_carries_both_forms_of_volume_for_every_form_the_campaign_did_not_sweep(
-    stocked,
-    data,
+    stocked: Path,
+    data: context.Dataset,
 ) -> None:
-    """§M27 swept the per-bar form alone. Absolute volume is the execution question no relative
-    measure can answer, and the pair is what separates an always-busy hour from an unusual one."""
+    """§M27 swept the per-bar form alone.
+
+    Absolute volume is the execution question no relative measure can answer, and the pair is
+    what separates an always-busy hour from an unusual one.
+    """
     clock = review_row(stored_row(), data, stocked, "MNQ", 50)
     for key in volume_keys():
         suffix = volume.describe_key(key)
@@ -187,14 +207,16 @@ def test_the_clock_carries_both_forms_of_volume_for_every_form_the_campaign_did_
         assert f"median_entry_relative_volume_{suffix}" in clock.columns
 
 
-def test_the_clock_carries_the_forced_exit_share_beside_every_phase(stocked, data) -> None:
+def test_the_clock_carries_the_forced_exit_share_beside_every_phase(
+    stocked: Path, data: context.Dataset
+) -> None:
     """A phase table without it will be read as a finding and be the clock -- §M10.4."""
     clock = review_row(stored_row(), data, stocked, "MNQ", 50)
     assert "session_close_share" in clock.columns
     assert clock["session_close_share"].notna().any()
 
 
-def test_the_clock_is_in_session_order_rather_than_alphabetical(stocked, data) -> None:
+def test_the_clock_is_in_session_order_rather_than_alphabetical(stocked: Path, data: context.Dataset) -> None:
     """Alphabetical ordering passes every other assertion here and reads as a different day."""
     position = {phase.name.lower(): int(phase) for phase in timeofday.SessionPhase}
     clock = review_row(stored_row(), data, stocked, "MNQ", 50)
@@ -205,16 +227,18 @@ def test_the_clock_is_in_session_order_rather_than_alphabetical(stocked, data) -
 # -- the family that is screened -----------------------------------------------------------
 
 
-def test_the_family_is_the_clock_and_one_label_per_volume_form(data) -> None:
+def test_the_family_is_the_clock_and_one_label_per_volume_form(data: context.Dataset) -> None:
     named = conditions_of(annotation_of(data))
     assert named[0] == review.PHASE_COLUMN
     assert len(named) == 1 + len(volume.VolumeForm)
     assert all(name.startswith(VOLUME_STATE_PREFIX) for name in named[1:])
 
 
-def test_a_gate_nobody_asked_about_is_not_in_the_family(data) -> None:
-    """Every stratifiable condition would dilute the family-wise null with questions the
-    campaign never put -- :data:`nqbt.guard.FAMILY_COLUMN`."""
+def test_a_gate_nobody_asked_about_is_not_in_the_family(data: context.Dataset) -> None:
+    """Every stratifiable condition would dilute the family-wise null with questions the campaign never put.
+
+    :data:`nqbt.guard.FAMILY_COLUMN`.
+    """
     annotation = annotation_of(data)
     assert set(conditions_of(annotation)) < set(annotation.conditions)
     assert not any(name.startswith("above_") for name in conditions_of(annotation))
@@ -228,9 +252,11 @@ def test_the_separation_is_measured_in_a_statistic_a_guard_accepts() -> None:
 # -- the cut the review states -------------------------------------------------------------
 
 
-def test_the_review_cuts_at_the_thresholds_the_configuration_was_measured_with(data) -> None:
-    """Where to cut a raw series is the review's most consequential choice, and the stored row
-    is the only answer that describes the rows being read."""
+def test_the_review_cuts_at_the_thresholds_the_configuration_was_measured_with() -> None:
+    """Where to cut a raw series is the review's most consequential choice.
+
+    The stored row is the only answer that describes the rows being read.
+    """
     cut = thresholds_for(stored_row(volume_thin_below=0.5, volume_heavy_above=2.0))
     assert (cut.volume_thin_below, cut.volume_heavy_above) == (0.5, 2.0)
     assert cut.labels_volume
@@ -253,22 +279,28 @@ def test_the_tolerance_is_the_runs_own_slippage_unless_it_is_overridden() -> Non
     assert tolerance_for(stored_row(slippage_ticks=1.0), "MNQ", 20.0) == pytest.approx(20.0)
 
 
-def test_a_log_whose_fill_lands_outside_its_bar_is_named_and_skipped(tmp_path: Path, data) -> None:
-    """A simulated target that its bar gapped through fills at the target price, which is
-    further out than any slippage -- ``docs/roadmap.md`` §M27.7. Refusing the whole shortlist
-    over one such configuration would report nothing at all."""
+def test_a_log_whose_fill_lands_outside_its_bar_is_named_and_skipped(
+    tmp_path: Path, data: context.Dataset
+) -> None:
+    """A simulated target that its bar gapped through fills at the target price.
+
+    That is further out than any slippage -- ``docs/roadmap.md`` §M27.7. Refusing the whole
+    shortlist over one such configuration would report nothing at all.
+    """
     log = trade_log(data)
-    log.loc[0, "exit_price"] = float(log.loc[0, "exit_price"]) + 40.0
+    log.loc[0, "exit_price"] = float(log["exit_price"].loc[0]) + 40.0
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(log, SWEEP_ID, COMBO_ID, db)
 
     assert review_row(stored_row(), data, db, "MNQ", 50).empty
 
 
-def test_a_widened_tolerance_admits_the_fill_the_default_refuses(tmp_path: Path, data) -> None:
+def test_a_widened_tolerance_admits_the_fill_the_default_refuses(
+    tmp_path: Path, data: context.Dataset
+) -> None:
     """And the widening is a choice the caller makes and the report prints, never a default."""
     log = trade_log(data)
-    log.loc[0, "exit_price"] = float(log.loc[0, "exit_price"]) + 40.0
+    log.loc[0, "exit_price"] = float(log["exit_price"].loc[0]) + 40.0
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(log, SWEEP_ID, COMBO_ID, db)
 
@@ -278,21 +310,25 @@ def test_a_widened_tolerance_admits_the_fill_the_default_refuses(tmp_path: Path,
 # -- attribution and absence ---------------------------------------------------------------
 
 
-def test_every_clock_row_names_the_configuration_it_came_from(stocked, data) -> None:
-    """One report holds several configurations' tables, so a row that does not say which is a
-    number attributed by position."""
+def test_every_clock_row_names_the_configuration_it_came_from(stocked: Path, data: context.Dataset) -> None:
+    """One report holds several configurations' tables.
+
+    A row that does not say which is a number attributed by position.
+    """
     clock = review_row(stored_row(), data, stocked, "MNQ", 50)
     assert set(clock["combo_id"]) == {COMBO_ID}
     assert set(clock["stratum"]) == {"unfiltered"}
     assert "profit_factor" not in labelled(stored_row()), "a statistic is not a tag"
 
 
-def test_a_row_with_no_stored_log_is_named_and_skipped(stocked, data) -> None:
+def test_a_row_with_no_stored_log_is_named_and_skipped(stocked: Path, data: context.Dataset) -> None:
     """A shortlist quietly reviewing four of its twenty reads exactly like one reviewing all."""
     assert review_row(stored_row(combo_id=999), data, stocked, "MNQ", 50).empty
 
 
-def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path: Path, data) -> None:
+def test_a_database_that_was_never_given_a_shortlist_yields_nothing(
+    tmp_path: Path, data: context.Dataset
+) -> None:
     """``trades`` is created lazily, so before ``campaign_shortlist.py`` runs there is no table."""
     empty = tmp_path / "InsideBar.duckdb"
     results.query("SELECT 1", empty)
@@ -302,17 +338,19 @@ def test_a_database_that_was_never_given_a_shortlist_yields_nothing(tmp_path: Pa
 # -- the report over a whole shortlist ------------------------------------------------------
 
 
-def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db, frame: pd.DataFrame) -> int:
+def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db: Path, frame: pd.DataFrame) -> int:
     monkeypatch.setattr(campaign_review, "shortlist", lambda *_: rows)
     monkeypatch.setattr(campaign_review, "db_path", lambda _: db)
     monkeypatch.setattr(campaign_review, "source", lambda bars, _window: bars)
-    monkeypatch.setattr(campaign_review.splice, "load_continuous", lambda _root: frame)
-    monkeypatch.setattr(campaign_review.resample, "resample", lambda bars, _minutes: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: frame)
+    monkeypatch.setattr(resample, "resample", lambda bars, _minutes: bars)
 
     return main(["campaign_review.py", "--strategy", "InsideBar", "--iterations", "50"])
 
 
-def test_a_shortlist_with_a_stored_log_reports_and_succeeds(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
+def test_a_shortlist_with_a_stored_log_reports_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
+) -> None:
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), stocked, bars()) == 0
 
 
@@ -325,7 +363,9 @@ def test_a_shortlist_with_no_stored_logs_fails_rather_than_printing_an_empty_tab
     assert run_main(monkeypatch, pd.DataFrame([stored_row()]), db, bars()) == 1
 
 
-def test_the_rows_that_do_have_logs_are_still_reviewed(monkeypatch: pytest.MonkeyPatch, stocked) -> None:
+def test_the_rows_that_do_have_logs_are_still_reviewed(
+    monkeypatch: pytest.MonkeyPatch, stocked: Path
+) -> None:
     """One missing log must not cost the others their tables."""
     rows = pd.DataFrame([stored_row(), stored_row(combo_id=999)])
     assert run_main(monkeypatch, rows, stocked, bars()) == 0

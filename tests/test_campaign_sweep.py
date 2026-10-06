@@ -16,6 +16,7 @@ import math
 from dataclasses import replace
 from itertools import chain
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -60,7 +61,12 @@ from nqbt.sim.types import (
     TRIGGER_EXTENDED,
     TRIGGER_RECOVERY,
     DeadCatParams,
+    ElasticBandParams,
+    EmaCrossoverParams,
+    EmaPullbackParams,
+    InsideBarTrailingParams,
     OpeningRangeParams,
+    SqueezeBreakoutParams,
     active_early_exits,
     sizing_labels,
 )
@@ -209,6 +215,10 @@ from tools.campaign_sweep import (
     workers_for,
 )
 
+if TYPE_CHECKING:
+    from nqbt import context
+    from nqbt.instruments import Instrument
+
 EVERY_STATE = {
     "regime": [f"regime={state.name}" for state in regime.Regime],
     "phase": [f"phase={phase.name}" for phase in timeofday.SessionPhase],
@@ -219,6 +229,14 @@ EVERY_STATE = {
 }
 """Every stratum name each context dimension owes, so a dropped state fails rather than
 quietly narrowing the campaign."""
+
+
+def base_as[P: archetypes.Params](variant: Variant, cls: type[P]) -> P:
+    """Return ``variant``'s base parameters, checked to be a ``cls``."""
+    base: archetypes.Params = variant.base
+    assert isinstance(base, cls), f"{variant.name} is built on {type(base).__name__}, not {cls.__name__}"
+
+    return base
 
 
 def all_variants() -> list[Variant]:
@@ -263,8 +281,11 @@ def test_core_and_context_partition_the_whole_set() -> None:
 
 
 def test_every_dimension_is_selectable_on_its_own() -> None:
-    """A held-out pass takes one dimension at a time, so each needs its own name -- a set that
-    only reached a dimension through ``context`` could not be run without the other two."""
+    """A held-out pass takes one dimension at a time, so each needs its own name.
+
+    A set that only reached a dimension through ``context`` could not be run without the other
+    two.
+    """
     for group, names in EVERY_STATE.items():
         assert [name for name, _ in strata(group)] == names, group
     assert [name for name, _ in strata(UNFILTERED)] == [UNFILTERED]
@@ -291,18 +312,21 @@ def test_every_registered_archetype_is_swept() -> None:
 
 
 def test_every_grid_in_the_campaign_can_be_built() -> None:
-    """The real guard: ``Grid`` refuses dead axes and each parameter class refuses an
-    impossible combination, so constructing every one of them is what catches a grid that
-    would fail an hour into a run."""
+    """The real guard: ``Grid`` refuses dead axes and each parameter class refuses an impossible combination.
+
+    Constructing every one of them is what catches a grid that would fail an hour into a run.
+    """
     for variant in all_variants():
         for _, grid in grids_for(variant, ALL_STRATA):
             assert len(grid) == variant.sized()
 
 
 def test_every_combination_of_every_grid_is_constructible() -> None:
-    """``combinations()`` builds the parameter objects, so a validator that refuses a corner
-    of the product -- identical crossover averages, both ElasticBand signal exits at once --
-    fails here rather than mid-sweep."""
+    """``combinations()`` builds the parameter objects.
+
+    A validator that refuses a corner of the product -- identical crossover averages, both
+    ElasticBand signal exits at once -- fails here rather than mid-sweep.
+    """
     for variant in all_variants():
         _, grid = grids_for(variant, UNFILTERED)[0]
         assert sum(1 for _ in grid.combinations()) == variant.sized()
@@ -324,36 +348,46 @@ def test_every_costed_root_is_a_registered_instrument() -> None:
 
 @pytest.mark.parametrize(("micro", "full_size"), [("MNQ", "NQ"), ("MES", "ES"), ("MGC", "GC")])
 def test_each_micro_is_costed_below_the_root_it_micros(micro: str, full_size: str) -> None:
-    """One figure for both flatters the full-size root: the point value differs tenfold
-    between a micro and its sibling, and the commission does not."""
+    """One figure for both flatters the full-size root.
+
+    The point value differs tenfold between a micro and its sibling, and the commission does
+    not.
+    """
     assert instruments.get_instrument(micro).point_value < instruments.get_instrument(full_size).point_value
     assert COMMISSION[micro] < COMMISSION[full_size]
 
 
 def test_the_crossover_variants_sweep_disjoint_stop_axes() -> None:
-    """``dead_axes`` cannot see that a swing stop ignores ``atr_stop_multiple``, so the two
-    geometries are separate variants rather than one grid -- ``docs/roadmap.md`` §M27."""
+    """``dead_axes`` cannot see that a swing stop ignores ``atr_stop_multiple``.
+
+    The two geometries are separate variants rather than one grid -- ``docs/roadmap.md`` §M27.
+    """
     atr, swing = VARIANTS["EmaCrossover"]("MNQ")
-    assert atr.base.use_atr_stop and not swing.base.use_atr_stop
-    assert "atr_stop_multiple" in atr.axes and "atr_stop_multiple" not in swing.axes
-    assert "swing_lookback" in swing.axes and "swing_lookback" not in atr.axes
+    assert base_as(atr, EmaCrossoverParams).use_atr_stop
+    assert not base_as(swing, EmaCrossoverParams).use_atr_stop
+    assert "atr_stop_multiple" in atr.axes
+    assert "atr_stop_multiple" not in swing.axes
+    assert "swing_lookback" in swing.axes
+    assert "swing_lookback" not in atr.axes
 
 
 def test_the_squeeze_variants_split_the_stop_axes_and_share_the_squeeze() -> None:
     """Each stop reads an axis the other ignores, and ``dead_axes`` cannot see either."""
     variants = VARIANTS["SqueezeBreakout"]("MNQ")
-    by_stop = {v.base.stop_mode: v for v in variants}
+    by_stop = {base_as(v, SqueezeBreakoutParams).stop_mode: v for v in variants}
     assert set(by_stop) == {ORB_STOP_OPPOSITE, ORB_STOP_ATR}
     for variant in variants:
-        reads_atr = variant.base.stop_mode == ORB_STOP_ATR
+        reads_atr = base_as(variant, SqueezeBreakoutParams).stop_mode == ORB_STOP_ATR
         assert ("atr_stop_multiple" in variant.axes) is reads_atr, variant.name
         assert ("stop_offset_ticks" in variant.axes) is not reads_atr, variant.name
         assert {"squeeze_form", "squeeze_period", "squeeze_below", "direction"} <= set(variant.axes)
 
 
 def test_every_elastic_ladder_is_distinct_and_ends_in_a_runner() -> None:
-    """A tuple is not a sweepable axis, so each ladder is its own variant; two that matched
-    would run the same combinations twice under different names."""
+    """A tuple is not a sweepable axis, so each ladder is its own variant.
+
+    Two that matched would run the same combinations twice under different names.
+    """
     assert len(set(ELASTIC_LADDERS.values())) == len(ELASTIC_LADDERS)
     for name, levels in ELASTIC_LADDERS.items():
         assert math.isnan(levels[-1]), name
@@ -390,8 +424,10 @@ def test_the_split_windows_cover_every_bar_exactly_once() -> None:
 
 
 def test_each_archetype_gets_its_own_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A convention since ``_append_or_create`` learned to widen, and still what the campaign
-    ran on, so the report and holdout tools go on finding one file per archetype."""
+    """A convention since ``_append_or_create`` learned to widen, and still what the campaign ran on.
+
+    The report and holdout tools go on finding one file per archetype.
+    """
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
     paths = {name: db_path(name) for name in VARIANTS}
     assert len(set(paths.values())) == len(VARIANTS)
@@ -412,8 +448,11 @@ def test_a_sweep_call_at_the_threshold_gets_the_workers_it_asked_for() -> None:
 
 
 def test_the_same_combination_count_is_pooled_on_fine_bars_and_not_on_coarse_ones() -> None:
-    """A combination costs roughly in proportion to the bars it runs over, and a pool's overhead
-    does not shrink with it, so a count alone cannot say which side of the threshold a call is."""
+    """A combination costs roughly in proportion to the bars it runs over.
+
+    A pool's overhead does not shrink with it, so a count alone cannot say which side of the
+    threshold a call is.
+    """
     assert workers_for(64, 1_000_000, 8) == 8
     assert workers_for(64, 70_000, 8) == 1
 
@@ -428,7 +467,7 @@ def test_a_request_is_passed_through_in_joblibs_own_convention() -> None:
     assert workers_for(1, SERIAL_BELOW_COMBINATION_BARS, 1) == 1
 
 
-def unswept(grids: list[sweep.Grid]) -> list[tuple[pd.DataFrame, dict]]:
+def unswept(grids: list[sweep.Grid]) -> list[tuple[pd.DataFrame, dict[int, pd.DataFrame]]]:
     """Return what ``sweep.sweep_grids`` returns for ``grids``, without running anything."""
     return [
         (
@@ -448,21 +487,25 @@ def unswept(grids: list[sweep.Grid]) -> list[tuple[pd.DataFrame, dict]]:
 def test_a_points_cells_share_one_sweep_call_whose_total_size_picks_the_workers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One call per point rather than per (variant x stratum), so cells too small to pool on their
-    own are pooled together once their combinations add up."""
+    """One call per point rather than per (variant x stratum).
+
+    Cells too small to pool on their own are pooled together once their combinations add up.
+    """
     (wide,) = VARIANTS["InsideBar"]("MNQ")
     narrow = [replace(wide, name=f"narrow {n}", axes={"atr_multiplier": [5.0, 10.0]}) for n in range(60)]
     frame = pd.DataFrame(index=range(SERIAL_BELOW_COMBINATION_BARS // 100))
     called: list[tuple[list[int], int]] = []
 
-    def record(data, grids, instrument, *, n_jobs):
+    def record(
+        _data: context.Dataset, grids: list[sweep.Grid], _instrument: Instrument, *, n_jobs: int
+    ) -> list[tuple[pd.DataFrame, dict[int, pd.DataFrame]]]:
         called.append(([len(grid) for grid in grids], n_jobs))
 
         return unswept(grids)
 
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
-    monkeypatch.setattr("nqbt.context.prepare", lambda *args, **kwargs: None)
-    monkeypatch.setattr("nqbt.results.save_sweep", lambda *args, **kwargs: 1)
+    monkeypatch.setattr("nqbt.context.prepare", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("nqbt.results.save_sweep", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(sweep, "sweep_grids", record)
     run_point(frame, narrow[:1], "MNQ", 5, "selection", 1, UNFILTERED, NO_CUTS, n_jobs=8)
     run_point(frame, narrow, "MNQ", 5, "selection", 2, UNFILTERED, NO_CUTS, n_jobs=8)
@@ -536,8 +579,11 @@ def calibrated_args(**overrides: object) -> argparse.Namespace:
 
 
 def test_a_calibrated_regime_stratum_is_one_cell_per_lookback() -> None:
-    """A cell rather than an axis: the thresholds move with the lookback, and a sweep crosses
-    its axes, so pairing them any other way runs cells that are not comparable."""
+    """A cell rather than an axis.
+
+    The thresholds move with the lookback, and a sweep crosses its axes, so pairing them any
+    other way runs cells that are not comparable.
+    """
     names = [name for name, _ in strata(REGIME, Cuts(regime=FITTED))]
     assert names == [f"regime={state.name}@{cut.name}" for state in regime.Regime for cut in FITTED]
 
@@ -553,8 +599,11 @@ def test_a_calibrated_cell_carries_the_thresholds_fitted_at_its_own_lookback() -
 
 
 def test_a_calibrated_cell_is_named_by_the_cell_size_it_was_fitted_at() -> None:
-    """Two cell sizes land in one database, so a name that carried only the lookback would put
-    two different cuts under one stratum -- ``docs/roadmap.md`` §M31."""
+    """Two cell sizes land in one database.
+
+    A name that carried only the lookback would put two different cuts under one stratum --
+    ``docs/roadmap.md`` §M31.
+    """
     tenths = [
         name for name, _ in strata(REGIME, Cuts(regime=calibrate(calibration_bars(), [20], (0.1, 0.9))))
     ]
@@ -633,8 +682,11 @@ def test_planned_combinations_counts_the_calibrated_cells() -> None:
 
 
 def test_every_variant_but_the_opening_ranges_runs_at_every_resolution() -> None:
-    """The exception is the point: a session-anchored range needs the bar size to divide both
-    its 930-minute anchor and its window -- ``docs/roadmap.md`` §M28."""
+    """The exception is the point.
+
+    A session-anchored range needs the bar size to divide both its 930-minute anchor and its
+    window -- ``docs/roadmap.md`` §M28.
+    """
     for variant in all_variants():
         expected = RESOLUTIONS if variant.archetype is not archetypes.OPENINGRANGE else variant.resolutions
         assert variant.resolutions == expected, variant.name
@@ -663,8 +715,10 @@ def test_the_anchor_constrains_the_resolutions_as_much_as_the_window_does() -> N
 
 
 def test_every_opening_range_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
-    """The real guard: a claimed resolution whose range grid refuses to build would fail an
-    hour into a run rather than here."""
+    """The real guard: a claimed resolution whose range grid refuses to build fails here.
+
+    Otherwise it would fail an hour into a run.
+    """
     for variant in VARIANTS["OpeningRange"]("MNQ") + ORB_VARIANTS["OpeningRange"]("MNQ"):
         for minutes in variant.resolutions:
             for _, grid in grids_for(variant, UNFILTERED):
@@ -697,6 +751,7 @@ def test_the_opening_range_sweeps_both_sides_as_separate_combinations() -> None:
     for variant in VARIANTS["OpeningRange"]("MNQ"):
         assert variant.axes["direction"] == [trades.LONG, trades.SHORT]
         for combination in grids_for(variant, UNFILTERED)[0][1].combinations():
+            assert isinstance(combination, OpeningRangeParams)
             assert combination.direction in (trades.LONG, trades.SHORT)
 
 
@@ -794,8 +849,10 @@ def test_a_volume_calibration_changes_the_volume_forms_and_no_other_dimension() 
 
 
 def test_each_form_is_fitted_against_its_own_distribution() -> None:
-    """The point of the fit: one raw pair sits at a different percentile under each form, so
-    HEAVY is a different population under each -- ``docs/roadmap.md`` §M27.8."""
+    """The point of the fit: one raw pair sits at a different percentile under each form.
+
+    HEAVY is a different population under each -- ``docs/roadmap.md`` §M27.8.
+    """
     fitted = calibrate_volume(volume_bars(), 1, ((0.20, 0.80),), volume_series())
     heavy = {cut.series.form: cut.heavy_above for cut in fitted}
     assert len(set(heavy.values())) == len(volume.VolumeForm)
@@ -812,7 +869,7 @@ def test_every_volume_form_grid_in_the_campaign_can_be_built() -> None:
 def test_the_volume_fit_reads_the_selection_window_and_never_the_holdout() -> None:
     """Fitting on the whole series would leak the holdout into the definition of the stratum."""
     bars = volume_bars()
-    bars.iloc[math.floor(len(bars) * SELECTION_SHARE) :, bars.columns.get_loc("volume")] *= 100.0
+    bars.iloc[math.floor(len(bars) * SELECTION_SHARE) :, list(bars.columns).index("volume")] *= 100.0
     selection_fit = fit_volume(bars, volume_args())[1]
     whole_fit = calibrate_volume(bars, 1, VOLUME_TAILS, volume_series())
     for fitted, leaked in zip(selection_fit, whole_fit, strict=True):
@@ -859,8 +916,11 @@ ROLLING = volume.VolumeForm.ROLLING
 
 
 def test_a_rolling_ladder_is_one_series_per_rung_and_no_duplicate_per_bar_one() -> None:
-    """``volume.key`` drops the window from the two forms that do not read it, so a ladder
-    crossed with every form would otherwise build one identical per-bar series per rung."""
+    """``volume.key`` drops the window from the two forms that do not read it.
+
+    A ladder crossed with every form would otherwise build one identical per-bar series per
+    rung.
+    """
     series = volume_series(tuple(volume.VolumeForm), [10, 30, 90])
     rolling = [key for key in series if key.form is ROLLING]
     assert [key.rolling_bars for key in rolling] == [10, 30, 90]
@@ -890,8 +950,11 @@ def test_two_rungs_of_one_form_are_separable_in_the_results_table() -> None:
 
 
 def test_each_rung_is_fitted_against_its_own_distribution() -> None:
-    """Why a rung is a cell and not an axis: the window moves the ratio's distribution, so the
-    threshold pair moves with it and a crossed axis would read a cut fitted for another rung."""
+    """Why a rung is a cell and not an axis.
+
+    The window moves the ratio's distribution, so the threshold pair moves with it and a crossed
+    axis would read a cut fitted for another rung.
+    """
     fitted = calibrate_volume(volume_bars(), 1, ((0.20, 0.80),), volume_series((ROLLING,), [5, 60]))
     heavy = {cut.series.rolling_bars: cut.heavy_above for cut in fitted}
     assert len(set(heavy.values())) == len(heavy)
@@ -907,8 +970,10 @@ def test_a_rolling_ladder_reaches_the_grid_at_the_rung_its_cell_names() -> None:
 
 
 def test_a_window_ladder_without_a_fitted_cut_is_refused() -> None:
-    """A raw pair admits a different share of bars at each window, so the rungs could not be
-    read against each other -- ``.claude/rules/sweep-and-context.md``."""
+    """A raw pair admits a different share of bars at each window.
+
+    The rungs could not be read against each other -- ``.claude/rules/sweep-and-context.md``.
+    """
     with pytest.raises(SystemExit, match="different share of bars"):
         check_volume_request(volume_args(volume_quantiles=(), volume_rolling_bars=[10, 30]))
 
@@ -917,8 +982,11 @@ def test_a_window_ladder_without_a_fitted_cut_is_refused() -> None:
 
 
 def test_a_rolling_ladder_without_the_rolling_form_is_refused_rather_than_run_flat() -> None:
-    """``volume.key`` would collapse every rung onto one series and the pass would look like a
-    ladder while running one -- the ``dead_axes`` blind spot, made loud."""
+    """The ``dead_axes`` blind spot, made loud.
+
+    ``volume.key`` would collapse every rung onto one series, and the pass would look like a
+    ladder while running one.
+    """
     with pytest.raises(SystemExit, match="ROLLING in --volume-forms"):
         check_volume_request(
             volume_args(volume_forms=(volume.VolumeForm.PER_BAR,), volume_rolling_bars=[10, 90])
@@ -983,8 +1051,11 @@ def test_the_narrow_set_is_the_baseline_and_the_one_cell_it_asks_about() -> None
 
 
 def test_the_directional_group_is_calibrated_like_the_full_regime_one() -> None:
-    """The prerequisite §M27.3 inherits from [#200]: the raw 0.5 cut is not one filter, so a
-    group yielding a single regime cell has to be split per lookback too."""
+    """The prerequisite §M27.3 inherits from [#200].
+
+    The raw 0.5 cut is not one filter, so a group yielding a single regime cell has to be split
+    per lookback too.
+    """
     fitted = {name for name, _ in strata(NARROW, Cuts(regime=FITTED))}
     assert fitted == {UNFILTERED, *(f"regime=DIRECTIONAL@{cut.name}" for cut in FITTED)}
 
@@ -999,15 +1070,19 @@ def test_a_calibrated_directional_cell_carries_its_own_lookbacks_thresholds() ->
 
 
 def test_the_directional_cell_is_not_swept_twice_by_the_full_set() -> None:
-    """``directional`` is a subset of ``regime``, so including it in ``all`` would run one cell
-    twice and report it as two."""
+    """``directional`` is a subset of ``regime``.
+
+    Including it in ``all`` would run one cell twice and report it as two.
+    """
     assert DIRECTIONAL not in STRATUM_SETS[ALL_STRATA]
     assert len(list(strata(ALL_STRATA))) == 1 + sum(len(names) for names in EVERY_STATE.values())
 
 
 def test_the_narrow_variants_cross_the_bracket_pair_and_nothing_else() -> None:
-    """§M27 moved the stop across three values and could not move the target by a tick; the
-    re-sweep varies exactly those two so the crossed pair is the only thing changing."""
+    """§M27 moved the stop across three values and could not move the target by a tick.
+
+    The re-sweep varies exactly those two so the crossed pair is the only thing changing.
+    """
     for variant in NARROW_VARIANTS["InsideBar"]("MNQ"):
         assert set(variant.axes) == {"tp_multiplier", "atr_multiplier"}
         assert variant.sized() == len(NARROW_TP) * len(NARROW_ATR)
@@ -1020,8 +1095,10 @@ def test_the_narrow_grid_contains_the_geometry_the_campaign_actually_ran() -> No
 
 
 def test_each_narrow_variant_runs_at_exactly_one_resolution() -> None:
-    """A ``Variant`` carries one base and the entry §M27 chose differs between the two bar
-    sizes, so the resolutions are what separates them."""
+    """A ``Variant`` carries one base and the entry §M27 chose differs between the two bar sizes.
+
+    The resolutions are what separates them.
+    """
     variants = NARROW_VARIANTS["InsideBar"]("MNQ")
     assert [variant.resolutions for variant in variants] == [(5,), (10,)]
     assert {minutes for variant in variants for minutes in variant.resolutions} == set(NARROW_ENTRY)
@@ -1040,15 +1117,19 @@ def test_the_narrow_variants_carry_the_roots_real_costs() -> None:
 
 
 def test_every_narrow_variant_is_named_for_the_reading_tools_to_filter_on() -> None:
-    """The rows land in the campaign's own database, so the variant name is what separates
-    them from §M27's -- ``--variant narrow`` on every reading tool."""
+    """The rows land in the campaign's own database, so the variant name is what separates them from §M27's.
+
+    ``--variant narrow`` on every reading tool.
+    """
     assert {variant.name for variant in NARROW_VARIANTS["InsideBar"]("MNQ")} == {NARROW}
     assert NARROW not in {variant.name for variant in all_variants()}
 
 
 def test_the_campaign_grid_is_untouched_by_the_re_sweep() -> None:
-    """§M27's stored rows and the code that produced them must not drift apart, so a re-sweep
-    is its own variant set rather than an axis added to the campaign's."""
+    """§M27's stored rows and the code that produced them must not drift apart.
+
+    A re-sweep is its own variant set rather than an axis added to the campaign's.
+    """
     assert "tp_multiplier" not in VARIANTS["InsideBar"]("MNQ")[0].axes
     assert set(NARROW_VARIANTS) < set(VARIANTS)
 
@@ -1076,11 +1157,13 @@ def test_the_opening_ranges_re_sweep_states_its_strata_before_it_runs() -> None:
 
 
 def test_the_re_sweep_drops_the_atr_stop_and_keeps_the_one_that_worked() -> None:
-    """§M28.1's deferral: dropped for a fraction axis whose top value reproduces the
-    opposite-extreme stop exactly."""
+    """§M28.1's deferral.
+
+    Dropped for a fraction axis whose top value reproduces the opposite-extreme stop exactly.
+    """
     variants = ORB_VARIANTS["OpeningRange"]("MNQ")
 
-    assert {variant.base.stop_mode for variant in variants} == {ORB_STOP_FRACTION}
+    assert {base_as(variant, OpeningRangeParams).stop_mode for variant in variants} == {ORB_STOP_FRACTION}
     assert all("atr_stop_multiple" not in variant.axes for variant in variants)
     assert all(1.0 in variant.axes["stop_range_fraction"] for variant in variants)
 
@@ -1088,10 +1171,16 @@ def test_the_re_sweep_drops_the_atr_stop_and_keeps_the_one_that_worked() -> None
 def test_the_re_sweep_carries_every_anchor_and_every_entry_mechanism() -> None:
     """§M28 deferred both and §M28.1 left both deferred; this is where they arrive."""
     variants = ORB_VARIANTS["OpeningRange"]("MNQ")
-    keys = {(variant.base.anchor_minutes, variant.base.window_minutes) for variant in variants}
+    keys = {
+        (
+            base_as(variant, OpeningRangeParams).anchor_minutes,
+            base_as(variant, OpeningRangeParams).window_minutes,
+        )
+        for variant in variants
+    }
 
     assert keys == set(ORB_RANGES.values())
-    assert {variant.base.entry_mode for variant in variants} == {
+    assert {base_as(variant, OpeningRangeParams).entry_mode for variant in variants} == {
         ORB_ENTRY_BREAKOUT,
         ORB_ENTRY_FADE,
         ORB_ENTRY_RETEST,
@@ -1099,13 +1188,15 @@ def test_the_re_sweep_carries_every_anchor_and_every_entry_mechanism() -> None:
 
 
 def test_each_entry_mechanism_sweeps_only_the_offsets_it_reads() -> None:
-    """The blind spot the entry mode is a variant dimension rather than an axis to avoid:
-    ``retest_offset_ticks`` under a breakout would run identical combinations silently."""
+    """The blind spot the entry mode is a variant dimension rather than an axis to avoid.
+
+    ``retest_offset_ticks`` under a breakout would run identical combinations silently.
+    """
     for variant in ORB_VARIANTS["OpeningRange"]("MNQ"):
-        reads_a_limit = variant.base.entry_mode == ORB_ENTRY_RETEST
+        reads_a_limit = base_as(variant, OpeningRangeParams).entry_mode == ORB_ENTRY_RETEST
         assert ("retest_offset_ticks" in variant.axes) is reads_a_limit
         assert ("entry_offset_ticks" in variant.axes) is not reads_a_limit
-        waits = variant.base.entry_mode != ORB_ENTRY_BREAKOUT
+        waits = base_as(variant, OpeningRangeParams).entry_mode != ORB_ENTRY_BREAKOUT
         assert ("break_confirm_ticks" in variant.axes) is waits
 
 
@@ -1114,46 +1205,56 @@ def test_the_campaign_grid_is_untouched_by_the_opening_ranges_re_sweep() -> None
     campaign = VARIANTS["OpeningRange"]("MNQ")
 
     assert all("stop_range_fraction" not in variant.axes for variant in campaign)
-    assert {variant.base.entry_mode for variant in campaign} == {ORB_ENTRY_BREAKOUT}
-    assert {variant.base.anchor_minutes for variant in campaign} == {sessionrange.CASH_OPEN_MINUTES}
+    assert {base_as(variant, OpeningRangeParams).entry_mode for variant in campaign} == {ORB_ENTRY_BREAKOUT}
+    assert {base_as(variant, OpeningRangeParams).anchor_minutes for variant in campaign} == {
+        sessionrange.CASH_OPEN_MINUTES
+    }
 
 
 # -- the §M28.5 fade re-run --------------------------------------------------------
 
 
 def test_the_fades_re_run_states_the_fades_own_thesis_as_its_stratum() -> None:
-    """``regime=DIRECTIONAL`` is the *breakout's* hypothesis, and running a fade inside it
-    would be stating the wrong one in advance -- ``docs/roadmap.md`` §M28.5."""
+    """``regime=DIRECTIONAL`` is the *breakout's* hypothesis.
+
+    Running a fade inside it would be stating the wrong one in advance -- ``docs/roadmap.md``
+    §M28.5.
+    """
     assert [name for name, _ in strata(ORB_FADE)] == [UNFILTERED, "regime=CONSOLIDATING"]
     assert [name for name, _ in strata(CONSOLIDATING)] == ["regime=CONSOLIDATING"]
 
 
 def test_the_fades_stop_axis_reaches_below_the_one_that_parked_it_and_keeps_its_endpoint() -> None:
-    """A shared endpoint is what makes the two runs comparable rather than adjacent: §M28.2's
-    tightest fade cell has to exist in this grid too, and everything else has to be tighter."""
+    """A shared endpoint is what makes the two runs comparable rather than adjacent.
+
+    §M28.2's tightest fade cell has to exist in this grid too, and everything else has to be
+    tighter.
+    """
     assert min(ORB_TIGHT_FRACTIONS) < min(ORB_FRACTIONS)
     assert max(ORB_TIGHT_FRACTIONS) == min(ORB_FRACTIONS)
     for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ"):
         assert variant.axes["stop_range_fraction"] == ORB_TIGHT_FRACTIONS
-        assert variant.base.stop_mode == ORB_STOP_FRACTION
+        assert base_as(variant, OpeningRangeParams).stop_mode == ORB_STOP_FRACTION
 
 
 def test_the_fades_re_run_holds_its_entry_axes_at_exactly_what_parked_it() -> None:
-    """The bracket is the only thing that moved, which is what § "Parked is not abandoned"
-    asks a re-run to be able to say."""
+    """The bracket is the only thing that moved.
+
+    That is what § "Parked is not abandoned" asks a re-run to be able to say.
+    """
     _, parked = ORB_ENTRIES["entry=fade"]
 
     for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ"):
-        assert variant.base.entry_mode == ORB_ENTRY_FADE
+        assert base_as(variant, OpeningRangeParams).entry_mode == ORB_ENTRY_FADE
         assert {key: variant.axes[key] for key in parked} == parked
 
 
 def test_only_one_of_the_fades_target_ladders_reaches_the_middle_of_the_range() -> None:
     """§M28.2's ladder is kept so the two runs share it; the midpoint is the new half."""
     ladders = {
-        variant.base.target_width_multiples
+        base_as(variant, OpeningRangeParams).target_width_multiples
         for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ")
-        if variant.base.target_mode == ORB_TARGET_WIDTH
+        if base_as(variant, OpeningRangeParams).target_mode == ORB_TARGET_WIDTH
     }
 
     assert ladders == set(ORB_FADE_LADDERS.values())
@@ -1166,35 +1267,44 @@ def test_the_fades_re_run_is_one_variant_per_range_and_target_scheme() -> None:
 
     assert len(variants) == len(ORB_RANGES) * (len(ORB_FADE_LADDERS) + 1)
     assert len({variant.name for variant in variants}) == len(variants)
-    assert sum(variant.base.target_mode == ORB_TARGET_R for variant in variants) == len(ORB_RANGES)
+    assert sum(
+        base_as(variant, OpeningRangeParams).target_mode == ORB_TARGET_R for variant in variants
+    ) == len(ORB_RANGES)
 
 
 # -- the §M28.7 rejection run ------------------------------------------------------
 
 
 def test_the_rejection_run_and_the_fades_share_one_stratum_tuple() -> None:
-    """Both are reversion entries, so both are asked about the range that holds -- one
-    hypothesis stated once rather than two copies that could drift apart."""
+    """Both are reversion entries, so both are asked about the range that holds.
+
+    One hypothesis stated once rather than two copies that could drift apart.
+    """
     assert STRATUM_SETS[ORB_REJECTION] is STRATUM_SETS[ORB_FADE]
     assert [name for name, _ in strata(ORB_REJECTION)] == [UNFILTERED, "regime=CONSOLIDATING"]
 
 
 def test_the_rejection_run_holds_the_fades_bracket_at_exactly_what_it_swept() -> None:
-    """The entry is the only thing that moved between §M28.5 and this, which is what makes the
-    two comparable as entries rather than as two unrelated grids."""
+    """The entry is the only thing that moved between §M28.5 and this.
+
+    That is what makes the two comparable as entries rather than as two unrelated grids.
+    """
     bracket = {"stop_range_fraction", "stop_offset_ticks"}
     fade = {variant.name.split(" entry=")[0]: variant for variant in ORB_FADE_VARIANTS["OpeningRange"]("MNQ")}
 
     for variant in ORB_REJECTION_VARIANTS["OpeningRange"]("MNQ"):
         against = fade[variant.name.split(" entry=")[0]]
-        assert variant.base.entry_mode == ORB_ENTRY_REJECTION
-        assert variant.base.stop_mode == ORB_STOP_FRACTION
+        assert base_as(variant, OpeningRangeParams).entry_mode == ORB_ENTRY_REJECTION
+        assert base_as(variant, OpeningRangeParams).stop_mode == ORB_STOP_FRACTION
         assert {key: variant.axes[key] for key in bracket} == {key: against.axes[key] for key in bracket}
 
 
 def test_the_rejection_sweeps_no_break_confirmation_and_a_zero_offset() -> None:
-    """It waits for no break, so the fade's arming axis would be inert; and its limit may rest
-    on the extreme itself, which a stop entry cannot -- ``docs/roadmap.md`` §M28.7."""
+    """It waits for no break, so the fade's arming axis would be inert.
+
+    And its limit may rest on the extreme itself, which a stop entry cannot --
+    ``docs/roadmap.md`` §M28.7.
+    """
     for variant in ORB_REJECTION_VARIANTS["OpeningRange"]("MNQ"):
         assert "break_confirm_ticks" not in variant.axes
         assert variant.axes["entry_offset_ticks"] == ORB_REJECTION_OFFSETS
@@ -1204,8 +1314,10 @@ def test_the_rejection_sweeps_no_break_confirmation_and_a_zero_offset() -> None:
 
 
 def test_the_rejection_grid_is_the_same_size_as_the_fades() -> None:
-    """One axis swapped for another of the same length, so a difference in the results is not a
-    difference in how many chances each entry was given."""
+    """One axis swapped for another of the same length.
+
+    A difference in the results is not a difference in how many chances each entry was given.
+    """
     rejection = ORB_REJECTION_VARIANTS["OpeningRange"]("MNQ")
     fade = ORB_FADE_VARIANTS["OpeningRange"]("MNQ")
 
@@ -1216,8 +1328,10 @@ def test_the_rejection_grid_is_the_same_size_as_the_fades() -> None:
 
 
 def test_the_parked_orb_grid_is_untouched_by_the_fades_re_run() -> None:
-    """§M28.2's stored rows were produced by ``ORB_VARIANTS``, so the tighter axis goes in its
-    own set for the reason that one did."""
+    """§M28.2's stored rows were produced by ``ORB_VARIANTS``.
+
+    The tighter axis goes in its own set for the reason that one did.
+    """
     assert all(
         variant.axes["stop_range_fraction"] == ORB_FRACTIONS
         for variant in ORB_VARIANTS["OpeningRange"]("MNQ")
@@ -1240,8 +1354,10 @@ def stored_orb_variants() -> list[Variant]:
 
 
 def test_the_one_hour_cash_range_is_in_the_swept_set_at_every_resolution() -> None:
-    """[#258]'s gap: the only 60-minute window swept was anchored at the European open, so
-    "the first hour of the New York session" had never been run."""
+    """[#258]'s gap: the only 60-minute window swept was anchored at the European open.
+
+    "the first hour of the New York session" had never been run.
+    """
     hour = (sessionrange.CASH_OPEN_MINUTES, 60)
 
     assert hour not in set(ORB_RANGES.values()), "premise gone; the gap has been filled elsewhere"
@@ -1250,8 +1366,11 @@ def test_the_one_hour_cash_range_is_in_the_swept_set_at_every_resolution() -> No
 
 
 def test_the_geometry_cross_keeps_every_cell_the_session_leaves_room_to_trade() -> None:
-    """The cut is the session's own: a range that is not complete before the phase the forced
-    flat falls in has only that phase to trade in -- ``docs/roadmap.md`` §M28.8."""
+    """The cut is the session's own.
+
+    A range that is not complete before the phase the forced flat falls in has only that phase
+    to trade in -- ``docs/roadmap.md`` §M28.8.
+    """
     latest = sessionrange.anchor_for(timeofday.FORCED_EXIT_PHASE)
     anchors = {sessionrange.anchor_for(phase) for phase in timeofday.SessionPhase}
     ranges = orb_geometry_ranges()
@@ -1264,14 +1383,18 @@ def test_the_geometry_cross_keeps_every_cell_the_session_leaves_room_to_trade() 
 
 
 def test_the_geometry_cross_contains_every_range_the_stored_runs_measured() -> None:
-    """A shared cell is what makes the length axis comparable to §M28.2 rather than adjacent to
-    it, which is why the overnight span is a window here -- §M28.5's endpoint argument."""
+    """A shared cell is what makes the length axis comparable to §M28.2 rather than adjacent to it.
+
+    That is why the overnight span is a window here -- §M28.5's endpoint argument.
+    """
     assert set(ORB_RANGES.values()) <= set(orb_geometry_ranges().values())
 
 
 def test_no_geometry_variant_can_collide_with_a_stored_one_in_the_same_database() -> None:
-    """Rows are separated by variant name alone, and ``campaign_holdout`` pairs the two windows
-    one-to-one -- so a duplicated name would pair a new row against a stored one."""
+    """Rows are separated by variant name alone, and ``campaign_holdout`` pairs the two windows one-to-one.
+
+    So a duplicated name would pair a new row against a stored one.
+    """
     geometry = ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ")
     names = {variant.name for variant in geometry}
 
@@ -1280,20 +1403,25 @@ def test_no_geometry_variant_can_collide_with_a_stored_one_in_the_same_database(
 
 
 def test_the_geometry_run_states_its_stratum_before_it_runs() -> None:
-    """One cell rather than the reversion pair: the question is geometric, and every entry has
-    already been asked its own context question -- ``docs/roadmap.md`` §M28.8."""
+    """One cell rather than the reversion pair.
+
+    The question is geometric, and every entry has already been asked its own context question
+    -- ``docs/roadmap.md`` §M28.8.
+    """
     assert [name for name, _ in strata(ORB_GEOMETRY)] == [UNFILTERED]
     assert variants_for(ORB_GEOMETRY) is ORB_GEOMETRY_VARIANTS
 
 
 def test_every_entry_keeps_the_bracket_its_own_campaign_swept() -> None:
-    """A single bracket across all four would move two things at once on two of them: a fade's
-    stop runs outward from the extreme it enters at where a breakout's runs inward."""
+    """A single bracket across all four would move two things at once on two of them.
+
+    A fade's stop runs outward from the extreme it enters at where a breakout's runs inward.
+    """
     wide = {ORB_ENTRY_BREAKOUT, ORB_ENTRY_RETEST}
 
     for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
-        assert variant.base.stop_mode == ORB_STOP_FRACTION
-        if variant.base.entry_mode in wide:
+        assert base_as(variant, OpeningRangeParams).stop_mode == ORB_STOP_FRACTION
+        if base_as(variant, OpeningRangeParams).entry_mode in wide:
             assert variant.axes["stop_range_fraction"] == ORB_FRACTIONS
             assert "stop_offset_ticks" not in variant.axes
             continue
@@ -1303,20 +1431,29 @@ def test_every_entry_keeps_the_bracket_its_own_campaign_swept() -> None:
 
 
 def test_every_entry_sweeps_only_the_offsets_it_reads() -> None:
-    """``ORB_ENTRIES``' own reason, carried to the fourth mode: ``dead_axes`` cannot see an
-    axis that is inert under a mode, so an inert one runs identical combinations silently."""
+    """``ORB_ENTRIES``' own reason, carried to the fourth mode.
+
+    ``dead_axes`` cannot see an axis that is inert under a mode, so an inert one runs identical
+    combinations silently.
+    """
     for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
-        reads_a_limit = variant.base.entry_mode == ORB_ENTRY_RETEST
+        reads_a_limit = base_as(variant, OpeningRangeParams).entry_mode == ORB_ENTRY_RETEST
         assert ("retest_offset_ticks" in variant.axes) is reads_a_limit
         assert ("entry_offset_ticks" in variant.axes) is not reads_a_limit
-        waits = variant.base.entry_mode in (ORB_ENTRY_FADE, ORB_ENTRY_RETEST)
+        waits = base_as(variant, OpeningRangeParams).entry_mode in (ORB_ENTRY_FADE, ORB_ENTRY_RETEST)
         assert ("break_confirm_ticks" in variant.axes) is waits
 
 
 def test_the_geometry_run_reproduces_a_stored_variant_wherever_the_two_share_a_cell() -> None:
-    """The five stored ranges are re-run at exactly the parameters that produced their rows, so
-    the new table shares cells with the old one rather than running beside it."""
-    stored = [variant for variant in stored_orb_variants() if variant.base.stop_mode == ORB_STOP_FRACTION]
+    """The five stored ranges are re-run at exactly the parameters that produced their rows.
+
+    The new table shares cells with the old one rather than running beside it.
+    """
+    stored = [
+        variant
+        for variant in stored_orb_variants()
+        if base_as(variant, OpeningRangeParams).stop_mode == ORB_STOP_FRACTION
+    ]
     matched = 0
     for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
         against = [other for other in stored if other.base == variant.base]
@@ -1333,8 +1470,10 @@ def test_the_geometry_run_reproduces_a_stored_variant_wherever_the_two_share_a_c
 
 
 def test_every_geometry_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
-    """The real guard: a claimed resolution whose range grid refuses to build would fail an
-    hour into a run rather than here."""
+    """The real guard: a claimed resolution whose range grid refuses to build fails here.
+
+    Otherwise it would fail an hour into a run.
+    """
     for variant in ORB_GEOMETRY_VARIANTS["OpeningRange"]("MNQ"):
         assert variant.resolutions, variant.name
         for minutes in variant.resolutions:
@@ -1344,16 +1483,22 @@ def test_every_geometry_variant_can_be_prepared_at_the_resolutions_it_claims() -
 
 
 def test_the_stored_orb_grids_are_untouched_by_the_geometry_run() -> None:
-    """§M28.1's, §M28.2's and §M28.5's rows were each produced by their own set, so a crossed
-    anchor goes in a sixth rather than into any of them."""
+    """§M28.1's, §M28.2's and §M28.5's rows were each produced by their own set.
+
+    A crossed anchor goes in a sixth rather than into any of them.
+    """
     for build in (VARIANTS, ORB_VARIANTS, ORB_FADE_VARIANTS, ORB_REJECTION_VARIANTS):
-        anchors = {variant.base.anchor_minutes for variant in build["OpeningRange"]("MNQ")}
+        anchors = {
+            base_as(variant, OpeningRangeParams).anchor_minutes for variant in build["OpeningRange"]("MNQ")
+        }
         assert anchors <= {anchor for anchor, _ in ORB_RANGES.values()}
 
 
 def test_the_hoisted_target_schemes_are_what_the_stored_re_sweep_swept() -> None:
-    """``ORB_TARGETS`` is one dict where two builders held the same literal; the geometry run
-    reads it so that a stored cell and a new one cannot drift apart."""
+    """``ORB_TARGETS`` is one dict where two builders held the same literal.
+
+    The geometry run reads it so that a stored cell and a new one cannot drift apart.
+    """
     assert list(ORB_TARGETS) == ["target=R", "target=width"]
     assert ORB_TARGETS["target=R"] == (ORB_TARGET_R, {"tp_multiplier": [1.0, 2.0]})
     assert ORB_TARGETS["target=width"] == (ORB_TARGET_WIDTH, {})
@@ -1385,9 +1530,15 @@ def test_no_follow_through_variant_can_collide_with_a_stored_one() -> None:
 
 
 def test_the_run_carries_an_unscaled_control_in_the_same_pass() -> None:
-    """A treatment measured against a stored run is measured against a different pass; this
-    one is on the same bars in the same sweep -- ``docs/roadmap.md`` M28.10."""
-    controls = [v for v in follow_through_variants() if v.base.follow_through_scaling == ORB_SCALE_NONE]
+    """A treatment measured against a stored run is measured against a different pass.
+
+    This one is on the same bars in the same sweep -- ``docs/roadmap.md`` M28.10.
+    """
+    controls = [
+        v
+        for v in follow_through_variants()
+        if base_as(v, OpeningRangeParams).follow_through_scaling == ORB_SCALE_NONE
+    ]
 
     assert len(controls) == len(ORB_FOLLOW_THROUGH_RANGES)
     assert all(name.endswith("scale=off") for name in (v.name for v in controls))
@@ -1397,42 +1548,50 @@ def test_the_control_and_every_treatment_differ_by_the_scaling_alone() -> None:
     """The property the comparison rests on: one field moves and the axes are identical."""
     by_range: dict[int, list[Variant]] = {}
     for variant in follow_through_variants():
-        by_range.setdefault(variant.base.window_minutes, []).append(variant)
+        by_range.setdefault(base_as(variant, OpeningRangeParams).window_minutes, []).append(variant)
 
     for window, variants in by_range.items():
-        control = next(v for v in variants if v.base.follow_through_scaling == ORB_SCALE_NONE)
+        control = next(
+            v for v in variants if base_as(v, OpeningRangeParams).follow_through_scaling == ORB_SCALE_NONE
+        )
         for treatment in variants:
             assert treatment.axes == control.axes, treatment.name
             assert treatment.resolutions == control.resolutions, treatment.name
             unscaled = replace(
                 treatment.base,
                 follow_through_scaling=ORB_SCALE_NONE,
-                follow_through_sessions=control.base.follow_through_sessions,
+                follow_through_sessions=base_as(control, OpeningRangeParams).follow_through_sessions,
             )
             assert unscaled == control.base, (window, treatment.name)
 
 
 def test_the_lookback_is_a_variant_dimension_rather_than_an_axis() -> None:
-    """``follow_through_sessions`` is inert at ORB_SCALE_NONE, and ``dead_axes`` knows one off
-    value per axis -- so crossing the two would run the control once per lookback in silence."""
+    """``follow_through_sessions`` is inert at ORB_SCALE_NONE, and ``dead_axes`` knows one off value per axis.
+
+    So crossing the two would run the control once per lookback in silence.
+    """
     for variant in follow_through_variants():
         assert "follow_through_sessions" not in variant.axes
         assert "follow_through_scaling" not in variant.axes
 
 
 def test_every_scaled_variant_states_its_geometry_in_a_width_the_scale_can_reach() -> None:
-    """The params class refuses an R target or an opposite-extreme stop under a scaling mode,
-    so a variant set that built one would fail at construction rather than run."""
+    """The params class refuses an R target or an opposite-extreme stop under a scaling mode.
+
+    A variant set that built one would fail at construction rather than run.
+    """
     for variant in follow_through_variants():
-        assert variant.base.target_mode == ORB_TARGET_WIDTH
-        assert variant.base.stop_mode == ORB_STOP_FRACTION
+        assert base_as(variant, OpeningRangeParams).target_mode == ORB_TARGET_WIDTH
+        assert base_as(variant, OpeningRangeParams).stop_mode == ORB_STOP_FRACTION
 
 
 def test_the_run_is_confined_to_the_ranges_the_null_separated() -> None:
-    """M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and nowhere
-    else, so this asks its question where there is an edge to lose."""
-    windows = {variant.base.window_minutes for variant in follow_through_variants()}
-    anchors = {variant.base.anchor_minutes for variant in follow_through_variants()}
+    """M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and nowhere else.
+
+    This asks its question where there is an edge to lose.
+    """
+    windows = {base_as(variant, OpeningRangeParams).window_minutes for variant in follow_through_variants()}
+    anchors = {base_as(variant, OpeningRangeParams).anchor_minutes for variant in follow_through_variants()}
 
     assert windows == {15, 30}
     assert anchors == {sessionrange.CASH_OPEN_MINUTES}
@@ -1448,16 +1607,18 @@ def test_every_follow_through_variant_can_be_prepared_at_the_resolutions_it_clai
 
 
 def test_a_scaled_grid_declares_the_lookback_its_combinations_read() -> None:
-    """The context is derived from the grid, so a lookback nothing declared would raise in the
-    loop rather than be built once."""
+    """The context is derived from the grid.
+
+    A lookback nothing declared would raise in the loop rather than be built once.
+    """
     for variant in follow_through_variants():
         for _, grid in grids_for(variant, UNFILTERED):
             declared = grid.required_context().follow_through_sessions
-            if variant.base.follow_through_scaling == ORB_SCALE_NONE:
+            if base_as(variant, OpeningRangeParams).follow_through_scaling == ORB_SCALE_NONE:
                 assert declared == (), variant.name
                 continue
 
-            assert declared == (variant.base.follow_through_sessions,), variant.name
+            assert declared == (base_as(variant, OpeningRangeParams).follow_through_sessions,), variant.name
 
 
 # -- the M28.11 bracket ladder run --------------------------------------------------
@@ -1468,15 +1629,19 @@ def bracket_variants() -> list[Variant]:
 
 
 def test_the_bracket_run_states_its_stratum_before_it_runs() -> None:
-    """One cell, as the geometry and follow-through runs have: the question is about the
-    bracket's size rather than about the context it is traded in."""
+    """One cell, as the geometry and follow-through runs have.
+
+    The question is about the bracket's size rather than about the context it is traded in.
+    """
     assert [name for name, _ in strata(ORB_BRACKET)] == [UNFILTERED]
     assert variants_for(ORB_BRACKET) is ORB_BRACKET_VARIANTS
 
 
 def test_the_stop_ladder_extends_the_stored_axis_instead_of_replacing_it() -> None:
     """[#262]'s premise: 1.0 was the last value and the winning one, so the axis was truncated.
-    Every stored fraction is re-run at exactly its own value, and the new ones sit past it."""
+
+    Every stored fraction is re-run at exactly its own value, and the new ones sit past it.
+    """
     assert ORB_LADDER_FRACTIONS[: len(ORB_FRACTIONS)] == ORB_FRACTIONS
     assert max(ORB_FRACTIONS) == 1.0
     assert [f for f in ORB_LADDER_FRACTIONS if f > 1.0]
@@ -1484,8 +1649,11 @@ def test_the_stop_ladder_extends_the_stored_axis_instead_of_replacing_it() -> No
 
 
 def test_a_stop_past_the_range_width_is_legal_rather_than_refused() -> None:
-    """The whole ladder rests on it: past 1.0 the stop sits outside the range entirely, and a
-    params class that refused it would fail the run rather than the axis."""
+    """The whole ladder rests on it.
+
+    Past 1.0 the stop sits outside the range entirely, and a params class that refused it would
+    fail the run rather than the axis.
+    """
     for fraction in ORB_LADDER_FRACTIONS:
         params = OpeningRangeParams(stop_mode=ORB_STOP_FRACTION, stop_range_fraction=fraction)
 
@@ -1493,9 +1661,11 @@ def test_a_stop_past_the_range_width_is_legal_rather_than_refused() -> None:
 
 
 def test_the_width_ladder_is_a_variant_dimension_rather_than_an_axis() -> None:
-    """A ladder is a tuple and tuples are not sweepable, which is why no ORB campaign varied
-    it: ``_orb_further_targets`` hands over the parameter default and no axis reaches it."""
-    ladders = {variant.base.target_width_multiples for variant in bracket_variants()}
+    """A ladder is a tuple and tuples are not sweepable, which is why no ORB campaign varied it.
+
+    ``_orb_further_targets`` hands over the parameter default and no axis reaches it.
+    """
+    ladders = {base_as(variant, OpeningRangeParams).target_width_multiples for variant in bracket_variants()}
 
     assert ladders == set(ORB_WIDTH_LADDERS.values())
     for variant in bracket_variants():
@@ -1504,14 +1674,20 @@ def test_the_width_ladder_is_a_variant_dimension_rather_than_an_axis() -> None:
 
 
 def test_the_ladder_every_stored_run_used_is_one_cell_of_the_swept_set() -> None:
-    """What makes this an extension of the stored table rather than a run beside it: the
-    parameter default is in the set, so the new rows share a target scheme with the old ones."""
+    """What makes this an extension of the stored table rather than a run beside it.
+
+    The parameter default is in the set, so the new rows share a target scheme with the old
+    ones.
+    """
     assert OpeningRangeParams().target_width_multiples in set(ORB_WIDTH_LADDERS.values())
 
 
 def test_the_no_target_arm_leaves_every_leg_to_the_forced_flat() -> None:
-    """M28.9 measured ``(nan, nan)`` against the default and reported it winning on the
-    selection window and losing on the holdout; this is the arm that reproduces it."""
+    """The arm that reproduces M28.9's ``(nan, nan)`` measurement.
+
+    M28.9 measured ``(nan, nan)`` against the default and reported it winning on the selection
+    window and losing on the holdout.
+    """
     runner = ORB_WIDTH_LADDERS["target=runner"]
 
     assert all(math.isnan(level) for level in runner)
@@ -1521,10 +1697,14 @@ def test_the_no_target_arm_leaves_every_leg_to_the_forced_flat() -> None:
 
 
 def test_every_ladder_has_a_leg_for_each_target_the_order_can_fill() -> None:
-    """A ladder longer than ``order_quantity`` raises at construction, so a set built with one
-    would fail the whole run rather than the cell."""
+    """A ladder longer than ``order_quantity`` raises at construction.
+
+    A set built with one would fail the whole run rather than the cell.
+    """
     for variant in bracket_variants():
-        assert len(variant.base.target_levels) <= variant.base.order_quantity, variant.name
+        assert len(base_as(variant, OpeningRangeParams).target_levels) <= variant.base.order_quantity, (
+            variant.name
+        )
 
 
 def test_no_bracket_variant_can_collide_with_a_stored_one() -> None:
@@ -1543,40 +1723,50 @@ def test_no_bracket_variant_can_collide_with_a_stored_one() -> None:
 
 
 def test_the_bracket_run_is_confined_to_the_ranges_the_null_separated() -> None:
-    """M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and nowhere else,
-    so an axis is extended where there is an edge to lose -- ``ORB_FOLLOW_THROUGH_RANGES``."""
+    """M28.8's gate 3 puts the excess at 15 and 30 minutes from the cash open and nowhere else.
+
+    An axis is extended where there is an edge to lose -- ``ORB_FOLLOW_THROUGH_RANGES``.
+    """
     assert {window for _, window in ORB_BRACKET_RANGES.values()} == {15, 30}
     assert {anchor for anchor, _ in ORB_BRACKET_RANGES.values()} == {sessionrange.CASH_OPEN_MINUTES}
     assert set(ORB_BRACKET_RANGES.values()) == set(ORB_FOLLOW_THROUGH_RANGES.values())
 
 
 def test_the_bracket_run_sweeps_the_breakouts_own_offset_and_no_other() -> None:
-    """One entry, held at exactly what M28.2 and M28.10 swept it on, so the bracket is the only
-    thing that moved -- and an offset the mode does not read runs identical combinations."""
+    """One entry, held at exactly what M28.2 and M28.10 swept it on.
+
+    The bracket is the only thing that moved -- and an offset the mode does not read runs
+    identical combinations.
+    """
     for variant in bracket_variants():
-        assert variant.base.entry_mode == ORB_ENTRY_BREAKOUT
-        assert variant.base.stop_mode == ORB_STOP_FRACTION
-        assert variant.base.target_mode == ORB_TARGET_WIDTH
+        assert base_as(variant, OpeningRangeParams).entry_mode == ORB_ENTRY_BREAKOUT
+        assert base_as(variant, OpeningRangeParams).stop_mode == ORB_STOP_FRACTION
+        assert base_as(variant, OpeningRangeParams).target_mode == ORB_TARGET_WIDTH
         assert variant.axes["entry_offset_ticks"] == [1, 4]
         assert "retest_offset_ticks" not in variant.axes
         assert "break_confirm_ticks" not in variant.axes
 
 
 def test_the_bracket_run_reproduces_the_unscaled_control_at_the_cell_they_share() -> None:
-    """M28.10's ``scale=off`` arm is this geometry at the stored fraction ladder, so the two
-    tables meet rather than run beside each other -- which is what makes the extension readable
-    against the stored figure."""
+    """M28.10's ``scale=off`` arm is this geometry at the stored fraction ladder.
+
+    The two tables meet rather than run beside each other -- which is what makes the extension
+    readable against the stored figure.
+    """
     controls = {
-        variant.base.window_minutes: variant
+        base_as(variant, OpeningRangeParams).window_minutes: variant
         for variant in ORB_FOLLOW_THROUGH_VARIANTS["OpeningRange"]("MNQ")
-        if variant.base.follow_through_scaling == ORB_SCALE_NONE
+        if base_as(variant, OpeningRangeParams).follow_through_scaling == ORB_SCALE_NONE
     }
     matched = 0
     for variant in bracket_variants():
-        if variant.base.target_width_multiples != OpeningRangeParams().target_width_multiples:
+        if (
+            base_as(variant, OpeningRangeParams).target_width_multiples
+            != OpeningRangeParams().target_width_multiples
+        ):
             continue
 
-        control = controls[variant.base.window_minutes]
+        control = controls[base_as(variant, OpeningRangeParams).window_minutes]
 
         assert variant.base == control.base, variant.name
         assert variant.resolutions == control.resolutions, variant.name
@@ -1599,13 +1789,15 @@ def test_every_bracket_variant_can_be_prepared_at_the_resolutions_it_claims() ->
 
 
 def test_the_stored_orb_grids_are_untouched_by_the_bracket_run() -> None:
-    """M28.1's through M28.10's rows were each produced by their own set, so an extended axis
-    goes in a seventh rather than into any of them."""
+    """M28.1's through M28.10's rows were each produced by their own set.
+
+    An extended axis goes in a seventh rather than into any of them.
+    """
     for build in (VARIANTS, ORB_VARIANTS, ORB_FADE_VARIANTS, ORB_REJECTION_VARIANTS, ORB_GEOMETRY_VARIANTS):
         for variant in build["OpeningRange"]("MNQ"):
             fractions = variant.axes.get("stop_range_fraction", [])
 
-            assert all(fraction <= 1.0 for fraction in fractions), variant.name
+            assert all(float(fraction) <= 1.0 for fraction in fractions), variant.name
 
 
 def test_the_bracket_run_carries_the_roots_real_costs() -> None:
@@ -1624,49 +1816,69 @@ def volume_variants(root: str = "MNQ") -> list[Variant]:
 
 
 def test_the_volume_run_states_its_strata_before_it_runs() -> None:
-    """The volume dimension re-cut on its own distribution, read against the unfiltered
-    baseline in the same pass rather than against a cell chosen once the table is in."""
+    """The volume dimension re-cut on its own distribution, read against the unfiltered baseline.
+
+    The baseline is read in the same pass, rather than against a cell chosen once the table is
+    in.
+    """
     fitted = tuple(VolumeCut(key, 0.7, 1.5, tails=pair) for key in volume_series() for pair in VOLUME_TAILS)
     raw = [name for name, _ in strata(ELASTIC_VOLUME, Cuts(volume=raw_volume_cuts()))]
     cut = [name for name, _ in strata(ELASTIC_VOLUME, Cuts(volume=fitted))]
 
-    assert raw[0] == UNFILTERED and cut[0] == UNFILTERED
+    assert raw[0] == UNFILTERED
+    assert cut[0] == UNFILTERED
     assert len(raw) == 1 + len(volume_series()) * len(volume.VolumeState)
     assert len(cut) == 1 + len(volume_series()) * len(VOLUME_TAILS) * len(volume.VolumeState)
 
 
 def test_the_volume_run_carries_its_own_control_shape_in_the_same_pass() -> None:
-    """A stored ``shape=any`` row came out of a different grid, so pairing against it would
-    compare two runs rather than two arms -- ``docs/roadmap.md`` §M26.5."""
+    """A stored ``shape=any`` row came out of a different grid.
+
+    Pairing against it would compare two runs rather than two arms -- ``docs/roadmap.md``
+    §M26.5.
+    """
     assert set(ELASTIC_VOLUME_SHAPES.values()) == {SHAPE_ANY, SHAPE_REVERSAL}
-    assert {variant.base.signal_shape for variant in volume_variants()} == {SHAPE_ANY, SHAPE_REVERSAL}
+    assert {base_as(variant, ElasticBandParams).signal_shape for variant in volume_variants()} == {
+        SHAPE_ANY,
+        SHAPE_REVERSAL,
+    }
 
 
 def test_the_control_and_the_treatment_differ_by_the_shape_alone() -> None:
-    """Which is what makes ``campaign_paired`` readable over this pair: every other field of
-    the base and every axis is shared, so a paired cell differs by the requirement only."""
+    """Which is what makes ``campaign_paired`` readable over this pair.
+
+    Every other field of the base and every axis is shared, so a paired cell differs by the
+    requirement only.
+    """
     control, treatment = volume_variants()
 
-    assert replace(control.base, signal_shape=treatment.base.signal_shape) == treatment.base
+    assert (
+        replace(control.base, signal_shape=base_as(treatment, ElasticBandParams).signal_shape)
+        == treatment.base
+    )
     assert control.axes == treatment.axes
 
 
 def test_the_volume_run_holds_the_three_axes_the_shape_campaign_spent() -> None:
-    """The axes §M26.5 measured as dead or as duplicates are narrowed -- ``docs/roadmap.md``
-    §M26.5."""
+    """The axes §M26.5 measured as dead or as duplicates are narrowed -- ``docs/roadmap.md`` §M26.5."""
     for variant in volume_variants():
         assert "min_one_sided_bars" not in variant.axes
         assert "min_bars_outside" not in variant.axes
-        assert variant.base.min_one_sided_bars == 0
-        assert variant.base.target_stretch_levels == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
+        assert base_as(variant, ElasticBandParams).min_one_sided_bars == 0
+        assert (
+            base_as(variant, ElasticBandParams).target_stretch_levels
+            == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
+        )
 
 
 def test_every_volume_variant_reads_the_source_the_shape_campaign_left_standing() -> None:
-    """§M26.4 established that the Bollinger source does not survive a holdout, so the question
-    here is the volume and not the channel."""
+    """§M26.4 established that the Bollinger source does not survive a holdout.
+
+    The question here is the volume and not the channel.
+    """
     for variant in volume_variants():
-        assert variant.base.band_source == BAND_VWAP
-        assert variant.base.target_mode == TARGET_STRETCH
+        assert base_as(variant, ElasticBandParams).band_source == BAND_VWAP
+        assert base_as(variant, ElasticBandParams).target_mode == TARGET_STRETCH
         assert variant.axes["stop_mode"] == [STOP_ATR, STOP_SWING, STOP_CATASTROPHE]
 
 
@@ -1677,8 +1889,10 @@ def test_the_ladder_is_readable_back_off_every_volume_variant_name() -> None:
 
 
 def test_no_volume_variant_can_collide_with_a_stored_elastic_one() -> None:
-    """One database holds every ElasticBand run and the variant name is the only thing
-    separating them, so ``campaign_holdout`` would pair two campaigns' windows together."""
+    """One database holds every ElasticBand run and the variant name is the only thing separating them.
+
+    ``campaign_holdout`` would pair two campaigns' windows together.
+    """
     stored = {variant.name for variant in VARIANTS["ElasticBand"]("MNQ")} | {
         variant.name for variant in ELASTIC_SHAPE_VARIANTS["ElasticBand"]("MNQ")
     }
@@ -1721,8 +1935,10 @@ def channel_variants(root: str = "MNQ") -> list[Variant]:
 
 
 def test_the_channel_run_asks_the_volume_question_over_the_same_cells() -> None:
-    """The point of the run is that the cells are §M26.9's and the grid is not, so a cell
-    whose sign flips flipped because of the channel."""
+    """The point of the run is that the cells are §M26.9's and the grid is not.
+
+    A cell whose sign flips flipped because of the channel.
+    """
     assert STRATUM_SETS[ELASTIC_CHANNEL] == STRATUM_SETS[ELASTIC_VOLUME]
 
 
@@ -1731,13 +1947,22 @@ def test_the_channel_run_crosses_both_channels_with_both_shapes() -> None:
     variants = channel_variants()
 
     assert len(variants) == len(ELASTIC_CHANNEL_SOURCES) * len(ELASTIC_VOLUME_SHAPES)
-    assert {variant.base.band_source for variant in variants} == {BAND_VWAP, BAND_BOLLINGER}
-    assert {variant.base.signal_shape for variant in variants} == {SHAPE_ANY, SHAPE_REVERSAL}
+    assert {base_as(variant, ElasticBandParams).band_source for variant in variants} == {
+        BAND_VWAP,
+        BAND_BOLLINGER,
+    }
+    assert {base_as(variant, ElasticBandParams).signal_shape for variant in variants} == {
+        SHAPE_ANY,
+        SHAPE_REVERSAL,
+    }
 
 
 def test_every_channel_arm_differs_from_another_by_one_field_alone() -> None:
-    """The claim the campaign rests on: two arms sharing a shape differ by the channel, and two
-    sharing a channel differ by the shape -- so nothing else can explain a sign."""
+    """The claim the campaign rests on.
+
+    Two arms sharing a shape differ by the channel, and two sharing a channel differ by the
+    shape -- so nothing else can explain a sign.
+    """
     for variant in channel_variants():
         for other in channel_variants():
             if variant.name == other.name:
@@ -1750,8 +1975,8 @@ def test_every_channel_arm_differs_from_another_by_one_field_alone() -> None:
             }
             swapped = replace(
                 variant.base,
-                band_source=other.base.band_source,
-                signal_shape=other.base.signal_shape,
+                band_source=base_as(other, ElasticBandParams).band_source,
+                signal_shape=base_as(other, ElasticBandParams).signal_shape,
             )
 
             assert differ
@@ -1760,16 +1985,19 @@ def test_every_channel_arm_differs_from_another_by_one_field_alone() -> None:
 
 
 def test_the_vwap_arm_reproduces_the_stored_volume_run_exactly() -> None:
-    """§M26.9's two variants are this set's VWAP arms, parameter for parameter, so the stored
-    rows cross-check the new ones -- the shape ``ORB_LADDER_FRACTIONS`` has for §M28.11."""
-    stored = {variant.base.signal_shape: variant for variant in volume_variants()}
+    """§M26.9's two variants are this set's VWAP arms, parameter for parameter.
+
+    The stored rows cross-check the new ones -- the shape ``ORB_LADDER_FRACTIONS`` has for
+    §M28.11.
+    """
+    stored = {base_as(variant, ElasticBandParams).signal_shape: variant for variant in volume_variants()}
 
     matched = 0
     for variant in channel_variants():
-        if variant.base.band_source != BAND_VWAP:
+        if base_as(variant, ElasticBandParams).band_source != BAND_VWAP:
             continue
 
-        twin = stored[variant.base.signal_shape]
+        twin = stored[base_as(variant, ElasticBandParams).signal_shape]
         assert variant.base == twin.base
         assert variant.axes == twin.axes
         matched += 1
@@ -1778,19 +2006,25 @@ def test_the_vwap_arm_reproduces_the_stored_volume_run_exactly() -> None:
 
 
 def test_the_channel_run_pins_the_bollinger_period_rather_than_sweeping_it() -> None:
-    """``band_period`` is live under Bollinger and inert under VWAP, so sweeping it would make
-    the Bollinger arm a best-of-three and break the one-thing-differs property."""
+    """``band_period`` is live under Bollinger and inert under VWAP.
+
+    Sweeping it would make the Bollinger arm a best-of-three and break the one-thing-differs
+    property.
+    """
     for variant in channel_variants():
         assert "band_period" not in variant.axes
-        assert variant.base.band_period == ELASTIC_CHANNEL_PERIOD
+        assert base_as(variant, ElasticBandParams).band_period == ELASTIC_CHANNEL_PERIOD
 
 
 def test_the_channel_run_holds_the_bracket_the_volume_run_held() -> None:
     """Holding the *same* bracket is what lets the two campaigns be read against each other."""
     for variant in channel_variants():
         assert variant.axes == ELASTIC_VOLUME_BRACKET
-        assert variant.base.target_stretch_levels == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
-        assert variant.base.target_mode == TARGET_STRETCH
+        assert (
+            base_as(variant, ElasticBandParams).target_stretch_levels
+            == ELASTIC_LADDERS[ELASTIC_VOLUME_TARGET]
+        )
+        assert base_as(variant, ElasticBandParams).target_mode == TARGET_STRETCH
 
 
 def test_the_stored_volume_grid_is_untouched_by_naming_the_bracket() -> None:
@@ -1807,7 +2041,8 @@ def test_neither_set_hands_out_the_bracket_constant_itself() -> None:
     """Both builders copy it, so nothing downstream can mutate the axes of every set at once.
 
     Within one builder call the variants share one dict, as every set in this module does;
-    ``grids_for`` copies before it adds a stratum, so nothing mutates it."""
+    ``grids_for`` copies before it adds a stratum, so nothing mutates it.
+    """
     per_set = [
         [variant.axes for variant in build()]
         for build in (channel_variants, volume_variants, channel_variants)
@@ -1819,8 +2054,10 @@ def test_neither_set_hands_out_the_bracket_constant_itself() -> None:
 
 
 def test_no_channel_variant_can_collide_with_a_stored_elastic_one() -> None:
-    """One database holds every ElasticBand run and the variant name is the only thing
-    separating them, so ``campaign_holdout`` would pair two campaigns' windows together."""
+    """One database holds every ElasticBand run and the variant name is the only thing separating them.
+
+    ``campaign_holdout`` would pair two campaigns' windows together.
+    """
     stored: set[str] = set()
     for build in (
         VARIANTS,
@@ -1868,15 +2105,20 @@ def recovery_variants(root: str = "MNQ") -> list[Variant]:
 
 
 def test_the_recovery_run_states_its_stratum_before_it_runs() -> None:
-    """The trigger is the thing being measured, so the pass adds no context cell to cross it
-    with -- ``docs/roadmap.md`` §M26.6."""
+    """The trigger is the thing being measured, so the pass adds no context cell to cross it with.
+
+    ``docs/roadmap.md`` §M26.6.
+    """
     assert [name for name, _ in strata(ELASTIC_RECOVERY, NO_CUTS)] == [UNFILTERED]
 
 
 def test_the_recovery_run_carries_both_controls_in_the_same_pass() -> None:
-    """A stored row came out of a different grid, so pairing against it would compare two runs
-    rather than two arms. The question is whether waiting for the reaction beats reading it off
-    a bar still outside, so requiring nothing is not the only control it needs."""
+    """A stored row came out of a different grid.
+
+    Pairing against it would compare two runs rather than two arms. The question is whether
+    waiting for the reaction beats reading it off a bar still outside, so requiring nothing is
+    not the only control it needs.
+    """
     triggers = {trigger for trigger, _, _ in ELASTIC_RECOVERY_ARMS.values()}
     shapes = {shape for trigger, shape, _ in ELASTIC_RECOVERY_ARMS.values() if trigger == TRIGGER_EXTENDED}
 
@@ -1885,15 +2127,18 @@ def test_the_recovery_run_carries_both_controls_in_the_same_pass() -> None:
 
 
 def test_every_recovery_arm_differs_from_the_control_by_the_entry_alone() -> None:
-    """Which is what makes ``campaign_paired`` readable over these arms: every other field of
-    the base and every axis is shared, so a paired cell differs by the entry rule only."""
+    """Which is what makes ``campaign_paired`` readable over these arms.
+
+    Every other field of the base and every axis is shared, so a paired cell differs by the
+    entry rule only.
+    """
     control, *rest = recovery_variants()
     for arm in rest:
         rebased = replace(
             control.base,
-            entry_trigger=arm.base.entry_trigger,
-            recovery_fraction=arm.base.recovery_fraction,
-            signal_shape=arm.base.signal_shape,
+            entry_trigger=base_as(arm, ElasticBandParams).entry_trigger,
+            recovery_fraction=base_as(arm, ElasticBandParams).recovery_fraction,
+            signal_shape=base_as(arm, ElasticBandParams).signal_shape,
         )
 
         assert rebased == arm.base
@@ -1901,8 +2146,10 @@ def test_every_recovery_arm_differs_from_the_control_by_the_entry_alone() -> Non
 
 
 def test_the_recovery_run_keeps_the_run_length_the_shapes_made_a_duplicate() -> None:
-    """The recovery trigger reads the run at the bar *before* the signal, so it is the one entry
-    under which ``min_bars_outside`` is live -- ``docs/roadmap.md`` §M26.6."""
+    """The recovery trigger reads the run at the bar *before* the signal.
+
+    It is the one entry under which ``min_bars_outside`` is live -- ``docs/roadmap.md`` §M26.6.
+    """
     for variant in recovery_variants():
         assert variant.axes["min_bars_outside"] == [1, 2]
 
@@ -1911,13 +2158,15 @@ def test_the_recovery_run_drops_the_axis_the_shape_campaign_measured_as_dead() -
     """§M26.5: ``min_one_sided_bars``'s low end is a dead value and its high end is a cost."""
     for variant in recovery_variants():
         assert "min_one_sided_bars" not in variant.axes
-        assert variant.base.min_one_sided_bars == 0
-        assert variant.base.target_stretch_levels == ELASTIC_LADDERS[ELASTIC_RECOVERY_TARGET]
+        assert base_as(variant, ElasticBandParams).min_one_sided_bars == 0
+        assert (
+            base_as(variant, ElasticBandParams).target_stretch_levels
+            == ELASTIC_LADDERS[ELASTIC_RECOVERY_TARGET]
+        )
 
 
 def test_every_recovery_depth_is_inside_the_band_and_the_loosest_is_its_edge() -> None:
-    """A depth of 1.0 is the band edge itself; 0.5 is left out as near-empty --
-    ``docs/roadmap.md`` §M26.6."""
+    """A depth of 1.0 is the band edge itself; 0.5 is left out as near-empty -- ``docs/roadmap.md`` §M26.6."""
     depths = {depth for trigger, _, depth in ELASTIC_RECOVERY_ARMS.values() if trigger == TRIGGER_RECOVERY}
 
     assert depths == {1.0, 0.9, 0.75}
@@ -1925,11 +2174,13 @@ def test_every_recovery_depth_is_inside_the_band_and_the_loosest_is_its_edge() -
 
 
 def test_every_recovery_variant_reads_the_source_the_shape_campaign_left_standing() -> None:
-    """§M26.4 established that the Bollinger source does not survive a holdout, so the question
-    here is the entry and not the channel."""
+    """§M26.4 established that the Bollinger source does not survive a holdout.
+
+    The question here is the entry and not the channel.
+    """
     for variant in recovery_variants():
-        assert variant.base.band_source == BAND_VWAP
-        assert variant.base.target_mode == TARGET_STRETCH
+        assert base_as(variant, ElasticBandParams).band_source == BAND_VWAP
+        assert base_as(variant, ElasticBandParams).target_mode == TARGET_STRETCH
         assert variant.axes["stop_mode"] == [STOP_ATR, STOP_SWING, STOP_CATASTROPHE]
 
 
@@ -1940,8 +2191,10 @@ def test_the_ladder_is_readable_back_off_every_recovery_variant_name() -> None:
 
 
 def test_no_recovery_variant_can_collide_with_a_stored_elastic_one() -> None:
-    """One database holds every ElasticBand run and the variant name is the only thing
-    separating them, so ``campaign_holdout`` would pair two campaigns' windows together."""
+    """One database holds every ElasticBand run and the variant name is the only thing separating them.
+
+    ``campaign_holdout`` would pair two campaigns' windows together.
+    """
     stored = (
         {variant.name for variant in VARIANTS["ElasticBand"]("MNQ")}
         | {variant.name for variant in ELASTIC_SHAPE_VARIANTS["ElasticBand"]("MNQ")}
@@ -1979,29 +2232,36 @@ def band_stop_variants(root: str = "MNQ") -> list[Variant]:
 
 
 def test_the_band_stop_run_states_its_stratum_before_it_runs() -> None:
-    """The stop is the thing being measured, so the pass adds no context cell to cross it
-    with -- ``docs/roadmap.md`` §M26.8."""
+    """The stop is the thing being measured, so the pass adds no context cell to cross it with.
+
+    ``docs/roadmap.md`` §M26.8.
+    """
     assert [name for name, _ in strata(ELASTIC_BAND_STOP, NO_CUTS)] == [UNFILTERED]
 
 
 def test_the_band_stop_run_carries_the_three_existing_stops_in_the_same_pass() -> None:
-    """A stored row came out of a different grid, so pairing against it would compare two runs
-    rather than two arms."""
+    """A stored row came out of a different grid.
+
+    Pairing against it would compare two runs rather than two arms.
+    """
     modes = {mode for mode, _ in ELASTIC_BAND_STOP_ARMS.values()}
 
     assert modes == {STOP_ATR, STOP_SWING, STOP_CATASTROPHE, STOP_BAND}
 
 
 def test_every_band_stop_arm_differs_from_its_control_by_the_stop_alone() -> None:
-    """Which is what makes ``campaign_paired`` readable over these arms: every other field of
-    the base and every axis is shared, so a paired cell differs by where the stop went."""
+    """Which is what makes ``campaign_paired`` readable over these arms.
+
+    Every other field of the base and every axis is shared, so a paired cell differs by where
+    the stop went.
+    """
     control, *rest = band_stop_variants()
     for arm in rest:
         rebased = replace(
             control.base,
-            stop_mode=arm.base.stop_mode,
-            band_stop_std=arm.base.band_stop_std,
-            signal_shape=arm.base.signal_shape,
+            stop_mode=base_as(arm, ElasticBandParams).stop_mode,
+            band_stop_std=base_as(arm, ElasticBandParams).band_stop_std,
+            signal_shape=base_as(arm, ElasticBandParams).signal_shape,
         )
 
         assert rebased == arm.base
@@ -2025,10 +2285,12 @@ def test_the_depth_is_carried_by_the_arm_because_it_is_inert_under_every_other_s
 
 
 def test_the_band_stop_run_asks_its_question_over_an_entry_with_an_edge_and_one_without() -> None:
-    """§M26.5 measured an excess for the reversal shape and none for the control, so the pair
-    bounds whether a stop scheme is being ranked or the bars under it are."""
+    """§M26.5 measured an excess for the reversal shape and none for the control.
+
+    The pair bounds whether a stop scheme is being ranked or the bars under it are.
+    """
     assert set(ELASTIC_BAND_STOP_SHAPES.values()) == {SHAPE_ANY, SHAPE_REVERSAL}
-    shapes = {variant.base.signal_shape for variant in band_stop_variants()}
+    shapes = {base_as(variant, ElasticBandParams).signal_shape for variant in band_stop_variants()}
 
     assert shapes == {SHAPE_ANY, SHAPE_REVERSAL}
     assert len(band_stop_variants()) == len(ELASTIC_BAND_STOP_ARMS) * len(ELASTIC_BAND_STOP_SHAPES)
@@ -2036,19 +2298,24 @@ def test_the_band_stop_run_asks_its_question_over_an_entry_with_an_edge_and_one_
 
 def test_the_band_stop_run_drops_the_axis_the_shape_campaign_measured_as_dead() -> None:
     """§M26.5: ``min_one_sided_bars``'s low end is a dead value and its high end is a cost.
+
     ``min_bars_outside`` stays, because §M26.9 dropped it for the reversal shape alone and half
-    these arms carry the control instead."""
+    these arms carry the control instead.
+    """
     for variant in band_stop_variants():
         assert "min_one_sided_bars" not in variant.axes
         assert variant.axes["min_bars_outside"] == [1, 2]
-        assert variant.base.min_one_sided_bars == 0
-        assert variant.base.target_stretch_levels == ELASTIC_LADDERS[ELASTIC_BAND_STOP_TARGET]
+        assert base_as(variant, ElasticBandParams).min_one_sided_bars == 0
+        assert (
+            base_as(variant, ElasticBandParams).target_stretch_levels
+            == ELASTIC_LADDERS[ELASTIC_BAND_STOP_TARGET]
+        )
 
 
 def test_every_band_stop_variant_reads_the_source_the_shape_campaign_left_standing() -> None:
     for variant in band_stop_variants():
-        assert variant.base.band_source == BAND_VWAP
-        assert variant.base.target_mode == TARGET_STRETCH
+        assert base_as(variant, ElasticBandParams).band_source == BAND_VWAP
+        assert base_as(variant, ElasticBandParams).target_mode == TARGET_STRETCH
         assert variant.axes["entry_std"] == [2.0, 2.5, 3.0]
 
 
@@ -2059,8 +2326,10 @@ def test_the_ladder_is_readable_back_off_every_band_stop_variant_name() -> None:
 
 
 def test_no_band_stop_variant_can_collide_with_a_stored_elastic_one() -> None:
-    """One database holds every ElasticBand run and the variant name is the only thing
-    separating them, so ``campaign_holdout`` would pair two campaigns' windows together."""
+    """One database holds every ElasticBand run and the variant name is the only thing separating them.
+
+    ``campaign_holdout`` would pair two campaigns' windows together.
+    """
     stored = (
         {variant.name for variant in VARIANTS["ElasticBand"]("MNQ")}
         | {variant.name for variant in ELASTIC_SHAPE_VARIANTS["ElasticBand"]("MNQ")}
@@ -2170,7 +2439,10 @@ def test_the_confirmation_arms_differ_from_the_stored_campaign_by_the_entry_and_
         assert one_bar.base == replace(campaign.base, confirm_entry=True)
         assert three_bars.base == replace(campaign.base, confirm_entry=True, entry_order_lifetime_bars=3)
         assert market.axes == one_bar.axes == three_bars.axes == shared
-        assert (campaign.base.fast_kind, campaign.base.slow_kind) == ("ema", "ema")
+        assert (
+            base_as(campaign, EmaPullbackParams).fast_kind,
+            base_as(campaign, EmaPullbackParams).slow_kind,
+        ) == ("ema", "ema")
 
 
 def test_no_confirmation_variant_can_collide_with_a_stored_emapullback_one() -> None:
@@ -2257,7 +2529,7 @@ def a_cut(
     minutes: int = 5,
     labels: tuple[str, ...] = ("size_on_vwap", "size_on_regime"),
     symmetric_labels: tuple[str, ...] | None = None,
-):
+) -> SizingCut:
     """Build a cut of the shape ``tools/campaign_sizing.py fit`` writes, with plausible values in it.
 
     The symmetric arm counts ``labels`` unless told otherwise.
@@ -2306,9 +2578,9 @@ def test_every_combination_of_every_sizing_arm_is_a_legal_rule_set() -> None:
 def test_the_fitted_values_reach_every_arm_and_the_labels_only_the_confluence_one() -> None:
     (campaign,) = insidebartrailing_variants("MNQ")
     arms = {arm.name.removeprefix(f"{campaign.name} "): arm for arm in sizing_arms(campaign, a_cut())}
-    assert all(arm.base.early_max_trend_bars == 14 for arm in arms.values())
+    assert all(base_as(arm, InsideBarTrailingParams).early_max_trend_bars == 14 for arm in arms.values())
     assert all(arm.base.regime_directional_above == 0.4 for arm in arms.values())
-    confluence = arms[SIZING_CONFLUENCE].base
+    confluence = base_as(arms[SIZING_CONFLUENCE], InsideBarTrailingParams)
     assert sizing_labels(confluence) == ("size_on_vwap", "size_on_regime")
     assert confluence.quantity_per_confluence == 1
     assert all(sizing_labels(arm.base) == () for name, arm in arms.items() if name != SIZING_CONFLUENCE)
@@ -2316,7 +2588,10 @@ def test_the_fitted_values_reach_every_arm_and_the_labels_only_the_confluence_on
 
 def test_each_tier_runs_beside_its_inverse() -> None:
     (campaign,) = insidebartrailing_variants("MNQ")
-    arms = {arm.name.removeprefix(f"{campaign.name} "): arm.base for arm in sizing_arms(campaign, a_cut())}
+    arms = {
+        arm.name.removeprefix(f"{campaign.name} "): base_as(arm, InsideBarTrailingParams)
+        for arm in sizing_arms(campaign, a_cut())
+    }
     written, inverted = arms["tier=trend-age"], arms["tier=trend-age inverted"]
     assert (written.early_partial_percentage, written.partial_take_profit_percentage) == (0.25, 0.5)
     assert (inverted.early_partial_percentage, inverted.partial_take_profit_percentage) == (0.5, 0.25)
@@ -2349,9 +2624,9 @@ def test_insidebartrailings_arms_refuse_a_cut_without_its_earliness_cuts() -> No
     (campaign,) = insidebartrailing_variants("MNQ")
     for missing in ("early_max_extension_atr", "early_max_trend_bars"):
         with pytest.raises(SystemExit, match="holds no earliness cuts"):
-            sizing_arms(campaign, replace(a_cut(), **{missing: None}))
+            sizing_arms(campaign, replace(a_cut(), **{missing: None}))  # type: ignore[arg-type]  # one optional field set to None
         with pytest.raises(SystemExit, match="holds no earliness cuts"):
-            insidebartrailing_confluence_arms(campaign, replace(a_cut(), **{missing: None}))
+            insidebartrailing_confluence_arms(campaign, replace(a_cut(), **{missing: None}))  # type: ignore[arg-type]  # one optional field set to None
 
 
 def test_the_sizing_variants_read_their_own_roots_cuts(
@@ -2380,16 +2655,22 @@ def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(
     confluence = replace(confluence, axes={"order_quantity": [3, 4]})
     stored: list[pd.DataFrame] = []
 
-    def fake_sweep_grids(data, grids, instrument, *, n_jobs):
+    def fake_sweep_grids(
+        _data: context.Dataset,
+        grids: list[sweep.Grid],
+        _instrument: Instrument,
+        *,
+        n_jobs: int,  # noqa: ARG001 - the caller passes it by keyword
+    ) -> list[tuple[pd.DataFrame, dict[int, pd.DataFrame]]]:
         return unswept(grids)
 
-    def keep(frame, **_):
+    def keep(frame: pd.DataFrame, **_: object) -> int:
         stored.append(frame)
 
         return 1
 
     monkeypatch.setattr("tools.campaign_sweep.CAMPAIGN_DIR", tmp_path / "campaign")
-    monkeypatch.setattr("nqbt.context.prepare", lambda *args, **kwargs: None)
+    monkeypatch.setattr("nqbt.context.prepare", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("nqbt.results.save_sweep", keep)
     monkeypatch.setattr(sweep, "sweep_grids", fake_sweep_grids)
     run_point(
@@ -2440,7 +2721,7 @@ def arm_names(campaign: Variant, arms: list[Variant]) -> list[str]:
     return [arm.name.removeprefix(f"{campaign.name} ") for arm in arms]
 
 
-def write_cuts(path, cuts: list[SizingCut]) -> None:
+def write_cuts(path: Path, cuts: list[SizingCut]) -> None:
     path.write_text(json.dumps([dataclasses.asdict(cut) for cut in cuts]), encoding="utf-8")
 
 
@@ -2550,7 +2831,9 @@ def test_insidebartrailing_keeps_its_nine_arms_and_adds_the_new_ones_on_the_same
     assert names[:9] == arm_names(campaign, sizing_arms(campaign, a_cut()))
     assert names[9:] == ["size=vwap", "size=regime", SIZING_SYMMETRIC]
     assert all(arm.axes == arms[0].axes for arm in arms)
-    assert all(arm.base.partial_take_profit_percentage == 0.5 for arm in arms[9:])
+    assert all(
+        base_as(arm, InsideBarTrailingParams).partial_take_profit_percentage == 0.5 for arm in arms[9:]
+    )
 
 
 def test_insidebartrailing_runs_its_symmetric_arm_on_its_own_labels() -> None:
@@ -2748,7 +3031,7 @@ def test_the_strata_read_each_roots_own_cut(monkeypatch: pytest.MonkeyPatch, tmp
     assert confluence_cuts("DeadCatBounce", "NQ")[5].regime[0].directional_above == 0.7
 
 
-def early_exit_fields(params: object) -> dict[str, object]:
+def early_exit_fields(params: archetypes.Params) -> dict[str, object]:
     """Return one parameter set's ``early_exit_*`` fields by name."""
     return {
         field.name: getattr(params, field.name)
@@ -2766,8 +3049,10 @@ def test_the_early_exit_arms_are_the_control_and_every_rule_at_every_rung() -> N
 
 
 def test_every_early_exit_arm_carries_its_stored_grid_unchanged() -> None:
-    """The arm is a variant dimension and not an axis, so an arm and its control pair row for row --
-    ``tools/README.md`` § "campaign_sweep.py"."""
+    """The arm is a variant dimension and not an axis, so an arm and its control pair row for row.
+
+    ``tools/README.md`` § "campaign_sweep.py".
+    """
     arms = list(early_exit_arms())
     for name, build in VARIANTS.items():
         stored = build("MNQ")
@@ -2791,8 +3076,10 @@ def test_an_early_exit_arm_changes_nothing_but_the_early_exit_fields() -> None:
 
 
 def test_each_early_exit_arm_switches_on_one_rule_and_the_control_none() -> None:
-    """One exit code serves every rule, so an arm is one rule or the log cannot say which fired --
-    ``docs/nt8-fidelity.md``, "The conditional early exit"."""
+    """One exit code serves every rule, so an arm is one rule or the log cannot say which fired.
+
+    ``docs/nt8-fidelity.md``, "The conditional early exit".
+    """
     for name in VARIANTS:
         for variant in EARLY_EXIT_VARIANTS[name]("MNQ"):
             expected = 0 if variant.name.endswith(" exit=off") else 1
@@ -2813,7 +3100,8 @@ def test_every_not_working_bar_is_tested_before_any_stored_hold_cap() -> None:
     """A bar at or past ``max_hold_bars`` can never fire, so the ladder has to stop short of every cap."""
     for build in VARIANTS.values():
         for variant in build("MNQ"):
-            caps = [*variant.axes.get("max_hold_bars", []), variant.base.max_hold_bars]
+            ladder: list[int] = [int(cap) for cap in variant.axes.get("max_hold_bars", [])]
+            caps = [*ladder, variant.base.max_hold_bars]
             assert all(cap == 0 or cap > max(EARLY_EXIT_BARS) for cap in caps)
 
 
@@ -2843,7 +3131,7 @@ TIER2_FAMILIES = ("early_exit_", "age_stop_", "late_stop_", "breakeven_")
 """The parameter families a tier-2 arm may set."""
 
 
-def tier2_fields(params: object) -> dict[str, object]:
+def tier2_fields(params: archetypes.Params) -> dict[str, object]:
     """Return one parameter set's fields in the families a tier-2 arm sets, by name."""
     return {
         field.name: getattr(params, field.name)
@@ -2901,13 +3189,16 @@ def test_no_stored_grid_or_stratum_sweeps_a_field_a_tier_2_arm_sets() -> None:
 
 def test_every_bar_timed_tier_2_arm_acts_before_any_stored_hold_cap() -> None:
     """A step or a not-working bar at or past ``max_hold_bars`` can never act."""
-    bars = [fields.get("early_exit_bars", 0) for fields in tier2_arms().values()]
-    steps = [
-        fields.get("age_stop_bars", 0) for fields in tier2_arms().values() if "age_stop_shape" not in fields
+    bars: list[int] = [int(fields.get("early_exit_bars", 0)) for fields in tier2_arms().values()]
+    steps: list[int] = [
+        int(fields.get("age_stop_bars", 0))
+        for fields in tier2_arms().values()
+        if "age_stop_shape" not in fields
     ]
     for build in VARIANTS.values():
         for variant in build("MNQ"):
-            caps = [*variant.axes.get("max_hold_bars", []), variant.base.max_hold_bars]
+            ladder: list[int] = [int(cap) for cap in variant.axes.get("max_hold_bars", [])]
+            caps = [*ladder, variant.base.max_hold_bars]
             assert all(cap == 0 or cap > max(*bars, *steps) for cap in caps)
 
 

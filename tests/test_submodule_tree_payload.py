@@ -1,10 +1,13 @@
 """The request body that moves submodule pointers to new commits."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tools.submodule_tree_payload import SUBMODULE_MODE, main, parse_moved, tree_payload
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_each_line_becomes_a_path_and_a_commit_id() -> None:

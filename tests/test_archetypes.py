@@ -24,7 +24,8 @@ from nqbt import (
     trend,
     volume,
 )
-from nqbt.archetypes import Archetype, ArchetypeError, ContextSpec, Tier2Status
+from nqbt.archetypes import Archetype, ArchetypeError, Tier2Status
+from nqbt.context import ContextSpec
 from nqbt.instruments import NQ
 from nqbt.sim import bracket
 from nqbt.sim.types import (
@@ -137,7 +138,7 @@ SCALES_ITS_TARGETS = [
 def test_every_tp_multiplier_refuses_zero_below_or_not_finite(archetype: Archetype, value: float) -> None:
     """Every params class with a tp_multiplier refuses one at or below zero, nan or infinite."""
     with pytest.raises(ValueError, match="tp_multiplier must be"):
-        archetype.params_cls(tp_multiplier=value)
+        archetype.params_cls(tp_multiplier=value)  # type: ignore[call-arg]  # every class here has the field
 
 
 def test_every_archetype_but_pullbackandgo_scales_its_targets() -> None:
@@ -170,7 +171,7 @@ def test_sweepable_sees_inherited_fields_that_slots_would_hide() -> None:
 
     probe = Archetype(
         name="_slots_probe",
-        params_cls=Derived,
+        params_cls=Derived,  # type: ignore[arg-type]  # a bare dataclass, all sweepable reads
         run=archetypes.DEADCATBOUNCE.run,
         legs=archetypes.DEADCATBOUNCE.legs,
         signal=archetypes.DEADCATBOUNCE.signal,
@@ -294,7 +295,7 @@ def test_a_base_of_the_wrong_class_is_refused_rather_than_run() -> None:
 def test_a_grid_survives_pickling() -> None:
     """The parallel path ships the grid to every worker, archetype included."""
     grid = sweep.Grid.of(PullBackAndGoParams(), ema_period=[9, 21])
-    back = loads(dumps(grid))
+    back = loads(dumps(grid))  # noqa: S301 - round-trips an object this test built
     assert back.archetype.name == "PullBackAndGo"
     assert [p.ema_period for p in back.combinations()] == [9, 21]
 
@@ -361,7 +362,8 @@ def test_the_two_archetypes_disagree_on_direction_over_the_same_bars() -> None:
     _, long_logs = sweep.sweep(bars, long_grid, NQ, keep_trades=True)
     _, short_logs = sweep.sweep(bars, short_grid, NQ, keep_trades=True)
 
-    assert len(long_logs[0]) and len(short_logs[0]), "one side produced nothing"
+    assert len(long_logs[0]), "the long side produced nothing"
+    assert len(short_logs[0]), "the short side produced nothing"
     assert (long_logs[0]["direction"] == 1).all()
     assert (short_logs[0]["direction"] == -1).all()
 
@@ -378,7 +380,9 @@ def test_an_insidebar_grid_sweeps_end_to_end() -> None:
         atr_multiplier=[5.0, 10.0],
     )
     spec = grid.required_context()
-    assert spec.needs_ma_values and spec.atr_periods == (3,) and spec.needs_session_clock
+    assert spec.needs_ma_values
+    assert spec.atr_periods == (3,)
+    assert spec.needs_session_clock
 
     results, _ = sweep.sweep(bars, grid, NQ)
     assert len(results) == 2
@@ -550,7 +554,7 @@ def test_every_ninjascript_property_and_cost_may_move_without_leaving_the_port(a
         assert getattr(params, name) != default, name
         assert archetype.tier2_for(params) is Tier2Status.RECONCILED, name
 
-    costed = archetype.params_cls(commission_per_contract=1.5, slippage_ticks=1.0)
+    costed = archetype.params_cls(commission_per_contract=1.5, slippage_ticks=1.0)  # type: ignore[call-arg]  # every archetype's costs
     assert archetype.tier2_for(costed) is Tier2Status.RECONCILED
 
 
@@ -589,7 +593,7 @@ def test_a_runner_written_with_a_fresh_nan_is_still_the_default_bracket() -> Non
     ids=lambda a: a.name,
 )
 def test_an_archetype_with_no_ninjascript_has_no_port_to_leave(archetype: Archetype) -> None:
-    params = archetype.params_cls(max_hold_bars=5)
+    params = archetype.params_cls(max_hold_bars=5)  # type: ignore[call-arg]  # every archetype's hold cap
     assert archetype.port_properties is None
     assert archetype.fields_off_port(params) == ()
     assert archetype.tier2_for(params) is archetype.tier2
@@ -622,7 +626,7 @@ def test_a_gate_reads_its_axis_as_dead_axes_does(
 def test_a_sweep_stamps_each_row_by_whether_it_leaves_the_port() -> None:
     grid = sweep.Grid.of(DeadCatParams(), max_hold_bars=[0, 5], ema_period=[11, 30])
     stamped = sweep.row_tier2(pd.DataFrame({"combo_id": range(len(grid))}), grid)
-    by_hold = {params.max_hold_bars: stamped[i] for i, params in enumerate(grid.combinations())}
+    by_hold = {params.as_dict()["max_hold_bars"]: stamped[i] for i, params in enumerate(grid.combinations())}
     assert by_hold == {0: "reconciled", 5: "tier-1-only"}
     assert stamped.count("reconciled") == stamped.count("tier-1-only") == 2
 

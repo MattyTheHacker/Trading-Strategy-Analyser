@@ -59,7 +59,7 @@ def bars(days: int = DAYS, minutes: int = MINUTES, first_day: str = FIRST_DAY) -
     stamps = [
         pd.date_range(f"{day:%Y-%m-%d} 14:00", periods=minutes, freq="min", tz="UTC") for day in days_index
     ]
-    index = stamps[0].append(stamps[1:])
+    index = pd.DatetimeIndex(stamps[0].append(stamps[1:]))
 
     count = len(index)
     close = BASE + 0.25 * np.cumsum(np.where((np.arange(count) // 20) % 2 == 0, 1.0, -1.0))
@@ -81,7 +81,7 @@ def bars(days: int = DAYS, minutes: int = MINUTES, first_day: str = FIRST_DAY) -
 
 def dataset(spec: ContextSpec = SPEC, **kwargs: int | str) -> context.Dataset:
     """Prepare the fixture bars with every condition the review reads."""
-    return context.prepare(bars(**kwargs), spec)
+    return context.prepare(bars(**kwargs), spec)  # type: ignore[arg-type]  # bars' own keywords, passed through
 
 
 def bars_in(
@@ -100,7 +100,7 @@ def bars_in(
     in_session = data.bars["trading_day"].to_numpy() == day
     found = np.flatnonzero((data.phase_values() == int(phase)) & in_session)
 
-    return found[:count].tolist()
+    return [int(bar) for bar in found[:count]]
 
 
 def sim_log(
@@ -179,7 +179,7 @@ def alternating(count: int, *, win: float = 100.0, loss: float = -50.0) -> list[
 
 def annotated(log: pd.DataFrame, data: context.Dataset, **kwargs: object) -> annotate.Annotation:
     """Annotate a log against the dataset it was built over."""
-    return annotate.annotate_trades(log, data, **kwargs)
+    return annotate.annotate_trades(log, data, **kwargs)  # type: ignore[arg-type]  # annotate_trades' own keywords, passed through
 
 
 def two_phase_case(
@@ -649,7 +649,7 @@ def test_an_outcome_no_trade_reached_is_reported_empty_rather_than_dropped() -> 
     log, annotation = counted_case()
     profile = review.by_outcome(log, annotation, "entry_confluence").set_index("outcome")
     assert profile.loc["scratch", "trades"] == 0
-    assert np.isnan(profile.loc["scratch", "mean"])
+    assert np.isnan(profile["mean"].loc["scratch"])
 
 
 def test_a_condition_that_is_not_a_number_has_no_mean() -> None:

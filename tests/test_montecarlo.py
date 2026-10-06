@@ -9,10 +9,10 @@ check. The second is ``path_statistic`` drifting into a second definition of the
 import numpy as np
 import pandas as pd
 import pytest
-from test_dispersion import leg_log
 
 from nqbt import montecarlo, stats
 from nqbt.montecarlo import MonteCarloError
+from tests.test_dispersion import leg_log
 
 # -- path_statistic must not become a second definition ------------------------
 
@@ -27,7 +27,7 @@ from nqbt.montecarlo import MonteCarloError
         [-5.0, -5.0, -5.0, 10.0, -5.0, -5.0],
     ],
 )
-def test_path_statistic_equals_the_reference_summary_exactly(pnl) -> None:
+def test_path_statistic_equals_the_reference_summary_exactly(pnl: list[float]) -> None:
     log = leg_log(pnl)
     reference = stats.summarise(log)
     vector = montecarlo.trade_pnl(log)
@@ -49,14 +49,14 @@ def test_path_statistic_of_no_trades_is_zero() -> None:
 
 
 @pytest.mark.parametrize("name", stats.TRADE_PNL_STATISTICS)
-def test_permuting_a_value_statistic_is_refused_rather_than_silently_passing(name) -> None:
+def test_permuting_a_value_statistic_is_refused_rather_than_silently_passing(name: str) -> None:
     pnl = np.array([100.0, -50.0, 200.0, -75.0, 30.0])
     with pytest.raises(MonteCarloError, match="does not depend on trade order"):
         montecarlo.permutation_test(pnl, name)
 
 
 @pytest.mark.parametrize("name", stats.TRADE_PNL_STATISTICS)
-def test_and_the_reason_it_is_refused_holds__reordering_cannot_move_those(name) -> None:
+def test_and_the_reason_it_is_refused_holds__reordering_cannot_move_those(name: str) -> None:
     """The guard above is only correct because this is true. Pin it, do not assume it."""
     pnl = np.array([100.0, -50.0, 200.0, -75.0, 30.0, -20.0, 45.0])
     rng = np.random.default_rng(7)
@@ -66,7 +66,7 @@ def test_and_the_reason_it_is_refused_holds__reordering_cannot_move_those(name) 
 
 
 @pytest.mark.parametrize("name", stats.PATH_STATISTICS)
-def test_reordering_does_move_a_path_statistic(name) -> None:
+def test_reordering_does_move_a_path_statistic(name: str) -> None:
     """The complement of the test above: if this failed, the whole module is pointless."""
     pnl = np.array([-5.0, -5.0, -5.0, -5.0, 40.0, -2.0, 3.0])
     rng = np.random.default_rng(3)
@@ -120,7 +120,7 @@ def test_permutation_reports_when_there_are_too_few_trades_to_believe_it() -> No
 
 
 @pytest.mark.parametrize("size", [0, 1])
-def test_permuting_fewer_than_two_trades_raises(size) -> None:
+def test_permuting_fewer_than_two_trades_raises(size: int) -> None:
     with pytest.raises(MonteCarloError, match="at least 2 trades"):
         montecarlo.permutation_test(np.ones(size))
 
@@ -133,15 +133,15 @@ def test_bootstrap_brackets_the_observed_value() -> None:
     pnl = rng.normal(2.0, 40.0, size=300)
     frame = montecarlo.bootstrap(pnl, ("net_pnl", "expectancy"), iterations=300, seed=0)
 
-    for row in frame.itertuples():
-        assert row.p05 <= row.observed <= row.p95, row.statistic
+    for row in frame.to_dict("records"):
+        assert row["p05"] <= row["observed"] <= row["p95"], row["statistic"]
 
 
 def test_bootstrap_of_an_all_losing_record_never_resamples_a_profit() -> None:
     pnl = np.full(60, -25.0)
     frame = montecarlo.bootstrap(pnl, ("net_pnl",), iterations=100, seed=0)
     assert frame.loc[0, "share_below_zero"] == 1.0
-    assert frame.loc[0, "p95"] < 0
+    assert frame["p95"].loc[0] < 0
 
 
 def test_bootstrap_carries_its_provenance_on_the_frame() -> None:
@@ -157,7 +157,7 @@ def test_bootstrap_counts_the_infinite_draws_it_dropped() -> None:
     """A resample with no losing trade reports an infinite profit factor by design."""
     pnl = np.array([10.0, 20.0, 30.0, -1.0])
     frame = montecarlo.bootstrap(pnl, ("profit_factor",), iterations=200, seed=0)
-    assert 0 < frame.loc[0, "draws_finite"] < 200
+    assert 0 < frame["draws_finite"].loc[0] < 200
 
 
 def test_bootstrap_rejects_an_unknown_statistic() -> None:
@@ -171,7 +171,7 @@ def test_bootstrap_rejects_an_empty_statistic_list() -> None:
 
 
 @pytest.mark.parametrize("size", [0, 1])
-def test_bootstrapping_fewer_than_two_trades_raises(size) -> None:
+def test_bootstrapping_fewer_than_two_trades_raises(size: int) -> None:
     with pytest.raises(MonteCarloError, match="at least 2 trades"):
         montecarlo.bootstrap(np.ones(size))
 

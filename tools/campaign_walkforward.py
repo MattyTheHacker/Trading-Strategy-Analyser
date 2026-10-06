@@ -157,6 +157,7 @@ def run_resolution(
 
 
 def main(argv: list[str]) -> int:
+    """Walk the shortlist forward through its folds and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Multi-fold walk-forward over a campaign shortlist.")
     parser.add_argument("--strategy", required=True)
@@ -198,7 +199,7 @@ def main(argv: list[str]) -> int:
 
     bars: pd.DataFrame = splice.load_continuous(args.root)
     verdicts: list[dict[str, object]] = [
-        run_resolution(args.strategy, block, args.root, int(minutes), bars, args)
+        run_resolution(args.strategy, block, args.root, int(minutes), bars, args)  # type: ignore[arg-type]  # a groupby key on an int column
         for minutes, block in rows.groupby("resolution", sort=True)
     ]
     logger.info("")

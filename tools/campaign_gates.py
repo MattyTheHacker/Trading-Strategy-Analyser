@@ -299,7 +299,7 @@ class Rerun:
     """One shortlisted configuration re-run: where it sits in the shortlist, and what the run gave."""
 
     position: int
-    params: archetypes.Params
+    params: archetypes.ArchetypeParams
     summary: dict[str, object]
     log: pd.DataFrame
     data: context.Dataset
@@ -738,6 +738,7 @@ def report_reruns(out: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Run every per-cell read over the variant set and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Every per-cell read of a variant set, in one pass.")
     parser.add_argument(

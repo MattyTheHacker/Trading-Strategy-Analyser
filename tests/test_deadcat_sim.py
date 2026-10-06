@@ -4,42 +4,55 @@ Every expectation here is computed by hand from DeadCatBounce.cs semantics. Pric
 kept small and round so the arithmetic is checkable by eye.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 
+from nqbt import trades as trades_mod
 from nqbt.instruments import MNQ, NQ
 from nqbt.sim import bracket, deadcat
 from nqbt.sim.types import DeadCatParams
 from nqbt.trades import LONG, SHORT
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import pandas as pd
+
+    from nqbt.instruments import Instrument
+
+type Row = tuple[float, float, float, float]
+"""One bar as open, high, low, close."""
+
 TICK = 0.25
 OFFSET = 2 * TICK  # stop sits 2 ticks beyond the reference high
 
 
-def run(
-    rows,
-    signal_at=(),
+def run(  # noqa: PLR0913 - one keyword per simulated NT8 property
+    rows: Sequence[Row],
+    signal_at: Sequence[int] = (),
     *,
-    force_flat_at=(),
-    quantities=(1, 1, 1, 1),
-    targets=(1.0, 1.5, 2.0, np.nan),
-    slippage=0.0,
-    commission=0.0,
-    instrument=MNQ,
-    bars_required=0,
-    min_reward_risk=0.0,
-    ratchet_lag=1,
-    entry_offset=0.0,  # 0 => trigger is just Low[0]; tests opt in explicitly
-    tp_multiplier=1.0,
-    max_risk_ticks=1e9,
-    block_entry_at_close=True,
-    fill_limit_on_touch=True,  # tests target exact prices; opt out explicitly
-    ambiguity_policy=0,
-    direction=SHORT,
-    ratchet_offset_ticks=2.0,  # DeadCatBounce.cs reapplies the entry's stop offset
-    round_targets=True,  # DeadCatBounce.cs calls RoundToTickSize; PBG does not
-    max_hold_bars=0,
-):
+    force_flat_at: Sequence[int] = (),
+    quantities: Sequence[int] = (1, 1, 1, 1),
+    targets: Sequence[float] = (1.0, 1.5, 2.0, np.nan),
+    slippage: float = 0.0,
+    commission: float = 0.0,
+    instrument: Instrument = MNQ,
+    bars_required: int = 0,
+    min_reward_risk: float = 0.0,
+    ratchet_lag: int = 1,
+    entry_offset: float = 0.0,  # 0 => trigger is just Low[0]; tests opt in explicitly
+    tp_multiplier: float = 1.0,
+    max_risk_ticks: float = 1e9,
+    block_entry_at_close: bool = True,
+    fill_limit_on_touch: bool = True,  # tests target exact prices; opt out explicitly
+    ambiguity_policy: int = 0,
+    direction: float = SHORT,
+    ratchet_offset_ticks: float = 2.0,  # DeadCatBounce.cs reapplies the entry's stop offset
+    round_targets: bool = True,  # DeadCatBounce.cs calls RoundToTickSize; PBG does not
+    max_hold_bars: int = 0,
+) -> pd.DataFrame:
     """Simulate hand-written OHLC rows. ``signal_at`` lists signal bar indices."""
     arr = np.asarray(rows, dtype=np.float64)
     o, h, low, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -77,8 +90,6 @@ def run(
     )
     assert count >= 0, "trade buffer overflowed"
 
-    from nqbt import trades as trades_mod
-
     return trades_mod.validate(trades_mod.trades_to_frame(out, count, instrument=instrument.symbol))
 
 
@@ -95,7 +106,7 @@ def test_signal_places_an_order_that_fills_on_the_next_bar() -> None:
         ],
         signal_at=[0],
     )
-    assert trades["entry_bar"].nunique() == 1
+    assert trades["entry_bar"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
     assert trades["entry_bar"].iloc[0] == 1
     assert trades["entry_price"].iloc[0] == pytest.approx(100.0)
     assert trades["initial_stop"].iloc[0] == pytest.approx(104.5)
@@ -140,7 +151,7 @@ def test_a_buy_stop_at_the_market_is_never_submitted() -> None:
     # PullBackAndGo triggers on a bare High[0]. When the signal bar closes on its high the
     # trigger equals the market it would be submitted into, which NT8 declines --
     # ``docs/nt8-fidelity.md``, "A stop entry at or through the market is never submitted".
-    rows = [
+    rows: list[Row] = [
         (101, 104, 100, 104),  # 0: signal, closes ON its high -> trigger 104 == market
         (104, 106, 103, 105),  # 1: would have filled easily
     ]
@@ -174,7 +185,7 @@ def test_no_new_signal_is_taken_while_in_a_position() -> None:
         ],
         signal_at=[0, 2],
     )
-    assert trades["trade_id"].nunique() == 1
+    assert trades["trade_id"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
 
 
 def test_bars_required_to_trade_suppresses_early_signals() -> None:
@@ -206,7 +217,7 @@ def test_targets_fill_at_their_price_and_scale_out_independently() -> None:
     assert by_leg.loc[3, "r_multiple"] == pytest.approx(2.0)
     assert list(by_leg.loc[[1, 2, 3], "exit_reason"]) == ["target"] * 3
     # Leg 4 is the runner: no target of its own, so it survives to the end of the data.
-    assert np.isnan(by_leg.loc[4, "target_price"])
+    assert np.isnan(by_leg["target_price"].loc[4])
     assert by_leg.loc[4, "exit_reason"] == "end_of_data"
     assert by_leg.loc[4, "exit_price"] == pytest.approx(92.0)
 
@@ -513,7 +524,7 @@ def test_legs_share_a_trade_id_and_carry_their_own_quantity() -> None:
         signal_at=[0],
         quantities=(2, 2, 2, 4),
     )
-    assert trades["trade_id"].nunique() == 1
+    assert trades["trade_id"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
     assert list(trades.sort_values("leg")["quantity"]) == [2, 2, 2, 4]
 
 
@@ -528,7 +539,7 @@ def test_consecutive_signals_produce_separate_trades() -> None:
         ],
         signal_at=[0, 2],
     )
-    assert trades["trade_id"].nunique() == 1
+    assert trades["trade_id"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
     assert trades["entry_bar"].unique() == [3]
 
 

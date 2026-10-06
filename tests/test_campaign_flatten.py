@@ -10,18 +10,19 @@ swallowed.
 
 from __future__ import annotations
 
+import argparse
+
 import pandas as pd
 import pytest
 
 import tools.campaign_flatten as module
-from nqbt import archetypes, resample, sessions
+from nqbt import archetypes, resample, sessions, splice
 from tests.test_campaign_shortlist import synthetic_bars
 from tests.test_campaign_swept import stored_frame, stored_row
 from tools.campaign_flatten import (
     CONTROL,
     CUTOFF,
     CUTOFFS,
-    SWEPT_BARS,
     ladder,
     measure,
     reconcile,
@@ -30,6 +31,7 @@ from tools.campaign_flatten import (
     shortlisted,
 )
 from tools.campaign_shortlist import source
+from tools.campaign_swept import HELD_OUT, SWEPT_BARS
 
 
 def arm(seconds: int, **columns: object) -> pd.DataFrame:
@@ -144,8 +146,11 @@ def test_a_control_reproducing_its_stored_rows_reconciles_on_both_figures() -> N
 
 
 def test_a_control_that_no_longer_reproduces_is_counted_rather_than_raised() -> None:
-    """The weakening this campaign rests on: an archive that has moved under a stored row makes
-    the *levels* this run's, and the ladder's differences are still the cutoff's."""
+    """The weakening this campaign rests on.
+
+    An archive that has moved under a stored row makes the *levels* this run's, and the ladder's
+    differences are still the cutoff's.
+    """
     drifted = arm(CONTROL, net_pnl=[-10.0, -5.0, 5.0, 133.0])
     table = reconcile(pd.concat([drifted, arm(180)], ignore_index=True))
 
@@ -155,16 +160,20 @@ def test_a_control_that_no_longer_reproduces_is_counted_rather_than_raised() -> 
 
 
 def test_a_cell_read_off_bars_it_was_not_swept_on_says_so() -> None:
-    """The archive gaining history earlier than its tail moves the 60/40 split, and a cell read
-    off the window that produces is this run's rather than the registry's."""
+    """The archive gaining history earlier than its tail moves the 60/40 split.
+
+    A cell read off the window that produces is this run's rather than the registry's.
+    """
     rows = pd.concat([arm(CONTROL, **{SWEPT_BARS: False}), arm(180)], ignore_index=True)
 
     assert bool(reconcile(rows)[SWEPT_BARS].iloc[0]) is False
 
 
 def test_only_the_control_rung_is_reconciled() -> None:
-    """A treatment rung is *meant* to differ from the stored row, so counting it would report
-    the measurement as a failure to reproduce."""
+    """A treatment rung is *meant* to differ from the stored row.
+
+    Counting it would report the measurement as a failure to reproduce.
+    """
     rows = pd.concat([arm(CONTROL), arm(300, net_pnl=[0.0] * 4)], ignore_index=True)
     table = reconcile(rows)
 
@@ -186,7 +195,7 @@ def test_the_resolutions_are_read_off_the_stored_cell_rather_than_assumed(
             "resolution": [15, 5, 1, 2],
         },
     )
-    monkeypatch.setattr(module, "load", lambda name, windows: frame)
+    monkeypatch.setattr(module, "load", lambda _name, _windows: frame)
 
     assert resolutions_for("InsideBarTrailing", "MNQ", "phase=MIDDAY", "trailing") == [5, 15]
     assert resolutions_for("InsideBarTrailing", "MNQ", None, "trailing") == [1, 5, 15]
@@ -198,7 +207,15 @@ def test_a_shortlist_is_taken_inside_each_bar_size_rather_than_pooled(
     """Bar size is the largest lever in the campaign, so a pooled shortlist would rank it."""
     asked: list[int | None] = []
 
-    def fake(name, root, by, top, stratum, resolution, variant):  # noqa: ANN001, ANN202
+    def fake(
+        _name: str,
+        _root: str,
+        _by: str,
+        _top: int,
+        _stratum: str | None,
+        resolution: int | None,
+        _variant: str | None,
+    ) -> pd.DataFrame:
         asked.append(resolution)
 
         return pd.DataFrame({"resolution": [resolution]})
@@ -215,15 +232,13 @@ def test_a_cell_nothing_was_stored_for_says_so_rather_than_measuring_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     empty = pd.DataFrame({"root": [], "stratum": [], "variant": [], "resolution": []})
-    monkeypatch.setattr(module, "load", lambda name, windows: empty)
+    monkeypatch.setattr(module, "load", lambda _name, _windows: empty)
     with pytest.raises(SystemExit, match="no stored holdout rows"):
         shortlisted(argparse_namespace(resolution=None), "InsideBarTrailing", "MNQ")
 
 
-def argparse_namespace(**overrides: object):  # noqa: ANN201 - argparse's own namespace type
+def argparse_namespace(**overrides: object) -> argparse.Namespace:
     """Build the subset of ``main``'s parsed arguments the selection helpers read."""
-    import argparse
-
     base = {
         "by": "profit_factor",
         "top": 20,
@@ -241,15 +256,18 @@ def argparse_namespace(**overrides: object):  # noqa: ANN201 - argparse's own na
 def test_every_configuration_is_measured_once_per_cutoff_and_carries_which(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The plumbing the ladder reads: one row per (configuration, cutoff), tagged with the
-    cutoff it was run at and with what the sweep stored for it."""
+    """The plumbing the ladder reads.
+
+    One row per (configuration, cutoff), tagged with the cutoff it was run at and with what the
+    sweep stored for it.
+    """
     bars = synthetic_bars(n=6000)
-    monkeypatch.setattr(module.splice, "load_continuous", lambda root: bars)
-    frame = resample.resample(source(bars, module.HELD_OUT), 5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
+    frame = resample.resample(source(bars, HELD_OUT), 5)
     monkeypatch.setattr(
         module,
         "stored_rows",
-        lambda name, root, window: stored_frame(frame, 0, len(frame) - 1),
+        lambda _name, _root, _window: stored_frame(frame, 0, len(frame) - 1),
     )
     table = measure(stored_row(), archetypes.INSIDEBAR, "MNQ", (CONTROL, 900))
 
@@ -276,7 +294,7 @@ def test_a_run_prints_the_reconciliation_before_the_ladder(monkeypatch: pytest.M
     shown: list[str] = []
     measured = pd.concat([arm(CONTROL), arm(900)], ignore_index=True)
     monkeypatch.setattr(module, "cell", lambda *_: measured)
-    monkeypatch.setattr(module, "show", lambda title, frame: shown.append(title))
+    monkeypatch.setattr(module, "show", lambda title, _frame: shown.append(title))
 
     assert module.main(["campaign_flatten.py", "--strategy", "InsideBarTrailing"]) == 0
     assert [title.split(" ")[1] for title in shown] == ["30s", "flatten"]

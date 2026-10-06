@@ -1,4 +1,4 @@
-"""The stop tightening with time: the rules, the parameters, the context they read, the loops and the registry.
+"""The stop tightening with time: the rules, parameters, context they read, loops and registry.
 
 What carries it is that **the stop only ever moves to a level one of the two rules named at an
 earlier close, and never loosens after**: a trade no rule named a level for is left exactly as it
@@ -50,6 +50,8 @@ from tests.test_insidebartrailing_sim import walk_bars
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.archetypes import ArchetypeParams
+    from nqbt.arrays import BoolArray, FloatArray
     from nqbt.context import ContextSpec, Dataset
 
 TICK = 0.25
@@ -87,7 +89,9 @@ ARMS: dict[str, dict[str, object]] = {
 The late window is wider than a campaign would run it so that it opens often on these bars."""
 
 
-def open_trade(*, entry_bar=2, entry_price=100.0, risk=10.0, direction=LONG) -> bracket.OpenTrade:
+def open_trade(
+    *, entry_bar: int = 2, entry_price: float = 100.0, risk: float = 10.0, direction: float = LONG
+) -> bracket.OpenTrade:
     return bracket.OpenTrade(
         trade_id=1,
         entry_bar=entry_bar,
@@ -109,7 +113,7 @@ def flat_bars(closes: list[float], *, spread: float = 1.0) -> bracket.Bars:
 
 
 def rule(**fields: object) -> bracket.StopTightening:
-    return bracket.STOP_TIGHTENING_OFF._replace(**fields)
+    return bracket.STOP_TIGHTENING_OFF._replace(**fields)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def level(
@@ -126,7 +130,7 @@ def level(
     return bracket.tightening_level(the_rule, trade, stop, bars, i, COSTS, fills)
 
 
-def minute_clock(*minutes: float) -> np.ndarray:
+def minute_clock(*minutes: float) -> FloatArray:
     return 1_700_000_000.0 + 60.0 * np.asarray(minutes, dtype=np.float64)
 
 
@@ -238,7 +242,7 @@ def test_the_short_side_is_the_long_side_through_the_sign() -> None:
 # -- the late stop -----------------------------------------------------------------------------
 
 
-def window(n: int, *open_from: int) -> np.ndarray:
+def window(n: int, *open_from: int) -> BoolArray:
     late = np.zeros(n, dtype=np.bool_)
     late[list(open_from)] = True
 
@@ -313,7 +317,7 @@ def test_with_both_rules_on_the_level_nearer_the_market_is_the_one_returned() ->
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_both_rules_are_off_by_default_on_every_class(cls) -> None:
+def test_both_rules_are_off_by_default_on_every_class(cls: type[ArchetypeParams]) -> None:
     params = cls()
     assert (params.age_stop_bars, params.age_stop_minutes, params.late_stop_minutes_before_close) == (0, 0, 0)
     assert params.late_stop_atr_period == LATE_STOP_ATR_PERIOD
@@ -374,30 +378,34 @@ def test_both_rules_are_off_by_default_on_every_class(cls) -> None:
         ({"max_hold_bars": 3, "age_stop_bars": 5}, "can never move a stop under max_hold_bars of 3"),
     ],
 )
-def test_a_tightening_out_of_range_unread_or_unreachable_is_refused(cls, fields, message) -> None:
+def test_a_tightening_out_of_range_unread_or_unreachable_is_refused(
+    cls: type[ArchetypeParams], fields: dict[str, object], message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
         cls(**fields)
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_every_arm_is_accepted_and_may_run_beside_a_breakeven_and_an_early_exit(cls) -> None:
+def test_every_arm_is_accepted_and_may_run_beside_a_breakeven_and_an_early_exit(
+    cls: type[ArchetypeParams],
+) -> None:
     for fields in ARMS.values():
-        assert cls(**fields, breakeven_at=1.0, early_exit_bars=3).breakeven_at == 1.0
+        assert cls(**fields, breakeven_at=1.0, early_exit_bars=3).breakeven_at == 1.0  # type: ignore[call-arg]  # every params class takes its fields as keywords
 
-    both = cls(age_stop_bars=2, late_stop_minutes_before_close=30)
+    both = cls(age_stop_bars=2, late_stop_minutes_before_close=30)  # type: ignore[call-arg]  # every params class takes its fields as keywords
     assert both.age_stop_bars == 2
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_a_line_reaching_past_the_hold_cap_still_moves_before_it(cls) -> None:
-    assert cls(max_hold_bars=3, age_stop_bars=5, age_stop_shape=bracket.AGE_STOP_LINE).age_stop_bars == 5
-    assert cls(max_hold_bars=4, age_stop_bars=3).age_stop_bars == 3
+def test_a_line_reaching_past_the_hold_cap_still_moves_before_it(cls: type[ArchetypeParams]) -> None:
+    assert cls(max_hold_bars=3, age_stop_bars=5, age_stop_shape=bracket.AGE_STOP_LINE).age_stop_bars == 5  # type: ignore[call-arg]  # every params class takes its fields as keywords
+    assert cls(max_hold_bars=4, age_stop_bars=3).age_stop_bars == 3  # type: ignore[call-arg]  # every params class takes its fields as keywords
 
 
 # -- the context it reads ----------------------------------------------------------------------
 
 
-def test_with_both_rules_off_it_carries_no_series(bars) -> None:
+def test_with_both_rules_off_it_carries_no_series(bars: pd.DataFrame) -> None:
     params = TRADING["DeadCatBounce"]
     built = filters.stop_tightening(prepared(bars, params, archetypes.DEADCATBOUNCE), params)
     off = bracket.STOP_TIGHTENING_OFF
@@ -406,7 +414,7 @@ def test_with_both_rules_off_it_carries_no_series(bars) -> None:
     assert [getattr(built, name) for name in scalars] == [getattr(off, name) for name in scalars]
 
 
-def test_the_age_reads_bars_or_the_bars_own_clock(bars) -> None:
+def test_the_age_reads_bars_or_the_bars_own_clock(bars: pd.DataFrame) -> None:
     in_bars = dataclasses.replace(TRADING["DeadCatBounce"], age_stop_bars=4)
     data = prepared(bars, in_bars, archetypes.DEADCATBOUNCE)
     built = filters.stop_tightening(data, in_bars)
@@ -417,7 +425,9 @@ def test_the_age_reads_bars_or_the_bars_own_clock(bars) -> None:
     assert np.array_equal(built.clock, data.bar_seconds())
 
 
-def test_the_late_window_is_the_no_entry_windows_and_the_atr_is_read_only_at_an_atr_multiple(bars) -> None:
+def test_the_late_window_is_the_no_entry_windows_and_the_atr_is_read_only_at_an_atr_multiple(
+    bars: pd.DataFrame,
+) -> None:
     late = dataclasses.replace(TRADING["DeadCatBounce"], late_stop_minutes_before_close=45)
     data = prepared(bars, late, archetypes.DEADCATBOUNCE)
     built = filters.stop_tightening(data, late)
@@ -431,7 +441,7 @@ def test_the_late_window_is_the_no_entry_windows_and_the_atr_is_read_only_at_an_
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_every_series_a_rule_reads_is_built_into_the_dataset(name) -> None:
+def test_every_series_a_rule_reads_is_built_into_the_dataset(name: str) -> None:
     archetype = archetypes.get(name)
 
     def spec(**fields: object) -> ContextSpec:
@@ -454,7 +464,7 @@ def test_every_series_a_rule_reads_is_built_into_the_dataset(name) -> None:
 # -- the loops ---------------------------------------------------------------------------------
 
 
-def trade_of(rows: np.ndarray) -> bracket.OpenTrade:
+def trade_of(rows: FloatArray) -> bracket.OpenTrade:
     """Return the position ``rows`` were legs of, carrying the bracketed lot's R as the loops do."""
     first = rows[0]
 
@@ -466,7 +476,9 @@ def trade_of(rows: np.ndarray) -> bracket.OpenTrade:
     )
 
 
-def tightest_before(params, data: Dataset, leg: np.ndarray, trade: bracket.OpenTrade, until: int) -> float:
+def tightest_before(
+    params: ArchetypeParams, data: Dataset, leg: FloatArray, trade: bracket.OpenTrade, until: int
+) -> float:
     """Return the tightest level the rules named for ``leg`` at any close before bar ``until``, or ``nan``."""
     the_rule = filters.stop_tightening(data, params)
     bars = bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat)
@@ -482,14 +494,14 @@ def tightest_before(params, data: Dataset, leg: np.ndarray, trade: bracket.OpenT
     return tightest
 
 
-def by_entry(matrix: np.ndarray) -> dict[int, np.ndarray]:
+def by_entry(matrix: FloatArray) -> dict[int, FloatArray]:
     return {int(bar): matrix[matrix[:, C_ENTRY_BAR] == bar] for bar in np.unique(matrix[:, C_ENTRY_BAR])}
 
 
 @pytest.mark.parametrize("arm", sorted(ARMS))
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
 def test_every_stop_exit_is_at_the_tightest_level_named_before_it_or_gapped_through_it(
-    bars, loop, arm
+    bars: pd.DataFrame, loop: str, arm: str
 ) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
@@ -521,7 +533,9 @@ LEAVES_SOME_TRADES_ALONE = sorted(set(ARMS) - {"half way along a line over 4 bar
 
 @pytest.mark.parametrize("arm", LEAVES_SOME_TRADES_ALONE)
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_a_trade_no_rule_named_a_level_for_is_left_exactly_as_it_was(bars, loop, arm) -> None:
+def test_a_trade_no_rule_named_a_level_for_is_left_exactly_as_it_was(
+    bars: pd.DataFrame, loop: str, arm: str
+) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     params = dataclasses.replace(base, **ARMS[arm])
@@ -550,7 +564,7 @@ def test_a_trade_no_rule_named_a_level_for_is_left_exactly_as_it_was(bars, loop,
 
 
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_a_rule_that_never_names_a_level_leaves_every_trade_as_it_was(bars, loop) -> None:
+def test_a_rule_that_never_names_a_level_leaves_every_trade_as_it_was(bars: pd.DataFrame, loop: str) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     never = dataclasses.replace(base, age_stop_bars=10**6)
@@ -561,7 +575,7 @@ def test_a_rule_that_never_names_a_level_leaves_every_trade_as_it_was(bars, loop
     assert np.array_equal(off.matrix[: off.count], on.matrix[: on.count], equal_nan=True)
 
 
-def stopped_at_entry(params, data: Dataset) -> int:
+def stopped_at_entry(params: ArchetypeParams, data: Dataset) -> int:
     """Count the legs ``params`` stops out exactly at their entry price on DeadCatBounce."""
     legs = archetypes.DEADCATBOUNCE.legs(data, params, MNQ)
     # The rows past ``count`` are zero padding, which reads as a stop exit at a price of zero.
@@ -571,7 +585,7 @@ def stopped_at_entry(params, data: Dataset) -> int:
     return int(np.isclose(stopped[:, C_EXIT_PRICE], stopped[:, C_ENTRY_PRICE]).sum())
 
 
-def test_the_tightening_and_an_early_exit_both_act_in_one_run(bars) -> None:
+def test_the_tightening_and_an_early_exit_both_act_in_one_run(bars: pd.DataFrame) -> None:
     """The ratchet alone stops some legs out at their entry, so the tightening has to add to that count."""
     early_only = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_bars=3)
     both = dataclasses.replace(early_only, **ARMS["to the entry at bar 1"])
@@ -585,7 +599,7 @@ def test_the_tightening_and_an_early_exit_both_act_in_one_run(bars) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_the_age_stops_settings_are_dead_without_it(name) -> None:
+def test_the_age_stops_settings_are_dead_without_it(name: str) -> None:
     archetype = archetypes.get(name)
     with pytest.raises(
         sweep.SweepError,
@@ -600,7 +614,9 @@ def test_the_age_stops_settings_are_dead_without_it(name) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_the_late_stops_settings_are_dead_without_its_window_and_its_atr_without_an_atr_level(name) -> None:
+def test_the_late_stops_settings_are_dead_without_its_window_and_its_atr_without_an_atr_level(
+    name: str,
+) -> None:
     archetype = archetypes.get(name)
     with pytest.raises(
         sweep.SweepError, match=r"late_stop_to \(inert while late_stop_minutes_before_close is 0\)"
@@ -625,7 +641,9 @@ def test_the_late_stops_settings_are_dead_without_its_window_and_its_atr_without
     ],
 )
 @pytest.mark.parametrize("arm", sorted(ARMS))
-def test_a_tightening_row_leaves_every_reconciled_port(archetype, params, arm) -> None:
+def test_a_tightening_row_leaves_every_reconciled_port(
+    archetype: archetypes.Archetype, params: ArchetypeParams, arm: str
+) -> None:
     assert archetype.tier2_for(params) is Tier2Status.RECONCILED
     assert archetype.tier2_for(dataclasses.replace(params, **ARMS[arm])) is Tier2Status.TIER1_ONLY
 

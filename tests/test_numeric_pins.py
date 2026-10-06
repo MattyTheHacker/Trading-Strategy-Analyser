@@ -17,6 +17,7 @@ Two things here are deliberate and read as mistakes otherwise:
 """
 
 import hashlib
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,9 @@ from nqbt.context import ContextSpec
 from nqbt.instruments import MNQ
 from nqbt.sim.runner import deadcat_legs, run_deadcat
 from nqbt.sim.types import DeadCatParams
+
+if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray
 
 TICK = 0.25
 BARS = 20_000
@@ -108,7 +112,7 @@ SPEC = ContextSpec(
 )
 
 
-def _digest(values: np.ndarray) -> str:
+def _digest(values: FloatArray) -> str:
     """Hash one float64 column, reading ``-0.0`` as ``0.0`` and ``nan`` as one fixed value.
 
     Both normalisations are what stops this being stricter than the trade-log gate --
@@ -187,20 +191,20 @@ def frame() -> pd.DataFrame:
 
 
 @pytest.fixture(scope="module")
-def log(frame) -> pd.DataFrame:
+def log(frame: pd.DataFrame) -> pd.DataFrame:
     return run_deadcat(context.prepare(frame, SPEC), PARAMS, MNQ)
 
 
 # -- the input, so a failure below can be attributed ---------------------------
 
 
-def test_the_generated_bars_are_unchanged(frame) -> None:
+def test_the_generated_bars_are_unchanged(frame: pd.DataFrame) -> None:
     """Fails first when the *input* moved, which every other pin here would blame on the sim."""
     got = {name: _digest(frame[name].to_numpy(np.float64)) for name in BAR_DIGESTS}
     assert got == BAR_DIGESTS
 
 
-def test_every_generated_price_lies_on_the_tick_grid(frame) -> None:
+def test_every_generated_price_lies_on_the_tick_grid(frame: pd.DataFrame) -> None:
     """What makes the bars exact in float64, and so identical on any platform."""
     for name in ("open", "high", "low", "close"):
         prices = frame[name].to_numpy(np.float64)
@@ -210,17 +214,17 @@ def test_every_generated_price_lies_on_the_tick_grid(frame) -> None:
 # -- the pins ------------------------------------------------------------------
 
 
-def test_every_trade_log_column_digests_to_its_pinned_value(log) -> None:
+def test_every_trade_log_column_digests_to_its_pinned_value(log: pd.DataFrame) -> None:
     """Column by column, so a failure names what moved rather than only that something did."""
     got = {name: _digest(log[name].to_numpy(np.float64)) for name in LEG_DIGESTS}
     assert got == LEG_DIGESTS
 
 
-def test_the_pinned_summary_is_unchanged(log) -> None:
+def test_the_pinned_summary_is_unchanged(log: pd.DataFrame) -> None:
     assert stats.summarise(log).as_dict() == SUMMARY
 
 
-def test_the_two_summary_paths_still_agree_on_this_scenario(frame) -> None:
+def test_the_two_summary_paths_still_agree_on_this_scenario(frame: pd.DataFrame) -> None:
     """``summarise_legs`` is the fast path; a bump must not move it away from the reference."""
     data = context.prepare(frame, SPEC)
     legs = deadcat_legs(data, PARAMS, MNQ)
@@ -230,7 +234,7 @@ def test_the_two_summary_paths_still_agree_on_this_scenario(frame) -> None:
 # -- the scenario has to keep being worth pinning ------------------------------
 
 
-def test_the_scenario_still_exercises_every_exit_reason(log) -> None:
+def test_the_scenario_still_exercises_every_exit_reason(log: pd.DataFrame) -> None:
     """Retuning the walk must not quietly drop the force-flat path out of the gate."""
     assert set(log["exit_reason"]) == {"stop", "target", "session_close"}
     assert log["ambiguous_bar"].sum() > 0, "no ambiguous bar, so the resolution rule is untested"
@@ -243,7 +247,7 @@ def test_the_scenario_produces_wins_losses_and_a_scratch() -> None:
     assert SUMMARY["scratches"] > 0
 
 
-def test_a_moved_number_is_caught(log) -> None:
+def test_a_moved_number_is_caught(log: pd.DataFrame) -> None:
     """The gate must be able to fail: one value, one tick, one column."""
     tampered = log.copy()
     tampered.loc[tampered.index[0], "exit_price"] += TICK

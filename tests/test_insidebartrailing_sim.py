@@ -6,6 +6,7 @@ and round so the arithmetic is checkable by eye.
 """
 
 import dataclasses
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ import pytest
 
 from nqbt import archetypes, conditions, context, sessions, sweep
 from nqbt.archetypes import Tier2Status
-from nqbt.instruments import MNQ, NQ
+from nqbt.instruments import MNQ, NQ, Instrument
 from nqbt.sim import bracket, filters, insidebartrailing
 from nqbt.sim.insidebar import insidebar_direction, insidebar_patterns, insidebar_signal, insidebar_trends
 from nqbt.sim.types import (
@@ -27,6 +28,17 @@ from nqbt.sim.types import (
 )
 from nqbt.trades import LONG, N_COLUMNS, SHORT, trades_to_frame, validate
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nqbt.arrays import BoolArray, FloatArray
+
+type Row = tuple[float, float, float, float]
+"""One bar as open, high, low, close."""
+
+type PerBar = float | Sequence[float] | FloatArray
+"""One value for every bar, or a value per bar."""
+
 TICK = 0.25
 FAR_ATR = 40.0
 """An ATR large enough that the bracketed lot's stop and target never bind, so a test about
@@ -36,40 +48,40 @@ FAR_TRAIL = 10.0
 """And a trail wide enough not to bind on :data:`QUIET` bars, for the mirror-image reason."""
 
 
-def fixed_sizing(quantities, n):
+def fixed_sizing(quantities: Sequence[int], n: int) -> bracket.Sizing:
     """Size every entry with one split, which is the NinjaScript as ported."""
     return bracket.Sizing(np.asarray([quantities], dtype=np.int64), np.zeros(n, dtype=np.int64))
 
 
 def simulate(  # noqa: PLR0913 - one argument per simulated NT8 property
-    rows,
-    signal_at=(),
+    rows: Sequence[Row],
+    signal_at: Sequence[int] = (),
     *,
-    max_rows=None,
-    direction=LONG,
-    atr=FAR_ATR,
-    ema=0.0,
-    fast_sma=0.0,
-    force_flat_at=(),
-    quantities=(4, 2),
-    sizing=None,
-    atr_multiplier=1.0,
-    tp_multiplier=1.0,
-    trail_multiplier=FAR_TRAIL,
-    loss_gate=0.0,
-    slippage=0.0,
-    commission=0.0,
-    instrument=MNQ,
-    bars_required=-1,
-    block_entry_at_close=True,
-    max_hold_bars=0,
-    fill_limit_on_touch=True,
-    ambiguity_policy=0,
-    round_targets=True,
+    max_rows: int | None = None,
+    direction: float = LONG,
+    atr: PerBar = FAR_ATR,
+    ema: PerBar = 0.0,
+    fast_sma: PerBar = 0.0,
+    force_flat_at: Sequence[int] = (),
+    quantities: Sequence[int] = (4, 2),
+    sizing: bracket.Sizing | None = None,
+    atr_multiplier: float = 1.0,
+    tp_multiplier: float = 1.0,
+    trail_multiplier: float = FAR_TRAIL,
+    loss_gate: float = 0.0,
+    slippage: float = 0.0,
+    commission: float = 0.0,
+    instrument: Instrument = MNQ,
+    bars_required: int = -1,
+    block_entry_at_close: bool = True,
+    max_hold_bars: int = 0,
+    fill_limit_on_touch: bool = True,
+    ambiguity_policy: int = 0,
+    round_targets: bool = True,
     structure_bars: int = 0,
     structure_cushion_atr: float = 0.0,
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF,
-):
+) -> tuple[int, FloatArray]:
     """Simulate hand-written OHLC rows.
 
     ``ema`` and ``fast_sma`` take a scalar or a per-bar sequence and default equal, which the
@@ -80,7 +92,7 @@ def simulate(  # noqa: PLR0913 - one argument per simulated NT8 property
     o, h, low, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
     n = len(arr)
 
-    def series(value):
+    def series(value: PerBar) -> FloatArray:
         return np.full(n, value, dtype=np.float64) if np.isscalar(value) else np.asarray(value, np.float64)
 
     signal = np.zeros(n, dtype=np.bool_)
@@ -123,12 +135,15 @@ def simulate(  # noqa: PLR0913 - one argument per simulated NT8 property
     return count, out
 
 
-def run(rows, signal_at=(), **kwargs):
+def run(rows: Sequence[Row], signal_at: Sequence[int] = (), **kwargs: object) -> pd.DataFrame:
     """Run :func:`simulate` with the count checked and the matrix turned into a trade log."""
-    count, out = simulate(rows, signal_at, **kwargs)
+    count, out = simulate(rows, signal_at, **kwargs)  # type: ignore[arg-type]  # the keywords are simulate's own
     assert count >= 0, "trade buffer overflowed"
 
-    return validate(trades_to_frame(out, count, instrument=kwargs.get("instrument", MNQ).symbol))
+    instrument: object = kwargs.get("instrument", MNQ)
+    assert isinstance(instrument, Instrument)
+
+    return validate(trades_to_frame(out, count, instrument=instrument.symbol))
 
 
 FLAT = (100.0, 100.5, 99.5, 100.0)
@@ -164,9 +179,9 @@ def test_one_entry_becomes_two_lots_with_their_own_exit_engines() -> None:
     trades = run(QUIET, signal_at=[1])
     assert list(trades["leg"]) == [1, 2]
     assert list(trades["quantity"]) == [4, 2]
-    assert trades["trade_id"].nunique() == 1
+    assert trades["trade_id"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
     assert list(trades["entry_bar"].unique()) == [2]
-    assert trades["entry_price"].nunique() == 1
+    assert trades["entry_price"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
 
 
 def test_the_trailing_lot_has_no_profit_target_at_all() -> None:
@@ -187,8 +202,10 @@ def test_the_two_lots_carry_their_own_stops_and_their_own_planned_risk() -> None
 
 
 def test_the_tp_multiplier_scales_the_bracketed_lots_target_only() -> None:
-    """The field is inherited from :class:`InsideBarParams`, and the runner has no target
-    for it to reach -- ``docs/nt8-fidelity.md`` §M22."""
+    """The field is inherited from :class:`InsideBarParams`, and the runner has no target for it to reach.
+
+    ``docs/nt8-fidelity.md`` §M22.
+    """
     trades = run(QUIET, signal_at=[1], tp_multiplier=2.5)
     assert trades["target_price"].iloc[0] == pytest.approx(100.0 + 2.5 * FAR_ATR)
     assert pd.isna(trades["target_price"].iloc[1])
@@ -358,7 +375,7 @@ BROKEN_UPWARD = [
 ]
 
 
-def runner_leg(trades: pd.DataFrame) -> pd.Series:
+def runner_leg(trades: pd.DataFrame) -> pd.Series:  # type: ignore[explicit-any]  # a row of mixed dtypes
     """Return the trailing lot's one leg."""
     return trades[trades["leg"] == 2].iloc[0]
 
@@ -453,7 +470,8 @@ def test_the_structure_trail_starts_at_the_same_stop_and_does_not_follow_the_ent
 
 @pytest.mark.parametrize(("round_targets", "level"), [(True, 100.25), (False, 100.125)])
 def test_a_structure_stop_lands_on_the_tick_grid_only_where_targets_do(
-    round_targets: bool, level: float
+    round_targets: bool,  # noqa: FBT001 - a parametrised case
+    level: float,
 ) -> None:
     """A midpoint between two ticks snaps to the grid under the switch that snaps the targets."""
     rows = [
@@ -470,7 +488,10 @@ def test_a_structure_stop_lands_on_the_tick_grid_only_where_targets_do(
 
 
 def test_a_half_tick_midpoint_rounds_up_on_a_short_as_every_snapped_level_does() -> None:
-    """``round_to_tick`` rounds a half tick up whichever the side, so a short's stop lands half a tick looser."""
+    """``round_to_tick`` rounds a half tick up whichever the side.
+
+    So a short's stop lands half a tick looser.
+    """
     rows = [
         FLAT,  # 0: inside bar
         (100.0, 100.5, 99.25, 100.0),  # 1: signal
@@ -570,7 +591,7 @@ def test_a_structure_trail_out_of_range_or_with_an_unread_cushion_is_refused(
 ) -> None:
     """A negative box, a cushion that is negative or not finite, or a cushion with the trail off, raises."""
     with pytest.raises(ValueError, match=message):
-        InsideBarTrailingParams(**overrides)
+        InsideBarTrailingParams(**overrides)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_the_structure_trail_is_off_by_default_and_a_row_using_it_leaves_the_port() -> None:
@@ -660,8 +681,8 @@ def test_the_violation_mirrors_onto_a_short() -> None:
     rising = [0.0] * 2 + [1.0] * 10
     falling = [0.0] * 2 + [-1.0] * 10
     kwargs = {"signal_at": [1], "direction": SHORT, "trail_multiplier": 4.0}
-    assert "signal" in set(run(rows, ema=rising, **kwargs)["exit_reason"])
-    assert "signal" not in set(run(rows, ema=falling, **kwargs)["exit_reason"])
+    assert "signal" in set(run(rows, ema=rising, **kwargs)["exit_reason"])  # type: ignore[arg-type]  # the keywords are run's own
+    assert "signal" not in set(run(rows, ema=falling, **kwargs)["exit_reason"])  # type: ignore[arg-type]  # the keywords are run's own
 
 
 # -- the loss gate above both branches -----------------------------------------
@@ -673,8 +694,8 @@ def test_the_gate_above_both_branches_holds_a_position_that_is_not_far_enough_do
     ``docs/nt8-fidelity.md`` §M23.
     """
     kwargs = {"signal_at": [1], "ema": VIOLATED_AT_THE_CHANGE, "trail_multiplier": 4.0}
-    assert "signal" in set(run(PARTIAL, loss_gate=0.0, **kwargs)["exit_reason"])
-    fenced = run(PARTIAL, loss_gate=200.0, **kwargs)["exit_reason"]
+    assert "signal" in set(run(PARTIAL, loss_gate=0.0, **kwargs)["exit_reason"])  # type: ignore[arg-type]  # the keywords are run's own
+    fenced = run(PARTIAL, loss_gate=200.0, **kwargs)["exit_reason"]  # type: ignore[arg-type]  # the keywords are run's own
     assert "signal" not in set(fenced), "a few points down is not $200 down"
 
 
@@ -698,8 +719,8 @@ def test_the_gate_is_account_currency_so_it_binds_differently_on_the_two_roots()
         "trail_multiplier": 10.0,
         "loss_gate": 200.0,
     }
-    mnq = run(GATE_SCALE, instrument=MNQ, **kwargs)
-    nq = run(GATE_SCALE, instrument=NQ, **kwargs)
+    mnq = run(GATE_SCALE, instrument=MNQ, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    nq = run(GATE_SCALE, instrument=NQ, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
     assert "signal" not in set(mnq["exit_reason"]), "$40 down does not clear a $200 gate"
     assert "signal" in set(nq["exit_reason"]), "$400 down does"
 
@@ -720,8 +741,11 @@ def test_a_position_open_at_the_last_bar_liquidates_every_lot_there() -> None:
 
 
 def test_the_entry_orders_fill_at_the_flatten_point_and_both_lots_are_flattened() -> None:
-    """NT8 fills the resting orders and only then flattens -- ``docs/nt8-fidelity.md``,
-    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    """NT8 fills the resting orders and only then flattens.
+
+    ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat bar, and is flattened at
+    its close".
+    """
     trades = run(QUIET, signal_at=[1], force_flat_at=[2])
     assert list(trades["entry_bar"]) == [2, 2]
     assert list(trades["exit_reason"]) == ["session_close", "session_close"]
@@ -730,8 +754,10 @@ def test_the_entry_orders_fill_at_the_flatten_point_and_both_lots_are_flattened(
 
 
 def test_a_signal_on_a_force_flat_bar_is_blocked_when_asked() -> None:
-    """``block_entry_at_session_close`` guards a *new* signal; the cancel above guards a
-    resting order. Two rules, and the flag only ever meant the first."""
+    """``block_entry_at_session_close`` guards a *new* signal; the cancel above guards a resting order.
+
+    Two rules, and the flag only ever meant the first.
+    """
     assert run(QUIET, signal_at=[1], force_flat_at=[1]).empty
     assert not run(QUIET, signal_at=[1], force_flat_at=[1], block_entry_at_close=False).empty
 
@@ -753,14 +779,16 @@ def test_a_signal_while_already_in_a_position_does_not_pyramid() -> None:
         ({"max_hold_bars": 2, "atr": FAR_ATR, "trail_multiplier": FAR_TRAIL}, "the hold limit"),
     ],
 )
-def test_the_buffer_overflowing_is_reported_rather_than_written_past(kwargs, path) -> None:
+def test_the_buffer_overflowing_is_reported_rather_than_written_past(
+    kwargs: dict[str, object], path: str
+) -> None:
     """Two lots per trade, so a buffer sized for one leg overflows on whichever exit fires.
 
     Every path that writes a leg reports the overflow rather than silently dropping the second
     lot.
     """
     rows = kwargs.pop("rows", QUIET)
-    count, _ = simulate(rows, signal_at=[1], max_rows=1, **kwargs)
+    count, _ = simulate(rows, signal_at=[1], max_rows=1, **kwargs)  # type: ignore[arg-type]  # the case's rows and keywords are simulate's
     assert count == -1, path
 
 
@@ -802,9 +830,11 @@ def test_the_loss_gate_defaults_to_the_ninjascripts_hardcoded_amount() -> None:
         ({"partial_take_profit_percentage": 0.0}, "lot of zero contracts"),
     ],
 )
-def test_a_configuration_that_cannot_produce_two_lots_is_refused(overrides, message) -> None:
+def test_a_configuration_that_cannot_produce_two_lots_is_refused(
+    overrides: dict[str, object], message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
-        InsideBarTrailingParams(**overrides)
+        InsideBarTrailingParams(**overrides)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_the_inherited_validation_still_applies() -> None:
@@ -819,11 +849,11 @@ SESSION_CLOSE = "2024-01-16 22:00"
 """17:00 ET, and the last bar of every frame below -- see ``tests/test_insidebar_sim.py``."""
 
 
-def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
+def frame(rows: Sequence[Row], start: str = "2024-01-16 15:00") -> pd.DataFrame:
     """Build hand-written bars on a minute index, with the session closed by a copy of the last."""
     arr = np.asarray(rows, dtype=np.float64)
     idx = pd.date_range(start, periods=len(arr), freq="min", tz="UTC")
-    idx = idx.append(pd.DatetimeIndex([pd.Timestamp(SESSION_CLOSE, tz="UTC")]))
+    idx = pd.DatetimeIndex(idx.append(pd.DatetimeIndex([pd.Timestamp(SESSION_CLOSE, tz="UTC")])))
     arr = np.vstack([arr, arr[-1]])
     out = pd.DataFrame(
         {
@@ -840,12 +870,12 @@ def frame(rows, start="2024-01-16 15:00") -> pd.DataFrame:
     return out
 
 
-def prepared(bars: pd.DataFrame, params):
+def prepared(bars: pd.DataFrame, params: InsideBarTrailingParams) -> context.Dataset:
     """Prepare the dataset the archetype's own ``ContextSpec`` asks for."""
     return context.prepare(bars, sweep.Grid.of(params).required_context())
 
 
-def signalling(**overrides) -> InsideBarTrailingParams:
+def signalling(**overrides: object) -> InsideBarTrailingParams:
     """Build params with short periods, so three real averages sit under a rising close on hand-built bars."""
     defaults = {
         "ema_period": 2,
@@ -855,7 +885,7 @@ def signalling(**overrides) -> InsideBarTrailingParams:
         "bars_required_to_trade": 0,
     }
 
-    return InsideBarTrailingParams(**{**defaults, **overrides})
+    return InsideBarTrailingParams(**{**defaults, **overrides})  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 BREAKOUT = [
@@ -978,7 +1008,9 @@ def test_a_lot_that_already_left_is_not_flattened_twice_by_the_clock() -> None:
 # -- lot sizing per signal (§M45) ----------------------------------------------
 
 
-def two_row_sizing(signal_row, n, *, rows=((4, 2), (1, 3))):
+def two_row_sizing(
+    signal_row: dict[int, int], n: int, *, rows: tuple[tuple[int, int], ...] = ((4, 2), (1, 3))
+) -> bracket.Sizing:
     """Build a two-split table with every bar on row 0 except the ones ``signal_row`` names."""
     row_at = np.zeros(n, dtype=np.int64)
     for bar, row in signal_row.items():
@@ -1021,8 +1053,8 @@ def test_the_loss_gate_reads_the_trades_own_size() -> None:
         "trail_multiplier": 10.0,
         "loss_gate": 200.0,
     }
-    small = run(GATE_SCALE, sizing=two_row_sizing({}, len(GATE_SCALE), rows=((4, 2), (25, 2))), **kwargs)
-    large = run(GATE_SCALE, sizing=two_row_sizing({1: 1}, len(GATE_SCALE), rows=((4, 2), (25, 2))), **kwargs)
+    small = run(GATE_SCALE, sizing=two_row_sizing({}, len(GATE_SCALE), rows=((4, 2), (25, 2))), **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    large = run(GATE_SCALE, sizing=two_row_sizing({1: 1}, len(GATE_SCALE), rows=((4, 2), (25, 2))), **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
     assert "signal" not in set(small["exit_reason"])
     assert "signal" in set(large["exit_reason"])
 
@@ -1081,9 +1113,11 @@ def test_confluence_adds_a_row_per_count_within_each_tier() -> None:
         ),
     ],
 )
-def test_a_sizing_rule_that_cannot_run_or_runs_as_fixed_size_is_refused(overrides, message) -> None:
+def test_a_sizing_rule_that_cannot_run_or_runs_as_fixed_size_is_refused(
+    overrides: dict[str, object], message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
-        InsideBarTrailingParams(**overrides)
+        InsideBarTrailingParams(**overrides)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_tiers_that_differ_at_some_count_are_not_refused() -> None:
@@ -1098,7 +1132,7 @@ def test_tiers_that_differ_at_some_count_are_not_refused() -> None:
     assert params.lot_table == ((1, 1), (1, 3), (1, 1), (2, 2))
 
 
-def walk_bars(n=4000, seed=3):
+def walk_bars(n: int = 4000, seed: int = 3) -> pd.DataFrame:
     """Build a trending random walk, so both sides' trends run long enough to hold several setups."""
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2024-01-02 00:00", periods=n, freq="min", tz="UTC")
@@ -1121,14 +1155,14 @@ def walk_bars(n=4000, seed=3):
     return bars
 
 
-def short_periods(**overrides) -> InsideBarTrailingParams:
+def short_periods(**overrides: object) -> InsideBarTrailingParams:
     """Build params with periods short enough for trends to start and stop many times in :func:`walk_bars`."""
     defaults = {"ema_period": 5, "fast_sma_period": 8, "slow_sma_period": 13, "error_margin": 0.01}
 
-    return InsideBarTrailingParams(**{**defaults, **overrides})
+    return InsideBarTrailingParams(**{**defaults, **overrides})  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
-def first_of_run_by_brute_force(run_mask, event):
+def first_of_run_by_brute_force(run_mask: BoolArray, event: BoolArray) -> BoolArray:
     """Walk back to each bar's run start and look for an earlier event: the definition, slowly."""
     out = []
     for i in range(len(run_mask)):
@@ -1255,8 +1289,10 @@ def test_every_row_a_bar_can_take_is_in_the_table() -> None:
 
 
 def test_each_trade_is_sized_off_its_signal_bar_end_to_end() -> None:
-    """Total size is ``order_quantity`` plus a step per favourable label, and the bracketed lot
-    takes the share its tier names -- both read at the bar before the fill."""
+    """Total size is ``order_quantity`` plus a step per favourable label.
+
+    The bracketed lot takes the share its tier names -- both read at the bar before the fill.
+    """
     params = short_periods(
         earliness_mode=EARLINESS_TREND_AGE,
         early_max_trend_bars=3,

@@ -5,6 +5,8 @@ rank** -- ``docs/roadmap.md`` §M19 -- and **the rank is what makes a raw thresh
 thing** -- §M19.1.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -25,12 +27,20 @@ from nqbt.sim.pullback import pullback_signal
 from nqbt.sim.runner import deadcat_signal, run_deadcat
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nqbt.arrays import BoolArray, FloatArray
+
 COMPRESSED = 0.25
 EXPANDED = 0.75
 BASELINE = 50
 PERIOD = 20
 
-PARAMS_CLASSES = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
+type FilteredParams = DeadCatParams | PullBackAndGoParams | EmaCrossoverParams
+"""The three archetypes the context filters were built on."""
+
+PARAMS_CLASSES: list[type[FilteredParams]] = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
 ARCHETYPES = [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER]
 
 BANDWIDTH = compression.key(CompressionForm.BANDWIDTH, PERIOD, BASELINE)
@@ -66,7 +76,7 @@ def bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
     return frame
 
 
-def widening(n: int = 400, step: float = 0.5) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def widening(n: int = 400, step: float = 0.5) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Build bars whose range grows monotonically: high, low and close for an unambiguous ordering."""
     close = np.full(n, 100.0)
     half = step * np.arange(1, n + 1)
@@ -320,7 +330,7 @@ def test_a_raw_threshold_cuts_the_rank_and_says_nothing_about_the_width() -> Non
         (lambda: compression.window_range_grid(np.ones(5), np.ones(5), ()), "no window periods supplied"),
     ],
 )
-def test_an_impossible_argument_raises_and_says_which(call, fragment) -> None:
+def test_an_impossible_argument_raises_and_says_which(call: Callable[[], object], fragment: str) -> None:
     with pytest.raises(CompressionError, match=fragment):
         call()
 
@@ -393,7 +403,7 @@ def test_a_key_names_its_form_and_both_windows() -> None:
 def prepared(**spec: object) -> context.Dataset:
     return context.prepare(
         bars(),
-        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),  # type: ignore[arg-type]  # each caller passes a field's own type
         bar_minutes=1,
     )
 
@@ -455,7 +465,11 @@ def test_the_grid_is_counted_in_what_a_worker_is_handed() -> None:
 def test_the_window_levels_are_absent_unless_a_spec_declares_them() -> None:
     bare = prepared()
     assert bare.window_ranges is None
-    for read in (lambda: bare.window_high(PERIOD), lambda: bare.window_low(PERIOD)):
+    reads: tuple[Callable[[], object], ...] = (
+        lambda: bare.window_high(PERIOD),
+        lambda: bare.window_low(PERIOD),
+    )
+    for read in reads:
         with pytest.raises(ContextError, match="window_range_periods"):
             read()
 
@@ -463,6 +477,7 @@ def test_the_window_levels_are_absent_unless_a_spec_declares_them() -> None:
     top, bottom = compression.rolling_extremes(declared.high, declared.low, PERIOD)
     np.testing.assert_array_equal(declared.window_high(PERIOD), top)
     np.testing.assert_array_equal(declared.window_low(PERIOD), bottom)
+    assert declared.window_ranges is not None
     assert declared.nbytes == bare.nbytes + declared.window_ranges.nbytes
 
 
@@ -475,13 +490,13 @@ def test_two_specs_merge_their_window_periods() -> None:
 
 
 @pytest.mark.parametrize("archetype", ARCHETYPES)
-def test_a_grid_that_never_filters_builds_no_compression_series(archetype) -> None:
+def test_a_grid_that_never_filters_builds_no_compression_series(archetype: archetypes.Archetype) -> None:
     grid = sweep.Grid(axes={"compression_filter": [ALL_STATES]}, archetype=archetype)
     assert grid.required_context().compression_keys == ()
 
 
 @pytest.mark.parametrize("archetype", ARCHETYPES)
-def test_a_grid_that_filters_declares_every_series_it_could_read(archetype) -> None:
+def test_a_grid_that_filters_declares_every_series_it_could_read(archetype: archetypes.Archetype) -> None:
     grid = sweep.Grid(
         axes={
             "compression_filter": [Compression.COMPRESSED.bit, ALL_STATES],
@@ -523,7 +538,9 @@ def test_the_compression_axes_are_live_once_the_filter_is_set() -> None:
         (crossover_signal, EmaCrossoverParams),
     ],
 )
-def test_the_filter_narrows_a_signal_to_the_states_it_admits(signal_fn, params_cls) -> None:
+def test_the_filter_narrows_a_signal_to_the_states_it_admits(
+    signal_fn: Callable[[context.Dataset, FilteredParams], BoolArray], params_cls: type[FilteredParams]
+) -> None:
     spec = ContextSpec(
         ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
         atr_periods=(14,),
@@ -539,8 +556,8 @@ def test_the_filter_narrows_a_signal_to_the_states_it_admits(signal_fn, params_c
         "compression_baseline_bars": BASELINE,
     }
 
-    unfiltered = signal_fn(data, params_cls(**settings))
-    filtered = signal_fn(data, params_cls(**settings, compression_filter=mask))
+    unfiltered = signal_fn(data, params_cls(**settings))  # type: ignore[arg-type]  # every setting is an int field
+    filtered = signal_fn(data, params_cls(**settings, compression_filter=mask))  # type: ignore[arg-type]  # every setting is an int field
 
     assert unfiltered.any(), "the fixture must produce signals for the narrowing to mean anything"
     assert filtered.sum() < unfiltered.sum()
@@ -563,7 +580,9 @@ def test_the_default_filter_is_exactly_no_filter() -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_every_compression_field_is_validated_whatever_the_filter_admits(params_cls) -> None:
+def test_every_compression_field_is_validated_whatever_the_filter_admits(
+    params_cls: type[FilteredParams],
+) -> None:
     """A nonsense window must not ride along inertly until a sweep turns its filter on."""
     with pytest.raises(CompressionError, match="must span >= 2 bars"):
         params_cls(compression_period=1)

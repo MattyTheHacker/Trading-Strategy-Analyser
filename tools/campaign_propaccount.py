@@ -280,6 +280,7 @@ def shortlist_logs(
 
 
 def main(argv: list[str]) -> int:
+    """Replay the shortlist through the prop account rules and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Prop-account replay over a campaign shortlist.")
     parser.add_argument("--strategy", required=True)

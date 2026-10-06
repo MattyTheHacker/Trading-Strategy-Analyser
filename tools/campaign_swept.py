@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -44,7 +45,7 @@ def last_swept(stored: pd.DataFrame, bars: pd.DataFrame) -> pd.Timestamp:
 
     ``save_sweep`` stores the stamp naive, and the spliced series is tz-aware.
     """
-    return pd.Timestamp(stored["last_bar"].max()).tz_localize(bars.index.tz)
+    return pd.Timestamp(stored["last_bar"].max()).tz_localize(cast("pd.DatetimeIndex", bars.index).tz)
 
 
 def on_swept_bars(stored: pd.DataFrame, block: pd.DataFrame, frame: pd.DataFrame) -> bool:
@@ -131,13 +132,14 @@ def logs_for(
     logs: dict[tuple[int, int], pd.DataFrame] = {}
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
+        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
         frame: pd.DataFrame
         swept: bool
-        frame, swept = bars_for(candidates, stored, block, int(minutes))
+        frame, swept = bars_for(candidates, stored, block, bar_minutes)
         logger.info(
             "  %-4s %2dm  %2d configurations on %s bars, %s to %s",
             root,
-            int(minutes),
+            bar_minutes,
             len(block),
             "their own swept" if swept else "today's",
             frame.index[0],
@@ -148,7 +150,7 @@ def logs_for(
             frame,
             archetype,
             root,
-            int(minutes),
+            bar_minutes,
             context.PriceBasis.RAW,
         ):
             logs[log_key(row)] = log

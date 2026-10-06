@@ -9,12 +9,13 @@ tested.
 """
 
 from math import gcd
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import sessionrange, sessions, timeofday
+from nqbt import resample, sessionrange, sessions, timeofday
 from nqbt.sessionrange import (
     CASH_OPEN_MINUTES,
     ETH_OPEN_MINUTES,
@@ -24,6 +25,9 @@ from nqbt.sessionrange import (
     validate_key,
 )
 from nqbt.timeofday import SessionPhase
+
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray
 
 CASH_WINDOW_30 = (CASH_OPEN_MINUTES, 30)
 
@@ -51,14 +55,14 @@ def minute_frame(days: int = 4, start: str = "2024-01-02 00:00") -> pd.DataFrame
     return frame[info.in_session]
 
 
-def eastern_minutes(frame: pd.DataFrame) -> pd.Index:
+def eastern_minutes(frame: pd.DataFrame) -> pd.Index[int]:
     """Return wall-clock minutes past midnight Eastern, for placing a bar by the clock."""
     eastern = sessions.to_eastern(pd.DatetimeIndex(frame.index)).tz_localize(None)
 
     return eastern.hour * 60 + eastern.minute
 
 
-def in_cash_window(frame: pd.DataFrame, minutes: int = 30) -> np.ndarray:
+def in_cash_window(frame: pd.DataFrame, minutes: int = 30) -> BoolArray:
     """Mask the bars covering the first ``minutes`` of cash trading, by the wall clock.
 
     Independent of :mod:`nqbt.sessionrange`'s own arithmetic, which is the point.
@@ -93,8 +97,8 @@ def test_the_range_is_the_windows_own_high_and_low_and_nothing_elses() -> None:
     frame.loc[frame.index[window][7], "low"] = 90.0
     # A bigger spike one bar after the window closes, which must be invisible to the range.
     after = np.flatnonzero(window)[-1] + 1
-    frame.iloc[after, frame.columns.get_loc("high")] = 999.0
-    frame.iloc[after, frame.columns.get_loc("low")] = 1.0
+    frame.iloc[after, list(frame.columns).index("high")] = 999.0
+    frame.iloc[after, list(frame.columns).index("low")] = 1.0
 
     grid = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1)
     highs = grid.high_for(CASH_WINDOW_30)
@@ -128,8 +132,8 @@ def test_two_windows_in_one_grid_keep_their_own_levels() -> None:
     frame = minute_frame()
     window = in_cash_window(frame)
     inside = np.flatnonzero(window)
-    frame.iloc[inside[2], frame.columns.get_loc("high")] = 105.0
-    frame.iloc[inside[20], frame.columns.get_loc("high")] = 120.0
+    frame.iloc[inside[2], list(frame.columns).index("high")] = 105.0
+    frame.iloc[inside[20], list(frame.columns).index("high")] = 120.0
 
     grid = range_grid(frame, [(CASH_OPEN_MINUTES, 5), CASH_WINDOW_30], bar_minutes=1)
 
@@ -143,7 +147,7 @@ def test_the_overnight_range_is_the_same_primitive_at_a_different_anchor() -> No
     clock = eastern_minutes(frame)
     first_hour = np.asarray((clock > 18 * 60) & (clock <= 19 * 60))
     sessions_of = range_grid(frame, [key], bar_minutes=1).session_id
-    frame.iloc[np.flatnonzero(first_hour & (sessions_of == 1))[4], frame.columns.get_loc("high")] = 130.0
+    frame.iloc[np.flatnonzero(first_hour & (sessions_of == 1))[4], list(frame.columns).index("high")] = 130.0
 
     grid = range_grid(frame, [key], bar_minutes=1)
     highs = grid.high_for(key)
@@ -314,8 +318,6 @@ def test_reading_a_range_the_grid_was_not_built_for_names_the_ones_it_was() -> N
 
 def test_a_range_grid_survives_being_built_at_a_coarser_resolution() -> None:
     """The whole point of the divisibility rule: at 5 minutes the window is six bars."""
-    from nqbt import resample
-
     frame = resample.resample(minute_frame(), 5)
     grid = range_grid(frame, [CASH_WINDOW_30], bar_minutes=5)
 
@@ -332,8 +334,8 @@ def with_reach(frame: pd.DataFrame, session: int, high: float, low: float) -> pd
     armed = grid.armed_for(CASH_WINDOW_30) & np.asarray(grid.session_id == session)
     bar = np.flatnonzero(armed)[3]
     frame = frame.copy()
-    frame.iloc[bar, frame.columns.get_loc("high")] = high
-    frame.iloc[bar, frame.columns.get_loc("low")] = low
+    frame.iloc[bar, list(frame.columns).index("high")] = high
+    frame.iloc[bar, list(frame.columns).index("low")] = low
 
     return frame
 
@@ -344,8 +346,8 @@ def ranged(frame: pd.DataFrame, session: int, high: float, low: float) -> pd.Dat
     sessions_of = range_grid(frame, [CASH_WINDOW_30], bar_minutes=1).session_id
     inside = np.flatnonzero(window & np.asarray(sessions_of == session))
     frame = frame.copy()
-    frame.iloc[inside[2], frame.columns.get_loc("high")] = high
-    frame.iloc[inside[4], frame.columns.get_loc("low")] = low
+    frame.iloc[inside[2], list(frame.columns).index("high")] = high
+    frame.iloc[inside[4], list(frame.columns).index("low")] = low
 
     return frame
 

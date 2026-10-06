@@ -35,8 +35,8 @@ def test_sunday_reopen_belongs_to_mondays_trading_day() -> None:
 
 def test_dst_shifts_the_utc_offset_within_one_contract() -> None:
     winter, summer = sessions.classify(idx("2024-01-15 22:00:00", "2024-07-15 21:00:00")).eastern
-    assert winter.utcoffset().total_seconds() == -5 * 3600
-    assert summer.utcoffset().total_seconds() == -4 * 3600
+    assert winter.utcoffset() == pd.Timedelta(hours=-5)
+    assert summer.utcoffset() == pd.Timedelta(hours=-4)
     assert winter.strftime("%H:%M") == summer.strftime("%H:%M") == "17:00"
 
 
@@ -49,7 +49,7 @@ def test_dst_shifts_the_utc_offset_within_one_contract() -> None:
         ("2024-03-10 20:34:00", "Sunday before the 18:00 reopen"),
     ],
 )
-def test_stray_weekend_prints_are_out_of_session(stamp, why) -> None:
+def test_stray_weekend_prints_are_out_of_session(stamp: str, why: str) -> None:
     # These exist in the real exports with volume 1. NT8 building bars against an ETH
     # template would never form them, so neither do we.
     info = sessions.classify(idx(stamp))
@@ -94,8 +94,10 @@ def test_force_flat_triggers_on_the_final_bar_not_the_one_before() -> None:
 
 
 def test_the_default_cutoff_is_the_one_named_default() -> None:
-    """It is one value for every archetype rather than a field on ``Archetype`` -- a backtest
-    flattens on the session's last bar whatever the script sets."""
+    """It is one value for every archetype rather than a field on ``Archetype``.
+
+    A backtest flattens on the session's last bar whatever the script sets.
+    """
     info = sessions.classify(idx("2024-01-16 21:59:00", "2024-01-16 22:00:00"))
     default = sessions.force_flat_mask(info)
     named = sessions.force_flat_mask(info, exit_on_close_seconds=sessions.EXIT_ON_CLOSE_SECONDS)
@@ -104,9 +106,12 @@ def test_the_default_cutoff_is_the_one_named_default() -> None:
 
 
 def test_a_cutoff_shorter_than_one_bar_picks_exactly_the_same_bars() -> None:
-    """Why the property is inert at bar granularity, and the whole reason §M41's 180-second rung
-    reads as its control above 2-minute bars: the countdown is to a bar's *end*, so a cutoff
-    inside the last bar cannot reach the one before it."""
+    """Why the property is inert at bar granularity.
+
+    The whole reason §M41's 180-second rung reads as its control above 2-minute bars: the
+    countdown is to a bar's *end*, so a cutoff inside the last bar cannot reach the one before
+    it.
+    """
     five_minute = idx("2024-01-16 21:50:00", "2024-01-16 21:55:00", "2024-01-16 22:00:00")
     info = sessions.classify(five_minute)
     for seconds in (30, 180, 299):

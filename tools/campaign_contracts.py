@@ -124,7 +124,7 @@ def run_root(
         logger.info(
             "  %-10s trades %6s  PF %6s  expectancy %8s  null %8s  excess %8s",
             contract,
-            f"{int(result['trades']):,}",
+            f"{int(result['trades']):,}",  # type: ignore[call-overload]  # a statistic
             f"{result['profit_factor']:.3f}",
             f"{result['expectancy']:.2f}",
             f"{result['null_expectancy']:.2f}",
@@ -162,6 +162,7 @@ def tally(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
+    """Run the configuration on each contract and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Per-contract null test of a campaign configuration.")
     parser.add_argument("--strategy", required=True)

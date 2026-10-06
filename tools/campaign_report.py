@@ -223,7 +223,7 @@ def parameter_columns(frame: pd.DataFrame) -> list[str]:
 
 def swept_axes(frame: pd.DataFrame) -> list[str]:
     """List the parameter columns that actually vary here, so a constant is never reported as an axis."""
-    return [column for column in parameter_columns(frame) if frame[column].nunique(dropna=False) > 1]
+    return [column for column in parameter_columns(frame) if frame[column].nunique(dropna=False) > 1]  # noqa: PD101 - NaN counts as a value, which an equality check would not do
 
 
 def profile(frame: pd.DataFrame, by: list[str]) -> pd.DataFrame:
@@ -321,7 +321,7 @@ def dimension_influence(frame: pd.DataFrame) -> pd.DataFrame:
             rows.append(
                 {
                     "dimension": dimension,
-                    "resolution": int(resolution),
+                    "resolution": int(resolution),  # type: ignore[arg-type]  # a groupby key on an int column
                     "cells": int(block["stratum"].nunique()),
                     "eta2": eta_squared(block, "stratum"),
                     "pf_median": block["profit_factor"].median(),
@@ -393,7 +393,7 @@ def report_strategy(name: str, windows: list[str]) -> pd.DataFrame:
         )
 
     unfiltered: pd.DataFrame = frame[frame["stratum"] == UNFILTERED]
-    if frame["variant"].nunique() > 1:
+    if frame["variant"].nunique() > 1:  # noqa: PD101 - a missing variant is ignored, which an equality check would not do
         show("by variant, unfiltered only", profile(unfiltered, ["variant"]))
 
     show(
@@ -429,6 +429,7 @@ def report_strategy(name: str, windows: list[str]) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
+    """Summarise the campaign databases and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Summarise the campaign sweep databases.")
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))

@@ -48,8 +48,12 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     return frame
 
 
+type Audited = tuple[pd.DataFrame, pd.DataFrame]
+"""A trade log and the audit trail over the whole of it."""
+
+
 @pytest.fixture(scope="module")
-def audited():
+def audited() -> Audited:
     """Provide a trade log and the audit trail over the whole of it, not a prefix."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
@@ -69,7 +73,9 @@ def audited():
     return log, detail
 
 
-def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited) -> None:
+def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(
+    audited: Audited,
+) -> None:
     """The audit trail's stop and risk match the simulation on every trade, and so its trigger does.
 
     ``risk_points`` is ``initial_stop - trigger`` by construction.
@@ -85,7 +91,9 @@ def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(audited) -
     assert np.allclose(joined["trigger"], implied_trigger, rtol=0, atol=0)
 
 
-def test_the_capped_trigger_actually_binds_in_this_fixture(audited) -> None:
+def test_the_capped_trigger_actually_binds_in_this_fixture(
+    audited: Audited,
+) -> None:
     """Guards the test above from passing vacuously.
 
     The close-based cap has to bind on a substantial share of trades, or a bare
@@ -96,7 +104,9 @@ def test_the_capped_trigger_actually_binds_in_this_fixture(audited) -> None:
     assert capped.mean() > 0.2, f"cap bound on only {capped.mean():.1%} of trades"
 
 
-def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited) -> None:
+def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(
+    audited: Audited,
+) -> None:
     """``fill_type`` reads the trigger too, so it matches the simulation's fill on every row."""
     _log, detail = audited
     gapped = detail["fill_type"] == "gap_at_open"
@@ -105,7 +115,7 @@ def test_fill_type_agrees_with_the_price_the_entry_actually_filled_at(audited) -
     assert (detail.loc[touched, "entry_price"] == detail.loc[touched, "trigger"]).all()
 
 
-def test_both_fill_types_actually_occur_in_this_fixture(audited) -> None:
+def test_both_fill_types_actually_occur_in_this_fixture(audited: Audited) -> None:
     """Guards the test above from passing vacuously.
 
     Each half of it asserts over one branch's rows, so the fixture has to hold both fill types.
@@ -203,7 +213,7 @@ def test_ratchet_history_raises_keyerror_on_unknown_trade() -> None:
 
 
 @pytest.fixture
-def ratchet():
+def ratchet() -> tuple[context.Dataset, DeadCatParams, pd.DataFrame]:
     """Return one trade's bar-by-bar stop history, with the dataset it was built from."""
     params = DeadCatParams(bars_required_to_trade=200)
     data = context.prepare(
@@ -223,14 +233,16 @@ def ratchet():
     return data, params, history
 
 
-def test_the_ratchet_only_ever_tightens(ratchet) -> None:
+def test_the_ratchet_only_ever_tightens(ratchet: tuple[context.Dataset, DeadCatParams, pd.DataFrame]) -> None:
     """A short's stop may move down, never up -- the whole point of a ratchet."""
     _, _, history = ratchet
     stops = history["stop_live_this_bar"].to_numpy()
     assert (stops[1:] <= stops[:-1]).all(), "stop widened"
 
 
-def test_the_stop_set_at_one_close_is_the_one_live_on_the_next_bar(ratchet) -> None:
+def test_the_stop_set_at_one_close_is_the_one_live_on_the_next_bar(
+    ratchet: tuple[context.Dataset, DeadCatParams, pd.DataFrame],
+) -> None:
     """The one-bar lag is the rule from ``DeadCatBounce.cs``, and it is what can go wrong.
 
     Asserting ``candidate < stop`` on the tightened rows instead would restate the line
@@ -242,9 +254,11 @@ def test_the_stop_set_at_one_close_is_the_one_live_on_the_next_bar(ratchet) -> N
         assert live.stop_live_this_bar == pytest.approx(expected)
 
 
-def test_the_ratchet_candidate_reapplies_the_entry_offset_to_the_previous_high(ratchet) -> None:
+def test_the_ratchet_candidate_reapplies_the_entry_offset_to_the_previous_high(
+    ratchet: tuple[context.Dataset, DeadCatParams, pd.DataFrame],
+) -> None:
     """``High[bar-1] + stop_offset_ticks``, not a bare ``High[bar-1]`` -- see docs/nt8-fidelity.md."""
     data, params, history = ratchet
     offset = params.stop_offset_ticks * MNQ.tick_size
-    for row in history.itertuples():
-        assert row.candidate_from_prev_high == pytest.approx(data.high[row.bar - 1] + offset)
+    for row in history.to_dict("records"):
+        assert row["candidate_from_prev_high"] == pytest.approx(data.high[row["bar"] - 1] + offset)
