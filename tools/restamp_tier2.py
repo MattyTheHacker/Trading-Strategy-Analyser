@@ -208,6 +208,7 @@ def report(db_path: Path, found: list[Restamp], *, applied: bool) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Re-stamp the stored rows and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(
         description="Re-stamp stored reconciled rows that leave their NinjaScript."

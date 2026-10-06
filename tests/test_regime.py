@@ -9,6 +9,8 @@ two agree only while :class:`nqbt.regime.Regime`'s values and its bit positions 
 numbers.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,18 +23,26 @@ from nqbt.sim.pullback import pullback_signal
 from nqbt.sim.runner import deadcat_signal, run_deadcat
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nqbt.arrays import BoolArray, FloatArray
+
 LOWER = 0.3
 UPPER = 0.5
 
-PARAMS_CLASSES = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
+type FilteredParams = DeadCatParams | PullBackAndGoParams | EmaCrossoverParams
+"""The three archetypes the context filters were built on."""
+
+PARAMS_CLASSES: list[type[FilteredParams]] = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
 
 
-def ramp(n: int = 50, step: float = 1.0) -> np.ndarray:
+def ramp(n: int = 50, step: float = 1.0) -> FloatArray:
     """Build a straight line: every window's net move equals its path length."""
     return 100.0 + step * np.arange(n, dtype=np.float64)
 
 
-def zigzag(n: int = 50, step: float = 1.0) -> np.ndarray:
+def zigzag(n: int = 50, step: float = 1.0) -> FloatArray:
     """Build an alternating one-step saw: net zero over any even window."""
     return 100.0 + step * (np.arange(n) % 2).astype(np.float64)
 
@@ -135,7 +145,7 @@ def test_thresholds_that_cross_are_refused_rather_than_silently_ordered() -> Non
 
 
 @pytest.mark.parametrize(("lower", "upper"), [(-0.1, 0.5), (0.3, 1.5)])
-def test_a_threshold_outside_zero_to_one_is_refused(lower, upper) -> None:
+def test_a_threshold_outside_zero_to_one_is_refused(lower: float, upper: float) -> None:
     with pytest.raises(RegimeError, match=r"must lie in 0\.\.1"):
         regime.label(np.array([0.5]), lower, upper)
 
@@ -145,14 +155,14 @@ def test_a_threshold_outside_zero_to_one_is_refused(lower, upper) -> None:
 LOOKBACKS = (5, 10, 20, 30, 50)
 
 
-def walk(n: int = 20000, seed: int = 3) -> np.ndarray:
+def walk(n: int = 20000, seed: int = 3) -> FloatArray:
     """Build a driftless random walk: the null both reparameterisations are anchored on."""
     rng = np.random.default_rng(seed)
 
     return 16000.0 + np.cumsum(rng.normal(0.0, 5.0, n))
 
 
-def directional_share(ratios: np.ndarray, upper: float) -> float:
+def directional_share(ratios: FloatArray, upper: float) -> float:
     """Return the share of measured bars a threshold labels directional."""
     labels = regime.label(ratios, 0.0, upper)
     measured = labels[labels != UNDEFINED]
@@ -219,7 +229,7 @@ def test_equal_quantiles_collapse_the_band_onto_one_cut() -> None:
 
 
 @pytest.mark.parametrize(("lower", "upper"), [(0.0, 1.0), (0.2, 0.8), (0.5, 0.5), (0.9, 0.95)])
-def test_a_fitted_pair_is_always_a_legal_threshold_pair(lower, upper) -> None:
+def test_a_fitted_pair_is_always_a_legal_threshold_pair(lower: float, upper: float) -> None:
     ratios = regime.efficiency_ratio(walk(2000), 20)
     regime.validate_thresholds(*regime.thresholds_from_quantiles(ratios, lower, upper))
     regime.validate_thresholds(*regime.thresholds_from_multiples(20, lower, upper))
@@ -237,7 +247,7 @@ def test_the_grid_fits_a_threshold_pair_from_the_row_it_names() -> None:
 
 
 @pytest.mark.parametrize(("lower", "upper"), [(-0.1, 0.8), (0.2, 1.5)])
-def test_a_quantile_outside_zero_to_one_is_refused(lower, upper) -> None:
+def test_a_quantile_outside_zero_to_one_is_refused(lower: float, upper: float) -> None:
     with pytest.raises(RegimeError, match=r"must lie in 0\.\.1"):
         regime.thresholds_from_quantiles(np.array([0.5]), lower, upper)
 
@@ -253,7 +263,7 @@ def test_fitting_on_a_series_with_no_measured_bar_is_refused() -> None:
 
 
 @pytest.mark.parametrize(("lower", "upper"), [(-0.5, 1.5), (0.5, -1.5)])
-def test_a_negative_multiple_of_the_anchor_is_refused(lower, upper) -> None:
+def test_a_negative_multiple_of_the_anchor_is_refused(lower: float, upper: float) -> None:
     with pytest.raises(RegimeError, match="must not be negative"):
         regime.thresholds_from_multiples(20, lower, upper)
 
@@ -289,7 +299,7 @@ def test_the_everything_mask_is_the_three_regimes_and_nothing_else() -> None:
 
 
 @pytest.mark.parametrize("mask", [0, ALL_REGIMES + 1, -1])
-def test_an_impossible_mask_is_refused(mask) -> None:
+def test_an_impossible_mask_is_refused(mask: int) -> None:
     with pytest.raises(RegimeError):
         regime.validate_mask(mask)
 
@@ -382,7 +392,7 @@ def bars(n: int = 1400, seed: int = 5) -> pd.DataFrame:
 
 
 def prepared(**spec: object) -> context.Dataset:
-    return context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec))
+    return context.prepare(bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec))  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_the_ratios_are_absent_when_nothing_asked_for_them() -> None:
@@ -425,7 +435,7 @@ def test_the_union_of_two_specs_keeps_both_lookbacks() -> None:
     "archetype",
     [archetypes.DEADCATBOUNCE, archetypes.PULLBACKANDGO, archetypes.EMACROSSOVER],
 )
-def test_every_archetype_can_sweep_every_regime_axis(archetype) -> None:
+def test_every_archetype_can_sweep_every_regime_axis(archetype: archetypes.Archetype) -> None:
     axes = {"regime_filter", "regime_lookback", "regime_consolidating_below", "regime_directional_above"}
     assert axes <= archetype.sweepable, archetype.name
 
@@ -447,7 +457,7 @@ def test_a_swept_lookback_reaches_the_context_spec() -> None:
     "axis",
     ["regime_lookback", "regime_consolidating_below", "regime_directional_above"],
 )
-def test_sweeping_a_regime_axis_that_no_filter_reads_is_refused(axis) -> None:
+def test_sweeping_a_regime_axis_that_no_filter_reads_is_refused(axis: str) -> None:
     """``ALL_REGIMES`` is 7, so a truthiness test would have read the filter as switched on.
 
     Without the mask's off value being stated, this grid would have run every combination
@@ -455,7 +465,7 @@ def test_sweeping_a_regime_axis_that_no_filter_reads_is_refused(axis) -> None:
     """
     values = [5, 20] if axis == "regime_lookback" else [0.2, 0.4]
     with pytest.raises(sweep.SweepError, match="regime_filter"):
-        sweep.Grid.of(**{axis: values})
+        sweep.Grid.of(**{axis: values})  # type: ignore[arg-type]  # each keyword is an axis of the base
 
 
 @pytest.mark.parametrize(
@@ -466,7 +476,9 @@ def test_sweeping_a_regime_axis_that_no_filter_reads_is_refused(axis) -> None:
         (crossover_signal, EmaCrossoverParams),
     ],
 )
-def test_the_filter_narrows_a_signal_to_the_regimes_it_admits(signal_fn, params_cls) -> None:
+def test_the_filter_narrows_a_signal_to_the_regimes_it_admits(
+    signal_fn: Callable[[context.Dataset, FilteredParams], BoolArray], params_cls: type[FilteredParams]
+) -> None:
     spec = ContextSpec(
         ma_keys=conditions.ma_keys(ema=(9, 11, 21), sma=(60, 80, 155, 175)),
         atr_periods=(14,),
@@ -544,7 +556,7 @@ def test_a_filtered_run_enters_only_inside_the_admitted_regimes() -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_an_impossible_filter_is_refused_at_construction(params_cls) -> None:
+def test_an_impossible_filter_is_refused_at_construction(params_cls: type[FilteredParams]) -> None:
     with pytest.raises(RegimeError):
         params_cls(regime_filter=0)
     with pytest.raises(RegimeError):
@@ -552,7 +564,9 @@ def test_an_impossible_filter_is_refused_at_construction(params_cls) -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_a_degenerate_lookback_or_threshold_pair_is_refused_at_construction(params_cls) -> None:
+def test_a_degenerate_lookback_or_threshold_pair_is_refused_at_construction(
+    params_cls: type[FilteredParams],
+) -> None:
     with pytest.raises(RegimeError, match="lookback"):
         params_cls(regime_lookback=1)
     with pytest.raises(RegimeError, match="both regimes"):
@@ -560,7 +574,7 @@ def test_a_degenerate_lookback_or_threshold_pair_is_refused_at_construction(para
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_the_regime_parameters_reach_the_results_row(params_cls) -> None:
+def test_the_regime_parameters_reach_the_results_row(params_cls: type[FilteredParams]) -> None:
     # They are parameters, so they ride in ``as_dict`` like every other one -- which is what
     # stops two rows of a regime sweep being indistinguishable in the results table.
     row = params_cls(regime_filter=Regime.DIRECTIONAL.bit, regime_lookback=30).as_dict()

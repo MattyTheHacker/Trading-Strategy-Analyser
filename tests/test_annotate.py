@@ -36,6 +36,8 @@ from nqbt.instruments import ContractId
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from nqbt.arrays import FloatArray
+
 BASE = 18000.0
 START = "2024-01-02 15:00"
 
@@ -118,7 +120,7 @@ def leg(
 def sim_log(
     pairs: list[tuple[int, int]],
     index: pd.DatetimeIndex,
-    closes: np.ndarray | None = None,
+    closes: FloatArray | None = None,
 ) -> pd.DataFrame:
     """Build a log the way the simulator leaves one: bar indices, and the stamps of those bars."""
     prices = np.array([close_of(i) for i in range(len(index))]) if closes is None else closes
@@ -141,13 +143,13 @@ def sim_log(
 
 
 def test_a_fill_inside_a_minute_belongs_to_the_bar_stamped_at_its_end() -> None:
-    index = bars().index
+    index = pd.DatetimeIndex(bars().index)
     matched = annotate.bars_for_fills(index, pd.DatetimeIndex(["2024-01-02 15:23:47"], tz="UTC"))
     assert index[matched[0]] == pd.Timestamp("2024-01-02 15:24", tz="UTC")
 
 
 def test_a_fill_on_a_whole_minute_belongs_to_the_next_bar_not_the_one_stamped_at_it() -> None:
-    index = bars().index
+    index = pd.DatetimeIndex(bars().index)
     matched = annotate.bars_for_fills(index, pd.DatetimeIndex(["2024-01-02 15:24:00"], tz="UTC"))
     assert index[matched[0]] == pd.Timestamp("2024-01-02 15:25", tz="UTC"), (
         "a bar stamped 15:24 covers the minute ending at it, so a fill at 15:24:00 is in the next one"
@@ -155,20 +157,20 @@ def test_a_fill_on_a_whole_minute_belongs_to_the_next_bar_not_the_one_stamped_at
 
 
 def test_a_fill_a_second_before_a_stamp_and_one_a_second_after_it_land_in_different_bars() -> None:
-    index = bars().index
+    index = pd.DatetimeIndex(bars().index)
     times = pd.DatetimeIndex(["2024-01-02 15:23:59", "2024-01-02 15:24:01"], tz="UTC")
     before, after = annotate.bars_for_fills(index, times)
     assert after == before + 1
 
 
 def test_a_fill_before_the_first_bar_matches_nothing() -> None:
-    index = bars().index
+    index = pd.DatetimeIndex(bars().index)
     early = pd.DatetimeIndex(["2024-01-02 14:00:00"], tz="UTC")
     assert annotate.bars_for_fills(index, early)[0] == UNMATCHED
 
 
 def test_a_fill_after_the_last_bar_matches_nothing() -> None:
-    index = bars().index
+    index = pd.DatetimeIndex(bars().index)
     late = pd.DatetimeIndex([index[-1] + pd.Timedelta(minutes=5)])
     assert annotate.bars_for_fills(index, late)[0] == UNMATCHED
 
@@ -177,8 +179,8 @@ def test_a_fill_in_a_hole_in_the_bars_is_unmatched_rather_than_joined_to_the_nex
     frame = bars()
     without = frame.drop(index=[frame.index[40], frame.index[41]])
     inside_the_hole = pd.DatetimeIndex([frame.index[40] - pd.Timedelta(seconds=13)])
-    assert annotate.bars_for_fills(without.index, inside_the_hole)[0] == UNMATCHED
-    assert annotate.bars_for_fills(frame.index, inside_the_hole)[0] == 40
+    assert annotate.bars_for_fills(pd.DatetimeIndex(without.index), inside_the_hole)[0] == UNMATCHED
+    assert annotate.bars_for_fills(pd.DatetimeIndex(frame.index), inside_the_hole)[0] == 40
 
 
 def test_the_bar_size_decides_how_far_back_a_bar_reaches() -> None:
@@ -190,11 +192,11 @@ def test_the_bar_size_decides_how_far_back_a_bar_reaches() -> None:
 
 def test_a_naive_log_against_a_localised_index_is_refused_rather_than_compared() -> None:
     with pytest.raises(AnnotationError, match="timezone-aware and a naive"):
-        annotate.bars_for_fills(bars().index, pd.DatetimeIndex(["2024-01-02 15:23:47"]))
+        annotate.bars_for_fills(pd.DatetimeIndex(bars().index), pd.DatetimeIndex(["2024-01-02 15:23:47"]))
 
 
 def test_the_zone_a_fill_is_read_under_decides_which_bar_it_lands_in() -> None:
-    index = bars().index
+    index = pd.DatetimeIndex(bars().index)
     utc = pd.DatetimeIndex(["2024-01-02 16:23:47"], tz="UTC")
     lisbon = pd.DatetimeIndex(["2024-01-02 16:23:47"], tz="Europe/Lisbon")
     berlin = pd.DatetimeIndex(["2024-01-02 16:23:47"], tz="Europe/Berlin")
@@ -204,7 +206,9 @@ def test_the_zone_a_fill_is_read_under_decides_which_bar_it_lands_in() -> None:
 
 def test_an_impossible_bar_size_is_refused() -> None:
     with pytest.raises(AnnotationError, match="bar_minutes"):
-        annotate.bars_for_fills(bars().index, bars().index[:1], bar_minutes=0)
+        annotate.bars_for_fills(
+            pd.DatetimeIndex(bars().index), pd.DatetimeIndex(bars().index)[:1], bar_minutes=0
+        )
 
 
 # -- which bar a log is annotated at ------------------------------------------
@@ -356,7 +360,7 @@ def test_annotating_against_a_back_adjusted_series_is_refused_rather_than_ranked
         ],
     )
 
-    found = annotate.bars_for_fills(adjusted.index, pd.DatetimeIndex(log["entry_time"]))
+    found = annotate.bars_for_fills(pd.DatetimeIndex(adjusted.index), pd.DatetimeIndex(log["entry_time"]))
     assert found[0] == 30, "the lookup succeeds against a back-adjusted series; only the price catches it"
     with pytest.raises(AnnotationError, match="back-adjustment"):
         annotate.annotate_trades(log, dataset(adjusted))
@@ -496,11 +500,11 @@ def test_a_condition_the_dataset_was_not_asked_for_is_absent_rather_than_null() 
 def test_raw_moving_average_values_travel_only_when_the_dataset_kept_them() -> None:
     spec = ContextSpec(ma_keys=conditions.ma_keys(ema=(3,)))
     without = annotate.annotate_trades(
-        sim_log([(60, 64)], bars().index),
+        sim_log([(60, 64)], pd.DatetimeIndex(bars().index)),
         context.prepare(bars(), spec),
     )
     with_values = annotate.annotate_trades(
-        sim_log([(60, 64)], bars().index),
+        sim_log([(60, 64)], pd.DatetimeIndex(bars().index)),
         context.prepare(bars(), spec, keep_ma_values=True),
     )
     assert "entry_ema_3" not in without.conditions
@@ -607,7 +611,7 @@ def test_an_unmatched_trade_is_marked_rather_than_dropped() -> None:
     assert annotated.matched == 1
     assert annotated.unmatched == 1
     assert len(annotated.reviewable) == 1
-    assert annotated.frame.loc[2, "entry_bar"] is pd.NA
+    assert annotated.frame["entry_bar"].loc[2] is pd.NA
     assert pd.isna(annotated.frame.loc[2, "entry_phase"])
 
 
@@ -777,7 +781,7 @@ def test_contract_bars_reads_the_per_contract_cache(tmp_path: Path) -> None:
     path = ingest.contract_cache_path(ContractId.parse("MNQ 09-26"), tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     # in_session is part of the cached schema, and load_contract filters on it.
-    frame.assign(in_session=sessions.classify(frame.index).in_session).to_parquet(path)
+    frame.assign(in_session=sessions.classify(pd.DatetimeIndex(frame.index)).in_session).to_parquet(path)
 
     log = manual_log(
         [
@@ -796,7 +800,7 @@ def test_contract_bars_reads_the_per_contract_cache(tmp_path: Path) -> None:
 
 def test_contract_bars_refuses_a_log_that_names_no_contract() -> None:
     with pytest.raises(AnnotationError, match="does not name a contract"):
-        annotate.contract_bars(sim_log([(30, 34)], bars().index))
+        annotate.contract_bars(sim_log([(30, 34)], pd.DatetimeIndex(bars().index)))
 
 
 def test_contract_bars_refuses_a_log_naming_more_than_one() -> None:
@@ -888,7 +892,7 @@ def test_an_imported_log_annotates_through_the_same_call_a_simulated_one_does(tm
 # and the two share nothing but the primitive underneath.
 
 
-def counted(frame: pd.DataFrame, **columns: object) -> annotate.Annotation:
+def counted(frame: pd.DataFrame, **columns: list[bool] | list[float] | list[str]) -> annotate.Annotation:
     """Build an annotation carrying the boolean conditions a count can be taken over."""
     index = pd.Index(np.arange(1, len(frame) + 1, dtype=np.int64), name="trade_id")
     base = pd.DataFrame({"matched": True}, index=index)
@@ -968,7 +972,7 @@ def test_an_unmatched_trade_carries_no_count_rather_than_a_zero() -> None:
         (["a", "missing"], "no condition 'missing'"),
     ],
 )
-def test_a_count_that_would_mean_nothing_is_refused(columns, match) -> None:
+def test_a_count_that_would_mean_nothing_is_refused(columns: list[str], match: str) -> None:
     ann = counted(pd.DataFrame(index=range(2)), a=[True, False], b=[True, False])
     with pytest.raises(AnnotationError, match=match):
         annotate.confluence(ann, columns)
@@ -1169,7 +1173,7 @@ def test_a_raw_series_cannot_be_crossed_because_it_is_not_a_label() -> None:
         (["a", "missing"], "no condition 'missing'"),
     ],
 )
-def test_a_cross_that_would_mean_nothing_is_refused(columns, match) -> None:
+def test_a_cross_that_would_mean_nothing_is_refused(columns: list[str], match: str) -> None:
     ann = counted(pd.DataFrame(index=range(2)), a=["up", "down"], b=["p", "q"])
     with pytest.raises(AnnotationError, match=match):
         annotate.crossed(ann, columns)

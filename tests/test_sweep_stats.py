@@ -3,13 +3,13 @@
 import json
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import duckdb
 import numpy as np
 import pandas as pd
 import pytest
-from joblib import effective_n_jobs, parallel_config
+from joblib import Parallel, effective_n_jobs, parallel_config
 
 from nqbt import (
     archetypes,
@@ -24,15 +24,19 @@ from nqbt import (
     sweep,
     trades,
 )
+from nqbt import archetypes as registry
 from nqbt.instruments import NQ
 from nqbt.sim import runner
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, OpeningRangeParams, PullBackAndGoParams
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
-def trade_log(rows, exit_reasons=None) -> pd.DataFrame:
+def trade_log(
+    rows: list[tuple[int, int, float, int, bool]], exit_reasons: list[str] | None = None
+) -> pd.DataFrame:
     """Build a leg-level log. Each row is (trade_id, leg, net_pnl, bars, ambiguous).
 
     ``exit_reasons`` defaults to every leg exiting at its target, a real reason rather than a
@@ -135,9 +139,7 @@ def test_session_close_share_is_measured_over_legs_like_ambiguous_share() -> Non
 
 def test_session_close_share_reads_the_label_the_simulator_actually_writes() -> None:
     """``stats.SESSION_CLOSE`` is the string ``trades.EXIT_REASONS`` produces for the clock."""
-    # Left-to-right follows the docstring's derivation; SIM300 misfires here because
-    # neither side is a literal.
-    assert stats.SESSION_CLOSE == trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE]  # noqa: SIM300
+    assert stats.SESSION_CLOSE == trades.EXIT_REASONS[trades.EXIT_SESSION_CLOSE]  # noqa: SIM300 - neither side is a literal; the order follows the docstring
     assert stats.SESSION_CLOSE == "session_close"
 
 
@@ -225,7 +227,8 @@ def test_the_empty_summary_gives_each_field_its_declared_type() -> None:
     for name in stats.Summary.columns():
         value = getattr(s, name)
         if name in INTEGER_SUMMARY_FIELDS:
-            assert isinstance(value, int) and not isinstance(value, bool), name
+            assert isinstance(value, int), name
+            assert not isinstance(value, bool), name
         else:
             assert isinstance(value, float), name
 
@@ -237,9 +240,11 @@ def test_a_barren_combination_summarises_exactly_like_an_empty_log() -> None:
     params = DeadCatParams(bars_required_to_trade=10_000)
     data = sweep.prepare_for(bars, sweep.Grid.of(params))
     row, log = sweep.run_combination(data, params, NQ)
+    assert log is not None
     assert log.empty, "fixture produced trades; the test proves nothing"
     for name, value in stats.Summary.empty().as_dict().items():
-        assert row[name] == value and type(row[name]) is type(value), name
+        assert row[name] == value, name
+        assert type(row[name]) is type(value), name
 
 
 # -- grid ---------------------------------------------------------------------
@@ -253,7 +258,7 @@ def test_grid_size_is_the_product_of_its_axes() -> None:
 
 def test_grid_leaves_unswept_parameters_at_their_base_value() -> None:
     base = DeadCatParams(order_quantity=8, commission_per_contract=1.5)
-    combos = list(sweep.Grid.of(base, ema_period=[9, 21]).combinations())
+    combos = [cast("DeadCatParams", c) for c in sweep.Grid.of(base, ema_period=[9, 21]).combinations()]
     assert {c.order_quantity for c in combos} == {8}
     assert {c.commission_per_contract for c in combos} == {1.5}
     assert sorted(c.ema_period for c in combos) == [9, 21]
@@ -341,11 +346,14 @@ def shortlist_grid() -> sweep.Grid:
 
 
 def test_a_combination_grid_runs_exactly_what_it_was_given_and_nothing_it_crosses() -> None:
-    """The point of the form: a shortlist is a subset of the product that produced it, so
-    stating it as axes would run four combinations where two were asked for."""
+    """The point of the form: a shortlist is a subset of the product that produced it.
+
+    Stating it as axes would run four combinations where two were asked for.
+    """
     g = shortlist_grid()
     assert len(g) == 2
-    assert [(c.ema_period, c.fast_sma_period) for c in g.combinations()] == [(9, 40), (21, 60)]
+    combos = [cast("DeadCatParams", c) for c in g.combinations()]
+    assert [(c.ema_period, c.fast_sma_period) for c in combos] == [(9, 40), (21, 60)]
     assert len(sweep.Grid.of(ema_period=[9, 21], fast_sma_period=[40, 60])) == 4
 
 
@@ -354,8 +362,10 @@ def test_a_combination_grid_infers_its_archetype_from_the_combinations() -> None
 
 
 def test_a_combination_grid_builds_the_context_every_member_needs() -> None:
-    """``axis_values`` is the union over the list rather than the base's own values -- a
-    period built for the first combination only would make the second raise mid-sweep."""
+    """``axis_values`` is the union over the list rather than the base's own values.
+
+    A period built for the first combination only would make the second raise mid-sweep.
+    """
     spec = shortlist_grid().required_context()
     assert conditions.ma_key("ema", 9) in spec.ma_keys
     assert conditions.ma_key("ema", 21) in spec.ma_keys
@@ -374,24 +384,34 @@ def paired_range_grid() -> sweep.Grid:
 
 
 def test_a_combination_grid_asks_only_for_the_pairs_its_members_hold() -> None:
-    """``axis_values`` collapses a list to one set per parameter, so a pair read back from two
-    of them is a pair no member holds -- and for a range it may be unbuildable."""
+    """``axis_values`` collapses a list to one set per parameter.
+
+    A pair read back from two of them is a pair no member holds -- and for a range it may be
+    unbuildable.
+    """
     grid = paired_range_grid()
-    held = sorted({(c.anchor_minutes, c.window_minutes) for c in grid.combinations()})
+    ranges = [cast("OpeningRangeParams", c) for c in grid.combinations()]
+    held = sorted({(c.anchor_minutes, c.window_minutes) for c in ranges})
     assert sorted(grid.required_context().range_keys) == held
     assert (990, 930) not in grid.required_context().range_keys
 
 
 def test_a_combination_grid_of_individually_valid_ranges_stays_buildable() -> None:
-    """The failure this shape caused: a pooled shortlist raised ``RangeError`` for a window no
-    candidate asked for, so the pool could not be prepared at all."""
+    """The failure this shape caused.
+
+    A pooled shortlist raised ``RangeError`` for a window no candidate asked for, so the pool
+    could not be prepared at all.
+    """
     for anchor, window in paired_range_grid().required_context().range_keys:
         sessionrange.validate_key(anchor, window, bar_minutes=15)
 
 
 def test_a_product_grid_still_crosses_its_axes() -> None:
-    """The other half: axes really are crossed, so narrowing this would under-build a sweep
-    and leave a combination reading a series nobody prepared."""
+    """The other half: axes really are crossed.
+
+    Narrowing this would under-build a sweep and leave a combination reading a series nobody
+    prepared.
+    """
     grid = sweep.Grid.of(
         OpeningRangeParams(),
         anchor_minutes=[0, 450],
@@ -401,8 +421,10 @@ def test_a_product_grid_still_crosses_its_axes() -> None:
 
 
 def test_axes_and_a_combination_list_together_are_refused() -> None:
-    """Crossing them would run each listed combination once per axis point, which is not what
-    either half asks for."""
+    """Crossing them would run each listed combination once per axis point.
+
+    That is not what either half asks for.
+    """
     with pytest.raises(sweep.SweepError, match="not a product"):
         sweep.Grid(
             combos=[DeadCatParams()],
@@ -412,14 +434,18 @@ def test_axes_and_a_combination_list_together_are_refused() -> None:
 
 
 @pytest.mark.parametrize("build", [lambda: sweep.Grid.of_combinations([]), lambda: sweep.Grid(combos=[])])
-def test_an_empty_combination_list_is_refused_rather_than_sweeping_nothing(build) -> None:
+def test_an_empty_combination_list_is_refused_rather_than_sweeping_nothing(
+    build: Callable[[], sweep.Grid],
+) -> None:
     with pytest.raises(sweep.SweepError, match="nothing to run"):
         build()
 
 
 def test_a_combination_of_another_archetypes_parameters_is_refused() -> None:
-    """The base is checked and so is every member; a mismatched one would reach the wrong
-    ``legs`` function with parameters it does not have."""
+    """The base is checked and so is every member.
+
+    A mismatched one would reach the wrong ``legs`` function with parameters it does not have.
+    """
     with pytest.raises(sweep.SweepError, match="but combination is a PullBackAndGoParams"):
         sweep.Grid(
             combos=[DeadCatParams(), PullBackAndGoParams()],
@@ -522,8 +548,12 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     return frame
 
 
+type Prepared = tuple[pd.DataFrame, sweep.Grid, context.Dataset]
+"""The bars, the grid swept over them and the dataset prepared for it."""
+
+
 @pytest.fixture(scope="module")
-def prepared():
+def prepared() -> Prepared:
     bars = synthetic_bars()
     grid = sweep.Grid.of(
         DeadCatParams(bars_required_to_trade=200),
@@ -534,7 +564,9 @@ def prepared():
     return bars, grid, sweep.prepare_for(bars, grid)
 
 
-def test_slim_drops_the_bar_columns_but_shares_the_arrays(prepared) -> None:
+def test_slim_drops_the_bar_columns_but_shares_the_arrays(
+    prepared: Prepared,
+) -> None:
     _, _, data = prepared
     lean = data.slim()
     assert list(lean.bars.columns) == []
@@ -544,10 +576,13 @@ def test_slim_drops_the_bar_columns_but_shares_the_arrays(prepared) -> None:
     assert lean.mas["ema"].below is data.mas["ema"].below
 
 
-def test_the_simulator_meets_the_trade_schema(prepared) -> None:
+def test_the_simulator_meets_the_trade_schema(
+    prepared: Prepared,
+) -> None:
     """``run_deadcat`` is a producer, so its output is checked at the boundary."""
     _, grid, data = prepared
     params = next(grid.combinations())
+    assert isinstance(params, DeadCatParams)
     log = runner.run_deadcat(data, params, NQ)
     assert len(log), "fixture produced no trades; the test proves nothing"
     trades.validate(log)
@@ -557,13 +592,18 @@ def test_the_simulator_meets_the_trade_schema(prepared) -> None:
     assert (log["direction"] == trades.SHORT).all()
 
 
-def test_a_slim_dataset_simulates_identically(prepared) -> None:
+def test_a_slim_dataset_simulates_identically(
+    prepared: Prepared,
+) -> None:
     _, grid, data = prepared
     params = next(grid.combinations())
+    assert isinstance(params, DeadCatParams)
     pd.testing.assert_frame_equal(runner.run_deadcat(data, params), runner.run_deadcat(data.slim(), params))
 
 
-def test_parallel_sweep_matches_serial_exactly(prepared) -> None:
+def test_parallel_sweep_matches_serial_exactly(
+    prepared: Prepared,
+) -> None:
     bars, grid, data = prepared
     serial, _ = sweep.sweep(bars, grid, data=data, n_jobs=1)
     parallel, _ = sweep.sweep(bars, grid, data=data, n_jobs=2)
@@ -571,16 +611,23 @@ def test_parallel_sweep_matches_serial_exactly(prepared) -> None:
     pd.testing.assert_frame_equal(serial, parallel)
 
 
-def test_parallel_sweep_keys_trade_logs_by_combo_id(prepared) -> None:
+def test_parallel_sweep_keys_trade_logs_by_combo_id(
+    prepared: Prepared,
+) -> None:
     bars, grid, data = prepared
     frame, logs = sweep.sweep(bars, grid, data=data, n_jobs=2, keep_trades=True)
     assert sorted(logs) == list(range(len(grid)))
     assert list(frame["combo_id"]) == list(range(len(grid)))
 
 
-def test_a_combination_grid_keys_its_rows_by_position_in_the_list(prepared) -> None:
-    """The workers regenerate combinations from the grid, so ``combo_id`` has to mean the
-    position in the list it was handed -- otherwise a shortlist's rows swap identities."""
+def test_a_combination_grid_keys_its_rows_by_position_in_the_list(
+    prepared: Prepared,
+) -> None:
+    """The workers regenerate combinations from the grid.
+
+    ``combo_id`` has to mean the position in the list it was handed -- otherwise a shortlist's
+    rows swap identities.
+    """
     bars, _, _ = prepared
     grid = sweep.Grid.of_combinations(
         [
@@ -615,7 +662,10 @@ def several_grids() -> list[sweep.Grid]:
 @pytest.mark.parametrize(("n_jobs", "backend"), [(1, "loky"), (2, "loky"), (2, "threading")])
 @pytest.mark.parametrize("keep_trades", [True, False])
 def test_several_grids_in_one_call_match_sweeping_each_alone(
-    prepared, n_jobs: int, backend: str, keep_trades: bool
+    prepared: Prepared,
+    n_jobs: int,
+    backend: str,
+    keep_trades: bool,  # noqa: FBT001 - a parametrised case
 ) -> None:
     """A chunk of three crosses from one grid into the next, so each grid's rows are reassembled."""
     bars, _, data = prepared
@@ -635,15 +685,15 @@ def test_several_grids_in_one_call_match_sweeping_each_alone(
             pd.testing.assert_frame_equal(log, alone_logs[combo_id])
 
 
-def test_several_grids_share_one_pool(prepared, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_several_grids_share_one_pool(prepared: Prepared, monkeypatch: pytest.MonkeyPatch) -> None:
     _, _, data = prepared
     opened: list[int] = []
-    real = sweep.Parallel
+    real = Parallel
 
-    def counted(*args, **kwargs):
+    def counted(*args: object, **kwargs: object) -> Parallel:
         opened.append(1)
 
-        return real(*args, **kwargs)
+        return real(*args, **kwargs)  # type: ignore[arg-type]  # joblib's own arguments, passed through
 
     monkeypatch.setattr(sweep, "Parallel", counted)
     sweep.sweep_grids(data, several_grids(), n_jobs=2)
@@ -652,13 +702,13 @@ def test_several_grids_share_one_pool(prepared, monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.parametrize("n_jobs", [1, 2])
-def test_no_grids_is_no_work(prepared, n_jobs: int) -> None:
+def test_no_grids_is_no_work(prepared: Prepared, n_jobs: int) -> None:
     _, _, data = prepared
     assert sweep.sweep_grids(data, [], n_jobs=n_jobs) == []
 
 
 def test_a_serial_sweep_counts_its_progress_across_every_grid(
-    prepared, caplog: pytest.LogCaptureFixture
+    prepared: Prepared, caplog: pytest.LogCaptureFixture
 ) -> None:
     _, _, data = prepared
     with caplog.at_level(logging.INFO, logger=sweep.__name__):
@@ -674,17 +724,19 @@ def test_a_serial_sweep_counts_its_progress_across_every_grid(
 
 
 @pytest.fixture(scope="module")
-def axis_bars():
+def axis_bars() -> pd.DataFrame:
     """Build enough bars that a 15-minute resample still has a workable series."""
     return synthetic_bars(n=12_000)
 
 
 @pytest.fixture(scope="module")
-def axis_grid():
+def axis_grid() -> sweep.Grid:
     return sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
 
 
-def test_the_default_call_is_one_axis_point_tagged_with_what_it_ran(axis_bars, axis_grid) -> None:
+def test_the_default_call_is_one_axis_point_tagged_with_what_it_ran(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     frame, logs = sweep.sweep_axes(axis_bars, axis_grid, NQ)
     assert len(frame) == len(axis_grid)
     assert set(frame["strategy"]) == {"DeadCatBounce"}
@@ -694,7 +746,7 @@ def test_the_default_call_is_one_axis_point_tagged_with_what_it_ran(axis_bars, a
     assert logs == {}
 
 
-def test_the_axis_columns_lead_so_no_row_is_anonymous(axis_bars, axis_grid) -> None:
+def test_the_axis_columns_lead_so_no_row_is_anonymous(axis_bars: pd.DataFrame, axis_grid: sweep.Grid) -> None:
     frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ)
     assert list(frame.columns[:4]) == list(sweep.AxisPoint._fields)
 
@@ -708,7 +760,9 @@ def test_the_axis_point_names_the_same_columns_the_results_store_declares() -> N
     assert sweep.AxisPoint._fields == tuple(results.AXIS_COLUMNS)
 
 
-def test_one_axis_point_reproduces_a_plain_sweep_exactly(axis_bars, axis_grid) -> None:
+def test_one_axis_point_reproduces_a_plain_sweep_exactly(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     """The mechanism must not perturb the path every stored result was produced on."""
     plain, _ = sweep.sweep(axis_bars, axis_grid, NQ)
     axed, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ)
@@ -719,7 +773,9 @@ def test_one_axis_point_reproduces_a_plain_sweep_exactly(axis_bars, axis_grid) -
 # -- the resolution axis -------------------------------------------------------
 
 
-def test_the_resolution_axis_runs_each_bar_size_and_tags_it(axis_bars, axis_grid) -> None:
+def test_the_resolution_axis_runs_each_bar_size_and_tags_it(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5, 15])
     assert len(frame) == 3 * len(axis_grid)
     assert sorted(frame["resolution"].unique()) == [1, 5, 15]
@@ -728,7 +784,9 @@ def test_the_resolution_axis_runs_each_bar_size_and_tags_it(axis_bars, axis_grid
         assert sorted(block["combo_id"]) == list(range(len(axis_grid)))
 
 
-def test_a_coarser_resolution_really_is_run_on_coarser_bars(axis_bars, axis_grid) -> None:
+def test_a_coarser_resolution_really_is_run_on_coarser_bars(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     """A row tagged 5-minute really ran on 5-minute bars: its leg counts match resampling by hand."""
     frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5])
     one = frame[frame["resolution"] == 1].reset_index(drop=True)
@@ -739,7 +797,7 @@ def test_a_coarser_resolution_really_is_run_on_coarser_bars(axis_bars, axis_grid
     pd.testing.assert_frame_equal(five.drop(columns=list(sweep.AxisPoint._fields)), direct)
 
 
-def test_the_one_minute_path_is_the_untouched_frame(axis_bars) -> None:
+def test_the_one_minute_path_is_the_untouched_frame(axis_bars: pd.DataFrame) -> None:
     """``resample(bars, 1)`` returns the same object, so resolution 1 cannot drift."""
     assert resample.resample(axis_bars, 1) is axis_bars
 
@@ -754,7 +812,9 @@ def contract_frames(bars: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return {"MNQ 03-24": bars.iloc[:midpoint], "MNQ 06-24": bars.iloc[midpoint:]}
 
 
-def test_the_contract_axis_runs_each_frame_and_names_it(axis_bars, axis_grid) -> None:
+def test_the_contract_axis_runs_each_frame_and_names_it(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     frames = contract_frames(axis_bars)
     frame, _ = sweep.sweep_axes(frames, axis_grid, NQ)
     assert len(frame) == 2 * len(axis_grid)
@@ -762,7 +822,9 @@ def test_the_contract_axis_runs_each_frame_and_names_it(axis_bars, axis_grid) ->
     assert frame["contract"].notna().all(), "a named contract must never tag as spliced"
 
 
-def test_a_per_contract_row_matches_sweeping_that_contract_directly(axis_bars, axis_grid) -> None:
+def test_a_per_contract_row_matches_sweeping_that_contract_directly(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     frames = contract_frames(axis_bars)
     frame, _ = sweep.sweep_axes(frames, axis_grid, NQ)
     direct, _ = sweep.sweep(frames["MNQ 06-24"], axis_grid, NQ)
@@ -773,7 +835,7 @@ def test_a_per_contract_row_matches_sweeping_that_contract_directly(axis_bars, a
 # -- the strategy axis ---------------------------------------------------------
 
 
-def test_the_strategy_axis_takes_a_grid_each_rather_than_a_name_each(axis_bars) -> None:
+def test_the_strategy_axis_takes_a_grid_each_rather_than_a_name_each(axis_bars: pd.DataFrame) -> None:
     """Two archetypes, each swept over its *own* parameters.
 
     This is why the axis is grids and not names: ``require_previous_red`` is a field of
@@ -793,10 +855,12 @@ def test_the_strategy_axis_takes_a_grid_each_rather_than_a_name_each(axis_bars) 
         assert sorted(block["combo_id"]) == [0, 1]
 
 
-def test_the_original_archetype_sweeps_beside_a_ported_one(axis_bars) -> None:
-    """The protocol test M18 exists to be. EmaCrossover shares no parameter with
-    DeadCatBounce, reads a different set of series, enters by a different mechanism and
-    exits on a rule -- and ``sweep_axes`` needs no knowledge of any of that.
+def test_the_original_archetype_sweeps_beside_a_ported_one(axis_bars: pd.DataFrame) -> None:
+    """The protocol test M18 exists to be.
+
+    EmaCrossover shares no parameter with DeadCatBounce, reads a different set of series, enters
+    by a different mechanism and exits on a rule -- and ``sweep_axes`` needs no knowledge of any
+    of that.
     """
     deadcat = sweep.Grid.of(DeadCatParams(bars_required_to_trade=200), ema_period=[9, 21])
     cross = sweep.Grid.of(
@@ -809,10 +873,8 @@ def test_the_original_archetype_sweeps_beside_a_ported_one(axis_bars) -> None:
     assert tiers == {"DeadCatBounce": "reconciled", "EmaCrossover": "tier-1-only"}
 
 
-def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
+def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars: pd.DataFrame) -> None:
     """A per-archetype property, so it cannot be a column written once for the run."""
-    from nqbt import archetypes as registry
-
     tier1 = registry.Archetype(
         name="UnreconciledProbe",
         params_cls=DeadCatParams,
@@ -832,16 +894,18 @@ def test_each_strategys_rows_carry_its_own_tier2_status(axis_bars) -> None:
 
 
 def test_every_grid_at_one_axis_point_shares_a_single_dataset(
-    axis_bars, monkeypatch: pytest.MonkeyPatch
+    axis_bars: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One dataset, built from the union of the grids' specs, serves every grid at an axis point."""
     calls = []
     real = context.prepare
 
-    def counting(bars, spec=context.DEFAULT_SPEC, **kwargs):
+    def counting(
+        bars: pd.DataFrame, spec: context.ContextSpec = context.DEFAULT_SPEC, **kwargs: object
+    ) -> context.Dataset:
         calls.append(spec)
 
-        return real(bars, spec, **kwargs)
+        return real(bars, spec, **kwargs)  # type: ignore[arg-type]  # prepare's own keywords, passed through
 
     monkeypatch.setattr(context, "prepare", counting)
     grids = [
@@ -860,7 +924,7 @@ def test_every_grid_at_one_axis_point_shares_a_single_dataset(
 # -- the axes compose ----------------------------------------------------------
 
 
-def test_the_axes_multiply_and_every_block_is_distinguishable(axis_bars) -> None:
+def test_the_axes_multiply_and_every_block_is_distinguishable(axis_bars: pd.DataFrame) -> None:
     grids = [
         sweep.Grid.of(DeadCatParams(bars_required_to_trade=200)),
         sweep.Grid.of(PullBackAndGoParams(bars_required_to_trade=200)),
@@ -872,10 +936,13 @@ def test_the_axes_multiply_and_every_block_is_distinguishable(axis_bars) -> None
     assert len(keys) == 8, "two blocks share an axis point and would aggregate as one"
 
 
-def test_combo_id_means_the_same_parameters_at_every_axis_point(axis_bars, axis_grid) -> None:
+def test_combo_id_means_the_same_parameters_at_every_axis_point(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     """What makes a cross-resolution comparison a comparison rather than a coincidence."""
     frame, _ = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5, 15])
     for combo_id, params in enumerate(axis_grid.combinations()):
+        assert isinstance(params, DeadCatParams)
         block = frame[frame["combo_id"] == combo_id]
         assert len(block) == 3
         assert set(block["ema_period"]) == {params.ema_period}
@@ -884,7 +951,9 @@ def test_combo_id_means_the_same_parameters_at_every_axis_point(axis_bars, axis_
 # -- logs and parallelism ------------------------------------------------------
 
 
-def test_logs_come_back_keyed_by_axis_point_and_combination(axis_bars, axis_grid) -> None:
+def test_logs_come_back_keyed_by_axis_point_and_combination(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     frames = contract_frames(axis_bars)
     _, logs = sweep.sweep_axes(frames, axis_grid, NQ, resolutions=[1, 5], keep_trades=True)
     assert len(logs) == 2 * 2 * len(axis_grid)
@@ -896,12 +965,14 @@ def test_logs_come_back_keyed_by_axis_point_and_combination(axis_bars, axis_grid
         assert {"trade_id", "net_pnl"} <= set(log.columns)
 
 
-def test_no_logs_are_kept_unless_asked_for(axis_bars, axis_grid) -> None:
+def test_no_logs_are_kept_unless_asked_for(axis_bars: pd.DataFrame, axis_grid: sweep.Grid) -> None:
     _, logs = sweep.sweep_axes(axis_bars, axis_grid, NQ, resolutions=[1, 5])
     assert logs == {}
 
 
-def test_a_parallel_multi_axis_sweep_matches_serial_exactly(axis_bars, axis_grid) -> None:
+def test_a_parallel_multi_axis_sweep_matches_serial_exactly(
+    axis_bars: pd.DataFrame, axis_grid: sweep.Grid
+) -> None:
     """The guarantee ``sweep`` already gives, which must survive the axes above it."""
     frames = contract_frames(axis_bars)
     serial, _ = sweep.sweep_axes(frames, axis_grid, NQ, resolutions=[1, 5], n_jobs=1)
@@ -913,7 +984,7 @@ def test_a_parallel_multi_axis_sweep_matches_serial_exactly(axis_bars, axis_grid
 # -- refusals ------------------------------------------------------------------
 
 
-def test_sweep_axes_refuses_an_empty_axis(axis_bars, axis_grid) -> None:
+def test_sweep_axes_refuses_an_empty_axis(axis_bars: pd.DataFrame, axis_grid: sweep.Grid) -> None:
     with pytest.raises(sweep.SweepError, match="at least one grid"):
         sweep.sweep_axes(axis_bars, [], NQ)
     with pytest.raises(sweep.SweepError, match="resolutions is empty"):
@@ -926,11 +997,11 @@ def test_sweep_axes_refuses_an_empty_axis(axis_bars, axis_grid) -> None:
 
 
 @pytest.fixture
-def db(tmp_path: Path):
+def db(tmp_path: Path) -> Path:
     return tmp_path / "sweeps.duckdb"
 
 
-def fake_results(n=3) -> pd.DataFrame:
+def fake_results(n: int = 3) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "combo_id": range(n),
@@ -948,7 +1019,7 @@ def fake_bars() -> pd.DataFrame:
     return pd.DataFrame({"close": np.arange(10.0)}, index=idx)
 
 
-def test_save_and_reload_a_sweep(db) -> None:
+def test_save_and_reload_a_sweep(db: Path) -> None:
     sid = results.save_sweep(
         fake_results(),
         root="MNQ",
@@ -964,7 +1035,7 @@ def test_save_and_reload_a_sweep(db) -> None:
     assert results.query("SELECT COUNT(*) c FROM combos", db).loc[0, "c"] == 3
 
 
-def test_sweep_ids_increment_and_rows_stay_tagged(db) -> None:
+def test_sweep_ids_increment_and_rows_stay_tagged(db: Path) -> None:
     for _ in range(3):
         results.save_sweep(
             fake_results(),
@@ -979,7 +1050,7 @@ def test_sweep_ids_increment_and_rows_stay_tagged(db) -> None:
     assert list(counts["n"]) == [3, 3, 3]
 
 
-def test_best_applies_a_trade_floor(db) -> None:
+def test_best_applies_a_trade_floor(db: Path) -> None:
     results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
     # combo 2 has the best profit factor on five trades, which is noise, not an edge.
     top = results.best(by="profit_factor", top=5, min_trades=30, db_path=db)
@@ -992,7 +1063,7 @@ def test_rank_ignores_undersampled_combinations() -> None:
     assert list(ranked["trades"]) == [200, 100]
 
 
-def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db) -> None:
+def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db: Path) -> None:
     results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
     wider = fake_results()
     wider["brand_new_stat"] = [1.0, 2.0, 3.0]
@@ -1002,7 +1073,7 @@ def test_a_later_sweep_with_extra_statistics_does_not_shift_columns(db) -> None:
     assert rows["profit_factor"].notna().all()
 
 
-def fake_log(n=2) -> pd.DataFrame:
+def fake_log(n: int = 2) -> pd.DataFrame:
     """Build the columns ``save_trades`` needs to see; the schema itself is pinned elsewhere."""
     return pd.DataFrame(
         {
@@ -1014,9 +1085,11 @@ def fake_log(n=2) -> pd.DataFrame:
     )
 
 
-def test_a_trade_log_stored_twice_doubles_and_replacing_it_does_not(db) -> None:
-    """Nothing about a doubled log looks wrong -- it still validates, and every statistic
-    taken from it moves -- so the tool that re-runs a shortlist stores with ``replace``."""
+def test_a_trade_log_stored_twice_doubles_and_replacing_it_does_not(db: Path) -> None:
+    """Nothing about a doubled log looks wrong: it still validates, and every statistic moves.
+
+    So the tool that re-runs a shortlist stores with ``replace``.
+    """
     results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
     results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
     assert results.query("SELECT COUNT(*) c FROM trades", db).loc[0, "c"] == 4
@@ -1025,7 +1098,7 @@ def test_a_trade_log_stored_twice_doubles_and_replacing_it_does_not(db) -> None:
     assert results.query("SELECT COUNT(*) c FROM trades", db).loc[0, "c"] == 2
 
 
-def test_replacing_a_trade_log_leaves_every_other_combination_alone(db) -> None:
+def test_replacing_a_trade_log_leaves_every_other_combination_alone(db: Path) -> None:
     results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
     results.save_trades(fake_log(), sweep_id=1, combo_id=1, db_path=db)
     results.save_trades(fake_log(), sweep_id=2, combo_id=0, db_path=db)
@@ -1034,7 +1107,7 @@ def test_replacing_a_trade_log_leaves_every_other_combination_alone(db) -> None:
     assert list(counts["n"]) == [2, 2, 2]
 
 
-def test_replacing_into_a_database_with_no_trades_table_yet_just_stores(db) -> None:
+def test_replacing_into_a_database_with_no_trades_table_yet_just_stores(db: Path) -> None:
     """The first shortlist stored into a fresh campaign database takes this path."""
     results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db, replace=True)
     assert results.query("SELECT COUNT(*) c FROM trades", db).loc[0, "c"] == 2
@@ -1043,18 +1116,18 @@ def test_replacing_into_a_database_with_no_trades_table_yet_just_stores(db) -> N
 # -- the axis columns (M17.5) --------------------------------------------------
 
 
-def save(db, results_frame=None, **kwargs) -> int:
+def save(db: Path, results_frame: pd.DataFrame | None = None, **kwargs: object) -> int:
     """Run ``save_sweep`` with the arguments that are noise for these tests filled in."""
     defaults = {"root": "MNQ", "instrument": "MNQ", "bars": fake_bars(), "axes": {}}
 
     return results.save_sweep(
         fake_results() if results_frame is None else results_frame,
         db_path=db,
-        **{**defaults, **kwargs},
+        **{**defaults, **kwargs},  # type: ignore[arg-type]  # the keywords are save_sweep's own
     )
 
 
-def test_axis_tags_land_on_both_tables(db) -> None:
+def test_axis_tags_land_on_both_tables(db: Path) -> None:
     save(db, strategy="PullBackAndGo", resolution=5, contract="MNQ 03-24", tier2="reconciled")
     swept = results.query("SELECT * FROM sweeps", db).iloc[0]
     assert (swept["strategy"], swept["resolution"]) == ("PullBackAndGo", 5)
@@ -1066,14 +1139,14 @@ def test_axis_tags_land_on_both_tables(db) -> None:
     assert set(combos["tier2"]) == {"reconciled"}
 
 
-def test_a_null_contract_means_the_spliced_series_not_a_missing_value(db) -> None:
+def test_a_null_contract_means_the_spliced_series_not_a_missing_value(db: Path) -> None:
     save(db, strategy="DeadCatBounce", resolution=1)
     row = results.query("SELECT contract FROM sweeps", db).iloc[0]
     assert row["contract"] is None
     assert "spliced" in results.NULL_MEANS["contract"]
 
 
-def test_an_untagged_save_still_works_and_leaves_the_axes_null(db) -> None:
+def test_an_untagged_save_still_works_and_leaves_the_axes_null(db: Path) -> None:
     """Every existing caller passes none of these, and must keep working unchanged."""
     save(db)
     row = results.query("SELECT * FROM sweeps", db).iloc[0]
@@ -1082,7 +1155,7 @@ def test_an_untagged_save_still_works_and_leaves_the_axes_null(db) -> None:
     assert pd.isna(row["batch_id"])
 
 
-def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db) -> None:
+def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db: Path) -> None:
     """A first sweep with a null ``contract`` still types the column VARCHAR, not INTEGER.
 
     DuckDB types a new table from the frame that creates it, and an all-null object column
@@ -1099,7 +1172,7 @@ def test_a_spliced_first_sweep_does_not_type_the_contract_column_as_a_number(db)
     assert set(results.query("SELECT contract FROM combos", db)["contract"].dropna()) == {"MNQ 06-24"}
 
 
-def test_per_row_axis_values_survive_rather_than_being_overwritten(db) -> None:
+def test_per_row_axis_values_survive_rather_than_being_overwritten(db: Path) -> None:
     """What ``sweep_axes`` needs: a frame already spanning axis points keeps its own tags."""
     frame = fake_results()
     frame["contract"] = ["MNQ 03-24", "MNQ 06-24", "MNQ 09-24"]
@@ -1110,7 +1183,7 @@ def test_per_row_axis_values_survive_rather_than_being_overwritten(db) -> None:
     assert list(stored["resolution"]) == [1, 5, 15]
 
 
-def test_batch_id_ties_one_multi_axis_run_together(db) -> None:
+def test_batch_id_ties_one_multi_axis_run_together(db: Path) -> None:
     batch = results.next_batch_id(db)
     for minutes in (1, 5, 15):
         save(db, resolution=minutes, batch_id=batch)
@@ -1120,13 +1193,13 @@ def test_batch_id_ties_one_multi_axis_run_together(db) -> None:
     assert grouped.iloc[0]["batch_id"] == batch
 
 
-def test_next_batch_id_advances_past_the_batches_already_stored(db) -> None:
+def test_next_batch_id_advances_past_the_batches_already_stored(db: Path) -> None:
     first = results.next_batch_id(db)
     save(db, batch_id=first)
     assert results.next_batch_id(db) == first + 1
 
 
-def test_list_sweeps_shows_what_a_row_was_run_on(db) -> None:
+def test_list_sweeps_shows_what_a_row_was_run_on(db: Path) -> None:
     save(db, strategy="DeadCatBounce", resolution=15, contract="MNQ 03-24", tier2="reconciled")
     listed = results.list_sweeps(db)
     for name in (*results.AXIS_COLUMNS, "batch_id"):
@@ -1137,7 +1210,7 @@ def test_list_sweeps_shows_what_a_row_was_run_on(db) -> None:
 # -- migrating a database written before the axis columns existed --------------
 
 
-def legacy_database(db) -> None:
+def legacy_database(db: Path) -> None:
     """Write a ``sweeps``/``combos`` pair in the pre-M17.5 shape, with a row in each.
 
     Written with raw SQL rather than by an older ``save_sweep``, so the test does not
@@ -1159,7 +1232,7 @@ def legacy_database(db) -> None:
     con.close()
 
 
-def test_an_existing_database_gains_the_columns_and_keeps_its_rows(db) -> None:
+def test_an_existing_database_gains_the_columns_and_keeps_its_rows(db: Path) -> None:
     legacy_database(db)
     results.connect(db).close()
     swept = results.query("SELECT * FROM sweeps", db)
@@ -1169,11 +1242,12 @@ def test_an_existing_database_gains_the_columns_and_keeps_its_rows(db) -> None:
     assert len(combos) == 1
     assert combos.loc[0, "profit_factor"] == pytest.approx(1.23)
     for name in results.AXIS_COLUMNS:
-        assert pd.isna(swept.loc[0, name]) and pd.isna(combos.loc[0, name]), name
+        assert pd.isna(swept.loc[0, name]), name
+        assert pd.isna(combos.loc[0, name]), name
     assert pd.isna(swept.loc[0, "batch_id"])
 
 
-def test_a_migrated_database_puts_every_value_in_the_column_it_names(db) -> None:
+def test_a_migrated_database_puts_every_value_in_the_column_it_names(db: Path) -> None:
     """``save_sweep`` inserts by name, so a migrated database and a fresh one store the same row.
 
     ALTER appends the axis columns at the end while a fresh database declares them in the
@@ -1211,27 +1285,27 @@ def test_a_migrated_database_puts_every_value_in_the_column_it_names(db) -> None
     assert json.loads(row["axes"]) == {"ema_period": [9]}
 
 
-def test_migrating_twice_is_a_no_op(db) -> None:
+def test_migrating_twice_is_a_no_op(db: Path) -> None:
     legacy_database(db)
     for _ in range(3):
         results.connect(db).close()
     assert len(results.query("SELECT * FROM sweeps", db)) == 1
 
 
-def test_a_migrated_database_stores_tags_on_new_rows_beside_untagged_old_ones(db) -> None:
+def test_a_migrated_database_stores_tags_on_new_rows_beside_untagged_old_ones(db: Path) -> None:
     """The requirement in one assertion: old rows null, new rows tagged, same table."""
     legacy_database(db)
     save(db, strategy="PullBackAndGo", resolution=5, contract="MNQ 06-24")
     rows = results.query("SELECT sweep_id, strategy, resolution FROM sweeps ORDER BY sweep_id", db)
-    assert pd.isna(rows.loc[0, "strategy"])
+    assert pd.isna(rows["strategy"].loc[0])
     assert rows.loc[1, "strategy"] == "PullBackAndGo"
     assert rows.loc[1, "resolution"] == 5
     combos = results.query("SELECT contract FROM combos ORDER BY sweep_id", db)
-    assert pd.isna(combos.loc[0, "contract"])
+    assert pd.isna(combos["contract"].loc[0])
     assert combos.loc[1, "contract"] == "MNQ 06-24"
 
 
-def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db) -> None:
+def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db: Path) -> None:
     """A frame narrower than the table is widened with nulls in the right places, not slid left."""
     wider = fake_results()
     wider["brand_new_stat"] = [1.0, 2.0, 3.0]
@@ -1246,14 +1320,14 @@ def test_a_later_sweep_missing_a_stored_statistic_gets_null_not_a_shifted_row(db
     assert list(rows[rows["sweep_id"] == 2]["net_pnl"]) == [500.0, 900.0, 40.0]
 
 
-def test_axis_values_from_numpy_survive_the_json_round_trip(db) -> None:
+def test_axis_values_from_numpy_survive_the_json_round_trip(db: Path) -> None:
     """A grid built from ``np.arange`` holds numpy scalars, which ``json.dumps`` refuses."""
     save(db, axes={"ema_period": list(np.arange(9, 12, dtype=np.int64))})
-    stored = results.query("SELECT axes FROM sweeps", db).loc[0, "axes"]
+    stored = results.query("SELECT axes FROM sweeps", db)["axes"].loc[0]
     assert json.loads(stored) == {"ema_period": [9, 10, 11]}
 
 
-def test_saving_a_shortlisted_combinations_trade_log(db) -> None:
+def test_saving_a_shortlisted_combinations_trade_log(db: Path) -> None:
     sid = save(db, strategy="DeadCatBounce", resolution=1)
     log = trade_log([(1, 1, 5.0, 2, False), (2, 1, -3.0, 4, True)])
     log["source"] = "sim"
@@ -1266,7 +1340,7 @@ def test_saving_a_shortlisted_combinations_trade_log(db) -> None:
     assert set(stored["source"]) == {"sim"}
 
 
-def test_best_can_be_narrowed_to_one_sweep(db) -> None:
+def test_best_can_be_narrowed_to_one_sweep(db: Path) -> None:
     save(db)
     save(db, results_frame=fake_results().assign(profit_factor=[3.0, 3.1, 3.2]))
     everywhere = results.best(by="profit_factor", top=5, min_trades=30, db_path=db)
@@ -1300,7 +1374,7 @@ def test_best_refuses_sql_in_its_ordering_before_opening_the_database(db: Path) 
     assert not db.exists()
 
 
-def test_the_axis_columns_arrive_at_connect_and_every_other_column_at_its_first_insert(db) -> None:
+def test_the_axis_columns_arrive_at_connect_and_every_other_column_at_its_first_insert(db: Path) -> None:
     """The distinction ``AXIS_COLUMNS`` still makes now that nothing is dropped.
 
     Only these four are migrated onto a legacy table before a frame carrying them is written,
@@ -1333,7 +1407,7 @@ def insidebar_shaped() -> pd.DataFrame:
     return frame
 
 
-def test_a_second_parameter_class_widens_the_table_rather_than_losing_its_columns(db) -> None:
+def test_a_second_parameter_class_widens_the_table_rather_than_losing_its_columns(db: Path) -> None:
     """One ``combos`` table holds two parameter classes, each keeping its own columns (#201)."""
     save(db, strategy="DeadCatBounce")
     save(db, results_frame=insidebar_shaped(), strategy="InsideBar")
@@ -1343,7 +1417,7 @@ def test_a_second_parameter_class_widens_the_table_rather_than_losing_its_column
     assert list(stored["atr_multiplier"]) == [5.0, 10.0, 20.0]
 
 
-def test_the_rows_written_before_a_column_existed_read_null_rather_than_moving(db) -> None:
+def test_the_rows_written_before_a_column_existed_read_null_rather_than_moving(db: Path) -> None:
     """Widening is what the old rows see, and it must not disturb what they already hold."""
     save(db, strategy="DeadCatBounce")
     save(db, results_frame=insidebar_shaped(), strategy="InsideBar")
@@ -1353,7 +1427,7 @@ def test_the_rows_written_before_a_column_existed_read_null_rather_than_moving(d
     assert list(earlier["net_pnl"]) == [500.0, 900.0, 40.0]
 
 
-def test_a_column_the_stored_type_cannot_give_back_is_refused(db) -> None:
+def test_a_column_the_stored_type_cannot_give_back_is_refused(db: Path) -> None:
     """The loud path: a value silently rounded into the stored type reads as a result."""
     integral = fake_results()
     integral["atr_multiplier"] = [5, 10, 20]  # BIGINT, because this grid swept whole numbers
@@ -1365,7 +1439,7 @@ def test_a_column_the_stored_type_cannot_give_back_is_refused(db) -> None:
     assert len(results.query("SELECT * FROM combos", db)) == 3
 
 
-def test_a_type_that_does_give_the_value_back_still_inserts(db) -> None:
+def test_a_type_that_does_give_the_value_back_still_inserts(db: Path) -> None:
     """Measured loss, not a rule about casts: 5.0 into a BIGINT column loses nothing."""
     integral = fake_results()
     integral["atr_multiplier"] = [5, 10, 20]
@@ -1377,7 +1451,7 @@ def test_a_type_that_does_give_the_value_back_still_inserts(db) -> None:
     assert list(stored["atr_multiplier"]) == [5, 10, 20, 5, 10, 20]
 
 
-def test_a_column_named_like_a_sql_keyword_survives_the_widening(db) -> None:
+def test_a_column_named_like_a_sql_keyword_survives_the_widening(db: Path) -> None:
     """``window`` is one of the campaign's own columns, and it is a reserved word."""
     save(db)
     windowed = fake_results()
@@ -1393,7 +1467,7 @@ def test_a_column_named_like_a_sql_keyword_survives_the_widening(db) -> None:
 # § "Filtering trades by context and configuration".
 
 
-def fake_annotation(n=2, **columns: object) -> pd.DataFrame:
+def fake_annotation(n: int = 2, **columns: list[str]) -> pd.DataFrame:
     """Build an ``Annotation.frame``: one row per trade, indexed by ``trade_id``."""
     index = pd.Index(range(n), name="trade_id")
     base = pd.DataFrame({"matched": [True] * n, "entry_bar": range(n)}, index=index)
@@ -1405,7 +1479,7 @@ NO_CUT = {"regime_consolidating_below": None, "regime_directional_above": None}
 A_CUT = {"regime_consolidating_below": 0.2, "regime_directional_above": 0.6}
 
 
-def test_an_annotation_round_trips_with_its_trade_ids(db) -> None:
+def test_an_annotation_round_trips_with_its_trade_ids(db: Path) -> None:
     results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
     stored = results.query("SELECT * FROM annotations ORDER BY trade_id", db)
     assert list(stored["trade_id"]) == [0, 1]
@@ -1413,7 +1487,7 @@ def test_an_annotation_round_trips_with_its_trade_ids(db) -> None:
     assert list(stored["combo_id"]) == [0, 0]
 
 
-def test_the_cut_an_annotation_was_labelled_at_is_stored_beside_it(db) -> None:
+def test_the_cut_an_annotation_was_labelled_at_is_stored_beside_it(db: Path) -> None:
     """Two annotations cut differently are two populations, and only the stamp says so."""
     results.save_annotation(fake_annotation(), 1, 0, A_CUT, db)
     stored = results.query("SELECT * FROM annotations", db)
@@ -1421,7 +1495,7 @@ def test_the_cut_an_annotation_was_labelled_at_is_stored_beside_it(db) -> None:
     assert stored["cut_regime_consolidating_below"].iloc[0] == 0.2
 
 
-def test_an_annotation_stored_twice_doubles_and_replacing_it_does_not(db) -> None:
+def test_an_annotation_stored_twice_doubles_and_replacing_it_does_not(db: Path) -> None:
     results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
     results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
     assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == 4
@@ -1430,7 +1504,7 @@ def test_an_annotation_stored_twice_doubles_and_replacing_it_does_not(db) -> Non
     assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == 2
 
 
-def test_replacing_an_annotation_leaves_every_other_combination_alone(db) -> None:
+def test_replacing_an_annotation_leaves_every_other_combination_alone(db: Path) -> None:
     results.save_annotation(fake_annotation(), 1, 0, NO_CUT, db)
     results.save_annotation(fake_annotation(), 1, 1, NO_CUT, db)
     results.save_annotation(fake_annotation(), 2, 0, NO_CUT, db)
@@ -1439,7 +1513,7 @@ def test_replacing_an_annotation_leaves_every_other_combination_alone(db) -> Non
     assert list(counts["n"]) == [2, 2, 2]
 
 
-def test_a_second_annotation_carrying_a_new_condition_widens_the_table(db) -> None:
+def test_a_second_annotation_carrying_a_new_condition_widens_the_table(db: Path) -> None:
     """A dataset prepared with one more series must not need a migration."""
     results.save_annotation(fake_annotation(entry_trend=["up", "down"]), 1, 0, NO_CUT, db)
     results.save_annotation(
@@ -1454,53 +1528,53 @@ def test_a_second_annotation_carrying_a_new_condition_widens_the_table(db) -> No
     assert set(stored["entry_trend"]) == {"up", "down"}
 
 
-def test_an_annotation_carrying_a_note_is_refused_rather_than_made_queryable(db) -> None:
+def test_an_annotation_carrying_a_note_is_refused_rather_than_made_queryable(db: Path) -> None:
     """The fourth door: a note in a column a query can group by rediscovers its own outcome."""
     with pytest.raises(notes.NotesError, match="free-text column"):
         results.save_annotation(fake_annotation(note=["clean setup", "impatient"]), 1, 0, NO_CUT, db)
 
-    assert results.query("SELECT COUNT(*) c FROM information_schema.tables", db).loc[0, "c"] >= 0
+    assert results.query("SELECT COUNT(*) c FROM information_schema.tables", db)["c"].loc[0] >= 0
 
 
-def stocked(db) -> None:
+def stocked(db: Path) -> None:
     """Stock a database with one combination's trades, annotation and summary row."""
     results.save_sweep(fake_results(), root="MNQ", instrument="MNQ", bars=fake_bars(), axes={}, db_path=db)
     results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
     results.save_annotation(fake_annotation(entry_trend=["up", "down"]), 1, 0, A_CUT, db)
 
 
-def test_the_trade_view_joins_a_trade_to_its_context_and_its_configuration(db) -> None:
+def test_the_trade_view_joins_a_trade_to_its_context_and_its_configuration(db: Path) -> None:
     stocked(db)
     results.create_trade_view(db)
-    rows = results.query(f"SELECT * FROM {results.TRADE_VIEW} ORDER BY trade_id", db)
+    rows = results.query(f"SELECT * FROM {results.TRADE_VIEW} ORDER BY trade_id", db)  # noqa: S608 - the view name is a constant
     assert len(rows) == 2
     assert list(rows["entry_trend"]) == ["up", "down"]
     assert list(rows["net_pnl"]) == [10.0, -4.0], "the leg's P&L, not the combination's"
     assert list(rows["combo_ema_period"]) == [9, 9], "the parameter, reachable as a filter"
 
 
-def test_a_combinations_own_statistics_are_prefixed_so_they_cannot_be_read_as_the_trades(db) -> None:
+def test_a_combinations_own_statistics_are_prefixed_so_they_cannot_be_read_as_the_trades(db: Path) -> None:
     """``net_pnl`` means the leg's here and the whole combination's there; the join needs both."""
     stocked(db)
     results.create_trade_view(db)
-    rows = results.query(f"SELECT net_pnl, combo_net_pnl FROM {results.TRADE_VIEW} ORDER BY trade_id", db)
+    rows = results.query(f"SELECT net_pnl, combo_net_pnl FROM {results.TRADE_VIEW} ORDER BY trade_id", db)  # noqa: S608 - the view name is a constant
     assert list(rows["net_pnl"]) == [10.0, -4.0]
     assert list(rows["combo_net_pnl"]) == [500.0, 500.0]
 
 
-def test_the_view_answers_the_question_it_exists_for(db) -> None:
+def test_the_view_answers_the_question_it_exists_for(db: Path) -> None:
     """Profitable, taken in an uptrend, by a configuration with this parameter -- one query."""
     stocked(db)
     results.create_trade_view(db)
     rows = results.query(
-        f"SELECT trade_id FROM {results.TRADE_VIEW} "
+        f"SELECT trade_id FROM {results.TRADE_VIEW} "  # noqa: S608 - the view name is a constant
         f"WHERE entry_trend = 'up' AND net_pnl > 0 AND combo_ema_period = 9",
         db,
     )
     assert list(rows["trade_id"]) == [0]
 
 
-def test_the_view_drops_an_annotation_column_the_trade_log_already_carries(db) -> None:
+def test_the_view_drops_an_annotation_column_the_trade_log_already_carries(db: Path) -> None:
     """Both carry ``entry_bar``; the producer's is the one that counts, and one must win."""
     stocked(db)
     results.create_trade_view(db)
@@ -1508,13 +1582,13 @@ def test_the_view_drops_an_annotation_column_the_trade_log_already_carries(db) -
     assert list(described["column_name"]).count("entry_bar") <= 1
 
 
-def test_the_view_is_refused_until_there_is_something_to_join(db) -> None:
+def test_the_view_is_refused_until_there_is_something_to_join(db: Path) -> None:
     results.save_trades(fake_log(), sweep_id=1, combo_id=0, db_path=db)
     with pytest.raises(results.ResultsError, match="campaign_annotate"):
         results.create_trade_view(db)
 
 
-def test_rebuilding_the_view_picks_up_a_condition_added_since(db) -> None:
+def test_rebuilding_the_view_picks_up_a_condition_added_since(db: Path) -> None:
     """It is replaced rather than created, so a widened table does not need it dropped first."""
     stocked(db)
     results.create_trade_view(db)

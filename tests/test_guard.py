@@ -12,13 +12,20 @@ The fixtures come from ``tests/test_review.py``, so the guard is measured over e
 a review would rank.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
-from test_review import SPEC, annotated, bars, bars_in, by_time_only, dataset, sim_log, two_phase_case
 
 from nqbt import annotate, context, guard, review, stats, timeofday
 from nqbt.guard import GuardError
+from tests.test_review import SPEC, annotated, bars, bars_in, by_time_only, dataset, sim_log, two_phase_case
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
+    from nqbt.arrays import FloatArray, IntArray
 
 ITERATIONS = 200
 """Enough shuffles for a p-value to be readable without making the suite slow."""
@@ -34,7 +41,7 @@ def labelled(
     effect: float = 0.0,
     seed: int = 0,
     spread: float = 50.0,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[FloatArray, NDArray[np.str_]]:
     """Draw ``count`` trades alternating between two labels, ``effect`` landing only on ``a``."""
     rng = np.random.default_rng(seed)
     labels = np.where(np.arange(count) % 2 == 0, "a", "b")
@@ -49,11 +56,16 @@ def noise(
     *,
     conditions: int = NOISE_CONDITIONS,
     seed: int = 7,
-) -> dict[str, np.ndarray]:
+) -> dict[str, IntArray]:
     """Draw ``conditions`` labels that carry nothing, which is what a screen has to survive."""
     rng = np.random.default_rng(seed)
 
     return {f"noise_{i}": rng.integers(0, 3, count) for i in range(conditions)}
+
+
+def missing(value: object) -> bool:
+    """Return whether ``value`` is missing, the way ``pd.isna`` reads a scalar of any type."""
+    return bool(pd.isna(value))  # type: ignore[call-overload]  # a label of any type
 
 
 def per_trade_pnl(log: pd.DataFrame, annotation: annotate.Annotation) -> pd.DataFrame:
@@ -82,11 +94,11 @@ def test_a_separation_is_exactly_the_quantity_rank_conditions_ranks_on() -> None
 
     assert not reviewed.ranking.empty
     for row in reviewed.ranking.itertuples(index=False):
-        labels = annotation.reviewable.loc[ordered.index, row.condition]
+        labels = annotation.reviewable[row.condition].loc[ordered.index]
         found = guard.separate(pnl, labels, statistic="expectancy", min_trades=10)
-        assert (found.value == row.separation) or (pd.isna(found.value) and pd.isna(row.separation))
-        assert (found.best == row.best) or (pd.isna(found.best) and pd.isna(row.best))
-        assert (found.worst == row.worst) or (pd.isna(found.worst) and pd.isna(row.worst))
+        assert (found.value == row.separation) or (missing(found.value) and missing(row.separation))
+        assert (found.best == row.best) or (missing(found.best) and missing(row.best))
+        assert (found.worst == row.worst) or (missing(found.worst) and missing(row.worst))
         assert found.strata == row.strata
         assert found.strata_ranked == row.strata_ranked
         assert found.trades_ranked == row.trades_ranked
@@ -135,7 +147,7 @@ def test_a_condition_with_one_surviving_stratum_separates_nothing_and_says_so() 
     found = guard.separate(pnl, labels, statistic="expectancy", min_trades=30)
     assert np.isnan(found.value)
     assert found.strata_ranked == 1
-    assert pd.isna(found.best)
+    assert missing(found.best)
 
 
 # -- the permutation test -----------------------------------------------------
@@ -240,7 +252,7 @@ def test_a_trade_some_condition_leaves_null_is_dropped_from_all_of_them_and_coun
 # -- the holdout --------------------------------------------------------------
 
 
-def reversing(count: int = 400, *, seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
+def reversing(count: int = 400, *, seed: int = 11) -> tuple[FloatArray, NDArray[np.str_]]:
     """Build a split that works over the first three quarters and inverts over the last one."""
     rng = np.random.default_rng(seed)
     labels = np.where(np.arange(count) % 2 == 0, "a", "b")
@@ -264,7 +276,7 @@ def test_the_holdout_reads_the_split_the_earlier_trades_chose_rather_than_re_cho
     assert held.reported, "both held-out strata clear the floor here"
 
 
-def late(count: int = 400, *, seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
+def late(count: int = 400, *, seed: int = 11) -> tuple[FloatArray, NDArray[np.str_]]:
     """Build a split worth two points early and two hundred over the most recent quarter."""
     rng = np.random.default_rng(seed)
     labels = np.where(np.arange(count) % 2 == 0, "a", "b")

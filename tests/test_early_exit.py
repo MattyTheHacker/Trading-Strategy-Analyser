@@ -49,8 +49,9 @@ from tests.test_confluence_sizing import EVERY_CLASS, LOOPS, TRADING, prepared
 from tests.test_insidebartrailing_sim import short_periods, walk_bars
 
 if TYPE_CHECKING:
-    from nqbt.arrays import LabelArray
+    from nqbt.arrays import FloatArray, LabelArray
     from nqbt.context import ContextSpec, Dataset
+    from tests.test_confluence_sizing import ArchetypeParams
 
 UP = int(trend.Trend.UP)
 MIXED = int(trend.Trend.MIXED)
@@ -58,7 +59,7 @@ DOWN = int(trend.Trend.DOWN)
 DIRECTIONAL = int(regime.Regime.DIRECTIONAL)
 CONSOLIDATING = int(regime.Regime.CONSOLIDATING)
 
-EVERY_LOOP: dict[str, tuple[str, archetypes.Params]] = {
+EVERY_LOOP: dict[str, tuple[str, ArchetypeParams]] = {
     **LOOPS,
     "InsideBarTrailing": ("InsideBarTrailing", short_periods()),
 }
@@ -96,7 +97,9 @@ Each setting is one that fires in every loop on :func:`walk_bars`, which is why 
 the close is wider than a campaign would run it."""
 
 
-def open_trade(*, entry_bar=5, entry_price=100.0, risk=10.0, direction=LONG) -> bracket.OpenTrade:
+def open_trade(
+    *, entry_bar: int = 5, entry_price: float = 100.0, risk: float = 10.0, direction: float = LONG
+) -> bracket.OpenTrade:
     return bracket.OpenTrade(
         trade_id=1,
         entry_bar=entry_bar,
@@ -109,7 +112,7 @@ def open_trade(*, entry_bar=5, entry_price=100.0, risk=10.0, direction=LONG) -> 
 
 
 def rule(**fields: object) -> bracket.EarlyExit:
-    return bracket.EARLY_EXIT_OFF._replace(**fields)
+    return bracket.EARLY_EXIT_OFF._replace(**fields)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def bars_at(close: float, n: int = 64, *, low: float = 0.0, high: float = 1e9) -> bracket.Bars:
@@ -130,7 +133,10 @@ def due(
     close: float,
     excursion: bracket.Excursion | None = None,
 ) -> bool:
-    """Return :func:`~nqbt.sim.bracket.early_exit_due` on bars closing at ``close``, the excursion the entry's."""
+    """Return :func:`~nqbt.sim.bracket.early_exit_due` on bars closing at ``close``.
+
+    The excursion is the entry's.
+    """
     if excursion is None:
         excursion = bracket.Excursion(trade.entry_price, trade.entry_price)
 
@@ -146,7 +152,7 @@ def reason(
     return bracket.market_exit_reason(trade, bars_at(close), excursion, i, max_hold_bars, exit_rule)
 
 
-def labels(*values: int) -> np.ndarray:
+def labels(*values: int) -> LabelArray:
     return np.asarray(values, dtype=np.int8)
 
 
@@ -253,7 +259,12 @@ def test_only_if_losing_holds_a_winner_through_a_regime_change() -> None:
         (trend.UNDEFINED, SHORT, bracket.TREND_EXIT_NOT_WITH, False),
     ],
 )
-def test_a_trend_label_is_against_a_position_in_each_form(label, direction, form, against) -> None:
+def test_a_trend_label_is_against_a_position_in_each_form(
+    label: int,
+    direction: float,
+    form: int,
+    against: bool,  # noqa: FBT001 - a parametrised case
+) -> None:
     assert bracket.trend_against(label, direction, form) is against
 
 
@@ -272,7 +283,10 @@ def test_a_trend_label_is_against_a_position_in_each_form(label, direction, form
     ],
 )
 def test_the_trend_exit_fires_on_a_turn_against_and_leaves_a_trade_entered_against_alone(
-    at_entry, now, form, fires
+    at_entry: int,
+    now: int,
+    form: int,
+    fires: bool,  # noqa: FBT001 - a parametrised case
 ) -> None:
     turn = rule(trend_form=form, trend_labels=labels(at_entry, now))
     assert due(turn, open_trade(entry_bar=1), 1, 99.0) is fires
@@ -286,7 +300,7 @@ def test_a_label_exit_on_a_position_entered_on_the_first_bar_has_nothing_to_comp
     assert not due(turn, first_bar, 1, 99.0)
 
 
-def minute_clock(*minutes: float) -> np.ndarray:
+def minute_clock(*minutes: float) -> FloatArray:
     """Return a clock in epoch seconds whose bars stand at these minutes."""
     return 1_700_000_000.0 + 60.0 * np.asarray(minutes, dtype=np.float64)
 
@@ -398,7 +412,7 @@ def test_no_exit_code_is_the_no_exit_sentinel() -> None:
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_every_rule_is_off_by_default_on_every_class(cls) -> None:
+def test_every_rule_is_off_by_default_on_every_class(cls: type[ArchetypeParams]) -> None:
     assert active_early_exits(cls()) == []
 
 
@@ -452,28 +466,28 @@ def test_every_rule_is_off_by_default_on_every_class(cls) -> None:
     ],
 )
 def test_an_exit_that_is_out_of_range_unread_unreachable_or_a_second_rule_is_refused(
-    cls, fields, message
+    cls: type[ArchetypeParams], fields: dict[str, object], message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
         cls(**fields)
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_one_rule_with_its_own_settings_is_accepted_on_every_class(cls) -> None:
+def test_one_rule_with_its_own_settings_is_accepted_on_every_class(cls: type[ArchetypeParams]) -> None:
     for fields in RULES.values():
         assert len(active_early_exits(cls(**fields))) == 1
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_a_not_working_bar_before_the_hold_cap_is_accepted(cls) -> None:
-    assert cls(max_hold_bars=4, early_exit_bars=3).early_exit_bars == 3
-    assert cls(max_hold_bars=0, early_exit_bars=30).early_exit_bars == 30
+def test_a_not_working_bar_before_the_hold_cap_is_accepted(cls: type[ArchetypeParams]) -> None:
+    assert cls(max_hold_bars=4, early_exit_bars=3).early_exit_bars == 3  # type: ignore[call-arg]  # every params class takes its fields as keywords
+    assert cls(max_hold_bars=0, early_exit_bars=30).early_exit_bars == 30  # type: ignore[call-arg]  # every params class takes its fields as keywords
 
 
 # -- the context it reads ----------------------------------------------------------------------
 
 
-def test_with_every_rule_off_the_exit_carries_no_series(bars) -> None:
+def test_with_every_rule_off_the_exit_carries_no_series(bars: pd.DataFrame) -> None:
     params = TRADING["DeadCatBounce"]
     built = filters.early_exit(prepared(bars, params, archetypes.DEADCATBOUNCE), params)
     off = bracket.EARLY_EXIT_OFF
@@ -491,7 +505,7 @@ def test_with_every_rule_off_the_exit_carries_no_series(bars) -> None:
     assert [getattr(built, name) for name in scalars] == [getattr(off, name) for name in scalars]
 
 
-def test_the_minutes_form_reads_the_bars_own_timestamps(bars) -> None:
+def test_the_minutes_form_reads_the_bars_own_timestamps(bars: pd.DataFrame) -> None:
     params = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_minutes=30)
     data = prepared(bars, params, archetypes.DEADCATBOUNCE)
     built = filters.early_exit(data, params)
@@ -512,7 +526,7 @@ def test_the_dataset_clock_is_utc_seconds_whatever_unit_the_index_is_stored_in()
             low=frame["close"].to_numpy(),
             close=frame["close"].to_numpy(),
             force_flat=np.zeros(2, dtype=np.bool_),
-            geometry=None,
+            geometry=None,  # type: ignore[arg-type]  # the clock reads no geometry
             spec=context.ContextSpec(),
         )
         assert data.bar_seconds().tolist() == [1710053700.0, 1710054000.0], unit
@@ -520,7 +534,7 @@ def test_the_dataset_clock_is_utc_seconds_whatever_unit_the_index_is_stored_in()
         assert not data.bar_seconds().flags.writeable
 
 
-def test_the_window_before_the_close_is_the_no_entry_windows_at_the_same_minutes(bars) -> None:
+def test_the_window_before_the_close_is_the_no_entry_windows_at_the_same_minutes(bars: pd.DataFrame) -> None:
     params = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_minutes_before_close=45)
     data = prepared(bars, params, archetypes.DEADCATBOUNCE)
     built = filters.early_exit(data, params)
@@ -529,7 +543,7 @@ def test_the_window_before_the_close_is_the_no_entry_windows_at_the_same_minutes
     assert not built.near_close.all()
 
 
-def test_the_label_exits_read_the_labels_at_the_combinations_own_settings(bars) -> None:
+def test_the_label_exits_read_the_labels_at_the_combinations_own_settings(bars: pd.DataFrame) -> None:
     base = TRADING["DeadCatBounce"]
     on_regime = dataclasses.replace(base, early_exit_on_regime_change=True, regime_lookback=12)
     data = prepared(bars, on_regime, archetypes.DEADCATBOUNCE)
@@ -549,9 +563,9 @@ def test_the_label_exits_read_the_labels_at_the_combinations_own_settings(bars) 
 # -- the loops ---------------------------------------------------------------------------------
 
 
-def losing_by(close: float, trade: np.ndarray) -> float:
+def losing_by(close: float, trade: FloatArray) -> float:
     """Return the open profit per contract at ``close``, which is negative while the position loses."""
-    return trade[C_DIRECTION] * (close - trade[C_ENTRY_PRICE])
+    return float(trade[C_DIRECTION] * (close - trade[C_ENTRY_PRICE]))
 
 
 def rule_labels(params: filters.EarlyExiting, data: Dataset) -> LabelArray | None:
@@ -567,18 +581,21 @@ def rule_labels(params: filters.EarlyExiting, data: Dataset) -> LabelArray | Non
     return None
 
 
-def reached(params, data: Dataset, entry_bar: int, bar: int) -> bool:
-    """Recompute whether ``bar`` is the one close the not-working exit tests, from the bar count or the index."""
+def reached(params: ArchetypeParams, data: Dataset, entry_bar: int, bar: int) -> bool:
+    """Recompute whether ``bar`` is the one close the not-working exit tests.
+
+    Read from the bar count or the index.
+    """
     if params.early_exit_bars > 0:
         return bar - entry_bar == params.early_exit_bars
 
     elapsed = (data.index - data.index[entry_bar]).total_seconds()
     horizon = params.early_exit_minutes * 60
 
-    return elapsed[bar] >= horizon > elapsed[bar - 1]
+    return bool(elapsed[bar] >= horizon > elapsed[bar - 1])
 
 
-def measured(params, data: Dataset, trade: np.ndarray, bar: int) -> float:
+def measured(params: ArchetypeParams, data: Dataset, trade: FloatArray, bar: int) -> float:
     """Recompute what the not-working exit compares with its threshold: open profit, or the best excursion."""
     if params.early_exit_measure == bracket.MEASURE_OPEN_PROFIT:
         return losing_by(data.close[bar], trade)
@@ -590,7 +607,14 @@ def measured(params, data: Dataset, trade: np.ndarray, bar: int) -> float:
     return float(trade[C_ENTRY_PRICE] - data.low[entry_bar : bar + 1].min())
 
 
-def condition_held(params, data, series: LabelArray | None, trade: np.ndarray, risk: float, bar: int) -> bool:
+def condition_held(  # noqa: PLR0911 - one return per early-exit rule
+    params: ArchetypeParams,
+    data: Dataset,
+    series: LabelArray | None,
+    trade: FloatArray,
+    risk: float,
+    bar: int,
+) -> bool:
     """Recompute from the bars whether ``params``' rule held at ``bar``'s close for ``trade``.
 
     ``series`` is :func:`rule_labels` for the same ``params``.
@@ -603,7 +627,10 @@ def condition_held(params, data, series: LabelArray | None, trade: np.ndarray, r
         )
 
     if params.early_exit_minutes_before_close > 0:
-        return profit < 0 and data.seconds_to_session_end[bar] <= params.early_exit_minutes_before_close * 60
+        assert data.seconds_to_session_end is not None, "a close-timed rule reads the session clock"
+        return bool(
+            profit < 0 and data.seconds_to_session_end[bar] <= params.early_exit_minutes_before_close * 60
+        )
 
     before = entry_bar - 1
     if before < 0 or (params.early_exit_only_if_losing and profit >= 0):
@@ -611,7 +638,7 @@ def condition_held(params, data, series: LabelArray | None, trade: np.ndarray, r
 
     if params.early_exit_on_invalidation:
         adverse = data.low[before] if trade[C_DIRECTION] == LONG else data.high[before]
-        return trade[C_DIRECTION] * (data.close[bar] - adverse) < 0
+        return bool(trade[C_DIRECTION] * (data.close[bar] - adverse) < 0)
 
     assert series is not None, "a label rule reads rule_labels' series"
     if params.early_exit_on_regime_change:
@@ -620,17 +647,19 @@ def condition_held(params, data, series: LabelArray | None, trade: np.ndarray, r
     if trend.UNDEFINED in (series[before], series[bar]):
         return False
 
-    def against(label) -> bool:
+    def against(label: int) -> bool:
         lean = trade[C_DIRECTION] * (int(label) - MIXED)
 
-        return lean < 0 if params.early_exit_on_trend == bracket.TREND_EXIT_OPPOSED else lean <= 0
+        return bool(lean < 0 if params.early_exit_on_trend == bracket.TREND_EXIT_OPPOSED else lean <= 0)
 
     return against(series[bar]) and not against(series[before])
 
 
 @pytest.mark.parametrize("rule_name", sorted(RULES))
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_every_loop_exits_where_the_rule_held_and_nowhere_else(bars, loop, rule_name) -> None:
+def test_every_loop_exits_where_the_rule_held_and_nowhere_else(
+    bars: pd.DataFrame, loop: str, rule_name: str
+) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     params = dataclasses.replace(base, **RULES[rule_name])
@@ -670,7 +699,7 @@ def test_every_loop_exits_where_the_rule_held_and_nowhere_else(bars, loop, rule_
 
 
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars, loop) -> None:
+def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars: pd.DataFrame, loop: str) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     never = dataclasses.replace(base, early_exit_bars=2, early_exit_below_r=-1e9)
@@ -682,7 +711,7 @@ def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars, loop) -> Non
 
 
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_the_hold_cap_takes_a_bar_both_would_exit_on(bars, loop) -> None:
+def test_the_hold_cap_takes_a_bar_both_would_exit_on(bars: pd.DataFrame, loop: str) -> None:
     """Every close is inside the window, so a trade first losing at the hold limit is a tie."""
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
@@ -696,7 +725,7 @@ def test_the_hold_cap_takes_a_bar_both_would_exit_on(bars, loop) -> None:
     assert (matrix[:, C_EXIT_REASON] == EXIT_EARLY).any()
 
 
-def test_the_archetypes_own_signal_exit_takes_a_bar_both_would_exit_on(bars) -> None:
+def test_the_archetypes_own_signal_exit_takes_a_bar_both_would_exit_on(bars: pd.DataFrame) -> None:
     base = TRADING["EmaCrossover"]
     always = dataclasses.replace(base, early_exit_bars=2, early_exit_below_r=1e9)
     data = prepared(bars, always, archetypes.EMACROSSOVER)
@@ -710,7 +739,7 @@ def test_the_archetypes_own_signal_exit_takes_a_bar_both_would_exit_on(bars) -> 
 
 
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_slippage_worsens_the_early_exits_fill_on_either_side(bars, loop) -> None:
+def test_slippage_worsens_the_early_exits_fill_on_either_side(bars: pd.DataFrame, loop: str) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     slipped = dataclasses.replace(base, early_exit_bars=2, early_exit_below_r=1e9, slippage_ticks=2.0)
@@ -728,7 +757,7 @@ def test_slippage_worsens_the_early_exits_fill_on_either_side(bars, loop) -> Non
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_the_threshold_axis_is_dead_without_the_not_working_exit(name) -> None:
+def test_the_threshold_axis_is_dead_without_the_not_working_exit(name: str) -> None:
     archetype = archetypes.get(name)
     with pytest.raises(
         sweep.SweepError,
@@ -743,7 +772,7 @@ def test_the_threshold_axis_is_dead_without_the_not_working_exit(name) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_only_if_losing_is_dead_without_a_label_exit(name) -> None:
+def test_only_if_losing_is_dead_without_a_label_exit(name: str) -> None:
     archetype = archetypes.get(name)
     with pytest.raises(sweep.SweepError, match=r"early_exit_only_if_losing"):
         sweep.Grid.of(TRADING[name], archetype=archetype, early_exit_only_if_losing=[False, True])
@@ -753,7 +782,7 @@ def test_only_if_losing_is_dead_without_a_label_exit(name) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_a_labels_axes_are_live_when_an_exit_reads_them(name) -> None:
+def test_a_labels_axes_are_live_when_an_exit_reads_them(name: str) -> None:
     archetype = archetypes.get(name)
     on_regime = dataclasses.replace(TRADING[name], early_exit_on_regime_change=True)
     sweep.Grid.of(on_regime, archetype=archetype, regime_lookback=[10, 20])
@@ -761,7 +790,7 @@ def test_a_labels_axes_are_live_when_an_exit_reads_them(name) -> None:
     sweep.Grid.of(on_trend, archetype=archetype, trend_min_agreement=[2, 3])
 
 
-def test_a_window_shorter_than_a_minute_still_builds_the_clock_it_reads(bars) -> None:
+def test_a_window_shorter_than_a_minute_still_builds_the_clock_it_reads(bars: pd.DataFrame) -> None:
     params = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_minutes_before_close=0.5)
     spec = sweep.Grid.of(params, archetype=archetypes.DEADCATBOUNCE).required_context()
     assert spec.needs_session_clock
@@ -770,7 +799,7 @@ def test_a_window_shorter_than_a_minute_still_builds_the_clock_it_reads(bars) ->
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_every_series_an_exit_reads_is_built_into_the_dataset(name) -> None:
+def test_every_series_an_exit_reads_is_built_into_the_dataset(name: str) -> None:
     archetype = archetypes.get(name)
     off = sweep.Grid.of(TRADING[name], archetype=archetype).required_context()
     assert not off.regime_lookbacks
@@ -803,7 +832,9 @@ def test_a_grid_refuses_two_rules_at_once_before_anything_runs() -> None:
     ],
 )
 @pytest.mark.parametrize("rule_name", sorted(RULES))
-def test_an_early_exit_row_leaves_every_reconciled_port(archetype, params, rule_name) -> None:
+def test_an_early_exit_row_leaves_every_reconciled_port(
+    archetype: archetypes.Archetype, params: ArchetypeParams, rule_name: str
+) -> None:
     assert archetype.tier2_for(params) is Tier2Status.RECONCILED
     assert archetype.tier2_for(dataclasses.replace(params, **RULES[rule_name])) is Tier2Status.TIER1_ONLY
 

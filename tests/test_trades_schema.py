@@ -18,7 +18,7 @@ from nqbt.trades import TradeSchemaError
 PACKAGE = Path(__file__).resolve().parents[1] / "nqbt"
 
 
-def leg_log(n: int = 3, **overrides) -> pd.DataFrame:
+def leg_log(n: int = 3, **overrides: float | str | np.int64) -> pd.DataFrame:
     """Build a minimal schema-conforming log, in the shape an importer would produce."""
     frame = pd.DataFrame(
         {
@@ -183,7 +183,7 @@ def test_an_exit_reason_outside_the_simulator_enum_is_allowed() -> None:
 # -- validate_legs, the boundary a caller that never builds a frame crosses -----
 
 
-def leg_matrix(n: int = 3, **overrides) -> trades.LegMatrix:
+def leg_matrix(n: int = 3, **overrides: float) -> trades.LegMatrix:
     """Build a minimal schema-conforming leg matrix, as the jitted loop would leave it."""
     matrix = np.zeros((n + 2, trades.N_COLUMNS))  # a tail of unwritten rows, like the real one
     matrix[:n, trades.C_TRADE_ID] = np.arange(1, n + 1)
@@ -278,7 +278,7 @@ def test_trades_to_frame_tags_every_row() -> None:
 def test_trades_to_frame_requires_an_instrument() -> None:
     # A trade log without one cannot be summed in dollars: NQ and MNQ differ 10x.
     with pytest.raises(TypeError):
-        trades.trades_to_frame(np.zeros((1, trades.N_COLUMNS)), 1)
+        trades.trades_to_frame(np.zeros((1, trades.N_COLUMNS)), 1)  # type: ignore[call-arg]  # the missing instrument is the point
 
 
 # -- the layering M9 establishes ----------------------------------------------

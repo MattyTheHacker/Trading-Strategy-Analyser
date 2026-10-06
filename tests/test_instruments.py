@@ -1,5 +1,7 @@
 """Instrument specs: tick size, tick value and the conversions between them."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from nqbt.instruments import (
@@ -17,6 +19,9 @@ from nqbt.instruments import (
     get_instrument,
     months_from_codes,
 )
+
+if TYPE_CHECKING:
+    from nqbt.instruments import RoundMode
 
 
 def test_tick_values_differ_tenfold_between_nq_and_mnq() -> None:
@@ -45,7 +50,7 @@ def test_point_and_tick_conversions_round_trip() -> None:
         (16019.25, "down", 16019.25),
     ],
 )
-def test_round_to_tick(price, mode, expected) -> None:
+def test_round_to_tick(price: float, mode: RoundMode, expected: float) -> None:
     assert MNQ.round_to_tick(price, mode) == pytest.approx(expected)
 
 
@@ -70,7 +75,7 @@ def test_position_size_rounds_down_and_can_refuse_the_trade() -> None:
 
 
 def test_position_size_rejects_nonpositive_stop() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="stop_distance_points must be positive"):
         MNQ.position_size_for_risk(100.0, 0.0)
 
 
@@ -105,9 +110,12 @@ def test_contract_id_rejects_a_month_its_root_does_not_list() -> None:
 
 @pytest.mark.parametrize("root", ["GC", "MGC"])
 def test_gold_does_not_list_october(root: str) -> None:
-    """October is in the CME cycle and NinjaTrader will not serve it: the Historical Data
-    download refuses ``GC 10-25`` as an invalid instrument, for every year. Accepting it here
-    would mean a contract that parses, validates and can never have bars behind it."""
+    """October is in the CME cycle and NinjaTrader will not serve it.
+
+    The Historical Data download refuses ``GC 10-25`` as an invalid instrument, for every year.
+    Accepting it here would mean a contract that parses, validates and can never have bars
+    behind it.
+    """
     with pytest.raises(ValueError, match=rf"{root} lists .* not month 10"):
         ContractId.parse(f"{root} 10-25")
 

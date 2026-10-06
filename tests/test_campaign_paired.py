@@ -69,7 +69,11 @@ def test_the_axis_under_test_is_not_part_of_the_cell_key() -> None:
     ],
     ids=["toggle", "held against swept", "identical", "one value lost", "disjoint", "both held"],
 )
-def test_which_value_sets_mean_the_column_is_the_rule_under_test(left, right, expected) -> None:
+def test_which_value_sets_mean_the_column_is_the_rule_under_test(
+    left: set[object],
+    right: set[object],
+    expected: bool,  # noqa: FBT001 - a parametrised case
+) -> None:
     """Set equality is not the test: ``MIN_TRADES`` can drop a value from one arm alone."""
     assert under_test(left, right) is expected
 
@@ -116,7 +120,7 @@ def test_the_delta_is_the_treatment_minus_the_control() -> None:
 
 
 @pytest.mark.parametrize("total", [1, 2, 5, 10, 21])
-def test_the_sign_test_is_the_exact_two_sided_binomial(total) -> None:
+def test_the_sign_test_is_the_exact_two_sided_binomial(total: int) -> None:
     """Written out rather than imported, so it is pinned against the definition."""
     for improved in range(total + 1):
         tail = min(improved, total - improved)
@@ -184,7 +188,7 @@ def two_strata() -> pd.DataFrame:
 
 
 def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
+    monkeypatch.setattr(campaign_paired, "load", lambda _name, _windows: two_strata())
     pooled = report("EmaCrossover", "off", "on", ["full"], "profit_factor").iloc[0]
     midday = report("EmaCrossover", "off", "on", ["full"], "profit_factor", "phase=MIDDAY").iloc[0]
     assert (pooled["pairs"], pooled["improved"]) == (8, 4)
@@ -192,6 +196,6 @@ def test_a_named_stratum_is_read_alone_rather_than_pooled(monkeypatch: pytest.Mo
 
 
 def test_a_stratum_holding_neither_arm_is_refused_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(campaign_paired, "load", lambda name, windows: two_strata())
+    monkeypatch.setattr(campaign_paired, "load", lambda _name, _windows: two_strata())
     with pytest.raises(SystemExit, match="stratum 'regime=DIRECTIONAL'"):
         report("EmaCrossover", "off", "on", ["full"], "profit_factor", "regime=DIRECTIONAL")

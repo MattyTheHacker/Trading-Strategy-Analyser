@@ -11,15 +11,21 @@ run would still look like it worked.
 from __future__ import annotations
 
 import argparse
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, higher_timeframe, sessions, trend, walkforward
+from nqbt import archetypes, context, higher_timeframe, sessions, splice, trend, walkforward
 from nqbt.conditions import ma_keys
+from nqbt.sim.types import InsideBarParams
+from tests.rows import number
 from tools import campaign_shortlist, campaign_walkforward
 from tools.campaign_walkforward import candidate_grid, geometry, main, run_resolution, warmup_for
+
+if TYPE_CHECKING:
+    from nqbt import sweep
 
 ROOT = "MNQ"
 STRATEGY = "InsideBar"
@@ -29,8 +35,10 @@ STRATEGY = "InsideBar"
 
 
 def test_the_shares_become_bar_counts_of_the_series_they_are_taken_from() -> None:
-    """Stated as shares rather than bars because 20,000 bars is four months at 5 minutes and
-    a year at 15, so one pair of counts cannot serve both resolutions."""
+    """Stated as shares rather than bars because 20,000 bars is four months at 5 minutes and a year at 15.
+
+    One pair of counts cannot serve both resolutions.
+    """
     assert geometry(1000, 0.5, 0.1) == (500, 100)
     assert geometry(113_814, 0.5, 0.1) == (56_907, 11_381)
 
@@ -50,8 +58,11 @@ def test_a_share_that_rounds_down_to_no_bars_raises_rather_than_running_one() ->
 
 
 def test_the_warm_up_is_the_longest_lookback_the_context_declares() -> None:
-    """Every fold is prepared independently, so a shorter prefix leaves the longest average
-    reading its own warm-up for the first bars of every window."""
+    """Every fold is prepared independently.
+
+    A shorter prefix leaves the longest average reading its own warm-up for the first bars of
+    every window.
+    """
     spec = context.ContextSpec(ma_keys=ma_keys(ema=(11, 44), sma=(200,)), atr_periods=(14,))
     assert warmup_for(spec, 5) == 200
 
@@ -92,20 +103,36 @@ def stored_rows(**columns: object) -> pd.DataFrame:
     return pd.DataFrame({**base, **columns})
 
 
+def inside_bars(grid: sweep.Grid) -> list[InsideBarParams]:
+    """Return ``grid``'s combinations, each checked to be an ``InsideBarParams``."""
+    combos: list[InsideBarParams] = []
+    for combo in grid.combinations():
+        assert isinstance(combo, InsideBarParams), f"{type(combo).__name__} is not InsideBar's"
+        combos.append(combo)
+
+    return combos
+
+
 def test_the_pool_is_the_rows_themselves_and_never_a_cross_of_their_values() -> None:
-    """The whole reason the grid takes combinations outright: crossing two rows of five
-    parameters is not two candidates, and the fold would still report a clean number."""
+    """The whole reason the grid takes combinations outright.
+
+    Crossing two rows of five parameters is not two candidates, and the fold would still report
+    a clean number.
+    """
     grid = candidate_grid(stored_rows(), archetypes.INSIDEBAR)
     assert len(grid) == 2
-    assert [(c.ema_period, c.fast_sma_period) for c in grid.combinations()] == [(11, 20), (44, 50)]
+    assert [(c.ema_period, c.fast_sma_period) for c in inside_bars(grid)] == [(11, 20), (44, 50)]
 
 
 def test_the_pool_carries_every_stored_parameter_rather_than_the_ranked_ones_alone() -> None:
-    """``rebuild`` fills from defaults, so a column the sweep stored and the pool dropped would
-    walk a configuration forward that the campaign never ranked."""
+    """``rebuild`` fills from defaults.
+
+    A column the sweep stored and the pool dropped would walk a configuration forward that the
+    campaign never ranked.
+    """
     grid = candidate_grid(stored_rows(), archetypes.INSIDEBAR)
-    assert [c.atr_multiplier for c in grid.combinations()] == [1.0, 2.0]
-    assert {c.slow_sma_period for c in grid.combinations()} == {60}
+    assert [c.atr_multiplier for c in inside_bars(grid)] == [1.0, 2.0]
+    assert {c.slow_sma_period for c in inside_bars(grid)} == {60}
 
 
 def test_the_pool_declares_the_context_of_every_member() -> None:
@@ -153,12 +180,15 @@ def options(**overrides: object) -> argparse.Namespace:
 
 @pytest.fixture(scope="module")
 def verdict() -> dict[str, object]:
-    """Run one real walk-forward over a two-row shortlist. Costed, because ``walk_forward``
-    refuses a free one -- reaching a verdict at all is what says the tool passed costs in."""
+    """Run one real walk-forward over a two-row shortlist.
+
+    Costed, because ``walk_forward`` refuses a free one -- reaching a verdict at all is what
+    says the tool passed costs in.
+    """
     return run_resolution(STRATEGY, stored_rows(), ROOT, 5, synthetic_bars(), options())
 
 
-def test_a_shortlist_walks_forward_and_reports_one_verdict_row(verdict) -> None:
+def test_a_shortlist_walks_forward_and_reports_one_verdict_row(verdict: dict[str, object]) -> None:
     assert verdict["strategy"] == STRATEGY
     assert verdict["resolution"] == 5
     assert verdict["candidates"] == 2
@@ -166,19 +196,26 @@ def test_a_shortlist_walks_forward_and_reports_one_verdict_row(verdict) -> None:
     assert verdict["statistic"] == "profit_factor"
 
 
-def test_every_fold_chooses_from_the_pool_and_never_from_outside_it(verdict) -> None:
-    """``combo_id`` is a position in the candidate list, so anything past its end would be a
-    configuration nobody shortlisted, reported under a shortlisted row's name."""
+def test_every_fold_chooses_from_the_pool_and_never_from_outside_it(verdict: dict[str, object]) -> None:
+    """``combo_id`` is a position in the candidate list.
+
+    Anything past its end would be a configuration nobody shortlisted, reported under a
+    shortlisted row's name.
+    """
     assert verdict["splits_selected"] == verdict["splits"], "no fold selected; the test proves nothing"
-    assert 1 <= verdict["combos_distinct"] <= verdict["candidates"]
+    assert 1 <= number(verdict, "combos_distinct") <= number(verdict, "candidates")
 
 
-def test_the_verdict_is_the_pooled_out_of_sample_figure_and_not_a_median_of_medians(verdict) -> None:
-    """``test_pooled`` is taken over every out-of-sample trade at once, which is why the
-    windows have to tile the tested region -- ``docs/roadmap.md`` §M7b."""
-    assert np.isfinite(verdict["test_pooled"])
-    assert verdict["test_trades"] > 0
-    assert verdict["passes"] == (verdict["test_pooled"] > 1.0)
+def test_the_verdict_is_the_pooled_out_of_sample_figure_and_not_a_median_of_medians(
+    verdict: dict[str, object],
+) -> None:
+    """``test_pooled`` is taken over every out-of-sample trade at once.
+
+    That is why the windows have to tile the tested region -- ``docs/roadmap.md`` §M7b.
+    """
+    assert np.isfinite(number(verdict, "test_pooled"))
+    assert number(verdict, "test_trades") > 0
+    assert verdict["passes"] == (number(verdict, "test_pooled") > 1.0)
 
 
 # -- the run over a whole shortlist --------------------------------------------------------
@@ -187,16 +224,20 @@ def test_the_verdict_is_the_pooled_out_of_sample_figure_and_not_a_median_of_medi
 def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two candidates at different bar sizes are different frames and cannot be selected
-    between, so pooling them would rank a 5-minute profit factor against a 10-minute one."""
+    """Two candidates at different bar sizes are different frames and cannot be selected between.
+
+    Pooling them would rank a 5-minute profit factor against a 10-minute one.
+    """
     rows = pd.concat([stored_rows(resolution=[5, 5]), stored_rows(resolution=[10, 10])])
     monkeypatch.setattr(campaign_walkforward, "shortlist", lambda *_: rows)
-    monkeypatch.setattr(campaign_walkforward.splice, "load_continuous", lambda _: synthetic_bars())
+    monkeypatch.setattr(splice, "load_continuous", lambda _: synthetic_bars())
 
     ran: list[int] = []
     walked = campaign_walkforward.run_resolution
 
-    def spy(name, block, root, minutes, bars, args):
+    def spy(
+        name: str, block: pd.DataFrame, root: str, minutes: int, bars: pd.DataFrame, args: argparse.Namespace
+    ) -> dict[str, object]:
         ran.append(minutes)
 
         return walked(name, block, root, minutes, bars, args)
@@ -208,8 +249,10 @@ def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(
 
 
 def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of, and a
-    flag that parses without reaching ``shortlist`` reads exactly like one that works."""
+    """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of.
+
+    A flag that parses without reaching ``shortlist`` reads exactly like one that works.
+    """
     rows = stored_rows(
         root=ROOT,
         stratum="unfiltered",
@@ -218,11 +261,11 @@ def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch: pytest.
         profit_factor=[1.2, 1.4],
     )
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: rows)
-    monkeypatch.setattr(campaign_walkforward.splice, "load_continuous", lambda _: synthetic_bars(n=100))
+    monkeypatch.setattr(splice, "load_continuous", lambda _: synthetic_bars(n=100))
 
     walked: list[str] = []
 
-    def spy(_name, block, *_rest):
+    def spy(_name: str, block: pd.DataFrame, *_rest: object) -> dict[str, object]:
         walked.extend(str(variant) for variant in block["variant"])
 
         return {}

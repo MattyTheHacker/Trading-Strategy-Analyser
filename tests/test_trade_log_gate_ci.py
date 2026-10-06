@@ -11,7 +11,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from types import ModuleType
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
@@ -26,6 +26,9 @@ from tools.trade_log_gate_ci import (
     verdict,
 )
 
+if TYPE_CHECKING:
+    from types import ModuleType
+
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "trade-log-gate.yaml"
 COMPARE_TOOL = ROOT / "tools" / "compare_trade_logs.py"
@@ -34,6 +37,8 @@ COMPARE_TOOL = ROOT / "tools" / "compare_trade_logs.py"
 def load_compare_tool() -> ModuleType:
     """Import the comparison script by path, as ``tests/test_trade_log_gate.py`` does."""
     spec = importlib.util.spec_from_file_location("_compare_trade_logs_for_ci", COMPARE_TOOL)
+    assert spec is not None, f"cannot import {COMPARE_TOOL}"
+    assert spec.loader is not None, f"cannot import {COMPARE_TOOL}"
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)

@@ -12,6 +12,8 @@ second ``searchsorted``, because a test that re-derives the answer the implement
 cannot catch the implementation being wrong.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -29,6 +31,11 @@ from nqbt.sim.pullback import pullback_signal
 from nqbt.sim.runner import deadcat_signal
 from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, PullBackAndGoParams
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nqbt.arrays import BoolArray, FloatArray
+
 COARSE = 5
 PERIOD = 1
 """An EMA of 1 is the coarse close itself, so every expected value below is readable by eye."""
@@ -36,7 +43,10 @@ PERIOD = 1
 KEY = higher_timeframe.key(COARSE, PERIOD)
 OTHER = higher_timeframe.key(COARSE, 3)
 
-PARAMS_CLASSES = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
+type FilteredParams = DeadCatParams | PullBackAndGoParams | EmaCrossoverParams
+"""The three archetypes the context filters were built on."""
+
+PARAMS_CLASSES: list[type[FilteredParams]] = [DeadCatParams, PullBackAndGoParams, EmaCrossoverParams]
 
 # 18:01 ET on a Sunday: the first bar of the session that ends on Monday the 8th. Bucket b of a
 # 5-minute grid anchored to that open therefore covers positions 5b..5b+4 of what follows.
@@ -96,9 +106,11 @@ def random_bars(days: int = 12, seed: int = 5) -> pd.DataFrame:
     return frame
 
 
-def last_completed(coarse_stamps: pd.DatetimeIndex, values, stamps: pd.DatetimeIndex):
+def last_completed(
+    coarse_stamps: pd.DatetimeIndex, values: FloatArray, stamps: pd.DatetimeIndex
+) -> FloatArray:
     """Compute the projection by an explicit loop: the last coarse value stamped at or before each bar."""
-    out = []
+    out: list[float] = []
     for stamp in stamps:
         seen = [v for s, v in zip(coarse_stamps, values, strict=True) if s <= stamp]
         out.append(seen[-1] if seen else np.nan)
@@ -198,10 +210,10 @@ def test_one_resample_serves_every_period_at_the_same_resolution(monkeypatch: py
     calls: list[int] = []
     real = resample.resample
 
-    def counted(frame, minutes, **kwargs):
+    def counted(frame: pd.DataFrame, minutes: int, **kwargs: object) -> pd.DataFrame:
         calls.append(minutes)
 
-        return real(frame, minutes, **kwargs)
+        return real(frame, minutes, **kwargs)  # type: ignore[arg-type]  # resample's own keywords, passed through
 
     monkeypatch.setattr(resample, "resample", counted)
     higher_timeframe.higher_timeframe_grid(
@@ -322,7 +334,7 @@ def test_the_grid_costs_nine_bytes_a_bar_for_each_average() -> None:
 def prepared(**spec: object) -> context.Dataset:
     return context.prepare(
         random_bars(),
-        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),
+        ContextSpec(ma_keys=conditions.ma_keys(ema=(11,), sma=(80, 155)), **spec),  # type: ignore[arg-type]  # each caller passes a field's own type
         bar_minutes=1,
     )
 
@@ -362,6 +374,7 @@ def test_the_average_grid_is_counted_in_what_a_worker_is_handed() -> None:
     without = prepared()
     with_average = prepared(higher_timeframe_keys=(KEY,))
 
+    assert with_average.higher_timeframes is not None
     assert with_average.nbytes - without.nbytes == with_average.higher_timeframes.nbytes
 
 
@@ -419,7 +432,7 @@ def test_the_axes_come_alive_once_the_filter_admits_one_side() -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_every_archetype_defaults_to_admitting_every_side(params_cls) -> None:
+def test_every_archetype_defaults_to_admitting_every_side(params_cls: type[FilteredParams]) -> None:
     params = params_cls()
 
     assert params.higher_timeframe_filter == ALL_SIDES
@@ -430,7 +443,9 @@ def test_every_archetype_defaults_to_admitting_every_side(params_cls) -> None:
 
 
 @pytest.mark.parametrize("params_cls", PARAMS_CLASSES)
-def test_a_nonsense_resolution_is_refused_even_while_the_filter_is_inert(params_cls) -> None:
+def test_a_nonsense_resolution_is_refused_even_while_the_filter_is_inert(
+    params_cls: type[FilteredParams],
+) -> None:
     with pytest.raises(HigherTimeframeError):
         params_cls(higher_timeframe_minutes=1)
 
@@ -443,14 +458,16 @@ SIGNALS = [
 
 
 @pytest.mark.parametrize(("params_cls", "signal_of"), SIGNALS)
-def test_the_filter_narrows_a_signal_to_the_side_it_admits(params_cls, signal_of) -> None:
+def test_the_filter_narrows_a_signal_to_the_side_it_admits(
+    params_cls: type[FilteredParams], signal_of: Callable[[context.Dataset, FilteredParams], BoolArray]
+) -> None:
     bars = random_bars()
     key = higher_timeframe.key(60, 20)
-    grid = sweep.Grid.of(params_cls(higher_timeframe_filter=Side.BELOW.bit, higher_timeframe_period=20))
-    data = sweep.prepare_for(bars, grid, bar_minutes=1)
+    base = params_cls(higher_timeframe_filter=Side.BELOW.bit, higher_timeframe_period=20)
+    data = sweep.prepare_for(bars, sweep.Grid.of(base), bar_minutes=1)
 
     unfiltered = signal_of(data, params_cls())
-    filtered = signal_of(data, grid.base)
+    filtered = signal_of(data, base)
 
     assert filtered.sum() < unfiltered.sum(), "the fixture must have signals on both sides"
     np.testing.assert_array_equal(filtered, unfiltered & (data.higher_timeframe_labels(key) == Side.BELOW))

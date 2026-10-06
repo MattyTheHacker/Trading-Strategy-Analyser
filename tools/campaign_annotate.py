@@ -126,11 +126,12 @@ def store_annotations(
     bars: pd.DataFrame = splice.load_continuous(root)
     stored: int = 0
     for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
-        frame: pd.DataFrame = resample.resample(source(bars, str(window)), int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
+        frame: pd.DataFrame = resample.resample(source(bars, str(window)), bar_minutes)
         data: context.Dataset = context.prepare(
             frame,
             annotation_spec(block, archetype),
-            bar_minutes=int(minutes),
+            bar_minutes=bar_minutes,
         )
         stored += sum(store_row(row, data, path, root, tolerance) for _, row in block.iterrows())
 
@@ -138,6 +139,7 @@ def store_annotations(
 
 
 def main(argv: list[str]) -> int:
+    """Annotate and store the shortlist's trade logs and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Store a campaign shortlist's per-trade context.")
     parser.add_argument("--strategy", required=True)

@@ -34,7 +34,7 @@ POINTER = re.compile(r'`{1,2}([A-Za-z0-9_/.\-]+\.md)`{1,2},?\s*§?\s*"([^"]+)"')
 
 def normalise(text: str) -> str:
     """Collapse the differences a pointer is allowed to have from its heading."""
-    text = text.replace("—", "--").replace("–", "--").replace("‑", "-")
+    text = text.replace("—", "--").replace("–", "--").replace("‑", "-")  # noqa: RUF001 - the dashes a heading may hold
 
     return re.sub(r"[\s#*`]+", " ", text).strip()
 

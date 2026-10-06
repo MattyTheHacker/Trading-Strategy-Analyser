@@ -150,6 +150,7 @@ def run_root(root: str, batch_id: int, *, n_jobs: int, db_path: paths.Path) -> N
 
 
 def main(argv: list[str]) -> int:
+    """Clear the sweep database, re-run the grids and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Drop the sweep tables and re-run them stratified.")
     parser.add_argument("--n-jobs", type=int, default=1, help="joblib workers; 1 stays in-process")

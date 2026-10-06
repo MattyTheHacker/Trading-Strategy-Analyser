@@ -13,6 +13,7 @@ summation test below is here at all.
 from __future__ import annotations
 
 import dataclasses
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,9 @@ import pytest
 from nqbt import archetypes, context, sessions, stats, sweep, trades
 from nqbt.instruments import NQ
 from nqbt.sim.types import DeadCatParams, PullBackAndGoParams
+
+if TYPE_CHECKING:
+    from nqbt.instruments import Instrument
 
 
 def session_bars(days: int = 40, seed: int = 5) -> pd.DataFrame:
@@ -49,7 +53,7 @@ def bars() -> pd.DataFrame:
     return session_bars()
 
 
-CASES = [
+CASES: list[tuple[archetypes.Archetype, archetypes.Params]] = [
     (archetypes.DEADCATBOUNCE, DeadCatParams(bars_required_to_trade=200)),
     (
         archetypes.DEADCATBOUNCE,
@@ -59,7 +63,12 @@ CASES = [
 ]
 
 
-def both_summaries(bars, archetype, params, instrument=NQ):
+def both_summaries(
+    bars: pd.DataFrame,
+    archetype: archetypes.Archetype,
+    params: archetypes.Params,
+    instrument: Instrument = NQ,
+) -> tuple[stats.Summary, stats.Summary, trades.LegMatrix]:
     """Run the same combination down both paths."""
     data = sweep.prepare_for(bars, sweep.Grid.of(params, archetype=archetype))
     legs = archetype.legs(data, params, instrument)
@@ -69,19 +78,21 @@ def both_summaries(bars, archetype, params, instrument=NQ):
 
 
 @pytest.mark.parametrize(("archetype", "params"), CASES, ids=lambda v: getattr(v, "name", ""))
-def test_the_two_summary_paths_agree_exactly(bars, archetype, params) -> None:
+def test_the_two_summary_paths_agree_exactly(
+    bars: pd.DataFrame, archetype: archetypes.Archetype, params: archetypes.Params
+) -> None:
     reference, fast, legs = both_summaries(bars, archetype, params)
     assert legs.count > 0, "fixture produced no trades; this would pass vacuously"
     assert dataclasses.asdict(fast) == dataclasses.asdict(reference)
 
 
-def test_the_fixture_actually_exercises_multi_leg_trades(bars) -> None:
+def test_the_fixture_actually_exercises_multi_leg_trades(bars: pd.DataFrame) -> None:
     """Otherwise every group is one row and the grouping is never tested."""
     reference, _, _ = both_summaries(bars, *CASES[0])
     assert reference.legs > reference.trades
 
 
-def test_they_agree_on_a_combination_that_never_trades(bars) -> None:
+def test_they_agree_on_a_combination_that_never_trades(bars: pd.DataFrame) -> None:
     params = DeadCatParams(bars_required_to_trade=len(bars) + 1)
     reference, fast, legs = both_summaries(bars, archetypes.DEADCATBOUNCE, params)
     assert legs.count == 0
@@ -89,7 +100,7 @@ def test_they_agree_on_a_combination_that_never_trades(bars) -> None:
     assert dataclasses.asdict(fast) == dataclasses.asdict(reference)
 
 
-def test_neither_path_will_compute_sharpe_without_times(bars) -> None:
+def test_neither_path_will_compute_sharpe_without_times(bars: pd.DataFrame) -> None:
     """``day_codes=None`` is the numpy spelling of a log with no ``exit_time`` column.
 
     Both paths refuse it rather than annualise a per-trade ratio (#81).
@@ -113,7 +124,9 @@ def minute_index(bars: int) -> pd.DatetimeIndex:
     return pd.date_range("2024-01-02 00:00", periods=bars, freq="min", tz="UTC")
 
 
-def leg_matrix(trade_ids, net_pnl, exit_bars=None) -> trades.LegMatrix:
+def leg_matrix(
+    trade_ids: list[int], net_pnl: list[float], exit_bars: list[int] | None = None
+) -> trades.LegMatrix:
     """Build a minimal but schema-valid leg matrix, for pinning the aggregation directly."""
     n = len(trade_ids)
     matrix = np.zeros((n, trades.N_COLUMNS))
@@ -182,7 +195,7 @@ def test_trades_are_grouped_by_the_day_they_closed_on() -> None:
 
 
 @pytest.mark.parametrize("tz", ["UTC", "Europe/London", "America/New_York"])
-def test_day_codes_are_the_dates_pandas_would_group_by(tz) -> None:
+def test_day_codes_are_the_dates_pandas_would_group_by(tz: str) -> None:
     """In the index's own timezone, because ``DatetimeIndex.date`` is local.
 
     Reading them off UTC instead is invisible on a UTC index and an hour out for half the
@@ -190,6 +203,7 @@ def test_day_codes_are_the_dates_pandas_would_group_by(tz) -> None:
     """
     index = pd.date_range("2024-06-01 21:00", periods=600, freq="min", tz="UTC").tz_convert(tz)
     codes = context.day_codes(index)
+    assert codes is not None
     dates = np.asarray(index.date)
     assert np.flatnonzero(np.diff(codes)).tolist() == np.flatnonzero(dates[1:] != dates[:-1]).tolist()
     assert len(set(codes)) == len(set(dates))

@@ -7,6 +7,7 @@ absent when something reads it.
 """
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,9 @@ from nqbt.sim.types import (
     EmaCrossoverParams,
     PullBackAndGoParams,
 )
+
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray
 
 
 def bars(n: int = 800, seed: int = 3) -> pd.DataFrame:
@@ -261,6 +265,7 @@ def test_the_session_clock_gate_admits_a_bar_strictly_outside_the_window() -> No
         frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True)
     )
 
+    assert data.seconds_to_session_end is not None
     assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
     assert list(data.session_end_gate(60)) == [True, False, False]
     assert list(data.session_end_gate(61)) == [False, False, False]
@@ -277,6 +282,7 @@ def test_the_no_entry_window_follows_a_holiday_early_close_too() -> None:
         frame, ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), needs_session_clock=True)
     )
 
+    assert data.seconds_to_session_end is not None
     assert list(data.seconds_to_session_end) == [3660.0, 3600.0, 0.0]
     assert list(data.session_end_gate(60)) == [True, False, False]
     assert list(data.force_flat) == [False, False, True]
@@ -390,6 +396,7 @@ def test_the_band_grid_counts_towards_what_a_worker_is_handed() -> None:
     with_band = context.prepare(
         bars(), ContextSpec(ma_keys=conditions.ma_keys(ema=(21,)), band_periods=(20,))
     )
+    assert with_band.band is not None
     assert with_band.nbytes == without.nbytes + with_band.band.nbytes
 
 
@@ -419,6 +426,7 @@ def test_a_declared_range_is_built_and_reads_back_by_its_key() -> None:
 
     assert data.range_armed(key).shape == (len(data),)
     assert data.range_session_id().shape == (len(data),)
+    assert data.session_ranges is not None
     assert data.range_high(key).size == data.session_ranges.sessions
     assert data.range_armed(key).any(), "the fixture never reaches a complete range"
 
@@ -454,6 +462,7 @@ def test_the_range_grid_counts_towards_what_a_worker_is_handed() -> None:
     without = context.prepare(frame, ContextSpec(needs_vwap=True))
     with_range = context.prepare(frame, ContextSpec(needs_vwap=True, range_keys=(key,)), bar_minutes=1)
 
+    assert with_range.session_ranges is not None
     assert with_range.nbytes == without.nbytes + with_range.session_ranges.nbytes
 
 
@@ -473,6 +482,7 @@ def test_a_declared_follow_through_reads_back_per_session_at_its_lookback() -> N
     spec = ContextSpec(range_keys=(key,), follow_through_sessions=(5,))
     data = context.prepare(session_bars(days=12), spec, bar_minutes=1)
 
+    assert data.session_ranges is not None
     assert data.range_follow_through(key).size == data.session_ranges.sessions
     assert data.range_follow_through_scale(key, 5).size == data.session_ranges.sessions
     assert np.isfinite(data.range_follow_through(key)).any(), "no session was measurable"
@@ -500,6 +510,7 @@ def test_the_follow_through_grid_counts_towards_what_a_worker_is_handed() -> Non
         bar_minutes=1,
     )
 
+    assert with_scale.follow_through is not None
     assert with_scale.nbytes == without.nbytes + with_scale.follow_through.nbytes
 
 
@@ -510,12 +521,15 @@ class RecordingGates:
     """Stand in for every label grid, recording each build and handing back a new mask for it."""
 
     def __init__(self) -> None:
+        """Start with nothing built."""
         self.built: list[tuple[object, ...]] = []
 
-    def gate(self, *args: object) -> np.ndarray:
+    def gate(self, *args: object) -> BoolArray:
+        """Return a new mask for one gate, recording the build."""
         return self.gate_for(*args)
 
-    def gate_for(self, *args: object) -> np.ndarray:
+    def gate_for(self, *args: object) -> BoolArray:
+        """Return a new mask for one label grid, recording the build."""
         self.built.append(args)
 
         return np.array([len(self.built) % 2 == 0, True])
@@ -524,15 +538,8 @@ class RecordingGates:
 def recorded() -> tuple[context.Dataset, RecordingGates]:
     """Return a dataset whose every label grid is one recorder, and the recorder."""
     gates = RecordingGates()
-    data = replace(
-        context.prepare(bars(), ContextSpec()),
-        time_of_day=gates,
-        regimes=gates,
-        volumes=gates,
-        compressions=gates,
-        trends=gates,
-        higher_timeframes=gates,
-    )
+    grids = ("time_of_day", "regimes", "volumes", "compressions", "trends", "higher_timeframes")
+    data = replace(context.prepare(bars(), ContextSpec()), **dict.fromkeys(grids, gates))  # type: ignore[arg-type]  # one recorder stands in for every grid
 
     return data, gates
 
@@ -599,7 +606,7 @@ def test_a_gate_read_before_its_grid_was_replaced_is_built_again_from_the_new_on
     data, _ = recorded()
     first = data.regime_gate(20, 1, 0.3, 0.6)
     replacement = RecordingGates()
-    data.regimes = replacement
+    data.regimes = replacement  # type: ignore[assignment]  # the recorder stands in for the grid
 
     assert data.regime_gate(20, 1, 0.3, 0.6) is not first
     assert replacement.built == [(20, 1, 0.3, 0.6)]
@@ -617,6 +624,7 @@ def test_a_remembered_gate_holds_the_grid_s_own_answer() -> None:
     gate = data.regime_gate(10, regime.Regime.CONSOLIDATING.bit, 0.3, 0.6)
 
     assert gate.any(), "the gate is empty, so the test proves nothing"
+    assert data.regimes is not None
     assert np.array_equal(gate, data.regimes.gate_for(10, regime.Regime.CONSOLIDATING.bit, 0.3, 0.6))
 
 

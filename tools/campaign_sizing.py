@@ -153,7 +153,7 @@ def label_shares(data: context.Dataset, labelled: Params, campaign: Variant) -> 
     for params in configurations:
         signal: BoolArray = archetype.signal(data, params)
         for position, label in enumerate(
-            filters.label_sides(data, params, archetype.long_side(data, params))
+            filters.label_sides(data, params, archetype.long_side(data, params))  # type: ignore[arg-type]  # every params class is LabelSized
         ):
             favours[position].append(label.favours[signal])
             opposes[position].append(label.opposes[signal])
@@ -201,11 +201,12 @@ def fit_cut(
     probe: Params = probe_params(campaign.base)
     data: context.Dataset = probed(frame, minutes, campaign)
     consolidating, directional = regime.thresholds_from_quantiles(
-        data.regime_values(probe.regime_lookback),
+        data.regime_values(probe.regime_lookback),  # type: ignore[attr-defined]  # every params class is ContextFiltered
         *SIZING_LABEL_QUANTILES,
     )
     thin, heavy = volume.thresholds_from_quantiles(
-        data.relative_volume(probe.volume_key), *SIZING_LABEL_QUANTILES
+        data.relative_volume(probe.volume_key),  # type: ignore[attr-defined]  # every params class is ContextFiltered
+        *SIZING_LABEL_QUANTILES,
     )
     labelled: Params = dataclasses.replace(
         probe,
@@ -275,8 +276,8 @@ def traded_early_shares(
         tiered: InsideBarTrailingParams = dataclasses.replace(
             base,
             earliness_mode=mode,
-            early_max_extension_atr=cut.early_max_extension_atr,
-            early_max_trend_bars=cut.early_max_trend_bars,
+            early_max_extension_atr=cut.early_max_extension_atr,  # type: ignore[arg-type]  # set by earliness_cut
+            early_max_trend_bars=cut.early_max_trend_bars,  # type: ignore[arg-type]  # set by earliness_cut
         )
         log: pd.DataFrame = insidebartrailing.run_insidebartrailing(
             data, tiered, instrument, with_times=False
@@ -504,7 +505,7 @@ def resized(
     matrix: FloatArray = legs.matrix[: legs.count].copy()
     per_unit: FloatArray = (matrix[:, C_EXIT_PRICE] - matrix[:, C_ENTRY_PRICE]) * matrix[:, C_DIRECTION]
     gross: FloatArray = per_unit * quantities * point_value
-    fees: FloatArray = commission * quantities
+    fees: FloatArray = quantities.astype(np.float64) * commission
     matrix[:, C_QUANTITY] = quantities
     matrix[:, C_GROSS_PNL] = gross
     matrix[:, C_COMMISSION] = fees
@@ -594,13 +595,14 @@ def null_for_shortlist(
     candidates: tuple[pd.DataFrame, ...] = candidate_bars(stored, splice.load_continuous(root))
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
-        frame, swept = bars_for(candidates, stored, block, int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
+        frame, swept = bars_for(candidates, stored, block, bar_minutes)
         for _, row in block.iterrows():
             params: Params = rebuild(row, archetype)
             data: context.Dataset = context.prepare(
                 frame,
                 sweep.Grid.of(params, archetype=archetype).required_context(),
-                bar_minutes=int(minutes),
+                bar_minutes=bar_minutes,
                 price_basis=context.PriceBasis.RAW,
             )
             result: dict[str, float] = shuffled_null(
@@ -613,7 +615,7 @@ def null_for_shortlist(
                 archetype=archetype,
             )
             measured.append(
-                null_row(log_key(row), row.get("stratum"), params, int(minutes), result, swept=swept)
+                null_row(log_key(row), row.get("stratum"), params, bar_minutes, result, swept=swept)
             )
 
     return pd.DataFrame(measured)
@@ -644,6 +646,7 @@ def null_row(
 
 
 def main(argv: list[str]) -> int:
+    """Run one subcommand and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="The confluence size's cuts, and its shuffled-size null.")
     commands = parser.add_subparsers(dest="command", required=True)

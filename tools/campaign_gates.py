@@ -738,6 +738,7 @@ def report_reruns(out: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Run every per-cell read over the variant set and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Every per-cell read of a variant set, in one pass.")
     parser.add_argument(

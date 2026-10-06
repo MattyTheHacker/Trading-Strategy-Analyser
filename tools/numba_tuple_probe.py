@@ -3,9 +3,11 @@
 Run it twice: only the second run can report a cache hit -- ``tools/README.md`` § "numba_tuple_probe.py".
 """
 
+from __future__ import annotations
+
 import logging
 import time
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from numba import njit
@@ -13,7 +15,15 @@ from numba import njit
 from nqbt import logsetup
 from nqbt.sim.bracket import Bars, Costs
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nqbt.arrays import FloatArray
+
 logger = logging.getLogger(__name__)
+
+BENCH_RUNS = 7
+"""Timed calls per benchmark, after one untimed call that compiles."""
 
 
 class LocalCosts(NamedTuple):
@@ -26,7 +36,8 @@ class LocalCosts(NamedTuple):
 
 
 @njit(cache=True)
-def with_tuple(x, c):
+def with_tuple(x: FloatArray, c: Costs) -> float:
+    """Sum a toy P&L over ``x``, reading the costs from an importable NamedTuple."""
     total = 0.0
     for i in range(x.size):
         total += x[i] * c.tick_size * c.point_value - c.commission_per_contract - c.slippage_ticks
@@ -35,7 +46,10 @@ def with_tuple(x, c):
 
 
 @njit(cache=True)
-def with_scalars(x, tick_size, point_value, commission, slippage):
+def with_scalars(
+    x: FloatArray, tick_size: float, point_value: float, commission: float, slippage: float
+) -> float:
+    """Sum the same toy P&L, with the costs passed as four scalars."""
     total = 0.0
     for i in range(x.size):
         total += x[i] * tick_size * point_value - commission - slippage
@@ -44,7 +58,8 @@ def with_scalars(x, tick_size, point_value, commission, slippage):
 
 
 @njit(cache=True)
-def with_local_tuple(x, c):
+def with_local_tuple(x: FloatArray, c: LocalCosts) -> float:
+    """Sum the same toy P&L, reading the costs from a NamedTuple declared in ``__main__``."""
     total = 0.0
     for i in range(x.size):
         total += x[i] * c.tick_size * c.point_value - c.commission_per_contract - c.slippage_ticks
@@ -53,7 +68,8 @@ def with_local_tuple(x, c):
 
 
 @njit(cache=True)
-def with_arrays(bars, c):
+def with_arrays(bars: Bars, c: Costs) -> float:
+    """Sum a toy figure over a ``Bars`` blob of arrays, skipping the forced-flat bars."""
     total = 0.0
     for i in range(bars.close.size):
         if bars.force_flat[i]:
@@ -64,21 +80,21 @@ def with_arrays(bars, c):
     return total
 
 
-def bench(fn, *args, n=7):
-    fn(*args)
-    start = time.perf_counter()
-    for _ in range(n):
-        fn(*args)
+def bench[**P](fn: Callable[P, float], *args: P.args, **kwargs: P.kwargs) -> float:
+    """Return the mean milliseconds per call of ``fn``, after one untimed call."""
+    fn(*args, **kwargs)
+    start: float = time.perf_counter()
+    for _ in range(BENCH_RUNS):
+        fn(*args, **kwargs)
 
-    return (time.perf_counter() - start) / n * 1000
+    return (time.perf_counter() - start) / BENCH_RUNS * 1000
 
 
-def cache_line(fn):
-    hits = sum(fn.stats.cache_hits.values())
-    misses = sum(fn.stats.cache_misses.values())
-    verdict = "REUSED" if hits and not misses else "recompiled"
+def cache_line(name: str, hits: int, misses: int) -> str:
+    """Return one function's disk-cache line: reused when every lookup hit, recompiled otherwise."""
+    verdict: str = "REUSED" if hits and not misses else "recompiled"
 
-    return f"{fn.py_func.__name__:16s} hits={hits} misses={misses}  {verdict}"
+    return f"{name:16s} hits={hits} misses={misses}  {verdict}"
 
 
 if __name__ == "__main__":
@@ -98,4 +114,6 @@ if __name__ == "__main__":
     logger.info("")
     logger.info("disk cache, second run onwards -- an importable blob is what makes it reusable:")
     for fn in (with_scalars, with_tuple, with_arrays, with_local_tuple):
-        logger.info("  %s", cache_line(fn))
+        hits: int = sum(fn.stats.cache_hits.values())
+        misses: int = sum(fn.stats.cache_misses.values())
+        logger.info("  %s", cache_line(fn.py_func.__name__, hits, misses))

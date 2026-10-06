@@ -83,7 +83,7 @@ def groups_from_output(source: pd.DataFrame, out: pd.DataFrame) -> list[pd.DataF
 
 
 @pytest.mark.parametrize("minutes", [2, 3, 5, 7, 15, 30])
-def test_every_bar_matches_the_minutes_it_was_built_from(minutes) -> None:
+def test_every_bar_matches_the_minutes_it_was_built_from(minutes: int) -> None:
     src = minute_bars()
     out = resample.resample(src, minutes)
     assert len(out) < len(src)
@@ -111,7 +111,7 @@ def test_one_minute_is_the_identity_and_returns_the_frame_untouched() -> None:
 
 
 @pytest.mark.parametrize("bad", [0, -1, -5])
-def test_a_period_below_one_minute_is_refused(bad) -> None:
+def test_a_period_below_one_minute_is_refused(bad: int) -> None:
     with pytest.raises(ResampleError, match="must be >= 1"):
         resample.resample(minute_bars(1), bad)
 
@@ -120,10 +120,10 @@ def test_a_period_below_one_minute_is_refused(bad) -> None:
 
 
 @pytest.mark.parametrize("minutes", [2, 3, 5, 7, 15, 30, 60])
-def test_every_bucket_closes_a_whole_number_of_periods_after_the_session_open(minutes) -> None:
+def test_every_bucket_closes_a_whole_number_of_periods_after_the_session_open(minutes: int) -> None:
     src = minute_bars()
     out = resample.resample(src, minutes)
-    end_minute = resample.minutes_since_open(out.index)
+    end_minute = resample.minutes_since_open(pd.DatetimeIndex(out.index))
     session_last = 1380  # a full ETH session, 18:00 -> 17:00
 
     for m in end_minute:
@@ -137,7 +137,7 @@ def test_the_first_bar_of_a_session_covers_the_first_period_from_the_open() -> N
     src = minute_bars()
     out = resample.resample(src, 5)
     first_per_day = out.groupby(out["trading_day"]).head(1)
-    assert (resample.minutes_since_open(first_per_day.index) == 5).all()
+    assert (resample.minutes_since_open(pd.DatetimeIndex(first_per_day.index)) == 5).all()
 
 
 def test_the_last_bar_of_a_session_is_stamped_at_the_close_not_past_it() -> None:
@@ -145,9 +145,9 @@ def test_the_last_bar_of_a_session_is_stamped_at_the_close_not_past_it() -> None
     src = minute_bars()
     out = resample.resample(src, 7)
     last_per_day = out.groupby(out["trading_day"]).tail(1)
-    assert (resample.minutes_since_open(last_per_day.index) == 1380).all()
+    assert (resample.minutes_since_open(pd.DatetimeIndex(last_per_day.index)) == 1380).all()
 
-    et = sessions.to_eastern(last_per_day.index)
+    et = sessions.to_eastern(pd.DatetimeIndex(last_per_day.index))
     assert set(et.strftime("%H:%M")) == {"17:00"}
 
 
@@ -155,7 +155,7 @@ def test_the_last_bar_of_a_session_is_stamped_at_the_close_not_past_it() -> None
 
 
 @pytest.mark.parametrize("minutes", [2, 5, 7, 15, 30])
-def test_no_bar_spans_the_maintenance_break_or_the_weekend(minutes) -> None:
+def test_no_bar_spans_the_maintenance_break_or_the_weekend(minutes: int) -> None:
     """Both fall out of including the trading day in the grouping key.
 
     The break and the weekend are the same defect wearing different clothes: a bucket that
@@ -166,7 +166,7 @@ def test_no_bar_spans_the_maintenance_break_or_the_weekend(minutes) -> None:
     out = resample.resample(src, minutes)
 
     for row, members in zip(out.itertuples(), groups_from_output(src, out), strict=True):
-        assert members["trading_day"].nunique() == 1, (
+        assert members["trading_day"].nunique() == 1, (  # noqa: PD101 - a count of one also fails an empty frame
             f"bar {row.Index} mixes trading days {sorted(set(members['trading_day']))}"
         )
         assert len(members) <= minutes, f"bar {row.Index} holds {len(members)} minutes"
@@ -176,7 +176,7 @@ def test_a_bars_own_close_stamp_classifies_to_the_session_it_aggregated() -> Non
     """Catches a bucket stamped past the close, which would re-date it to the next day."""
     src = minute_bars(sessions_wanted=5)
     out = resample.resample(src, 7)
-    assert (sessions.classify(out.index).trading_day == out["trading_day"].to_numpy()).all()
+    assert (sessions.classify(pd.DatetimeIndex(out.index)).trading_day == out["trading_day"].to_numpy()).all()
 
 
 def test_out_of_session_prints_are_dropped_rather_than_given_a_bucket() -> None:
@@ -204,19 +204,20 @@ def midnight_anchored(src: pd.DataFrame, minutes: int) -> pd.DatetimeIndex:
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"},
     )
 
-    return grouped.dropna(subset=["open"]).index
+    return pd.DatetimeIndex(grouped.dropna(subset=["open"]).index)
 
 
 @pytest.mark.parametrize("minutes", AGREES_WITH_WALL_CLOCK)
-def test_session_and_midnight_anchoring_agree_for_divisors_of_sixty(minutes) -> None:
+def test_session_and_midnight_anchoring_agree_for_divisors_of_sixty(minutes: int) -> None:
     """Session and midnight anchoring agree at every divisor of 60 -- ``docs/roadmap.md`` §M13."""
-    assert 1080 % minutes == 0 and 1020 % minutes == 0, "this test's premise"
+    assert 1080 % minutes == 0, "this test's premise"
+    assert 1020 % minutes == 0, "this test's premise"
     src = minute_bars()
     assert resample.resample(src, minutes).index.equals(midnight_anchored(src, minutes))
 
 
 @pytest.mark.parametrize("minutes", [7, 11, 16, 25, 8, 45])
-def test_the_two_anchorings_diverge_for_a_period_that_does_not_divide_sixty(minutes) -> None:
+def test_the_two_anchorings_diverge_for_a_period_that_does_not_divide_sixty(minutes: int) -> None:
     """The other half, and the reason the agreement above is not a licence.
 
     8 and 45 are the interesting entries: both divide 1,080, so the *open* lines up and
@@ -242,7 +243,7 @@ def test_a_real_contract_resamples_with_every_bar_inside_one_session() -> None:
     splice = pytest.importorskip("nqbt.splice")
     try:
         bars = splice.load_continuous("MNQ", back_adjust=True)
-    except Exception:  # pragma: no cover - the cache is not in CI
+    except FileNotFoundError:  # pragma: no cover - the cache is not in CI
         pytest.skip("no spliced MNQ cache on this machine")
 
     bars = bars[(bars.index >= "2024-01-01") & (bars.index < "2024-02-01")]
@@ -250,5 +251,5 @@ def test_a_real_contract_resamples_with_every_bar_inside_one_session() -> None:
     assert len(out)
     assert out.index.is_monotonic_increasing
     assert not out.index.has_duplicates
-    assert (sessions.classify(out.index).trading_day == out["trading_day"].to_numpy()).all()
+    assert (sessions.classify(pd.DatetimeIndex(out.index)).trading_day == out["trading_day"].to_numpy()).all()
     assert out["volume"].sum() == bars[sessions.classify(bars.index).in_session]["volume"].sum()

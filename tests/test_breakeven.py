@@ -49,7 +49,9 @@ from tests.test_insidebartrailing_sim import walk_bars
 if TYPE_CHECKING:
     import pandas as pd
 
+    from nqbt.arrays import FloatArray
     from nqbt.context import ContextSpec, Dataset
+    from tests.test_confluence_sizing import ArchetypeParams
 
 TICK = 0.25
 COSTS = bracket.Costs(tick_size=TICK, point_value=2.0, commission_per_contract=0.0, slippage_ticks=0.0)
@@ -75,7 +77,9 @@ The thresholds are small because InsideBar's default target sits about a tenth o
 entry, so a trigger any further out would never be reached before it."""
 
 
-def open_trade(*, entry_bar=2, entry_price=100.0, risk=10.0, direction=LONG) -> bracket.OpenTrade:
+def open_trade(
+    *, entry_bar: int = 2, entry_price: float = 100.0, risk: float = 10.0, direction: float = LONG
+) -> bracket.OpenTrade:
     return bracket.OpenTrade(
         trade_id=1,
         entry_bar=entry_bar,
@@ -101,10 +105,15 @@ def one_bar(*, high: float, low: float, close: float, bars_before: int = 3) -> b
 
 
 def rule(**fields: object) -> bracket.Breakeven:
-    return bracket.BREAKEVEN_OFF._replace(**fields)
+    return bracket.BREAKEVEN_OFF._replace(**fields)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
-def level(bars: bracket.Bars, the_rule: bracket.Breakeven, trade: bracket.OpenTrade, fills=SNAPPED) -> float:
+def level(
+    bars: bracket.Bars,
+    the_rule: bracket.Breakeven,
+    trade: bracket.OpenTrade,
+    fills: bracket.FillRules = SNAPPED,
+) -> float:
     return bracket.breakeven_level(the_rule, trade, bars, bars.close.size - 1, COSTS, fills)
 
 
@@ -201,7 +210,7 @@ def test_a_stop_already_past_the_level_is_left_where_it_is() -> None:
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_the_rule_is_off_by_default_on_every_class(cls) -> None:
+def test_the_rule_is_off_by_default_on_every_class(cls: type[ArchetypeParams]) -> None:
     params = cls()
     assert params.breakeven_at == 0.0
     assert params.breakeven_atr_period == BREAKEVEN_ATR_PERIOD
@@ -230,22 +239,24 @@ def test_the_rule_is_off_by_default_on_every_class(cls) -> None:
         ({"breakeven_at": 1.0, "breakeven_atr_period": 21}, "breakeven_unit is 'r', so nothing reads it"),
     ],
 )
-def test_a_breakeven_out_of_range_or_carrying_an_unread_setting_is_refused(cls, fields, message) -> None:
+def test_a_breakeven_out_of_range_or_carrying_an_unread_setting_is_refused(
+    cls: type[ArchetypeParams], fields: dict[str, object], message: str
+) -> None:
     with pytest.raises(ValueError, match=message):
         cls(**fields)
 
 
 @pytest.mark.parametrize("cls", EVERY_CLASS)
-def test_every_arm_is_accepted_and_may_run_beside_an_early_exit(cls) -> None:
+def test_every_arm_is_accepted_and_may_run_beside_an_early_exit(cls: type[ArchetypeParams]) -> None:
     for fields in ARMS.values():
         assert cls(**fields).breakeven_at > 0.0
-        assert cls(**fields, early_exit_bars=3).early_exit_bars == 3
+        assert cls(**fields, early_exit_bars=3).early_exit_bars == 3  # type: ignore[call-arg]  # every params class takes its fields as keywords
 
 
 # -- the context it reads ----------------------------------------------------------------------
 
 
-def test_with_the_rule_off_it_carries_no_atr(bars) -> None:
+def test_with_the_rule_off_it_carries_no_atr(bars: pd.DataFrame) -> None:
     params = TRADING["DeadCatBounce"]
     built = filters.breakeven(prepared(bars, params, archetypes.DEADCATBOUNCE), params)
     off = bracket.BREAKEVEN_OFF
@@ -258,7 +269,7 @@ def test_with_the_rule_off_it_carries_no_atr(bars) -> None:
     )
 
 
-def test_a_trigger_in_r_carries_no_atr_and_one_in_atrs_carries_its_own_period(bars) -> None:
+def test_a_trigger_in_r_carries_no_atr_and_one_in_atrs_carries_its_own_period(bars: pd.DataFrame) -> None:
     in_r = dataclasses.replace(TRADING["DeadCatBounce"], breakeven_at=1.0)
     assert filters.breakeven(prepared(bars, in_r, archetypes.DEADCATBOUNCE), in_r).atr.size == 0
     in_atr = dataclasses.replace(in_r, breakeven_unit=bracket.BREAKEVEN_ATR, breakeven_atr_period=21)
@@ -267,7 +278,7 @@ def test_a_trigger_in_r_carries_no_atr_and_one_in_atrs_carries_its_own_period(ba
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_the_atr_a_trigger_reads_is_built_into_the_dataset_only_in_atrs(name) -> None:
+def test_the_atr_a_trigger_reads_is_built_into_the_dataset_only_in_atrs(name: str) -> None:
     archetype = archetypes.get(name)
 
     def spec(**fields: object) -> ContextSpec:
@@ -286,7 +297,7 @@ def test_the_atr_a_trigger_reads_is_built_into_the_dataset_only_in_atrs(name) ->
 # -- the loops ---------------------------------------------------------------------------------
 
 
-def trade_of(rows: np.ndarray) -> bracket.OpenTrade:
+def trade_of(rows: FloatArray) -> bracket.OpenTrade:
     """Return the position ``rows`` were legs of, carrying the bracketed lot's R as the loops do."""
     first = rows[0]
 
@@ -298,7 +309,7 @@ def trade_of(rows: np.ndarray) -> bracket.OpenTrade:
     )
 
 
-def first_move(params, data: Dataset, rows: np.ndarray) -> tuple[int, float]:
+def first_move(params: ArchetypeParams, data: Dataset, rows: FloatArray) -> tuple[int, float]:
     """Return the first close at which the trigger held for the position ``rows`` were legs of, and its level.
 
     ``(-1, nan)`` where it never held before the last leg left.
@@ -317,13 +328,15 @@ def first_move(params, data: Dataset, rows: np.ndarray) -> tuple[int, float]:
     return -1, math.nan
 
 
-def by_entry(matrix: np.ndarray) -> dict[int, np.ndarray]:
+def by_entry(matrix: FloatArray) -> dict[int, FloatArray]:
     return {int(bar): matrix[matrix[:, C_ENTRY_BAR] == bar] for bar in np.unique(matrix[:, C_ENTRY_BAR])}
 
 
 @pytest.mark.parametrize("arm", sorted(ARMS))
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_every_stop_exit_after_the_trigger_is_at_the_level_or_gapped_through_it(bars, loop, arm) -> None:
+def test_every_stop_exit_after_the_trigger_is_at_the_level_or_gapped_through_it(
+    bars: pd.DataFrame, loop: str, arm: str
+) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     params = dataclasses.replace(base, **ARMS[arm])
@@ -349,7 +362,9 @@ def test_every_stop_exit_after_the_trigger_is_at_the_level_or_gapped_through_it(
 
 @pytest.mark.parametrize("arm", sorted(ARMS))
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_a_trade_whose_trigger_never_held_is_left_exactly_as_it_was(bars, loop, arm) -> None:
+def test_a_trade_whose_trigger_never_held_is_left_exactly_as_it_was(
+    bars: pd.DataFrame, loop: str, arm: str
+) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     params = dataclasses.replace(base, **ARMS[arm])
@@ -371,7 +386,7 @@ def test_a_trade_whose_trigger_never_held_is_left_exactly_as_it_was(bars, loop, 
 
 
 @pytest.mark.parametrize("loop", sorted(EVERY_LOOP))
-def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars, loop) -> None:
+def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars: pd.DataFrame, loop: str) -> None:
     name, base = EVERY_LOOP[loop]
     archetype = archetypes.get(name)
     never = dataclasses.replace(base, breakeven_at=1e9)
@@ -382,7 +397,7 @@ def test_a_rule_that_never_fires_leaves_every_trade_as_it_was(bars, loop) -> Non
     assert np.array_equal(off.matrix[: off.count], on.matrix[: on.count], equal_nan=True)
 
 
-def stopped_at_entry(params, data: Dataset) -> int:
+def stopped_at_entry(params: ArchetypeParams, data: Dataset) -> int:
     """Count the legs ``params`` stops out exactly at their entry price on DeadCatBounce."""
     legs = archetypes.DEADCATBOUNCE.legs(data, params, MNQ)
     # The rows past ``count`` are zero padding, which reads as a stop exit at a price of zero.
@@ -392,7 +407,7 @@ def stopped_at_entry(params, data: Dataset) -> int:
     return int(np.isclose(stopped[:, C_EXIT_PRICE], stopped[:, C_ENTRY_PRICE]).sum())
 
 
-def test_the_breakeven_and_an_early_exit_both_act_in_one_run(bars) -> None:
+def test_the_breakeven_and_an_early_exit_both_act_in_one_run(bars: pd.DataFrame) -> None:
     """The ratchet alone stops some legs out at their entry, so the breakeven has to add to that count."""
     early_only = dataclasses.replace(TRADING["DeadCatBounce"], early_exit_bars=3)
     both = dataclasses.replace(early_only, **ARMS["0.05R on the close"])
@@ -406,7 +421,7 @@ def test_the_breakeven_and_an_early_exit_both_act_in_one_run(bars) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_every_breakeven_setting_is_dead_without_the_trigger(name) -> None:
+def test_every_breakeven_setting_is_dead_without_the_trigger(name: str) -> None:
     archetype = archetypes.get(name)
     with pytest.raises(sweep.SweepError, match=r"breakeven_on \(inert while breakeven_at is 0.0\)"):
         sweep.Grid.of(TRADING[name], archetype=archetype, breakeven_on=[0, 1])
@@ -418,7 +433,7 @@ def test_every_breakeven_setting_is_dead_without_the_trigger(name) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(TRADING))
-def test_the_atr_period_is_dead_unless_the_trigger_is_in_atrs(name) -> None:
+def test_the_atr_period_is_dead_unless_the_trigger_is_in_atrs(name: str) -> None:
     archetype = archetypes.get(name)
     in_r = dataclasses.replace(TRADING[name], breakeven_at=1.0)
     with pytest.raises(sweep.SweepError, match=r"breakeven_atr_period \(inert while breakeven_unit is 0\)"):
@@ -438,7 +453,9 @@ def test_the_atr_period_is_dead_unless_the_trigger_is_in_atrs(name) -> None:
     ],
 )
 @pytest.mark.parametrize("arm", sorted(ARMS))
-def test_a_breakeven_row_leaves_every_reconciled_port(archetype, params, arm) -> None:
+def test_a_breakeven_row_leaves_every_reconciled_port(
+    archetype: archetypes.Archetype, params: ArchetypeParams, arm: str
+) -> None:
     assert archetype.tier2_for(params) is Tier2Status.RECONCILED
     assert archetype.tier2_for(dataclasses.replace(params, **ARMS[arm])) is Tier2Status.TIER1_ONLY
 

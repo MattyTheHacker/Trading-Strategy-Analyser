@@ -35,7 +35,7 @@ from tools.campaign_sweep import (
 )
 
 if TYPE_CHECKING:
-    from nqbt.arrays import BoolArray, FloatArray
+    from nqbt.arrays import BoolArray, FloatArray, LabelArray
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +61,14 @@ def selection_bars(root: str) -> pd.DataFrame:
     return bars.iloc[: math.floor(len(bars) * SELECTION_SHARE)]
 
 
-def confusion(raw: pd.Series, fitted: pd.Series, order: tuple[str, ...]) -> pd.DataFrame:
+def confusion(raw: pd.Series[str], fitted: pd.Series[str], order: tuple[str, ...]) -> pd.DataFrame:
     """Return row-normalised percentages: where each raw state's bars land under the fitted cut."""
     table: pd.DataFrame = pd.crosstab(raw, fitted, normalize="index") * 100.0
 
     return table.reindex(index=list(order), columns=list(order))
 
 
-def named(labels: np.ndarray, states: dict[int, str], keep: BoolArray, name: str) -> pd.Series:
+def named(labels: LabelArray, states: dict[int, str], keep: BoolArray, name: str) -> pd.Series[str]:
     """Return one label array as state names, warm-up bars dropped."""
     return pd.Series([states[int(value)] for value in labels[keep]], name=name)
 
@@ -82,8 +82,8 @@ def regime_rows(root: str, minutes: int, lookbacks: list[int]) -> list[pd.DataFr
         ratio: FloatArray = regime.efficiency_ratio(close, lookback)
         measured: BoolArray = np.isfinite(ratio)
         cut: tuple[float, float] = regime.thresholds_from_quantiles(ratio, *REGIME_QUANTILES)
-        raw: pd.Series = named(regime.label(ratio, *RAW_REGIME), states, measured, "raw")
-        fitted: pd.Series = named(regime.label(ratio, *cut), states, measured, "fitted")
+        raw: pd.Series[str] = named(regime.label(ratio, *RAW_REGIME), states, measured, "raw")
+        fitted: pd.Series[str] = named(regime.label(ratio, *cut), states, measured, "fitted")
         logger.info(
             "  %s %2dm n=%-3d raw %.2f/%.2f  fitted %.4f/%.4f  agree %.1f%%  bars %s",
             root,
@@ -105,7 +105,7 @@ def labelled(
     minutes: int,
     tails: tuple[float, float],
     series: tuple[volume.VolumeKey, ...],
-) -> dict[str, pd.Series]:
+) -> dict[str, pd.Series[str]]:
     """Label each series' states over the same bars, every one fitted to its own distribution.
 
     Keyed by ``volume.describe_key``, so two series differing only in a window are separable.
@@ -115,7 +115,7 @@ def labelled(
     data: context.Dataset = context.prepare(frame, spec, bar_minutes=minutes)
     states: dict[int, str] = {int(state): state.name for state in volume.VolumeState}
     measured: BoolArray = np.all([np.isfinite(data.relative_volume(key)) for key in series], axis=0)
-    cut: dict[str, pd.Series] = {}
+    cut: dict[str, pd.Series[str]] = {}
     for key in series:
         relative: FloatArray = data.relative_volume(key)
         pair: tuple[float, float] = volume.thresholds_from_quantiles(relative, *tails)
@@ -136,10 +136,10 @@ def pair_rows(
     """
     tables: list[pd.DataFrame] = []
     for tails in VOLUME_TAILS:
-        cut: dict[str, pd.Series] = labelled(root, minutes, tails, series)
+        cut: dict[str, pd.Series[str]] = labelled(root, minutes, tails, series)
         for reference, other in itertools.permutations(cut, 2):
-            left: pd.Series = cut[reference].rename("raw")
-            right: pd.Series = cut[other].rename("fitted")
+            left: pd.Series[str] = cut[reference].rename("raw")
+            right: pd.Series[str] = cut[other].rename("fitted")
             logger.info(
                 "  %s %2dm q=%.2f/%.2f  %-20s vs %-20s  agree %.1f%%",
                 root,
@@ -172,10 +172,10 @@ def volume_rows(root: str, minutes: int) -> list[pd.DataFrame]:
     for key in series:
         relative: FloatArray = data.relative_volume(key)
         measured: BoolArray = np.isfinite(relative)
-        raw: pd.Series = named(volume.label(relative, *RAW_VOLUME), states, measured, "raw")
+        raw: pd.Series[str] = named(volume.label(relative, *RAW_VOLUME), states, measured, "raw")
         for tails in VOLUME_TAILS:
             cut: tuple[float, float] = volume.thresholds_from_quantiles(relative, *tails)
-            fitted: pd.Series = named(volume.label(relative, *cut), states, measured, "fitted")
+            fitted: pd.Series[str] = named(volume.label(relative, *cut), states, measured, "fitted")
             logger.info(
                 "  %s %2dm %-16s q=%.2f/%.2f  raw %.2f/%.2f  fitted %.3f/%.3f  agree %.1f%%",
                 root,
@@ -211,6 +211,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Print the raw labels against the fitted ones and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Raw context labels against the fitted ones.")
     parser.add_argument("--dimension", choices=[REGIME, VOLUME, FORMS, WINDOWS], default=REGIME)

@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, resample, results, sessions, sweep
+from nqbt import archetypes, context, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import EmaCrossoverParams, InsideBarParams
 from tools import campaign_shortlist
@@ -64,8 +64,10 @@ def test_the_shortlist_takes_the_top_rows_by_the_named_statistic(monkeypatch: py
 def test_the_shortlist_is_restricted_to_one_root_stratum_and_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The same five flags the other campaign tools select with, so two tools reading one
-    shortlist read the same rows."""
+    """The same five flags the other campaign tools select with.
+
+    Two tools reading one shortlist read the same rows.
+    """
     frame = stored_rows(
         root=[ROOT, ROOT, "NQ", "NQ"],
         stratum=["unfiltered", "phase=OPEN", "unfiltered", "unfiltered"],
@@ -79,8 +81,11 @@ def test_the_shortlist_is_restricted_to_one_root_stratum_and_resolution(
 def test_a_variant_restricted_shortlist_holds_only_rows_of_that_variant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The selection side of the dilution: a pool drawn over a mixture of geometries ranks the
-    fattest tail in it rather than the one being asked about -- ``docs/roadmap.md`` §M28.9."""
+    """The selection side of the dilution.
+
+    A pool drawn over a mixture of geometries ranks the fattest tail in it rather than the one
+    being asked about -- ``docs/roadmap.md`` §M28.9.
+    """
     frame = stored_rows(variant=["breakout", "fade", "breakout", "fade"])
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: frame)
     confined = shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10, None, None, "breakout")
@@ -98,8 +103,10 @@ def test_a_selection_matching_no_stored_row_raises_rather_than_ranking_nothing(
 
 
 def test_the_best_row_is_the_first_row_of_the_shortlist(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``campaign_null`` and ``campaign_contracts`` take the best of what this ranks, so the
-    two must not be able to disagree about which row that is."""
+    """``campaign_null`` and ``campaign_contracts`` take the best of what this ranks.
+
+    The two must not be able to disagree about which row that is.
+    """
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: stored_rows())
     best = best_row(STRATEGY, ROOT, ["full"], "profit_factor")
     assert best["profit_factor"] == pytest.approx(1.4)
@@ -112,8 +119,11 @@ def test_the_best_row_is_the_first_row_of_the_shortlist(monkeypatch: pytest.Monk
 def test_held_out_takes_the_pair_and_the_default_takes_the_ranked_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The two routes pick different rows, and a flag that parses without reaching either
-    reads exactly like one that works -- ``docs/roadmap.md`` §M28.13."""
+    """The two routes pick different rows.
+
+    A flag that parses without reaching either reads exactly like one that works --
+    ``docs/roadmap.md`` §M28.13.
+    """
     asked: list[str] = []
 
     def fake_held_out(*_: object) -> pd.DataFrame:
@@ -140,8 +150,10 @@ def test_held_out_takes_the_pair_and_the_default_takes_the_ranked_window(
 
 
 def test_the_full_window_is_every_bar_and_the_split_windows_partition_them() -> None:
-    """A row re-run over the wrong window reproduces nothing, so this is what ``verify``
-    would otherwise have to catch."""
+    """A row re-run over the wrong window reproduces nothing.
+
+    This is what ``verify`` would otherwise have to catch.
+    """
     bars = synthetic_bars(n=1000)
     assert source(bars, "full").equals(bars)
     selection, holdout = source(bars, "selection"), source(bars, "holdout")
@@ -150,8 +162,10 @@ def test_the_full_window_is_every_bar_and_the_split_windows_partition_them() -> 
 
 
 def test_the_swept_series_is_cut_back_to_where_the_archive_stood() -> None:
-    """An extended archive moves the 60/40 split under every row stored before it, so a re-run
-    over the whole series reads a holdout the stored row never measured."""
+    """An extended archive moves the 60/40 split under every row stored before it.
+
+    A re-run over the whole series reads a holdout the stored row never measured.
+    """
     bars = synthetic_bars(n=1000)
     stored_last = bars.index[799]
     cut = swept_series(bars, stored_last)
@@ -168,17 +182,21 @@ def test_a_series_that_has_not_moved_is_returned_untouched() -> None:
 
 
 def test_the_rerun_takes_the_flatten_cutoff_it_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``tools/campaign_flatten.py`` is the one caller that moves it off the one default, and a
-    cutoff that never reached ``prepare`` would read as a ladder that binds nothing."""
+    """``tools/campaign_flatten.py`` is the one caller that moves it off the one default.
+
+    A cutoff that never reached ``prepare`` would read as a ladder that binds nothing.
+    """
     asked: list[int] = []
     real = context.prepare
 
-    def spy(frame, spec, **kwargs):
-        asked.append(kwargs["exit_on_close_seconds"])
+    def spy(frame: pd.DataFrame, spec: context.ContextSpec, **kwargs: object) -> context.Dataset:
+        seconds = kwargs["exit_on_close_seconds"]
+        assert isinstance(seconds, int)
+        asked.append(seconds)
 
-        return real(frame, spec, **kwargs)
+        return real(frame, spec, **kwargs)  # type: ignore[arg-type]  # prepare's own keywords, passed through
 
-    monkeypatch.setattr(campaign_shortlist.context, "prepare", spy)
+    monkeypatch.setattr(context, "prepare", spy)
     bars = resample.resample(synthetic_bars(n=3000), 5)
     block = pd.DataFrame([{"atr_multiplier": 5.0}])
     list(rerun_group(block, bars, archetypes.INSIDEBAR, ROOT, 5, context.PriceBasis.RAW))
@@ -190,7 +208,7 @@ def test_the_rerun_takes_the_flatten_cutoff_it_is_given(monkeypatch: pytest.Monk
 # -- refusing a re-run that did not reproduce the row --------------------------------------
 
 
-def summary_row(trades: int = 40, net_pnl: float = 1234.5) -> pd.Series:
+def summary_row(trades: int = 40, net_pnl: float = 1234.5) -> pd.Series:  # type: ignore[explicit-any]  # a row of mixed dtypes
     return pd.Series({"sweep_id": 1, "combo_id": 2, "trades": trades, "net_pnl": net_pnl})
 
 
@@ -204,15 +222,19 @@ def test_verify_refuses_a_rerun_with_a_different_trade_count() -> None:
 
 
 def test_verify_refuses_a_rerun_with_a_different_net_pnl() -> None:
-    """Same trades, different money: a filter rebuilt wrong picks the same signals and
-    brackets them differently."""
+    """Same trades, different money.
+
+    A filter rebuilt wrong picks the same signals and brackets them differently.
+    """
     with pytest.raises(RuntimeError, match="net 1300"):
         verify(summary_row(), {"trades": 40, "net_pnl": 1300.0})
 
 
 def test_verify_reads_agreement_numerically_rather_than_textually() -> None:
-    """A round trip through DuckDB and back is not required to be bit-identical, and a last-bit
-    difference is not a different configuration."""
+    """A round trip through DuckDB and back is not required to be bit-identical.
+
+    A last-bit difference is not a different configuration.
+    """
     verify(summary_row(), {"trades": 40, "net_pnl": np.nextafter(1234.5, 2000.0)})
 
 
@@ -247,7 +269,7 @@ def grid() -> sweep.Grid:
     )
 
 
-def store_point(db, bars: pd.DataFrame, minutes: int, window: str) -> int:
+def store_point(db: Path, bars: pd.DataFrame, minutes: int, window: str) -> int:
     """Sweep one grid at one point and store it the way ``campaign_sweep.run_point`` does."""
     frame = resample.resample(bars, minutes)
     table, _ = sweep.sweep(frame, grid(), get_instrument(ROOT))
@@ -268,17 +290,19 @@ def store_point(db, bars: pd.DataFrame, minutes: int, window: str) -> int:
     )
 
 
-def combos(db) -> pd.DataFrame:
+def combos(db: Path) -> pd.DataFrame:
     return results.query("SELECT * FROM combos ORDER BY sweep_id, combo_id", db)
 
 
-def logs(db) -> pd.DataFrame:
+def logs(db: Path) -> pd.DataFrame:
     return results.query("SELECT * FROM trades", db)
 
 
 def test_a_stored_log_is_filed_under_the_row_that_produced_it(tmp_path: Path) -> None:
-    """The whole point: the per-trade P&L a bootstrap reads has to belong to the summary the
-    sweep ranked, and ``(sweep_id, combo_id)`` is what says so."""
+    """The whole point: the per-trade P&L a bootstrap reads has to belong to the summary the sweep ranked.
+
+    ``(sweep_id, combo_id)`` is what says so.
+    """
     db = tmp_path / "InsideBar.duckdb"
     bars = synthetic_bars()
     store_point(db, bars, 5, "full")
@@ -327,8 +351,11 @@ def test_a_round_number_configuration_can_be_stored_rather_than_refused(tmp_path
 
 
 def test_storing_a_shortlist_twice_replaces_each_log_rather_than_doubling_it(tmp_path: Path) -> None:
-    """A doubled log halves nothing visibly -- it changes every statistic taken from it and
-    still validates, so re-running has to be idempotent."""
+    """A doubled log halves nothing visibly.
+
+    It changes every statistic taken from it and still validates, so re-running has to be
+    idempotent.
+    """
     db = tmp_path / "InsideBar.duckdb"
     bars = synthetic_bars()
     store_point(db, bars, 5, "full")
@@ -341,8 +368,10 @@ def test_storing_a_shortlist_twice_replaces_each_log_rather_than_doubling_it(tmp
 
 
 def test_a_row_the_rerun_does_not_reproduce_stores_no_log(tmp_path: Path) -> None:
-    """A drifted database is the case this exists for, and it must fail loudly rather than
-    file a log against a configuration that did not produce it."""
+    """A drifted database is the case this exists for.
+
+    It must fail loudly rather than file a log against a configuration that did not produce it.
+    """
     db = tmp_path / "InsideBar.duckdb"
     bars = synthetic_bars()
     store_point(db, bars, 5, "full")
@@ -360,14 +389,17 @@ def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One shortlist spans several sweep points, and each row's own window and resolution say
-    which bars reproduce it -- get either wrong and ``verify`` refuses the whole block."""
+    """One shortlist spans several sweep points.
+
+    Each row's own window and resolution say which bars reproduce it -- get either wrong and
+    ``verify`` refuses the whole block.
+    """
     db = tmp_path / "InsideBar.duckdb"
     bars = synthetic_bars()
     for window, minutes in (("selection", 5), ("holdout", 5), ("full", 10)):
         store_point(db, source(bars, window), minutes, window)
 
-    monkeypatch.setattr(campaign_shortlist.splice, "load_continuous", lambda _: bars)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
     monkeypatch.setattr(campaign_shortlist, "db_path", lambda _: db)
 
     block = combos(db)
@@ -382,8 +414,11 @@ def test_every_shortlisted_row_is_stored_whatever_window_and_resolution_it_came_
 
 
 def test_a_stored_log_reads_back_as_the_log_that_was_stored(tmp_path: Path) -> None:
-    """The read half of the same key. A bootstrap takes its per-trade vector from here, so
-    reading a neighbouring combination's rows would resample the wrong configuration."""
+    """The read half of the same key.
+
+    A bootstrap takes its per-trade vector from here, so reading a neighbouring combination's
+    rows would resample the wrong configuration.
+    """
     db = tmp_path / "InsideBar.duckdb"
     bars = synthetic_bars()
     store_point(db, bars, 5, "full")
@@ -406,16 +441,20 @@ def test_a_combination_with_no_stored_log_reads_back_empty(tmp_path: Path) -> No
 
 
 def test_a_database_with_no_trades_table_reads_back_empty_rather_than_raising(tmp_path: Path) -> None:
-    """``trades`` is created lazily by the first ``save_trades``, so every campaign database
-    is in this state until this tool has been run against it."""
+    """``trades`` is created lazily by the first ``save_trades``.
+
+    Every campaign database is in this state until this tool has been run against it.
+    """
     db = tmp_path / "InsideBar.duckdb"
     store_point(db, synthetic_bars(), 5, "full")
     assert load_trades(1, 0, db).empty
 
 
 def test_a_database_that_does_not_exist_reads_back_empty_rather_than_creating_one(tmp_path: Path) -> None:
-    """``results.connect`` creates what it opens, so a typo in the path would otherwise leave a
-    new empty database behind and report no logs."""
+    """``results.connect`` creates what it opens.
+
+    A typo in the path would otherwise leave a new empty database behind and report no logs.
+    """
     missing = tmp_path / "NoSuchArchetype.duckdb"
     assert load_trades(1, 0, missing).empty
     assert not missing.exists()

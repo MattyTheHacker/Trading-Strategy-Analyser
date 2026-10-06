@@ -15,12 +15,13 @@ import dataclasses
 import logging
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
+from typing import TYPE_CHECKING, override
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, propaccount, stats
+from nqbt import archetypes, context, propaccount, splice, stats
 from nqbt.sim.types import InsideBarParams, InsideBarTrailingParams
 from tests.test_campaign_sizing import sized, sized_insidebar
 from tests.test_insidebartrailing_sim import walk_bars
@@ -63,6 +64,9 @@ from tools.campaign_report import log_key
 from tools.campaign_shortlist import TOP, rerun_group
 from tools.campaign_sweep import Variant, insidebartrailing_structure_variants
 from tools.campaign_walkforward import run_resolution
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection
 
 NAME = "InsideBarTrailing"
 FIXED, TOGETHER, SYMMETRIC = (
@@ -109,10 +113,16 @@ def stored_frame(cells: tuple[tuple[str, int], ...] = (("MNQ", 10),), combos: in
     return pd.DataFrame(rows)
 
 
-def by_window(frame: pd.DataFrame):
+def by_window(frame: pd.DataFrame) -> Callable[[str, list[str]], pd.DataFrame]:
     """Build a stand-in for ``campaign_report.load`` over ``frame``, narrowed as the real one narrows."""
 
-    def load(name, windows, *, variants=None, resolutions=None):
+    def load(
+        _name: str,
+        windows: list[str],
+        *,
+        variants: Collection[str] | None = None,
+        resolutions: Collection[int] | None = None,
+    ) -> pd.DataFrame:
         narrowed = frame[frame["window"].isin(windows)]
         if variants is not None:
             narrowed = narrowed[narrowed["variant"].isin(variants)]
@@ -125,7 +135,7 @@ def by_window(frame: pd.DataFrame):
     return load
 
 
-def arguments(**fields) -> argparse.Namespace:
+def arguments(**fields: object) -> argparse.Namespace:
     return argparse.Namespace(
         **{
             "variants": "ibt-sizing",
@@ -158,11 +168,11 @@ def point_at(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame) -> pd.DataFra
     monkeypatch.setattr(campaign_gates, "load", by_window(frame))
     monkeypatch.setattr(campaign_holdout, "load", by_window(frame))
     monkeypatch.setattr(campaign_paired, "load", by_window(frame))
-    monkeypatch.setattr(campaign_gates, "variants_for", lambda which: {NAME: lambda root: []})
+    monkeypatch.setattr(campaign_gates, "variants_for", lambda _which: {NAME: lambda _root: []})
     monkeypatch.setattr(
         campaign_gates,
         "arms_for",
-        lambda builders, name, root, resolutions: {
+        lambda _builders, _name, _root, resolutions: {
             (arm, minutes): variant for arm, variant in built().items() for minutes in resolutions
         },
     )
@@ -170,14 +180,14 @@ def point_at(monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame) -> pd.DataFra
     monkeypatch.setattr(
         campaign_gates,
         "stored_rows",
-        lambda name, root, window, **_: holdout.set_index(JOIN_KEYS, drop=False),
+        lambda _name, _root, _window, **_: holdout.set_index(JOIN_KEYS, drop=False),
     )
 
     return frame
 
 
 @pytest.fixture
-def campaign(monkeypatch: pytest.MonkeyPatch):
+def campaign(monkeypatch: pytest.MonkeyPatch) -> pd.DataFrame:
     """Provide the synthetic campaign behind every loader ``tasks_for`` reads through."""
     return point_at(monkeypatch, stored_frame())
 
@@ -250,7 +260,7 @@ def test_only_an_arm_whose_base_sizes_on_a_count_is_nulled() -> None:
 
 def test_an_arm_is_looked_up_at_each_resolution_it_is_built_for() -> None:
     builders = {
-        NAME: lambda root: [
+        NAME: lambda _root: [
             Variant(TOGETHER, archetypes.INSIDEBARTRAILING, sized(), resolutions=(5,)),
             Variant(TOGETHER, archetypes.INSIDEBARTRAILING, InsideBarTrailingParams(), resolutions=(10,)),
         ],
@@ -281,7 +291,7 @@ def test_two_arms_one_file_system_would_take_for_one_file_are_refused() -> None:
 # -- the stored-row reads ------------------------------------------------------------------------
 
 
-def test_each_held_out_shortlist_is_the_one_held_out_returns_for_its_cell(campaign) -> None:
+def test_each_held_out_shortlist_is_the_one_held_out_returns_for_its_cell(campaign: pd.DataFrame) -> None:
     selection = campaign[campaign["window"] == "selection"]
     merged = pair_windows(NAME, selection, campaign[campaign["window"] == "holdout"])
     cell = merged[merged["variant"] == TOGETHER]
@@ -302,7 +312,7 @@ def test_each_held_out_shortlist_is_the_one_held_out_returns_for_its_cell(campai
     )
 
 
-def test_the_gates_are_profile_and_verdict_cell_by_cell(campaign) -> None:
+def test_the_gates_are_profile_and_verdict_cell_by_cell(campaign: pd.DataFrame) -> None:
     selection = campaign[campaign["window"] == "selection"]
     merged = pair_windows(NAME, selection, campaign[campaign["window"] == "holdout"])
     table = gate_rows(NAME, selection, merged)
@@ -317,7 +327,7 @@ def test_the_gates_are_profile_and_verdict_cell_by_cell(campaign) -> None:
         assert row[column] == expected[column]
 
 
-def test_the_paired_read_is_campaign_paireds_report_stratum_by_stratum(campaign) -> None:
+def test_the_paired_read_is_campaign_paireds_report_stratum_by_stratum(campaign: pd.DataFrame) -> None:
     holdout = campaign[campaign["window"] == "holdout"]
     table = paired_rows(NAME, holdout, ARMS)
     assert set(zip(table["control_arm"], table["treatment_arm"], strict=True)) == set(controls(ARMS))
@@ -330,7 +340,8 @@ def test_the_paired_read_is_campaign_paireds_report_stratum_by_stratum(campaign)
         )
 
 
-def test_a_task_per_arm_re_runs_only_the_strata_some_read_is_asked_for(campaign, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("campaign")
+def test_a_task_per_arm_re_runs_only_the_strata_some_read_is_asked_for(tmp_path: Path) -> None:
     tasks = list(tasks_for(NAME, arguments(), extra_cells(None), tmp_path))
     assert [task.arm for task in tasks] == sorted(ARMS)
     assert {task.arm: set(task.held["stratum"]) for task in tasks} == {
@@ -363,17 +374,20 @@ def test_the_stored_row_reads_keep_a_file_per_root_and_resolution(
         assert set(first["resolution"]) == {10}, "the second run replaced the first's cells"
 
 
-def test_the_stored_row_reads_alone_re_run_nothing(campaign, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("campaign")
+def test_the_stored_row_reads_alone_re_run_nothing(tmp_path: Path) -> None:
     assert list(tasks_for(NAME, arguments(reads=["gates", "paired"]), extra_cells(None), tmp_path)) == []
 
 
-def test_a_task_whose_every_read_is_recorded_is_skipped(campaign, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("campaign")
+def test_a_task_whose_every_read_is_recorded_is_skipped(tmp_path: Path) -> None:
     save(tmp_path, NAME, task_key("MNQ", 10, TOGETHER), {}, every_read_recorded())
     arms = [task.arm for task in tasks_for(NAME, arguments(), extra_cells(None), tmp_path)]
     assert arms == sorted([FIXED, SYMMETRIC])
 
 
-def test_a_later_run_reads_only_the_cells_it_adds(campaign, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("campaign")
+def test_a_later_run_reads_only_the_cells_it_adds(tmp_path: Path) -> None:
     save(tmp_path, NAME, task_key("MNQ", 10, TOGETHER), {}, every_read_recorded())
     extra = pd.DataFrame(
         [{"strategy": NAME, "root": "MNQ", "resolution": 10, "variant": TOGETHER, "stratum": MIDDAY}],
@@ -434,7 +448,7 @@ def test_a_table_replaces_the_strata_it_read_and_keeps_the_rest(tmp_path: Path) 
     assert not path.exists(), "a read that now returns nothing left its old rows behind"
 
 
-def half_written(path) -> None:
+def half_written(path: Path | str) -> None:
     """Write what a run killed partway through writing ``path`` leaves there."""
     Path(path).write_bytes(b"PAR1{")
     msg = "killed mid-write"
@@ -444,13 +458,13 @@ def half_written(path) -> None:
 @pytest.mark.parametrize(
     ("owner", "method", "dies"),
     [
-        (pd.DataFrame, "to_parquet", lambda frame, path, **_: half_written(path)),
+        (pd.DataFrame, "to_parquet", lambda _frame, path, **_: half_written(path)),
         (Path, "write_text", lambda path, *_, **__: half_written(path)),
     ],
     ids=["table", "marker"],
 )
 def test_a_save_killed_mid_write_leaves_every_file_readable_for_the_next(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, owner, method, dies
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, owner: type, method: str, dies: object
 ) -> None:
     key = task_key("MNQ", 10, TOGETHER)
     table = written(tmp_path, RERUN, NAME, key)
@@ -497,7 +511,7 @@ def test_a_named_cell_adds_gate_4_where_it_would_not_otherwise_be_read(tmp_path:
 
 
 @pytest.fixture(scope="module")
-def walk():
+def walk() -> pd.DataFrame:
     return walk_bars(6000, seed=9)
 
 
@@ -505,7 +519,7 @@ def shortlisted_rows() -> pd.DataFrame:
     """Build two configurations whose contexts differ, so the task's one dataset is a union."""
     rows = []
     for combo_id, fields in ((3, {}), (4, {"slow_sma_period": 21, "order_quantity": 6})):
-        params = dataclasses.replace(sized(), **fields)
+        params = dataclasses.replace(sized(), **fields)  # type: ignore[arg-type]  # each caller passes a field's own type
         rows.append(
             {
                 "sweep_id": 9,
@@ -526,18 +540,18 @@ def shortlisted_rows() -> pd.DataFrame:
 
 
 @pytest.fixture
-def on_the_walk(monkeypatch: pytest.MonkeyPatch, walk):
+def on_the_walk(monkeypatch: pytest.MonkeyPatch, walk: pd.DataFrame) -> pd.DataFrame:
     """Point every loader a re-run reads through at the synthetic walk."""
-    monkeypatch.setattr(campaign_gates, "archive", lambda root: walk)
-    monkeypatch.setattr(campaign_gates, "candidate_bars", lambda stored, bars: (bars,))
+    monkeypatch.setattr(campaign_gates, "archive", lambda _root: walk)
+    monkeypatch.setattr(campaign_gates, "candidate_bars", lambda _stored, bars: (bars,))
     monkeypatch.setattr(
-        campaign_gates, "bars_for", lambda candidates, stored, block, minutes: (candidates[0], True)
+        campaign_gates, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], True)
     )
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
-    monkeypatch.setattr(campaign_sizing.splice, "load_continuous", lambda _root: walk)
-    monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda stored, archive: (archive,))
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: walk)
+    monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda _stored, archive: (archive,))
     monkeypatch.setattr(
-        campaign_sizing, "bars_for", lambda candidates, stored, block, minutes: (candidates[0], True)
+        campaign_sizing, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], True)
     )
 
     return walk
@@ -548,9 +562,9 @@ def reading(*reads: str, stratum: str = UNFILTERED) -> dict[str, frozenset[str]]
     return {read: frozenset({stratum}) for read in (RERUN, *reads)}
 
 
-def a_task(rows: pd.DataFrame, **fields) -> Task:
+def a_task(rows: pd.DataFrame, **fields: object) -> Task:
     return Task(
-        **{
+        **{  # type: ignore[arg-type]  # the keywords are Task's own
             "name": NAME,
             "root": "MNQ",
             "minutes": 1,
@@ -572,26 +586,33 @@ def own_logs(rows: pd.DataFrame, walk: pd.DataFrame) -> dict[tuple[int, int], pd
     return {
         log_key(row): log
         for row, _, log in rerun_group(
-            rows, walk, archetypes.INSIDEBARTRAILING, "MNQ", 1, campaign_gates.context.PriceBasis.RAW
+            rows, walk, archetypes.INSIDEBARTRAILING, "MNQ", 1, context.PriceBasis.RAW
         )
     }
 
 
-def test_the_null_is_campaign_sizings_on_the_same_rows(on_the_walk) -> None:
+@pytest.mark.usefixtures("on_the_walk")
+def test_the_null_is_campaign_sizings_on_the_same_rows() -> None:
     rows = shortlisted_rows()
     table = run_task(a_task(rows, strata=reading("null")))["null"]
     theirs = campaign_sizing.null_for_shortlist(rows, "MNQ", by="profit_factor", draws=3, seed=0)
     pd.testing.assert_frame_equal(table.drop(columns=["root", "variant"]), theirs)
 
 
-def test_the_bootstrap_exclusion_and_prop_replay_read_the_same_logs_their_tools_would(on_the_walk) -> None:
+def test_the_bootstrap_exclusion_and_prop_replay_read_the_same_logs_their_tools_would(
+    on_the_walk: pd.DataFrame,
+) -> None:
     rows = shortlisted_rows()
     tables = run_task(a_task(rows, strata=reading("gate4", "prop")))
     logs = own_logs(rows, on_the_walk)
     pd.testing.assert_frame_equal(
         tables["exclusion"], measure(rows, logs, stats.SESSION_CLOSE, require_stored=False)
     )
-    resampled = [resample_row(row, logs[log_key(row)], 40, 0) for _, row in rows.iterrows()]
+    resampled: list[tuple[dict[str, object], pd.DataFrame]] = []
+    for _, row in rows.iterrows():
+        result = resample_row(row, logs[log_key(row)], 40, 0)
+        assert result is not None, "every shortlisted row has a stored log"
+        resampled.append(result)
     assert tables["permutation"].to_dict("records") == [permutation for permutation, _ in resampled]
     pd.testing.assert_frame_equal(
         tables["bootstrap"], pd.concat([spread for _, spread in resampled], ignore_index=True)
@@ -605,8 +626,8 @@ def test_a_configuration_with_no_trades_has_no_exclusion_row_as_its_tool_gives_n
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rows = shortlisted_rows().iloc[:1]
-    empty = Rerun(0, sized(), {"trades": 0, "net_pnl": 0.0}, pd.DataFrame(), None, True)
-    monkeypatch.setattr(campaign_gates, "reruns", lambda task: iter([empty]))
+    empty = Rerun(0, sized(), {"trades": 0, "net_pnl": 0.0}, pd.DataFrame(), None, swept=True)  # type: ignore[arg-type]  # an empty re-run carries no dataset
+    monkeypatch.setattr(campaign_gates, "reruns", lambda _task: iter([empty]))
     tables = run_task(a_task(rows, strata=reading("gate4")))
     assert "exclusion" not in tables
     assert "permutation" not in tables
@@ -614,7 +635,8 @@ def test_a_configuration_with_no_trades_has_no_exclusion_row_as_its_tool_gives_n
     assert list(tables[RERUN]["trades"]) == [0]
 
 
-def test_every_re_run_says_what_it_reproduced_of_its_stored_row(on_the_walk) -> None:
+@pytest.mark.usefixtures("on_the_walk")
+def test_every_re_run_says_what_it_reproduced_of_its_stored_row() -> None:
     rows = shortlisted_rows()
     rerun = run_task(a_task(rows, strata=reading("gate4")))[RERUN]
     assert list(rerun["stored_trades"]) == [0, 0]
@@ -624,7 +646,8 @@ def test_every_re_run_says_what_it_reproduced_of_its_stored_row(on_the_walk) -> 
     assert set(rerun["strategy"]) == {NAME}
 
 
-def test_a_re_run_an_earlier_run_wrote_is_not_written_again(on_the_walk) -> None:
+@pytest.mark.usefixtures("on_the_walk")
+def test_a_re_run_an_earlier_run_wrote_is_not_written_again() -> None:
     tables = run_task(a_task(shortlisted_rows(), strata={"gate4": frozenset({UNFILTERED})}))
     assert RERUN not in tables
     assert "exclusion" in tables
@@ -653,7 +676,8 @@ def insidebar_rows() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_the_null_reads_an_archetype_beyond_insidebartrailing_as_campaign_sizing_does(on_the_walk) -> None:
+@pytest.mark.usefixtures("on_the_walk")
+def test_the_null_reads_an_archetype_beyond_insidebartrailing_as_campaign_sizing_does() -> None:
     rows = insidebar_rows()
     task = a_task(rows, name="InsideBar", arm="bracket size=confluence", strata=reading("null"))
     table = run_task(task)["null"]
@@ -663,7 +687,8 @@ def test_the_null_reads_an_archetype_beyond_insidebartrailing_as_campaign_sizing
     pd.testing.assert_frame_equal(table.drop(columns=["root", "variant"]), theirs)
 
 
-def test_a_stratum_gate_4_and_prop_do_not_read_is_re_run_for_the_null_alone(on_the_walk) -> None:
+@pytest.mark.usefixtures("on_the_walk")
+def test_a_stratum_gate_4_and_prop_do_not_read_is_re_run_for_the_null_alone() -> None:
     rows = shortlisted_rows().assign(stratum=MIDDAY)
     strata = {
         **reading("null", stratum=MIDDAY),
@@ -674,7 +699,7 @@ def test_a_stratum_gate_4_and_prop_do_not_read_is_re_run_for_the_null_alone(on_t
     assert set(tables) == {RERUN, "null"}
 
 
-def test_prop_replays_each_stratum_it_is_asked_for_through_its_own_logs(on_the_walk) -> None:
+def test_prop_replays_each_stratum_it_is_asked_for_through_its_own_logs(on_the_walk: pd.DataFrame) -> None:
     rows = pd.concat([shortlisted_rows(), shortlisted_rows().assign(stratum=MIDDAY)], ignore_index=True)
     logs = own_logs(rows.iloc[:2], on_the_walk)
     table = replayed(a_task(rows), {UNFILTERED: logs, MIDDAY: logs})
@@ -682,7 +707,7 @@ def test_prop_replays_each_stratum_it_is_asked_for_through_its_own_logs(on_the_w
     assert len(table) == 2 * 2 * len(DEFAULT_PRESETS)
 
 
-def test_the_walk_forward_is_the_tools_own_on_the_selection_shortlist(on_the_walk) -> None:
+def test_the_walk_forward_is_the_tools_own_on_the_selection_shortlist(on_the_walk: pd.DataFrame) -> None:
     chosen = shortlisted_rows().assign(window="selection")
     task = a_task(shortlisted_rows(), chosen=chosen)
     (row,) = walked(task).to_dict("records")
@@ -733,17 +758,18 @@ def reproduced(task: Task) -> dict[str, pd.DataFrame]:
 
 
 @pytest.fixture
-def in_threads(monkeypatch: pytest.MonkeyPatch):
+def in_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run the pool in threads, so a stubbed ``run_task`` reaches it."""
     monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
 
 
+@pytest.mark.usefixtures("campaign", "in_threads")
 def test_a_run_writes_every_task_and_a_second_run_re_runs_none(
-    campaign, in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     ran = []
 
-    def stub(task):
+    def stub(task: Task) -> dict[str, pd.DataFrame]:
         ran.append(task.arm)
 
         return reproduced(task)
@@ -756,10 +782,11 @@ def test_a_run_writes_every_task_and_a_second_run_re_runs_none(
     assert len(ran) == len(ARMS), "a finished task ran again"
 
 
+@pytest.mark.usefixtures("campaign", "in_threads")
 def test_a_failed_task_leaves_the_others_saved_and_the_run_failing(
-    campaign, in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    def failing(task):
+    def failing(task: Task) -> dict[str, pd.DataFrame]:
         if task.arm == TOGETHER:
             msg = "a task that fails"
             raise RuntimeError(msg)
@@ -783,12 +810,15 @@ def test_a_failed_task_leaves_the_others_saved_and_the_run_failing(
     assert ran == [TOGETHER], "the resumed run did more than the task that failed"
 
 
+@pytest.mark.usefixtures("campaign", "in_threads")
 def test_a_task_that_fails_to_save_leaves_the_others_saved_and_the_run_failing(
-    campaign, in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     real_save = campaign_gates.save
 
-    def failing(out, name, key, tables, strata):
+    def failing(
+        out: Path, name: str, key: str, tables: dict[str, pd.DataFrame], strata: dict[str, frozenset[str]]
+    ) -> None:
         if key == task_key("MNQ", 10, TOGETHER):
             msg = "the disk filled"
             raise OSError(msg)
@@ -803,18 +833,19 @@ def test_a_task_that_fails_to_save_leaves_the_others_saved_and_the_run_failing(
     assert recorded(tmp_path, NAME, task_key("MNQ", 10, TOGETHER)) == {}
 
 
+@pytest.mark.usefixtures("in_threads")
 def test_a_root_whose_tasks_cannot_be_built_still_saves_the_tasks_already_started(
-    in_threads, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     point_at(monkeypatch, stored_frame((("MNQ", 10), ("NQ", 10))))
-    real_rows = campaign_gates.stored_rows
+    real_rows = campaign_gates.stored_rows  # type: ignore[attr-defined]  # not re-exported; read here because point_at patched it
 
-    def duplicated_on_nq(name, root, window, **narrowing):
+    def duplicated_on_nq(name: str, root: str, window: str, **narrowing: object) -> pd.DataFrame:
         if root == "NQ":
             msg = "NQ stores more than one row under the same keys"
             raise RuntimeError(msg)
 
-        return real_rows(name, root, window, **narrowing)
+        return real_rows(name, root, window, **narrowing)  # type: ignore[arg-type]  # stored_rows' own keywords, passed through
 
     monkeypatch.setattr(campaign_gates, "stored_rows", duplicated_on_nq)
     monkeypatch.setattr(campaign_gates, "run_task", reproduced)
@@ -840,27 +871,33 @@ class DeadPool(concurrent.futures.Executor):
 
     given: int = 0
 
-    def submit(self, _fn: object, /, *_: object, **__: object) -> concurrent.futures.Future[object]:
+    @override
+    def submit[**P, T](
+        self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
+    ) -> concurrent.futures.Future[T]:
         """Return a future failed as a dead worker fails it, or refuse once one has been handed out."""
         msg = "a child process terminated abruptly"
         if self.given:
             raise BrokenProcessPool(msg)
 
         self.given += 1
-        future: concurrent.futures.Future[object] = concurrent.futures.Future()
+        future: concurrent.futures.Future[T] = concurrent.futures.Future()
         future.set_exception(BrokenProcessPool(msg))
 
         return future
 
 
+@pytest.mark.usefixtures("campaign")
 def test_a_worker_that_dies_fails_its_own_archetype_and_the_run_still_reports(
-    campaign, capsys, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     other = "InsideBar"
     pools = iter([DeadPool(), concurrent.futures.ThreadPoolExecutor()])
     monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", lambda **_: next(pools))
     monkeypatch.setattr(
-        campaign_gates, "variants_for", lambda which: {NAME: lambda root: [], other: lambda root: []}
+        campaign_gates, "variants_for", lambda _which: {NAME: lambda _root: [], other: lambda _root: []}
     )
     monkeypatch.setattr(campaign_gates, "run_task", reproduced)
     assert campaign_gates.main([*argv_for(tmp_path), "--strategies", NAME, other]) == 1
@@ -882,7 +919,9 @@ def test_a_variant_set_that_does_not_exist_is_refused(tmp_path: Path) -> None:
     assert not (tmp_path / "settings.json").exists()
 
 
-def test_an_archetype_the_variant_set_does_not_cover_is_refused(capsys, tmp_path: Path) -> None:
+def test_an_archetype_the_variant_set_does_not_cover_is_refused(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     argv = argv_for(tmp_path)
     argv[argv.index(NAME)] = "InsideBarTrailng"
     with pytest.raises(SystemExit, match=USAGE_ERROR):
@@ -892,7 +931,9 @@ def test_an_archetype_the_variant_set_does_not_cover_is_refused(capsys, tmp_path
     assert not (tmp_path / "settings.json").exists()
 
 
-def test_the_re_run_report_names_each_arm_that_fell_short(caplog, tmp_path: Path) -> None:
+def test_the_re_run_report_names_each_arm_that_fell_short(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
     for name, trades in ((NAME, 1), ("InsideBar", 2)):
         task = a_task(pd.DataFrame(), name=name)
         table = reproduced(task)[RERUN].assign(trades=trades)

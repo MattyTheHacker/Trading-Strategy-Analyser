@@ -19,8 +19,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, disambiguate, logsetup, paths, resample, splice
-from tools.campaign_report import rank
-from tools.campaign_shortlist import db_path, load, rerun_group
+from tools.campaign_report import load, rank
+from tools.campaign_shortlist import rerun_group
+from tools.campaign_sweep import db_path
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -73,30 +74,31 @@ def run_on(name: str, rows: pd.DataFrame, target: str) -> pd.DataFrame:
     bars: pd.DataFrame = splice.load_continuous(target)
     out: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=True):
-        frame: pd.DataFrame = resample.resample(bars, int(minutes))
+        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
+        frame: pd.DataFrame = resample.resample(bars, bar_minutes)
         priced = block.assign(commission_per_contract=COMMISSION[target])
         for row, summary, _ in rerun_group(
-            priced, frame, archetype, target, int(minutes), context.PriceBasis.RAW
+            priced, frame, archetype, target, bar_minutes, context.PriceBasis.RAW
         ):
             out.append(
                 {
                     "strategy": name,
                     "source_root": str(row["root"]),
                     "target_root": target,
-                    "resolution": int(minutes),
+                    "resolution": bar_minutes,
                     "stratum": str(row["stratum"]),
                     "variant": str(row["variant"]),
                     "source_pf": float(row[BY]),
                     "source_trades": int(row["trades"]),
-                    "target_pf": float(summary["profit_factor"]),
-                    "target_trades": int(summary["trades"]),
-                    "target_net_pnl": float(summary["net_pnl"]),
-                    "target_session_close_share": float(summary["session_close_share"]),
+                    "target_pf": float(summary["profit_factor"]),  # type: ignore[arg-type]  # a statistic
+                    "target_trades": int(summary["trades"]),  # type: ignore[call-overload]  # a statistic
+                    "target_net_pnl": float(summary["net_pnl"]),  # type: ignore[arg-type]  # a statistic
+                    "target_session_close_share": float(summary["session_close_share"]),  # type: ignore[arg-type]  # a statistic
                     "source_ambiguous_share": float(row["ambiguous_share"]),
-                    "target_ambiguous_share": float(summary["ambiguous_share"]),
+                    "target_ambiguous_share": float(summary["ambiguous_share"]),  # type: ignore[arg-type]  # a statistic
                 },
             )
-        logger.info("  %-18s %-4s %2dm  %4d configurations", name, target, int(minutes), len(block))
+        logger.info("  %-18s %-4s %2dm  %4d configurations", name, target, bar_minutes, len(block))
 
     return pd.DataFrame(out)
 
@@ -136,6 +138,7 @@ def summarise(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(argv: list[str]) -> int:
+    """Run each shortlist on its paired roots and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Run one root's shortlist on another root.")
     parser.add_argument("--strategies", nargs="+", default=sorted(archetypes.names()))

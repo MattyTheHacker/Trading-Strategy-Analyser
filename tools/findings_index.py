@@ -96,7 +96,7 @@ class Finding:
         return (0, int(major.rstrip(suffix) or 0), int(minor or 0), suffix)
 
 
-def parse_front_matter(text: str, slug: str) -> dict[str, object]:
+def parse_front_matter(text: str, slug: str) -> dict[str, str | list[str]]:
     """Read the closed YAML subset the findings files use, raising on anything else."""
     if not text.startswith("---\n"):
         msg = f"{slug}: no front matter"
@@ -108,7 +108,7 @@ def parse_front_matter(text: str, slug: str) -> dict[str, object]:
         msg = f"{slug}: unterminated front matter"
         raise FrontMatterError(msg)
 
-    fields: dict[str, object] = {}
+    fields: dict[str, str | list[str]] = {}
     key = ""
     for line in block.splitlines():
         if line.startswith("  ") and key:

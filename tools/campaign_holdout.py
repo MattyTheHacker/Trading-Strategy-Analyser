@@ -198,6 +198,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Test the shortlist on the held-out window and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Held-out test of a --split campaign.")
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))

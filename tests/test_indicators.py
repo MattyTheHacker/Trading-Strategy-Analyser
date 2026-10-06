@@ -1,10 +1,15 @@
 """Indicator tests pinned against NT8's own recursions, not TA-Lib's."""
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 import talib
 
 from nqbt import indicators
+
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray
 
 RAMP = np.arange(10, dtype=np.float64)
 
@@ -186,7 +191,9 @@ def test_session_vwap_survives_zero_volume_bars() -> None:
     assert out == pytest.approx([10.0, 20.0, 30.0])
 
 
-def reference_vwap_dispersion(price, volume, vwap, new_session):
+def reference_vwap_dispersion(
+    price: FloatArray, volume: FloatArray, vwap: FloatArray, new_session: BoolArray
+) -> FloatArray:
     """Compute two-pass volume-weighted dispersion about the running VWAP, written the obvious way.
 
     The definition ``session_vwap_dispersion`` implements in one pass; slow enough to be

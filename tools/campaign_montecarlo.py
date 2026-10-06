@@ -86,7 +86,7 @@ def resample_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     )
     spread: pd.DataFrame = montecarlo.bootstrap(pnl, STATISTICS, iterations=iterations, seed=seed)
 
-    return {**labelled(row), **permutation.as_dict()}, spread.assign(**labelled(row))
+    return {**labelled(row), **permutation.as_dict()}, spread.assign(**labelled(row))  # type: ignore[arg-type]  # a stored row's tag values
 
 
 def show(title: str, frame: pd.DataFrame) -> None:
@@ -103,6 +103,7 @@ def show(title: str, frame: pd.DataFrame) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Resample the shortlist's trade sequences and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Permutation and bootstrap over a campaign shortlist.")
     parser.add_argument("--strategy", required=True)

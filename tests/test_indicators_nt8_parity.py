@@ -10,13 +10,18 @@ Evidence, and what each rule turned out to be, is in ``docs/nt8-fidelity.md``.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, TypedDict
+
 import numpy as np
 import pytest
 
 from nqbt import indicators
 
-# open;high;low;close;ATR(14);SMA(20);StdDev(20);Bollinger(2,20).Upper;
-# KeltnerChannel(1.5,20).Midline;KeltnerChannel(1.5,20).Upper
+if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray
+
+# Columns, in order: open, high, low, close, the 14-bar ATR, the 20-bar SMA and StdDev, the
+# upper Bollinger band at 2 and 20, and the Keltner midline and upper band at 1.5 and 20.
 NT8_FIRST_40_BARS = """
 16027.0;16027.0;16010.75;16015.25;16.25;16015.25;0.0;16015.25;16017.666666666666;16042.041666666666
 16015.0;16020.75;16014.0;16017.75;11.5;16016.5;1.25;16019.0;16017.583333333332;16034.833333333332
@@ -60,14 +65,22 @@ NT8_FIRST_40_BARS = """
 16032.0;16032.25;16029.75;16031.5;2.5167272519845616;16031.1125;1.3121428085387656;16033.736785617077;16031.183333333332;16034.464583333332
 """
 
-TOLERANCE = {"rtol": 1e-11, "atol": 1e-9}
+
+class Tolerance(TypedDict):
+    """The two tolerances ``np.allclose`` takes."""
+
+    rtol: float
+    atol: float
+
+
+TOLERANCE: Tolerance = {"rtol": 1e-11, "atol": 1e-9}
 """Recursive float arithmetic will not reproduce NT8 bit for bit; this is under 2e-7 of a point
 against a 0.25 tick -- ``docs/nt8-fidelity.md`` § "Indicators".
 """
 
 
 @pytest.fixture(scope="module")
-def pinned():
+def pinned() -> dict[str, FloatArray]:
     rows = [[float(v) for v in line.split(";")] for line in NT8_FIRST_40_BARS.strip().splitlines()]
     columns = np.array(rows, dtype=np.float64).T
     names = (
@@ -86,24 +99,24 @@ def pinned():
     return dict(zip(names, columns, strict=True))
 
 
-def test_true_range_is_the_bare_range_on_the_first_bar(pinned) -> None:
+def test_true_range_is_the_bare_range_on_the_first_bar(pinned: dict[str, FloatArray]) -> None:
     tr = indicators.nt8_true_range(pinned["high"], pinned["low"], pinned["close"])
     assert tr[0] == pinned["high"][0] - pinned["low"][0]
 
 
-def test_true_range_reads_the_previous_close(pinned) -> None:
+def test_true_range_reads_the_previous_close(pinned: dict[str, FloatArray]) -> None:
     h, low, c = pinned["high"], pinned["low"], pinned["close"]
     tr = indicators.nt8_true_range(h, low, c)
     expected = np.maximum(h[1:] - low[1:], np.maximum(abs(h[1:] - c[:-1]), abs(low[1:] - c[:-1])))
     assert np.array_equal(tr[1:], expected)
 
 
-def test_atr_matches_nt8(pinned) -> None:
+def test_atr_matches_nt8(pinned: dict[str, FloatArray]) -> None:
     got = indicators.nt8_atr(pinned["high"], pinned["low"], pinned["close"], 14)
     assert np.allclose(got, pinned["atr14"], **TOLERANCE)
 
 
-def test_atr_seeds_with_an_expanding_simple_average_not_wilder(pinned) -> None:
+def test_atr_seeds_with_an_expanding_simple_average_not_wilder(pinned: dict[str, FloatArray]) -> None:
     """ATR is seeded NT8's way, not with Wilder from bar 0 (#20).
 
     A seeding mistake is a different indicator that converges slowly enough to look right later.
@@ -117,24 +130,24 @@ def test_atr_seeds_with_an_expanding_simple_average_not_wilder(pinned) -> None:
     assert abs(wilder_from_bar_zero - got[1]) > 4.0
 
 
-def test_atr_switches_to_wilder_once_the_window_fills(pinned) -> None:
+def test_atr_switches_to_wilder_once_the_window_fills(pinned: dict[str, FloatArray]) -> None:
     h, low, c = pinned["high"], pinned["low"], pinned["close"]
     tr = indicators.nt8_true_range(h, low, c)
     got = indicators.nt8_atr(h, low, c, 14)
     assert got[14] == pytest.approx((got[13] * 13 + tr[14]) / 14)
 
 
-def test_atr_emits_from_bar_zero(pinned) -> None:
+def test_atr_emits_from_bar_zero(pinned: dict[str, FloatArray]) -> None:
     got = indicators.nt8_atr(pinned["high"], pinned["low"], pinned["close"], 14)
     assert np.isfinite(got).all()
 
 
-def test_stddev_matches_nt8(pinned) -> None:
+def test_stddev_matches_nt8(pinned: dict[str, FloatArray]) -> None:
     got = indicators.nt8_stddev(pinned["close"], 20)
     assert np.allclose(got, pinned["stddev20"], **TOLERANCE)
 
 
-def test_stddev_uses_the_population_divisor(pinned) -> None:
+def test_stddev_uses_the_population_divisor(pinned: dict[str, FloatArray]) -> None:
     """#21's first question. The sample divisor differs materially in the warm-up."""
     close = pinned["close"]
     got = indicators.nt8_stddev(close, 20)
@@ -143,27 +156,27 @@ def test_stddev_uses_the_population_divisor(pinned) -> None:
     assert got[1] != pytest.approx(window.std(ddof=1))
 
 
-def test_stddev_uses_an_expanding_partial_window(pinned) -> None:
+def test_stddev_uses_an_expanding_partial_window(pinned: dict[str, FloatArray]) -> None:
     got = indicators.nt8_stddev(pinned["close"], 20)
     assert got[0] == 0.0
     for i in (3, 7, 15):
         assert got[i] == pytest.approx(pinned["close"][: i + 1].std(ddof=0))
 
 
-def test_bollinger_is_the_sma_plus_that_same_stddev(pinned) -> None:
+def test_bollinger_is_the_sma_plus_that_same_stddev(pinned: dict[str, FloatArray]) -> None:
     upper, middle, lower = indicators.nt8_bollinger(pinned["close"], 20, 2.0)
     assert np.allclose(upper, pinned["bb_upper"], **TOLERANCE)
     assert np.allclose(middle, pinned["sma20"], **TOLERANCE)
     assert np.allclose(middle - (upper - middle), lower)
 
 
-def test_keltner_matches_nt8(pinned) -> None:
+def test_keltner_matches_nt8(pinned: dict[str, FloatArray]) -> None:
     upper, midline, _ = indicators.nt8_keltner(pinned["high"], pinned["low"], pinned["close"], 20, 1.5)
     assert np.allclose(midline, pinned["kc_midline"], **TOLERANCE)
     assert np.allclose(upper, pinned["kc_upper"], **TOLERANCE)
 
 
-def test_keltner_centres_on_typical_price_not_close(pinned) -> None:
+def test_keltner_centres_on_typical_price_not_close(pinned: dict[str, FloatArray]) -> None:
     """#22's first question, and the one most likely to be got wrong from memory."""
     _, midline, _ = indicators.nt8_keltner(pinned["high"], pinned["low"], pinned["close"], 20, 1.5)
     assert np.allclose(midline, pinned["kc_midline"], **TOLERANCE)
@@ -172,7 +185,7 @@ def test_keltner_centres_on_typical_price_not_close(pinned) -> None:
     assert not np.allclose(midline, indicators.nt8_ema(typical, 20), **TOLERANCE)
 
 
-def test_keltner_width_is_the_mean_range_not_atr(pinned) -> None:
+def test_keltner_width_is_the_mean_range_not_atr(pinned: dict[str, FloatArray]) -> None:
     """The other half of #22, and the reason it was flagged as silently wrong.
 
     Both quantities average a per-bar measure of movement and are close enough that a wrong
@@ -200,6 +213,6 @@ def test_the_new_indicators_handle_short_and_empty_inputs(period: int) -> None:
     assert indicators.nt8_stddev(close, period)[0] == 0.0
 
 
-def test_keltner_is_symmetric(pinned) -> None:
+def test_keltner_is_symmetric(pinned: dict[str, FloatArray]) -> None:
     upper, midline, lower = indicators.nt8_keltner(pinned["high"], pinned["low"], pinned["close"], 20, 1.5)
     assert np.allclose(upper - midline, midline - lower)

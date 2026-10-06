@@ -50,16 +50,16 @@ def _absent(value: object) -> bool:
     if isinstance(value, (list, tuple)):
         return False
 
-    return bool(pd.isna(value))
+    return bool(pd.isna(value))  # type: ignore[call-overload]  # a DuckDB cell
 
 
 def _coerced(value: object, default: object) -> object:
     """Convert one DuckDB cell to the field's own type. A stored list becomes a tuple again."""
     if isinstance(default, tuple):
-        return tuple(value)
+        return tuple(value)  # type: ignore[arg-type]  # a stored list
 
     if isinstance(default, (bool, int, float, str)):
-        return type(default)(value)
+        return type(default)(value)  # type: ignore[arg-type, call-overload]  # a DuckDB cell of the field's type
 
     return value
 
@@ -157,12 +157,13 @@ def verify(row: pd.Series, summary: dict[str, object]) -> None:  # type: ignore[
     """
     where: str = f"sweep {int(row['sweep_id'])} combo {int(row['combo_id'])}"
     trades: int = int(row["trades"])
-    if int(summary["trades"]) != trades:
-        msg: str = f"{where} re-ran to {int(summary['trades'])} trades, not the {trades} stored"
+    rerun_trades: int = int(summary["trades"])  # type: ignore[call-overload]  # a statistic
+    if rerun_trades != trades:
+        msg: str = f"{where} re-ran to {rerun_trades} trades, not the {trades} stored"
         raise RuntimeError(msg)
 
     net_pnl: float = float(row["net_pnl"])
-    rerun_pnl: float = float(summary["net_pnl"])
+    rerun_pnl: float = float(summary["net_pnl"])  # type: ignore[arg-type]  # a statistic
     if not math.isclose(rerun_pnl, net_pnl, rel_tol=NET_PNL_TOLERANCE):
         msg = f"{where} re-ran to net {rerun_pnl:.4f}, not the {net_pnl:.4f} stored"
         raise RuntimeError(msg)
@@ -267,13 +268,15 @@ def store_logs(name: str, rows: pd.DataFrame, root: str) -> int:
     bars: pd.DataFrame = splice.load_continuous(root)
     stored: int = 0
     for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
-        frame: pd.DataFrame = resample.resample(source(bars, str(window)), int(minutes))
-        stored += store_group(block, frame, archetype, root, int(minutes), path)
+        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
+        frame: pd.DataFrame = resample.resample(source(bars, str(window)), bar_minutes)
+        stored += store_group(block, frame, archetype, root, bar_minutes, path)
 
     return stored
 
 
 def main(argv: list[str]) -> int:
+    """Store the shortlist's trade logs and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Store a campaign shortlist's trade logs.")
     parser.add_argument("--strategy", required=True)

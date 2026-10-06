@@ -92,7 +92,7 @@ jobs:
         run: uv sync --locked
 
       - name: Run ruff check
-        run: uv run ruff check --output-format=github nqbt formatting
+        run: uv run ruff check --output-format=github nqbt formatting tools tests
 
       - name: Run ruff format
         run: uv run ruff format --output-format=github --check .
@@ -113,9 +113,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      # The package and the formatter that rewrites it. tests/ and tools/ are not at zero yet.
+      # The package, the formatter that rewrites it, the campaign tools and the tests.
       - name: Run mypy
-        run: uv run mypy nqbt formatting
+        run: uv run mypy nqbt formatting tools tests
 
   pymarkdown:
     name: Lint Markdown files using PyMarkdown

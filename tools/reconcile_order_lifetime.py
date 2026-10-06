@@ -75,7 +75,7 @@ def entry_fills(run: Run) -> pd.DataFrame:
     return events[(events["kind"] == EXECUTION) & events["signal_name"].isin(PROBE_SIGNALS)]
 
 
-def reaches(bar: pd.Series, trigger: float, action: str) -> bool:
+def reaches(bar: pd.Series[float], trigger: float, action: str) -> bool:
     """Return whether a bar's range reaches a stop trigger, on the side the order sits."""
     if action == "Buy":
         return bool(bar["high"] >= trigger)
@@ -161,7 +161,7 @@ def offsets_from_submit(frame: pd.DataFrame, column: str) -> dict[int, int]:
     if delta.empty:
         return {}
 
-    return {int(k): int(v) for k, v in delta.astype(int).value_counts().sort_index().items()}
+    return {int(k): int(v) for k, v in delta.astype(int).value_counts().sort_index().items()}  # type: ignore[call-overload]  # a value_counts label
 
 
 def describe_offsets(frame: pd.DataFrame, column: str) -> str:
@@ -295,6 +295,7 @@ def report(run: Run) -> bool:
 
 
 def main(argv: list[str]) -> int:
+    """Answer the order-lifetime questions from one run and return the process exit code."""
     logsetup.configure(__name__)
     if len(argv) != EXPECTED_ARGV:
         logger.info("%s", __doc__)

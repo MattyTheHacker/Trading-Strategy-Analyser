@@ -91,8 +91,8 @@ def measure_group(
     ):
         figures: dict[str, object] = {field: summary[field] for field in REPORTED}
         figures[NET_TO_DRAWDOWN] = ratio_to_drawdown(
-            float(summary["net_pnl"]),
-            float(summary["max_drawdown"]),
+            float(summary["net_pnl"]),  # type: ignore[arg-type]  # a statistic
+            float(summary["max_drawdown"]),  # type: ignore[arg-type]  # a statistic
         )
         measured.append({**labelled(row), **stored_figures(row), CUTOFF: seconds, **figures})
 
@@ -115,19 +115,20 @@ def measure(
 
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
+        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
         frame: pd.DataFrame
         swept: bool
-        frame, swept = bars_for(candidates, stored, block, int(minutes))
+        frame, swept = bars_for(candidates, stored, block, bar_minutes)
         for seconds in cutoffs:
             at_cutoff: list[dict[str, object]] = measure_group(
                 block,
                 frame,
                 archetype,
                 root,
-                int(minutes),
+                bar_minutes,
                 seconds,
             )
-            report_group(root, int(minutes), seconds, at_cutoff)
+            report_group(root, bar_minutes, seconds, at_cutoff)
             measured.extend({**result, SWEPT_BARS: swept} for result in at_cutoff)
 
     return pd.DataFrame(measured)
@@ -290,6 +291,7 @@ def cell(args: argparse.Namespace, archetype: archetypes.Archetype, root: str) -
 
 
 def main(argv: list[str]) -> int:
+    """Re-run the candidate at each flatten time and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Re-run a candidate at several flatten cutoffs.")
     parser.add_argument("--strategy", required=True)

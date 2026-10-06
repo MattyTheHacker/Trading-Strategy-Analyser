@@ -293,6 +293,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str]) -> int:
+    """Read each early-exit arm against its control and return the process exit code."""
     logsetup.configure(__name__)
     args: argparse.Namespace = parse(argv)
 

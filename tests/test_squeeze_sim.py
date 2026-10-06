@@ -346,8 +346,8 @@ def test_nothing_the_entry_reads_comes_from_a_bar_after_the_signal() -> None:
     tampered = bars.copy()
     after = int(first["entry_bar"]) + 1
     for column in ("open", "high", "close"):
-        tampered.iloc[after:, tampered.columns.get_loc(column)] += 50.0
-    tampered.iloc[after:, tampered.columns.get_loc("low")] -= 50.0
+        tampered.iloc[after:, list(tampered.columns).index(column)] += 50.0
+    tampered.iloc[after:, list(tampered.columns).index("low")] -= 50.0
     again = run_squeeze(dataset_for(WALKED, tampered), WALKED, NQ).iloc[0]
 
     for column in ("entry_bar", "entry_price", "initial_stop", "target_price", "risk_points"):
@@ -419,12 +419,12 @@ def test_the_matched_random_null_draws_over_bars() -> None:
     null = randomentry.null_summaries(data, WALKED, instrument=NQ, iterations=6)
 
     assert len(null) == 6
-    assert null["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"
+    assert null["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"  # noqa: PD101 - a NaN draw is ignored, which an equality check would not do
 
 
 def test_a_level_draw_is_refused_because_there_is_no_session_range() -> None:
     with pytest.raises(randomentry.RandomEntryError, match="no session range"):
-        randomentry._range_key_for(  # noqa: SLF001 - the refusal is the behaviour under test
+        randomentry._range_key_for(
             WALKED,
             archetypes.SQUEEZEBREAKOUT,
             randomentry.OVER_LEVELS,
@@ -460,9 +460,11 @@ def test_a_window_traded_both_ways_cannot_be_asked_for() -> None:
         ({"compression_filter": 0}, compression.CompressionError, "admits no state"),
     ],
 )
-def test_an_impossible_rule_set_is_refused_by_name(kwargs: dict, error: type, message: str) -> None:
+def test_an_impossible_rule_set_is_refused_by_name(
+    kwargs: dict[str, object], error: type[Exception], message: str
+) -> None:
     with pytest.raises(error, match=message):
-        SqueezeBreakoutParams(**kwargs)
+        SqueezeBreakoutParams(**kwargs)  # type: ignore[arg-type]  # each caller passes a field's own type
 
 
 def test_the_leg_split_follows_the_selected_target_ladder() -> None:

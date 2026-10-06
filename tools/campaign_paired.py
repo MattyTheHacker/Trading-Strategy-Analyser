@@ -105,7 +105,9 @@ def sign_test(improved: int, total: int) -> float:
 
     tail: int = sum(math.comb(total, k) for k in range(min(improved, total - improved) + 1))
 
-    return min(1.0, 2.0 * (tail / 2**total))
+    outcomes: int = 2**total
+
+    return min(1.0, 2.0 * (tail / outcomes))
 
 
 def verdict(frame: pd.DataFrame) -> pd.DataFrame:
@@ -116,7 +118,7 @@ def verdict(frame: pd.DataFrame) -> pd.DataFrame:
         total: int = len(group)
         rows.append(
             {
-                **dict(zip(REPORT_KEYS, keys if isinstance(keys, tuple) else (keys,), strict=True)),
+                **dict(zip(REPORT_KEYS, keys, strict=True)),
                 "pairs": total,
                 "control": group["median_control"].median(),
                 "treatment": group["median_treatment"].median(),
@@ -164,6 +166,7 @@ def report(
 
 
 def main(argv: list[str]) -> int:
+    """Compare the variant against its control cell by cell and return the process exit code."""
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Pair one variant against its control, cell by cell.")
     parser.add_argument("--strategy", required=True)

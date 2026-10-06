@@ -7,38 +7,48 @@ The shared bracket engine is exercised by ``test_deadcat_sim.py``. These cover w
 """
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from nqbt import conditions, context, sessions
+from nqbt import trades as trades_mod
 from nqbt.instruments import MNQ
 from nqbt.sim import bracket, deadcat
 from nqbt.sim.pullback import pullback_signal, run_pullbackandgo
 from nqbt.sim.types import PullBackAndGoParams
 from nqbt.trades import LONG
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nqbt.instruments import Instrument
+
+type Row = tuple[float, float, float, float]
+"""One bar as open, high, low, close."""
+
 TICK = 0.25
 
 
-def run(
-    rows,
-    signal_at=(),
+def run(  # noqa: PLR0913 - one keyword per simulated NT8 property
+    rows: Sequence[Row],
+    signal_at: Sequence[int] = (),
     *,
-    force_flat_at=(),
-    quantities=(1, 1, 1, 1),
-    targets=(1.0, 1.5, 2.0, np.nan),
-    slippage=0.0,
-    commission=0.0,
-    instrument=MNQ,
-    bars_required=0,
-    ratchet_lag=1,  # PullBackAndGo.cs ratchets off Low[1]
-    max_hold_bars=0,
-    fill_limit_on_touch=True,
-    ambiguity_policy=0,
-    round_targets=False,  # engine default here; PullBackAndGoParams ships True (M15.5)
-):
+    force_flat_at: Sequence[int] = (),
+    quantities: Sequence[int] = (1, 1, 1, 1),
+    targets: Sequence[float] = (1.0, 1.5, 2.0, np.nan),
+    slippage: float = 0.0,
+    commission: float = 0.0,
+    instrument: Instrument = MNQ,
+    bars_required: int = 0,
+    ratchet_lag: int = 1,  # PullBackAndGo.cs ratchets off Low[1]
+    max_hold_bars: int = 0,
+    fill_limit_on_touch: bool = True,
+    ambiguity_policy: int = 0,
+    round_targets: bool = False,  # engine default here; PullBackAndGoParams ships True (M15.5)
+) -> pd.DataFrame:
     """Simulate hand-written OHLC rows with PullBackAndGo's defaults."""
     arr = np.asarray(rows, dtype=np.float64)
     o, h, low, c = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -76,8 +86,6 @@ def run(
     )
     assert count >= 0, "trade buffer overflowed"
 
-    from nqbt import trades as trades_mod
-
     return trades_mod.validate(trades_mod.trades_to_frame(out, count, instrument=instrument.symbol))
 
 
@@ -93,7 +101,7 @@ def test_signal_places_a_buy_stop_at_the_bare_high() -> None:
         ],
         signal_at=[0],
     )
-    assert trades["entry_bar"].nunique() == 1
+    assert trades["entry_bar"].nunique() == 1  # noqa: PD101 - a count of one also fails an empty frame
     assert trades["entry_price"].iloc[0] == pytest.approx(101.5)
     assert trades["initial_stop"].iloc[0] == pytest.approx(96.5)
     assert trades["risk_points"].iloc[0] == pytest.approx(5.0)
@@ -123,8 +131,11 @@ def test_unfilled_order_is_cancelled_after_one_bar() -> None:
 
 
 def test_a_resting_order_fills_at_the_flatten_point_and_is_flattened_there() -> None:
-    """NT8 fills the resting order and only then flattens -- ``docs/nt8-fidelity.md``,
-    "A resting entry fills on the force-flat bar, and is flattened at its close"."""
+    """NT8 fills the resting order and only then flattens.
+
+    ``docs/nt8-fidelity.md``, "A resting entry fills on the force-flat bar, and is flattened at
+    its close".
+    """
     trades = run(
         [
             (100, 101.5, 97, 101),  # 0: signal, trigger 101.5
@@ -220,7 +231,7 @@ def test_round_targets_true_would_have_snapped_the_same_bars() -> None:
         signal_at=[0],
         round_targets=True,
     )
-    leg2 = trades.set_index("leg").loc[2, "target_price"]
+    leg2: float = trades.set_index("leg")["target_price"].loc[2]
     on_grid = leg2 / TICK - round(leg2 / TICK)
     assert abs(on_grid) < 1e-9
 
@@ -358,7 +369,7 @@ def test_every_filter_can_be_switched_off_independently() -> None:
         "use_slow_sma",
         "use_vwap",
     ):
-        only = pullback_signal(data, replace(all_off, **{field: True}))
+        only = pullback_signal(data, replace(all_off, **{field: True}))  # type: ignore[arg-type]  # each caller passes a field's own type
         assert only.sum() < bare.sum(), f"{field} never bound, so its branch is untested"
         assert not (only & ~bare).any(), f"{field} admitted a signal that is not a hammer"
 

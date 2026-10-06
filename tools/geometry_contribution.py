@@ -11,6 +11,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 import pandas as pd
 
@@ -35,7 +36,17 @@ SLIPPAGE = 1.0
 ITERATIONS = 200
 STATISTICS = ("profit_factor", "expectancy")
 
-ENTRY = {"band_period": 20, "entry_std": 2.0, "min_bars_outside": 1, "band_lag": 0}
+
+class Entry(TypedDict):
+    """The entry fields every geometry shares."""
+
+    band_period: int
+    entry_std: float
+    min_bars_outside: int
+    band_lag: int
+
+
+ENTRY: Entry = {"band_period": 20, "entry_std": 2.0, "min_bars_outside": 1, "band_lag": 0}
 """The middle of every entry axis, fixed so that only the geometry varies."""
 
 
@@ -46,57 +57,57 @@ BAND_STOP_DEPTHS = (0.5, 1.0, 1.5, 2.0)
 def geometries() -> list[tuple[str, str, ElasticBandParams]]:
     """Return ``(scheme, label, params)`` for every exit geometry to measure."""
     out: list[tuple[str, str, ElasticBandParams]] = []
-    for hold in (5, 10, 20, 40):
-        for level in (-0.5, 0.0, 0.5):
-            out.append(
-                (
-                    "C-time-mean",
-                    f"hold {hold}, target {level:+.1f}",
-                    ElasticBandParams(
-                        **ENTRY,
-                        stop_mode=STOP_CATASTROPHE,
-                        target_mode=TARGET_STRETCH,
-                        target_stretch_levels=(level,),
-                        max_hold_bars=hold,
-                        commission_per_contract=COMMISSION,
-                        slippage_ticks=SLIPPAGE,
-                    ),
-                ),
-            )
-    for stop in (1.0, 2.0, 3.0):
-        for take_profit in (0.5, 1.0, 2.0):
-            out.append(
-                (
-                    "B-atr",
-                    f"stop {stop}xATR, tp {take_profit}R",
-                    ElasticBandParams(
-                        **ENTRY,
-                        stop_mode=STOP_ATR,
-                        target_mode=TARGET_R,
-                        atr_stop_multiple=stop,
-                        tp_multiplier=take_profit,
-                        commission_per_contract=COMMISSION,
-                        slippage_ticks=SLIPPAGE,
-                    ),
-                ),
-            )
-    for depth in BAND_STOP_DEPTHS:
-        for level in (-0.5, 0.0, 0.5):
-            out.append(
-                (
-                    "D-band",
-                    f"stop {depth:+.1f}s, target {level:+.1f}",
-                    ElasticBandParams(
-                        **ENTRY,
-                        stop_mode=STOP_BAND,
-                        band_stop_std=depth,
-                        target_mode=TARGET_STRETCH,
-                        target_stretch_levels=(level,),
-                        commission_per_contract=COMMISSION,
-                        slippage_ticks=SLIPPAGE,
-                    ),
-                ),
-            )
+    out.extend(
+        (
+            "C-time-mean",
+            f"hold {hold}, target {level:+.1f}",
+            ElasticBandParams(
+                **ENTRY,
+                stop_mode=STOP_CATASTROPHE,
+                target_mode=TARGET_STRETCH,
+                target_stretch_levels=(level,),
+                max_hold_bars=hold,
+                commission_per_contract=COMMISSION,
+                slippage_ticks=SLIPPAGE,
+            ),
+        )
+        for hold in (5, 10, 20, 40)
+        for level in (-0.5, 0.0, 0.5)
+    )
+    out.extend(
+        (
+            "B-atr",
+            f"stop {stop}xATR, tp {take_profit}R",
+            ElasticBandParams(
+                **ENTRY,
+                stop_mode=STOP_ATR,
+                target_mode=TARGET_R,
+                atr_stop_multiple=stop,
+                tp_multiplier=take_profit,
+                commission_per_contract=COMMISSION,
+                slippage_ticks=SLIPPAGE,
+            ),
+        )
+        for stop in (1.0, 2.0, 3.0)
+        for take_profit in (0.5, 1.0, 2.0)
+    )
+    out.extend(
+        (
+            "D-band",
+            f"stop {depth:+.1f}s, target {level:+.1f}",
+            ElasticBandParams(
+                **ENTRY,
+                stop_mode=STOP_BAND,
+                band_stop_std=depth,
+                target_mode=TARGET_STRETCH,
+                target_stretch_levels=(level,),
+                commission_per_contract=COMMISSION,
+                slippage_ticks=SLIPPAGE,
+            ),
+        )
+        for depth in BAND_STOP_DEPTHS
+        for level in (-0.5, 0.0, 0.5)
+    )
 
     return out
 
@@ -148,6 +159,7 @@ def report(table: pd.DataFrame, statistic: str = "profit_factor") -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Measure every geometry, write the CSV and return the process exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("out", type=Path, help="where to write the per-geometry CSV")
     parser.add_argument("--contract", default=CONTRACT)
