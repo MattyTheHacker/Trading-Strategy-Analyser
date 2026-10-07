@@ -65,14 +65,14 @@ class Instrument:
     tick_size: float
     point_value: float
     """Dollars per 1.00 of price movement, per contract."""
-    mini_equivalent: float = 1.0
-    """How many full-size contracts one of these counts as, where a size limit counts a micro
-    against its full-size root."""
     contract_months: frozenset[int] = QUARTERLY_MONTHS
     """The months this root lists contracts in, as :data:`MONTH_CODES` keys."""
     exchange: str = "CME"
     currency: str = "USD"
     session_template: str = "CME US Index Futures ETH"
+    mini_equivalent: float = 1.0
+    """How many full-size contracts one of these counts as, where a size limit counts a micro
+    against its full-size root."""
 
     @property
     def tick_value(self) -> float:

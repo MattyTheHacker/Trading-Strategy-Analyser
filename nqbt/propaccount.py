@@ -391,6 +391,11 @@ class AccountRules:
             or (limits_the_day and self.daily_loss_basis is EquityBasis.UNREALISED)
         )
 
+    @property
+    def limits_size(self) -> bool:
+        """Whether a size limit or a scaling plan can reject a trade."""
+        return self.max_contracts > 0.0 or bool(self.scaling_plan)
+
 
 def _is_negative(value: object) -> bool:
     """Return whether a field holds a negative number, with bool excluded as it is not a quantity."""
@@ -525,7 +530,7 @@ def _apex(
     """Build Apex's evaluation and the Performance Account its pass opens, at one size and trail."""
     end_of_day: bool = basis is TrailBasis.END_OF_DAY
     name: str = f"Apex {size.balance / 1_000:.0f}K {'EOD' if end_of_day else 'Intraday'}"
-    trail = AccountRules(
+    trail: AccountRules = AccountRules(
         starting_balance=size.balance,
         profit_target=0.0,
         trailing_threshold=size.drawdown,
@@ -537,7 +542,7 @@ def _apex(
         on_daily_breach=DailyBreach.LOCKOUT,
         withdrawal_threshold=size.drawdown + APEX_LOCK_BUFFER,
     )
-    evaluation = PropAccount(
+    evaluation: PropAccount = PropAccount(
         name=f"{name} Evaluation",
         rules=dataclasses.replace(
             trail,
@@ -548,7 +553,7 @@ def _apex(
         ),
         fees=AccountFees(evaluation_fee=fee, activation_fee=activation),
     )
-    performance = PropAccount(
+    performance: PropAccount = PropAccount(
         name=f"{name} PA",
         rules=dataclasses.replace(
             trail,
@@ -615,7 +620,7 @@ def _topstep(
 ) -> LinkedAccount:
     """Build TopStep's Trading Combine and the Express Funded Account its pass opens, at one size."""
     size: str = f"TopStep {balance / 1_000:.0f}K"
-    combine = PropAccount(
+    combine: PropAccount = PropAccount(
         name=f"{size} Combine",
         rules=AccountRules(
             starting_balance=balance,
@@ -632,7 +637,7 @@ def _topstep(
         ),
         fees=AccountFees(monthly_fee=monthly_fee, activation_fee=149.0, monthly_fee_ends_at_pass=True),
     )
-    express = PropAccount(
+    express: PropAccount = PropAccount(
         name=f"{size} XFA",
         rules=AccountRules(
             starting_balance=balance,
@@ -736,7 +741,7 @@ def _lucid_evaluation(
 def _lucid_pair(evaluation: PropAccount, funded: AccountRules) -> LinkedAccount:
     """Link a Lucid evaluation to the funded account its pass opens."""
     size: str = evaluation.name.removesuffix(" Evaluation")
-    held = PropAccount(name=f"{size} Funded", rules=funded)
+    held: PropAccount = PropAccount(name=f"{size} Funded", rules=funded)
 
     return LinkedAccount(name=f"{size} Evaluation+Funded", evaluation=evaluation, funded=held)
 
@@ -1269,7 +1274,12 @@ def replay(
         msg: str = f"max_accounts must be at least 1; got {max_accounts}"
         raise PropAccountError(msg)
 
-    table: _TradeTable = _trade_table(log, needs_excursions=_reads_open_equity(account))
+    rule_sets: tuple[AccountRules, ...] = _rule_sets(account)
+    table: _TradeTable = _trade_table(
+        log,
+        needs_excursions=any(rules.needs_excursions for rules in rule_sets),
+        needs_contracts=any(rules.limits_size for rules in rule_sets),
+    )
     first_day: int = _first_day(table, start)
     funded: PropAccount | None = account.opened_by_pass if isinstance(account, LinkedAccount) else None
     runs: list[AccountRun] = []
@@ -1281,12 +1291,12 @@ def replay(
     return _lifetime(log, table, account, tuple(runs), taken, first_day)
 
 
-def _reads_open_equity(account: Account) -> bool:
-    """Return whether any rule set the account trades under is measured against open equity."""
+def _rule_sets(account: Account) -> tuple[AccountRules, ...]:
+    """Return every rule set the account trades under."""
     if isinstance(account, LinkedAccount):
-        return account.evaluation.rules.needs_excursions or account.funded.rules.needs_excursions
+        return (account.evaluation.rules, account.funded.rules)
 
-    return account.rules.needs_excursions
+    return (account.rules,)
 
 
 def _first_day(table: _TradeTable, start: dt.date | None) -> int:
@@ -1366,8 +1376,11 @@ def _legs_taken(log: pd.DataFrame, table: _TradeTable, positions: list[int]) -> 
     return log[log["trade_id"].isin(wanted)]
 
 
-def _trade_table(log: pd.DataFrame, *, needs_excursions: bool) -> _TradeTable:
-    """Collapse a leg-level log into the per-trade, per-day quantities the replay walks."""
+def _trade_table(log: pd.DataFrame, *, needs_excursions: bool, needs_contracts: bool) -> _TradeTable:
+    """Collapse a leg-level log into the per-trade, per-day quantities the replay walks.
+
+    Contracts are zero on every trade when no size limit reads them.
+    """
     _require_columns(log, needs_excursions=needs_excursions)
     if log.empty:
         empty_days: DateArray = np.empty(0, dtype="datetime64[D]")
@@ -1398,7 +1411,7 @@ def _trade_table(log: pd.DataFrame, *, needs_excursions: bool) -> _TradeTable:
         commission=per_trade["commission"].to_numpy(np.float64),
         adverse=excursions["adverse"].to_numpy(np.float64),
         favourable=excursions["favourable"].to_numpy(np.float64),
-        contracts=_contracts(log, per_trade.index),
+        contracts=_contracts(log, per_trade.index) if needs_contracts else np.zeros(len(per_trade)),
         days=trading_day[starts[:-1]],
         day_starts=starts,
     )
@@ -1722,6 +1735,9 @@ def _qualifying_days(rules: AccountRules, daily: list[float]) -> int:
 def _payout_size(rules: AccountRules, profit: float) -> float:
     """Return the largest payout ``profit`` above the starting balance allows."""
     size: float = min(profit - rules.withdrawal_threshold, profit * rules.payout_share)
+    if rules.floor_locks_at_payout:
+        size = min(size, profit - rules.trail_lock_buffer)
+
     if rules.payout_cap <= 0.0:
         return size
 

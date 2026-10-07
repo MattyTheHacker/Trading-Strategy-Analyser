@@ -1225,16 +1225,16 @@ Three consequences of the split worth stating, because each looks like a defect 
 
 [#440] added the rules the funded accounts of 2026 pay out under, and two that end an attempt without a breach. Every one is off at its default, so a rule set that sets none of them replays exactly as before.
 
-| field                                          | what it does                                                                                       |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `payout_days`, `payout_day_profit`             | a payout needs this many days since the last one, each making at least this much (`0.0`: any day)  |
-| `payout_consistency`                           | the best day since the last payout is at most this share of the profit since then                  |
-| `payout_profit_goal`                           | a payout needs this much profit since the last one; "positive" is written as `0.01`                |
-| `payout_share`, `payout_cap`, `payout_minimum` | a payout takes at most this share of the profit and this many dollars, and waits below the minimum |
-| `floor_locks_at_payout`                        | the first payout moves the floor straight to where `trail_lock` locks it                           |
-| `max_payouts`, `daily_profit_cap`              | the account moves to a live one after this many payouts, or on a day making this much              |
-| `max_contracts`, `scaling_plan`                | the largest position, and a limit that rises with the profit a session opens on                    |
-| `evaluation_days`                              | calendar days an account has from its opening day to pass                                          |
+| field                                          | what it does                                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `payout_days`, `payout_day_profit`             | a payout needs this many days since the last one, each making at least this much (`0.0`: any day)                         |
+| `payout_consistency`                           | the best day since the last payout is at most this share of the profit since then                                         |
+| `payout_profit_goal`                           | a payout needs this much profit since the last one; "positive" is written as `0.01`                                       |
+| `payout_share`, `payout_cap`, `payout_minimum` | a payout takes at most this share of the profit and this many dollars, and waits below the minimum                        |
+| `floor_locks_at_payout`                        | the first payout moves the floor straight to where `trail_lock` locks it, and no payout takes the balance below that lock |
+| `max_payouts`, `daily_profit_cap`              | the account moves to a live one after this many payouts, or on a day making this much                                     |
+| `max_contracts`, `scaling_plan`                | the largest position, and a limit that rises with the profit a session opens on                                           |
+| `evaluation_days`                              | calendar days an account has from its opening day to pass                                                                 |
 
 Each is applied where bar data and the firm's wording leave a choice, and the choice is the harsher reading unless it says otherwise:
 

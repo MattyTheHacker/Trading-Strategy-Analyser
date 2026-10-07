@@ -184,6 +184,15 @@ def test_a_funded_preset_is_funded_from_its_first_day() -> None:
     assert funded_lives(result, funded(), days_from(START, 30))[0] == (4, False)
 
 
+def test_an_account_that_moved_live_is_still_funded_at_the_end_of_the_window() -> None:
+    """Reaching the firm's payout limit is not a death, so it must not rank below never paying."""
+    account = funded(withdrawal_threshold=1_000.0, max_payouts=1)
+    result = replayed([1_500.0, 100.0], account)
+    assert result.runs[0].outcome is propaccount.Outcome.MOVED_LIVE
+
+    assert funded_lives(result, account, days_from(START, 30))[0] == (30, True)
+
+
 def test_an_attempt_that_never_passed_has_no_funded_life_at_all() -> None:
     result = replayed([100.0, -2_500.0, 100.0], evaluation())
     assert result.passes == 0

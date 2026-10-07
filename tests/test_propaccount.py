@@ -731,6 +731,15 @@ def test_the_lower_of_the_two_limits_binds() -> None:
     assert result.trades_rejected == 1
 
 
+def test_a_rule_set_with_no_size_limit_never_looks_the_contract_up() -> None:
+    """A closed-P&L replay reads no instrument figure, so an unregistered root still replays."""
+    log = leg_log([(0, 500.0, 1.0)], instrument="ZZZ")
+
+    assert propaccount.replay(log, account()).trades_taken == 1
+    with pytest.raises(KeyError, match="ZZZ"):
+        propaccount.replay(log, account(max_contracts=1.0))
+
+
 @pytest.mark.parametrize(
     "plan",
     [
@@ -869,6 +878,22 @@ def test_the_first_payout_moves_the_floor_straight_to_its_lock() -> None:
     assert locked.trailing_floor == pytest.approx(50_000.0)
     assert locked.outcome is Outcome.BREACHED_TRAILING
     assert kept.outcome is Outcome.SURVIVED
+
+
+def test_a_payout_that_locks_the_floor_never_leaves_the_balance_below_it() -> None:
+    """Without the lock's own buffer kept back, the payout would end 100 under its new floor."""
+    log = leg_log([(0, 1_000.0, 1.0), (1, 500.0, 1.0)])
+    rules = {
+        "withdrawal_threshold": 0.0,
+        "trail_lock": TrailLock.ABOVE_STARTING_BALANCE,
+        "trail_lock_buffer": 100.0,
+        "floor_locks_at_payout": True,
+    }
+    run = propaccount.replay(log, funded_account(**rules)).runs[0]
+
+    assert run.withdrawals[0].withdrawn == pytest.approx(900.0)
+    assert run.outcome is Outcome.SURVIVED
+    assert run.final_balance >= run.trailing_floor == pytest.approx(50_100.0)
 
 
 def test_the_last_payout_moves_the_account_live() -> None:

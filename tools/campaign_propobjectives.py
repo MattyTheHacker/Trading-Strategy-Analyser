@@ -77,6 +77,10 @@ MEASURES = (
 """What one configuration's replay through one rule set reports."""
 
 
+STILL_FUNDED = frozenset({propaccount.Outcome.SURVIVED, propaccount.Outcome.MOVED_LIVE})
+"""The outcomes a funded account is still alive at, so its life runs to the window's end."""
+
+
 def reads(account: propaccount.PropAccount, objective: Objective) -> bool:
     """Return whether a preset's replay answers an objective: a funded one only a funded account's.
 
@@ -96,12 +100,13 @@ def funded_lives(
     """Return each funded account's life in trading days, and whether the window ended it.
 
     A preset with no profit target is funded from its first day; any other is funded from the
-    day after its pass, and an attempt that never passed was never funded.
+    day after its pass, and an attempt that never passed was never funded. An account that moved
+    live is still funded when the window ends.
     """
     window_end: dt.date = pd.Timestamp(days[-1]).date()
     lives: list[tuple[int, bool]] = []
     for run in result.runs:
-        censored: bool = run.outcome is propaccount.Outcome.SURVIVED
+        censored: bool = run.outcome in STILL_FUNDED
         end: dt.date = window_end if censored else run.last_day
         if account.rules.profit_target <= 0.0:
             lives.append((sessions_between(days, run.first_day, end), censored))
