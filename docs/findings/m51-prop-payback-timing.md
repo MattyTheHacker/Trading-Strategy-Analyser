@@ -2,11 +2,11 @@
 id: M51
 title: "M51 — when the money comes back: the recommended cells and every default shortlist through every preset"
 archetypes: [DeadCatBounce, ElasticBand, EmaCrossover, EmaPullback, InsideBar, InsideBarTrailing, OpeningRange, PullBackAndGo, SqueezeBreakout]
-issues: [411]
+issues: [411, 440]
 gates: []
 outcome: mixed
 verdict: >-
-  The two recommended midday cells on MNQ pay back their fees on every Apex and TopStep preset with every configuration, InsideBarTrailing in a median 24 to 57 trading days and OpeningRange in 42 to 230, and TopStep 50K is the fastest preset for 39 of the 40. Through TakeProfitTrader's Test linked to the PRO its pass opens, both cells lose money at every size, so the Test-alone figures quoted before overstate that firm. The registry's default top-20 shortlists mostly never pay back: at most 22% on any one preset, at a median 341 of about 612 trading days, and 22 of the 85 configurations that pay back anywhere lose money held out.
+  Re-run through each firm's 2026 evaluation linked to its funded account (#440), InsideBarTrailing's midday cell still leads and TopStep 50K is still its account, at a median +$13,378 paid back on every configuration in 36 trading days, against OpeningRange's +$6,806 in 235; LucidFlex 50K comes second for both, Apex pays only on its 50K end-of-day account, and every 150K account is weak. On the presets before #440 the two cells paid back on every Apex and TopStep preset with every configuration, InsideBarTrailing in a median 24 to 57 trading days and OpeningRange in 42 to 230. Through TakeProfitTrader's Test linked to the PRO its pass opens, both cells lose money at every size, so the Test-alone figures quoted before overstate that firm. The registry's default top-20 shortlists mostly never pay back: at most 22% on any one preset, at a median 341 of about 612 trading days, and 22 of the 85 configurations that pay back anywhere lose money held out.
 ---
 
 # M51 — when the money comes back: the recommended cells and every default shortlist through every preset ([#411])
@@ -74,12 +74,41 @@ The default shortlist ranks a whole archetype by profit factor, so it does not h
 - **InsideBar on NQ is the one cell where every configuration pays back** on all four Apex and TopStep presets: 20 of 20, from 18 distinct logs, all at 10 minutes, `volume=THIN` and the bracket. It pays back late, though: a median of 200 trading days on TopStep 150K and 503 on Apex 50K. It was picked by looking at the results, so it is a candidate rather than a finding.
 - **Losing strategies pay back too.** 22 of the 85 configurations that pay back somewhere lose money held out, with a profit factor below 1. A blown account costs its fees and not its trading losses (`docs/findings/m28-13-account-read.md` § "The reset economics subsidise a losing strategy, so `net` is not a ranking"), so read every row beside its held-out profit factor.
 
+## Re-run through the 2026 presets ([#440])
+
+**What has changed:** the presets, and nothing else. [#440] replaced the single Apex and TopStep presets, which kept an account on its evaluation rules after its pass, with each firm's evaluation linked to the funded account its pass opens, on the terms read on 2026-10-06 and 2026-10-07, with their payout caps, qualifying days, consistency at payout, size limits and Apex's 30-day deadline. It added Lucid's three account types. `docs/roadmap.md` § "Payout rules, size limits and the evaluation's deadline" says how each is replayed. The cells, configurations, contract counts and holdout are the first read's: both re-ran with `--rerun --preset all`, and every TakeProfitTrader row, whose presets did not change, reproduces the first read to the cent. No trade was over any size limit.
+
+Medians over each cell's 20 configurations, as in the first table. "Net > 0" is the share of configurations still ahead at the end of the holdout.
+
+| preset                           | InsideBarTrailing pays back |  days | net          | net > 0 | OpeningRange pays back |  days | net         | net > 0 |
+| -------------------------------- | --------------------------: | ----: | ------------ | ------: | ---------------------: | ----: | ----------- | ------: |
+| Apex 50K EOD Evaluation+PA       |                        100% |   196 | +$5,976      |    100% |                   100% |   238 | +$2,111     |    100% |
+| Apex 50K Intraday Evaluation+PA  |                         65% |   210 | −$1,108      |     35% |                     0% | never | −$2,336     |      0% |
+| Apex 150K EOD Evaluation+PA      |                         25% | never | −$5,383      |     25% |                     0% | never | −$5,240     |      0% |
+| Apex 150K Intraday Evaluation+PA |                          5% | never | −$3,698      |      5% |                     0% | never | −$3,237     |      0% |
+| TopStep 50K Combine+XFA          |                        100% |    36 | **+$13,378** |    100% |                   100% |   235 | **+$6,806** |     85% |
+| TopStep 150K Combine+XFA         |                         75% |   498 | −$220        |     45% |                    80% |   247 | −$1,533     |      0% |
+| LucidPro 50K                     |                        100% |    40 | +$4,328      |     85% |                    85% |   307 | +$2,196     |     85% |
+| LucidPro 150K                    |                         85% |   496 | +$2,950      |     85% |                    60% |   546 | +$1,498     |     55% |
+| LucidFlex 50K                    |                        100% |    36 | +$8,956      |    100% |                    85% |   235 | +$6,580     |     80% |
+| LucidFlex 150K                   |                         95% |   481 | +$2,846      |     80% |                    85% |   245 | +$1,379     |     85% |
+| LucidDaily 50K                   |                        100% |    38 | +$3,259      |     65% |                    60% |   295 | −$2,205     |      0% |
+| LucidDaily 150K                  |                         50% | never | −$889        |     45% |                    50% | never | −$731       |     20% |
+
+The three TakeProfitTrader pairs are as the first table has them.
+
+- **The order holds and every figure shrinks.** InsideBarTrailing nets more than OpeningRange on nine of the twelve presets, and the three it does not are ones where both lose money; it pays back sooner on every 50K account; and TopStep 50K nets the most for both. Against the first read's +$19,155 in 24 days, this cell's TopStep 50K figure is about 70% as large and half again as slow; OpeningRange's is about half as large and more than five times as slow.
+- **LucidFlex 50K is the second account for both cells**, $226 behind TopStep 50K's median net on OpeningRange and $4,422 behind it on InsideBarTrailing. Every Lucid 50K account pays back on every one of InsideBarTrailing's configurations.
+- **Apex pays only on its 50K end-of-day account, and slowly**, a median 196 and 238 trading days before its payouts first exceed its fees. The intraday 50K account breaches a median 82 to 85 of the 87.5 to 88.5 evaluations bought, and **roughly half to two thirds of the 150K evaluations end at the 30-day deadline** rather than in a breach or a pass: by the medians, 28.5 to 37 bought, 9 to 19 breached and 0 to 2 passed.
+- **Every 150K account is weak.** None nets more than +$2,950 on either cell, and four of the six lose money on OpeningRange. Their targets, payout rules and size are large beside what six or four micro contracts make.
+- **The fastest preset to profit is not a profitable one.** It is TakeProfitTrader 25K for 16 of InsideBarTrailing's 20 configurations and LucidDaily 50K or TakeProfitTrader 50K for 10 of OpeningRange's, and each of those presets loses money at its median by the end of the holdout.
+
 ## What this settles
 
 - **For a prop account, both recommended cells pay back on Apex and TopStep**, InsideBarTrailing sooner, and TopStep 50K soonest. That agrees with the choice `docs/findings/README.md` already makes.
 - **Neither cell pays on TakeProfitTrader once its Test is linked to its PRO.** Every earlier Test-alone net overstates that firm, and `docs/findings/README.md` now says so where it quotes one.
 - **The registry's default shortlists mostly do not pay back their fees,** and when they do it takes more than half of a holdout of about two and a third years.
-- **Apex's and TopStep's funded accounts are not modelled.** Both keep their evaluation rules after the pass, which `docs/roadmap.md` § "Passing, withdrawing, and what a blown account is still worth" takes as accurate for both. The TakeProfitTrader result is a reason to re-check that against each firm's current funded-account terms, which [#440] does, adding Lucid as a third firm.
+- **Apex's and TopStep's funded accounts are now modelled, and they pay less than the first read said.** The re-run above keeps InsideBarTrailing ahead and TopStep 50K as its account, at about 70% of the net and half again the time, and leaves Apex worth trading only on its 50K end-of-day account.
 
 [#411]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/411
 [#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440

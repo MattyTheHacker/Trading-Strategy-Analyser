@@ -732,7 +732,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M51 — when the money comes back: the recommended cells and every default shortlist through every preset ([#411])
 
-**Both recommended midday cells pay back their fees on every Apex and TopStep preset with every configuration, InsideBarTrailing sooner and TopStep 50K soonest; linked to its PRO, TakeProfitTrader loses money on both, so every Test-alone figure before it overstated that firm; and the registry's default shortlists mostly never pay back, at most 22% on any one preset.** Moved to [`docs/findings/m51-prop-payback-timing.md`](findings/m51-prop-payback-timing.md).
+**Both recommended midday cells paid back their fees on every Apex and TopStep preset before [#440]; re-run through each firm's 2026 evaluation linked to its funded account, InsideBarTrailing still leads and TopStep 50K is still its account at about 70% of the net, LucidFlex 50K is second for both, and Apex pays only on its 50K end-of-day account. Linked to its PRO, TakeProfitTrader loses money on both, so every Test-alone figure before it overstated that firm; and the registry's default shortlists mostly never pay back, at most 22% on any one preset.** Moved to [`docs/findings/m51-prop-payback-timing.md`](findings/m51-prop-payback-timing.md).
 
 ### Do the shortlists travel? ([#330])
 
