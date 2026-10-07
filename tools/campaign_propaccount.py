@@ -705,7 +705,10 @@ def main(argv: list[str]) -> int:
         "net is payout minus fees and is not a ranking; read it beside %s and the pass rate",
         NET_TO_DRAWDOWN,
     )
-    logger.info("days to profit is a best case: every payout is taken in full on the first day it is allowed")
+    logger.info(
+        "days to profit is a best case: every payout is taken at the close of the first day the "
+        "firm's payout rules allow it, at the largest size they allow"
+    )
     if args.out is not None:
         write(args.out, table)
 
