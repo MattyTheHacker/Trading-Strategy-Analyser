@@ -547,6 +547,8 @@ def _apex(
         rules=dataclasses.replace(
             trail,
             profit_target=size.target,
+            trail_lock=TrailLock.NEVER,
+            trail_lock_buffer=0.0,
             daily_loss_limit=size.evaluation_daily_loss if end_of_day else 0.0,
             max_contracts=size.evaluation_contracts,
             evaluation_days=30,

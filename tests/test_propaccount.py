@@ -1118,6 +1118,11 @@ def test_apex_gives_its_evaluation_thirty_days_and_its_pa_six_payouts(pair: Link
     evaluation, performance = pair.evaluation.rules, pair.funded.rules
 
     assert evaluation.evaluation_days == 30
+    assert evaluation.trail_lock is TrailLock.NEVER, "Tradovate's evaluation floor never stops trailing"
+    assert (performance.trail_lock, performance.trail_lock_buffer) == (
+        TrailLock.ABOVE_STARTING_BALANCE,
+        propaccount.APEX_LOCK_BUFFER,
+    )
     assert (evaluation.consistency_ratio, evaluation.minimum_trading_days) == (0.0, 0)
     assert (performance.payout_consistency, performance.max_payouts) == (0.50, 6)
     assert performance.withdrawal_threshold == performance.trailing_threshold + propaccount.APEX_LOCK_BUFFER
