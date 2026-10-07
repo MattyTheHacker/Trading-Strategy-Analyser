@@ -188,8 +188,8 @@ class Outcome(StrEnum):
     """The evaluation did not pass within the calendar days its firm allows."""
 
     MOVED_LIVE = "moved-live"
-    """The account reached its firm's limit on payouts or on one day's profit, and moved to a live
-    account the replay does not follow."""
+    """The account reached its firm's limit on payouts or on one day's profit, and the firm closed
+    it or moved it to a live account the replay does not follow."""
 
 
 _BREACHES = frozenset({Outcome.BREACHED_TRAILING, Outcome.BREACHED_DAILY_LOSS})

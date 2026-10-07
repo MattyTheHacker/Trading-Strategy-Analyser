@@ -1125,6 +1125,23 @@ def test_apex_gives_its_evaluation_thirty_days_and_its_pa_six_payouts(pair: Link
     assert performance.on_daily_breach is DailyBreach.LOCKOUT
 
 
+@pytest.mark.parametrize(
+    ("pair", "day_profit", "first_cap"),
+    [(propaccount.APEX_50K_EOD, 250.0, 1_500.0), (propaccount.APEX_150K_EOD, 350.0, 2_500.0)],
+    ids=lambda value: getattr(value, "name", value),
+)
+def test_apex_s_end_of_day_pa_carries_its_payout_table(
+    pair: LinkedAccount, day_profit: float, first_cap: float
+) -> None:
+    """Apex's own payout page: five days at the minimum, the drawdown plus 100 kept, 500 at least."""
+    rules = pair.funded.rules
+
+    assert (rules.payout_days, rules.payout_day_profit) == (5, day_profit)
+    assert rules.payout_cap == first_cap
+    assert rules.payout_minimum == 500.0
+    assert rules.withdrawal_threshold == rules.trailing_threshold + 100.0
+
+
 def test_only_apex_s_end_of_day_evaluation_has_a_daily_loss_limit() -> None:
     assert propaccount.APEX_50K_EOD.evaluation.rules.daily_loss_limit == 1_000.0
     assert propaccount.APEX_50K_INTRADAY.evaluation.rules.daily_loss_limit == 0.0
