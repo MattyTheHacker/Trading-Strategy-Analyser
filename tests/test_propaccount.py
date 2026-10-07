@@ -1147,6 +1147,27 @@ def test_an_apex_pa_carries_its_payout_table(
     assert rules.withdrawal_threshold == rules.trailing_threshold + 100.0
 
 
+@pytest.mark.parametrize(
+    ("pair", "tiers", "daily_loss"),
+    [
+        (propaccount.APEX_50K_EOD, [(0.0, 2.0), (1_500.0, 3.0), (3_000.0, 4.0)], 1_000.0),
+        (
+            propaccount.APEX_150K_INTRADAY,
+            [(0.0, 4.0), (2_000.0, 5.0), (3_000.0, 7.0), (5_000.0, 10.0)],
+            2_500.0,
+        ),
+    ],
+    ids=lambda value: getattr(value, "name", value),
+)
+def test_an_apex_pa_carries_its_scaling_levels_and_the_lowest_tier_s_daily_loss_limit(
+    pair: LinkedAccount, tiers: list[tuple[float, float]], daily_loss: float
+) -> None:
+    rules = pair.funded.rules
+
+    assert [(tier.from_profit, tier.contracts) for tier in rules.scaling_plan] == tiers
+    assert rules.daily_loss_limit == daily_loss
+
+
 def test_only_apex_s_end_of_day_evaluation_has_a_daily_loss_limit() -> None:
     assert propaccount.APEX_50K_EOD.evaluation.rules.daily_loss_limit == 1_000.0
     assert propaccount.APEX_50K_INTRADAY.evaluation.rules.daily_loss_limit == 0.0
