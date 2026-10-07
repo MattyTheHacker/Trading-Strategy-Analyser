@@ -1071,6 +1071,37 @@ Scored over those 92 calls:
 
 8M is the lowest-loss value on this grid, and the four campaign grids cross between 4M and 20M. **The many-cell sizing point is the exception, and no single line fits it.** Its combinations are cheap in-process, 2.6 ms each at five minutes against 7.5 to 30 ms on the campaign grids, and the pool's own cost on it is higher, 1.1 s at 32 tasks against 0.4 to 0.8 s, so it crosses only near 127M. Every call measured here took under 8 s, and a campaign point is usually thousands of combinations, far above either line, so the threshold now decides seconds on a small run.
 
+### Windows against Linux
+
+**On the same laptop, Linux sweeps about 1.5× faster than Windows at two workers and 1.7× at twelve, and returns identical rows.** Measured on 2026-10-07 on a dual-boot Ryzen 7 7840HS (8 cores, 16 threads), by re-running InsideBar passes the Windows side had already stored and comparing the rows and each sweep's `elapsed_s`. Linux was Ubuntu 26.04 on the `performance` power profile, mains-powered, Python 3.14.4.
+
+**Each comparison holds the code and the simulation's dependencies fixed, because a stored row can be older than either.** Re-running at the current `main` against rows stored before [#410] measures #410 as much as the operating system: both of the twelve-worker passes Windows stored predate it. The twelve-worker figure below therefore comes from a worktree at the commit that merged that campaign, [#395], in an environment built from that commit's own pins (numba 0.67.0, joblib 1.5.3, numpy 2.5.2, pandas 3.0.5). The two-worker passes were stored after #410 and at the current pins, so they ran on the current `main`.
+
+| pass                   | workers | bar size | Windows | Linux | speed-up |
+| ---------------------- | ------- | -------- | ------- | ----- | -------- |
+| §M50 `early-exit-2`    | 2       | 15m      | 303 s   | 200 s | 1.52×    |
+| same, re-run           | 2       | 15m      | 303 s   | 210 s | 1.44×    |
+| §M50 `early-exit-2`    | 2       | 10m      | 500 s   | 319 s | 1.57×    |
+| §M48 `early-exit`      | 12      | 2m       | 352 s   | 244 s | 1.44×    |
+|                        |         | 5m       | 186 s   | 94 s  | 1.98×    |
+|                        |         | 10m      | 144 s   | 71 s  | 2.02×    |
+|                        |         | 15m      | 109 s   | 52 s  | 2.09×    |
+| §M48 `early-exit`, all | 12      |          | 790 s   | 461 s | 1.71×    |
+
+Each row is the sum over both roots and both split windows. Every one of the 28 sweeps behind it was faster on Linux, by 1.3× to 2.3×.
+
+**The rows are identical.** Every row each pass produced has an exact twin among the stored ones, in both directions, over every column the stored rows filled: 67,392 rows per `early-exit-2` pass and 186,624 for `early-exit`, whose `tier2` stamp matches too because the old commit predates [#399]. Re-run at the current `main`, the same `early-exit` rows match on every statistic and differ only in that stamp and in the columns [#430] added, which the stored rows hold as null.
+
+**The gap is smallest where a call does the most work.** At 2-minute bars it is 1.44×, and from 5 minutes up it is about 2×. That is the shape of a fixed cost per worker pool which Windows pays more of than Linux, since a coarser bar shrinks the simulation and not the pool, but nothing here separates the parts of that cost.
+
+**Three things this does not settle:**
+
+- **The Windows power mode is unrecorded.** Under "Balanced" the Windows times would be longer than that machine's best by an amount this cannot estimate, so the speed-ups are an upper bound until a run under "Best performance" says otherwise.
+- **Windows has one run per pass.** The two Linux runs of the same pass differ by 5%.
+- **§M47.1's 5-minute `confluence-sizing` pass is not an operating-system figure.** It re-runs in 446 s against the stored 1,315 s, but the stored run predates #410, which measured 7× on a many-cell point, and its worker count is not recorded.
+
+**The current `main` against that old commit, both on Linux and on the same `early-exit` pass**, is 464 s against 461 s overall, but takes 30–36% less time at 10 and 15 minutes and 16% more at 2 minutes. One run each, and whether the 2-minute cost is the code ([#406], [#430]) or the dependency bumps is not separated.
+
 ### M20b — typing and tooling ([#53])
 
 **Done.** `ruff` and `mypy` both report zero on `nqbt/` and both gate CI; `CONTRIBUTING.md` §"Linting and typing" is the rule and the workflow is the live check. What is recorded here is the reasoning that outlives the counts.
@@ -1468,12 +1499,17 @@ ______________________________________________________________________
 [#39]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/39
 [#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
 [#394]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/394
+[#395]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/395
+[#399]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/399
 [#40]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/40
+[#406]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/406
 [#407]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/407
 [#41]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/41
+[#410]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/410
 [#411]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/411
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#43]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/43
+[#430]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/430
 [#44]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/44
 [#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
 [#45]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/45
