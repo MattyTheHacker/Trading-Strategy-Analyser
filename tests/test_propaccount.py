@@ -1127,10 +1127,15 @@ def test_apex_gives_its_evaluation_thirty_days_and_its_pa_six_payouts(pair: Link
 
 @pytest.mark.parametrize(
     ("pair", "day_profit", "first_cap"),
-    [(propaccount.APEX_50K_EOD, 250.0, 1_500.0), (propaccount.APEX_150K_EOD, 350.0, 2_500.0)],
+    [
+        (propaccount.APEX_50K_EOD, 250.0, 1_500.0),
+        (propaccount.APEX_150K_EOD, 350.0, 2_500.0),
+        (propaccount.APEX_50K_INTRADAY, 200.0, 1_500.0),
+        (propaccount.APEX_150K_INTRADAY, 300.0, 2_500.0),
+    ],
     ids=lambda value: getattr(value, "name", value),
 )
-def test_apex_s_end_of_day_pa_carries_its_payout_table(
+def test_an_apex_pa_carries_its_payout_table(
     pair: LinkedAccount, day_profit: float, first_cap: float
 ) -> None:
     """Apex's own payout page: five days at the minimum, the drawdown plus 100 kept, 500 at least."""
