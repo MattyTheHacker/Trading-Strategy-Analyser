@@ -1122,7 +1122,9 @@ def test_apex_gives_its_evaluation_thirty_days_and_its_pa_six_payouts(pair: Link
     assert (performance.payout_consistency, performance.max_payouts) == (0.50, 6)
     assert performance.withdrawal_threshold == performance.trailing_threshold + propaccount.APEX_LOCK_BUFFER
     assert performance.profit_split == 1.0
-    assert performance.on_daily_breach is DailyBreach.LOCKOUT
+    for rules in (evaluation, performance):
+        assert rules.on_daily_breach is DailyBreach.LOCKOUT, "a daily loss pauses the day and no more"
+        assert rules.daily_loss_basis is EquityBasis.UNREALISED
 
 
 @pytest.mark.parametrize(
