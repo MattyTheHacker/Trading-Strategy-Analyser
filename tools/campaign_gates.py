@@ -403,8 +403,8 @@ def nulled(task: Task, run: Rerun) -> dict[str, object]:
 
 
 def replayed(task: Task, logs: dict[str, dict[tuple[int, int], pd.DataFrame]]) -> pd.DataFrame:
-    """Replay each prop stratum's held-out shortlist through ``campaign_propaccount.py``'s four presets."""
-    accounts: list[propaccount.PropAccount] = [propaccount.preset(name) for name in DEFAULT_PRESETS]
+    """Replay each prop stratum's held-out shortlist through ``campaign_propaccount.py``'s four pairs."""
+    accounts: list[propaccount.Account] = [propaccount.account_named(name) for name in DEFAULT_PRESETS]
 
     return pd.concat(
         [

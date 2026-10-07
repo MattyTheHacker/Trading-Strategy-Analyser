@@ -617,7 +617,7 @@ def test_the_bootstrap_exclusion_and_prop_replay_read_the_same_logs_their_tools_
     pd.testing.assert_frame_equal(
         tables["bootstrap"], pd.concat([spread for _, spread in resampled], ignore_index=True)
     )
-    accounts = [propaccount.preset(name) for name in DEFAULT_PRESETS]
+    accounts = [propaccount.account_named(name) for name in DEFAULT_PRESETS]
     pd.testing.assert_frame_equal(tables["prop"], replay_shortlist(rows, logs, accounts, None))
     assert "null" not in tables
 

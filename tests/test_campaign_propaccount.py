@@ -116,7 +116,7 @@ def leg_log(daily: list[float], *, legs: int = LEGS, excursions: bool = True) ->
 
 
 def trade_log(n: int = 40, *, legs: int = LEGS, excursions: bool = True) -> pd.DataFrame:
-    """Build a log of ``n`` mildly profitable days, which one Apex 50K survives."""
+    """Build a log of ``n`` mildly profitable days, which one Apex 50K intraday evaluation survives."""
     rng = np.random.default_rng(11)
 
     return leg_log(list(rng.normal(240.0, 900.0, n)), legs=legs, excursions=excursions)
@@ -125,8 +125,8 @@ def trade_log(n: int = 40, *, legs: int = LEGS, excursions: bool = True) -> pd.D
 CYCLE = [700.0] * 8 + [-6_000.0]
 """One account's life: eight days that fund it, then one that breaches the floor.
 
-Eight at 700 clears Apex 50K's 3,000 target and its seven-day minimum, and the best day is
-12.5% of the profit, so the 30% consistency rule is met too.
+Eight at 700 clears the Apex 50K intraday evaluation's 3,000 target well inside its 30 days,
+and leaves it withdrawing above its safety net until the ninth day breaches it.
 """
 
 
@@ -145,7 +145,7 @@ def stocked(tmp_path: Path) -> Path:
 
 
 def apex() -> propaccount.PropAccount:
-    return propaccount.preset("Apex 50K")
+    return propaccount.preset("Apex 50K Intraday Evaluation")
 
 
 CALENDAR = np.arange("2024-08-01", "2026-01-01", dtype="datetime64[D]")
@@ -308,7 +308,7 @@ def test_a_row_with_no_stored_log_is_skipped_rather_than_replayed(stocked: Path)
 
 def test_every_configuration_meets_every_rule_set(stocked: Path) -> None:
     rows = pd.DataFrame([stored_row(), stored_row(combo_id=COMBO_ID)])
-    accounts = [apex(), propaccount.preset("TopStep 150K")]
+    accounts = [apex(), propaccount.preset("TopStep 150K Combine")]
     table = replay_shortlist(rows, stored_logs(rows, stocked), accounts, 5)
     assert len(table) == len(rows) * len(accounts)
 
@@ -341,7 +341,9 @@ def test_a_preset_already_in_that_order_is_handed_back_unchanged() -> None:
     The override is a no-op there and must not quietly become a different object a later
     identity check would miss.
     """
-    assert rules_with(apex(), propaccount.ExcursionOrder.PEAK_FIRST) is propaccount.APEX_50K
+    assert (
+        rules_with(apex(), propaccount.ExcursionOrder.PEAK_FIRST) is propaccount.APEX_50K_INTRADAY.evaluation
+    )
 
 
 # -- the verdict across a shortlist ----------------------------------------------------------
@@ -351,7 +353,7 @@ def test_the_verdict_reports_a_share_for_a_question_that_is_yes_or_no() -> None:
     """A median of a boolean says nothing; "did it ever pass" is a share of configurations."""
     table = pd.DataFrame(
         {
-            "account_name": ["Apex 50K"] * 4,
+            "account_name": ["Apex 50K Intraday Evaluation"] * 4,
             "attempts": [10, 20, 30, 40],
             "passes": [0, 1, 2, 3],
             "withdrawn": [0.0, 100.0, 200.0, 300.0],
@@ -380,7 +382,13 @@ def test_an_empty_table_has_no_verdict_rather_than_a_row_of_nothing() -> None:
 def run_main(monkeypatch: pytest.MonkeyPatch, rows: pd.DataFrame, db: Path, *extra: str) -> int:
     monkeypatch.setattr(campaign_propaccount, "held_out", lambda *_, **__: rows)
     monkeypatch.setattr(campaign_propaccount, "db_path", lambda _: db)
-    argv = ["campaign_propaccount.py", "--strategy", "OpeningRange", "--preset", "Apex 50K"]
+    argv = [
+        "campaign_propaccount.py",
+        "--strategy",
+        "OpeningRange",
+        "--preset",
+        "Apex 50K Intraday Evaluation",
+    ]
 
     return main([*argv, *extra])
 
@@ -439,7 +447,13 @@ def test_the_shortlist_is_the_held_out_pair_and_never_the_window_that_chose_it(
 
     monkeypatch.setattr(campaign_propaccount, "held_out", fake_held_out)
     monkeypatch.setattr(campaign_propaccount, "db_path", lambda _: stocked)
-    argv = ["campaign_propaccount.py", "--strategy", "OpeningRange", "--preset", "Apex 50K"]
+    argv = [
+        "campaign_propaccount.py",
+        "--strategy",
+        "OpeningRange",
+        "--preset",
+        "Apex 50K Intraday Evaluation",
+    ]
     assert main([*argv, "--stratum", "phase=MIDDAY", "--resolution", "5"]) == 0
     assert called == [("OpeningRange", "MNQ", "profit_factor", 20, "phase=MIDDAY", 5, None)]
 
@@ -537,7 +551,7 @@ def test_every_rung_is_re_run_and_tagged_with_its_size(monkeypatch: pytest.Monke
     assert list(table[QUANTITY]) == [3, 8]
     by_size = verdict(table).set_index(QUANTITY)
     assert list(by_size.index) == [3, 8]
-    assert set(by_size["account_name"]) == {"Apex 50K"}
+    assert set(by_size["account_name"]) == {"Apex 50K Intraday Evaluation"}
 
 
 def test_no_rung_that_any_row_can_take_is_an_empty_table(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -560,18 +574,22 @@ def test_quantities_re_run_rather_than_reading_the_stored_log(
 # -- every preset, and TakeProfitTrader's linked pairs ------------------------------------------
 
 
-def test_all_means_apex_topstep_and_the_three_linked_pairs() -> None:
-    assert [account.name for account in chosen([ALL])] == [
-        *DEFAULT_PRESETS,
-        "TakeProfitTrader 25K Test+PRO",
-        "TakeProfitTrader 50K Test+PRO",
-        "TakeProfitTrader 150K Test+PRO",
-    ]
+def test_all_means_every_linked_pair() -> None:
+    assert [account.name for account in chosen([ALL])] == list(propaccount.LINKED_PRESETS)
+    assert set(DEFAULT_PRESETS) <= set(EVERY_PRESET)
 
 
-def test_the_default_is_still_the_four_presets_the_gates_read() -> None:
+def test_the_default_is_the_four_linked_pairs_the_gates_read() -> None:
     """``campaign_gates.py``'s prop read imports it, so widening it would widen that read too."""
-    assert DEFAULT_PRESETS == ("Apex 50K", "Apex 150K", "TopStep 50K", "TopStep 150K")
+    assert DEFAULT_PRESETS == (
+        "Apex 50K Intraday Evaluation+PA",
+        "Apex 150K Intraday Evaluation+PA",
+        "TopStep 50K Combine+XFA",
+        "TopStep 150K Combine+XFA",
+    )
+    assert all(
+        isinstance(propaccount.account_named(name), propaccount.LinkedAccount) for name in DEFAULT_PRESETS
+    )
 
 
 def test_a_separate_takeprofittrader_preset_can_still_be_named() -> None:
@@ -582,7 +600,9 @@ def test_a_separate_takeprofittrader_preset_can_still_be_named() -> None:
 
 
 def test_a_preset_named_beside_all_is_replayed_once() -> None:
-    assert len(chosen(["all", "Apex 50K", "apex 50k"])) == len(EVERY_PRESET)
+    assert len(chosen(["all", "Apex 50K EOD Evaluation+PA", "apex 50k eod evaluation+pa"])) == len(
+        EVERY_PRESET
+    )
 
 
 def test_the_excursion_order_reaches_both_accounts_of_a_linked_pair() -> None:
@@ -592,7 +612,7 @@ def test_the_excursion_order_reaches_both_accounts_of_a_linked_pair() -> None:
     assert swapped.evaluation.rules.excursion_order is propaccount.ExcursionOrder.TROUGH_FIRST
     assert swapped.funded.rules.excursion_order is propaccount.ExcursionOrder.TROUGH_FIRST
     assert in_order(propaccount.TPT_50K, propaccount.ExcursionOrder.PEAK_FIRST) is propaccount.TPT_50K
-    assert in_order(apex(), propaccount.ExcursionOrder.PEAK_FIRST) is propaccount.APEX_50K
+    assert in_order(apex(), propaccount.ExcursionOrder.PEAK_FIRST) is propaccount.APEX_50K_INTRADAY.evaluation
 
 
 # -- the months the monthly figures read ------------------------------------------------------

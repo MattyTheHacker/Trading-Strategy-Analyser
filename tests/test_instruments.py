@@ -170,6 +170,13 @@ def test_a_micro_cannot_be_derived_from_its_full_size_root() -> None:
         assert full.point_value / micro.point_value == pytest.approx(10.0)
 
 
+def test_a_micro_counts_against_a_size_limit_as_its_share_of_its_full_size_root() -> None:
+    """Silver is a fifth and the rest a tenth, so the share has to follow the point value."""
+    for full, micro in [(NQ, MNQ), (ES, MES), (GC, MGC), (SI, SIL), (CL, MCL)]:
+        assert full.mini_equivalent == 1.0
+        assert micro.mini_equivalent == pytest.approx(micro.point_value / full.point_value)
+
+
 def test_a_root_may_carry_a_digit_and_the_registry_still_decides() -> None:
     """A root carrying digits, such as M2K, parses."""
     with pytest.raises(ValueError, match="unknown root 'M2K'"):

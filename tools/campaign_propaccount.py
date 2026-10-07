@@ -53,18 +53,24 @@ REPORTED = (
     "fees_paid",
     "net",
     "trades_taken",
+    "trades_rejected",
     "trades_total",
 )
 """Which of :class:`~nqbt.propaccount.PropReplay`'s lifetime figures reach a row."""
 
-DEFAULT_PRESETS = ("Apex 50K", "Apex 150K", "TopStep 50K", "TopStep 150K")
-"""Which rule sets a run reports unless ``--preset`` says otherwise: the four §M28.13 read."""
+DEFAULT_PRESETS = (
+    "Apex 50K Intraday Evaluation+PA",
+    "Apex 150K Intraday Evaluation+PA",
+    "TopStep 50K Combine+XFA",
+    "TopStep 150K Combine+XFA",
+)
+"""Which rule sets a run reports unless ``--preset`` says otherwise: the firms and sizes §M28.13 read."""
 
 ALL = "all"
 """The ``--preset`` value standing for :data:`EVERY_PRESET`."""
 
-EVERY_PRESET = (*DEFAULT_PRESETS, *propaccount.LINKED_PRESETS)
-"""What ``--preset all`` replays: Apex and TopStep, and TakeProfitTrader's three linked pairs."""
+EVERY_PRESET = tuple(propaccount.LINKED_PRESETS)
+"""What ``--preset all`` replays: every firm's evaluation linked to its funded account."""
 
 LAST_MONTHS = 12
 """How many of the holdout's last whole months the monthly figures read by default."""
@@ -699,7 +705,10 @@ def main(argv: list[str]) -> int:
         "net is payout minus fees and is not a ranking; read it beside %s and the pass rate",
         NET_TO_DRAWDOWN,
     )
-    logger.info("days to profit is a best case: every payout is taken in full on the first day it is allowed")
+    logger.info(
+        "days to profit is a best case: every payout is taken at the close of the first day the "
+        "firm's payout rules allow it, at the largest size they allow"
+    )
     if args.out is not None:
         write(args.out, table)
 

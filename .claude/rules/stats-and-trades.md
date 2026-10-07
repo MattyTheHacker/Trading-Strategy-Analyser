@@ -75,14 +75,19 @@ paths:
   equity **refuses** a log whose excursion columns are null rather than reading "unknown" as
   "none", which would report a pass the account never had.
 - **A firm that changes its rules when the account passes ships as two presets.** One
-  `AccountRules` holds one rule set, and TakeProfitTrader trails end-of-day during its
-  evaluation and intraday once funded. `TPT_50K_TEST` and `TPT_50K_PRO` are separate accounts
-  rather than a phase-aware rule set, because the alternative is a second conditional
-  definition of the floor inside the module whose premise is that there is one. `TPT_50K`
-  chains them as a `LinkedAccount` — the Test closes at its pass and pays nothing, the PRO
-  opens the next trading day, the $130 hand-over is charged once — and each account still
-  has one rule set. A linked pair's `attempts` and `passes` count Tests only.
+  `AccountRules` holds one rule set, and every firm here runs its funded account under rules
+  its evaluation does not have. `TPT_50K_TEST` and `TPT_50K_PRO` are separate accounts rather
+  than a phase-aware rule set, because the alternative is a second conditional definition of
+  the floor inside the module whose premise is that there is one. A `LinkedAccount` chains
+  them — the evaluation closes at its pass and pays nothing, the funded account opens the
+  next trading day, the hand-over fee is charged once — and each account still has one rule
+  set. A linked pair's `attempts` and `passes` count evaluations only.
   `docs/roadmap.md` § "A firm that changes its rules at the pass ships as two presets".
+- **Payout rules, size limits and the evaluation's deadline are accounting, and every one is
+  off at its default.** A trade over a size limit is rejected whole, never resized; moving
+  live and expiring end an attempt without counting as a breach. Where the firm's wording or
+  bar data leaves a choice, the harsher reading is taken unless the roadmap names the
+  exception — `docs/roadmap.md` § "Payout rules, size limits and the evaluation's deadline".
 - **`withdrawn` is what left the account and `payout` is what reached the trader.** The firm's
   `profit_split` separates them, and `net` is the payout minus the fees. They must stay apart:
   the reported `consistency` is a share of what *the account* made, so crediting the trader's
