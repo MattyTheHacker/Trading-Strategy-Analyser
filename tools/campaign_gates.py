@@ -46,7 +46,7 @@ from tools.campaign_null import stored_rows
 from tools.campaign_propaccount import DEFAULT_PRESETS, replay_shortlist
 from tools.campaign_report import UNFILTERED, load, log_key, profile, rank
 from tools.campaign_shortlist import TOP, prepared, run_logged
-from tools.campaign_sizing import DRAWS, null_row, shuffled_null
+from tools.campaign_sizing import DRAWS, null_row, prop_draws, shuffled_null
 from tools.campaign_sweep import ROOTS, VARIANT_SETS, Variant, variants_for
 from tools.campaign_swept import (
     CELL_KEYS,
@@ -64,10 +64,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-READS = ("gates", "paired", "null", "gate4", "prop")
+PROP_NULL = "prop-null"
+"""The read replaying a sizing configuration's every shuffle through the accounts."""
+
+READS = ("gates", "paired", "null", "gate4", "prop", PROP_NULL)
 """What a run can be asked for. ``gates`` and ``paired`` read stored rows; the rest re-run."""
 
-RERUN_READS = frozenset({"null", "gate4", "prop"})
+DEFAULT_READS = tuple(read for read in READS if read != PROP_NULL)
+"""What a run reads unless ``--reads`` names others: every read but :data:`PROP_NULL`, the costliest."""
+
+RERUN_READS = frozenset({"null", "gate4", "prop", PROP_NULL})
 """The reads that need a shortlist's logs, and so a re-run."""
 
 RERUN = "rerun"
@@ -81,6 +87,7 @@ TABLES: dict[str, str] = {
     "exclusion": "gate4",
     "walkforward": "gate4",
     "prop": "prop",
+    "prop_null": PROP_NULL,
 }
 """Every table a task writes, and the read whose strata it holds rows for."""
 
@@ -336,7 +343,7 @@ def reruns(task: Task) -> Iterator[Rerun]:
 def run_task(task: Task) -> dict[str, pd.DataFrame]:
     """Run every re-running read one task asks for, as tables keyed by name."""
     measured: dict[str, list[dict[str, object]]] = {table: [] for table in TABLES}
-    spreads: list[pd.DataFrame] = []
+    frames: dict[str, list[pd.DataFrame]] = {"bootstrap": [], "prop_null": []}
     logs: dict[str, dict[tuple[int, int], pd.DataFrame]] = {}
     for run in reruns(task):
         row = task.held.iloc[run.position]
@@ -362,17 +369,18 @@ def run_task(task: Task) -> dict[str, pd.DataFrame]:
             )
             if resampled is not None:
                 measured["permutation"].append(resampled[0])
-                spreads.append(resampled[1])
+                frames["bootstrap"].append(resampled[1])
 
             measured["exclusion"].append(measure_row(row, run.log, stats.SESSION_CLOSE, require_stored=False))
 
         if task.reads("prop", stratum):
             logs.setdefault(stratum, {})[log_key(row)] = run.log
 
-    tables: dict[str, pd.DataFrame] = {name: pd.DataFrame(rows) for name, rows in measured.items() if rows}
-    if spreads:
-        tables["bootstrap"] = pd.concat(spreads, ignore_index=True)
+        if task.reads(PROP_NULL, stratum):
+            frames["prop_null"].append(prop_nulled(task, run))
 
+    tables: dict[str, pd.DataFrame] = {name: pd.DataFrame(rows) for name, rows in measured.items() if rows}
+    tables |= {name: pd.concat(parts, ignore_index=True) for name, parts in frames.items() if parts}
     if logs:
         tables["prop"] = replayed(task, logs)
 
@@ -402,9 +410,14 @@ def nulled(task: Task, run: Rerun) -> dict[str, object]:
     }
 
 
+def default_accounts() -> list[propaccount.Account]:
+    """Return ``campaign_propaccount.py``'s four default linked pairs."""
+    return [propaccount.account_named(name) for name in DEFAULT_PRESETS]
+
+
 def replayed(task: Task, logs: dict[str, dict[tuple[int, int], pd.DataFrame]]) -> pd.DataFrame:
     """Replay each prop stratum's held-out shortlist through ``campaign_propaccount.py``'s four pairs."""
-    accounts: list[propaccount.Account] = [propaccount.account_named(name) for name in DEFAULT_PRESETS]
+    accounts: list[propaccount.Account] = default_accounts()
 
     return pd.concat(
         [
@@ -412,6 +425,31 @@ def replayed(task: Task, logs: dict[str, dict[tuple[int, int], pd.DataFrame]]) -
             for stratum, by_key in sorted(logs.items())
         ],
         ignore_index=True,
+    )
+
+
+def prop_nulled(task: Task, run: Rerun) -> pd.DataFrame:
+    """Replay one sizing configuration and the shuffles ``null`` draws for it through the four pairs."""
+    row = task.held.iloc[run.position]
+    sweep_id, combo_id = log_key(row)
+    draws: pd.DataFrame = prop_draws(
+        run.data,
+        run.params,
+        get_instrument(task.root),
+        default_accounts(),
+        draws=task.draws,
+        seed=task.seed + combo_id,
+        archetype=archetypes.get(task.name),
+    )
+
+    return draws.assign(
+        **{STRATEGY: task.name},
+        root=task.root,
+        resolution=task.minutes,
+        variant=task.arm,
+        stratum=row["stratum"],
+        sweep_id=sweep_id,
+        combo_id=combo_id,
     )
 
 
@@ -544,6 +582,7 @@ def asked_of(
         "null": present if "null" in reads and counted else frozenset(),
         "gate4": present & gate4 if "gate4" in reads else frozenset(),
         "prop": present & prop if "prop" in reads else frozenset(),
+        PROP_NULL: present & prop if PROP_NULL in reads and counted else frozenset(),
     }
 
 
@@ -747,7 +786,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--strategies", nargs="+", default=None, help="default: every one the set covers")
     parser.add_argument("--roots", nargs="+", default=list(ROOTS))
     parser.add_argument("--resolutions", nargs="+", type=int, required=True)
-    parser.add_argument("--reads", nargs="+", choices=READS, default=list(READS))
+    parser.add_argument("--reads", nargs="+", choices=READS, default=list(DEFAULT_READS))
     parser.add_argument("--gate4-strata", nargs="+", default=[UNFILTERED])
     parser.add_argument("--prop-strata", nargs="+", default=[UNFILTERED])
     parser.add_argument("--cells", type=Path, default=None, help="a csv of further cells gate 4 is read on")

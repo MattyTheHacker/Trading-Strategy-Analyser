@@ -349,6 +349,13 @@ def timing(
     }
 
 
+def lifetime_figures(result: propaccount.PropReplay, log: pd.DataFrame) -> dict[str, object]:
+    """Return the contracts ``log`` put on per trade, and :data:`REPORTED`'s figures of its replay."""
+    lifetime: dict[str, str | float | int] = result.as_dict()
+
+    return {CONTRACTS: contracts_per_trade(log), **{field: lifetime[field] for field in REPORTED}}
+
+
 def replay_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     row: pd.Series,
     log: pd.DataFrame,
@@ -367,12 +374,10 @@ def replay_row(  # type: ignore[explicit-any]  # duckdb's dtypes
 
         return None
 
-    lifetime: dict[str, str | float | int] = result.as_dict()
     measured: dict[str, object] = {
         **labelled(row),
         "held_pf": float(row["profit_factor"]),
-        CONTRACTS: contracts_per_trade(log),
-        **{field: lifetime[field] for field in REPORTED},
+        **lifetime_figures(result, log),
         "ever_passed": result.passes > 0,
         "profitable": result.net > 0.0,
         "capped": result.attempts >= max_accounts,

@@ -22,6 +22,7 @@ import pandas as pd
 import pytest
 
 from nqbt import archetypes, context, propaccount, splice, stats
+from nqbt.instruments import MNQ
 from nqbt.sim.types import InsideBarParams, InsideBarTrailingParams
 from tests.test_campaign_sizing import sized, sized_insidebar
 from tests.test_campaign_sweep import a_cut
@@ -30,16 +31,20 @@ from tools import campaign_gates, campaign_holdout, campaign_paired, campaign_si
 from tools.campaign_exits import measure
 from tools.campaign_gates import (
     CELL,
+    DEFAULT_READS,
+    PROP_NULL,
     RERUN,
     Rerun,
     Task,
     arms_for,
     asked_of,
     controls,
+    default_accounts,
     extra_cells,
     gate4_for,
     gate_rows,
     paired_rows,
+    prop_nulled,
     recorded,
     refuse_clashes,
     remaining,
@@ -60,7 +65,7 @@ from tools.campaign_gates import (
 )
 from tools.campaign_holdout import JOIN_KEYS, held_out, pair_windows, verdict
 from tools.campaign_montecarlo import resample_row
-from tools.campaign_propaccount import DEFAULT_PRESETS, replay_shortlist
+from tools.campaign_propaccount import CONTRACTS, DEFAULT_PRESETS, replay_shortlist
 from tools.campaign_report import log_key
 from tools.campaign_shortlist import TOP, rerun_group
 from tools.campaign_sweep import (
@@ -206,6 +211,7 @@ def every_read_recorded() -> dict[str, frozenset[str]]:
         "null": frozenset(STRATA),
         "gate4": frozenset({UNFILTERED}),
         "prop": frozenset({UNFILTERED}),
+        PROP_NULL: frozenset({UNFILTERED}),
     }
 
 
@@ -427,6 +433,7 @@ def test_a_later_run_reads_only_the_cells_it_adds(tmp_path: Path) -> None:
         "null": frozenset(),
         "gate4": frozenset({MIDDAY}),
         "prop": frozenset(),
+        PROP_NULL: frozenset(),
         RERUN: frozenset(),
     }, "gate 4 read again unfiltered, or a re-run written twice"
     assert set(task.held["stratum"]) == {MIDDAY}
@@ -461,8 +468,17 @@ def test_each_read_is_asked_of_the_strata_an_arm_has_rows_in() -> None:
     asked = asked_of(
         frozenset({"null", "gate4"}), present, frozenset(STRATA), frozenset(STRATA), counted=False
     )
-    assert asked == {"null": frozenset(), "gate4": present, "prop": frozenset()}
+    assert asked == {"null": frozenset(), "gate4": present, "prop": frozenset(), PROP_NULL: frozenset()}
     assert asked_of(frozenset({"null"}), present, frozenset(), frozenset(), counted=True)["null"] == present
+
+
+def test_the_prop_null_is_asked_of_a_sized_arm_on_the_prop_strata_alone() -> None:
+    present = frozenset(STRATA)
+    prop = frozenset({MIDDAY})
+    reads = frozenset({PROP_NULL})
+    assert asked_of(reads, present, frozenset(), prop, counted=True)[PROP_NULL] == prop
+    assert asked_of(reads, present, frozenset(), prop, counted=False)[PROP_NULL] == frozenset()
+    assert asked_of(frozenset({"prop"}), present, frozenset(), prop, counted=True)[PROP_NULL] == frozenset()
 
 
 def test_a_table_replaces_the_strata_it_read_and_keeps_the_rest(tmp_path: Path) -> None:
@@ -733,6 +749,60 @@ def test_prop_replays_each_stratum_it_is_asked_for_through_its_own_logs(on_the_w
     table = replayed(a_task(rows), {UNFILTERED: logs, MIDDAY: logs})
     assert set(table["stratum"]) == set(STRATA)
     assert len(table) == 2 * 2 * len(DEFAULT_PRESETS)
+
+
+@pytest.mark.usefixtures("on_the_walk")
+def test_the_prop_nulls_own_draw_is_the_prop_replay_of_the_same_configuration() -> None:
+    rows = shortlisted_rows()
+    tables = run_task(a_task(rows, strata=reading("prop", PROP_NULL)))
+    draws = tables["prop_null"]
+    assert len(draws) == len(rows) * len(DEFAULT_PRESETS) * (1 + 3), "an own draw and three shuffles"
+    keys = ["sweep_id", "combo_id", "account_name"]
+    figures = ["attempts", "passes", "net", CONTRACTS]
+    own = draws[draws["draw"] == campaign_sizing.OBSERVED].sort_values(keys).reset_index(drop=True)
+    replays = tables["prop"].sort_values(keys).reset_index(drop=True)
+    pd.testing.assert_frame_equal(own[keys + figures], replays[keys + figures], check_dtype=False)
+    assert set(draws["stratum"]) == {UNFILTERED}
+    assert set(draws["variant"]) == {TOGETHER}
+    assert set(draws["strategy"]) == {NAME}, "two archetypes sharing an arm name could be pooled"
+
+
+@pytest.mark.usefixtures("on_the_walk")
+def test_the_prop_null_is_drawn_at_the_seed_the_null_uses() -> None:
+    rows = shortlisted_rows().iloc[:1]
+    task = a_task(rows, strata=reading(PROP_NULL), seed=5)
+    run = next(campaign_gates.reruns(task))
+    first = prop_nulled(task, run)
+    pd.testing.assert_frame_equal(first, prop_nulled(task, run))
+    assert first["combo_id"].eq(rows["combo_id"].iloc[0]).all()
+    shuffled = campaign_sizing.prop_draws(
+        run.data,
+        run.params,
+        MNQ,
+        default_accounts(),
+        draws=3,
+        seed=5 + int(rows["combo_id"].iloc[0]),
+    )
+    pd.testing.assert_frame_equal(first[shuffled.columns], shuffled)
+
+
+@pytest.mark.usefixtures("campaign", "in_threads")
+def test_the_prop_null_is_read_only_when_it_is_named(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    asked: dict[str, frozenset[str]] = {}
+
+    def stub(task: Task) -> dict[str, pd.DataFrame]:
+        asked[task.arm] = task.strata.get(PROP_NULL, frozenset())
+
+        return reproduced(task)
+
+    monkeypatch.setattr(campaign_gates, "run_task", stub)
+    assert PROP_NULL not in DEFAULT_READS
+    assert campaign_gates.main(argv_for(tmp_path / "default")) == 0
+    assert asked
+    assert not any(asked.values()), "the default run asked for the prop null"
+    asked.clear()
+    assert campaign_gates.main([*argv_for(tmp_path / "named"), "--reads", PROP_NULL]) == 0
+    assert asked == {TOGETHER: frozenset({UNFILTERED}), SYMMETRIC: frozenset({UNFILTERED})}
 
 
 def test_the_walk_forward_is_the_tools_own_on_the_selection_shortlist(on_the_walk: pd.DataFrame) -> None:

@@ -21,6 +21,7 @@ import json
 import logging
 import math
 import sys
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -35,6 +36,7 @@ from nqbt import (
     conditions,
     context,
     logsetup,
+    propaccount,
     regime,
     resample,
     splice,
@@ -66,6 +68,7 @@ from nqbt.trades import (
 )
 from tools.campaign_holdout import held_out
 from tools.campaign_null import stored_rows
+from tools.campaign_propaccount import CONTRACTS, lifetime_figures, uncapped
 from tools.campaign_report import log_key
 from tools.campaign_shortlist import TOP, rebuild
 from tools.campaign_sweep import (
@@ -83,6 +86,8 @@ from tools.campaign_sweep import (
 from tools.campaign_swept import HELD_OUT, bars_for, candidate_bars
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
     from nqbt.archetypes import ArchetypeParams
     from nqbt.arrays import BoolArray, FloatArray, IntArray
     from nqbt.instruments import Instrument
@@ -409,19 +414,26 @@ def log_cut(cut: SizingCut, report: dict[str, dict[str, float]]) -> None:
         logger.info("        %-26s %5.1f%% of traded entries early", rule, 100.0 * share)
 
 
-def placed(observed: dict[str, float], by: str, null: FloatArray) -> dict[str, float]:
-    """Return the observation against its null, with the trade count and shares a reading needs.
+def against(observed: float, null: FloatArray) -> dict[str, float]:
+    """Return an observation, its null's median, and the share of the null at least as high.
 
-    ``p`` is the share of shuffles at least as good, counting the observation itself, so it is
-    never zero -- the convention ``nqbt/randomentry.py`` reports its matched null in.
+    ``p`` counts the observation itself, so it is never zero -- the convention
+    ``nqbt/randomentry.py`` reports its matched null in. An undefined observation has no ``p``.
     """
-    median: float = float(np.median(null))
+    p: float = math.nan if math.isnan(observed) else (1 + int(np.sum(null >= observed))) / (1 + null.size)
+
+    return {"observed": observed, "null_median": float(np.median(null)), "p": p}
+
+
+def placed(observed: dict[str, float], by: str, null: FloatArray) -> dict[str, float]:
+    """Return the observation against its null, with the trade count and shares a reading needs."""
+    measured: dict[str, float] = against(observed[by], null)
 
     return {
-        "observed": observed[by],
-        "null_median": median,
-        "excess": observed[by] - median,
-        "p": (1 + int(np.sum(null >= observed[by]))) / (1 + null.size),
+        "observed": measured["observed"],
+        "null_median": measured["null_median"],
+        "excess": measured["observed"] - measured["null_median"],
+        "p": measured["p"],
         "trades": observed["trades"],
         "session_close_share": observed["session_close_share"],
         "ambiguous_share": observed["ambiguous_share"],
@@ -436,30 +448,29 @@ def permuted_sizing(sizing: bracket.Sizing, signal: BoolArray, rng: np.random.Ge
     return bracket.Sizing(sizing.quantities, rows)
 
 
-def resimulated_null(
+type Shuffled = tuple[trades.LegMatrix, Iterator[trades.LegMatrix]]
+"""A configuration's own legs, and its legs at each shuffle of its sizes, drawn as they are read."""
+
+
+def resimulated_legs(
     data: context.Dataset,
     params: InsideBarTrailingParams,
     instrument: Instrument,
     *,
-    by: str,
     draws: int,
     seed: int,
-) -> dict[str, float]:
-    """Compare InsideBarTrailing's ``by`` against its sizes shuffled across its signals, each re-run."""
+) -> Shuffled:
+    """Return InsideBarTrailing's legs, and its legs with its sizes shuffled across its signals, re-run."""
     direction_at: FloatArray = insidebar.insidebar_direction(data, params)
     signal: BoolArray = insidebar.insidebar_signal(data, params)
     sizing: bracket.Sizing = insidebartrailing.lot_sizing(data, params, direction_at)
 
-    def measured(lots: bracket.Sizing) -> dict[str, float]:
-        legs = insidebartrailing.insidebartrailing_legs(data, params, instrument, sizing=lots)
+    def legs_at(lots: bracket.Sizing) -> trades.LegMatrix:
+        return insidebartrailing.insidebartrailing_legs(data, params, instrument, sizing=lots)
 
-        return stats.summarise_legs(legs, data.day_codes).as_dict()
-
-    observed: dict[str, float] = measured(sizing)
     rng: np.random.Generator = np.random.default_rng(seed)
-    null: FloatArray = np.array([measured(permuted_sizing(sizing, signal, rng))[by] for _ in range(draws)])
 
-    return placed(observed, by, null)
+    return legs_at(sizing), (legs_at(permuted_sizing(sizing, signal, rng)) for _ in range(draws))
 
 
 def unsized(params: ArchetypeParams) -> ArchetypeParams:
@@ -515,17 +526,16 @@ def resized(
     return trades.LegMatrix(matrix, legs.count)
 
 
-def recomputed_null(
+def recomputed_legs(
     data: context.Dataset,
     params: ArchetypeParams,
     instrument: Instrument,
     archetype: archetypes.Archetype,
     *,
-    by: str,
     draws: int,
     seed: int,
-) -> dict[str, float]:
-    """Compare the configuration's own ``by`` against its sizes shuffled across the trades it took.
+) -> Shuffled:
+    """Return the configuration's legs, and its legs with its sizes shuffled across the trades it took.
 
     Each shuffle's money is recomputed rather than re-simulated. Refuses a configuration whose fixed
     size takes other trades, or whose sizes, recomputed, do not reproduce the simulation to the bit
@@ -554,11 +564,28 @@ def recomputed_null(
         raise RuntimeError(msg)
 
     rng: np.random.Generator = np.random.default_rng(seed)
-    null: FloatArray = np.array(
-        [stats.summarise_legs(at(rng.permutation(rows)), data.day_codes).as_dict()[by] for _ in range(draws)],
-    )
 
-    return placed(stats.summarise_legs(legs, data.day_codes).as_dict(), by, null)
+    return legs, (at(rng.permutation(rows)) for _ in range(draws))
+
+
+def shuffled_legs(
+    data: context.Dataset,
+    params: ArchetypeParams,
+    instrument: Instrument,
+    *,
+    draws: int,
+    seed: int,
+    archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING,
+) -> Shuffled:
+    """Return the configuration's legs and its shuffled sizes' legs, re-run where a size moves trades."""
+    if archetype.name != archetypes.INSIDEBARTRAILING.name:
+        return recomputed_legs(data, params, instrument, archetype, draws=draws, seed=seed)
+
+    if not isinstance(params, InsideBarTrailingParams):  # pragma: no cover - by construction
+        msg: str = f"rebuilt {type(params).__name__} for an InsideBarTrailing row"
+        raise TypeError(msg)
+
+    return resimulated_legs(data, params, instrument, draws=draws, seed=seed)
 
 
 def shuffled_null(
@@ -572,14 +599,134 @@ def shuffled_null(
     archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING,
 ) -> dict[str, float]:
     """Compare the configuration's ``by`` with its sizes shuffled, re-simulated where a size moves trades."""
-    if archetype.name != archetypes.INSIDEBARTRAILING.name:
-        return recomputed_null(data, params, instrument, archetype, by=by, draws=draws, seed=seed)
+    observed, shuffles = shuffled_legs(data, params, instrument, draws=draws, seed=seed, archetype=archetype)
+    null: FloatArray = np.array(
+        [stats.summarise_legs(legs, data.day_codes).as_dict()[by] for legs in shuffles],
+    )
 
-    if not isinstance(params, InsideBarTrailingParams):  # pragma: no cover - by construction
-        msg: str = f"rebuilt {type(params).__name__} for an InsideBarTrailing row"
-        raise TypeError(msg)
+    return placed(stats.summarise_legs(observed, data.day_codes).as_dict(), by, null)
 
-    return resimulated_null(data, params, instrument, by=by, draws=draws, seed=seed)
+
+OBSERVED = -1
+"""The ``draw`` a configuration's own replay is recorded under; its shuffles are numbered from 0."""
+
+
+def legs_log(legs: trades.LegMatrix, data: context.Dataset, instrument: Instrument) -> pd.DataFrame:
+    """Return ``legs`` as the trade log a prop replay reads, as ``sweep.run_combination`` writes it."""
+    frame: pd.DataFrame = trades.trades_to_frame(
+        legs.matrix, legs.count, data.index, instrument=instrument.symbol, source="sim"
+    )
+
+    return trades.validate(frame)
+
+
+def replayed_draw(log: pd.DataFrame, account: propaccount.Account) -> dict[str, object]:
+    """Replay one log through one rule set, as ``campaign_propaccount.py`` does by default."""
+    return lifetime_figures(propaccount.replay(log, account, max_accounts=uncapped(log)), log)
+
+
+def prop_draws(
+    data: context.Dataset,
+    params: ArchetypeParams,
+    instrument: Instrument,
+    accounts: Sequence[propaccount.Account],
+    *,
+    draws: int,
+    seed: int,
+    archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING,
+) -> pd.DataFrame:
+    """Replay the configuration's own log and each shuffle's through every rule set, one row each.
+
+    The shuffles are :func:`shuffled_null`'s at the same seed. Its own log is :data:`OBSERVED`.
+    """
+    observed, shuffles = shuffled_legs(data, params, instrument, draws=draws, seed=seed, archetype=archetype)
+    rows: list[dict[str, object]] = []
+    for draw, legs in enumerate(chain([observed], shuffles), start=OBSERVED):
+        log: pd.DataFrame = legs_log(legs, data, instrument)
+        rows.extend({"draw": draw, **replayed_draw(log, account)} for account in accounts)
+
+    return pd.DataFrame(rows)
+
+
+CONFIGURATION = ["sweep_id", "combo_id"]
+"""What names one stored configuration in a table of :func:`prop_draws` rows."""
+
+
+def pass_rates(draws: pd.DataFrame) -> FloatArray:
+    """Return each row's passes over its attempts, undefined where it made none."""
+    attempts: FloatArray = draws["attempts"].to_numpy(np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rates: FloatArray = np.where(attempts > 0, draws["passes"].to_numpy(np.float64) / attempts, np.nan)
+
+    return rates
+
+
+def placed_draws(block: pd.DataFrame) -> dict[str, float]:
+    """Place one block's pass rate, net and contracts per trade against its shuffles', one row per draw.
+
+    The block holds :data:`OBSERVED` once and every shuffle once.
+    """
+    own: pd.DataFrame = block[block["draw"] == OBSERVED]
+    null: pd.DataFrame = block[block["draw"] != OBSERVED]
+    if len(own) != 1 or null.empty:
+        msg: str = f"a block needs one observed row and at least one shuffle; got {len(own)} and {len(null)}"
+        raise ValueError(msg)
+
+    placed_on: dict[str, dict[str, float]] = {
+        "pass_rate": against(float(pass_rates(own)[0]), pass_rates(null)),
+        "net": against(float(own["net"].iloc[0]), null["net"].to_numpy(np.float64)),
+    }
+
+    return {
+        "draws": len(null),
+        **{
+            f"{name}_{field}": value
+            for name, figures in placed_on.items()
+            for field, value in figures.items()
+        },
+        CONTRACTS: float(own[CONTRACTS].iloc[0]),
+        f"{CONTRACTS}_null_median": float(null[CONTRACTS].median()),
+    }
+
+
+def prop_null_by_configuration(table: pd.DataFrame, cell: Sequence[str]) -> pd.DataFrame:
+    """Place every configuration's pass rate and net on each rule set against its own shuffles'."""
+    keys: list[str] = [*cell, *CONFIGURATION, "account_name"]
+
+    return pd.DataFrame(
+        [
+            {**dict(zip(keys, key, strict=True)), **placed_draws(block)}
+            for key, block in table.groupby(keys, sort=True)
+        ],
+    )
+
+
+def prop_null_pooled(table: pd.DataFrame, cell: Sequence[str]) -> pd.DataFrame:
+    """Place each cell's shortlist on each rule set against itself with every configuration shuffled.
+
+    Pooled as §M47.1's account table reads a shortlist: passes over attempts summed across its
+    configurations, and their median net.
+    """
+    keys: list[str] = [*cell, "account_name"]
+    per_draw: pd.DataFrame = (
+        table.groupby([*keys, "draw"], sort=True)
+        .agg(
+            passes=("passes", "sum"),
+            attempts=("attempts", "sum"),
+            net=("net", "median"),
+            **{
+                CONTRACTS: (CONTRACTS, "mean"),
+            },
+        )
+        .reset_index()
+    )
+
+    return pd.DataFrame(
+        [
+            {**dict(zip(keys, key, strict=True)), **placed_draws(block)}
+            for key, block in per_draw.groupby(keys, sort=True)
+        ],
+    )
 
 
 def null_for_shortlist(
