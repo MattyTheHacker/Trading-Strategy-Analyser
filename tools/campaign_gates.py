@@ -102,10 +102,10 @@ BY = "profit_factor"
 ARM_RULE = re.compile(r"^(?P<stem>.+) (?P<rule>[a-z_]+=\S+(?: symmetric| inverted)?)$")
 """An arm's name: the stored variant it re-emits, then the rule it runs, as the sizing arms are named."""
 
-CONTROLS = ("size=fixed", "split=0.5", "structure=off")
+CONTROLS = ("size=fixed", "split=0.5", "split=0.8", "structure=off", "structure_ends=off")
 """The rules an arm is read against, first found first: a fixed size, InsideBarTrailing's half
-split -- ``docs/findings/m45-ibt-sizing-preregistration.md`` -- or its runner trailing the
-high-water mark rather than structure."""
+split -- ``docs/findings/m45-ibt-sizing-preregistration.md`` -- or the 0.8 split its tiers above a
+half are read against, or its runner trailing the high-water mark rather than structure."""
 
 SYMMETRIC = " symmetric"
 INVERTED = " inverted"

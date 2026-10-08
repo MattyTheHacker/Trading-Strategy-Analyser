@@ -24,6 +24,7 @@ import pytest
 from nqbt import archetypes, context, propaccount, splice, stats
 from nqbt.sim.types import InsideBarParams, InsideBarTrailingParams
 from tests.test_campaign_sizing import sized, sized_insidebar
+from tests.test_campaign_sweep import a_cut
 from tests.test_insidebartrailing_sim import walk_bars
 from tools import campaign_gates, campaign_holdout, campaign_paired, campaign_sizing, campaign_swept
 from tools.campaign_exits import measure
@@ -62,7 +63,13 @@ from tools.campaign_montecarlo import resample_row
 from tools.campaign_propaccount import DEFAULT_PRESETS, replay_shortlist
 from tools.campaign_report import log_key
 from tools.campaign_shortlist import TOP, rerun_group
-from tools.campaign_sweep import Variant, insidebartrailing_structure_variants
+from tools.campaign_sweep import (
+    Variant,
+    insidebartrailing_structure_end_variants,
+    insidebartrailing_structure_variants,
+    insidebartrailing_variants,
+    sizing_high_arms,
+)
 from tools.campaign_walkforward import run_resolution
 
 if TYPE_CHECKING:
@@ -240,6 +247,27 @@ def test_every_structure_trail_arm_is_read_against_the_high_water_trail() -> Non
     arms = [variant.name for variant in insidebartrailing_structure_variants("MNQ")]
     assert arms[0] == "trailing structure=off"
     assert controls(arms) == [("trailing structure=off", arm) for arm in arms[1:]]
+
+
+def test_every_ladder_end_arm_is_read_against_its_own_high_water_trail() -> None:
+    arms = [variant.name for variant in insidebartrailing_structure_end_variants("MNQ")]
+    assert arms[0] == "trailing structure_ends=off"
+    assert controls(arms) == [("trailing structure_ends=off", arm) for arm in arms[1:]]
+
+
+def test_the_tiers_above_a_half_read_against_the_eight_tenths_split_and_their_inverses() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = [arm.name for arm in sizing_high_arms(campaign, a_cut())]
+    control = "trailing split=0.8"
+    tiers = [arm for arm in arms if " tier=" in arm and not arm.endswith(" inverted")]
+    assert len(tiers) == 3
+    assert sorted(controls(arms)) == sorted(
+        [
+            (control, "trailing split=0.6"),
+            *((control, tier) for tier in tiers),
+            *((f"{tier} inverted", tier) for tier in tiers),
+        ],
+    )
 
 
 def test_a_variant_name_holding_spaces_and_signs_splits_at_its_rule() -> None:

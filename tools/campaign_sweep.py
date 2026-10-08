@@ -183,6 +183,8 @@ EMAPULLBACK_TRAIL = "emapullback-trail"
 EMAPULLBACK_CONFIRM = "emapullback-confirm"
 IBT_SIZING = "ibt-sizing"
 IBT_STRUCTURE = "ibt-structure"
+IBT_STRUCTURE_ENDS = "ibt-structure-ends"
+IBT_SIZING_HIGH = "ibt-sizing-high"
 CONFLUENCE_SIZING = "confluence-sizing"
 MIDDAY = "midday"
 HOLD = "hold"
@@ -457,7 +459,9 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
     IBT_SIZING: (UNFILTERED, MIDDAY),
+    IBT_SIZING_HIGH: (UNFILTERED, MIDDAY),
     IBT_STRUCTURE: EVERY_DIMENSION,
+    IBT_STRUCTURE_ENDS: EVERY_DIMENSION,
     CONFLUENCE_SIZING: (UNFILTERED, REGIME, "phase", VOLUME_FORMS, "compression", "trend", "htf"),
     HOLD: (UNFILTERED,),
     EARLY_EXIT: (UNFILTERED,),
@@ -2030,6 +2034,19 @@ SIZING_TIERS: dict[str, int] = {
 }
 """The three earliness rules, each run as written and inverted -- the inverse is the placebo."""
 
+SIZING_HIGH_QUANTITIES = [5, 6, 8, 10]
+"""Contract counts the tiers above a half cross, floored at five: below it a 0.8 split leaves no runner."""
+
+SIZING_HIGH_EARLY_SHARE = 0.6
+SIZING_HIGH_ESTABLISHED_SHARE = 0.8
+"""The stored grid's two splits above a half, where §M45 parked its tiers."""
+
+SIZING_HIGH_SPLITS: dict[str, float] = {
+    "split=0.8": SIZING_HIGH_ESTABLISHED_SHARE,
+    "split=0.6": SIZING_HIGH_EARLY_SHARE,
+}
+"""The two fixed splits the tiers above a half are read against, the established share first."""
+
 SIZING_CONFLUENCE = "size=confluence"
 SIZING_STEP = 1
 """Contracts a confluence arm adds per favourable label: to each leg, or on InsideBarTrailing to the
@@ -2074,13 +2091,52 @@ def counted(labels: tuple[str, ...], **held: AxisValue | bool) -> dict[str, Axis
     return {**held, "quantity_per_confluence": SIZING_STEP, **dict.fromkeys(labels, True)}
 
 
-def sizing_axes(campaign: Variant) -> dict[str, list[AxisValue]]:
-    """Return InsideBarTrailing's stored grid with the split held and the quantity ladder crossed in."""
+def sizing_axes(campaign: Variant, quantities: list[int] | None = None) -> dict[str, list[AxisValue]]:
+    """Return InsideBarTrailing's stored grid with the split held and a quantity ladder crossed in.
+
+    The ladder is :data:`SIZING_QUANTITIES` unless ``quantities`` names another.
+    """
     held: dict[str, list[AxisValue]] = {
         axis: values for axis, values in campaign.axes.items() if axis != "partial_take_profit_percentage"
     }
 
-    return held | {"order_quantity": [*SIZING_QUANTITIES]}
+    return held | {"order_quantity": [*(SIZING_QUANTITIES if quantities is None else quantities)]}
+
+
+def require_earliness_cuts(cut: SizingCut) -> None:
+    """Refuse a cut without the earliness cuts a tier arm runs at."""
+    if cut.early_max_extension_atr is not None and cut.early_max_trend_bars is not None:
+        return
+
+    msg: str = (
+        f"the {cut.root} {cut.minutes}m InsideBarTrailing sizing cut holds no earliness cuts; move "
+        "its file aside and run tools/campaign_sizing.py fit --strategy InsideBarTrailing"
+    )
+    raise SystemExit(msg)
+
+
+def tier_arms(arm: Arm, early: float, established: float, label: str = "") -> list[Variant]:
+    """Build each earliness rule at ``early`` and ``established`` shares, its inverse beside it."""
+    arms: list[Variant] = []
+    for name, mode in SIZING_TIERS.items():
+        arms.append(
+            arm(
+                f"{name}{label}",
+                earliness_mode=mode,
+                early_partial_percentage=early,
+                partial_take_profit_percentage=established,
+            ),
+        )
+        arms.append(
+            arm(
+                f"{name}{label} inverted",
+                earliness_mode=mode,
+                early_partial_percentage=established,
+                partial_take_profit_percentage=early,
+            ),
+        )
+
+    return arms
 
 
 def sizing_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
@@ -2088,34 +2144,12 @@ def sizing_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
 
     Refuses a cut without the earliness cuts its tier arms run at.
     """
-    if cut.early_max_extension_atr is None or cut.early_max_trend_bars is None:
-        msg: str = (
-            f"the {cut.root} {cut.minutes}m InsideBarTrailing sizing cut holds no earliness cuts; move "
-            "its file aside and run tools/campaign_sizing.py fit --strategy InsideBarTrailing"
-        )
-        raise SystemExit(msg)
-
+    require_earliness_cuts(cut)
     arm: Arm = arm_factory(campaign, cut, sizing_axes(campaign))
     arms: list[Variant] = [
         arm(name, partial_take_profit_percentage=share) for name, share in SIZING_SPLITS.items()
     ]
-    for name, mode in SIZING_TIERS.items():
-        arms.append(
-            arm(
-                name,
-                earliness_mode=mode,
-                early_partial_percentage=SIZING_EARLY_SHARE,
-                partial_take_profit_percentage=SIZING_ESTABLISHED_SHARE,
-            ),
-        )
-        arms.append(
-            arm(
-                f"{name} inverted",
-                earliness_mode=mode,
-                early_partial_percentage=SIZING_ESTABLISHED_SHARE,
-                partial_take_profit_percentage=SIZING_EARLY_SHARE,
-            ),
-        )
+    arms.extend(tier_arms(arm, SIZING_EARLY_SHARE, SIZING_ESTABLISHED_SHARE))
 
     if not cut.labels:
         logger.warning(
@@ -2143,18 +2177,53 @@ IBT_SIZING_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailing_s
 stored row has, so the run cannot collide with the campaign in one database --
 ``docs/findings/m45-ibt-sizing-preregistration.md``."""
 
+
+def sizing_high_arms(campaign: Variant, cut: SizingCut) -> list[Variant]:
+    """Build §M45's splits and tiers again at the two shares above a half, on one root and resolution.
+
+    Refuses a cut without the earliness cuts its tier arms run at.
+    """
+    require_earliness_cuts(cut)
+    arm: Arm = arm_factory(campaign, cut, sizing_axes(campaign, SIZING_HIGH_QUANTITIES))
+    shares: str = f"@{SIZING_HIGH_EARLY_SHARE:g}/{SIZING_HIGH_ESTABLISHED_SHARE:g}"
+
+    return [
+        *(arm(name, partial_take_profit_percentage=share) for name, share in SIZING_HIGH_SPLITS.items()),
+        *tier_arms(arm, SIZING_HIGH_EARLY_SHARE, SIZING_HIGH_ESTABLISHED_SHARE, shares),
+    ]
+
+
+def insidebartrailing_sizing_high_variants(root: str) -> list[Variant]:
+    """Build the tiers above a half on InsideBarTrailing's stored grid, per fitted resolution."""
+    (campaign,) = insidebartrailing_variants(root)
+
+    return [arm for cut in sizing_cuts() if cut.root == root for arm in sizing_high_arms(campaign, cut)]
+
+
+IBT_SIZING_HIGH_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailing_sizing_high_variants}
+"""§M45's tiers at the stored grid's 0.6 and 0.8 rather than its quarter and half. The tier names
+carry the two shares, so no name collides with §M45's in one database --
+``docs/findings/m45-ibt-sizing-result.md`` § "What this settles, and what it does not"."""
+
 STRUCTURE_TRAIL_BARS = (2, 3, 5, 10, 20, 40)
 """How many completed bars make the box the runner's stop trails to."""
 
 STRUCTURE_TRAIL_CUSHIONS = (0.0, 0.25, 0.5, 1.0)
 """How far behind the box's midpoint the runner's stop sits, in ATRs."""
 
+STRUCTURE_TRAIL_WIDE_BARS = (1, *STRUCTURE_TRAIL_BARS, 80)
+STRUCTURE_TRAIL_WIDE_CUSHIONS = (*STRUCTURE_TRAIL_CUSHIONS, 1.5, 2.0)
+"""§M49's two ladders carried past each end, where its best rung sat at a different edge per bar size."""
 
-def structure_trail_arms() -> dict[str, dict[str, int | float]]:
+
+def structure_trail_arms(
+    boxes: tuple[int, ...] = STRUCTURE_TRAIL_BARS,
+    cushions: tuple[float, ...] = STRUCTURE_TRAIL_CUSHIONS,
+) -> dict[str, dict[str, int | float]]:
     """Return every structure-trail arm by name, each the fields it sets and ``off`` setting none."""
     arms: dict[str, dict[str, int | float]] = {"off": {}}
-    for bars in STRUCTURE_TRAIL_BARS:
-        for cushion in STRUCTURE_TRAIL_CUSHIONS:
+    for bars in boxes:
+        for cushion in cushions:
             arms[f"box{bars}@{cushion:g}atr"] = {
                 "structure_trail_bars": bars,
                 "structure_trail_cushion_atr": cushion,
@@ -2177,6 +2246,32 @@ IBT_STRUCTURE_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailin
 """The [#352] run: InsideBarTrailing's stored grid with the runner trailing the high-water mark and
 trailing to structure. Every name carries a ``structure=`` token no stored row has, so the run
 cannot collide with the campaign in one database."""
+
+
+def structure_trail_end_arms() -> dict[str, dict[str, int | float]]:
+    """Return the control and every structure-trail arm the wider ladders add to §M49's, by name."""
+    stored: dict[str, dict[str, int | float]] = structure_trail_arms()
+    wide: dict[str, dict[str, int | float]] = structure_trail_arms(
+        STRUCTURE_TRAIL_WIDE_BARS, STRUCTURE_TRAIL_WIDE_CUSHIONS
+    )
+
+    return {arm: fields for arm, fields in wide.items() if arm == "off" or arm not in stored}
+
+
+def insidebartrailing_structure_end_variants(root: str) -> list[Variant]:
+    """Build InsideBarTrailing's stored grid once per arm past §M49's ladder ends, axes unchanged."""
+    (campaign,) = insidebartrailing_variants(root)
+
+    return [
+        replace(campaign, name=f"{campaign.name} structure_ends={arm}", base=replace(campaign.base, **fields))
+        for arm, fields in structure_trail_end_arms().items()
+    ]
+
+
+IBT_STRUCTURE_ENDS_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailing_structure_end_variants}
+"""The arms §M49 left untested, with a control of their own so they pair on the bars they ran on.
+Every name carries a ``structure_ends=`` token that neither the stored rows nor §M49's carry --
+``docs/findings/m49-structure-trail-result.md`` § "What this does not settle"."""
 
 SIZE_FIXED = "size=fixed"
 """The control on every archetype but InsideBarTrailing, whose control is §M45's ``split=0.5``."""
@@ -2371,7 +2466,9 @@ VARIANT_SETS = {
     ELASTIC_VOLUME,
     HOLD,
     IBT_SIZING,
+    IBT_SIZING_HIGH,
     IBT_STRUCTURE,
+    IBT_STRUCTURE_ENDS,
     NARROW,
     ORB,
     ORB_BRACKET,
@@ -2401,7 +2498,9 @@ def variants_for(which: str) -> VariantBuilders:
         ELASTIC_VOLUME: ELASTIC_VOLUME_VARIANTS,
         HOLD: HOLD_VARIANTS,
         IBT_SIZING: IBT_SIZING_VARIANTS,
+        IBT_SIZING_HIGH: IBT_SIZING_HIGH_VARIANTS,
         IBT_STRUCTURE: IBT_STRUCTURE_VARIANTS,
+        IBT_STRUCTURE_ENDS: IBT_STRUCTURE_ENDS_VARIANTS,
         NARROW: NARROW_VARIANTS,
         ORB: ORB_VARIANTS,
         ORB_BRACKET: ORB_BRACKET_VARIANTS,
