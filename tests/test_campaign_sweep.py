@@ -358,6 +358,16 @@ def test_each_micro_is_costed_below_the_root_it_micros(micro: str, full_size: st
     assert COMMISSION[micro] < COMMISSION[full_size]
 
 
+def test_every_root_is_costed_at_the_index_figure_for_its_size() -> None:
+    """A micro carries MNQ's figure and a full-size root NQ's.
+
+    ``docs/roadmap.md`` § "Commission on the roots beyond NQ".
+    """
+    for root, commission in COMMISSION.items():
+        index_root: str = "NQ" if instruments.get_instrument(root).mini_equivalent == 1.0 else "MNQ"
+        assert commission == COMMISSION[index_root], root
+
+
 def test_the_crossover_variants_sweep_disjoint_stop_axes() -> None:
     """``dead_axes`` cannot see that a swing stop ignores ``atr_stop_multiple``.
 

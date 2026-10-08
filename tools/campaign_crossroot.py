@@ -38,6 +38,7 @@ COMMISSION: dict[str, float] = {
     "MES": 1.50,
     "GC": 4.50,
     "MGC": 1.50,
+    "SI": 4.50,
 }
 """Round-turn dollars per contract, matching ``tools/campaign_sweep.py``."""
 

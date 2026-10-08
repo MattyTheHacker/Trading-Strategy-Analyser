@@ -112,6 +112,7 @@ COMMISSION: dict[str, float] = {
     "ES": 4.50,
     "MGC": 1.50,
     "GC": 4.50,
+    "SI": 4.50,
 }
 """Round-turn dollars per contract, per root; never one figure for both sizes.
 
