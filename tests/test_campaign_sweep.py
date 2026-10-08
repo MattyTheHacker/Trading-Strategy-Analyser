@@ -1117,18 +1117,29 @@ def test_the_narrow_grid_contains_the_geometry_the_campaign_actually_ran() -> No
 
 
 def test_each_narrow_variant_runs_at_exactly_one_resolution() -> None:
-    """A ``Variant`` carries one base and the entry §M27 chose differs between the two bar sizes.
+    """A ``Variant`` carries one base and the entry differs between bar sizes.
 
     The resolutions are what separates them.
     """
     variants = NARROW_VARIANTS["InsideBar"]("MNQ")
-    assert [variant.resolutions for variant in variants] == [(5,), (10,)]
-    assert {minutes for variant in variants for minutes in variant.resolutions} == set(NARROW_ENTRY)
+    assert all(len(variant.resolutions) == 1 for variant in variants)
+    assert [minutes for variant in variants for minutes in variant.resolutions] == list(NARROW_ENTRY)
+
+
+def test_the_narrow_set_runs_at_every_resolution_the_campaign_split() -> None:
+    """One minute has no selection window to read an entry from -- §M44."""
+    assert set(NARROW_ENTRY) == set(RESOLUTIONS) - {1}
 
 
 def test_the_narrow_entry_is_held_at_a_value_and_never_swept() -> None:
     for variant in NARROW_VARIANTS["InsideBar"]("MNQ"):
         assert set(variant.axes).isdisjoint(NARROW_ENTRY[variant.resolutions[0]])
+
+
+def test_each_narrow_variant_runs_its_own_resolutions_entry() -> None:
+    for variant in NARROW_VARIANTS["InsideBar"]("MNQ"):
+        for field, value in NARROW_ENTRY[variant.resolutions[0]].items():
+            assert getattr(variant.base, field) == value
 
 
 def test_the_narrow_variants_carry_the_roots_real_costs() -> None:
